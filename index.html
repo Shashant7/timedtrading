@@ -1,32 +1,43 @@
 <!doctype html>
-<!-- UI_VERSION: 2026-01-02-1 -->
+<!-- UI_VERSION: 2026-01-02-full-1to6 -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Timed Trading — Bubble Quadrant</title>
-
-  <!-- Plotly -->
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
-
   <style>
-    :root { --bg:#0b1020; --card:#121a33; --text:#e7ecff; --muted:#93a4d6; --line:#26325f; }
+    :root { --bg:#0b1020; --card:#121a33; --text:#e7ecff; --muted:#93a4d6; --line:#26325f; --good:#2ecc71; --bad:#e74c3c; }
     body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header { padding:16px 18px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap;}
+    header { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
     .title { font-weight:800; letter-spacing:.2px; }
     .pill { background:var(--card); border:1px solid var(--line); border-radius:999px; padding:8px 12px; display:flex; gap:10px; align-items:center;}
     .pill label { font-size:12px; color:var(--muted); }
     select,input { background:#0f1630; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
     input[type="checkbox"] { transform: scale(1.1); }
-    main { padding:14px 18px; }
-    #chart { width:100%; height:78vh; border:1px solid var(--line); border-radius:16px; background:var(--card); }
-    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    .muted { color:var(--muted); font-size:12px; }
     .btn { cursor:pointer; background:#1a2550; border:1px solid var(--line); color:var(--text);
            border-radius:12px; padding:9px 12px; font-weight:700; }
     .btn:active { transform: translateY(1px); }
-    a { color: #a8b6ff; text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    .muted { color:var(--muted); font-size:12px; }
+    main { padding:14px 18px; }
+    .grid { display:grid; grid-template-columns: 1fr 360px; gap:12px; align-items:start; }
+    #chart { width:100%; height:78vh; border:1px solid var(--line); border-radius:16px; background:var(--card); }
+    .side { border:1px solid var(--line); border-radius:16px; background:var(--card); padding:12px; }
+    .side h3 { margin:8px 0 10px 0; font-size:14px; color:var(--text); }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; }
+    .tab { padding:6px 10px; border:1px solid var(--line); border-radius:999px; cursor:pointer; font-size:12px; color:var(--muted); }
+    .tab.active { color:var(--text); background:#0f1630; }
+    .list { margin-top:10px; display:flex; flex-direction:column; gap:8px; max-height:34vh; overflow:auto; }
+    .item { border:1px solid var(--line); border-radius:12px; padding:8px; cursor:pointer; }
+    .row { display:flex; justify-content:space-between; gap:8px; }
+    .k { color:var(--muted); font-size:12px; }
+    .v { font-size:12px; }
+    .badge { border:1px solid var(--line); border-radius:999px; padding:2px 8px; font-size:12px; color:var(--muted); }
+    .good { color: var(--good); }
+    .bad { color: var(--bad); }
+    .details { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; }
+    a { color:#a8b6ff; text-decoration:none; }
+    a:hover { text-decoration:underline; }
   </style>
 </head>
 
@@ -46,12 +57,12 @@
       <input id="search" placeholder="Ticker (e.g., SPY, MES1!)" />
     </div>
 
-    <div class="pill row">
+    <div class="pill">
       <label>Show</label>
-      <label class="muted"><input type="checkbox" id="q1" checked> Q1 Prep</label>
-      <label class="muted"><input type="checkbox" id="q2" checked> Q2 Bull</label>
-      <label class="muted"><input type="checkbox" id="q3" checked> Q3 Bear</label>
-      <label class="muted"><input type="checkbox" id="q4" checked> Q4 Pullback</label>
+      <label class="muted"><input type="checkbox" id="q1" checked> Q1</label>
+      <label class="muted"><input type="checkbox" id="q2" checked> Q2</label>
+      <label class="muted"><input type="checkbox" id="q3" checked> Q3</label>
+      <label class="muted"><input type="checkbox" id="q4" checked> Q4</label>
     </div>
 
     <div class="pill">
@@ -62,6 +73,28 @@
         <option value="0.60">60%</option>
         <option value="0.40">40%</option>
         <option value="0.25">25%</option>
+      </select>
+    </div>
+
+    <div class="pill">
+      <label>RR ≥</label>
+      <select id="rrMin">
+        <option value="0">Any</option>
+        <option value="1">1.0</option>
+        <option value="1.5" selected>1.5</option>
+        <option value="2">2.0</option>
+        <option value="3">3.0</option>
+      </select>
+    </div>
+
+    <div class="pill">
+      <label>Rank ≥</label>
+      <select id="rankMin">
+        <option value="0">Any</option>
+        <option value="50">50</option>
+        <option value="60">60</option>
+        <option value="70" selected>70</option>
+        <option value="80">80</option>
       </select>
     </div>
 
@@ -79,16 +112,32 @@
     <div class="muted" id="status"></div>
 
     <div class="muted" style="width:100%;">
-      Tip: click a bubble to open TradingView. Cyan border = squeeze release. Gold border = squeeze on.
+      Click bubble to open TradingView. Labels show ⚡ release / 🧨 squeeze. Trail appears on click.
     </div>
   </header>
 
   <main>
-    <div id="chart"></div>
+    <div class="grid">
+      <div id="chart"></div>
+
+      <div class="side">
+        <div class="tabs">
+          <div class="tab active" id="tabLong">Top Long (Q2)</div>
+          <div class="tab" id="tabShort">Top Short (Q3)</div>
+          <div class="tab" id="tabSetup">Top Setups (Q1/Q4)</div>
+        </div>
+
+        <div class="list" id="topList"></div>
+
+        <div class="details" id="details">
+          <h3>Selected</h3>
+          <div class="muted">Click a bubble or a list item.</div>
+        </div>
+      </div>
+    </div>
   </main>
 
 <script>
-  // Crash-proof global handler (so we never get "white page" again)
   window.addEventListener("error", (e) => {
     console.error(e);
     const msg = `[JS ERROR] ${e.message}\n${e.filename}:${e.lineno}:${e.colno}`;
@@ -103,22 +152,17 @@
   });
 
   const el = (id) => document.getElementById(id);
+  const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
   function on(id, evt, handler) {
     const node = el(id);
-    if (!node) {
-      console.warn(`Missing element #${id} (skipping listener)`);
-      return;
-    }
+    if (!node) return;
     node.addEventListener(evt, handler);
   }
-  const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
-  // --- CONFIG ---
-  const LABEL_SIZE_THRESHOLD = 28; // show ticker label if bubble size >= this (or squeeze release)
-  const STALE_WARN_MIN = 30;       // start fading after this many minutes
-  const STALE_MAX_MIN  = 240;      // very stale by this many minutes
-  const TV_OPEN_MODE   = "chart";  // "chart" or "search"
+  const LABEL_SIZE_THRESHOLD = 28;
+  const STALE_WARN_MIN = 30;
+  const STALE_MAX_MIN = 240;
 
   function quadrantFromState(s) {
     if (s === "HTF_BULL_LTF_PULLBACK") return "Q1";
@@ -130,7 +174,7 @@
 
   function bubbleSize(completion) {
     const c = (typeof completion === "number") ? completion : 0;
-    return 10 + c * 40; // 10..50
+    return 10 + c * 40;
   }
 
   function stalenessOpacity(tsMs) {
@@ -138,11 +182,10 @@
     const ageMin = (Date.now() - tsMs) / 60000;
     if (ageMin <= STALE_WARN_MIN) return 0.92;
     const t = clamp((ageMin - STALE_WARN_MIN) / Math.max(1, (STALE_MAX_MIN - STALE_WARN_MIN)), 0, 1);
-    return 0.92 - t * 0.74; // 0.92 -> 0.18
+    return 0.92 - t * 0.74;
   }
 
   function fmtNum(v, d=2) {
-    if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
     const n = Number(v);
     if (!Number.isFinite(n)) return "—";
     return n.toFixed(d);
@@ -151,55 +194,68 @@
   function fmtPct01(v) {
     const n = Number(v);
     if (!Number.isFinite(n)) return "—";
-    return `${Math.round(n * 100)}%`;
+    return `${Math.round(n*100)}%`;
+  }
+
+  function tvUrlForTicker(ticker) {
+    const q = encodeURIComponent(ticker);
+    return `https://www.tradingview.com/chart/?symbol=${q}`;
   }
 
   function hoverText(t, d) {
     const r = Array.isArray(d.reasons) ? d.reasons : [];
     const flags = d.flags || {};
-
-    // Optional fields (will show once Pine sends them)
-    const px  = d.price;
-    const sl  = d.sl;
-    const tp  = d.tp;
-    const eta = d.eta_days;
-    const trigPx = d.trigger_price;
-    const trigTs = d.trigger_ts;
-
     const ageMin = (Date.now() - (d.ts || Date.now())) / 60000;
-    const ageStr = (Number.isFinite(ageMin) ? `${ageMin.toFixed(1)}m` : "—");
 
     return [
       `<b>${t}</b>`,
       `State: ${d.state || ""} (${quadrantFromState(d.state)})`,
-      `HTF: ${fmtNum(d.htf_score, 2)}`,
-      `LTF: ${fmtNum(d.ltf_score, 2)}`,
-      `Completion: ${fmtPct01(d.completion)}`,
-      `Phase: ${fmtPct01(d.phase_pct)}`,
-      `Age: ${ageStr}`,
-      `Price: ${fmtNum(px, 2)}`,
-      `Trigger price: ${fmtNum(trigPx, 2)}`,
-      `Trigger time: ${trigTs ? new Date(Number(trigTs)).toLocaleString() : "—"}`,
-      `Stop (SL): ${fmtNum(sl, 2)}`,
-      `Target (TP): ${fmtNum(tp, 2)}`,
-      `ETA to completion: ${Number.isFinite(Number(eta)) ? `${Number(eta).toFixed(1)}d` : "—"}`,
-      `Flags: sq30_on=${!!flags.sq30_on}, sq30_release=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}`,
+      `Rank: ${d.rank ?? "—"} | RR: ${d.rr != null ? fmtNum(d.rr,2) : "—"}`,
+      `HTF: ${fmtNum(d.htf_score,2)} | LTF: ${fmtNum(d.ltf_score,2)}`,
+      `Completion: ${fmtPct01(d.completion)} | Phase: ${fmtPct01(d.phase_pct)}`,
+      `Age: ${Number.isFinite(ageMin) ? ageMin.toFixed(1)+"m" : "—"} | Staleness: ${d.staleness || "—"}`,
+      `Price: ${fmtNum(d.price,2)} | SL: ${fmtNum(d.sl,2)} | TP: ${fmtNum(d.tp,2)}`,
+      `ETA: ${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}`,
+      d.trigger_reason ? `Trigger: ${d.trigger_reason} (${d.trigger_dir||""})` : "",
+      `Flags: sq_on=${!!flags.sq30_on}, sq_rel=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}`,
       r.length ? `<br><b>Reasons</b><br>${r.map(x=>`• ${x}`).join("<br>")}` : ""
-    ].join("<br>");
+    ].filter(Boolean).join("<br>");
+  }
+
+  async function fetchJSON(url) {
+    const res = await fetch(url, { cache:"no-store" });
+    if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
+    return await res.json();
   }
 
   async function fetchAll() {
     const url = el("endpoint").value;
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(`API not ok`);
+    const json = await fetchJSON(url);
+    if (!json.ok) throw new Error("API not ok");
     return json.data || {};
+  }
+
+  async function fetchTop(bucket, n=10) {
+    const base = "https://timed-trading-ingest.shashant.workers.dev/timed/top";
+    const url = `${base}?bucket=${encodeURIComponent(bucket)}&n=${n}`;
+    const json = await fetchJSON(url);
+    if (!json.ok) throw new Error("top API not ok");
+    return json.data || [];
+  }
+
+  async function fetchTrail(ticker) {
+    const base = "https://timed-trading-ingest.shashant.workers.dev/timed/trail";
+    const url = `${base}?ticker=${encodeURIComponent(ticker)}`;
+    const json = await fetchJSON(url);
+    if (!json.ok) return [];
+    return json.trail || [];
   }
 
   function applyFilters(dataObj) {
     const search = el("search").value.trim().toUpperCase();
     const compMax = Number(el("compMax").value);
+    const rrMin = Number(el("rrMin").value);
+    const rankMin = Number(el("rankMin").value);
 
     const allow = new Set();
     if (el("q1").checked) allow.add("HTF_BULL_LTF_PULLBACK");
@@ -210,7 +266,7 @@
     const out = [];
     for (const [ticker, d] of Object.entries(dataObj)) {
       if (!d) continue;
-      const T = String(ticker || "").toUpperCase();
+      const T = String(ticker||"").toUpperCase();
 
       if (search && !T.includes(search)) continue;
       if (!allow.has(d.state)) continue;
@@ -218,26 +274,25 @@
       const c = (typeof d.completion === "number") ? d.completion : 0;
       if (c > compMax) continue;
 
+      const rr = (d.rr != null) ? Number(d.rr) : null;
+      if (rrMin > 0 && !(rr != null && rr >= rrMin)) continue;
+
+      const rk = Number(d.rank || 0);
+      if (rankMin > 0 && rk < rankMin) continue;
+
       out.push({ ticker: T, ...d });
     }
     return out;
   }
 
-  function tvUrlForTicker(ticker) {
-    const q = encodeURIComponent(ticker);
-    if (TV_OPEN_MODE === "chart") return `https://www.tradingview.com/chart/?symbol=${q}`;
-    return `https://www.tradingview.com/symbols/?query=${q}`;
-  }
-
   let clickHandlerBound = false;
+  let selectedTicker = null;
+  let trailTraceName = "trail";
 
-  function render(points) {
-    // Ensure Plotly exists
+  function render(points, trailPoints=null) {
     if (!window.Plotly) throw new Error("Plotly failed to load (CDN blocked).");
 
-    const x = [], y = [], hover = [], sizes = [], colors = [], opacities = [], labels = [];
-    const lineWidths = [], lineColors = [], custom = [];
-
+    const x=[], y=[], hover=[], sizes=[], colors=[], opacities=[], labels=[], lws=[], lcs=[], custom=[];
     for (const p of points) {
       const px = (typeof p.ltf_score === "number") ? p.ltf_score : 0;
       const py = (typeof p.htf_score === "number") ? p.htf_score : 0;
@@ -250,116 +305,202 @@
       const sqRel = !!flags.sq30_release;
       const sqOn  = !!flags.sq30_on;
 
-      // Stroke highlight rules
       const lw = sqRel ? 6 : (sqOn ? 4 : 1);
-      const lc = sqRel ? "rgba(0, 255, 255, 0.95)"
-               : (sqOn ? "rgba(255, 215, 0, 0.9)"
-               : "rgba(255,255,255,0.35)");
+      const lc = sqRel ? "rgba(0,255,255,0.95)" : (sqOn ? "rgba(255,215,0,0.95)" : "rgba(255,255,255,0.35)");
 
-      // Label upgrade
       const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
       const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
       const lbl = showLabel ? `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}` : "";
 
-      x.push(px);
-      y.push(py);
+      x.push(px); y.push(py);
       hover.push(hoverText(p.ticker, p));
-      sizes.push(size);
-      colors.push(phase);
-      opacities.push(alpha);
-      labels.push(lbl);
-      lineWidths.push(lw);
-      lineColors.push(lc);
-      custom.push({ ticker: p.ticker, tv: tvUrlForTicker(p.ticker) });
+      sizes.push(size); colors.push(phase); opacities.push(alpha);
+      labels.push(lbl); lws.push(lw); lcs.push(lc);
+      custom.push({ ticker:p.ticker, tv:tvUrlForTicker(p.ticker) });
     }
 
-    const trace = {
-      type: "scatter",
-      mode: "markers+text",
+    const traces = [{
+      type:"scatter",
+      mode:"markers+text",
       x, y,
       text: labels,
-      textposition: "top center",
-      textfont: { size: 12, color: "rgba(231,236,255,0.9)" },
-      hoverinfo: "text",
-      hovertext: hover,
-      customdata: custom,
-      marker: {
-        size: sizes,
-        color: colors,
-        colorscale: "Turbo",
-        cmin: 0, cmax: 1,
-        showscale: true,
-        colorbar: { title: "Phase %" },
-        opacity: opacities,
-        line: { width: lineWidths, color: lineColors }
+      textposition:"top center",
+      textfont:{ size:12, color:"rgba(231,236,255,0.9)" },
+      hoverinfo:"text",
+      hovertext:hover,
+      customdata:custom,
+      marker:{
+        size:sizes,
+        color:colors,
+        colorscale:"Turbo",
+        cmin:0, cmax:1,
+        showscale:true,
+        colorbar:{ title:"Phase %" },
+        opacity:opacities,
+        line:{ width:lws, color:lcs }
       }
-    };
+    }];
+
+    if (trailPoints && trailPoints.length) {
+      traces.push({
+        name: trailTraceName,
+        type:"scatter",
+        mode:"lines+markers",
+        x: trailPoints.map(p=>p.ltf_score ?? 0),
+        y: trailPoints.map(p=>p.htf_score ?? 0),
+        line:{ width:2, color:"rgba(180,200,255,0.5)" },
+        marker:{ size:6, color:"rgba(180,200,255,0.7)" },
+        hoverinfo:"skip"
+      });
+    }
 
     const layout = {
-      paper_bgcolor: "rgba(0,0,0,0)",
-      plot_bgcolor: "rgba(0,0,0,0)",
-      margin: { l: 55, r: 24, t: 20, b: 55 },
-      xaxis: { title: "LTF Score", range: [-50, 50], zeroline: true, zerolinecolor: "#9aa7d8", gridcolor:"#26325f" },
-      yaxis: { title: "HTF Score", range: [-50, 50], zeroline: true, zerolinecolor: "#9aa7d8", gridcolor:"#26325f" },
-      shapes: [
-        { type:"rect", xref:"x", yref:"y", x0:-50, x1:50, y0:-50, y1:50, line:{color:"#3a4aa0", width:1} }
-      ],
-      annotations: [
-        { x:-35, y: 42, xref:"x", yref:"y", text:"Q1: HTF Bull / LTF Bear (Prep)", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x: 35, y: 42, xref:"x", yref:"y", text:"Q2: Bull Aligned (Go)", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x:-35, y:-45, xref:"x", yref:"y", text:"Q3: Bear Aligned (Go)", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x: 35, y:-45, xref:"x", yref:"y", text:"Q4: HTF Bear / LTF Bull (Pullback)", showarrow:false, font:{color:"#93a4d6", size:12} }
+      paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)",
+      margin:{ l:55, r:24, t:20, b:55 },
+      xaxis:{ title:"LTF Score", range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
+      yaxis:{ title:"HTF Score", range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
+      annotations:[
+        { x:-35, y: 42, xref:"x", yref:"y", text:"Q1 Prep", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x: 35, y: 42, xref:"x", yref:"y", text:"Q2 Bull", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x:-35, y:-45, xref:"x", yref:"y", text:"Q3 Bear", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x: 35, y:-45, xref:"x", yref:"y", text:"Q4 Pullback", showarrow:false, font:{color:"#93a4d6", size:12} }
       ]
     };
 
-    Plotly.react("chart", [trace], layout, { responsive: true, displayModeBar: true });
+    Plotly.react("chart", traces, layout, { responsive:true, displayModeBar:true });
 
     if (!clickHandlerBound) {
-      const chartDiv = document.getElementById("chart");
-      chartDiv.on("plotly_click", (evt) => {
+      el("chart").on("plotly_click", (evt) => {
         const p = evt?.points?.[0];
         const cd = p?.customdata;
-        if (!cd?.tv) return;
+        if (!cd?.ticker) return;
+        // open TV in new tab
         window.open(cd.tv, "_blank", "noopener,noreferrer");
+        // also select for trail/details
+        selectTicker(cd.ticker);
       });
       clickHandlerBound = true;
     }
   }
 
-  let refreshTimer = null;
+  function setActiveTab(which) {
+    ["tabLong","tabShort","tabSetup"].forEach(id => el(id).classList.remove("active"));
+    el(which).classList.add("active");
+  }
 
-  async function refresh() {
+  function renderList(items) {
+    const list = el("topList");
+    list.innerHTML = "";
+    items.forEach(d => {
+      const t = d.ticker || d.symbol || d.contract || "—";
+      const rr = (d.rr != null) ? Number(d.rr).toFixed(2) : "—";
+      const comp = d.completion != null ? Math.round(Number(d.completion)*100) + "%" : "—";
+      const ph = d.phase_pct != null ? Math.round(Number(d.phase_pct)*100) + "%" : "—";
+      const sq = d.flags?.sq30_release ? "⚡" : (d.flags?.sq30_on ? "🧨" : "");
+      const div = document.createElement("div");
+      div.className = "item";
+      div.innerHTML = `
+        <div class="row">
+          <div><b>${t}</b> ${sq} <span class="badge">Rank ${d.rank ?? "—"}</span></div>
+          <div class="badge">RR ${rr}</div>
+        </div>
+        <div class="row" style="margin-top:6px;">
+          <div class="k">State</div><div class="v">${d.state||"—"}</div>
+        </div>
+        <div class="row">
+          <div class="k">Comp</div><div class="v">${comp}</div>
+          <div class="k">Phase</div><div class="v">${ph}</div>
+        </div>
+      `;
+      div.addEventListener("click", () => selectTicker(String(t).toUpperCase()));
+      list.appendChild(div);
+    });
+  }
+
+  async function selectTicker(ticker) {
+    selectedTicker = ticker;
+    const details = el("details");
+    details.innerHTML = `<h3>Selected</h3><div class="muted">Loading ${ticker}…</div>`;
+
+    const latest = await fetchJSON(`https://timed-trading-ingest.shashant.workers.dev/timed/latest?ticker=${encodeURIComponent(ticker)}`);
+    const d = latest.data || null;
+    const trail = await fetchTrail(ticker);
+
+    if (!d) {
+      details.innerHTML = `<h3>Selected</h3><div class="muted">No data for ${ticker}</div>`;
+      return;
+    }
+
+    details.innerHTML = `
+      <h3>${ticker}</h3>
+      <div class="row"><span class="badge">Rank ${d.rank ?? "—"}</span> <span class="badge">RR ${d.rr != null ? Number(d.rr).toFixed(2) : "—"}</span></div>
+      <div class="details">
+        <div class="row"><div class="k">State</div><div class="v">${d.state||"—"}</div></div>
+        <div class="row"><div class="k">HTF/LTF</div><div class="v">${fmtNum(d.htf_score,2)} / ${fmtNum(d.ltf_score,2)}</div></div>
+        <div class="row"><div class="k">Price</div><div class="v">${fmtNum(d.price,2)}</div></div>
+        <div class="row"><div class="k">SL / TP</div><div class="v">${fmtNum(d.sl,2)} / ${fmtNum(d.tp,2)}</div></div>
+        <div class="row"><div class="k">Completion / Phase</div><div class="v">${fmtPct01(d.completion)} / ${fmtPct01(d.phase_pct)}</div></div>
+        <div class="row"><div class="k">ETA</div><div class="v">${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}</div></div>
+        <div class="row"><div class="k">Trigger</div><div class="v">${d.trigger_reason||"—"} ${d.trigger_dir?`(${d.trigger_dir})`:""}</div></div>
+        <div class="row"><div class="k">Open TV</div><div class="v"><a href="${tvUrlForTicker(ticker)}" target="_blank" rel="noopener noreferrer">TradingView</a></div></div>
+      </div>
+    `;
+
+    // re-render chart with trail overlay
+    // We need current full dataset to preserve bubbles; simplest: call refresh() which will include trail
+    await refresh(trail);
+  }
+
+  let currentTab = "long";
+  let refreshTimer = null;
+  let lastDataObj = null;
+
+  async function refresh(trailOverride=null) {
     const s = el("status");
     try {
       if (s) s.textContent = "Loading…";
       const dataObj = await fetchAll();
+      lastDataObj = dataObj;
       const points = applyFilters(dataObj);
-      render(points);
+
+      const trail = trailOverride ? trailOverride : (selectedTicker ? await fetchTrail(selectedTicker) : null);
+      render(points, trail);
+
+      // Side lists
+      const top = await fetchTop(currentTab, 10);
+      renderList(top);
+
       if (s) s.textContent = `Loaded ${points.length} tickers • ${new Date().toLocaleTimeString()}`;
     } catch (e) {
       console.error(e);
       if (s) s.textContent = `Error: ${e.message}`;
-      // also show on-page if status exists
     }
   }
 
   function resetAutoRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = null;
-    const node = el("refreshSec");
-    const sec = node ? Number(node.value) : 30; // default 30s if missing
-    if (sec > 0) refreshTimer = setInterval(refresh, sec * 1000);
+    const sec = Number(el("refreshSec").value);
+    if (sec > 0) refreshTimer = setInterval(() => refresh(), sec * 1000);
   }
 
-  // Wire UI events
-  ["search","q1","q2","q3","q4","compMax"].forEach(id => on(id, "input", refresh));
-  on("refreshBtn", "click", refresh);
-  on("refreshSec", "change", () => { resetAutoRefresh(); refresh(); });
+  on("refreshBtn","click", ()=> refresh());
+  on("refreshSec","change", ()=> { resetAutoRefresh(); refresh(); });
 
-  // Boot
+  ["search","q1","q2","q3","q4","compMax","rrMin","rankMin"].forEach(id => on(id,"input", ()=> refresh()));
+
+  on("tabLong","click", ()=>{ currentTab="long"; setActiveTab("tabLong"); refresh(); });
+  on("tabShort","click",()=>{ currentTab="short"; setActiveTab("tabShort"); refresh(); });
+  on("tabSetup","click",()=>{ currentTab="setup"; setActiveTab("tabSetup"); refresh(); });
+
+  function setActiveTab(which) {
+    ["tabLong","tabShort","tabSetup"].forEach(id => el(id).classList.remove("active"));
+    el(which).classList.add("active");
+  }
+
   resetAutoRefresh();
   refresh();
 </script>
-
 </body>
 </html>
