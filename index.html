@@ -1,6 +1,15 @@
 <script>
   const el = (id) => document.getElementById(id);
 
+  function on(id, evt, handler) {
+    const node = el(id);
+    if (!node) {
+      console.warn(`Missing element #${id} (skipping listener)`);
+      return;
+    }
+    node.addEventListener(evt, handler);
+  }
+
   // --- CONFIG ---
   const LABEL_SIZE_THRESHOLD = 28; // px marker size threshold to show ticker labels
   const STALE_WARN_MIN = 30;       // start fading after this many minutes
@@ -248,9 +257,9 @@
     if (sec > 0) refreshTimer = setInterval(refresh, sec * 1000);
   }
 
-  ["search","q1","q2","q3","q4","compMax"].forEach(id => el(id).addEventListener("input", refresh));
-  el("refreshBtn").addEventListener("click", refresh);
-  el("refreshSec").addEventListener("change", () => { resetAutoRefresh(); refresh(); });
+  ["search","q1","q2","q3","q4","compMax"].forEach(id => on(id, "input", refresh));
+  on("refreshBtn", "click", refresh);
+  on("refreshSec", "change", () => { resetAutoRefresh(); refresh(); });
 
   resetAutoRefresh();
   refresh();
