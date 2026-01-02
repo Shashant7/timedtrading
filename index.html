@@ -251,14 +251,15 @@
       const sqOn  = !!flags.sq30_on;
 
       // Stroke highlight rules
-      const lw = sqRel ? 3 : (sqOn ? 2 : 1);
+      const lw = sqRel ? 6 : (sqOn ? 4 : 1);
       const lc = sqRel ? "rgba(0, 255, 255, 0.95)"
                : (sqOn ? "rgba(255, 215, 0, 0.9)"
                : "rgba(255,255,255,0.35)");
 
       // Label upgrade
       const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
-      const lbl = showLabel ? p.ticker : "";
+      const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
+      const lbl = showLabel ? `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}` : "";
 
       x.push(px);
       y.push(py);
