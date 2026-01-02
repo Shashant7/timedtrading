@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- UI_VERSION: 2026-01-02-1 -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -102,6 +103,15 @@
   });
 
   const el = (id) => document.getElementById(id);
+
+  function on(id, evt, handler) {
+    const node = el(id);
+    if (!node) {
+      console.warn(`Missing element #${id} (skipping listener)`);
+      return;
+    }
+    node.addEventListener(evt, handler);
+  }
   const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
   // --- CONFIG ---
@@ -335,14 +345,15 @@
   function resetAutoRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = null;
-    const sec = Number(el("refreshSec").value);
+    const node = el("refreshSec");
+    const sec = node ? Number(node.value) : 30; // default 30s if missing
     if (sec > 0) refreshTimer = setInterval(refresh, sec * 1000);
   }
 
   // Wire UI events
-  ["search","q1","q2","q3","q4","compMax"].forEach(id => el(id).addEventListener("input", refresh));
-  el("refreshBtn").addEventListener("click", refresh);
-  el("refreshSec").addEventListener("change", () => { resetAutoRefresh(); refresh(); });
+  ["search","q1","q2","q3","q4","compMax"].forEach(id => on(id, "input", refresh));
+  on("refreshBtn", "click", refresh);
+  on("refreshSec", "change", () => { resetAutoRefresh(); refresh(); });
 
   // Boot
   resetAutoRefresh();
