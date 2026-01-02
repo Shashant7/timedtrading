@@ -1,17 +1,111 @@
-<script>
-  const el = (id) => document.getElementById(id);
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Timed Trading — Bubble Quadrant</title>
 
-  function on(id, evt, handler) {
-    const node = el(id);
-    if (!node) {
-      console.warn(`Missing element #${id} (skipping listener)`);
-      return;
-    }
-    node.addEventListener(evt, handler);
-  }
+  <!-- Plotly -->
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+
+  <style>
+    :root { --bg:#0b1020; --card:#121a33; --text:#e7ecff; --muted:#93a4d6; --line:#26325f; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
+    header { padding:16px 18px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap;}
+    .title { font-weight:800; letter-spacing:.2px; }
+    .pill { background:var(--card); border:1px solid var(--line); border-radius:999px; padding:8px 12px; display:flex; gap:10px; align-items:center;}
+    .pill label { font-size:12px; color:var(--muted); }
+    select,input { background:#0f1630; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
+    input[type="checkbox"] { transform: scale(1.1); }
+    main { padding:14px 18px; }
+    #chart { width:100%; height:78vh; border:1px solid var(--line); border-radius:16px; background:var(--card); }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .muted { color:var(--muted); font-size:12px; }
+    .btn { cursor:pointer; background:#1a2550; border:1px solid var(--line); color:var(--text);
+           border-radius:12px; padding:9px 12px; font-weight:700; }
+    .btn:active { transform: translateY(1px); }
+    a { color: #a8b6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="title">Timed Trading — Bubble Quadrant</div>
+
+    <div class="pill">
+      <label>Data</label>
+      <select id="endpoint">
+        <option value="https://timed-trading-ingest.shashant.workers.dev/timed/all">/timed/all</option>
+      </select>
+    </div>
+
+    <div class="pill">
+      <label>Search</label>
+      <input id="search" placeholder="Ticker (e.g., SPY, MES1!)" />
+    </div>
+
+    <div class="pill row">
+      <label>Show</label>
+      <label class="muted"><input type="checkbox" id="q1" checked> Q1 Prep</label>
+      <label class="muted"><input type="checkbox" id="q2" checked> Q2 Bull</label>
+      <label class="muted"><input type="checkbox" id="q3" checked> Q3 Bear</label>
+      <label class="muted"><input type="checkbox" id="q4" checked> Q4 Pullback</label>
+    </div>
+
+    <div class="pill">
+      <label>Completion ≤</label>
+      <select id="compMax">
+        <option value="1.01">100%</option>
+        <option value="0.80">80%</option>
+        <option value="0.60">60%</option>
+        <option value="0.40">40%</option>
+        <option value="0.25">25%</option>
+      </select>
+    </div>
+
+    <div class="pill">
+      <label>Auto-refresh</label>
+      <select id="refreshSec">
+        <option value="0">Off</option>
+        <option value="15">15s</option>
+        <option value="30" selected>30s</option>
+        <option value="60">60s</option>
+      </select>
+    </div>
+
+    <button class="btn" id="refreshBtn">Refresh</button>
+    <div class="muted" id="status"></div>
+
+    <div class="muted" style="width:100%;">
+      Tip: click a bubble to open TradingView. Cyan border = squeeze release. Gold border = squeeze on.
+    </div>
+  </header>
+
+  <main>
+    <div id="chart"></div>
+  </main>
+
+<script>
+  // Crash-proof global handler (so we never get "white page" again)
+  window.addEventListener("error", (e) => {
+    console.error(e);
+    const msg = `[JS ERROR] ${e.message}\n${e.filename}:${e.lineno}:${e.colno}`;
+    const pre = document.createElement("pre");
+    pre.style.padding = "16px";
+    pre.style.whiteSpace = "pre-wrap";
+    pre.style.color = "#fff";
+    pre.style.background = "#111";
+    pre.textContent = msg;
+    document.body.innerHTML = "";
+    document.body.appendChild(pre);
+  });
+
+  const el = (id) => document.getElementById(id);
+  const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
   // --- CONFIG ---
-  const LABEL_SIZE_THRESHOLD = 28; // px marker size threshold to show ticker labels
+  const LABEL_SIZE_THRESHOLD = 28; // show ticker label if bubble size >= this (or squeeze release)
   const STALE_WARN_MIN = 30;       // start fading after this many minutes
   const STALE_MAX_MIN  = 240;      // very stale by this many minutes
   const TV_OPEN_MODE   = "chart";  // "chart" or "search"
@@ -29,13 +123,10 @@
     return 10 + c * 40; // 10..50
   }
 
-  function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
-
   function stalenessOpacity(tsMs) {
     if (!tsMs || typeof tsMs !== "number") return 0.65;
     const ageMin = (Date.now() - tsMs) / 60000;
     if (ageMin <= STALE_WARN_MIN) return 0.92;
-    // fade from 0.92 down to 0.18 as it approaches STALE_MAX_MIN
     const t = clamp((ageMin - STALE_WARN_MIN) / Math.max(1, (STALE_MAX_MIN - STALE_WARN_MIN)), 0, 1);
     return 0.92 - t * 0.74; // 0.92 -> 0.18
   }
@@ -43,24 +134,27 @@
   function fmtNum(v, d=2) {
     if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
     const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
     return n.toFixed(d);
   }
 
   function fmtPct01(v) {
     const n = Number(v);
     if (!Number.isFinite(n)) return "—";
-    return `${Math.round(n*100)}%`;
+    return `${Math.round(n * 100)}%`;
   }
 
   function hoverText(t, d) {
     const r = Array.isArray(d.reasons) ? d.reasons : [];
     const flags = d.flags || {};
 
-    // Optional fields (will show once you add them to Pine payload)
+    // Optional fields (will show once Pine sends them)
     const px  = d.price;
     const sl  = d.sl;
     const tp  = d.tp;
     const eta = d.eta_days;
+    const trigPx = d.trigger_price;
+    const trigTs = d.trigger_ts;
 
     const ageMin = (Date.now() - (d.ts || Date.now())) / 60000;
     const ageStr = (Number.isFinite(ageMin) ? `${ageMin.toFixed(1)}m` : "—");
@@ -74,6 +168,8 @@
       `Phase: ${fmtPct01(d.phase_pct)}`,
       `Age: ${ageStr}`,
       `Price: ${fmtNum(px, 2)}`,
+      `Trigger price: ${fmtNum(trigPx, 2)}`,
+      `Trigger time: ${trigTs ? new Date(Number(trigTs)).toLocaleString() : "—"}`,
       `Stop (SL): ${fmtNum(sl, 2)}`,
       `Target (TP): ${fmtNum(tp, 2)}`,
       `ETA to completion: ${Number.isFinite(Number(eta)) ? `${Number(eta).toFixed(1)}d` : "—"}`,
@@ -118,28 +214,19 @@
   }
 
   function tvUrlForTicker(ticker) {
-    // If your tickers are missing exchange prefixes, "chart" may not always resolve.
-    // Fallback to symbol search which always works.
     const q = encodeURIComponent(ticker);
-    if (TV_OPEN_MODE === "chart") {
-      return `https://www.tradingview.com/chart/?symbol=${q}`;
-    }
+    if (TV_OPEN_MODE === "chart") return `https://www.tradingview.com/chart/?symbol=${q}`;
     return `https://www.tradingview.com/symbols/?query=${q}`;
   }
 
   let clickHandlerBound = false;
 
   function render(points) {
-    const x = [];
-    const y = [];
-    const hover = [];
-    const sizes = [];
-    const colors = [];
-    const opacities = [];
-    const labels = [];
-    const lineWidths = [];
-    const lineColors = [];
-    const custom = [];
+    // Ensure Plotly exists
+    if (!window.Plotly) throw new Error("Plotly failed to load (CDN blocked).");
+
+    const x = [], y = [], hover = [], sizes = [], colors = [], opacities = [], labels = [];
+    const lineWidths = [], lineColors = [], custom = [];
 
     for (const p of points) {
       const px = (typeof p.ltf_score === "number") ? p.ltf_score : 0;
@@ -153,17 +240,13 @@
       const sqRel = !!flags.sq30_release;
       const sqOn  = !!flags.sq30_on;
 
-      // Highlight stroke:
-      // - Squeeze RELEASE: bright cyan, thicker
-      // - Squeeze ON: yellow-ish, medium
-      // - Otherwise: subtle white
+      // Stroke highlight rules
       const lw = sqRel ? 3 : (sqOn ? 2 : 1);
       const lc = sqRel ? "rgba(0, 255, 255, 0.95)"
                : (sqOn ? "rgba(255, 215, 0, 0.9)"
                : "rgba(255,255,255,0.35)");
 
-      // Label upgrade:
-      // Show ticker text if bubble is big OR squeeze release fired
+      // Label upgrade
       const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
       const lbl = showLabel ? p.ticker : "";
 
@@ -176,8 +259,6 @@
       labels.push(lbl);
       lineWidths.push(lw);
       lineColors.push(lc);
-
-      // customdata used for click → TradingView
       custom.push({ ticker: p.ticker, tv: tvUrlForTicker(p.ticker) });
     }
 
@@ -222,7 +303,6 @@
 
     Plotly.react("chart", [trace], layout, { responsive: true, displayModeBar: true });
 
-    // Click → TradingView (bind once)
     if (!clickHandlerBound) {
       const chartDiv = document.getElementById("chart");
       chartDiv.on("plotly_click", (evt) => {
@@ -238,15 +318,17 @@
   let refreshTimer = null;
 
   async function refresh() {
+    const s = el("status");
     try {
-      el("status").textContent = "Loading…";
+      if (s) s.textContent = "Loading…";
       const dataObj = await fetchAll();
       const points = applyFilters(dataObj);
       render(points);
-      el("status").textContent = `Loaded ${points.length} tickers • ${new Date().toLocaleTimeString()}`;
+      if (s) s.textContent = `Loaded ${points.length} tickers • ${new Date().toLocaleTimeString()}`;
     } catch (e) {
-      el("status").textContent = `Error: ${e.message}`;
       console.error(e);
+      if (s) s.textContent = `Error: ${e.message}`;
+      // also show on-page if status exists
     }
   }
 
@@ -257,10 +339,15 @@
     if (sec > 0) refreshTimer = setInterval(refresh, sec * 1000);
   }
 
-  ["search","q1","q2","q3","q4","compMax"].forEach(id => on(id, "input", refresh));
-  on("refreshBtn", "click", refresh);
-  on("refreshSec", "change", () => { resetAutoRefresh(); refresh(); });
+  // Wire UI events
+  ["search","q1","q2","q3","q4","compMax"].forEach(id => el(id).addEventListener("input", refresh));
+  el("refreshBtn").addEventListener("click", refresh);
+  el("refreshSec").addEventListener("change", () => { resetAutoRefresh(); refresh(); });
 
+  // Boot
   resetAutoRefresh();
   refresh();
 </script>
+
+</body>
+</html>
