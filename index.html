@@ -1,0 +1,257 @@
+<script>
+  const el = (id) => document.getElementById(id);
+
+  // --- CONFIG ---
+  const LABEL_SIZE_THRESHOLD = 28; // px marker size threshold to show ticker labels
+  const STALE_WARN_MIN = 30;       // start fading after this many minutes
+  const STALE_MAX_MIN  = 240;      // very stale by this many minutes
+  const TV_OPEN_MODE   = "chart";  // "chart" or "search"
+
+  function quadrantFromState(s) {
+    if (s === "HTF_BULL_LTF_PULLBACK") return "Q1";
+    if (s === "HTF_BULL_LTF_BULL") return "Q2";
+    if (s === "HTF_BEAR_LTF_BEAR") return "Q3";
+    if (s === "HTF_BEAR_LTF_PULLBACK") return "Q4";
+    return "Q?";
+  }
+
+  function bubbleSize(completion) {
+    const c = (typeof completion === "number") ? completion : 0;
+    return 10 + c * 40; // 10..50
+  }
+
+  function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+
+  function stalenessOpacity(tsMs) {
+    if (!tsMs || typeof tsMs !== "number") return 0.65;
+    const ageMin = (Date.now() - tsMs) / 60000;
+    if (ageMin <= STALE_WARN_MIN) return 0.92;
+    // fade from 0.92 down to 0.18 as it approaches STALE_MAX_MIN
+    const t = clamp((ageMin - STALE_WARN_MIN) / Math.max(1, (STALE_MAX_MIN - STALE_WARN_MIN)), 0, 1);
+    return 0.92 - t * 0.74; // 0.92 -> 0.18
+  }
+
+  function fmtNum(v, d=2) {
+    if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+    const n = Number(v);
+    return n.toFixed(d);
+  }
+
+  function fmtPct01(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return `${Math.round(n*100)}%`;
+  }
+
+  function hoverText(t, d) {
+    const r = Array.isArray(d.reasons) ? d.reasons : [];
+    const flags = d.flags || {};
+
+    // Optional fields (will show once you add them to Pine payload)
+    const px  = d.price;
+    const sl  = d.sl;
+    const tp  = d.tp;
+    const eta = d.eta_days;
+
+    const ageMin = (Date.now() - (d.ts || Date.now())) / 60000;
+    const ageStr = (Number.isFinite(ageMin) ? `${ageMin.toFixed(1)}m` : "—");
+
+    return [
+      `<b>${t}</b>`,
+      `State: ${d.state || ""} (${quadrantFromState(d.state)})`,
+      `HTF: ${fmtNum(d.htf_score, 2)}`,
+      `LTF: ${fmtNum(d.ltf_score, 2)}`,
+      `Completion: ${fmtPct01(d.completion)}`,
+      `Phase: ${fmtPct01(d.phase_pct)}`,
+      `Age: ${ageStr}`,
+      `Price: ${fmtNum(px, 2)}`,
+      `Stop (SL): ${fmtNum(sl, 2)}`,
+      `Target (TP): ${fmtNum(tp, 2)}`,
+      `ETA to completion: ${Number.isFinite(Number(eta)) ? `${Number(eta).toFixed(1)}d` : "—"}`,
+      `Flags: sq30_on=${!!flags.sq30_on}, sq30_release=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}`,
+      r.length ? `<br><b>Reasons</b><br>${r.map(x=>`• ${x}`).join("<br>")}` : ""
+    ].join("<br>");
+  }
+
+  async function fetchAll() {
+    const url = el("endpoint").value;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(`API not ok`);
+    return json.data || {};
+  }
+
+  function applyFilters(dataObj) {
+    const search = el("search").value.trim().toUpperCase();
+    const compMax = Number(el("compMax").value);
+
+    const allow = new Set();
+    if (el("q1").checked) allow.add("HTF_BULL_LTF_PULLBACK");
+    if (el("q2").checked) allow.add("HTF_BULL_LTF_BULL");
+    if (el("q3").checked) allow.add("HTF_BEAR_LTF_BEAR");
+    if (el("q4").checked) allow.add("HTF_BEAR_LTF_PULLBACK");
+
+    const out = [];
+    for (const [ticker, d] of Object.entries(dataObj)) {
+      if (!d) continue;
+      const T = String(ticker || "").toUpperCase();
+
+      if (search && !T.includes(search)) continue;
+      if (!allow.has(d.state)) continue;
+
+      const c = (typeof d.completion === "number") ? d.completion : 0;
+      if (c > compMax) continue;
+
+      out.push({ ticker: T, ...d });
+    }
+    return out;
+  }
+
+  function tvUrlForTicker(ticker) {
+    // If your tickers are missing exchange prefixes, "chart" may not always resolve.
+    // Fallback to symbol search which always works.
+    const q = encodeURIComponent(ticker);
+    if (TV_OPEN_MODE === "chart") {
+      return `https://www.tradingview.com/chart/?symbol=${q}`;
+    }
+    return `https://www.tradingview.com/symbols/?query=${q}`;
+  }
+
+  let clickHandlerBound = false;
+
+  function render(points) {
+    const x = [];
+    const y = [];
+    const hover = [];
+    const sizes = [];
+    const colors = [];
+    const opacities = [];
+    const labels = [];
+    const lineWidths = [];
+    const lineColors = [];
+    const custom = [];
+
+    for (const p of points) {
+      const px = (typeof p.ltf_score === "number") ? p.ltf_score : 0;
+      const py = (typeof p.htf_score === "number") ? p.htf_score : 0;
+
+      const size = bubbleSize(p.completion);
+      const phase = (typeof p.phase_pct === "number") ? p.phase_pct : 0;
+      const alpha = stalenessOpacity(p.ts);
+
+      const flags = p.flags || {};
+      const sqRel = !!flags.sq30_release;
+      const sqOn  = !!flags.sq30_on;
+
+      // Highlight stroke:
+      // - Squeeze RELEASE: bright cyan, thicker
+      // - Squeeze ON: yellow-ish, medium
+      // - Otherwise: subtle white
+      const lw = sqRel ? 3 : (sqOn ? 2 : 1);
+      const lc = sqRel ? "rgba(0, 255, 255, 0.95)"
+               : (sqOn ? "rgba(255, 215, 0, 0.9)"
+               : "rgba(255,255,255,0.35)");
+
+      // Label upgrade:
+      // Show ticker text if bubble is big OR squeeze release fired
+      const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
+      const lbl = showLabel ? p.ticker : "";
+
+      x.push(px);
+      y.push(py);
+      hover.push(hoverText(p.ticker, p));
+      sizes.push(size);
+      colors.push(phase);
+      opacities.push(alpha);
+      labels.push(lbl);
+      lineWidths.push(lw);
+      lineColors.push(lc);
+
+      // customdata used for click → TradingView
+      custom.push({ ticker: p.ticker, tv: tvUrlForTicker(p.ticker) });
+    }
+
+    const trace = {
+      type: "scatter",
+      mode: "markers+text",
+      x, y,
+      text: labels,
+      textposition: "top center",
+      textfont: { size: 12, color: "rgba(231,236,255,0.9)" },
+      hoverinfo: "text",
+      hovertext: hover,
+      customdata: custom,
+      marker: {
+        size: sizes,
+        color: colors,
+        colorscale: "Turbo",
+        cmin: 0, cmax: 1,
+        showscale: true,
+        colorbar: { title: "Phase %" },
+        opacity: opacities,
+        line: { width: lineWidths, color: lineColors }
+      }
+    };
+
+    const layout = {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      margin: { l: 55, r: 24, t: 20, b: 55 },
+      xaxis: { title: "LTF Score", range: [-50, 50], zeroline: true, zerolinecolor: "#9aa7d8", gridcolor:"#26325f" },
+      yaxis: { title: "HTF Score", range: [-50, 50], zeroline: true, zerolinecolor: "#9aa7d8", gridcolor:"#26325f" },
+      shapes: [
+        { type:"rect", xref:"x", yref:"y", x0:-50, x1:50, y0:-50, y1:50, line:{color:"#3a4aa0", width:1} }
+      ],
+      annotations: [
+        { x:-35, y: 42, xref:"x", yref:"y", text:"Q1: HTF Bull / LTF Bear (Prep)", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x: 35, y: 42, xref:"x", yref:"y", text:"Q2: Bull Aligned (Go)", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x:-35, y:-45, xref:"x", yref:"y", text:"Q3: Bear Aligned (Go)", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x: 35, y:-45, xref:"x", yref:"y", text:"Q4: HTF Bear / LTF Bull (Pullback)", showarrow:false, font:{color:"#93a4d6", size:12} }
+      ]
+    };
+
+    Plotly.react("chart", [trace], layout, { responsive: true, displayModeBar: true });
+
+    // Click → TradingView (bind once)
+    if (!clickHandlerBound) {
+      const chartDiv = document.getElementById("chart");
+      chartDiv.on("plotly_click", (evt) => {
+        const p = evt?.points?.[0];
+        const cd = p?.customdata;
+        if (!cd?.tv) return;
+        window.open(cd.tv, "_blank", "noopener,noreferrer");
+      });
+      clickHandlerBound = true;
+    }
+  }
+
+  let refreshTimer = null;
+
+  async function refresh() {
+    try {
+      el("status").textContent = "Loading…";
+      const dataObj = await fetchAll();
+      const points = applyFilters(dataObj);
+      render(points);
+      el("status").textContent = `Loaded ${points.length} tickers • ${new Date().toLocaleTimeString()}`;
+    } catch (e) {
+      el("status").textContent = `Error: ${e.message}`;
+      console.error(e);
+    }
+  }
+
+  function resetAutoRefresh() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = null;
+    const sec = Number(el("refreshSec").value);
+    if (sec > 0) refreshTimer = setInterval(refresh, sec * 1000);
+  }
+
+  ["search","q1","q2","q3","q4","compMax"].forEach(id => el(id).addEventListener("input", refresh));
+  el("refreshBtn").addEventListener("click", refresh);
+  el("refreshSec").addEventListener("change", () => { resetAutoRefresh(); refresh(); });
+
+  resetAutoRefresh();
+  refresh();
+</script>
