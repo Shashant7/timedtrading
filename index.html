@@ -1019,7 +1019,6 @@
   on("tabLong","click", ()=>{ currentTab="long"; setActiveTab("tabLong"); scheduleRefresh(); });
   on("tabShort","click",()=>{ currentTab="short"; setActiveTab("tabShort"); scheduleRefresh(); });
   on("tabSetup","click",()=>{ currentTab="setup"; setActiveTab("tabSetup"); scheduleRefresh(); });
-
   // If tab is hidden, stop flashing to save CPU/battery
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopFlashLoop();
