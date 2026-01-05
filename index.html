@@ -494,14 +494,47 @@
 
     // Selected trail (strong)
     if (selectedTrail && selectedTrail.length >= 2) {
+      const tx = selectedTrail.map(p => swap ? (p.htf_score ?? 0) : (p.ltf_score ?? 0));
+      const ty = selectedTrail.map(p => swap ? (p.ltf_score ?? 0) : (p.htf_score ?? 0));
+      const n = tx.length;
+    
+      // Gradient sizes + opacities (oldest -> newest)
+      const sizes = Array.from({length:n}, (_,i) => 5 + (i/(n-1))*8); // 5..13
+      const alphas = Array.from({length:n}, (_,i) => 0.25 + (i/(n-1))*0.75); // 0.25..1.0
+      const colors = alphas.map(a => `rgba(180,200,255,${a.toFixed(3)})`);
+    
+      // Symbols: oldest hollow circle, newest star, middle dots
+      const symbols = Array.from({length:n}, (_,i) =>
+        i === 0 ? "circle-open" : (i === n-1 ? "star" : "circle")
+      );
+    
+      // 1) line (no markers)
       traces.push({
-        name:"selected_trail",
+        name:"selected_trail_line",
         type:"scatter",
-        mode:"lines+markers",
-        x: selectedTrail.map(p => swap ? (p.htf_score ?? 0) : (p.ltf_score ?? 0)),
-        y: selectedTrail.map(p => swap ? (p.ltf_score ?? 0) : (p.htf_score ?? 0)),
-        line:{ width:3, color:"rgba(180,200,255,0.85)" },
-        marker:{ size:7, color:"rgba(180,200,255,0.85)" },
+        mode:"lines",
+        x: tx, y: ty,
+        line:{ width:3, color:"rgba(180,200,255,0.65)" },
+        hoverinfo:"skip",
+        showlegend:false
+      });
+    
+      // 2) points (gradient + start/end markers)
+      traces.push({
+        name:"selected_trail_pts",
+        type:"scatter",
+        mode:"markers+text",
+        x: tx, y: ty,
+        // Optional numeric labels (uncomment if you want 1..N):
+        // text: selectedTrail.map((_,i)=> String(i+1)),
+        // textposition: "bottom center",
+        // textfont: { size: 11, color: "rgba(180,200,255,0.9)" },
+        marker:{
+          size: sizes,
+          color: colors,
+          symbol: symbols,
+          line: { width: 1, color: "rgba(255,255,255,0.45)" }
+        },
         hoverinfo:"skip",
         showlegend:false
       });
