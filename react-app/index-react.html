@@ -686,12 +686,15 @@
                 </defs>
                 <rect width="100%" height="100%" fill="url(#grid)" />
                 
-                {/* Axes - Much more visible */}
-                <line x1={offsetX} y1={offsetY} x2={offsetX} y2={offsetY + plotHeight} stroke="#e7ecff" strokeWidth="3" opacity="0.9" />
+                {/* Axes - Much more visible - Both center lines same style */}
+                {/* Vertical center line (x=0) */}
+                <line x1={offsetX + 50 * scaleX} y1={offsetY} x2={offsetX + 50 * scaleX} y2={offsetY + plotHeight} stroke="#e7ecff" strokeWidth="3" opacity="0.9" />
+                <line x1={offsetX + 50 * scaleX} y1={offsetY} x2={offsetX + 50 * scaleX} y2={offsetY + plotHeight} stroke="#ffffff" strokeWidth="1" opacity="0.5" />
+                {/* Horizontal center line (y=0) */}
                 <line x1={offsetX} y1={offsetY + plotHeight / 2} x2={offsetX + plotWidth} y2={offsetY + plotHeight / 2} stroke="#e7ecff" strokeWidth="3" opacity="0.9" />
-                {/* Additional highlight for center lines */}
-                <line x1={offsetX} y1={offsetY} x2={offsetX} y2={offsetY + plotHeight} stroke="#ffffff" strokeWidth="1" opacity="0.5" />
                 <line x1={offsetX} y1={offsetY + plotHeight / 2} x2={offsetX + plotWidth} y2={offsetY + plotHeight / 2} stroke="#ffffff" strokeWidth="1" opacity="0.5" />
+                {/* Vertical axis line (y-axis) */}
+                <line x1={offsetX} y1={offsetY} x2={offsetX} y2={offsetY + plotHeight} stroke="#93a4d6" strokeWidth="2" opacity="0.6" />
                 
                 {/* Axis labels */}
                 <text x={offsetX - 30} y={offsetY + plotHeight / 2} fill="#93a4d6" textAnchor="middle" fontSize="13" fontWeight="600">HTF Score</text>
@@ -922,7 +925,7 @@
 
         return (
           <div
-            className={`p-4 rounded-lg border cursor-pointer transition-all ${
+            className={`p-3 rounded-lg border cursor-pointer transition-all ${
               isSelected
                 ? "border-blue-500 bg-blue-500/10 shadow-lg"
                 : prime
@@ -932,37 +935,52 @@
             onClick={onClick}
           >
             {/* Header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg">{ticker.ticker}</span>
-                {prime && <span className="text-green-500 text-lg">⭐</span>}
-                {flags.sq30_release && <span className="text-cyan-400">⚡</span>}
-                {flags.sq30_on && <span className="text-yellow-400">🧨</span>}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-base">{ticker.ticker}</span>
+                {prime && <span className="text-green-500 text-sm">⭐</span>}
+                {flags.sq30_release && <span className="text-cyan-400 text-sm">⚡</span>}
+                {flags.sq30_on && <span className="text-yellow-400 text-sm">🧨</span>}
               </div>
-              <div className={`px-3 py-1 rounded font-bold text-sm ${dir.bg} ${dir.color}`}>
+              <div className={`px-2 py-0.5 rounded font-bold text-xs ${dir.bg} ${dir.color}`}>
                 {dir.text}
               </div>
             </div>
 
             {/* Why */}
-            <div className="mb-3">
-              <div className="text-xs text-[#93a4d6] mb-1">Why</div>
-              <div className="text-sm font-semibold text-white">{why}</div>
+            <div className="mb-2">
+              <div className="text-[10px] text-[#93a4d6] mb-0.5">Why</div>
+              <div className="text-xs font-semibold text-white leading-tight">{why}</div>
             </div>
+
+            {/* Action Description */}
+            {(() => {
+              const actionInfo = getActionDescription(ticker);
+              return (
+                <div className={`mb-2 p-1.5 rounded border ${actionInfo.bg} border-current/20`}>
+                  <div className={`text-[10px] font-bold mb-0.5 ${actionInfo.color}`}>
+                    {actionInfo.action}
+                  </div>
+                  <div className="text-[9px] text-[#93a4d6] leading-tight">
+                    {actionInfo.description}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Trigger Info */}
             {ticker.trigger_price && (
-              <div className="grid grid-cols-2 gap-3 mb-3 text-sm">
+              <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
                 <div>
-                  <div className="text-xs text-[#93a4d6] mb-1">Trigger Price</div>
-                  <div className="font-semibold text-white">
+                  <div className="text-[10px] text-[#93a4d6] mb-0.5">Trigger Price</div>
+                  <div className="font-semibold text-white text-xs">
                     ${Number(ticker.trigger_price).toFixed(2)}
                   </div>
                 </div>
                 {ticker.trigger_ts && (
                   <div>
-                    <div className="text-xs text-[#93a4d6] mb-1">Trigger Date/Time</div>
-                    <div className="font-semibold text-white text-xs">
+                    <div className="text-[10px] text-[#93a4d6] mb-0.5">Trigger Date/Time</div>
+                    <div className="font-semibold text-white text-[10px] leading-tight">
                       {triggerDT.date}<br/>{triggerDT.time}
                     </div>
                   </div>
@@ -971,16 +989,16 @@
             )}
 
             {/* SL and TP */}
-            <div className="grid grid-cols-2 gap-3 mb-3 text-sm">
+            <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
               <div>
-                <div className="text-xs text-[#93a4d6] mb-1">Stop Loss (SL)</div>
-                <div className="font-semibold text-red-400">
+                <div className="text-[10px] text-[#93a4d6] mb-0.5">Stop Loss (SL)</div>
+                <div className="font-semibold text-red-400 text-xs">
                   {ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-[#93a4d6] mb-1">Take Profit (TP)</div>
-                <div className="font-semibold text-green-400">
+                <div className="text-[10px] text-[#93a4d6] mb-0.5">Take Profit (TP)</div>
+                <div className="font-semibold text-green-400 text-xs">
                   {ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}
                 </div>
               </div>
@@ -988,20 +1006,20 @@
 
             {/* TP Levels */}
             {tpLevels.length > 1 && (
-              <div className="mb-3">
-                <div className="text-xs text-[#93a4d6] mb-1">TP Levels</div>
-                <div className="flex flex-wrap gap-2">
-                  {tpLevels.slice(0, 3).map((tp, idx) => (
+              <div className="mb-2">
+                <div className="text-[10px] text-[#93a4d6] mb-0.5">TP Levels</div>
+                <div className="flex flex-wrap gap-1">
+                  {tpLevels.slice(0, 2).map((tp, idx) => (
                     <span
                       key={idx}
-                      className="px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-mono"
+                      className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[9px] font-mono"
                     >
                       TP{idx + 1}: ${Number(tp).toFixed(2)}
                     </span>
                   ))}
-                  {tpLevels.length > 3 && (
-                    <span className="px-2 py-1 rounded bg-[#26325f] text-[#93a4d6] text-xs">
-                      +{tpLevels.length - 3} more
+                  {tpLevels.length > 2 && (
+                    <span className="px-1.5 py-0.5 rounded bg-[#26325f] text-[#93a4d6] text-[9px]">
+                      +{tpLevels.length - 2}
                     </span>
                   )}
                 </div>
@@ -1009,7 +1027,7 @@
             )}
 
             {/* Phase and Completion */}
-            <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="grid grid-cols-2 gap-2 mb-2">
               <div>
                 <div className="text-xs text-[#93a4d6] mb-1">Phase</div>
                 <div className="h-2 bg-[#26325f] rounded-full overflow-hidden">
@@ -1041,20 +1059,20 @@
             </div>
 
             {/* Additional Info */}
-            <div className="flex items-center justify-between text-xs pt-2 border-t border-[#26325f]/50">
-              <div className="flex gap-2">
-                <span className="px-2 py-1 rounded bg-[#26325f]">
+            <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-[#26325f]/50">
+              <div className="flex gap-1">
+                <span className="px-1.5 py-0.5 rounded bg-[#26325f]">
                   Rank: {ticker.rank || "—"}
                 </span>
                 {ticker.rr && (
-                  <span className="px-2 py-1 rounded bg-[#26325f]">
+                  <span className="px-1.5 py-0.5 rounded bg-[#26325f]">
                     RR: {Number(ticker.rr).toFixed(2)}
                   </span>
                 )}
               </div>
               {ent.corridor && (
-                <span className={`px-2 py-1 rounded text-xs font-semibold ${dir.bg} ${dir.color}`}>
-                  {ent.side} Corridor
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${dir.bg} ${dir.color}`}>
+                  {ent.side}
                 </span>
               )}
             </div>
@@ -1062,77 +1080,100 @@
         );
       }
 
-      function TickerItem({ ticker, isSelected, onClick }) {
-        const prime = isPrimeBubble(ticker);
+      // Generate plain English action description
+      function getActionDescription(ticker) {
+        const state = String(ticker.state || "");
+        const phase = Number(ticker.phase_pct) || 0;
+        const comp = completionForSize(ticker);
         const flags = ticker.flags || {};
         const ent = entryType(ticker);
-        const phase = Number(ticker.phase_pct) || 0;
-        const phaseColor = phaseToColor(phase);
-
-        return (
-          <div
-            className={`p-3 rounded-lg border cursor-pointer transition-all mb-2 fade-in ${
-              isSelected
-                ? "border-blue-500 bg-blue-500/10 shadow-lg"
-                : prime
-                ? "border-green-500 bg-green-500/10 prime-glow"
-                : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0]"
-            }`}
-            onClick={onClick}
-            style={{
-              transform: isSelected ? "scale(1.02)" : "scale(1)",
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-base">{ticker.ticker}</span>
-                {prime && <span className="text-green-500 text-lg">⭐</span>}
-                {flags.sq30_release && (
-                  <span className="text-cyan-400 text-base">⚡</span>
-                )}
-                {flags.sq30_on && <span className="text-yellow-400 text-base">🧨</span>}
-              </div>
-              <div className="flex gap-2">
-                <span className="px-2 py-1 rounded text-xs bg-[#26325f] font-semibold">
-                  Rank {ticker.rank || "—"}
-                </span>
-                <span className="px-2 py-1 rounded text-xs bg-[#26325f] font-semibold">
-                  RR {ticker.rr ? Number(ticker.rr).toFixed(2) : "—"}
-                </span>
-              </div>
-            </div>
-            <div className="mt-2 flex items-center gap-2 text-xs">
-              <span className="text-[#93a4d6]">
-                {ticker.state} • {Math.round(completionForSize(ticker) * 100)}% complete
-              </span>
-              {ent.corridor && (
-                <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-[10px] font-semibold">
-                  {ent.side} CORRIDOR
-                </span>
-              )}
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <span className="text-[10px] text-[#93a4d6]">Phase:</span>
-              <div className="flex-1 h-2 bg-[#26325f] rounded-full overflow-hidden">
-                <div 
-                  className="h-full rounded-full transition-all duration-300"
-                  style={{ 
-                    width: `${phase * 100}%`,
-                    backgroundColor: phaseColor
-                  }}
-                />
-              </div>
-              <span className="text-[10px] text-[#93a4d6] min-w-[35px] text-right">
-                {Math.round(phase * 100)}%
-              </span>
-              {ticker.phase_zone && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#26325f] text-[#93a4d6]">
-                  {ticker.phase_zone}
-                </span>
-              )}
-            </div>
-          </div>
-        );
+        const rank = Number(ticker.rank || 0);
+        const rr = Number(ticker.rr || 0);
+        
+        const isAligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+        const isPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+        const isPrime = isPrimeBubble(ticker);
+        const inCorridor = ent.corridor;
+        const sqRelease = !!flags.sq30_release;
+        const sqOn = !!flags.sq30_on;
+        
+        // High completion = near target, consider exit/trim
+        if (comp > 0.8) {
+          return {
+            action: "Prepare for Exit",
+            description: "Position is near completion target. Consider taking profits or trimming position.",
+            color: "text-yellow-400",
+            bg: "bg-yellow-500/20"
+          };
+        }
+        
+        // High phase = late in cycle, be cautious
+        if (phase > 0.7) {
+          return {
+            action: "Wait / Trim",
+            description: "Phase is advanced. Wait for better entry or trim existing position.",
+            color: "text-orange-400",
+            bg: "bg-orange-500/20"
+          };
+        }
+        
+        // Prime setup with good conditions = initiate
+        if (isPrime && inCorridor && rank >= 75 && rr >= 1.5) {
+          return {
+            action: "Initiate Position",
+            description: "Prime setup detected. Both timeframes aligned, in corridor, with strong rank and risk/reward. Consider entering position.",
+            color: "text-green-400",
+            bg: "bg-green-500/20"
+          };
+        }
+        
+        // Squeeze release in corridor = strong signal
+        if (sqRelease && inCorridor && isAligned) {
+          return {
+            action: "Initiate Position",
+            description: "Squeeze release detected with alignment. Strong momentum signal. Consider entering position.",
+            color: "text-green-400",
+            bg: "bg-green-500/20"
+          };
+        }
+        
+        // In corridor and aligned = good setup
+        if (inCorridor && isAligned && comp < 0.5 && phase < 0.6) {
+          return {
+            action: "Consider Entry",
+            description: "Setup is in corridor with both timeframes aligned. Early phase with room to run. Monitor for entry opportunity.",
+            color: "text-blue-400",
+            bg: "bg-blue-500/20"
+          };
+        }
+        
+        // Pullback setup = wait for confirmation
+        if (isPullback && !inCorridor) {
+          return {
+            action: "Wait for Entry",
+            description: "Pullback detected but not yet in corridor. Wait for price to enter corridor before considering entry.",
+            color: "text-cyan-400",
+            bg: "bg-cyan-500/20"
+          };
+        }
+        
+        // Squeeze on but not released = building pressure
+        if (sqOn && !sqRelease) {
+          return {
+            action: "Monitor Closely",
+            description: "Squeeze building but not yet released. Monitor for squeeze release signal before entering.",
+            color: "text-yellow-400",
+            bg: "bg-yellow-500/20"
+          };
+        }
+        
+        // Default: wait
+        return {
+          action: "Wait",
+          description: "Setup not yet optimal. Wait for better conditions or confirmation signals.",
+          color: "text-[#93a4d6]",
+          bg: "bg-[#26325f]"
+        };
       }
 
       function QuickFilters({ filters, onFilterChange }) {
@@ -1224,9 +1265,21 @@
         const flags = ticker.flags || {};
         const phase = Number(ticker.phase_pct) || 0;
         const phaseColor = phaseToColor(phase);
+        const actionInfo = getActionDescription(ticker);
 
         return (
-          <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4 slide-in">
+          <>
+            {/* Backdrop */}
+            <div 
+              className="fixed inset-0 bg-black/60 z-40"
+              onClick={onClose}
+            />
+            {/* Overlay Card */}
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+              <div 
+                className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto slide-in pointer-events-auto shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">{ticker.ticker}</h3>
               <button
@@ -1242,6 +1295,16 @@
                 ⭐ PRIME SETUP ⭐
               </div>
             )}
+
+            {/* Action Description */}
+            <div className={`mb-4 p-4 rounded-lg border ${actionInfo.bg} border-current/30`}>
+              <div className={`text-lg font-bold mb-2 ${actionInfo.color}`}>
+                {actionInfo.action}
+              </div>
+              <div className="text-sm text-[#93a4d6]">
+                {actionInfo.description}
+              </div>
+            </div>
 
             {/* Phase indicator */}
             <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
@@ -1354,7 +1417,9 @@
                 📊 Open in TradingView
               </a>
             </div>
-          </div>
+              </div>
+            </div>
+          </>
         );
       }
 
@@ -1488,39 +1553,47 @@
                   </div>
                 </div>
 
-                {/* Lists below - Grid layout */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Selected Ticker Details */}
-                  {selectedTicker && (
-                    <div>
-                      <TickerDetails
-                        ticker={tickers.find((t) => t.ticker === selectedTicker)}
-                        onClose={() => setSelectedTicker(null)}
-                      />
-                    </div>
-                  )}
-
-                  {/* Comprehensive Setup List */}
-                  <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                    <h2 className="text-lg font-bold mb-4">Best Setups</h2>
-                    <div className="max-h-[600px] overflow-y-auto space-y-3">
-                      {tickers
-                        .sort(
-                          (a, b) =>
-                            (Number(b.rank) || 0) - (Number(a.rank) || 0)
-                        )
-                        .slice(0, 20)
-                        .map((ticker) => (
-                          <SetupCard
-                            key={ticker.ticker}
-                            ticker={ticker}
-                            isSelected={selectedTicker === ticker.ticker}
-                            onClick={() => setSelectedTicker(ticker.ticker)}
-                          />
-                        ))}
-                    </div>
-                  </div>
+                {/* Lists below - Multiple columns */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {/* Multiple setup lists */}
+                  {[
+                    { title: "Top Ranked", sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
+                    { title: "Prime Setups", filter: (t) => isPrimeBubble(t), sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
+                    { title: "In Corridor", filter: (t) => entryType(t).corridor, sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
+                    { title: "Squeeze Release", filter: (t) => t.flags?.sq30_release, sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
+                  ].map((listConfig, idx) => {
+                    const listTickers = tickers
+                      .filter(listConfig.filter || (() => true))
+                      .sort(listConfig.sort)
+                      .slice(0, listConfig.limit);
+                    
+                    if (listTickers.length === 0) return null;
+                    
+                    return (
+                      <div key={idx} className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                        <h2 className="text-lg font-bold mb-4">{listConfig.title}</h2>
+                        <div className="max-h-[500px] overflow-y-auto space-y-2">
+                          {listTickers.map((ticker) => (
+                            <SetupCard
+                              key={ticker.ticker}
+                              ticker={ticker}
+                              isSelected={selectedTicker === ticker.ticker}
+                              onClick={() => setSelectedTicker(ticker.ticker)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+
+                {/* Selected Ticker Details Overlay */}
+                {selectedTicker && (
+                  <TickerDetails
+                    ticker={tickers.find((t) => t.ticker === selectedTicker)}
+                    onClose={() => setSelectedTicker(null)}
+                  />
+                )}
               </div>
             </div>
           </div>
