@@ -311,6 +311,14 @@
         return out;
       }
 
+      // Check if ticker is in any group
+      function isTickerInGroups(t) {
+        const T = normTicker(t);
+        for (const [g, set] of Object.entries(GROUPS))
+          if (set.has(T)) return true;
+        return false;
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Utils
       // ─────────────────────────────────────────────────────────────
@@ -394,6 +402,9 @@
         for (const [tickerRaw, d] of Object.entries(dataObj)) {
           if (!d) continue;
           const ticker = String(tickerRaw).trim().toUpperCase();
+
+          // Only show tickers that are in at least one group
+          if (!isTickerInGroups(ticker)) continue;
 
           if (filters.search && !ticker.includes(filters.search.toUpperCase()))
             continue;
