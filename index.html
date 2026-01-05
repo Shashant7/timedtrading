@@ -1,998 +1,1668 @@
-<!doctype html>
+<!DOCTYPE html>
 <!-- UI_VERSION: 2026-01-05-groups-perf-debounce-sectors-FINAL -->
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Timed Trading — Bubble Quadrant</title>
-  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Timed Trading — Bubble Quadrant</title>
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
 
-  <style>
-    :root { --bg:#0b1020; --card:#121a33; --text:#e7ecff; --muted:#93a4d6; --line:#26325f; --good:#2ecc71; --bad:#e74c3c; }
-    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
-    .title { font-weight:900; letter-spacing:.2px; }
-    .pill { background:var(--card); border:1px solid var(--line); border-radius:999px; padding:8px 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
-    .pill label { font-size:12px; color:var(--muted); }
-    select,input { background:#0f1630; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
-    input[type="checkbox"] { transform: scale(1.1); }
-    .btn { cursor:pointer; background:#1a2550; border:1px solid var(--line); color:var(--text);
-           border-radius:12px; padding:9px 12px; font-weight:800; }
-    .btn:active { transform: translateY(1px); }
-    .muted { color:var(--muted); font-size:12px; }
-    main { padding:14px 18px; }
-    .grid { display:grid; grid-template-columns: 1fr 380px; gap:12px; align-items:start; }
-    #chart { width:100%; height:78vh; border:1px solid var(--line); border-radius:16px; background:var(--card); }
-    .side { border:1px solid var(--line); border-radius:16px; background:var(--card); padding:12px; }
-    .tabs { display:flex; gap:8px; flex-wrap:wrap; }
-    .tab { padding:6px 10px; border:1px solid var(--line); border-radius:999px; cursor:pointer; font-size:12px; color:var(--muted); }
-    .tab.active { color:var(--text); background:#0f1630; }
-    .list { margin-top:10px; display:flex; flex-direction:column; gap:8px; max-height:30vh; overflow:auto; }
-    .item { border:1px solid var(--line); border-radius:12px; padding:8px; cursor:pointer; }
-    .row { display:flex; justify-content:space-between; gap:8px; }
-    .k { color:var(--muted); font-size:12px; }
-    .v { font-size:12px; }
-    .badge { border:1px solid var(--line); border-radius:999px; padding:2px 8px; font-size:12px; color:var(--muted); }
-    .details { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; }
-    a { color:#a8b6ff; text-decoration:none; }
-    a:hover { text-decoration:underline; }
-    .hr { border-top:1px solid var(--line); margin:10px 0; }
-    .tradeCard { border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f1630; }
-    .tradeTitle { font-weight:900; }
-    .pillRow { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
-    .chip { border:1px solid var(--line); border-radius:999px; padding:3px 8px; font-size:12px; color:var(--text); background:rgba(255,255,255,0.03); }
-
-    .groupHdr {
-      margin-top:10px;
-      padding:6px 8px;
-      border:1px solid var(--line);
-      border-radius:10px;
-      font-size:12px;
-      color:var(--muted);
-      background:rgba(255,255,255,0.02);
-    }
-
-    /* Collapsible filter sections */
-    .filterSection {
-      border:1px solid var(--line);
-      border-radius:12px;
-      margin-bottom:8px;
-      overflow:hidden;
-      background:var(--card);
-    }
-    .filterSectionHeader {
-      padding:10px 12px;
-      cursor:pointer;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      user-select:none;
-      font-weight:600;
-      font-size:13px;
-    }
-    .filterSectionHeader:hover {
-      background:rgba(255,255,255,0.03);
-    }
-    .filterSectionContent {
-      padding:12px;
-      display:grid;
-      gap:8px;
-      max-height:0;
-      overflow:hidden;
-      transition:max-height 0.3s ease, padding 0.3s ease;
-    }
-    .filterSectionContent.expanded {
-      max-height:500px;
-    }
-    .filterSectionHeader::after {
-      content:"▼";
-      font-size:10px;
-      transition:transform 0.3s;
-      opacity:0.6;
-    }
-    .filterSectionHeader.collapsed::after {
-      transform:rotate(-90deg);
-    }
-
-    /* Compact header */
-    header {
-      flex-wrap:wrap;
-      gap:8px;
-    }
-    .headerMain {
-      display:flex;
-      gap:8px;
-      align-items:center;
-      flex-wrap:wrap;
-      flex:1;
-    }
-    .headerActions {
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-
-    /* Stats bar */
-    .statsBar {
-      display:flex;
-      gap:16px;
-      padding:8px 12px;
-      background:rgba(255,255,255,0.02);
-      border-radius:8px;
-      font-size:11px;
-      color:var(--muted);
-      margin-bottom:8px;
-    }
-    .stat {
-      display:flex;
-      gap:4px;
-      align-items:center;
-    }
-    .statValue {
-      color:var(--text);
-      font-weight:600;
-    }
-
-    /* Mobile */
-    @media (max-width: 980px) {
-      .grid { grid-template-columns: 1fr; }
-      #chart { height: 62vh; }
-      .side { position: relative; }
-      .filterSectionContent.expanded {
-        max-height:800px;
+    <style>
+      :root {
+        --bg: #0b1020;
+        --card: #121a33;
+        --text: #e7ecff;
+        --muted: #93a4d6;
+        --line: #26325f;
+        --good: #2ecc71;
+        --bad: #e74c3c;
       }
-    }
-  </style>
-</head>
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Arial;
+        background: var(--bg);
+        color: var(--text);
+      }
+      header {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .title {
+        font-weight: 900;
+        letter-spacing: 0.2px;
+      }
+      .pill {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 8px 12px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .pill label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      select,
+      input {
+        background: #0f1630;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 10px;
+      }
+      input[type="checkbox"] {
+        transform: scale(1.1);
+      }
+      .btn {
+        cursor: pointer;
+        background: #1a2550;
+        border: 1px solid var(--line);
+        color: var(--text);
+        border-radius: 12px;
+        padding: 9px 12px;
+        font-weight: 800;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      main {
+        padding: 14px 18px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 380px;
+        gap: 12px;
+        align-items: start;
+      }
+      #chart {
+        width: 100%;
+        height: 78vh;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--card);
+      }
+      .side {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--card);
+        padding: 12px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .tab {
+        padding: 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tab.active {
+        color: var(--text);
+        background: #0f1630;
+      }
+      .list {
+        margin-top: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 30vh;
+        overflow: auto;
+      }
+      .item {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 8px;
+        cursor: pointer;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .k {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .v {
+        font-size: 12px;
+      }
+      .badge {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .details {
+        margin-top: 10px;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+      a {
+        color: #a8b6ff;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .hr {
+        border-top: 1px solid var(--line);
+        margin: 10px 0;
+      }
+      .tradeCard {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px;
+        background: #0f1630;
+      }
+      .tradeTitle {
+        font-weight: 900;
+      }
+      .pillRow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .chip {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 12px;
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.03);
+      }
 
-<body>
-  <header>
-    <div class="headerMain">
-      <div class="title">Timed Trading — Bubble Quadrant</div>
-      
-      <div class="pill">
-        <label>Group</label>
-        <select id="groupSel">
-          <option value="ALL" selected>All</option>
-          <option value="ANY">Any group</option>
-          <option value="UNGROUPED">Ungrouped</option>
-          <option value="__DIVIDER__" disabled>──────────</option>
-        </select>
-      </div>
+      .groupHdr {
+        margin-top: 10px;
+        padding: 6px 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.02);
+      }
 
-      <div class="pill">
-        <label>Search</label>
-        <input id="search" placeholder="Ticker..." style="width:120px;" />
-      </div>
+      /* Collapsible filter sections */
+      .filterSection {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        margin-bottom: 8px;
+        overflow: hidden;
+        background: var(--card);
+      }
+      .filterSectionHeader {
+        padding: 10px 12px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        user-select: none;
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .filterSectionHeader:hover {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .filterSectionContent {
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease, padding 0.3s ease;
+      }
+      .filterSectionContent.expanded {
+        max-height: 500px;
+      }
+      .filterSectionHeader::after {
+        content: "▼";
+        font-size: 10px;
+        transition: transform 0.3s;
+        opacity: 0.6;
+      }
+      .filterSectionHeader.collapsed::after {
+        transform: rotate(-90deg);
+      }
 
-      <div class="statsBar" id="statsBar">
-        <div class="stat"><span class="statValue" id="statCount">—</span> <span>tickers</span></div>
-        <div class="stat"><span class="statValue" id="statEligible">—</span> <span>eligible</span></div>
-        <div class="stat"><span class="statValue" id="statCorridor">—</span> <span>in corridor</span></div>
-      </div>
-    </div>
+      /* Compact header */
+      header {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .headerMain {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        flex: 1;
+      }
+      .headerActions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
 
-    <div class="headerActions">
-      <div class="pill">
-        <label>Auto-refresh</label>
-        <select id="refreshSec">
-          <option value="0">Off</option>
-          <option value="15">15s</option>
-          <option value="30" selected>30s</option>
-          <option value="60">60s</option>
-        </select>
-      </div>
-      <button class="btn" id="refreshBtn">Refresh</button>
-      <div class="muted" id="status" style="min-width:200px;"></div>
-    </div>
+      /* Stats bar */
+      .statsBar {
+        display: flex;
+        gap: 16px;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 8px;
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 8px;
+      }
+      .stat {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .statValue {
+        color: var(--text);
+        font-weight: 600;
+      }
 
-    <div style="width:100%; margin-top:8px;">
-      <div class="filterSection">
-        <div class="filterSectionHeader collapsed" id="filterToggle">
-          Filters & Settings
+      /* Mobile */
+      @media (max-width: 980px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        #chart {
+          height: 62vh;
+        }
+        .side {
+          position: relative;
+        }
+        .filterSectionContent.expanded {
+          max-height: 800px;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <div class="headerMain">
+        <div class="title">Timed Trading — Bubble Quadrant</div>
+
+        <div class="pill">
+          <label>Group</label>
+          <select id="groupSel">
+            <option value="ALL" selected>All</option>
+            <option value="ANY">Any group</option>
+            <option value="UNGROUPED">Ungrouped</option>
+            <option value="__DIVIDER__" disabled>──────────</option>
+          </select>
         </div>
-        <div class="filterSectionContent" id="filterContent">
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:8px;">
-            <div class="pill">
-              <label>Data</label>
-              <select id="endpoint">
-                <option value="https://timed-trading-ingest.shashant.workers.dev/timed/all">/timed/all</option>
-              </select>
-            </div>
 
-            <div class="pill">
-              <label>Show</label>
-              <label class="muted"><input type="checkbox" id="q1" checked> Q1</label>
-              <label class="muted"><input type="checkbox" id="q2" checked> Q2</label>
-              <label class="muted"><input type="checkbox" id="q3" checked> Q3</label>
-              <label class="muted"><input type="checkbox" id="q4" checked> Q4</label>
-            </div>
+        <div class="pill">
+          <label>Search</label>
+          <input id="search" placeholder="Ticker..." style="width: 120px" />
+        </div>
 
-            <div class="pill">
-              <label>Completion ≤</label>
-              <select id="compMax">
-                <option value="1.01">100%</option>
-                <option value="0.80">80%</option>
-                <option value="0.60">60%</option>
-                <option value="0.40">40%</option>
-                <option value="0.25">25%</option>
-              </select>
-            </div>
-
-            <div class="pill">
-              <label>RR ≥</label>
-              <select id="rrMin">
-                <option value="0">Any</option>
-                <option value="1">1.0</option>
-                <option value="1.5" selected>1.5</option>
-                <option value="2">2.0</option>
-                <option value="3">3.0</option>
-              </select>
-            </div>
-
-            <div class="pill">
-              <label>Rank ≥</label>
-              <select id="rankMin">
-                <option value="0">Any</option>
-                <option value="50">50</option>
-                <option value="60">60</option>
-                <option value="70" selected>70</option>
-                <option value="80">80</option>
-              </select>
-            </div>
-
-            <div class="pill">
-              <label>Eligible only</label>
-              <label class="muted"><input type="checkbox" id="eligibleOnly"> hide failing</label>
-            </div>
-
-            <div class="pill">
-              <label>Labels</label>
-              <select id="labelsMode">
-                <option value="smart" selected>Smart</option>
-                <option value="off">Off (fast)</option>
-                <option value="all">All</option>
-              </select>
-            </div>
-
-            <div class="pill">
-              <label>Faint trails</label>
-              <label class="muted"><input type="checkbox" id="showFaintTrails"> On (slower)</label>
-            </div>
-
-            <div class="pill">
-              <label>Swap axes</label>
-              <label class="muted"><input type="checkbox" id="swapAxes"> Y=LTF / X=HTF</label>
-            </div>
+        <div class="statsBar" id="statsBar">
+          <div class="stat">
+            <span class="statValue" id="statCount">—</span> <span>tickers</span>
+          </div>
+          <div class="stat">
+            <span class="statValue" id="statEligible">—</span>
+            <span>eligible</span>
+          </div>
+          <div class="stat">
+            <span class="statValue" id="statCorridor">—</span>
+            <span>in corridor</span>
           </div>
         </div>
       </div>
-      <div class="muted" style="font-size:11px; margin-top:4px;">
-        Corridors shaded. Flash=🧨 squeeze ON inside corridor (eligible). ⚡=squeeze release. Click selects + trail + trade card.
-      </div>
-    </div>
-  </header>
 
-  <main>
-    <div class="grid">
-      <div id="chart"></div>
-
-      <div class="side" id="sidePanel">
-        <div class="tabs">
-          <div class="tab active" id="tabLong">Top Long (Q1→Q2)</div>
-          <div class="tab" id="tabShort">Top Short (Q4→Q3)</div>
-          <div class="tab" id="tabSetup">Top Setups (Q1/Q4)</div>
+      <div class="headerActions">
+        <div class="pill">
+          <label>Auto-refresh</label>
+          <select id="refreshSec">
+            <option value="0">Off</option>
+            <option value="15">15s</option>
+            <option value="30" selected>30s</option>
+            <option value="60">60s</option>
+          </select>
         </div>
+        <button class="btn" id="refreshBtn">Refresh</button>
+        <div class="muted" id="status" style="min-width: 200px"></div>
+      </div>
 
-        <div class="list" id="topList"></div>
+      <div style="width: 100%; margin-top: 8px">
+        <div class="filterSection">
+          <div class="filterSectionHeader collapsed" id="filterToggle">
+            Filters & Settings
+          </div>
+          <div class="filterSectionContent" id="filterContent">
+            <div
+              style="
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 8px;
+              "
+            >
+              <div class="pill">
+                <label>Data</label>
+                <select id="endpoint">
+                  <option
+                    value="https://timed-trading-ingest.shashant.workers.dev/timed/all"
+                  >
+                    /timed/all
+                  </option>
+                </select>
+              </div>
 
-        <div class="details" id="details">
-          <h3>Selected</h3>
-          <div class="muted">Click a bubble or a list item.</div>
+              <div class="pill">
+                <label>Show</label>
+                <label class="muted"
+                  ><input type="checkbox" id="q1" checked /> Q1</label
+                >
+                <label class="muted"
+                  ><input type="checkbox" id="q2" checked /> Q2</label
+                >
+                <label class="muted"
+                  ><input type="checkbox" id="q3" checked /> Q3</label
+                >
+                <label class="muted"
+                  ><input type="checkbox" id="q4" checked /> Q4</label
+                >
+              </div>
+
+              <div class="pill">
+                <label>Completion ≤</label>
+                <select id="compMax">
+                  <option value="1.01">100%</option>
+                  <option value="0.80">80%</option>
+                  <option value="0.60">60%</option>
+                  <option value="0.40">40%</option>
+                  <option value="0.25">25%</option>
+                </select>
+              </div>
+
+              <div class="pill">
+                <label>RR ≥</label>
+                <select id="rrMin">
+                  <option value="0">Any</option>
+                  <option value="1">1.0</option>
+                  <option value="1.5" selected>1.5</option>
+                  <option value="2">2.0</option>
+                  <option value="3">3.0</option>
+                </select>
+              </div>
+
+              <div class="pill">
+                <label>Rank ≥</label>
+                <select id="rankMin">
+                  <option value="0">Any</option>
+                  <option value="50">50</option>
+                  <option value="60">60</option>
+                  <option value="70" selected>70</option>
+                  <option value="80">80</option>
+                </select>
+              </div>
+
+              <div class="pill">
+                <label>Eligible only</label>
+                <label class="muted"
+                  ><input type="checkbox" id="eligibleOnly" /> hide
+                  failing</label
+                >
+              </div>
+
+              <div class="pill">
+                <label>Labels</label>
+                <select id="labelsMode">
+                  <option value="smart" selected>Smart</option>
+                  <option value="off">Off (fast)</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+
+              <div class="pill">
+                <label>Faint trails</label>
+                <label class="muted"
+                  ><input type="checkbox" id="showFaintTrails" /> On
+                  (slower)</label
+                >
+              </div>
+
+              <div class="pill">
+                <label>Swap axes</label>
+                <label class="muted"
+                  ><input type="checkbox" id="swapAxes" /> Y=LTF / X=HTF</label
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="muted" style="font-size: 11px; margin-top: 4px">
+          Corridors shaded. Flash=🧨 squeeze ON inside corridor (eligible).
+          ⚡=squeeze release. ⭐=PRIME setup (Rank≥75, RR≥1.5, Comp<40%,
+          Phase<60%, Aligned/Squeeze/ZoneChange). Click selects + trail + trade
+          card.
         </div>
       </div>
-    </div>
-  </main>
+    </header>
 
-<script>
-  // ─────────────────────────────────────────────────────────────
-  // Crash guard
-  // ─────────────────────────────────────────────────────────────
-  window.addEventListener("error", (e) => {
-    console.error(e);
-    const msg = `[JS ERROR] ${e.message}\n${e.filename}:${e.lineno}:${e.colno}`;
-    const pre = document.createElement("pre");
-    pre.style.padding = "16px";
-    pre.style.whiteSpace = "pre-wrap";
-    pre.style.color = "#fff";
-    pre.style.background = "#111";
-    pre.textContent = msg;
-    document.body.innerHTML = "";
-    document.body.appendChild(pre);
-  });
+    <main>
+      <div class="grid">
+        <div id="chart"></div>
 
-  const el = (id) => document.getElementById(id);
-  const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
-  function on(id, evt, handler) { const node = el(id); if (!node) return; node.addEventListener(evt, handler); }
+        <div class="side" id="sidePanel">
+          <div class="tabs">
+            <div class="tab active" id="tabLong">Top Long (Q1→Q2)</div>
+            <div class="tab" id="tabShort">Top Short (Q4→Q3)</div>
+            <div class="tab" id="tabSetup">Top Setups (Q1/Q4)</div>
+          </div>
 
-  // ─────────────────────────────────────────────────────────────
-  // Groups (normalized; BRK-B -> BRK.B)
-  // ─────────────────────────────────────────────────────────────
-  const GROUPS = {
-    "UPTICKS": new Set([
-      "APLD","TSLA","STX","AU","CCJ","CLS","CRS","VST","FSLR","JCI","ORCL","AMZN","BRK.B","BABA","WMT","PH","GEV","HII","ULTA","SHOP","CSX","PWR","HOOD","SPGI","APP","PANW","RDDT","TT","GLXY","ETHA"
-    ]),
-    "SuperGranny": new Set(["META","NVDA","AMD","ANET","GS"]),
-    "GRNI": new Set([
-      "VST","TSLA","TJX","SPGI","SOFI","PWR","PNC","PLTR","PANW","NVDA","NFLX","MSTR","MSFT","MNST","META","LRCX","KLAC","JPM","HOOD","GS","GOOGL","GEV","GE","EXPE","ETN","EMR","DE","CRWD","COST","CDNS","CAT","BK","AXP","AXON","AVGO","ANET","AMZN","AMD","AAPL"
-    ]),
-    "GRNJ": new Set([
-      "RKLB","LITE","SN","ALB","RDDT","RGLD","MTZ","ON","ALLY","DY","CCJ","EWBC","PATH","WFRD","WAL","IESC","ENS","TWLO","MLI","KTOS","MDB","TLN","EME","AWI","IBP","DCI","WTS","FIX","UTHR","NBIS","SGI","AYI","RIOT","NXT","SANM","BWXT","PEGA","JOBY","IONQ","SOFI","ITT","STRL","QLYS","MP","GLXY","HIMS","IOT","BE","NEU","AVAV","PSTG","RBLX"
-    ]),
-    "GRNY": new Set([
-      "GEV","LRCX","PNC","GOOGL","GS","META","MNST","KLAC","TJX","GE","EXPE","CAT","BK","SPGI","TSLA","EMR","JPM","AXP","ANET","AXON","AAPL","NVDA","AVGO","PWR","CDNS","DE","MSFT","COST","VST","PLTR","AMZN","HOOD","ETN","SOFI","AMD","PANW","CRWD","NFLX","MSTR"
-    ]),
-    "Social": new Set(["CSCO","BA","NKE","AAPL","PI","APLD"]),
+          <div class="list" id="topList"></div>
 
-    // ✅ S&P Sectors
-    "SP_Sectors": new Set(["XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV"])
-  };
+          <div class="details" id="details">
+            <h3>Selected</h3>
+            <div class="muted">Click a bubble or a list item.</div>
+          </div>
+        </div>
+      </div>
+    </main>
 
-    // Friendly labels for the dropdown (optional)
-  const GROUP_LABELS = {
-    SP_Sectors: "S&P Sectors",
-    // everything else falls back to the key name
-  };
+    <script>
+      // ─────────────────────────────────────────────────────────────
+      // Crash guard
+      // ─────────────────────────────────────────────────────────────
+      window.addEventListener("error", (e) => {
+        console.error(e);
+        const msg = `[JS ERROR] ${e.message}\n${e.filename}:${e.lineno}:${e.colno}`;
+        const pre = document.createElement("pre");
+        pre.style.padding = "16px";
+        pre.style.whiteSpace = "pre-wrap";
+        pre.style.color = "#fff";
+        pre.style.background = "#111";
+        pre.textContent = msg;
+        document.body.innerHTML = "";
+        document.body.appendChild(pre);
+      });
 
-  // Controls the order the groups appear in the dropdown
-  // (Any group keys not listed will be appended alphabetically)
-  const GROUP_ORDER = ["SP_Sectors","UPTICKS","SuperGranny","GRNI","GRNJ","GRNY","Social"];
-
-  function populateGroupSelect() {
-    const sel = el("groupSel");
-    if (!sel) return;
-
-    // preserve current selection (if any)
-    const prev = sel.value || "ALL";
-
-    // Remove everything AFTER the divider (or after the first 3 system options if divider missing)
-    const dividerIdx = Array.from(sel.options).findIndex(o => o.value === "__DIVIDER__");
-    const cutIdx = dividerIdx >= 0 ? dividerIdx + 1 : 3;
-    while (sel.options.length > cutIdx) sel.remove(cutIdx);
-
-    // Build list of group keys
-    const keys = Object.keys(GROUPS || {}).filter(Boolean);
-
-    // Ordered keys: take GROUP_ORDER first, then remaining alphabetically
-    const ordered = [];
-    for (const k of GROUP_ORDER) if (keys.includes(k)) ordered.push(k);
-    const remaining = keys.filter(k => !ordered.includes(k)).sort((a,b)=> a.localeCompare(b));
-    ordered.push(...remaining);
-
-    // Add options
-    for (const key of ordered) {
-      const opt = document.createElement("option");
-      opt.value = key;
-      opt.textContent = GROUP_LABELS[key] || key;
-      sel.appendChild(opt);
-    }
-
-    // restore selection if still valid, else default
-    const exists = Array.from(sel.options).some(o => o.value === prev);
-    sel.value = exists ? prev : "ALL";
-  }
-
-  function normTicker(t) {
-    const s = String(t || "").trim().toUpperCase();
-    if (s === "BRK-B") return "BRK.B";
-    return s;
-  }
-  function groupsForTicker(t) {
-    const T = normTicker(t);
-    const out = [];
-    for (const [g, set] of Object.entries(GROUPS)) if (set.has(T)) out.push(g);
-    return out;
-  }
-  function passesGroupFilter(t) {
-    const sel = el("groupSel").value;
-    if (sel === "ALL") return true;
-    const gs = groupsForTicker(t);
-    if (sel === "ANY") return gs.length > 0;
-    if (sel === "UNGROUPED") return gs.length === 0;
-    return gs.includes(sel);
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // Corridors (must match Worker)
-  // ─────────────────────────────────────────────────────────────
-  const LONG_CORRIDOR  = { ltfMin: -8,  ltfMax: 12 };
-  const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
-
-  const TRAIL_MAX_POINTS = 8;
-  const FLASH_PERIOD_MS = 900;
-  const LABEL_SIZE_THRESHOLD = 28;
-
-  const STALE_WARN_MIN = 30;
-  const STALE_MAX_MIN  = 240;
-
-  // Stability
-  let lastGoodPoints = [];
-  let lastUnfilteredData = null; // Store raw data before filtering
-  let refreshInFlight = false;
-  let refreshAbort = null;
-  let isUserFilterChange = false; // Track intentional filter changes
-
-  // Selection
-  let clickHandlerBound = false;
-  let selectedTicker = null;
-  let selectedTrail = null;
-
-  // Trails cache
-  const trailCache = new Map(); // ticker -> { atMs, trail }
-  const TRAIL_CACHE_TTL_MS = 60_000;
-
-  // Hover cache (small perf win)
-  const hoverCache = new Map(); // key -> html
-
-  // Debounce
-  let debounceTimer = null;
-  const DEBOUNCE_MS = 250;
-
-  // Tabs / auto refresh
-  let currentTab = "long";
-  let refreshTimer = null;
-
-  // Flash loop state
-  let flashTimer = null;
-  let lastFaintTrails = null;
-  
-  // Performance: use requestAnimationFrame for renders
-  let renderScheduled = false;
-  let pendingRender = null;
-
-  function flashAlpha() {
-    const t = Date.now() % FLASH_PERIOD_MS;
-    return 0.35 + 0.55 * (0.5 + 0.5 * Math.sin((t / FLASH_PERIOD_MS) * 2 * Math.PI));
-  }
-
-  function startFlashLoop() {
-    if (flashTimer) return;
-    flashTimer = setInterval(() => {
-      // Don't fight refresh / fetch
-      if (refreshInFlight) return;
-      if (!lastGoodPoints.length) return;
-      // Preserve faint trails + selected trail during flash frames
-      scheduleRender(lastGoodPoints, lastFaintTrails);
-    }, 350);
-  }
-  function stopFlashLoop() {
-    if (flashTimer) clearInterval(flashTimer);
-    flashTimer = null;
-  }
-
-  function anyShouldFlash(points) {
-    return points.some(p =>
-      p?.flags?.sq30_on &&
-      entryType(p).corridor &&
-      (p._eligible !== false)
-    );
-  }
-
-  function quadrantFromState(s) {
-    if (s === "HTF_BULL_LTF_PULLBACK") return "Q1";
-    if (s === "HTF_BULL_LTF_BULL") return "Q2";
-    if (s === "HTF_BEAR_LTF_BEAR") return "Q3";
-    if (s === "HTF_BEAR_LTF_PULLBACK") return "Q4";
-    return "Q?";
-  }
-
-  function stalenessOpacity(tsMs) {
-    if (!tsMs || typeof tsMs !== "number") return 0.65;
-    const ageMin = (Date.now() - tsMs) / 60000;
-    if (ageMin <= STALE_WARN_MIN) return 0.92;
-    const t = clamp((ageMin - STALE_WARN_MIN) / Math.max(1, (STALE_MAX_MIN - STALE_WARN_MIN)), 0, 1);
-    return 0.92 - t * 0.74;
-  }
-
-  function fmtNum(v, d=2) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "—";
-    return n.toFixed(d);
-  }
-  function fmtPct01(v) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "—";
-    return `${Math.round(n*100)}%`;
-  }
-
-  // Bubble completion for sizing: TP progress if available, else payload completion
-  function completionForSize(d) {
-    const c = Number(d.completion);
-    const trig = Number(d.trigger_price);
-    const tp = Number(d.tp);
-    const px = Number(d.price);
-    if ([trig, tp, px].every(Number.isFinite) && tp !== trig) {
-      const prog = (px - trig) / (tp - trig);
-      return clamp(Math.abs(prog), 0, 1);
-    }
-    return Number.isFinite(c) ? clamp(c, 0, 1) : 0;
-  }
-
-  function tvUrlForTicker(ticker) {
-    const q = encodeURIComponent(ticker);
-    return `https://www.tradingview.com/chart/?symbol=${q}`;
-  }
-
-  function isLongCorridor(htf, ltf) {
-    return (htf > 0) && (ltf >= LONG_CORRIDOR.ltfMin) && (ltf <= LONG_CORRIDOR.ltfMax);
-  }
-  function isShortCorridor(htf, ltf) {
-    return (htf < 0) && (ltf >= SHORT_CORRIDOR.ltfMin) && (ltf <= SHORT_CORRIDOR.ltfMax);
-  }
-  function entryType(d) {
-    const h = Number(d.htf_score), l = Number(d.ltf_score);
-    if (!Number.isFinite(h) || !Number.isFinite(l)) return { corridor:false, side:null };
-    if (isLongCorridor(h, l)) return { corridor:true, side:"LONG" };
-    if (isShortCorridor(h, l)) return { corridor:true, side:"SHORT" };
-    return { corridor:false, side:null };
-  }
-
-  function whyString(d) {
-    const reasons = Array.isArray(d.reasons) ? d.reasons : [];
-    const trig = d.trigger_reason ? `${d.trigger_reason}${d.trigger_dir ? " ("+d.trigger_dir+")" : ""}` : "";
-    const corridor = entryType(d);
-    const corridorWhy = corridor.corridor ? (corridor.side==="LONG" ? "Entry corridor (Q1→Q2)" : "Entry corridor (Q4→Q3)") : "";
-    const bits = [corridorWhy, trig].filter(Boolean);
-    return bits.length ? bits.join(" | ") : (reasons[0] || "—");
-  }
-
-  function hoverText(t, d) {
-    const flags = d.flags || {};
-    const ageMin = (Date.now() - (d.ts || Date.now())) / 60000;
-    const corridor = entryType(d);
-    const eligible = (d._eligible !== false);
-    const gs = groupsForTicker(t);
-
-    return [
-      `<b>${t}</b>`,
-      gs.length ? `Groups: ${gs.join(", ")}` : `Groups: —`,
-      `State: ${d.state || ""} (${quadrantFromState(d.state)})`,
-      corridor.corridor ? `<b>${corridor.side} corridor</b>` : `Not in entry corridor`,
-      `Why: ${whyString(d)}`,
-      `Eligible: ${eligible ? "YES" : "NO (fails RR/Rank filter)"}`,
-      `Rank: ${d.rank ?? "—"} | RR: ${d.rr != null ? fmtNum(d.rr,2) : "—"}`,
-      `HTF: ${fmtNum(d.htf_score,2)} | LTF: ${fmtNum(d.ltf_score,2)}`,
-      `Bubble completion (TP-based): ${fmtPct01(completionForSize(d))}`,
-      `Phase: ${fmtPct01(d.phase_pct)}${d.phase_zone ? " (" + d.phase_zone + ")" : ""}`,
-      `Age: ${Number.isFinite(ageMin) ? ageMin.toFixed(1)+"m" : "—"} | Staleness: ${d.staleness || "—"}`,
-      `Trigger: ${fmtNum(d.trigger_price,2)} | Price: ${fmtNum(d.price,2)}`,
-      `SL: ${fmtNum(d.sl,2)} | TP: ${fmtNum(d.tp,2)} | ETA: ${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}`,
-      `Flags: sq_on=${!!flags.sq30_on}, sq_rel=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}, phase_zone_change=${!!flags.phase_zone_change}`
-    ].join("<br>");
-  }
-
-  function hoverTextCached(t, d) {
-    // Keep the key tight so it invalidates when relevant stuff changes
-    const key = `${t}|${d.ts}|${d.rank}|${d.rr}|${d.state}|${d.htf_score}|${d.ltf_score}`;
-    const got = hoverCache.get(key);
-    if (got) return got;
-    const txt = hoverText(t, d);
-    hoverCache.set(key, txt);
-    // prevent runaway growth
-    if (hoverCache.size > 600) {
-      // delete ~200 oldest-ish (Map preserves insertion order)
-      let i = 0;
-      for (const k of hoverCache.keys()) {
-        hoverCache.delete(k);
-        i++;
-        if (i >= 200) break;
+      const el = (id) => document.getElementById(id);
+      const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+      function on(id, evt, handler) {
+        const node = el(id);
+        if (!node) return;
+        node.addEventListener(evt, handler);
       }
-    }
-    return txt;
-  }
 
-  async function fetchJSON(url, signal=null) {
-    const res = await fetch(url, { cache:"no-store", signal });
-    if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
-    return await res.json();
-  }
+      // ─────────────────────────────────────────────────────────────
+      // Groups (normalized; BRK-B -> BRK.B)
+      // ─────────────────────────────────────────────────────────────
+      const GROUPS = {
+        UPTICKS: new Set([
+          "APLD",
+          "TSLA",
+          "STX",
+          "AU",
+          "CCJ",
+          "CLS",
+          "CRS",
+          "VST",
+          "FSLR",
+          "JCI",
+          "ORCL",
+          "AMZN",
+          "BRK.B",
+          "BABA",
+          "WMT",
+          "PH",
+          "GEV",
+          "HII",
+          "ULTA",
+          "SHOP",
+          "CSX",
+          "PWR",
+          "HOOD",
+          "SPGI",
+          "APP",
+          "PANW",
+          "RDDT",
+          "TT",
+          "GLXY",
+          "ETHA",
+        ]),
+        SuperGranny: new Set(["META", "NVDA", "AMD", "ANET", "GS"]),
+        GRNI: new Set([
+          "VST",
+          "TSLA",
+          "TJX",
+          "SPGI",
+          "SOFI",
+          "PWR",
+          "PNC",
+          "PLTR",
+          "PANW",
+          "NVDA",
+          "NFLX",
+          "MSTR",
+          "MSFT",
+          "MNST",
+          "META",
+          "LRCX",
+          "KLAC",
+          "JPM",
+          "HOOD",
+          "GS",
+          "GOOGL",
+          "GEV",
+          "GE",
+          "EXPE",
+          "ETN",
+          "EMR",
+          "DE",
+          "CRWD",
+          "COST",
+          "CDNS",
+          "CAT",
+          "BK",
+          "AXP",
+          "AXON",
+          "AVGO",
+          "ANET",
+          "AMZN",
+          "AMD",
+          "AAPL",
+        ]),
+        GRNJ: new Set([
+          "RKLB",
+          "LITE",
+          "SN",
+          "ALB",
+          "RDDT",
+          "RGLD",
+          "MTZ",
+          "ON",
+          "ALLY",
+          "DY",
+          "CCJ",
+          "EWBC",
+          "PATH",
+          "WFRD",
+          "WAL",
+          "IESC",
+          "ENS",
+          "TWLO",
+          "MLI",
+          "KTOS",
+          "MDB",
+          "TLN",
+          "EME",
+          "AWI",
+          "IBP",
+          "DCI",
+          "WTS",
+          "FIX",
+          "UTHR",
+          "NBIS",
+          "SGI",
+          "AYI",
+          "RIOT",
+          "NXT",
+          "SANM",
+          "BWXT",
+          "PEGA",
+          "JOBY",
+          "IONQ",
+          "SOFI",
+          "ITT",
+          "STRL",
+          "QLYS",
+          "MP",
+          "GLXY",
+          "HIMS",
+          "IOT",
+          "BE",
+          "NEU",
+          "AVAV",
+          "PSTG",
+          "RBLX",
+        ]),
+        GRNY: new Set([
+          "GEV",
+          "LRCX",
+          "PNC",
+          "GOOGL",
+          "GS",
+          "META",
+          "MNST",
+          "KLAC",
+          "TJX",
+          "GE",
+          "EXPE",
+          "CAT",
+          "BK",
+          "SPGI",
+          "TSLA",
+          "EMR",
+          "JPM",
+          "AXP",
+          "ANET",
+          "AXON",
+          "AAPL",
+          "NVDA",
+          "AVGO",
+          "PWR",
+          "CDNS",
+          "DE",
+          "MSFT",
+          "COST",
+          "VST",
+          "PLTR",
+          "AMZN",
+          "HOOD",
+          "ETN",
+          "SOFI",
+          "AMD",
+          "PANW",
+          "CRWD",
+          "NFLX",
+          "MSTR",
+        ]),
+        Social: new Set(["CSCO", "BA", "NKE", "AAPL", "PI", "APLD"]),
 
-  async function fetchAll(signal=null) {
-    const url = el("endpoint").value;
-    const json = await fetchJSON(url, signal);
-    if (!json.ok) throw new Error("API not ok");
-    return json.data || {};
-  }
+        // ✅ S&P Sectors
+        SP_Sectors: new Set([
+          "XLK",
+          "XLF",
+          "XLY",
+          "XLP",
+          "XLC",
+          "XLI",
+          "XLB",
+          "XLE",
+          "XLRE",
+          "XLU",
+          "XLV",
+        ]),
+      };
 
-  async function fetchTrail(ticker) {
-    const T = normTicker(ticker);
-    const now = Date.now();
-    const cached = trailCache.get(T);
-    if (cached && (now - cached.atMs) < TRAIL_CACHE_TTL_MS) return cached.trail;
+      // Friendly labels for the dropdown (optional)
+      const GROUP_LABELS = {
+        SP_Sectors: "S&P Sectors",
+        // everything else falls back to the key name
+      };
 
-    const base = "https://timed-trading-ingest.shashant.workers.dev/timed/trail";
-    const url = `${base}?ticker=${encodeURIComponent(T)}`;
-    const json = await fetchJSON(url);
-    const trail = (json && json.ok && Array.isArray(json.trail)) ? json.trail.slice(-TRAIL_MAX_POINTS) : [];
-    trailCache.set(T, { atMs: now, trail });
-    return trail;
-  }
+      // Controls the order the groups appear in the dropdown
+      // (Any group keys not listed will be appended alphabetically)
+      const GROUP_ORDER = [
+        "SP_Sectors",
+        "UPTICKS",
+        "SuperGranny",
+        "GRNI",
+        "GRNJ",
+        "GRNY",
+        "Social",
+      ];
 
-  function applyFilters(dataObj) {
-    const search = el("search").value.trim().toUpperCase();
-    const compMax = Number(el("compMax").value);
-    const rrMin = Number(el("rrMin").value);
-    const rankMin = Number(el("rankMin").value);
-    const swap = el("swapAxes").checked;
-    const eligibleOnly = el("eligibleOnly").checked;
+      function populateGroupSelect() {
+        const sel = el("groupSel");
+        if (!sel) return;
 
-    const allow = new Set();
-    if (el("q1").checked) allow.add("HTF_BULL_LTF_PULLBACK");
-    if (el("q2").checked) allow.add("HTF_BULL_LTF_BULL");
-    if (el("q3").checked) allow.add("HTF_BEAR_LTF_BEAR");
-    if (el("q4").checked) allow.add("HTF_BEAR_LTF_PULLBACK");
+        // preserve current selection (if any)
+        const prev = sel.value || "ALL";
 
-    const out = [];
-    for (const [tickerRaw, d] of Object.entries(dataObj)) {
-      if (!d) continue;
-      const T = normTicker(tickerRaw);
+        // Remove everything AFTER the divider (or after the first 3 system options if divider missing)
+        const dividerIdx = Array.from(sel.options).findIndex(
+          (o) => o.value === "__DIVIDER__"
+        );
+        const cutIdx = dividerIdx >= 0 ? dividerIdx + 1 : 3;
+        while (sel.options.length > cutIdx) sel.remove(cutIdx);
 
-      if (!passesGroupFilter(T)) continue;
-      if (search && !T.includes(search)) continue;
-      if (!allow.has(d.state)) continue;
+        // Build list of group keys
+        const keys = Object.keys(GROUPS || {}).filter(Boolean);
 
-      const cs = completionForSize(d);
-      if (cs > compMax) continue;
+        // Ordered keys: take GROUP_ORDER first, then remaining alphabetically
+        const ordered = [];
+        for (const k of GROUP_ORDER) if (keys.includes(k)) ordered.push(k);
+        const remaining = keys
+          .filter((k) => !ordered.includes(k))
+          .sort((a, b) => a.localeCompare(b));
+        ordered.push(...remaining);
 
-      const rr = (d.rr != null) ? Number(d.rr) : null;
-      const rk = (d.rank != null) ? Number(d.rank) : null;
-
-      const rrPass = (rrMin <= 0) ? true : (rr != null && rr >= rrMin);
-      const rkPass = (rankMin <= 0) ? true : (rk != null && rk >= rankMin);
-      const eligible = rrPass && rkPass;
-
-      if (eligibleOnly && !eligible) continue;
-
-      out.push({ ticker: T, ...d, _swap: swap, _eligible: eligible });
-    }
-    return out;
-  }
-
-  async function buildFaintTrails(points) {
-    if (!el("showFaintTrails").checked) return null;
-
-    const out = {};
-    const corridorTickers = points
-      .filter(p => entryType(p).corridor)
-      .map(p => p.ticker);
-
-    // avoid self-DOS
-    const MAX = 18;
-    const take = corridorTickers.slice(0, MAX);
-
-    await Promise.all(take.map(async (t) => {
-      try { out[t] = await fetchTrail(t); } catch {}
-    }));
-    return out;
-  }
-
-  function corridorShapes(swapAxes) {
-    const shapes = [];
-    if (!swapAxes) {
-      // x=LTF, y=HTF
-      shapes.push({ type:"rect", xref:"x", yref:"y", x0: LONG_CORRIDOR.ltfMin, x1: LONG_CORRIDOR.ltfMax, y0: 0, y1: 50,
-        fillcolor:"rgba(46,204,113,0.10)", line:{width:0} });
-      shapes.push({ type:"rect", xref:"x", yref:"y", x0: SHORT_CORRIDOR.ltfMin, x1: SHORT_CORRIDOR.ltfMax, y0: -50, y1: 0,
-        fillcolor:"rgba(231,76,60,0.10)", line:{width:0} });
-    } else {
-      // x=HTF, y=LTF
-      shapes.push({ type:"rect", xref:"x", yref:"y", x0: 0, x1: 50, y0: LONG_CORRIDOR.ltfMin, y1: LONG_CORRIDOR.ltfMax,
-        fillcolor:"rgba(46,204,113,0.10)", line:{width:0} });
-      shapes.push({ type:"rect", xref:"x", yref:"y", x0: -50, x1: 0, y0: SHORT_CORRIDOR.ltfMin, y1: SHORT_CORRIDOR.ltfMax,
-        fillcolor:"rgba(231,76,60,0.10)", line:{width:0} });
-    }
-    // outer frame
-    shapes.push({ type:"rect", xref:"x", yref:"y", x0:-50, x1:50, y0:-50, y1:50,
-      line:{color:"#3a4aa0", width:1}, fillcolor:"rgba(0,0,0,0)" });
-    return shapes;
-  }
-
-  // Performance: Schedule render with requestAnimationFrame
-  function scheduleRender(points, faintTrailsByTicker) {
-    pendingRender = { points, faintTrailsByTicker };
-    if (!renderScheduled) {
-      renderScheduled = true;
-      requestAnimationFrame(() => {
-        if (pendingRender) {
-          render(pendingRender.points, pendingRender.faintTrailsByTicker);
-          pendingRender = null;
+        // Add options
+        for (const key of ordered) {
+          const opt = document.createElement("option");
+          opt.value = key;
+          opt.textContent = GROUP_LABELS[key] || key;
+          sel.appendChild(opt);
         }
-        renderScheduled = false;
-      });
-    }
-  }
 
-  function render(points, faintTrailsByTicker) {
-    if (!window.Plotly) throw new Error("Plotly failed to load (CDN blocked).");
-    if (!points || !points.length) {
-      Plotly.react("chart", [], { paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)" }, { responsive:true });
-      updateStats(points);
-      return;
-    }
-
-    const swap = points[0]?._swap ?? false;
-
-    const labelsMode = el("labelsMode").value; // smart/off/all
-    const showText =
-      labelsMode === "all" ? "all" :
-      labelsMode === "off" ? "none" :
-      "smart";
-
-    const X=[], Y=[], H=[], sizes=[], colors=[], opacities=[], labels=[], lws=[], lcs=[], custom=[];
-
-    for (const p of points) {
-      const h = Number(p.htf_score), l = Number(p.ltf_score);
-      const x = swap ? h : l;
-      const y = swap ? l : h;
-
-      const compS = completionForSize(p);
-      const size = 10 + compS * 40;
-      const phase = Number.isFinite(Number(p.phase_pct)) ? Number(p.phase_pct) : 0;
-
-      const flags = p.flags || {};
-      const sqRel = !!flags.sq30_release;
-      const sqOn  = !!flags.sq30_on;
-
-      const ent = entryType(p);
-      const inCorridor = ent.corridor;
-
-      const eligible = (p._eligible !== false);
-      const baseAlpha = stalenessOpacity(p.ts) * (eligible ? 1.0 : 0.18);
-      const alpha = (sqOn && inCorridor && eligible) ? Math.min(1, flashAlpha()) : baseAlpha;
-
-      const lw = sqRel ? 6 : (sqOn ? 4 : 1);
-      const lc = sqRel ? "rgba(0,255,255,0.95)" : (sqOn ? "rgba(255,215,0,0.95)" : "rgba(255,255,255,0.35)");
-
-      let lbl = "";
-      if (showText === "all") {
-        const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
-        lbl = `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}`;
-      } else if (showText === "smart") {
-        const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
-        const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
-        lbl = showLabel ? `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}` : "";
+        // restore selection if still valid, else default
+        const exists = Array.from(sel.options).some((o) => o.value === prev);
+        sel.value = exists ? prev : "ALL";
       }
 
-      X.push(x); Y.push(y);
-      H.push(hoverTextCached(p.ticker, p));
-      sizes.push(size);
-      colors.push(phase);
-      opacities.push(alpha);
-      labels.push(lbl);
-      lws.push(lw);
-      lcs.push(lc);
-      custom.push({ ticker:p.ticker, tv:tvUrlForTicker(p.ticker) });
-    }
-
-    const mode = (labelsMode === "off") ? "markers" : "markers+text";
-
-    const traces = [{
-      name:"bubbles",
-      type:"scatter",
-      mode,
-      x: X, y: Y,
-      text: labels,
-      textposition:"top center",
-      textfont:{ size:12, color:"rgba(231,236,255,0.9)" },
-      hoverinfo:"text",
-      hovertext: H,
-      customdata: custom,
-      marker:{
-        size: sizes,
-        color: colors,
-        colorscale:"Turbo",
-        cmin:0, cmax:1,
-        showscale:true,
-        colorbar:{ title:"Phase %" },
-        opacity: opacities,
-        line:{ width:lws, color:lcs }
+      function normTicker(t) {
+        const s = String(t || "")
+          .trim()
+          .toUpperCase();
+        if (s === "BRK-B") return "BRK.B";
+        return s;
       }
-    }];
-
-    // Faint trails (optional)
-    if (faintTrailsByTicker) {
-      for (const [tk, tr] of Object.entries(faintTrailsByTicker)) {
-        if (!tr || tr.length < 2) continue;
-        traces.push({
-          name:`trail_${tk}`,
-          type:"scatter",
-          mode:"lines+markers",
-          x: tr.map(p => swap ? (p.htf_score ?? 0) : (p.ltf_score ?? 0)),
-          y: tr.map(p => swap ? (p.ltf_score ?? 0) : (p.htf_score ?? 0)),
-          line:{ width:1, color:"rgba(180,200,255,0.22)" },
-          marker:{ size:4, color:"rgba(180,200,255,0.30)" },
-          hoverinfo:"skip",
-          showlegend:false
-        });
+      function groupsForTicker(t) {
+        const T = normTicker(t);
+        const out = [];
+        for (const [g, set] of Object.entries(GROUPS))
+          if (set.has(T)) out.push(g);
+        return out;
       }
-    }
-
-    // Selected trail (line + gradient points)
-    if (selectedTrail && selectedTrail.length >= 2) {
-      const tx = selectedTrail.map(p => swap ? (p.htf_score ?? 0) : (p.ltf_score ?? 0));
-      const ty = selectedTrail.map(p => swap ? (p.ltf_score ?? 0) : (p.htf_score ?? 0));
-      const n = tx.length;
-
-      const sizes2 = Array.from({length:n}, (_,i) => 5 + (i/(n-1))*8); // 5..13
-      const alphas = Array.from({length:n}, (_,i) => 0.25 + (i/(n-1))*0.75); // 0.25..1
-      const colors2 = alphas.map(a => `rgba(180,200,255,${a.toFixed(3)})`);
-      const symbols = Array.from({length:n}, (_,i) => i===0 ? "circle-open" : (i===n-1 ? "star" : "circle"));
-
-      traces.push({
-        name:"selected_trail_line",
-        type:"scatter",
-        mode:"lines",
-        x: tx, y: ty,
-        line:{ width:3, color:"rgba(180,200,255,0.65)" },
-        hoverinfo:"skip",
-        showlegend:false
-      });
-
-      traces.push({
-        name:"selected_trail_pts",
-        type:"scatter",
-        mode:"markers",
-        x: tx, y: ty,
-        marker:{
-          size: sizes2,
-          color: colors2,
-          symbol: symbols,
-          line: { width: 1, color: "rgba(255,255,255,0.45)" }
-        },
-        hoverinfo:"skip",
-        showlegend:false
-      });
-    }
-
-    const xTitle = swap ? "HTF Score" : "LTF Score";
-    const yTitle = swap ? "LTF Score" : "HTF Score";
-
-    const layout = {
-      paper_bgcolor:"rgba(0,0,0,0)",
-      plot_bgcolor:"rgba(0,0,0,0)",
-      margin:{ l:55, r:24, t:20, b:55 },
-      xaxis:{ title:xTitle, range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
-      yaxis:{ title:yTitle, range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
-      shapes: corridorShapes(swap),
-      annotations:[
-        { x:-35, y: 42, xref:"x", yref:"y", text:"Q1 Prep", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x: 35, y: 42, xref:"x", yref:"y", text:"Q2 Bull", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x:-35, y:-45, xref:"x", yref:"y", text:"Q3 Bear", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x: 35, y:-45, xref:"x", yref:"y", text:"Q4 Pullback", showarrow:false, font:{color:"#93a4d6", size:12} }
-      ]
-    };
-
-    Plotly.react("chart", traces, layout, { responsive:true, displayModeBar:true });
-
-    // Bind click once
-    if (!clickHandlerBound) {
-      el("chart").on("plotly_click", (evt) => {
-        const p = evt?.points?.[0];
-        const cd = p?.customdata;
-        if (!cd?.ticker) return;
-        window.open(cd.tv, "_blank", "noopener,noreferrer");
-        selectTicker(cd.ticker);
-      });
-      clickHandlerBound = true;
-    }
-    
-    updateStats(points);
-  }
-
-  function updateStats(points) {
-    if (!points || !points.length) {
-      el("statCount").textContent = "0";
-      el("statEligible").textContent = "0";
-      el("statCorridor").textContent = "0";
-      return;
-    }
-    
-    const eligible = points.filter(p => p._eligible !== false).length;
-    const inCorridor = points.filter(p => entryType(p).corridor).length;
-    
-    el("statCount").textContent = points.length;
-    el("statEligible").textContent = eligible;
-    el("statCorridor").textContent = inCorridor;
-  }
-
-    function setActiveTab(which) {
-    ["tabLong","tabShort","tabSetup"].forEach(id => {
-      const node = el(id);
-      if (node) node.classList.remove("active");
-    });
-    const w = el(which);
-    if (w) w.classList.add("active");
-  }
-
-  function renderListTopFromPoints(points, tab) {
-    // tab: "long" | "short" | "setup"
-    const isLong  = (d)=> d.state === "HTF_BULL_LTF_BULL";
-    const isShort = (d)=> d.state === "HTF_BEAR_LTF_BEAR";
-    const isSetup = (d)=> d.state === "HTF_BULL_LTF_PULLBACK" || d.state === "HTF_BEAR_LTF_PULLBACK";
-
-    const pool =
-      tab === "long"  ? points.filter(isLong) :
-      tab === "short" ? points.filter(isShort) :
-                        points.filter(isSetup);
-
-    // Sort by rank desc then RR desc
-    pool.sort((a,b)=> (Number(b.rank||0)-Number(a.rank||0)) || (Number(b.rr||0)-Number(a.rr||0)));
-
-    // Take top N (bigger gives grouping value)
-    const topN = pool.slice(0, 30);
-    renderList(topN);
-  }
-
-  // Grouped sidebar rendering (ticker can appear in multiple groups)
-  function renderList(items) {
-    const list = el("topList");
-    list.innerHTML = "";
-
-    const order = ["SP_Sectors","UPTICKS","SuperGranny","GRNI","GRNJ","GRNY","Social","UNGROUPED"];
-    const labelMap = {
-      SP_Sectors: "S&P Sectors",
-      UPTICKS: "UPTICKS",
-      SuperGranny: "SuperGranny",
-      GRNI: "GRNI",
-      GRNJ: "GRNJ",
-      GRNY: "GRNY",
-      Social: "Social",
-      UNGROUPED: "Ungrouped"
-    };
-
-    const buckets = new Map();
-    for (const g of order) buckets.set(g, new Map());
-
-    for (const d of items) {
-      const t = normTicker(d.ticker || d.symbol || d.contract || "—");
-      const gs = groupsForTicker(t);
-      const targets = gs.length ? gs : ["UNGROUPED"];
-      for (const g of targets) {
-        if (!buckets.has(g)) buckets.set(g, new Map());
-        buckets.get(g).set(t, { ...d, ticker: t });
-      }
-    }
-
-    for (const g of order) {
-      const map = buckets.get(g);
-      if (!map || map.size === 0) continue;
-
-      const arr = Array.from(map.values());
-      arr.sort((a,b) => (Number(b.rank||0) - Number(a.rank||0)) || (Number(b.rr||0) - Number(a.rr||0)));
-
-      const hdr = document.createElement("div");
-      hdr.className = "groupHdr";
-      hdr.textContent = `Group: ${labelMap[g] || g} (${arr.length})`;
-      list.appendChild(hdr);
-
-      arr.forEach(d => {
-        const t = normTicker(d.ticker || d.symbol || d.contract || "—");
-        const rr = (d.rr != null) ? Number(d.rr).toFixed(2) : "—";
-        const comp = fmtPct01(completionForSize(d));
-        const ph = d.phase_pct != null ? Math.round(Number(d.phase_pct)*100) + "%" + (d.phase_zone ? " (" + d.phase_zone + ")" : "") : "—";
-        const sq = d.flags?.sq30_release ? "⚡" : (d.flags?.sq30_on ? "🧨" : "");
-        const corridor = entryType(d);
-        const corridorTag = corridor.corridor ? (corridor.side==="LONG" ? "LONG corridor" : "SHORT corridor") : "—";
-        const why = whyString(d);
-
+      function passesGroupFilter(t) {
+        const sel = el("groupSel").value;
+        if (sel === "ALL") return true;
         const gs = groupsForTicker(t);
-        const gsTxt = gs.length ? gs.join(", ") : "—";
+        if (sel === "ANY") return gs.length > 0;
+        if (sel === "UNGROUPED") return gs.length === 0;
+        return gs.includes(sel);
+      }
 
-        const div = document.createElement("div");
-        div.className = "item";
-        div.innerHTML = `
+      // ─────────────────────────────────────────────────────────────
+      // Corridors (must match Worker)
+      // ─────────────────────────────────────────────────────────────
+      const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
+      const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
+
+      const TRAIL_MAX_POINTS = 8;
+      const FLASH_PERIOD_MS = 900;
+      const LABEL_SIZE_THRESHOLD = 28;
+
+      const STALE_WARN_MIN = 30;
+      const STALE_MAX_MIN = 240;
+
+      // Stability
+      let lastGoodPoints = [];
+      let lastUnfilteredData = null; // Store raw data before filtering
+      let refreshInFlight = false;
+      let refreshAbort = null;
+      let isUserFilterChange = false; // Track intentional filter changes
+
+      // Selection
+      let clickHandlerBound = false;
+      let selectedTicker = null;
+      let selectedTrail = null;
+
+      // Trails cache
+      const trailCache = new Map(); // ticker -> { atMs, trail }
+      const TRAIL_CACHE_TTL_MS = 60_000;
+
+      // Hover cache (small perf win)
+      const hoverCache = new Map(); // key -> html
+
+      // Debounce
+      let debounceTimer = null;
+      const DEBOUNCE_MS = 250;
+
+      // Tabs / auto refresh
+      let currentTab = "long";
+      let refreshTimer = null;
+
+      // Flash loop state
+      let flashTimer = null;
+      let lastFaintTrails = null;
+
+      // Performance: use requestAnimationFrame for renders
+      let renderScheduled = false;
+      let pendingRender = null;
+
+      function flashAlpha() {
+        const t = Date.now() % FLASH_PERIOD_MS;
+        return (
+          0.35 +
+          0.55 * (0.5 + 0.5 * Math.sin((t / FLASH_PERIOD_MS) * 2 * Math.PI))
+        );
+      }
+
+      function startFlashLoop() {
+        if (flashTimer) return;
+        flashTimer = setInterval(() => {
+          // Don't fight refresh / fetch
+          if (refreshInFlight) return;
+          if (!lastGoodPoints.length) return;
+          // Preserve faint trails + selected trail during flash frames
+          scheduleRender(lastGoodPoints, lastFaintTrails);
+        }, 350);
+      }
+      function stopFlashLoop() {
+        if (flashTimer) clearInterval(flashTimer);
+        flashTimer = null;
+      }
+
+      function anyShouldFlash(points) {
+        return points.some(
+          (p) =>
+            p?.flags?.sq30_on && entryType(p).corridor && p._eligible !== false
+        );
+      }
+
+      function quadrantFromState(s) {
+        if (s === "HTF_BULL_LTF_PULLBACK") return "Q1";
+        if (s === "HTF_BULL_LTF_BULL") return "Q2";
+        if (s === "HTF_BEAR_LTF_BEAR") return "Q3";
+        if (s === "HTF_BEAR_LTF_PULLBACK") return "Q4";
+        return "Q?";
+      }
+
+      function stalenessOpacity(tsMs, d) {
+        if (!tsMs || typeof tsMs !== "number") return 0.65;
+        const ageMin = (Date.now() - tsMs) / 60000;
+
+        // Setup-aware staleness: valid setups stay visible longer
+        const ent = entryType(d || {});
+        const inCorridor = ent.corridor;
+        const comp = Number(d?.completion || 0);
+        const phase = Number(d?.phase_pct || 1);
+        const state = String(d?.state || "");
+        const aligned =
+          state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+        const isPrime = d ? isPrimeBubble(d) : false;
+
+        // If setup is still valid (in corridor, low completion, aligned, or prime), extend freshness
+        const setupStillValid = inCorridor && comp < 0.6 && phase < 0.7;
+        const isActiveSetup = setupStillValid || aligned || isPrime;
+
+        // Adjust staleness thresholds based on setup validity
+        const effectiveWarnMin = isActiveSetup
+          ? STALE_WARN_MIN * 2
+          : STALE_WARN_MIN; // 60 min for valid setups
+        const effectiveMaxMin = isActiveSetup
+          ? STALE_MAX_MIN * 1.5
+          : STALE_MAX_MIN; // 360 min for valid setups
+
+        if (ageMin <= effectiveWarnMin) return 0.92;
+        const t = clamp(
+          (ageMin - effectiveWarnMin) /
+            Math.max(1, effectiveMaxMin - effectiveWarnMin),
+          0,
+          1
+        );
+        // Prime setups fade slower
+        const fadeRate = isPrime ? 0.5 : isActiveSetup ? 0.6 : 0.74;
+        return 0.92 - t * fadeRate;
+      }
+
+      function fmtNum(v, d = 2) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        return n.toFixed(d);
+      }
+      function fmtPct01(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        return `${Math.round(n * 100)}%`;
+      }
+
+      // Determine if a bubble is "prime" (high-quality setup)
+      function isPrimeBubble(d) {
+        const rank = Number(d.rank || 0);
+        const rr = d.rr != null ? Number(d.rr) : 0;
+        const comp = d.completion != null ? Number(d.completion) : 1;
+        const phase = d.phase_pct != null ? Number(d.phase_pct) : 1;
+        const flags = d.flags || {};
+        const sqRel = !!flags.sq30_release;
+        const phaseZoneChange = !!flags.phase_zone_change;
+        const state = String(d.state || "");
+        const aligned =
+          state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+
+        // Prime criteria (all must be true):
+        // 1. High rank (>= 75)
+        // 2. Good RR (>= 1.5)
+        // 3. Low completion (< 0.4) - early in move
+        // 4. Low phase (< 0.6) - not exhausted
+        // 5. In aligned state OR has squeeze release OR phase zone change
+        const primeRank = rank >= 75;
+        const primeRR = rr >= 1.5;
+        const primeComp = comp < 0.4;
+        const primePhase = phase < 0.6;
+        const primeSignal = aligned || sqRel || phaseZoneChange;
+
+        return primeRank && primeRR && primeComp && primePhase && primeSignal;
+      }
+
+      // Bubble completion for sizing: TP progress if available, else payload completion
+      function completionForSize(d) {
+        const c = Number(d.completion);
+        const trig = Number(d.trigger_price);
+        const tp = Number(d.tp);
+        const px = Number(d.price);
+        if ([trig, tp, px].every(Number.isFinite) && tp !== trig) {
+          const prog = (px - trig) / (tp - trig);
+          return clamp(Math.abs(prog), 0, 1);
+        }
+        return Number.isFinite(c) ? clamp(c, 0, 1) : 0;
+      }
+
+      function tvUrlForTicker(ticker) {
+        const q = encodeURIComponent(ticker);
+        return `https://www.tradingview.com/chart/?symbol=${q}`;
+      }
+
+      function isLongCorridor(htf, ltf) {
+        return (
+          htf > 0 && ltf >= LONG_CORRIDOR.ltfMin && ltf <= LONG_CORRIDOR.ltfMax
+        );
+      }
+      function isShortCorridor(htf, ltf) {
+        return (
+          htf < 0 &&
+          ltf >= SHORT_CORRIDOR.ltfMin &&
+          ltf <= SHORT_CORRIDOR.ltfMax
+        );
+      }
+      function entryType(d) {
+        const h = Number(d.htf_score),
+          l = Number(d.ltf_score);
+        if (!Number.isFinite(h) || !Number.isFinite(l))
+          return { corridor: false, side: null };
+        if (isLongCorridor(h, l)) return { corridor: true, side: "LONG" };
+        if (isShortCorridor(h, l)) return { corridor: true, side: "SHORT" };
+        return { corridor: false, side: null };
+      }
+
+      function whyString(d) {
+        const reasons = Array.isArray(d.reasons) ? d.reasons : [];
+        const trig = d.trigger_reason
+          ? `${d.trigger_reason}${
+              d.trigger_dir ? " (" + d.trigger_dir + ")" : ""
+            }`
+          : "";
+        const corridor = entryType(d);
+        const corridorWhy = corridor.corridor
+          ? corridor.side === "LONG"
+            ? "Entry corridor (Q1→Q2)"
+            : "Entry corridor (Q4→Q3)"
+          : "";
+        const bits = [corridorWhy, trig].filter(Boolean);
+        return bits.length ? bits.join(" | ") : reasons[0] || "—";
+      }
+
+      function hoverText(t, d) {
+        const flags = d.flags || {};
+        const ageMin = (Date.now() - (d.ts || Date.now())) / 60000;
+        const corridor = entryType(d);
+        const eligible = d._eligible !== false;
+        const gs = groupsForTicker(t);
+
+        return [
+          `<b>${t}</b>`,
+          gs.length ? `Groups: ${gs.join(", ")}` : `Groups: —`,
+          `State: ${d.state || ""} (${quadrantFromState(d.state)})`,
+          corridor.corridor
+            ? `<b>${corridor.side} corridor</b>`
+            : `Not in entry corridor`,
+          `Why: ${whyString(d)}`,
+          `${isPrimeBubble(d) ? "⭐ PRIME SETUP ⭐" : ""}`,
+          `Eligible: ${eligible ? "YES" : "NO (fails RR/Rank filter)"}`,
+          `Rank: ${d.rank ?? "—"} | RR: ${
+            d.rr != null ? fmtNum(d.rr, 2) : "—"
+          }`,
+          `HTF: ${fmtNum(d.htf_score, 2)} | LTF: ${fmtNum(d.ltf_score, 2)}`,
+          `Bubble completion (TP-based): ${fmtPct01(completionForSize(d))}`,
+          `Phase: ${fmtPct01(d.phase_pct)}${
+            d.phase_zone ? " (" + d.phase_zone + ")" : ""
+          }`,
+          `Age: ${
+            Number.isFinite(ageMin) ? ageMin.toFixed(1) + "m" : "—"
+          } | Staleness: ${d.staleness || "—"}`,
+          `Trigger: ${fmtNum(d.trigger_price, 2)} | Price: ${fmtNum(
+            d.price,
+            2
+          )}`,
+          `SL: ${fmtNum(d.sl, 2)} | TP: ${fmtNum(d.tp, 2)} | ETA: ${
+            d.eta_days != null ? fmtNum(d.eta_days, 1) + "d" : "—"
+          }`,
+          `Flags: sq_on=${!!flags.sq30_on}, sq_rel=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}, phase_zone_change=${!!flags.phase_zone_change}`,
+        ].join("<br>");
+      }
+
+      function hoverTextCached(t, d) {
+        // Keep the key tight so it invalidates when relevant stuff changes
+        const key = `${t}|${d.ts}|${d.rank}|${d.rr}|${d.state}|${d.htf_score}|${d.ltf_score}`;
+        const got = hoverCache.get(key);
+        if (got) return got;
+        const txt = hoverText(t, d);
+        hoverCache.set(key, txt);
+        // prevent runaway growth
+        if (hoverCache.size > 600) {
+          // delete ~200 oldest-ish (Map preserves insertion order)
+          let i = 0;
+          for (const k of hoverCache.keys()) {
+            hoverCache.delete(k);
+            i++;
+            if (i >= 200) break;
+          }
+        }
+        return txt;
+      }
+
+      async function fetchJSON(url, signal = null) {
+        const res = await fetch(url, { cache: "no-store", signal });
+        if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
+        return await res.json();
+      }
+
+      async function fetchAll(signal = null) {
+        const url = el("endpoint").value;
+        const json = await fetchJSON(url, signal);
+        if (!json.ok) throw new Error("API not ok");
+        return json.data || {};
+      }
+
+      async function fetchTrail(ticker) {
+        const T = normTicker(ticker);
+        const now = Date.now();
+        const cached = trailCache.get(T);
+        if (cached && now - cached.atMs < TRAIL_CACHE_TTL_MS)
+          return cached.trail;
+
+        const base =
+          "https://timed-trading-ingest.shashant.workers.dev/timed/trail";
+        const url = `${base}?ticker=${encodeURIComponent(T)}`;
+        const json = await fetchJSON(url);
+        const trail =
+          json && json.ok && Array.isArray(json.trail)
+            ? json.trail.slice(-TRAIL_MAX_POINTS)
+            : [];
+        trailCache.set(T, { atMs: now, trail });
+        return trail;
+      }
+
+      function applyFilters(dataObj) {
+        const search = el("search").value.trim().toUpperCase();
+        const compMax = Number(el("compMax").value);
+        const rrMin = Number(el("rrMin").value);
+        const rankMin = Number(el("rankMin").value);
+        const swap = el("swapAxes").checked;
+        const eligibleOnly = el("eligibleOnly").checked;
+
+        const allow = new Set();
+        if (el("q1").checked) allow.add("HTF_BULL_LTF_PULLBACK");
+        if (el("q2").checked) allow.add("HTF_BULL_LTF_BULL");
+        if (el("q3").checked) allow.add("HTF_BEAR_LTF_BEAR");
+        if (el("q4").checked) allow.add("HTF_BEAR_LTF_PULLBACK");
+
+        const out = [];
+        for (const [tickerRaw, d] of Object.entries(dataObj)) {
+          if (!d) continue;
+          const T = normTicker(tickerRaw);
+
+          if (!passesGroupFilter(T)) continue;
+          if (search && !T.includes(search)) continue;
+          if (!allow.has(d.state)) continue;
+
+          const cs = completionForSize(d);
+          if (cs > compMax) continue;
+
+          const rr = d.rr != null ? Number(d.rr) : null;
+          const rk = d.rank != null ? Number(d.rank) : null;
+
+          const rrPass = rrMin <= 0 ? true : rr != null && rr >= rrMin;
+          const rkPass = rankMin <= 0 ? true : rk != null && rk >= rankMin;
+          const eligible = rrPass && rkPass;
+
+          if (eligibleOnly && !eligible) continue;
+
+          out.push({ ticker: T, ...d, _swap: swap, _eligible: eligible });
+        }
+        return out;
+      }
+
+      async function buildFaintTrails(points) {
+        if (!el("showFaintTrails").checked) return null;
+
+        const out = {};
+        const corridorTickers = points
+          .filter((p) => entryType(p).corridor)
+          .map((p) => p.ticker);
+
+        // avoid self-DOS
+        const MAX = 18;
+        const take = corridorTickers.slice(0, MAX);
+
+        await Promise.all(
+          take.map(async (t) => {
+            try {
+              out[t] = await fetchTrail(t);
+            } catch {}
+          })
+        );
+        return out;
+      }
+
+      function corridorShapes(swapAxes) {
+        const shapes = [];
+        if (!swapAxes) {
+          // x=LTF, y=HTF
+          shapes.push({
+            type: "rect",
+            xref: "x",
+            yref: "y",
+            x0: LONG_CORRIDOR.ltfMin,
+            x1: LONG_CORRIDOR.ltfMax,
+            y0: 0,
+            y1: 50,
+            fillcolor: "rgba(46,204,113,0.10)",
+            line: { width: 0 },
+          });
+          shapes.push({
+            type: "rect",
+            xref: "x",
+            yref: "y",
+            x0: SHORT_CORRIDOR.ltfMin,
+            x1: SHORT_CORRIDOR.ltfMax,
+            y0: -50,
+            y1: 0,
+            fillcolor: "rgba(231,76,60,0.10)",
+            line: { width: 0 },
+          });
+        } else {
+          // x=HTF, y=LTF
+          shapes.push({
+            type: "rect",
+            xref: "x",
+            yref: "y",
+            x0: 0,
+            x1: 50,
+            y0: LONG_CORRIDOR.ltfMin,
+            y1: LONG_CORRIDOR.ltfMax,
+            fillcolor: "rgba(46,204,113,0.10)",
+            line: { width: 0 },
+          });
+          shapes.push({
+            type: "rect",
+            xref: "x",
+            yref: "y",
+            x0: -50,
+            x1: 0,
+            y0: SHORT_CORRIDOR.ltfMin,
+            y1: SHORT_CORRIDOR.ltfMax,
+            fillcolor: "rgba(231,76,60,0.10)",
+            line: { width: 0 },
+          });
+        }
+        // outer frame
+        shapes.push({
+          type: "rect",
+          xref: "x",
+          yref: "y",
+          x0: -50,
+          x1: 50,
+          y0: -50,
+          y1: 50,
+          line: { color: "#3a4aa0", width: 1 },
+          fillcolor: "rgba(0,0,0,0)",
+        });
+        return shapes;
+      }
+
+      // Performance: Schedule render with requestAnimationFrame
+      function scheduleRender(points, faintTrailsByTicker) {
+        pendingRender = { points, faintTrailsByTicker };
+        if (!renderScheduled) {
+          renderScheduled = true;
+          requestAnimationFrame(() => {
+            if (pendingRender) {
+              render(pendingRender.points, pendingRender.faintTrailsByTicker);
+              pendingRender = null;
+            }
+            renderScheduled = false;
+          });
+        }
+      }
+
+      function render(points, faintTrailsByTicker) {
+        if (!window.Plotly)
+          throw new Error("Plotly failed to load (CDN blocked).");
+        if (!points || !points.length) {
+          Plotly.react(
+            "chart",
+            [],
+            { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)" },
+            { responsive: true }
+          );
+          updateStats(points);
+          return;
+        }
+
+        const swap = points[0]?._swap ?? false;
+
+        const labelsMode = el("labelsMode").value; // smart/off/all
+        const showText =
+          labelsMode === "all"
+            ? "all"
+            : labelsMode === "off"
+            ? "none"
+            : "smart";
+
+        const X = [],
+          Y = [],
+          H = [],
+          sizes = [],
+          colors = [],
+          opacities = [],
+          labels = [],
+          lws = [],
+          lcs = [],
+          custom = [];
+
+        for (const p of points) {
+          const h = Number(p.htf_score),
+            l = Number(p.ltf_score);
+          const x = swap ? h : l;
+          const y = swap ? l : h;
+
+          const compS = completionForSize(p);
+          const size = 10 + compS * 40;
+          const phase = Number.isFinite(Number(p.phase_pct))
+            ? Number(p.phase_pct)
+            : 0;
+
+          const flags = p.flags || {};
+          const sqRel = !!flags.sq30_release;
+          const sqOn = !!flags.sq30_on;
+
+          const ent = entryType(p);
+          const inCorridor = ent.corridor;
+
+          const eligible = p._eligible !== false;
+          const baseAlpha = stalenessOpacity(p.ts, p) * (eligible ? 1.0 : 0.18);
+          const alpha =
+            sqOn && inCorridor && eligible
+              ? Math.min(1, flashAlpha())
+              : baseAlpha;
+
+          const isPrime = isPrimeBubble(p);
+          const lw = isPrime ? 8 : sqRel ? 6 : sqOn ? 4 : 1;
+          const lc = isPrime
+            ? "rgba(46,204,113,1.0)"
+            : sqRel
+            ? "rgba(0,255,255,0.95)"
+            : sqOn
+            ? "rgba(255,215,0,0.95)"
+            : "rgba(255,255,255,0.35)";
+
+          let lbl = "";
+          const primeEmoji = isPrime ? "⭐" : "";
+          if (showText === "all") {
+            const sqEmoji = sqRel ? "⚡" : sqOn ? "🧨" : "";
+            lbl = `${p.ticker}${primeEmoji ? " " + primeEmoji : ""}${
+              sqEmoji ? " " + sqEmoji : ""
+            }`;
+          } else if (showText === "smart") {
+            const showLabel = size >= LABEL_SIZE_THRESHOLD || sqRel || isPrime;
+            const sqEmoji = sqRel ? "⚡" : sqOn ? "🧨" : "";
+            lbl = showLabel
+              ? `${p.ticker}${primeEmoji ? " " + primeEmoji : ""}${
+                  sqEmoji ? " " + sqEmoji : ""
+                }`
+              : "";
+          }
+
+          X.push(x);
+          Y.push(y);
+          H.push(hoverTextCached(p.ticker, p));
+          sizes.push(size);
+          colors.push(phase);
+          opacities.push(alpha);
+          labels.push(lbl);
+          lws.push(lw);
+          lcs.push(lc);
+          custom.push({ ticker: p.ticker, tv: tvUrlForTicker(p.ticker) });
+        }
+
+        const mode = labelsMode === "off" ? "markers" : "markers+text";
+
+        const traces = [
+          {
+            name: "bubbles",
+            type: "scatter",
+            mode,
+            x: X,
+            y: Y,
+            text: labels,
+            textposition: "top center",
+            textfont: { size: 12, color: "rgba(231,236,255,0.9)" },
+            hoverinfo: "text",
+            hovertext: H,
+            customdata: custom,
+            marker: {
+              size: sizes,
+              color: colors,
+              colorscale: "Turbo",
+              cmin: 0,
+              cmax: 1,
+              showscale: true,
+              colorbar: { title: "Phase %" },
+              opacity: opacities,
+              line: { width: lws, color: lcs },
+            },
+          },
+        ];
+
+        // Faint trails (optional)
+        if (faintTrailsByTicker) {
+          for (const [tk, tr] of Object.entries(faintTrailsByTicker)) {
+            if (!tr || tr.length < 2) continue;
+            traces.push({
+              name: `trail_${tk}`,
+              type: "scatter",
+              mode: "lines+markers",
+              x: tr.map((p) => (swap ? p.htf_score ?? 0 : p.ltf_score ?? 0)),
+              y: tr.map((p) => (swap ? p.ltf_score ?? 0 : p.htf_score ?? 0)),
+              line: { width: 1, color: "rgba(180,200,255,0.22)" },
+              marker: { size: 4, color: "rgba(180,200,255,0.30)" },
+              hoverinfo: "skip",
+              showlegend: false,
+            });
+          }
+        }
+
+        // Selected trail (line + gradient points)
+        if (selectedTrail && selectedTrail.length >= 2) {
+          const tx = selectedTrail.map((p) =>
+            swap ? p.htf_score ?? 0 : p.ltf_score ?? 0
+          );
+          const ty = selectedTrail.map((p) =>
+            swap ? p.ltf_score ?? 0 : p.htf_score ?? 0
+          );
+          const n = tx.length;
+
+          const sizes2 = Array.from(
+            { length: n },
+            (_, i) => 5 + (i / (n - 1)) * 8
+          ); // 5..13
+          const alphas = Array.from(
+            { length: n },
+            (_, i) => 0.25 + (i / (n - 1)) * 0.75
+          ); // 0.25..1
+          const colors2 = alphas.map(
+            (a) => `rgba(180,200,255,${a.toFixed(3)})`
+          );
+          const symbols = Array.from({ length: n }, (_, i) =>
+            i === 0 ? "circle-open" : i === n - 1 ? "star" : "circle"
+          );
+
+          traces.push({
+            name: "selected_trail_line",
+            type: "scatter",
+            mode: "lines",
+            x: tx,
+            y: ty,
+            line: { width: 3, color: "rgba(180,200,255,0.65)" },
+            hoverinfo: "skip",
+            showlegend: false,
+          });
+
+          traces.push({
+            name: "selected_trail_pts",
+            type: "scatter",
+            mode: "markers",
+            x: tx,
+            y: ty,
+            marker: {
+              size: sizes2,
+              color: colors2,
+              symbol: symbols,
+              line: { width: 1, color: "rgba(255,255,255,0.45)" },
+            },
+            hoverinfo: "skip",
+            showlegend: false,
+          });
+        }
+
+        const xTitle = swap ? "HTF Score" : "LTF Score";
+        const yTitle = swap ? "LTF Score" : "HTF Score";
+
+        const layout = {
+          paper_bgcolor: "rgba(0,0,0,0)",
+          plot_bgcolor: "rgba(0,0,0,0)",
+          margin: { l: 55, r: 24, t: 20, b: 55 },
+          xaxis: {
+            title: xTitle,
+            range: [-50, 50],
+            zeroline: true,
+            zerolinecolor: "#9aa7d8",
+            gridcolor: "#26325f",
+          },
+          yaxis: {
+            title: yTitle,
+            range: [-50, 50],
+            zeroline: true,
+            zerolinecolor: "#9aa7d8",
+            gridcolor: "#26325f",
+          },
+          shapes: corridorShapes(swap),
+          annotations: [
+            {
+              x: -35,
+              y: 42,
+              xref: "x",
+              yref: "y",
+              text: "Q1 Prep",
+              showarrow: false,
+              font: { color: "#93a4d6", size: 12 },
+            },
+            {
+              x: 35,
+              y: 42,
+              xref: "x",
+              yref: "y",
+              text: "Q2 Bull",
+              showarrow: false,
+              font: { color: "#93a4d6", size: 12 },
+            },
+            {
+              x: -35,
+              y: -45,
+              xref: "x",
+              yref: "y",
+              text: "Q3 Bear",
+              showarrow: false,
+              font: { color: "#93a4d6", size: 12 },
+            },
+            {
+              x: 35,
+              y: -45,
+              xref: "x",
+              yref: "y",
+              text: "Q4 Pullback",
+              showarrow: false,
+              font: { color: "#93a4d6", size: 12 },
+            },
+          ],
+        };
+
+        Plotly.react("chart", traces, layout, {
+          responsive: true,
+          displayModeBar: true,
+        });
+
+        // Bind click once
+        if (!clickHandlerBound) {
+          el("chart").on("plotly_click", (evt) => {
+            const p = evt?.points?.[0];
+            const cd = p?.customdata;
+            if (!cd?.ticker) return;
+            window.open(cd.tv, "_blank", "noopener,noreferrer");
+            selectTicker(cd.ticker);
+          });
+          clickHandlerBound = true;
+        }
+
+        updateStats(points);
+      }
+
+      function updateStats(points) {
+        if (!points || !points.length) {
+          el("statCount").textContent = "0";
+          el("statEligible").textContent = "0";
+          el("statCorridor").textContent = "0";
+          return;
+        }
+
+        const eligible = points.filter((p) => p._eligible !== false).length;
+        const inCorridor = points.filter((p) => entryType(p).corridor).length;
+
+        el("statCount").textContent = points.length;
+        el("statEligible").textContent = eligible;
+        el("statCorridor").textContent = inCorridor;
+      }
+
+      function setActiveTab(which) {
+        ["tabLong", "tabShort", "tabSetup"].forEach((id) => {
+          const node = el(id);
+          if (node) node.classList.remove("active");
+        });
+        const w = el(which);
+        if (w) w.classList.add("active");
+      }
+
+      function renderListTopFromPoints(points, tab) {
+        // tab: "long" | "short" | "setup"
+        const isLong = (d) => d.state === "HTF_BULL_LTF_BULL";
+        const isShort = (d) => d.state === "HTF_BEAR_LTF_BEAR";
+        const isSetup = (d) =>
+          d.state === "HTF_BULL_LTF_PULLBACK" ||
+          d.state === "HTF_BEAR_LTF_PULLBACK";
+
+        const pool =
+          tab === "long"
+            ? points.filter(isLong)
+            : tab === "short"
+            ? points.filter(isShort)
+            : points.filter(isSetup);
+
+        // Sort by rank desc then RR desc
+        pool.sort(
+          (a, b) =>
+            Number(b.rank || 0) - Number(a.rank || 0) ||
+            Number(b.rr || 0) - Number(a.rr || 0)
+        );
+
+        // Take top N (bigger gives grouping value)
+        const topN = pool.slice(0, 30);
+        renderList(topN);
+      }
+
+      // Grouped sidebar rendering (ticker can appear in multiple groups)
+      function renderList(items) {
+        const list = el("topList");
+        list.innerHTML = "";
+
+        const order = [
+          "SP_Sectors",
+          "UPTICKS",
+          "SuperGranny",
+          "GRNI",
+          "GRNJ",
+          "GRNY",
+          "Social",
+          "UNGROUPED",
+        ];
+        const labelMap = {
+          SP_Sectors: "S&P Sectors",
+          UPTICKS: "UPTICKS",
+          SuperGranny: "SuperGranny",
+          GRNI: "GRNI",
+          GRNJ: "GRNJ",
+          GRNY: "GRNY",
+          Social: "Social",
+          UNGROUPED: "Ungrouped",
+        };
+
+        const buckets = new Map();
+        for (const g of order) buckets.set(g, new Map());
+
+        for (const d of items) {
+          const t = normTicker(d.ticker || d.symbol || d.contract || "—");
+          const gs = groupsForTicker(t);
+          const targets = gs.length ? gs : ["UNGROUPED"];
+          for (const g of targets) {
+            if (!buckets.has(g)) buckets.set(g, new Map());
+            buckets.get(g).set(t, { ...d, ticker: t });
+          }
+        }
+
+        for (const g of order) {
+          const map = buckets.get(g);
+          if (!map || map.size === 0) continue;
+
+          const arr = Array.from(map.values());
+          arr.sort(
+            (a, b) =>
+              Number(b.rank || 0) - Number(a.rank || 0) ||
+              Number(b.rr || 0) - Number(a.rr || 0)
+          );
+
+          const hdr = document.createElement("div");
+          hdr.className = "groupHdr";
+          hdr.textContent = `Group: ${labelMap[g] || g} (${arr.length})`;
+          list.appendChild(hdr);
+
+          arr.forEach((d) => {
+            const t = normTicker(d.ticker || d.symbol || d.contract || "—");
+            const rr = d.rr != null ? Number(d.rr).toFixed(2) : "—";
+            const comp = fmtPct01(completionForSize(d));
+            const ph =
+              d.phase_pct != null
+                ? Math.round(Number(d.phase_pct) * 100) +
+                  "%" +
+                  (d.phase_zone ? " (" + d.phase_zone + ")" : "")
+                : "—";
+            const sq = d.flags?.sq30_release
+              ? "⚡"
+              : d.flags?.sq30_on
+              ? "🧨"
+              : "";
+            const prime = isPrimeBubble(d);
+            const primeBadge = prime
+              ? '<span style="color:#2ecc71; font-weight:bold;">⭐ PRIME</span>'
+              : "";
+            const corridor = entryType(d);
+            const corridorTag = corridor.corridor
+              ? corridor.side === "LONG"
+                ? "LONG corridor"
+                : "SHORT corridor"
+              : "—";
+            const why = whyString(d);
+
+            const gs = groupsForTicker(t);
+            const gsTxt = gs.length ? gs.join(", ") : "—";
+
+            const div = document.createElement("div");
+            div.className = "item";
+            if (prime) {
+              div.style.border = "2px solid #2ecc71";
+              div.style.boxShadow = "0 0 8px rgba(46,204,113,0.3)";
+            }
+            div.innerHTML = `
           <div class="row">
-            <div><b>${t}</b> ${sq} <span class="badge">Rank ${d.rank ?? "—"}</span></div>
+            <div><b>${t}</b> ${sq} ${primeBadge} <span class="badge">Rank ${
+              d.rank ?? "—"
+            }</span></div>
             <div class="badge">RR ${rr}</div>
           </div>
           <div class="row" style="margin-top:6px;">
@@ -1009,181 +1679,276 @@
             <div class="k">Groups</div><div class="v">${gsTxt}</div>
           </div>
         `;
-        div.addEventListener("click", () => selectTicker(t));
-        list.appendChild(div);
-      });
-    }
-  }
+            div.addEventListener("click", () => selectTicker(t));
+            list.appendChild(div);
+          });
+        }
+      }
 
-  async function selectTicker(ticker) {
-    selectedTicker = normTicker(ticker);
-    const details = el("details");
-    details.innerHTML = `<h3>Selected</h3><div class="muted">Loading ${selectedTicker}…</div>`;
+      async function selectTicker(ticker) {
+        selectedTicker = normTicker(ticker);
+        const details = el("details");
+        details.innerHTML = `<h3>Selected</h3><div class="muted">Loading ${selectedTicker}…</div>`;
 
-    const latest = await fetchJSON(`https://timed-trading-ingest.shashant.workers.dev/timed/latest?ticker=${encodeURIComponent(selectedTicker)}`);
-    const d = latest.data || null;
-    selectedTrail = await fetchTrail(selectedTicker);
+        const latest = await fetchJSON(
+          `https://timed-trading-ingest.shashant.workers.dev/timed/latest?ticker=${encodeURIComponent(
+            selectedTicker
+          )}`
+        );
+        const d = latest.data || null;
+        selectedTrail = await fetchTrail(selectedTicker);
 
-    if (!d) {
-      details.innerHTML = `<h3>Selected</h3><div class="muted">No data for ${selectedTicker}</div>`;
-      return;
-    }
+        if (!d) {
+          details.innerHTML = `<h3>Selected</h3><div class="muted">No data for ${selectedTicker}</div>`;
+          return;
+        }
 
-    const ent = entryType(d);
-    const side = ent.side || (d.state === "HTF_BULL_LTF_BULL" ? "LONG" : d.state === "HTF_BEAR_LTF_BEAR" ? "SHORT" : "—");
-    const why = whyString(d);
-    const gs = groupsForTicker(selectedTicker);
+        const ent = entryType(d);
+        const side =
+          ent.side ||
+          (d.state === "HTF_BULL_LTF_BULL"
+            ? "LONG"
+            : d.state === "HTF_BEAR_LTF_BEAR"
+            ? "SHORT"
+            : "—");
+        const why = whyString(d);
+        const gs = groupsForTicker(selectedTicker);
+        const prime = isPrimeBubble(d);
+        const primeCallout = prime
+          ? '<div style="background:#2ecc71; color:#0b1020; padding:8px; border-radius:8px; margin-bottom:10px; font-weight:bold; text-align:center;">⭐ PRIME SETUP ⭐</div>'
+          : "";
 
-    details.innerHTML = `
+        details.innerHTML = `
       <h3>${selectedTicker}</h3>
-      <div class="muted">${gs.length ? "Groups: " + gs.join(", ") : "Groups: —"}</div>
+      ${primeCallout}
+      <div class="muted">${
+        gs.length ? "Groups: " + gs.join(", ") : "Groups: —"
+      }</div>
 
       <div class="tradeCard" style="margin-top:8px;">
-        <div class="tradeTitle">${ent.corridor ? (side==="LONG" ? "LONG ENTRY SETUP" : "SHORT ENTRY SETUP") : "CONTEXT / MONITOR"}</div>
+        <div class="tradeTitle">${
+          ent.corridor
+            ? side === "LONG"
+              ? "LONG ENTRY SETUP"
+              : "SHORT ENTRY SETUP"
+            : "CONTEXT / MONITOR"
+        }</div>
         <div class="muted" style="margin-top:6px;">${why}</div>
 
         <div class="pillRow">
           <span class="chip">Dir: ${side}</span>
           <span class="chip">Rank: ${d.rank ?? "—"}</span>
-          <span class="chip">RR: ${d.rr != null ? fmtNum(d.rr,2) : "—"}</span>
-          <span class="chip">ETA: ${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}</span>
+          <span class="chip">RR: ${d.rr != null ? fmtNum(d.rr, 2) : "—"}</span>
+          <span class="chip">ETA: ${
+            d.eta_days != null ? fmtNum(d.eta_days, 1) + "d" : "—"
+          }</span>
         </div>
 
         <div class="hr"></div>
 
-        <div class="row"><div class="k">Trigger</div><div class="v">${fmtNum(d.trigger_price,2)} (${d.trigger_reason||"—"} ${d.trigger_dir?`/${d.trigger_dir}`:""})</div></div>
-        <div class="row"><div class="k">Price now</div><div class="v">${fmtNum(d.price,2)}</div></div>
-        <div class="row"><div class="k">Stop (SL)</div><div class="v">${fmtNum(d.sl,2)}</div></div>
-        <div class="row"><div class="k">Target (TP)</div><div class="v">${fmtNum(d.tp,2)}</div></div>
-        <div class="row"><div class="k">Bubble size</div><div class="v">${fmtPct01(completionForSize(d))} toward TP</div></div>
+        <div class="row"><div class="k">Trigger</div><div class="v">${fmtNum(
+          d.trigger_price,
+          2
+        )} (${d.trigger_reason || "—"} ${
+          d.trigger_dir ? `/${d.trigger_dir}` : ""
+        })</div></div>
+        <div class="row"><div class="k">Price now</div><div class="v">${fmtNum(
+          d.price,
+          2
+        )}</div></div>
+        <div class="row"><div class="k">Stop (SL)</div><div class="v">${fmtNum(
+          d.sl,
+          2
+        )}</div></div>
+        <div class="row"><div class="k">Target (TP)</div><div class="v">${fmtNum(
+          d.tp,
+          2
+        )}</div></div>
+        ${
+          d.tp_levels && Array.isArray(d.tp_levels) && d.tp_levels.length > 1
+            ? `<div class="row"><div class="k">TP Levels</div><div class="v" style="font-size:11px;">${d.tp_levels
+                .map((tp) => fmtNum(tp, 2))
+                .join(", ")}</div></div>`
+            : ""
+        }
+        <div class="row"><div class="k">Bubble size</div><div class="v">${fmtPct01(
+          completionForSize(d)
+        )} toward TP</div></div>
 
         <div class="hr"></div>
 
-        <div class="row"><div class="k">HTF/LTF</div><div class="v">${fmtNum(d.htf_score,2)} / ${fmtNum(d.ltf_score,2)}</div></div>
-        <div class="row"><div class="k">Phase</div><div class="v">${fmtPct01(d.phase_pct)}${d.phase_zone ? " (" + d.phase_zone + ")" : ""}</div></div>
-        <div class="row"><div class="k">Open TV</div><div class="v"><a href="${tvUrlForTicker(selectedTicker)}" target="_blank" rel="noopener noreferrer">TradingView</a></div></div>
+        <div class="row"><div class="k">HTF/LTF</div><div class="v">${fmtNum(
+          d.htf_score,
+          2
+        )} / ${fmtNum(d.ltf_score, 2)}</div></div>
+        <div class="row"><div class="k">Phase</div><div class="v">${fmtPct01(
+          d.phase_pct
+        )}${d.phase_zone ? " (" + d.phase_zone + ")" : ""}</div></div>
+        <div class="row"><div class="k">Open TV</div><div class="v"><a href="${tvUrlForTicker(
+          selectedTicker
+        )}" target="_blank" rel="noopener noreferrer">TradingView</a></div></div>
       </div>
     `;
 
-    scheduleRefresh(); // redraw with selected trail
-  }
-
-  function scheduleRefresh() {
-    isUserFilterChange = true; // Mark as intentional filter change
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => refresh(), DEBOUNCE_MS);
-  }
-
-  async function refresh() {
-    const s = el("status");
-    if (refreshInFlight) return;
-    refreshInFlight = true;
-
-    try {
-      if (refreshAbort) refreshAbort.abort();
-      refreshAbort = new AbortController();
-      const signal = refreshAbort.signal;
-
-      if (s) s.textContent = "Loading…";
-
-      const dataObj = await fetchAll(signal);
-      lastUnfilteredData = dataObj; // Store raw data
-      const points = applyFilters(dataObj);
-
-      // blink guard: only trigger on network issues, not intentional filter changes
-      const minKeep = Math.max(6, Math.floor(lastGoodPoints.length * 0.30));
-      const looksLikeBlink = !isUserFilterChange && lastGoodPoints.length > 0 && points.length < minKeep;
-
-      if (looksLikeBlink) {
-        scheduleRender(lastGoodPoints, lastFaintTrails);
-        renderListTopFromPoints(lastGoodPoints, currentTab);
-
-        // flash state from stable view
-        if (anyShouldFlash(lastGoodPoints)) startFlashLoop(); else stopFlashLoop();
-
-        if (s) s.textContent = `Loaded ${points.length} (holding stable view) • ${new Date().toLocaleTimeString()}`;
-        return;
+        scheduleRefresh(); // redraw with selected trail
       }
 
-      // Reset filter change flag after processing
-      isUserFilterChange = false;
-      lastGoodPoints = points;
-
-      const faint = await buildFaintTrails(points).catch(()=> null);
-      lastFaintTrails = faint;
-
-      scheduleRender(points, faint);
-      renderListTopFromPoints(points, currentTab);
-
-      // start/stop flash based on current view
-      if (anyShouldFlash(points)) startFlashLoop(); else stopFlashLoop();
-
-      if (s) s.textContent = `Loaded ${points.length} tickers • ${new Date().toLocaleTimeString()}`;
-    } catch (e) {
-      if (String(e?.name || "").toLowerCase().includes("abort")) {
-        if (s) s.textContent = `Refreshing…`;
-        return;
+      function scheduleRefresh() {
+        isUserFilterChange = true; // Mark as intentional filter change
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => refresh(), DEBOUNCE_MS);
       }
-      console.error(e);
 
-      if (lastGoodPoints.length) {
-        scheduleRender(lastGoodPoints, lastFaintTrails);
-        renderListTopFromPoints(lastGoodPoints, currentTab);
+      async function refresh() {
+        const s = el("status");
+        if (refreshInFlight) return;
+        refreshInFlight = true;
 
-        if (anyShouldFlash(lastGoodPoints)) startFlashLoop(); else stopFlashLoop();
+        try {
+          if (refreshAbort) refreshAbort.abort();
+          refreshAbort = new AbortController();
+          const signal = refreshAbort.signal;
 
-        if (s) s.textContent = `Network hiccup — stable view • ${new Date().toLocaleTimeString()}`;
-      } else {
-        stopFlashLoop();
-        if (s) s.textContent = `Error: ${e.message}`;
+          if (s) s.textContent = "Loading…";
+
+          const dataObj = await fetchAll(signal);
+          lastUnfilteredData = dataObj; // Store raw data
+          const points = applyFilters(dataObj);
+
+          // blink guard: only trigger on network issues, not intentional filter changes
+          const minKeep = Math.max(6, Math.floor(lastGoodPoints.length * 0.3));
+          const looksLikeBlink =
+            !isUserFilterChange &&
+            lastGoodPoints.length > 0 &&
+            points.length < minKeep;
+
+          if (looksLikeBlink) {
+            scheduleRender(lastGoodPoints, lastFaintTrails);
+            renderListTopFromPoints(lastGoodPoints, currentTab);
+
+            // flash state from stable view
+            if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
+            else stopFlashLoop();
+
+            if (s)
+              s.textContent = `Loaded ${
+                points.length
+              } (holding stable view) • ${new Date().toLocaleTimeString()}`;
+            return;
+          }
+
+          // Reset filter change flag after processing
+          isUserFilterChange = false;
+          lastGoodPoints = points;
+
+          const faint = await buildFaintTrails(points).catch(() => null);
+          lastFaintTrails = faint;
+
+          scheduleRender(points, faint);
+          renderListTopFromPoints(points, currentTab);
+
+          // start/stop flash based on current view
+          if (anyShouldFlash(points)) startFlashLoop();
+          else stopFlashLoop();
+
+          if (s)
+            s.textContent = `Loaded ${
+              points.length
+            } tickers • ${new Date().toLocaleTimeString()}`;
+        } catch (e) {
+          if (
+            String(e?.name || "")
+              .toLowerCase()
+              .includes("abort")
+          ) {
+            if (s) s.textContent = `Refreshing…`;
+            return;
+          }
+          console.error(e);
+
+          if (lastGoodPoints.length) {
+            scheduleRender(lastGoodPoints, lastFaintTrails);
+            renderListTopFromPoints(lastGoodPoints, currentTab);
+
+            if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
+            else stopFlashLoop();
+
+            if (s)
+              s.textContent = `Network hiccup — stable view • ${new Date().toLocaleTimeString()}`;
+          } else {
+            stopFlashLoop();
+            if (s) s.textContent = `Error: ${e.message}`;
+          }
+        } finally {
+          refreshInFlight = false;
+        }
       }
-    } finally {
-      refreshInFlight = false;
-    }
-  }
 
-  function resetAutoRefresh() {
-    if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = null;
-    const sec = Number(el("refreshSec").value);
-    if (sec > 0) refreshTimer = setInterval(() => refresh(), sec * 1000);
-  }
+      function resetAutoRefresh() {
+        if (refreshTimer) clearInterval(refreshTimer);
+        refreshTimer = null;
+        const sec = Number(el("refreshSec").value);
+        if (sec > 0) refreshTimer = setInterval(() => refresh(), sec * 1000);
+      }
 
-  // Wire events (debounced)
-  on("refreshBtn","click", ()=> refresh());
-  on("refreshSec","change", ()=> { resetAutoRefresh(); refresh(); });
+      // Wire events (debounced)
+      on("refreshBtn", "click", () => refresh());
+      on("refreshSec", "change", () => {
+        resetAutoRefresh();
+        refresh();
+      });
 
-  // Select elements use "change", others use "input"
-  on("groupSel","change", ()=> scheduleRefresh());
-  on("compMax","change", ()=> scheduleRefresh());
-  on("rrMin","change", ()=> scheduleRefresh());
-  on("rankMin","change", ()=> scheduleRefresh());
-  on("labelsMode","change", ()=> scheduleRefresh());
+      // Select elements use "change", others use "input"
+      on("groupSel", "change", () => scheduleRefresh());
+      on("compMax", "change", () => scheduleRefresh());
+      on("rrMin", "change", () => scheduleRefresh());
+      on("rankMin", "change", () => scheduleRefresh());
+      on("labelsMode", "change", () => scheduleRefresh());
 
-  ["search","q1","q2","q3","q4","swapAxes","eligibleOnly","showFaintTrails"]
-    .forEach(id => on(id,"input", ()=> scheduleRefresh()));
+      [
+        "search",
+        "q1",
+        "q2",
+        "q3",
+        "q4",
+        "swapAxes",
+        "eligibleOnly",
+        "showFaintTrails",
+      ].forEach((id) => on(id, "input", () => scheduleRefresh()));
 
-  on("tabLong","click", ()=>{ currentTab="long"; setActiveTab("tabLong"); scheduleRefresh(); });
-  on("tabShort","click",()=>{ currentTab="short"; setActiveTab("tabShort"); scheduleRefresh(); });
-  on("tabSetup","click",()=>{ currentTab="setup"; setActiveTab("tabSetup"); scheduleRefresh(); });
-  // If tab is hidden, stop flashing to save CPU/battery
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopFlashLoop();
-    else if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
-  });
+      on("tabLong", "click", () => {
+        currentTab = "long";
+        setActiveTab("tabLong");
+        scheduleRefresh();
+      });
+      on("tabShort", "click", () => {
+        currentTab = "short";
+        setActiveTab("tabShort");
+        scheduleRefresh();
+      });
+      on("tabSetup", "click", () => {
+        currentTab = "setup";
+        setActiveTab("tabSetup");
+        scheduleRefresh();
+      });
+      // If tab is hidden, stop flashing to save CPU/battery
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) stopFlashLoop();
+        else if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
+      });
 
-  // Collapsible filter section
-  on("filterToggle","click", () => {
-    const header = el("filterToggle");
-    const content = el("filterContent");
-    const isCollapsed = header.classList.contains("collapsed");
-    header.classList.toggle("collapsed");
-    content.classList.toggle("expanded");
-  });
+      // Collapsible filter section
+      on("filterToggle", "click", () => {
+        const header = el("filterToggle");
+        const content = el("filterContent");
+        const isCollapsed = header.classList.contains("collapsed");
+        header.classList.toggle("collapsed");
+        content.classList.toggle("expanded");
+      });
 
-  populateGroupSelect();
-  resetAutoRefresh();
-  refresh();
-</script>
-</body>
+      populateGroupSelect();
+      resetAutoRefresh();
+      refresh();
+    </script>
+  </body>
 </html>

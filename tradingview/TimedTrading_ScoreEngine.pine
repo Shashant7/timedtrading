@@ -57,6 +57,8 @@ usePhaseZones = input.bool(true, "Graduated phase zones", group=groupPhase)
 groupTP = "TP/SL (Dynamic)"
 expMoveATRx = input.float(2.0, "Expected move = ATRw × (swing)", group=groupTP, step=0.1, minval=0.1)
 useDynamicTP = input.bool(true, "Dynamic TP based on swing size", group=groupTP)
+useEnhancedTP = input.bool(true, "Enhanced TP: ATR ladder levels", group=groupTP)
+minTPDistanceATR = input.float(1.0, "Min TP distance from trigger (ATR multiple)", group=groupTP, step=0.1, minval=0.5)
 useVolatilitySL = input.bool(true, "Volatility-adjusted SL", group=groupTP)
 usePivotSR = input.bool(true, "Pivot-based S/R integration", group=groupTP)
 pivotLookback = input.int(5, "Pivot lookback", group=groupTP, minval=3, maxval=10)
@@ -111,6 +113,10 @@ GGdn = PCd - ggATRmult * ATRd
 //─────────────────────────────────────────────────────────────────────────────
 PCw  = request.security(syminfo.tickerid, "W", close[1],   barmerge.gaps_off, barmerge.lookahead_off)
 ATRw = request.security(syminfo.tickerid, "W", ta.atr(14), barmerge.gaps_off, barmerge.lookahead_off)
+
+// 4H anchors (for Position/Swing ATR levels)
+PC4H  = request.security(syminfo.tickerid, "240", close[1],   barmerge.gaps_off, barmerge.lookahead_off)
+ATR4H = request.security(syminfo.tickerid, "240", ta.atr(14), barmerge.gaps_off, barmerge.lookahead_off)
 
 // Recent swing for dynamic TP
 swingHighW = request.security(syminfo.tickerid, "W", ta.highest(high, 20), barmerge.gaps_off, barmerge.lookahead_off)
@@ -446,19 +452,131 @@ expectedMove = useDynamicTP ? expMoveATRx * math.max(ATRw, recentSwingW * 0.5) :
 completion = na(triggerPrice) or expectedMove <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / expectedMove, 0, 1)
 
 //─────────────────────────────────────────────────────────────────────────────
-// Enhanced TP/SL Calculation
+// Enhanced TP/SL Calculation (Multi-Timeframe, Multiple Targets)
 //─────────────────────────────────────────────────────────────────────────────
 price_now = close
 dir = htfBull ? 1 : -1
 
 // DYNAMIC TP based on swing size
 swingBasedATR = useDynamicTP ? math.max(ATRw, recentSwingW * 0.5) : ATRw
-tp618_up  = PCw + 0.618 * swingBasedATR
-tp100_up  = PCw + 1.000 * swingBasedATR
-tp161_up  = PCw + 1.618 * swingBasedATR  // Extension level
-tp618_dn  = PCw - 0.618 * swingBasedATR
-tp100_dn  = PCw - 1.000 * swingBasedATR
-tp161_dn  = PCw - 1.618 * swingBasedATR
+
+// Helper: Get multiplier by index (14 multipliers total)
+f_get_mult(int idx) =>
+    idx == 0 ? 0.382 : idx == 1 ? 0.500 : idx == 2 ? 0.618 : idx == 3 ? 0.786 : idx == 4 ? 1.000 : idx == 5 ? 1.236 : idx == 6 ? 1.382 : idx == 7 ? 1.500 : idx == 8 ? 1.618 : idx == 9 ? 1.786 : idx == 10 ? 2.000 : idx == 11 ? 2.236 : idx == 12 ? 2.618 : idx == 13 ? 3.000 : na
+
+// Helper: Calculate ATR levels for a given anchor (PC, ATR)
+f_atr_levels(float pc, float atr, bool isUp) =>
+    levels = array.new<float>()
+    // Key levels: 38.2%, 50%, 61.8%, 78.6%, 100%, 123.6%, 138.2%, 150%, 161.8%, 178.6%, 200%, 223.6%, 261.8%, 300%
+    // Use f_get_mult() to avoid array creation issues
+    if not na(pc) and not na(atr) and atr > 0
+        for i = 0 to 13
+            mult = f_get_mult(i)
+            if not na(mult)
+                level = isUp ? (pc + mult * atr) : (pc - mult * atr)
+                array.push(levels, level)
+    levels
+
+// Calculate levels from multiple timeframes (only if values are valid)
+levelsD = (not na(PCd) and not na(ATRd) and ATRd > 0) ? f_atr_levels(PCd, ATRd, dir == 1) : array.new<float>()
+levelsW = (not na(PCw) and not na(ATRw) and ATRw > 0) ? f_atr_levels(PCw, ATRw, dir == 1) : array.new<float>()
+levels4H = (not na(PC4H) and not na(ATR4H) and ATR4H > 0) ? f_atr_levels(PC4H, ATR4H, dir == 1) : array.new<float>()
+
+// Check if 38.2% has been crossed (using Weekly as primary)
+crossed382W = (not na(PCw) and not na(ATRw) and ATRw > 0) ? (dir == 1 ? (high >= (PCw + 0.382 * ATRw)) : (low <= (PCw - 0.382 * ATRw))) : false
+
+// Collect all valid targets from all timeframes
+allTargets = array.new<float>()
+
+// Add Weekly SuperTrend as target if not yet supportive
+if dir == 1 and not na(stLW) and stLW > price_now
+    array.push(allTargets, stLW)
+if dir == -1 and not na(stLW) and stLW < price_now
+    array.push(allTargets, stLW)
+
+// Add Daily levels (Position trading)
+sizeD = array.size(levelsD)
+if sizeD > 0
+    for i = 0 to sizeD - 1
+        if i < sizeD
+            level = array.get(levelsD, i)
+            if not na(level)
+                if dir == 1 and level > price_now
+                    array.push(allTargets, level)
+                if dir == -1 and level < price_now
+                    array.push(allTargets, level)
+
+// Add Weekly levels (Swing trading) - prioritize 61.8% and 100%
+sizeW = array.size(levelsW)
+if sizeW > 0
+    for i = 0 to sizeW - 1
+        if i < sizeW
+            level = array.get(levelsW, i)
+            if not na(level)
+                mult = f_get_mult(i)
+                if not na(mult)
+                    // Prioritize 61.8% and 100% levels
+                    isPriority = (mult == 0.618 or mult == 1.000)
+                    // If 38.2% crossed, 61.8% becomes more likely
+                    shouldInclude = isPriority or (crossed382W and mult >= 0.618) or (not crossed382W and mult >= 0.382)
+                    
+                    if shouldInclude
+                        if dir == 1 and level > price_now
+                            array.push(allTargets, level)
+                        if dir == -1 and level < price_now
+                            array.push(allTargets, level)
+
+// Add 4H levels (Position/Swing)
+size4H = array.size(levels4H)
+if size4H > 0
+    for i = 0 to size4H - 1
+        if i < size4H
+            level = array.get(levels4H, i)
+            if not na(level)
+                mult = f_get_mult(i)
+                if not na(mult)
+                    // Focus on key levels
+                    isKeyLevel = (mult == 0.618 or mult == 1.000 or mult == 1.618)
+                    if isKeyLevel
+                        if dir == 1 and level > price_now
+                            array.push(allTargets, level)
+                        if dir == -1 and level < price_now
+                            array.push(allTargets, level)
+
+// Sort and deduplicate targets
+if array.size(allTargets) > 0
+    // Sort: ascending for longs, descending for shorts
+    if dir == 1
+        array.sort(allTargets, order.ascending)
+    else
+        array.sort(allTargets, order.descending)
+    
+    // Deduplicate (within 0.1% tolerance)
+    uniqueTargets = array.new<float>()
+    sizeAll = array.size(allTargets)
+    if sizeAll > 0
+        for i = 0 to sizeAll - 1
+            if i < sizeAll
+                val = array.get(allTargets, i)
+                if not na(val)
+                    isUnique = true
+                    sizeUnique = array.size(uniqueTargets)
+                    if sizeUnique > 0
+                        for j = 0 to sizeUnique - 1
+                            if j < sizeUnique
+                                existing = array.get(uniqueTargets, j)
+                                if not na(existing) and existing > 0 and math.abs(val - existing) / existing < 0.001
+                                    isUnique := false
+                                    break
+                    if isUnique
+                        array.push(uniqueTargets, val)
+    
+    allTargets := uniqueTargets
+
+// Primary TP (first target, for backward compatibility)
+float tp = na
+if array.size(allTargets) > 0
+    tp := array.get(allTargets, 0)
 
 // Pivot-based S/R integration
 pivotHigh = request.security(syminfo.tickerid, "D", ta.pivothigh(high, pivotLookback, pivotLookback), barmerge.gaps_off, barmerge.lookahead_off)
@@ -475,36 +593,12 @@ for i = 0 to 20
         nearestSupport := pivotLow[i]
         break
 
-// Select TP (respect S/R if enabled)
-float tp = na
-if dir == 1
-    candidates = array.new<float>()
-    if tp618_up > price_now
-        array.push(candidates, tp618_up)
-    if tp100_up > price_now
-        array.push(candidates, tp100_up)
-    if tp161_up > price_now
-        array.push(candidates, tp161_up)
-    
-    if array.size(candidates) > 0
-        tp := array.min(candidates)
-        // Adjust to respect resistance
-        if usePivotSR and not na(nearestResistance) and nearestResistance < tp
-            tp := nearestResistance * 0.98  // 2% below resistance
-else
-    candidates = array.new<float>()
-    if tp618_dn < price_now
-        array.push(candidates, tp618_dn)
-    if tp100_dn < price_now
-        array.push(candidates, tp100_dn)
-    if tp161_dn < price_now
-        array.push(candidates, tp161_dn)
-    
-    if array.size(candidates) > 0
-        tp := array.max(candidates)
-        // Adjust to respect support
-        if usePivotSR and not na(nearestSupport) and nearestSupport > tp
-            tp := nearestSupport * 1.02  // 2% above support
+// Adjust TP to respect S/R if enabled
+if not na(tp) and usePivotSR
+    if dir == 1 and not na(nearestResistance) and nearestResistance < tp
+        tp := nearestResistance * 0.98  // 2% below resistance
+    if dir == -1 and not na(nearestSupport) and nearestSupport > tp
+        tp := nearestSupport * 1.02  // 2% above support
 
 // VOLATILITY-ADJUSTED SL
 atrStopBase = ATRw * 0.35
@@ -561,8 +655,21 @@ reason2 = (ltfBull ? "LTF bullish" : "LTF bearish") + " (30/10/3)"
 reason3 = sq30_rel ? ("30m SQUEEZE RELEASE " + (rel30Dir==1 ? "BULL" : "BEAR")) : (sq30 ? "30m SQUEEZE ON" : "30m no squeeze")
 reason4 = phaseDot ? ("D Phase " + (usePhaseZones ? phaseZoneD : "dot/leave")) : ("D Phase " + phaseDir + " pct=" + f_fmt(phasePct,2))
 
+// Build TP array string
+tpArrayStr = "["
+sizeAllTp = array.size(allTargets)
+if sizeAllTp > 0
+    for i = 0 to sizeAllTp - 1
+        if i < sizeAllTp
+            if i > 0
+                tpArrayStr += ","
+            val = array.get(allTargets, i)
+            if not na(val)
+                tpArrayStr += f_fmt(val, 2)
+tpArrayStr += "]"
+
 // Build JSON
-json =    "{" +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
+json =    "{" +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
 
 // Send
 if shouldSend
