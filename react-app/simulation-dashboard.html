@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading - Simulation Dashboard</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        background: #0a0f1e;
+        color: #e7ecff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .loading-spinner {
+        border: 3px solid #26325f;
+        border-top: 3px solid #3b82f6;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback, memo } = React;
+
+      // ─────────────────────────────────────────────────────────────
+      // Constants
+      // ─────────────────────────────────────────────────────────────
+      const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+      const TRADE_SIZE = 1000; // $1000 per trade
+      const FUTURES_TICKERS = new Set(["ES", "NQ", "YM", "RTY", "CL", "GC", "SI", "HG", "NG"]);
+
+      // ─────────────────────────────────────────────────────────────
+      // Hooks
+      // ─────────────────────────────────────────────────────────────
+      function useTickerData() {
+        const [data, setData] = useState({});
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [lastUpdate, setLastUpdate] = useState(null);
+
+        const fetchData = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const res = await fetch(`${API_BASE}/timed/all`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok && json.data) {
+              setData(json.data);
+              setLastUpdate(new Date());
+            } else {
+              throw new Error(json.error || "Invalid response");
+            }
+          } catch (err) {
+            setError(err.message);
+            console.error("Fetch error:", err);
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchData();
+          const interval = setInterval(fetchData, 30000); // Refresh every 30s
+          return () => clearInterval(interval);
+        }, [fetchData]);
+
+        return { data, loading, error, lastUpdate, refetch: fetchData };
+      }
+
+      function useSimulatedTrades() {
+        const [trades, setTrades] = useState(() => {
+          const saved = localStorage.getItem("simulatedTrades");
+          return saved ? JSON.parse(saved) : [];
+        });
+
+        useEffect(() => {
+          localStorage.setItem("simulatedTrades", JSON.stringify(trades));
+        }, [trades]);
+
+        const addTrade = useCallback((trade) => {
+          setTrades((prev) => [trade, ...prev]);
+        }, []);
+
+        const updateTrade = useCallback((tradeId, updates) => {
+          setTrades((prev) =>
+            prev.map((t) => (t.id === tradeId ? { ...t, ...updates } : t))
+          );
+        }, []);
+
+        const clearTrades = useCallback(() => {
+          if (confirm("Clear all simulated trades?")) {
+            setTrades([]);
+          }
+        }, []);
+
+        return { trades, addTrade, updateTrade, clearTrades };
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Trade Simulation Logic
+      // ─────────────────────────────────────────────────────────────
+      function shouldTriggerTrade(ticker, prevData) {
+        // Skip futures
+        if (FUTURES_TICKERS.has(ticker.ticker.toUpperCase())) return false;
+
+        // Must have valid entry/exit levels
+        if (!ticker.price || !ticker.sl || !ticker.tp) return false;
+
+        const flags = ticker.flags || {};
+        const state = String(ticker.state || "");
+        const alignedLong = state === "HTF_BULL_LTF_BULL";
+        const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+        const aligned = alignedLong || alignedShort;
+        const ent = entryType(ticker);
+        const inCorridor = ent.corridor;
+        const side = ent.side; // LONG or SHORT
+
+        // Corridor must match alignment
+        const corridorAlignedOK =
+          (side === "LONG" && alignedLong) ||
+          (side === "SHORT" && alignedShort);
+
+        if (!inCorridor || !corridorAlignedOK) return false;
+
+        // Check for trigger conditions (matches worker logic)
+        const enteredAligned = prevData && prevData.state !== state && aligned;
+        const trigReason = String(ticker.trigger_reason || "");
+        const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+        const sqRelease = !!flags.sq30_release;
+        const hasTrigger = !!ticker.trigger_price && !!ticker.trigger_ts;
+
+        // Must be: in corridor + corridor aligns + (entered aligned OR trigger OR squeeze release)
+        const shouldConsiderAlert =
+          inCorridor &&
+          corridorAlignedOK &&
+          (enteredAligned || trigOk || sqRelease || hasTrigger);
+
+        // Threshold gates (matching worker defaults)
+        const minRR = 1.5;
+        const maxComp = 0.4;
+        const maxPhase = 0.6;
+        const minRank = 70;
+
+        const rr = Number(ticker.rr) || 0;
+        const comp = Number(ticker.completion) || 0;
+        const phase = Number(ticker.phase_pct) || 0;
+        const rank = Number(ticker.rank) || 0;
+
+        const rrOk = rr >= minRR;
+        const compOk = comp <= maxComp;
+        const phaseOk = phase <= maxPhase;
+        const rankOk = rank >= minRank;
+
+        return shouldConsiderAlert && rrOk && compOk && phaseOk && rankOk;
+      }
+
+      function entryType(ticker) {
+        const h = Number(ticker.htf_score);
+        const l = Number(ticker.ltf_score);
+        if (!Number.isFinite(h) || !Number.isFinite(l)) {
+          return { corridor: false, side: null };
+        }
+        const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
+        const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
+        if (h > 0 && l >= LONG_CORRIDOR.ltfMin && l <= LONG_CORRIDOR.ltfMax) {
+          return { corridor: true, side: "LONG" };
+        }
+        if (h < 0 && l >= SHORT_CORRIDOR.ltfMin && l <= SHORT_CORRIDOR.ltfMax) {
+          return { corridor: true, side: "SHORT" };
+        }
+        return { corridor: false, side: null };
+      }
+
+      function getDirection(ticker) {
+        const state = String(ticker.state || "");
+        if (state.includes("BULL")) return "LONG";
+        if (state.includes("BEAR")) return "SHORT";
+        return null;
+      }
+
+      function calculateTrade(ticker, entryPrice) {
+        const direction = getDirection(ticker);
+        if (!direction) return null;
+
+        const sl = Number(ticker.sl);
+        const tp = Number(ticker.tp);
+        const currentPrice = Number(ticker.price);
+
+        if (!Number.isFinite(sl) || !Number.isFinite(tp) || !Number.isFinite(currentPrice)) {
+          return null;
+        }
+
+        // Calculate shares (assuming $1000 position size)
+        const shares = Math.floor(TRADE_SIZE / entryPrice);
+
+        // Calculate P&L based on current price
+        let pnl = 0;
+        let pnlPct = 0;
+        let status = "OPEN";
+
+        if (direction === "LONG") {
+          pnl = (currentPrice - entryPrice) * shares;
+          pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+          
+          // Check if hit TP or SL
+          if (currentPrice >= tp) {
+            pnl = (tp - entryPrice) * shares;
+            pnlPct = ((tp - entryPrice) / entryPrice) * 100;
+            status = "WIN";
+          } else if (currentPrice <= sl) {
+            pnl = (sl - entryPrice) * shares;
+            pnlPct = ((sl - entryPrice) / entryPrice) * 100;
+            status = "LOSS";
+          }
+        } else {
+          // SHORT
+          pnl = (entryPrice - currentPrice) * shares;
+          pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
+          
+          // Check if hit TP or SL
+          if (currentPrice <= tp) {
+            pnl = (entryPrice - tp) * shares;
+            pnlPct = ((entryPrice - tp) / entryPrice) * 100;
+            status = "WIN";
+          } else if (currentPrice >= sl) {
+            pnl = (entryPrice - sl) * shares;
+            pnlPct = ((entryPrice - sl) / entryPrice) * 100;
+            status = "LOSS";
+          }
+        }
+
+        return {
+          shares,
+          pnl,
+          pnlPct,
+          status,
+          currentPrice,
+        };
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Trade Tracking
+      // ─────────────────────────────────────────────────────────────
+      function useTradeSimulation(tickerData, trades, addTrade, updateTrade) {
+        const [prevData, setPrevData] = useState({});
+
+        useEffect(() => {
+          if (!tickerData || Object.keys(tickerData).length === 0) return;
+
+          // Check each ticker for new trade signals
+          for (const [ticker, data] of Object.entries(tickerData)) {
+            const prev = prevData[ticker];
+            
+            if (shouldTriggerTrade(data, prev)) {
+              // Check if we already have an open trade for this ticker
+              const existingTrade = trades.find(
+                (t) => t.ticker === ticker && (t.status === "OPEN" || !t.status)
+              );
+
+              if (!existingTrade) {
+                // Create new trade
+                const entryPrice = Number(data.trigger_price) || Number(data.price);
+                const direction = getDirection(data);
+                const tradeCalc = calculateTrade(data, entryPrice);
+
+                if (tradeCalc) {
+                  const trade = {
+                    id: `${ticker}-${Date.now()}`,
+                    ticker,
+                    direction,
+                    entryPrice,
+                    entryTime: new Date().toISOString(),
+                    sl: Number(data.sl),
+                    tp: Number(data.tp),
+                    rr: Number(data.rr) || 0,
+                    rank: Number(data.rank) || 0,
+                    state: data.state,
+                    flags: data.flags || {},
+                    inCorridor: entryType(data).corridor,
+                    ...tradeCalc,
+                  };
+                  addTrade(trade);
+                }
+              }
+            }
+
+            // Update existing open trades
+            trades.forEach((trade) => {
+              if (trade.ticker === ticker && (trade.status === "OPEN" || !trade.status)) {
+                const tradeCalc = calculateTrade(data, trade.entryPrice);
+                if (tradeCalc) {
+                  updateTrade(trade.id, {
+                    ...tradeCalc,
+                    lastUpdate: new Date().toISOString(),
+                  });
+                }
+              }
+            });
+          }
+
+          setPrevData(tickerData);
+        }, [tickerData, trades, addTrade, updateTrade, prevData]);
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Analytics & Learning
+      // ─────────────────────────────────────────────────────────────
+      function useTradeAnalytics(trades) {
+        return useMemo(() => {
+          const closed = trades.filter((t) => t.status === "WIN" || t.status === "LOSS");
+          const open = trades.filter((t) => t.status === "OPEN" || !t.status);
+
+          const totalTrades = closed.length;
+          const wins = closed.filter((t) => t.status === "WIN").length;
+          const losses = closed.filter((t) => t.status === "LOSS").length;
+          const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+
+          const totalPnl = closed.reduce((sum, t) => sum + (t.pnl || 0), 0);
+          const openPnl = open.reduce((sum, t) => sum + (t.pnl || 0), 0);
+
+          // Analyze by signal combinations
+          const signalAnalysis = {};
+          closed.forEach((trade) => {
+            const signals = [];
+            if (trade.flags?.sq30_release) signals.push("SqueezeRelease");
+            if (trade.flags?.sq30_on) signals.push("SqueezeOn");
+            if (trade.flags?.phase_zone_change) signals.push("PhaseZoneChange");
+            if (trade.inCorridor) signals.push("InCorridor");
+            const key = signals.sort().join("+") || "None";
+            
+            if (!signalAnalysis[key]) {
+              signalAnalysis[key] = { wins: 0, losses: 0, totalPnl: 0 };
+            }
+            if (trade.status === "WIN") signalAnalysis[key].wins++;
+            if (trade.status === "LOSS") signalAnalysis[key].losses++;
+            signalAnalysis[key].totalPnl += trade.pnl || 0;
+          });
+
+          // Analyze by RR ranges
+          const rrAnalysis = {};
+          closed.forEach((trade) => {
+            const rr = trade.rr || 0;
+            let range = "Unknown";
+            if (rr >= 2.0) range = "RR ≥ 2.0";
+            else if (rr >= 1.5) range = "RR 1.5-2.0";
+            else if (rr >= 1.0) range = "RR 1.0-1.5";
+            else if (rr > 0) range = "RR < 1.0";
+            
+            if (!rrAnalysis[range]) {
+              rrAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
+            }
+            if (trade.status === "WIN") rrAnalysis[range].wins++;
+            if (trade.status === "LOSS") rrAnalysis[range].losses++;
+            rrAnalysis[range].totalPnl += trade.pnl || 0;
+          });
+
+          // Analyze by rank ranges
+          const rankAnalysis = {};
+          closed.forEach((trade) => {
+            const rank = trade.rank || 0;
+            let range = "Unknown";
+            if (rank >= 80) range = "Rank ≥ 80";
+            else if (rank >= 70) range = "Rank 70-80";
+            else if (rank >= 60) range = "Rank 60-70";
+            else if (rank > 0) range = "Rank < 60";
+            
+            if (!rankAnalysis[range]) {
+              rankAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
+            }
+            if (trade.status === "WIN") rankAnalysis[range].wins++;
+            if (trade.status === "LOSS") rankAnalysis[range].losses++;
+            rankAnalysis[range].totalPnl += trade.pnl || 0;
+          });
+
+          // Generate recommendations
+          const recommendations = [];
+          
+          // Find best performing signal combinations
+          const bestSignals = Object.entries(signalAnalysis)
+            .filter(([_, stats]) => stats.wins + stats.losses >= 3) // At least 3 trades
+            .sort((a, b) => {
+              const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+              const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+              return bRate - aRate;
+            })
+            .slice(0, 3);
+          
+          if (bestSignals.length > 0 && bestSignals[0][1].wins / (bestSignals[0][1].wins + bestSignals[0][1].losses) >= 0.6) {
+            recommendations.push({
+              type: "signal",
+              priority: "high",
+              message: `Focus on setups with: ${bestSignals[0][0]}. Win rate: ${((bestSignals[0][1].wins / (bestSignals[0][1].wins + bestSignals[0][1].losses)) * 100).toFixed(1)}%`,
+            });
+          }
+
+          // Find best RR range
+          const bestRR = Object.entries(rrAnalysis)
+            .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+            .sort((a, b) => {
+              const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+              const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+              return bRate - aRate;
+            })[0];
+          
+          if (bestRR && bestRR[1].wins / (bestRR[1].wins + bestRR[1].losses) >= 0.55) {
+            recommendations.push({
+              type: "rr",
+              priority: "medium",
+              message: `Best performing RR range: ${bestRR[0]} (${((bestRR[1].wins / (bestRR[1].wins + bestRR[1].losses)) * 100).toFixed(1)}% win rate)`,
+            });
+          }
+
+          // Find best rank range
+          const bestRank = Object.entries(rankAnalysis)
+            .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+            .sort((a, b) => {
+              const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+              const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+              return bRate - aRate;
+            })[0];
+          
+          if (bestRank && bestRank[1].wins / (bestRank[1].wins + bestRank[1].losses) >= 0.55) {
+            recommendations.push({
+              type: "rank",
+              priority: "medium",
+              message: `Best performing rank range: ${bestRank[0]} (${((bestRank[1].wins / (bestRank[1].wins + bestRank[1].losses)) * 100).toFixed(1)}% win rate)`,
+            });
+          }
+
+          // Profit factor recommendations
+          if (profitFactor < 1.0 && totalTrades >= 10) {
+            recommendations.push({
+              type: "risk",
+              priority: "high",
+              message: `Profit factor is ${profitFactor.toFixed(2)}. Consider tightening stops or improving entry selection.`,
+            });
+          }
+
+          // Win rate recommendations
+          if (winRate < 40 && totalTrades >= 10) {
+            recommendations.push({
+              type: "filter",
+              priority: "high",
+              message: `Win rate is ${winRate.toFixed(1)}%. Consider raising minimum rank threshold or requiring squeeze release.`,
+            });
+          }
+
+          return {
+            totalTrades,
+            wins,
+            losses,
+            winRate,
+            totalPnl,
+            openPnl,
+            avgWin,
+            avgLoss,
+            profitFactor,
+            signalAnalysis,
+            rrAnalysis,
+            rankAnalysis,
+            recommendations,
+          };
+        }, [trades]);
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Components
+      // ─────────────────────────────────────────────────────────────
+      function TradeRow({ trade }) {
+        const pnlColor = trade.pnl >= 0 ? "text-green-400" : "text-red-400";
+        const statusColor =
+          trade.status === "WIN"
+            ? "text-green-400"
+            : trade.status === "LOSS"
+            ? "text-red-400"
+            : "text-yellow-400";
+
+        return (
+          <tr className="border-b border-[#26325f] hover:bg-[#1a2550]">
+            <td className="p-2 text-sm">{trade.ticker}</td>
+            <td className="p-2 text-sm">
+              <span
+                className={`px-2 py-1 rounded text-xs ${
+                  trade.direction === "LONG"
+                    ? "bg-green-500/20 text-green-400"
+                    : "bg-red-500/20 text-red-400"
+                }`}
+              >
+                {trade.direction}
+              </span>
+            </td>
+            <td className="p-2 text-sm">${trade.entryPrice.toFixed(2)}</td>
+            <td className="p-2 text-sm">${trade.currentPrice?.toFixed(2) || trade.entryPrice.toFixed(2)}</td>
+            <td className="p-2 text-sm">${trade.sl.toFixed(2)}</td>
+            <td className="p-2 text-sm">${trade.tp.toFixed(2)}</td>
+            <td className="p-2 text-sm">{trade.rr.toFixed(2)}</td>
+            <td className="p-2 text-sm">{trade.rank}</td>
+            <td className={`p-2 text-sm font-semibold ${pnlColor}`}>
+              ${trade.pnl.toFixed(2)}
+            </td>
+            <td className={`p-2 text-sm font-semibold ${pnlColor}`}>
+              {trade.pnlPct.toFixed(2)}%
+            </td>
+            <td className={`p-2 text-sm font-semibold ${statusColor}`}>
+              {trade.status || "OPEN"}
+            </td>
+            <td className="p-2 text-xs text-[#93a4d6]">
+              {new Date(trade.entryTime).toLocaleString()}
+            </td>
+          </tr>
+        );
+      }
+
+      function AnalyticsPanel({ analytics }) {
+        return (
+          <div className="space-y-4">
+            {/* Overall Stats */}
+            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+              <h3 className="text-lg font-bold mb-4">Overall Performance</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <div className="text-xs text-[#93a4d6]">Total Trades</div>
+                  <div className="text-2xl font-bold">{analytics.totalTrades}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-[#93a4d6]">Win Rate</div>
+                  <div className="text-2xl font-bold text-green-400">
+                    {analytics.winRate.toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-[#93a4d6]">Closed P&L</div>
+                  <div
+                    className={`text-2xl font-bold ${
+                      analytics.totalPnl >= 0 ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    ${analytics.totalPnl.toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-[#93a4d6]">Open P&L</div>
+                  <div
+                    className={`text-2xl font-bold ${
+                      analytics.openPnl >= 0 ? "text-green-400" : "text-yellow-400"
+                    }`}
+                  >
+                    ${analytics.openPnl.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              {analytics.totalTrades > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4 border-t border-[#26325f]">
+                  <div>
+                    <div className="text-xs text-[#93a4d6]">Avg Win</div>
+                    <div className="text-lg font-bold text-green-400">
+                      ${analytics.avgWin.toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-[#93a4d6]">Avg Loss</div>
+                    <div className="text-lg font-bold text-red-400">
+                      ${analytics.avgLoss.toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-[#93a4d6]">Profit Factor</div>
+                    <div
+                      className={`text-lg font-bold ${
+                        analytics.profitFactor >= 1.5
+                          ? "text-green-400"
+                          : analytics.profitFactor >= 1.0
+                          ? "text-yellow-400"
+                          : "text-red-400"
+                      }`}
+                    >
+                      {analytics.profitFactor.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Self-Learning Recommendations */}
+            {analytics.recommendations && analytics.recommendations.length > 0 && (
+              <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                <h3 className="text-lg font-bold mb-4">🎓 Self-Learning Recommendations</h3>
+                <div className="space-y-2">
+                  {analytics.recommendations.map((rec, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-lg border ${
+                        rec.priority === "high"
+                          ? "bg-yellow-500/10 border-yellow-500/30"
+                          : "bg-blue-500/10 border-blue-500/30"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="text-lg">
+                          {rec.priority === "high" ? "⚠️" : "💡"}
+                        </span>
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold">{rec.message}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Signal Analysis */}
+            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+              <h3 className="text-lg font-bold mb-4">Signal Performance</h3>
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {Object.entries(analytics.signalAnalysis)
+                  .sort((a, b) => {
+                    const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+                    const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+                    return bRate - aRate;
+                  })
+                  .map(([signals, stats]) => {
+                    const total = stats.wins + stats.losses;
+                    const winRate = total > 0 ? (stats.wins / total) * 100 : 0;
+                    return (
+                      <div
+                        key={signals}
+                        className="flex items-center justify-between p-2 bg-[#0f1630] rounded"
+                      >
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold">
+                            {signals || "No Signals"}
+                          </div>
+                          <div className="text-xs text-[#93a4d6]">
+                            {stats.wins}W / {stats.losses}L ({total} trades)
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div
+                            className={`text-sm font-bold ${
+                              winRate >= 50 ? "text-green-400" : "text-red-400"
+                            }`}
+                          >
+                            {winRate.toFixed(1)}%
+                          </div>
+                          <div
+                            className={`text-xs ${
+                              stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"
+                            }`}
+                          >
+                            ${stats.totalPnl.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* RR Analysis */}
+            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+              <h3 className="text-lg font-bold mb-4">Risk/Reward Performance</h3>
+              <div className="space-y-2">
+                {Object.entries(analytics.rrAnalysis)
+                  .sort((a, b) => {
+                    const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+                    const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+                    return bRate - aRate;
+                  })
+                  .map(([range, stats]) => {
+                    const total = stats.wins + stats.losses;
+                    const winRate = total > 0 ? (stats.wins / total) * 100 : 0;
+                    return (
+                      <div
+                        key={range}
+                        className="flex items-center justify-between p-2 bg-[#0f1630] rounded"
+                      >
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold">{range}</div>
+                          <div className="text-xs text-[#93a4d6]">
+                            {stats.wins}W / {stats.losses}L ({total} trades)
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div
+                            className={`text-sm font-bold ${
+                              winRate >= 50 ? "text-green-400" : "text-red-400"
+                            }`}
+                          >
+                            {winRate.toFixed(1)}%
+                          </div>
+                          <div
+                            className={`text-xs ${
+                              stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"
+                            }`}
+                          >
+                            ${stats.totalPnl.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Rank Analysis */}
+            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+              <h3 className="text-lg font-bold mb-4">Rank Performance</h3>
+              <div className="space-y-2">
+                {Object.entries(analytics.rankAnalysis)
+                  .sort((a, b) => {
+                    const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+                    const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+                    return bRate - aRate;
+                  })
+                  .map(([range, stats]) => {
+                    const total = stats.wins + stats.losses;
+                    const winRate = total > 0 ? (stats.wins / total) * 100 : 0;
+                    return (
+                      <div
+                        key={range}
+                        className="flex items-center justify-between p-2 bg-[#0f1630] rounded"
+                      >
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold">{range}</div>
+                          <div className="text-xs text-[#93a4d6]">
+                            {stats.wins}W / {stats.losses}L ({total} trades)
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div
+                            className={`text-sm font-bold ${
+                              winRate >= 50 ? "text-green-400" : "text-red-400"
+                            }`}
+                          >
+                            {winRate.toFixed(1)}%
+                          </div>
+                          <div
+                            className={`text-xs ${
+                              stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"
+                            }`}
+                          >
+                            ${stats.totalPnl.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Main App
+      // ─────────────────────────────────────────────────────────────
+      function App() {
+        const { data, loading, error, lastUpdate, refetch } = useTickerData();
+        const { trades, addTrade, updateTrade, clearTrades } = useSimulatedTrades();
+        const analytics = useTradeAnalytics(trades);
+
+        // Simulate trades based on ticker data
+        useTradeSimulation(data, trades, addTrade, updateTrade);
+
+        const openTrades = trades.filter((t) => t.status === "OPEN" || !t.status);
+        const closedTrades = trades.filter(
+          (t) => t.status === "WIN" || t.status === "LOSS"
+        );
+
+        return (
+          <div className="min-h-screen p-4">
+            <div className="max-w-7xl mx-auto">
+              {/* Header */}
+              <header className="mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h1 className="text-3xl font-bold">
+                    Timed Trading — Simulation Dashboard
+                  </h1>
+                  <div className="flex items-center gap-4">
+                    {loading && <div className="loading-spinner"></div>}
+                    <button
+                      onClick={refetch}
+                      className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      onClick={clearTrades}
+                      className="px-4 py-2 bg-red-500/20 border border-red-500 rounded-lg hover:bg-red-500/30 transition-colors text-red-400"
+                    >
+                      Clear Trades
+                    </button>
+                    {lastUpdate && (
+                      <span className="text-sm text-[#93a4d6]">
+                        Updated {lastUpdate.toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </header>
+
+              {/* Analytics */}
+              <div className="mb-6">
+                <AnalyticsPanel analytics={analytics} />
+              </div>
+
+              {/* Trades Table */}
+              <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-bold">Simulated Trades</h2>
+                  <div className="flex gap-2 text-sm">
+                    <span className="px-3 py-1 rounded bg-[#0f1630]">
+                      Open: {openTrades.length}
+                    </span>
+                    <span className="px-3 py-1 rounded bg-[#0f1630]">
+                      Closed: {closedTrades.length}
+                    </span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-[#26325f] text-left">
+                        <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Direction</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Current</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">SL</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">TP</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">RR</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">P&L %</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Status</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Entry Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trades.length === 0 ? (
+                        <tr>
+                          <td colSpan="12" className="p-8 text-center text-[#93a4d6]">
+                            No trades yet. Trades will be automatically created when alerts
+                            trigger.
+                          </td>
+                        </tr>
+                      ) : (
+                        trades.map((trade) => (
+                          <TradeRow key={trade.id} trade={trade} />
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Render
+      try {
+        if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
+          throw new Error("React or ReactDOM not loaded");
+        }
+
+        const rootElement = document.getElementById("root");
+        if (!rootElement) {
+          throw new Error("Root element not found");
+        }
+
+        if (ReactDOM.createRoot) {
+          const root = ReactDOM.createRoot(rootElement);
+          root.render(<App />);
+        } else {
+          ReactDOM.render(<App />, rootElement);
+        }
+      } catch (error) {
+        console.error("Error rendering app:", error);
+        document.getElementById("root").innerHTML = `
+          <div style="padding: 40px; text-align: center; color: #e7ecff;">
+            <h2 style="color: #e74c3c;">Error Loading Dashboard</h2>
+            <p>${error.message}</p>
+            <p style="margin-top: 20px; color: #93a4d6;">
+              Please check the browser console (F12) for details.
+            </p>
+          </div>
+        `;
+      }
+    </script>
+  </body>
+</html>
+
