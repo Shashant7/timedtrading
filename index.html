@@ -1948,6 +1948,7 @@
             if (cachedPoints.length > 0) {
               scheduleRender(cachedPoints, lastFaintTrails);
               renderListTopFromPoints(cachedPoints, currentTab);
+              if (chartEl) chartEl.classList.remove("loading");
               if (s)
                 s.textContent = `Loaded ${
                   cachedPoints.length
@@ -1977,6 +1978,7 @@
           if (looksLikeBlink) {
             scheduleRender(lastGoodPoints, lastFaintTrails);
             renderListTopFromPoints(lastGoodPoints, currentTab);
+            if (chartEl) chartEl.classList.remove("loading");
 
             // flash state from stable view
             if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
@@ -2015,6 +2017,7 @@
               .includes("abort")
           ) {
             if (s) s.textContent = `Refreshing…`;
+            if (chartEl) chartEl.classList.remove("loading");
             return;
           }
           console.error(e);
@@ -2022,6 +2025,7 @@
           if (lastGoodPoints.length) {
             scheduleRender(lastGoodPoints, lastFaintTrails);
             renderListTopFromPoints(lastGoodPoints, currentTab);
+            if (chartEl) chartEl.classList.remove("loading");
 
             if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
             else stopFlashLoop();
@@ -2030,6 +2034,7 @@
               s.textContent = `Network hiccup — stable view • ${new Date().toLocaleTimeString()}`;
           } else {
             stopFlashLoop();
+            if (chartEl) chartEl.classList.remove("loading");
             if (s) s.textContent = `Error: ${e.message}`;
           }
         } finally {
