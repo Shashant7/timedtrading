@@ -331,6 +331,17 @@
           const totalPnl = closed.reduce((sum, t) => sum + (t.pnl || 0), 0);
           const openPnl = open.reduce((sum, t) => sum + (t.pnl || 0), 0);
 
+          // Calculate average win/loss
+          const winningTrades = closed.filter((t) => t.status === "WIN");
+          const losingTrades = closed.filter((t) => t.status === "LOSS");
+          const avgWin = winningTrades.length > 0
+            ? winningTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / winningTrades.length
+            : 0;
+          const avgLoss = losingTrades.length > 0
+            ? losingTrades.reduce((sum, t) => sum + Math.abs(t.pnl || 0), 0) / losingTrades.length
+            : 0;
+          const profitFactor = avgLoss > 0 ? avgWin / avgLoss : avgWin > 0 ? Infinity : 0;
+
           // Analyze by signal combinations
           const signalAnalysis = {};
           closed.forEach((trade) => {
