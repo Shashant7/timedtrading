@@ -24,6 +24,7 @@ npm run build
 ## Features
 
 ### ✅ Implemented
+
 - React 18 with hooks
 - Lightweight Recharts (replaces heavy Plotly)
 - Real-time data fetching with auto-refresh
@@ -35,6 +36,7 @@ npm run build
 - Search functionality
 
 ### 🚧 Coming Soon
+
 - Full filter panel (quadrants, RR, completion, etc.)
 - Virtual scrolling for large lists
 - Multiple view modes (table, cards, timeline)
@@ -52,15 +54,15 @@ npm run build
 
 ## Comparison with Original
 
-| Feature | Original (index.html) | React (index-react.html) |
-|---------|----------------------|--------------------------|
-| Framework | Vanilla JS | React 18 |
-| Charting | Plotly (~2MB) | Recharts (~50KB) |
-| State Management | Manual | React hooks |
-| Bundle Size | ~2MB | ~200KB |
-| Maintainability | Monolithic | Component-based |
-| Performance | Good | Better (optimized) |
-| Mobile | Basic | Responsive |
+| Feature          | Original (index.html) | React (index-react.html) |
+| ---------------- | --------------------- | ------------------------ |
+| Framework        | Vanilla JS            | React 18                 |
+| Charting         | Plotly (~2MB)         | Recharts (~50KB)         |
+| State Management | Manual                | React hooks              |
+| Bundle Size      | ~2MB                  | ~200KB                   |
+| Maintainability  | Monolithic            | Component-based          |
+| Performance      | Good                  | Better (optimized)       |
+| Mobile           | Basic                 | Responsive               |
 
 ## Next Steps
 
@@ -71,4 +73,3 @@ npm run build
 5. Add TypeScript
 6. Implement state management (Zustand)
 7. Add React Query for better caching
-

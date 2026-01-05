@@ -18,32 +18,57 @@
     ></script>
 
     <!-- Babel Standalone for JSX -->
-    <script 
+    <script
       src="https://unpkg.com/@babel/standalone/babel.min.js"
       onerror="console.error('Failed to load Babel')"
     ></script>
-    
+
     <!-- Tailwind CSS -->
-    <script 
+    <script
       src="https://cdn.tailwindcss.com"
       onerror="console.error('Failed to load Tailwind')"
     ></script>
-    
-    <!-- Recharts for lightweight charting -->
-    <script 
+
+    <!-- Recharts for lightweight charting - try multiple sources -->
+    <script
       src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"
-      onerror="console.error('Failed to load Recharts')"
+      onerror="console.error('Failed to load Recharts from unpkg, trying alternative...'); loadRechartsFallback();"
     ></script>
-    
+    <script>
+      function loadRechartsFallback() {
+        // Try alternative CDN
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/recharts@2.10.3/umd/Recharts.js';
+        script.onerror = function() {
+          console.error('Recharts failed to load from all sources');
+          window.RechartsFailed = true;
+        };
+        script.onload = function() {
+          console.log('Recharts loaded from jsdelivr');
+        };
+        document.head.appendChild(script);
+      }
+      
+      // Check if Recharts loaded after a delay
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          if (typeof Recharts === 'undefined' && !window.RechartsFailed) {
+            console.warn('Recharts may not have loaded yet');
+          }
+        }, 2000);
+      });
+    </script>
+
     <!-- Loading indicator while scripts load -->
     <script>
-      window.addEventListener('load', function() {
+      window.addEventListener("load", function () {
         // Check if all scripts loaded
-        setTimeout(function() {
-          const root = document.getElementById('root');
-          if (root && root.innerHTML === '') {
-            if (typeof React === 'undefined') {
-              root.innerHTML = '<div style="padding: 40px; text-align: center; color: #e7ecff;"><h2 style="color: #e74c3c;">Loading Error</h2><p>React failed to load. Check console (F12) for details.</p></div>';
+        setTimeout(function () {
+          const root = document.getElementById("root");
+          if (root && root.innerHTML === "") {
+            if (typeof React === "undefined") {
+              root.innerHTML =
+                '<div style="padding: 40px; text-align: center; color: #e7ecff;"><h2 style="color: #e74c3c;">Loading Error</h2><p>React failed to load. Check console (F12) for details.</p></div>';
             }
           }
         }, 2000);
@@ -94,24 +119,28 @@
   </head>
   <body>
     <div id="root">
-      <div style="padding: 40px; text-align: center; color: #e7ecff;">
-        <div class="loading-spinner" style="margin: 0 auto 20px;"></div>
+      <div style="padding: 40px; text-align: center; color: #e7ecff">
+        <div class="loading-spinner" style="margin: 0 auto 20px"></div>
         <p>Loading dashboard...</p>
       </div>
     </div>
 
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo } = React;
-      const {
-        ScatterChart,
-        Scatter,
-        XAxis,
-        YAxis,
-        CartesianGrid,
-        Tooltip,
-        ResponsiveContainer,
-        Cell,
-      } = Recharts;
+      
+      // Get Recharts components with fallback
+      let RechartsComponents = null;
+      if (typeof Recharts !== 'undefined') {
+        RechartsComponents = {
+          ScatterChart: Recharts.ScatterChart,
+          Scatter: Recharts.Scatter,
+          XAxis: Recharts.XAxis,
+          YAxis: Recharts.YAxis,
+          CartesianGrid: Recharts.CartesianGrid,
+          Tooltip: Recharts.Tooltip,
+          ResponsiveContainer: Recharts.ResponsiveContainer,
+        };
+      }
 
       // ─────────────────────────────────────────────────────────────
       // Types & Constants
@@ -251,23 +280,64 @@
       // ─────────────────────────────────────────────────────────────
       // Components
       // ─────────────────────────────────────────────────────────────
+      // Native SVG Bubble component (works without Recharts)
+      const SVGBubble = memo(({ ticker, onClick, onHover, isHovered, scaleX, scaleY, offsetX, offsetY }) => {
+        const comp = completionForSize(ticker);
+        const size = 10 + comp * 40;
+        const phase = Number(ticker.phase_pct) || 0;
+        const prime = isPrimeBubble(ticker);
+        const flags = ticker.flags || {};
+
+        const color = phase < 0.3 ? "#2ecc71" : phase < 0.6 ? "#f39c12" : "#e74c3c";
+        const opacity = isHovered ? 1 : 0.7;
+        const borderWidth = prime ? 3 : flags.sq30_release ? 2 : 1;
+        const borderColor = prime ? "#2ecc71" : flags.sq30_release ? "#00ffff" : "#ffffff";
+
+        const x = (Number(ticker.ltf_score) || 0) * scaleX + offsetX;
+        const y = (Number(ticker.htf_score) || 0) * scaleY + offsetY;
+
+        return (
+          <g
+            onClick={() => onClick(ticker.ticker)}
+            onMouseEnter={() => onHover(ticker.ticker)}
+            onMouseLeave={() => onHover(null)}
+            style={{ cursor: "pointer" }}
+          >
+            <circle
+              cx={x}
+              cy={y}
+              r={size}
+              fill={color}
+              fillOpacity={opacity}
+              stroke={borderColor}
+              strokeWidth={borderWidth}
+            />
+            {prime && (
+              <text
+                x={x}
+                y={y - size - 5}
+                textAnchor="middle"
+                fontSize="14"
+                fill="#2ecc71"
+              >
+                ⭐
+              </text>
+            )}
+          </g>
+        );
+      });
+
       const Bubble = memo(({ ticker, onClick, onHover, isHovered }) => {
         const comp = completionForSize(ticker);
         const size = 10 + comp * 40;
         const phase = Number(ticker.phase_pct) || 0;
         const prime = isPrimeBubble(ticker);
-        const ent = entryType(ticker);
         const flags = ticker.flags || {};
 
-        const color =
-          phase < 0.3 ? "#2ecc71" : phase < 0.6 ? "#f39c12" : "#e74c3c";
+        const color = phase < 0.3 ? "#2ecc71" : phase < 0.6 ? "#f39c12" : "#e74c3c";
         const opacity = isHovered ? 1 : 0.7;
         const borderWidth = prime ? 3 : flags.sq30_release ? 2 : 1;
-        const borderColor = prime
-          ? "#2ecc71"
-          : flags.sq30_release
-          ? "#00ffff"
-          : "#ffffff";
+        const borderColor = prime ? "#2ecc71" : flags.sq30_release ? "#00ffff" : "#ffffff";
 
         return (
           <g
@@ -301,6 +371,113 @@
       });
 
       function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover }) {
+        const [tooltip, setTooltip] = useState(null);
+        const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+        
+        // Fallback: Native SVG chart (works without Recharts)
+        if (!RechartsComponents) {
+          const chartWidth = 800;
+          const chartHeight = 600;
+          const margin = 60;
+          const plotWidth = chartWidth - 2 * margin;
+          const plotHeight = chartHeight - 2 * margin;
+          
+          const scaleX = plotWidth / 100; // -50 to 50 range
+          const scaleY = plotHeight / 100;
+          const offsetX = margin;
+          const offsetY = margin;
+          
+          const handleMouseMove = (e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+          };
+          
+          return (
+            <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-4 relative">
+              <svg 
+                width="100%" 
+                height="100%" 
+                viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                onMouseMove={handleMouseMove}
+                onMouseLeave={() => setTooltip(null)}
+              >
+                {/* Grid */}
+                <defs>
+                  <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+                    <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#26325f" strokeWidth="1"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+                
+                {/* Axes */}
+                <line x1={offsetX} y1={offsetY} x2={offsetX} y2={offsetY + plotHeight} stroke="#93a4d6" strokeWidth="2" />
+                <line x1={offsetX} y1={offsetY + plotHeight / 2} x2={offsetX + plotWidth} y2={offsetY + plotHeight / 2} stroke="#93a4d6" strokeWidth="2" />
+                
+                {/* Axis labels */}
+                <text x={offsetX - 30} y={offsetY + plotHeight / 2} fill="#93a4d6" textAnchor="middle" fontSize="12">HTF</text>
+                <text x={offsetX + plotWidth / 2} y={offsetY + plotHeight + 40} fill="#93a4d6" textAnchor="middle" fontSize="12">LTF</text>
+                
+                {/* Quadrant labels */}
+                <text x={offsetX + plotWidth * 0.25} y={offsetY + 30} fill="#93a4d6" fontSize="11">Q1</text>
+                <text x={offsetX + plotWidth * 0.75} y={offsetY + 30} fill="#93a4d6" fontSize="11">Q2</text>
+                <text x={offsetX + plotWidth * 0.25} y={offsetY + plotHeight - 10} fill="#93a4d6" fontSize="11">Q3</text>
+                <text x={offsetX + plotWidth * 0.75} y={offsetY + plotHeight - 10} fill="#93a4d6" fontSize="11">Q4</text>
+                
+                {/* Corridors */}
+                <rect 
+                  x={offsetX + (LONG_CORRIDOR.ltfMin + 50) * scaleX} 
+                  y={offsetY} 
+                  width={(LONG_CORRIDOR.ltfMax - LONG_CORRIDOR.ltfMin) * scaleX} 
+                  height={plotHeight / 2} 
+                  fill="rgba(46,204,113,0.1)" 
+                />
+                <rect 
+                  x={offsetX + (SHORT_CORRIDOR.ltfMin + 50) * scaleX} 
+                  y={offsetY + plotHeight / 2} 
+                  width={(SHORT_CORRIDOR.ltfMax - SHORT_CORRIDOR.ltfMin) * scaleX} 
+                  height={plotHeight / 2} 
+                  fill="rgba(231,76,60,0.1)" 
+                />
+                
+                {/* Bubbles */}
+                {tickers.map(ticker => (
+                  <SVGBubble
+                    key={ticker.ticker}
+                    ticker={ticker}
+                    onClick={onBubbleClick}
+                    onHover={(t) => {
+                      onHover(t);
+                      if (t) setTooltip(tickers.find(tt => tt.ticker === t));
+                    }}
+                    isHovered={hoveredTicker === ticker.ticker}
+                    scaleX={scaleX}
+                    scaleY={-scaleY}
+                    offsetX={offsetX + 50 * scaleX}
+                    offsetY={offsetY + plotHeight - 50 * scaleY}
+                  />
+                ))}
+              </svg>
+              
+              {/* Tooltip */}
+              {tooltip && (
+                <div 
+                  className="absolute bg-[#121a33] border border-[#26325f] rounded p-3 text-sm pointer-events-none z-10"
+                  style={{ left: tooltipPos.x + 10, top: tooltipPos.y - 10 }}
+                >
+                  <div className="font-bold">{tooltip.ticker}</div>
+                  <div>Rank: {tooltip.rank || "—"}</div>
+                  <div>RR: {tooltip.rr ? Number(tooltip.rr).toFixed(2) : "—"}</div>
+                  <div>State: {tooltip.state || "—"}</div>
+                  {isPrimeBubble(tooltip) && <div className="text-[#2ecc71]">⭐ PRIME SETUP</div>}
+                </div>
+              )}
+            </div>
+          );
+        }
+        
+        // Recharts version (if loaded)
+        const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } = RechartsComponents;
+        
         const data = useMemo(
           () =>
             tickers.map((t) => ({
@@ -670,15 +847,15 @@
 
       // Render with error handling
       try {
-        if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
-          throw new Error('React or ReactDOM not loaded');
+        if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
+          throw new Error("React or ReactDOM not loaded");
         }
-        
+
         const rootElement = document.getElementById("root");
         if (!rootElement) {
-          throw new Error('Root element not found');
+          throw new Error("Root element not found");
         }
-        
+
         // Check if React 18 createRoot is available
         if (ReactDOM.createRoot) {
           const root = ReactDOM.createRoot(rootElement);
@@ -688,7 +865,7 @@
           ReactDOM.render(<App />, rootElement);
         }
       } catch (error) {
-        console.error('Error rendering app:', error);
+        console.error("Error rendering app:", error);
         document.getElementById("root").innerHTML = `
           <div style="padding: 40px; text-align: center; color: #e7ecff;">
             <h2 style="color: #e74c3c;">Error Loading Dashboard</h2>
