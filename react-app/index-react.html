@@ -1602,38 +1602,100 @@
                   </div>
                 </div>
 
-                {/* Lists below - Multiple columns */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {/* Multiple setup lists */}
-                  {[
-                    { title: "Top Ranked", sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
-                    { title: "Prime Setups", filter: (t) => isPrimeBubble(t), sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
-                    { title: "In Corridor", filter: (t) => entryType(t).corridor, sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
-                    { title: "Squeeze Release", filter: (t) => t.flags?.sq30_release, sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
-                  ].map((listConfig, idx) => {
-                    const listTickers = tickers
-                      .filter(listConfig.filter || (() => true))
-                      .sort(listConfig.sort)
-                      .slice(0, listConfig.limit);
-                    
-                    if (listTickers.length === 0) return null;
-                    
-                    return (
-                      <div key={idx} className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                        <h2 className="text-lg font-bold mb-4">{listConfig.title}</h2>
-                        <div className="max-h-[500px] overflow-y-auto space-y-2">
-                          {listTickers.map((ticker) => (
-                            <SetupCard
-                              key={ticker.ticker}
-                              ticker={ticker}
-                              isSelected={selectedTicker === ticker.ticker}
-                              onClick={() => setSelectedTicker(ticker.ticker)}
-                            />
-                          ))}
+                {/* Lists below - Top Long/Short wider, others in grid */}
+                <div className="space-y-4">
+                  {/* Top Long and Top Short - Full width, side by side */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Top Long */}
+                    {(() => {
+                      const longTickers = tickers
+                        .filter(t => {
+                          const dir = getDirection(t);
+                          return dir.text === "LONG";
+                        })
+                        .sort((a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0))
+                        .slice(0, 25);
+                      
+                      if (longTickers.length === 0) return null;
+                      
+                      return (
+                        <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                          <h2 className="text-lg font-bold mb-4">📈 Top Long</h2>
+                          <div className="max-h-[600px] overflow-y-auto space-y-2">
+                            {longTickers.map((ticker) => (
+                              <SetupCard
+                                key={ticker.ticker}
+                                ticker={ticker}
+                                isSelected={selectedTicker === ticker.ticker}
+                                onClick={() => setSelectedTicker(ticker.ticker)}
+                              />
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })()}
+
+                    {/* Top Short */}
+                    {(() => {
+                      const shortTickers = tickers
+                        .filter(t => {
+                          const dir = getDirection(t);
+                          return dir.text === "SHORT";
+                        })
+                        .sort((a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0))
+                        .slice(0, 25);
+                      
+                      if (shortTickers.length === 0) return null;
+                      
+                      return (
+                        <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                          <h2 className="text-lg font-bold mb-4">📉 Top Short</h2>
+                          <div className="max-h-[600px] overflow-y-auto space-y-2">
+                            {shortTickers.map((ticker) => (
+                              <SetupCard
+                                key={ticker.ticker}
+                                ticker={ticker}
+                                isSelected={selectedTicker === ticker.ticker}
+                                onClick={() => setSelectedTicker(ticker.ticker)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Other lists - Grid layout */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {[
+                      { title: "Prime Setups", filter: (t) => isPrimeBubble(t), sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
+                      { title: "In Corridor", filter: (t) => entryType(t).corridor, sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
+                      { title: "Squeeze Release", filter: (t) => t.flags?.sq30_release, sort: (a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0), limit: 15 },
+                    ].map((listConfig, idx) => {
+                      const listTickers = tickers
+                        .filter(listConfig.filter || (() => true))
+                        .sort(listConfig.sort)
+                        .slice(0, listConfig.limit);
+                      
+                      if (listTickers.length === 0) return null;
+                      
+                      return (
+                        <div key={idx} className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                          <h2 className="text-lg font-bold mb-4">{listConfig.title}</h2>
+                          <div className="max-h-[500px] overflow-y-auto space-y-2">
+                            {listTickers.map((ticker) => (
+                              <SetupCard
+                                key={ticker.ticker}
+                                ticker={ticker}
+                                isSelected={selectedTicker === ticker.ticker}
+                                onClick={() => setSelectedTicker(ticker.ticker)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Selected Ticker Details Overlay */}
