@@ -1,0 +1,29 @@
+name = "timed-trading-ingest"
+main = "index.js"
+compatibility_date = "2024-01-01"
+
+[env.production]
+name = "timed-trading-ingest"
+route = { pattern = "timed-trading-ingest.shashant.workers.dev/*", zone_name = "shashant.workers.dev" }
+
+# KV Namespace binding
+[[kv_namespaces]]
+binding = "KV_TIMED"
+id = "YOUR_KV_NAMESPACE_ID"  # Replace with your actual KV namespace ID
+preview_id = "YOUR_KV_PREVIEW_ID"  # Optional: for preview environments
+
+# Environment variables (set via `wrangler secret put` or Cloudflare dashboard)
+# Required:
+# - TIMED_API_KEY: API key for POST /timed/ingest authentication
+# - KV_TIMED: KV namespace binding (configured above)
+#
+# Optional:
+# - CORS_ALLOW_ORIGIN: CORS origin (default: "*")
+# - TV_ACK_ALWAYS_200: Always return 200 for TradingView (default: "true")
+# - DISCORD_ENABLE: Enable Discord alerts (default: "false")
+# - DISCORD_WEBHOOK_URL: Discord webhook URL
+# - ALERT_MIN_RR: Minimum RR for alerts (default: "1.5")
+# - ALERT_MAX_COMPLETION: Maximum completion % (default: "0.4")
+# - ALERT_MAX_PHASE: Maximum phase % (default: "0.6")
+# - ALERT_MIN_RANK: Minimum rank (default: "70")
+

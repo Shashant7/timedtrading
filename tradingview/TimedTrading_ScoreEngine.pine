@@ -1,0 +1,353 @@
+//@version=6
+indicator("TimedTrading_ScoreEngine_v1.1.0", overlay=false, max_labels_count=50)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Inputs
+//─────────────────────────────────────────────────────────────────────────────
+groupAxes = "Axes & Timeframes"
+tfW   = input.string("W",   "HTF #1 (Weekly)", group=groupAxes)
+tfD   = input.string("D",   "HTF #2 (Daily)",  group=groupAxes)
+tf4H  = input.string("240", "HTF #3 (4H)",     group=groupAxes)
+
+tf30  = input.string("30", "LTF #1 (30m)", group=groupAxes)
+tf10  = input.string("10", "LTF #2 (10m)", group=groupAxes)
+tf3   = input.string("3",  "LTF #3 (3m)",  group=groupAxes)
+
+// Weights (defaults)
+wW  = input.float(0.50, "HTF Weekly weight", group=groupAxes, minval=0, maxval=1)
+wD  = input.float(0.35, "HTF Daily weight",  group=groupAxes, minval=0, maxval=1)
+w4H = input.float(0.15, "HTF 4H weight",     group=groupAxes, minval=0, maxval=1)
+
+w30 = input.float(0.60, "LTF 30m weight", group=groupAxes, minval=0, maxval=1)
+w10 = input.float(0.30, "LTF 10m weight", group=groupAxes, minval=0, maxval=1)
+w3  = input.float(0.10, "LTF 3m weight",  group=groupAxes, minval=0, maxval=1)
+
+groupST = "SuperTrend (Phoenix default)"
+stLen   = input.int(10, "ST ATR Length", group=groupST, minval=1)
+stFac   = input.float(3.0, "ST Factor",  group=groupST, minval=0.1, step=0.1)
+
+groupEMA = "EMAs (Phoenix default)"
+emaFastLen = input.int(5,  "Fast EMA", group=groupEMA, minval=1)
+emaSlowLen = input.int(48, "Slow EMA", group=groupEMA, minval=1)
+
+groupSqueeze = "TTM Squeeze"
+sqLen   = input.int(20,   "Squeeze length", group=groupSqueeze, minval=5)
+bbMult  = input.float(2.0,"BB stdev mult",  group=groupSqueeze, step=0.1)
+kcMult  = input.float(1.5,"KC ATR mult",    group=groupSqueeze, step=0.1)
+momLen  = input.int(20,   "Momentum len (linreg)", group=groupSqueeze, minval=5)
+
+groupGG = "Golden Gate (optional)"
+useGoldenGate = input.bool(true, "Include Golden Gate cross in LTF score", group=groupGG)
+ggATRmult      = input.float(0.382, "GG ATR mult (PC ± mult*ATRd)", group=groupGG, step=0.001)
+
+groupPhase = "Phase (Phoenix-style)"
+phaseExitAbs = input.float(61.8, "Phase band (|osc|) reference", group=groupPhase, step=0.1)
+phaseMaxAbs  = input.float(100.0,"Phase max for % (cap)", group=groupPhase, step=0.1)
+
+groupCompletion = "Completion (Bubble Size)"
+expMoveATRx = input.float(2.0, "Expected move = ATRw × (swing)", group=groupCompletion, step=0.1, minval=0.1)
+
+groupAlerts = "Alerts (Baseline + Meaningful change)"
+scoreDelta = input.float(3.0, "Min |Δscore| to resend", group=groupAlerts, minval=0.5, step=0.5)
+minMinutesBetweenSends = input.int(5, "Min minutes between sends (throttle)", group=groupAlerts, minval=0)
+
+// Force baseline mode (temporary)
+forceBaseline = input.bool(false, "FORCE: Send baseline every bar (temporary)", group=groupAlerts)
+
+// DEBUG (use to prove TV is firing alert() at bar close)
+debugHeartbeat = input.bool(false, "DEBUG: Heartbeat alert every bar close", group=groupAlerts)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Utils
+//─────────────────────────────────────────────────────────────────────────────
+clamp(x, lo, hi) => math.max(lo, math.min(hi, x))
+
+f_fmt(x, dec) =>
+    dec <= 0 ? str.tostring(math.round(x)) :
+     str.tostring(math.round(x * math.pow(10, dec)) / math.pow(10, dec))
+
+prevBoolSeries(b) => bar_index > 0 ? b[1] : false
+
+//─────────────────────────────────────────────────────────────────────────────
+// DAILY anchors (Golden Gate)
+//─────────────────────────────────────────────────────────────────────────────
+PCd  = request.security(syminfo.tickerid, "D", close[1],   barmerge.gaps_off, barmerge.lookahead_off)
+ATRd = request.security(syminfo.tickerid, "D", ta.atr(14), barmerge.gaps_off, barmerge.lookahead_off)
+GGup = PCd + ggATRmult * ATRd
+GGdn = PCd - ggATRmult * ATRd
+
+//─────────────────────────────────────────────────────────────────────────────
+// WEEKLY anchors (Swing mode: 1–4 weeks)
+//─────────────────────────────────────────────────────────────────────────────
+PCw  = request.security(syminfo.tickerid, "W", close[1],   barmerge.gaps_off, barmerge.lookahead_off)
+ATRw = request.security(syminfo.tickerid, "W", ta.atr(14), barmerge.gaps_off, barmerge.lookahead_off)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Bundled timeframe snapshot: 1 security call per TF
+//─────────────────────────────────────────────────────────────────────────────
+f_tf_bundle() =>
+    e5   = ta.ema(close, 5)
+    e8   = ta.ema(close, 8)
+    e13  = ta.ema(close, 13)
+    e21  = ta.ema(close, 21)
+    e48  = ta.ema(close, 48)
+    e200 = ta.ema(close, 200)
+
+    eFast = ta.ema(close, emaFastLen)
+    eSlow = ta.ema(close, emaSlowLen)
+
+    [stLine, stDir] = ta.supertrend(stFac, stLen)
+
+    basis = ta.sma(close, sqLen)
+    dev   = bbMult * ta.stdev(close, sqLen)
+    bbU   = basis + dev
+    bbL   = basis - dev
+    atrKC = ta.atr(sqLen)
+    kcU   = basis + kcMult * atrKC
+    kcL   = basis - kcMult * atrKC
+    sqOn  = (bbU < kcU) and (bbL > kcL)
+
+    mom = ta.linreg(close - ta.sma(close, momLen), momLen, 0)
+
+    piv = ta.ema(close, 21)
+    a14 = ta.atr(14)
+    rawPhase = a14 == 0 ? 0.0 : ((close - piv) / (3.0 * a14)) * 100.0
+    phaseOsc = ta.ema(rawPhase, 3)
+
+    bbo = 2.0 * ta.stdev(close, 21)
+    bup = piv + bbo
+    bdn = piv - bbo
+    ctU = piv + (2.0 * a14)
+    ctD = piv - (2.0 * a14)
+    exU = piv + (1.854 * a14)
+    exD = piv - (1.854 * a14)
+    above = close >= piv
+    comp  = above ? (bup - ctU) : (ctD - bdn)
+    inExp = above ? (bup - exU) : (exD - bdn)
+    expanding = bar_index > 0 ? (comp[1] <= comp) : false
+    compressed = (not (expanding and inExp > 0)) and (comp <= 0)
+
+    ggUpCross = ta.crossover(close, GGup)
+    ggDnCross = ta.crossunder(close, GGdn)
+
+    [close, e5, e8, e13, e21, e48, e200, eFast, eSlow, stLine, stDir, sqOn, mom, phaseOsc, compressed, ggUpCross, ggDnCross]
+
+f_get_bundle(tf) =>
+    request.security(syminfo.tickerid, tf, f_tf_bundle(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Pull bundles
+[cW, e5W, e8W, e13W, e21W, e48W, e200W, eFastW, eSlowW, stLW, stDW, sqW, momW, phW, compW, ggUpW, ggDnW] = f_get_bundle(tfW)
+[cD, e5D, e8D, e13D, e21D, e48D, e200D, eFastD, eSlowD, stLD, stDD, sqD, momD, phD, compD, ggUpD, ggDnD] = f_get_bundle(tfD)
+[c4, e5H, e8H, e13H, e21H, e48H, e200H, eFast4, eSlow4, stL4, stD4, sq4, mom4, ph4, comp4, ggUp4, ggDn4] = f_get_bundle(tf4H)
+
+[c30, e5_30, e8_30, e13_30, e21_30, e48_30, e200_30, eFast30, eSlow30, stL30, stD30, sq30, mom30, ph30, comp30, ggUp30, ggDn30] = f_get_bundle(tf30)
+[c10, e5_10, e8_10, e13_10, e21_10, e48_10, e200_10, eFast10, eSlow10, stL10, stD10, sq10, mom10, ph10, comp10, ggUp10, ggDn10] = f_get_bundle(tf10)
+[c3,  e5_3,  e8_3,  e13_3,  e21_3,  e48_3,  e200_3,  eFast3,  eSlow3,  stL3,  stD3,  sq3,  mom3,  ph3,  comp3,  ggUp3,  ggDn3 ] = f_get_bundle(tf3)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Scoring helpers
+//─────────────────────────────────────────────────────────────────────────────
+f_htf_from_bundle(px, ema200, stDir, e5, e8, e13, e21, e48, comp, osc, eFast, eSlow) =>
+    trendBias = (px >= ema200 ? 10.0 : -10.0) + (stDir < 0 ? 10.0 : -10.0)
+
+    bullStack = (e5 > e8) and (e8 > e13) and (e13 > e21) and (e21 > e48)
+    bearStack = (e5 < e8) and (e8 < e13) and (e13 < e21) and (e21 < e48)
+    slope48Up = e48 > e48[1]
+    structure = (bullStack ? 10.0 : bearStack ? -10.0 : 0.0) + (slope48Up ? 5.0 : -5.0)
+
+    bias = (trendBias >= 0) ? 1 : -1
+    regime = (comp ? (bias == 1 ? 5.0 : -5.0) : 0.0) + ((math.abs(osc) > phaseExitAbs) ? -3.0 : 0.0)
+
+    momC = (eFast >= eSlow) ? 5.0 : -5.0
+
+    clamp(trendBias + structure + regime + momC, -50, 50)
+
+f_ltf_from_bundle(px, sqOn, mom, ggUpCross, ggDnCross, e21, e48, e5, e13, stLine, stDir, comp) =>
+    sqPrev = prevBoolSeries(sqOn)
+    release = sqPrev and not sqOn
+    relDir = release ? (mom >= 0 ? 1 : -1) : 0
+    trig = release ? (relDir == 1 ? 12.0 : -12.0) : 0.0
+
+    gg = 0.0
+    if useGoldenGate
+        gg += ggUpCross ? 8.0 : 0.0
+        gg += ggDnCross ? -8.0 : 0.0
+    trigger = trig + gg
+
+    align = (px >= e21 ? 6.0 : -6.0) + (px >= e48 ? 6.0 : -6.0)
+    bullStack = (e5 > e13) and (e13 > e21) and (e21 > e48)
+    bearStack = (e5 < e13) and (e13 < e21) and (e21 < e48)
+    align += (bullStack ? 3.0 : bearStack ? -3.0 : 0.0)
+
+    stSlopeUp = stLine > stLine[1]
+    stSlopeDn = stLine < stLine[1]
+    stSupport =
+         (stDir < 0 and stSlopeUp and px > stLine) ? 10.0 :
+         (stDir > 0 and stSlopeDn and px < stLine) ? -10.0 : 0.0
+
+    guard = (sqOn ? -3.0 : 0.0) + (comp ? -2.0 : 0.0)
+
+    clamp(trigger + align + stSupport + guard, -50, 50)
+
+// HTF scores
+htfWScore  = f_htf_from_bundle(cW, e200W, stDW, e5W, e8W, e13W, e21W, e48W, compW, phW, eFastW, eSlowW)
+htfDScore  = f_htf_from_bundle(cD, e200D, stDD, e5D, e8D, e13D, e21D, e48D, compD, phD, eFastD, eSlowD)
+htf4HScore = f_htf_from_bundle(c4, e200H, stD4, e5H, e8H, e13H, e21H, e48H, comp4, ph4, eFast4, eSlow4)
+
+// LTF scores
+ltf30Score = f_ltf_from_bundle(c30, sq30, mom30, ggUp30, ggDn30, e21_30, e48_30, e5_30, e13_30, stL30, stD30, comp30)
+ltf10Score = f_ltf_from_bundle(c10, sq10, mom10, ggUp10, ggDn10, e21_10, e48_10, e5_10, e13_10, stL10, stD10, comp10)
+ltf3Score  = f_ltf_from_bundle(c3,  sq3,  mom3,  ggUp3,  ggDn3,  e21_3,  e48_3,  e5_3,  e13_3,  stL3,  stD3,  comp3)
+
+// Blend
+htfScore = clamp(htfWScore*wW + htfDScore*wD + htf4HScore*w4H, -50, 50)
+ltfScore = clamp(ltf30Score*w30 + ltf10Score*w10 + ltf3Score*w3, -50, 50)
+
+// State
+htfBull = htfScore >= 0
+ltfBull = ltfScore >= 0
+state =
+     htfBull and not ltfBull ? "HTF_BULL_LTF_PULLBACK" :
+     htfBull and ltfBull     ? "HTF_BULL_LTF_BULL" :
+     (not htfBull) and (not ltfBull) ? "HTF_BEAR_LTF_BEAR" :
+                                       "HTF_BEAR_LTF_PULLBACK"
+
+// Phase %
+phaseD = phD
+phasePct = clamp(math.abs(phaseD) / math.max(phaseMaxAbs, 1e-9), 0, 1)
+phaseDir = phaseD > 0 ? "bull" : phaseD < 0 ? "bear" : "flat"
+
+// Phase dot
+phasePrev = bar_index > 0 ? phaseD[1] : na
+phaseLeaveUp   = (not na(phasePrev)) and (phasePrev >=  phaseExitAbs) and (phaseD <  phaseExitAbs)
+phaseLeaveDn   = (not na(phasePrev)) and (phasePrev <= -phaseExitAbs) and (phaseD > -phaseExitAbs)
+phaseLeave100U = (not na(phasePrev)) and (phasePrev >=  100) and (phaseD < 100)
+phaseLeave100D = (not na(phasePrev)) and (phasePrev <= -100) and (phaseD > -100)
+phaseDot = phaseLeaveUp or phaseLeaveDn or phaseLeave100U or phaseLeave100D
+
+//─────────────────────────────────────────────────────────────────────────────
+// Trigger + completion (Weekly expected move)
+//─────────────────────────────────────────────────────────────────────────────
+sq30_prev = prevBoolSeries(sq30)
+sq30_rel  = sq30_prev and not sq30
+rel30Dir  = sq30_rel ? (mom30 >= 0 ? 1 : -1) : 0
+
+crossUp30 = ta.crossover(eFast30, eSlow30)
+crossDn30 = ta.crossunder(eFast30, eSlow30)
+
+htfBiasSign = htfBull ? 1 : -1
+
+goEvent =
+     (sq30_rel and rel30Dir == htfBiasSign) or
+     (crossUp30 and htfBull) or
+     (crossDn30 and not htfBull)
+
+// Trigger metadata
+var string triggerReason = ""
+var string triggerDirStr = ""
+var float  triggerPrice  = na
+var int    triggerTs     = na
+
+if barstate.isconfirmed and goEvent
+    // Use the 30m close as the trigger price (matches trigger source)
+    triggerPrice := c30
+    triggerTs    := time
+
+    if (sq30_rel and rel30Dir == htfBiasSign)
+        triggerReason := "SQUEEZE_RELEASE"
+        triggerDirStr := rel30Dir == 1 ? "BULL" : "BEAR"
+    else if (crossUp30 and htfBull)
+        triggerReason := "EMA_CROSS"
+        triggerDirStr := "BULL"
+    else if (crossDn30 and not htfBull)
+        triggerReason := "EMA_CROSS"
+        triggerDirStr := "BEAR"
+    else
+        triggerReason := "OTHER"
+        triggerDirStr := (htfBull ? "BULL" : "BEAR")
+
+expectedMove = expMoveATRx * ATRw
+completion = na(triggerPrice) or expectedMove <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / expectedMove, 0, 1)
+
+//─────────────────────────────────────────────────────────────────────────────
+// UI trade fields (Weekly swing)
+//─────────────────────────────────────────────────────────────────────────────
+price_now = close
+dir = htfBull ? 1 : -1
+
+tp618_up  = PCw + 0.618 * ATRw
+tp100_up  = PCw + 1.000 * ATRw
+tp618_dn  = PCw - 0.618 * ATRw
+tp100_dn  = PCw - 1.000 * ATRw
+
+tp =     dir == 1 ?        (tp618_up > price_now and tp100_up > price_now ? math.min(tp618_up, tp100_up) :         tp618_up > price_now ? tp618_up :         tp100_up > price_now ? tp100_up : na)     :        (tp618_dn < price_now and tp100_dn < price_now ? math.max(tp618_dn, tp100_dn) :         tp618_dn < price_now ? tp618_dn :         tp100_dn < price_now ? tp100_dn : na)
+
+// Weekly ST line from Weekly bundle = stLW
+atrStop = ATRw * 0.35
+sl =     dir == 1 ?        (stLW < price_now ? stLW : (not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop)))     :        (stLW > price_now ? stLW : (not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop)))
+
+elapsedDays = (not na(triggerTs)) ? ((time - triggerTs) / 86400000.0) : na
+etaDays =
+     (not na(elapsedDays) and completion > 0 and completion < 0.999) ?
+     (elapsedDays * (1.0 / completion - 1.0)) :
+     na
+
+minRisk = math.max(price_now * 0.005, ATRw * 0.25)
+risk = math.max(math.abs(price_now - sl), minRisk)
+gain = na(tp) ? na : math.abs(tp - price_now)
+rr = (risk > 0 and not na(gain)) ? (gain / risk) : na
+
+//─────────────────────────────────────────────────────────────────────────────
+// Alert gating
+//─────────────────────────────────────────────────────────────────────────────
+var bool   sentBaseline  = false
+var float  lastSentHTF   = na
+var float  lastSentLTF   = na
+var string lastSentState = ""
+var int    lastSentTime  = na
+
+scoreMoved = (na(lastSentHTF) or na(lastSentLTF)) ? true :            (math.abs(htfScore - lastSentHTF) >= scoreDelta) or (math.abs(ltfScore - lastSentLTF) >= scoreDelta)
+
+stateChanged = (lastSentState != state)
+
+throttleOK =
+     forceBaseline ? true :
+     minMinutesBetweenSends <= 0 ? true :
+     na(lastSentTime) ? true :
+     (time - lastSentTime >= minMinutesBetweenSends * 60 * 1000)
+
+meaningful = stateChanged or scoreMoved or sq30_rel
+shouldSend = barstate.isconfirmed and throttleOK and (forceBaseline or (not sentBaseline or meaningful))
+
+// Reasons
+reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H)"
+reason2 = (ltfBull ? "LTF bullish" : "LTF bearish") + " (30/10/3)"
+reason3 = sq30_rel ? ("30m SQUEEZE RELEASE " + (rel30Dir==1 ? "BULL" : "BEAR")) : (sq30 ? "30m SQUEEZE ON" : "30m no squeeze")
+reason4 = phaseDot ? "D Phase dot/leave" : ("D Phase " + phaseDir + " pct=" + f_fmt(phasePct,2))
+
+// Build JSON
+json =    "{" +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
+
+// Send
+if shouldSend
+    alert(json, alert.freq_once_per_bar_close)
+    sentBaseline  := true
+    lastSentHTF   := htfScore
+    lastSentLTF   := ltfScore
+    lastSentState := state
+    lastSentTime  := time
+
+// Debug heartbeat (proves alert() works)
+if debugHeartbeat and barstate.isconfirmed
+    alert("{\"ts\":" + str.tostring(time) + ",\"ticker\":\"" + syminfo.ticker + "\",\"debug\":\"HEARTBEAT\"}", alert.freq_once_per_bar_close)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Visual sanity
+//─────────────────────────────────────────────────────────────────────────────
+plot(ltfScore, "LTF Score (X)", linewidth=2)
+plot(htfScore, "HTF Score (Y)", linewidth=2)
+hline(0, "Zero", linestyle=hline.style_dotted)
+
+plotchar(sq30_rel, title="30m Squeeze Release", char="⚡", location=location.top)
+plotchar(phaseDot, title="Daily Phase Dot/Leave", char="•", location=location.bottom)
+
