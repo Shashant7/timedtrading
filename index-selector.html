@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timed Trading — Select Version</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: #0b1020;
+      color: #e7ecff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 800px;
+      width: 100%;
+    }
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      font-size: 2.5rem;
+    }
+    
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+    
+    .card {
+      background: #121a33;
+      border: 2px solid #26325f;
+      border-radius: 16px;
+      padding: 32px;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.3s;
+      display: block;
+    }
+    
+    .card:hover {
+      border-color: #2ecc71;
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(46, 204, 113, 0.2);
+    }
+    
+    .card h2 {
+      margin-bottom: 16px;
+      font-size: 1.5rem;
+    }
+    
+    .card .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background: #2ecc71;
+      color: #0b1020;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      margin-bottom: 16px;
+    }
+    
+    .card .badge.new {
+      background: #3498db;
+    }
+    
+    .card p {
+      color: #93a4d6;
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+    
+    .card ul {
+      list-style: none;
+      margin-top: 16px;
+    }
+    
+    .card li {
+      color: #93a4d6;
+      margin-bottom: 8px;
+      padding-left: 20px;
+      position: relative;
+    }
+    
+    .card li:before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: #2ecc71;
+    }
+    
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      color: #93a4d6;
+      font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Timed Trading Dashboard</h1>
+    
+    <div class="cards">
+      <a href="index.html" class="card">
+        <span class="badge">Original</span>
+        <h2>Classic Version</h2>
+        <p>The original dashboard with Plotly charts and vanilla JavaScript.</p>
+        <ul>
+          <li>Full-featured filter panel</li>
+          <li>Group-based organization</li>
+          <li>Trail visualization</li>
+          <li>Mature and stable</li>
+        </ul>
+      </a>
+      
+      <a href="react-app/index-react.html" class="card">
+        <span class="badge new">New</span>
+        <h2>React Dashboard</h2>
+        <p>Modern React-based dashboard with improved performance and UX.</p>
+        <ul>
+          <li>Lightweight Recharts (10x smaller)</li>
+          <li>Component-based architecture</li>
+          <li>Better loading states</li>
+          <li>Quick filter presets</li>
+          <li>Responsive design</li>
+        </ul>
+      </a>
+    </div>
+    
+    <div class="footer">
+      Choose a version to get started
+    </div>
+  </div>
+</body>
+</html>
+
