@@ -936,7 +936,7 @@
 
         return (
           <div
-            className={`p-3 rounded-lg border cursor-pointer transition-all ${
+            className={`p-2 rounded-lg border cursor-pointer transition-all ${
               isSelected
                 ? "border-blue-500 bg-blue-500/10 shadow-lg"
                 : prime
@@ -946,110 +946,79 @@
             onClick={onClick}
           >
             {/* Header */}
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-base">{ticker.ticker}</span>
-                {prime && <span className="text-green-500 text-sm">⭐</span>}
-                {flags.sq30_release && <span className="text-cyan-400 text-sm">⚡</span>}
-                {flags.sq30_on && <span className="text-yellow-400 text-sm">🧨</span>}
+                <span className="font-bold text-sm">{ticker.ticker}</span>
+                {prime && <span className="text-green-500 text-xs">⭐</span>}
+                {flags.sq30_release && <span className="text-cyan-400 text-xs">⚡</span>}
+                {flags.sq30_on && <span className="text-yellow-400 text-xs">🧨</span>}
               </div>
-              <div className={`px-2 py-0.5 rounded font-bold text-xs ${dir.bg} ${dir.color}`}>
-                {dir.text}
+              <div className="flex items-center gap-1.5">
+                {ticker.price && (
+                  <span className="text-xs font-semibold text-white">
+                    ${Number(ticker.price).toFixed(2)}
+                  </span>
+                )}
+                <div className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${dir.bg} ${dir.color}`}>
+                  {dir.text}
+                </div>
               </div>
             </div>
 
-            {/* Bias/Direction - More prominent */}
-            <div className="mb-2">
-              <div className="text-[10px] text-[#93a4d6] mb-0.5">Bias / Direction</div>
-              <div className={`inline-block px-3 py-1 rounded font-bold text-sm ${dir.bg} ${dir.color} border-2 border-current/30`}>
-                {dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text}
-              </div>
-            </div>
-
-            {/* Why */}
-            <div className="mb-2">
-              <div className="text-[10px] text-[#93a4d6] mb-0.5">Why</div>
-              <div className="text-xs font-semibold text-white leading-tight">{why}</div>
-            </div>
-
-            {/* Action Description */}
-            {(() => {
-              const actionInfo = getActionDescription(ticker);
-              return (
-                <div className={`mb-2 p-1.5 rounded border ${actionInfo.bg} border-current/20`}>
-                  <div className={`text-[10px] font-bold mb-0.5 ${actionInfo.color}`}>
+            {/* Why and Action - Compact */}
+            <div className="mb-1.5">
+              <div className="text-[9px] text-[#93a4d6] mb-0.5">Why: <span className="text-white font-semibold text-[10px]">{why}</span></div>
+              {(() => {
+                const actionInfo = getActionDescription(ticker);
+                return (
+                  <div className={`text-[9px] ${actionInfo.color} font-semibold`}>
                     {actionInfo.action}
                   </div>
-                  <div className="text-[9px] text-[#93a4d6] leading-tight">
-                    {actionInfo.description}
-                  </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
+            </div>
 
-            {/* Trigger Info */}
-            {ticker.trigger_price && (
-              <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
+            {/* Price, SL, TP - Compact inline */}
+            <div className="grid grid-cols-3 gap-1.5 mb-1.5 text-[9px]">
+              {ticker.price && (
                 <div>
-                  <div className="text-[10px] text-[#93a4d6] mb-0.5">Trigger Price</div>
-                  <div className="font-semibold text-white text-xs">
-                    ${Number(ticker.trigger_price).toFixed(2)}
-                  </div>
+                  <div className="text-[8px] text-[#93a4d6]">Price</div>
+                  <div className="font-semibold text-white">${Number(ticker.price).toFixed(2)}</div>
                 </div>
-                {ticker.trigger_ts && (
-                  <div>
-                    <div className="text-[10px] text-[#93a4d6] mb-0.5">Trigger Date/Time</div>
-                    <div className="font-semibold text-white text-[10px] leading-tight">
-                      {triggerDT.date}<br/>{triggerDT.time}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* SL and TP */}
-            <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
+              )}
               <div>
-                <div className="text-[10px] text-[#93a4d6] mb-0.5">Stop Loss (SL)</div>
-                <div className="font-semibold text-red-400 text-xs">
+                <div className="text-[8px] text-[#93a4d6]">SL</div>
+                <div className="font-semibold text-red-400">
                   {ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}
                 </div>
               </div>
               <div>
-                <div className="text-[10px] text-[#93a4d6] mb-0.5">Take Profit (TP)</div>
-                <div className="font-semibold text-green-400 text-xs">
+                <div className="text-[8px] text-[#93a4d6]">TP</div>
+                <div className="font-semibold text-green-400">
                   {ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}
                 </div>
               </div>
             </div>
 
-            {/* TP Levels */}
-            {tpLevels.length > 1 && (
-              <div className="mb-2">
-                <div className="text-[10px] text-[#93a4d6] mb-0.5">TP Levels</div>
-                <div className="flex flex-wrap gap-1">
-                  {tpLevels.slice(0, 2).map((tp, idx) => (
-                    <span
-                      key={idx}
-                      className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[9px] font-mono"
-                    >
-                      TP{idx + 1}: ${Number(tp).toFixed(2)}
-                    </span>
-                  ))}
-                  {tpLevels.length > 2 && (
-                    <span className="px-1.5 py-0.5 rounded bg-[#26325f] text-[#93a4d6] text-[9px]">
-                      +{tpLevels.length - 2}
-                    </span>
-                  )}
-                </div>
+            {/* Trigger Info - Compact */}
+            {ticker.trigger_price && (
+              <div className="mb-1.5 text-[9px]">
+                <span className="text-[#93a4d6]">Trigger: </span>
+                <span className="text-white font-semibold">${Number(ticker.trigger_price).toFixed(2)}</span>
+                {ticker.trigger_ts && (
+                  <>
+                    <span className="text-[#93a4d6] ml-2">@ </span>
+                    <span className="text-white text-[8px]">{triggerDT.date} {triggerDT.time}</span>
+                  </>
+                )}
               </div>
             )}
 
-            {/* Phase and Completion */}
-            <div className="grid grid-cols-2 gap-2 mb-2">
+            {/* Phase and Completion - Compact */}
+            <div className="grid grid-cols-2 gap-1.5 mb-1.5">
               <div>
-                <div className="text-xs text-[#93a4d6] mb-1">Phase</div>
-                <div className="h-2 bg-[#26325f] rounded-full overflow-hidden">
+                <div className="text-[8px] text-[#93a4d6] mb-0.5">Phase</div>
+                <div className="h-1.5 bg-[#26325f] rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all"
                     style={{
@@ -1058,39 +1027,59 @@
                     }}
                   />
                 </div>
-                <div className="text-xs mt-1" style={{ color: phaseColor }}>
+                <div className="text-[9px] mt-0.5" style={{ color: phaseColor }}>
                   {Math.round(phase * 100)}%
-                  {ticker.phase_zone && ` (${ticker.phase_zone})`}
                 </div>
               </div>
               <div>
-                <div className="text-xs text-[#93a4d6] mb-1">Completion</div>
-                <div className="h-2 bg-[#26325f] rounded-full overflow-hidden">
+                <div className="text-[8px] text-[#93a4d6] mb-0.5">Complete</div>
+                <div className="h-1.5 bg-[#26325f] rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full bg-blue-500 transition-all"
                     style={{ width: `${comp * 100}%` }}
                   />
                 </div>
-                <div className="text-xs mt-1 text-blue-400">
+                <div className="text-[9px] mt-0.5 text-blue-400">
                   {Math.round(comp * 100)}%
                 </div>
               </div>
             </div>
 
-            {/* Additional Info */}
-            <div className="flex items-center justify-between text-[10px] pt-1.5 border-t border-[#26325f]/50">
+            {/* TP Levels - Compact */}
+            {tpLevels.length > 1 && (
+              <div className="mb-1.5">
+                <div className="flex flex-wrap gap-1">
+                  {tpLevels.slice(0, 2).map((tp, idx) => (
+                    <span
+                      key={idx}
+                      className="px-1 py-0.5 rounded bg-green-500/20 text-green-400 text-[8px] font-mono"
+                    >
+                      TP{idx + 1}: ${Number(tp).toFixed(2)}
+                    </span>
+                  ))}
+                  {tpLevels.length > 2 && (
+                    <span className="px-1 py-0.5 rounded bg-[#26325f] text-[#93a4d6] text-[8px]">
+                      +{tpLevels.length - 2}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Additional Info - Compact */}
+            <div className="flex items-center justify-between text-[9px] pt-1 border-t border-[#26325f]/50">
               <div className="flex gap-1">
-                <span className="px-1.5 py-0.5 rounded bg-[#26325f]">
-                  Rank: {ticker.rank || "—"}
+                <span className="px-1 py-0.5 rounded bg-[#26325f]">
+                  R{ticker.rank || "—"}
                 </span>
                 {ticker.rr && (
-                  <span className="px-1.5 py-0.5 rounded bg-[#26325f]">
-                    RR: {Number(ticker.rr).toFixed(2)}
+                  <span className="px-1 py-0.5 rounded bg-[#26325f]">
+                    RR{Number(ticker.rr).toFixed(1)}
                   </span>
                 )}
               </div>
               {ent.corridor && (
-                <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${dir.bg} ${dir.color}`}>
+                <span className={`px-1 py-0.5 rounded text-[8px] font-semibold ${dir.bg} ${dir.color}`}>
                   {ent.side}
                 </span>
               )}
@@ -1402,9 +1391,9 @@
                 </div>
               )}
               <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                <span className="text-[#93a4d6]">Price</span>
-                <span className="font-semibold">
-                  {ticker.price ? Number(ticker.price).toFixed(2) : "—"}
+                <span className="text-[#93a4d6]">Current Price</span>
+                <span className="font-semibold text-lg">
+                  {ticker.price ? `$${Number(ticker.price).toFixed(2)}` : "—"}
                 </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
@@ -1621,7 +1610,7 @@
                       return (
                         <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
                           <h2 className="text-lg font-bold mb-4">📈 Top Long</h2>
-                          <div className="max-h-[600px] overflow-y-auto space-y-2">
+                          <div className="max-h-[700px] overflow-y-auto space-y-1.5">
                             {longTickers.map((ticker) => (
                               <SetupCard
                                 key={ticker.ticker}
@@ -1650,7 +1639,7 @@
                       return (
                         <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
                           <h2 className="text-lg font-bold mb-4">📉 Top Short</h2>
-                          <div className="max-h-[600px] overflow-y-auto space-y-2">
+                          <div className="max-h-[700px] overflow-y-auto space-y-1.5">
                             {shortTickers.map((ticker) => (
                               <SetupCard
                                 key={ticker.ticker}
@@ -1682,7 +1671,7 @@
                       return (
                         <div key={idx} className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
                           <h2 className="text-lg font-bold mb-4">{listConfig.title}</h2>
-                          <div className="max-h-[500px] overflow-y-auto space-y-2">
+                          <div className="max-h-[600px] overflow-y-auto space-y-1.5">
                             {listTickers.map((ticker) => (
                               <SetupCard
                                 key={ticker.ticker}
