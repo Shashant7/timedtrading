@@ -439,9 +439,10 @@
       // Components
       // ─────────────────────────────────────────────────────────────
       // Native SVG Bubble component (works without Recharts)
-      const SVGBubble = memo(({ ticker, onClick, onHover, isHovered, scaleX, scaleY, offsetX, offsetY }) => {
+      const SVGBubble = memo(({ ticker, onClick, onHover, isHovered, scaleX, scaleY, offsetX, offsetY, showLabels }) => {
         const comp = completionForSize(ticker);
-        const size = 10 + comp * 40;
+        // Smaller bubbles: reduced from 10+comp*40 to 4+comp*12
+        const size = 4 + comp * 12;
         const phase = Number(ticker.phase_pct) || 0;
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
@@ -450,7 +451,7 @@
         // Phase-based gradient color
         const color = phaseToColor(phase);
         const opacity = isHovered ? 1 : (prime ? 0.9 : 0.7);
-        const borderWidth = prime ? 4 : flags.sq30_release ? 3 : flags.sq30_on ? 2 : 1;
+        const borderWidth = prime ? 3 : flags.sq30_release ? 2 : flags.sq30_on ? 2 : 1;
         const borderColor = prime 
           ? "#2ecc71" 
           : flags.sq30_release 
@@ -459,10 +460,15 @@
           ? "#ffd700"
           : "#ffffff";
         
-        const bubbleSize = isHovered ? size * 1.15 : size;
+        const bubbleSize = isHovered ? size * 1.2 : size;
 
         const x = (Number(ticker.ltf_score) || 0) * scaleX + offsetX;
         const y = (Number(ticker.htf_score) || 0) * scaleY + offsetY;
+
+        // Determine emoji and label position
+        const hasSqueeze = flags.sq30_release || flags.sq30_on;
+        const emoji = prime ? "⭐" : flags.sq30_release ? "⚡" : flags.sq30_on ? "🧨" : "";
+        const labelY = y - bubbleSize - (emoji ? 12 : 8);
 
         return (
           <g
@@ -476,7 +482,7 @@
               <circle
                 cx={x}
                 cy={y}
-                r={bubbleSize + 3}
+                r={bubbleSize + 2}
                 fill="none"
                 stroke="#2ecc71"
                 strokeWidth="1"
@@ -493,37 +499,45 @@
               strokeWidth={borderWidth}
               style={{ transition: "all 0.2s ease-out" }}
             />
-            {prime && (
+            {/* Emoji above bubble */}
+            {emoji && (
               <text
                 x={x}
-                y={y - bubbleSize - 8}
+                y={labelY}
                 textAnchor="middle"
-                fontSize="16"
-                fill="#2ecc71"
+                fontSize={prime ? "14" : "12"}
+                fill={prime ? "#2ecc71" : flags.sq30_release ? "#00ffff" : "#ffd700"}
                 fontWeight="bold"
-                style={{ textShadow: "0 0 4px rgba(46,204,113,0.8)" }}
+                style={{ textShadow: "0 0 3px rgba(0,0,0,0.8)" }}
               >
-                ⭐
+                {emoji}
               </text>
             )}
-            {flags.sq30_release && !prime && (
+            {/* Ticker label */}
+            {(showLabels || isHovered) && (
               <text
                 x={x}
-                y={y - bubbleSize - 8}
+                y={labelY - (emoji ? 14 : 8)}
                 textAnchor="middle"
-                fontSize="14"
-                fill="#00ffff"
+                fontSize="10"
+                fill="#e7ecff"
+                fontWeight="600"
+                style={{ 
+                  textShadow: "0 0 4px rgba(0,0,0,0.9)",
+                  pointerEvents: "none"
+                }}
               >
-                ⚡
+                {ticker.ticker}
               </text>
             )}
           </g>
         );
       });
 
-      const Bubble = memo(({ ticker, onClick, onHover, isHovered }) => {
+      const Bubble = memo(({ ticker, onClick, onHover, isHovered, showLabels }) => {
         const comp = completionForSize(ticker);
-        const size = 10 + comp * 40;
+        // Smaller bubbles: reduced from 10+comp*40 to 4+comp*12
+        const size = 4 + comp * 12;
         const phase = Number(ticker.phase_pct) || 0;
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
@@ -531,7 +545,7 @@
         // Phase-based gradient color
         const color = phaseToColor(phase);
         const opacity = isHovered ? 1 : (prime ? 0.9 : 0.7);
-        const borderWidth = prime ? 4 : flags.sq30_release ? 3 : flags.sq30_on ? 2 : 1;
+        const borderWidth = prime ? 3 : flags.sq30_release ? 2 : flags.sq30_on ? 2 : 1;
         const borderColor = prime 
           ? "#2ecc71" 
           : flags.sq30_release 
@@ -540,9 +554,14 @@
           ? "#ffd700"
           : "#ffffff";
         
-        const bubbleSize = isHovered ? size * 1.15 : size;
+        const bubbleSize = isHovered ? size * 1.2 : size;
         const x = Number(ticker.ltf_score) || 0;
         const y = Number(ticker.htf_score) || 0;
+
+        // Determine emoji and label position
+        const hasSqueeze = flags.sq30_release || flags.sq30_on;
+        const emoji = prime ? "⭐" : flags.sq30_release ? "⚡" : flags.sq30_on ? "🧨" : "";
+        const labelY = y - bubbleSize - (emoji ? 12 : 8);
 
         return (
           <g
@@ -556,7 +575,7 @@
               <circle
                 cx={x}
                 cy={y}
-                r={bubbleSize + 3}
+                r={bubbleSize + 2}
                 fill="none"
                 stroke="#2ecc71"
                 strokeWidth="1"
@@ -573,28 +592,35 @@
               strokeWidth={borderWidth}
               style={{ transition: "all 0.2s ease-out" }}
             />
-            {prime && (
+            {/* Emoji above bubble */}
+            {emoji && (
               <text
                 x={x}
-                y={y - bubbleSize - 8}
+                y={labelY}
                 textAnchor="middle"
-                fontSize="16"
-                fill="#2ecc71"
+                fontSize={prime ? "14" : "12"}
+                fill={prime ? "#2ecc71" : flags.sq30_release ? "#00ffff" : "#ffd700"}
                 fontWeight="bold"
-                style={{ textShadow: "0 0 4px rgba(46,204,113,0.8)" }}
+                style={{ textShadow: "0 0 3px rgba(0,0,0,0.8)" }}
               >
-                ⭐
+                {emoji}
               </text>
             )}
-            {flags.sq30_release && !prime && (
+            {/* Ticker label */}
+            {(showLabels || isHovered) && (
               <text
                 x={x}
-                y={y - bubbleSize - 8}
+                y={labelY - (emoji ? 14 : 8)}
                 textAnchor="middle"
-                fontSize="14"
-                fill="#00ffff"
+                fontSize="10"
+                fill="#e7ecff"
+                fontWeight="600"
+                style={{ 
+                  textShadow: "0 0 4px rgba(0,0,0,0.9)",
+                  pointerEvents: "none"
+                }}
               >
-                ⚡
+                {ticker.ticker}
               </text>
             )}
           </g>
@@ -604,15 +630,18 @@
       function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover }) {
         const [tooltip, setTooltip] = useState(null);
         const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+        const [showLabels, setShowLabels] = useState(true);
         
         // Fallback: Native SVG chart (works without Recharts)
         if (!RechartsComponents) {
-          const chartWidth = 800;
-          const chartHeight = 600;
-          const margin = 60;
+          // Larger chart: increased from 800x600 to 1200x800
+          const chartWidth = 1200;
+          const chartHeight = 800;
+          const margin = 80;
           const plotWidth = chartWidth - 2 * margin;
           const plotHeight = chartHeight - 2 * margin;
           
+          // More precise scaling for better granularity
           const scaleX = plotWidth / 100; // -50 to 50 range
           const scaleY = plotHeight / 100;
           const offsetX = margin;
@@ -625,12 +654,22 @@
           
           return (
             <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-4 relative">
+              {/* Label toggle */}
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={() => setShowLabels(!showLabels)}
+                  className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f] text-xs text-[#93a4d6] hover:bg-[#1a2550] transition-colors"
+                >
+                  {showLabels ? "Hide Labels" : "Show Labels"}
+                </button>
+              </div>
               <svg 
                 width="100%" 
                 height="100%" 
                 viewBox={`0 0 ${chartWidth} ${chartHeight}`}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={() => setTooltip(null)}
+                style={{ minHeight: "800px" }}
               >
                 {/* Grid with better styling */}
                 <defs>
@@ -717,6 +756,7 @@
                     scaleY={-scaleY}
                     offsetX={offsetX + 50 * scaleX}
                     offsetY={offsetY + plotHeight - 50 * scaleY}
+                    showLabels={showLabels}
                   />
                 ))}
               </svg>
@@ -1423,11 +1463,11 @@
                 </div>
               </header>
 
-              {/* Main Content */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Chart */}
-                <div className="lg:col-span-2">
-                  <div className="h-[600px]">
+              {/* Main Content - Chart on top, full width */}
+              <div className="space-y-4">
+                {/* Chart - Full width, larger */}
+                <div>
+                  <div className="h-[800px]">
                     {loading && tickers.length === 0 ? (
                       <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
                         <div className="text-center">
@@ -1448,14 +1488,16 @@
                   </div>
                 </div>
 
-                {/* Sidebar */}
-                <div className="space-y-4">
+                {/* Lists below - Grid layout */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {/* Selected Ticker Details */}
                   {selectedTicker && (
-                    <TickerDetails
-                      ticker={tickers.find((t) => t.ticker === selectedTicker)}
-                      onClose={() => setSelectedTicker(null)}
-                    />
+                    <div>
+                      <TickerDetails
+                        ticker={tickers.find((t) => t.ticker === selectedTicker)}
+                        onClose={() => setSelectedTicker(null)}
+                      />
+                    </div>
                   )}
 
                   {/* Comprehensive Setup List */}
@@ -1467,7 +1509,7 @@
                           (a, b) =>
                             (Number(b.rank) || 0) - (Number(a.rank) || 0)
                         )
-                        .slice(0, 15)
+                        .slice(0, 20)
                         .map((ticker) => (
                           <SetupCard
                             key={ticker.ticker}
