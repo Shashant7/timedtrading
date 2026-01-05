@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- UI_VERSION: 2026-01-05-groups-perf-debounce-sectors-FINAL -->
+<!-- UI_VERSION: 2026-01-05-perf-optimized-v2 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -92,6 +92,23 @@
         border: 1px solid var(--line);
         border-radius: 16px;
         background: var(--card);
+        position: relative;
+      }
+      #chart.loading::before {
+        content: "Loading…";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: var(--muted);
+        font-size: 14px;
+        z-index: 1;
+        opacity: 1;
+        pointer-events: none;
+      }
+      #chart::before {
+        opacity: 0;
+        transition: opacity 0.2s;
       }
       .side {
         border: 1px solid var(--line);
@@ -811,9 +828,18 @@
       // Hover cache (small perf win)
       const hoverCache = new Map(); // key -> html
 
+      // Data cache with stale-while-revalidate
+      let dataCache = null;
+      let dataCacheTime = 0;
+      const DATA_CACHE_TTL_MS = 5_000; // 5 seconds - balance freshness vs speed
+
+      // Filter memoization
+      let filterCache = null;
+      let lastFilterKey = null;
+
       // Debounce
       let debounceTimer = null;
-      const DEBOUNCE_MS = 250;
+      const DEBOUNCE_MS = 150; // Reduced from 250ms for snappier feel
 
       // Tabs / auto refresh
       let currentTab = "long";
@@ -1045,28 +1071,54 @@
         if (got) return got;
         const txt = hoverText(t, d);
         hoverCache.set(key, txt);
-        // prevent runaway growth
-        if (hoverCache.size > 600) {
-          // delete ~200 oldest-ish (Map preserves insertion order)
+        // prevent runaway growth - more aggressive cleanup
+        if (hoverCache.size > 400) {
+          // delete ~150 oldest (Map preserves insertion order)
           let i = 0;
           for (const k of hoverCache.keys()) {
             hoverCache.delete(k);
             i++;
-            if (i >= 200) break;
+            if (i >= 150) break;
           }
         }
         return txt;
       }
 
-      async function fetchJSON(url, signal = null) {
-        const res = await fetch(url, { cache: "no-store", signal });
+      async function fetchJSON(url, signal = null, useCache = false) {
+        // Stale-while-revalidate: return cached if fresh, fetch in background
+        if (
+          useCache &&
+          dataCache &&
+          Date.now() - dataCacheTime < DATA_CACHE_TTL_MS
+        ) {
+          // Return cached immediately, refresh in background
+          fetch(url, { cache: "no-store", signal }).catch(() => {});
+          return dataCache;
+        }
+
+        const res = await fetch(url, {
+          cache: "no-store",
+          signal,
+          headers: {
+            Accept: "application/json",
+            "Accept-Encoding": "gzip, deflate, br",
+          },
+        });
         if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
-        return await res.json();
+        const json = await res.json();
+
+        // Cache successful responses
+        if (useCache && json?.ok) {
+          dataCache = json;
+          dataCacheTime = Date.now();
+        }
+
+        return json;
       }
 
-      async function fetchAll(signal = null) {
+      async function fetchAll(signal = null, useCache = true) {
         const url = el("endpoint").value;
-        const json = await fetchJSON(url, signal);
+        const json = await fetchJSON(url, signal, useCache);
         if (!json.ok) throw new Error("API not ok");
         return json.data || {};
       }
@@ -1091,6 +1143,28 @@
       }
 
       function applyFilters(dataObj) {
+        // Build filter key for memoization
+        const filterKey = JSON.stringify({
+          search: el("search").value.trim().toUpperCase(),
+          compMax: Number(el("compMax").value),
+          rrMin: Number(el("rrMin").value),
+          rankMin: Number(el("rankMin").value),
+          swap: el("swapAxes").checked,
+          eligibleOnly: el("eligibleOnly").checked,
+          q1: el("q1").checked,
+          q2: el("q2").checked,
+          q3: el("q3").checked,
+          q4: el("q4").checked,
+          group: el("groupSel").value,
+          dataHash:
+            Object.keys(dataObj).length + Object.keys(dataObj).join(","),
+        });
+
+        // Return cached result if filters and data unchanged
+        if (filterCache && lastFilterKey === filterKey) {
+          return filterCache;
+        }
+
         const search = el("search").value.trim().toUpperCase();
         const compMax = Number(el("compMax").value);
         const rrMin = Number(el("rrMin").value);
@@ -1105,14 +1179,27 @@
         if (el("q4").checked) allow.add("HTF_BEAR_LTF_PULLBACK");
 
         const out = [];
+        // Pre-compute group filter result for all tickers (optimization)
+        const groupSel = el("groupSel").value;
+        const groupFilterCache = new Map();
+
         for (const [tickerRaw, d] of Object.entries(dataObj)) {
           if (!d) continue;
           const T = normTicker(tickerRaw);
 
-          if (!passesGroupFilter(T)) continue;
+          // Fast path: check cheapest filters first
           if (search && !T.includes(search)) continue;
           if (!allow.has(d.state)) continue;
 
+          // Group filter (memoized per ticker)
+          let passesGroup = groupFilterCache.get(T);
+          if (passesGroup === undefined) {
+            passesGroup = passesGroupFilter(T);
+            groupFilterCache.set(T, passesGroup);
+          }
+          if (!passesGroup) continue;
+
+          // More expensive checks last
           const cs = completionForSize(d);
           if (cs > compMax) continue;
 
@@ -1127,6 +1214,11 @@
 
           out.push({ ticker: T, ...d, _swap: swap, _eligible: eligible });
         }
+
+        // Cache result
+        filterCache = out;
+        lastFilterKey = filterKey;
+
         return out;
       }
 
@@ -1241,15 +1333,16 @@
             "chart",
             [],
             { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)" },
-            { responsive: true }
+            { responsive: true, staticPlot: false }
           );
           updateStats(points);
           return;
         }
 
+        // Performance: batch DOM reads before writes
         const swap = points[0]?._swap ?? false;
+        const labelsMode = el("labelsMode").value;
 
-        const labelsMode = el("labelsMode").value; // smart/off/all
         const showText =
           labelsMode === "all"
             ? "all"
@@ -1495,10 +1588,40 @@
           ],
         };
 
-        Plotly.react("chart", traces, layout, {
-          responsive: true,
-          displayModeBar: true,
-        });
+        // Use restyle/relayout for updates when possible (faster than full react)
+        const existing = document.getElementById("chart").data;
+        const isUpdate =
+          existing &&
+          existing.length > 0 &&
+          existing[0]?.x?.length === X.length &&
+          !faintTrailsByTicker; // Only for simple updates
+
+        if (isUpdate && existing[0].x.length === X.length) {
+          // Partial update - much faster
+          Plotly.restyle(
+            "chart",
+            {
+              x: [X],
+              y: [Y],
+              text: [labels],
+              "marker.size": [sizes],
+              "marker.color": [colors],
+              "marker.opacity": [opacities],
+              "marker.line.width": [lws],
+              "marker.line.color": [lcs],
+              hovertext: [H],
+            },
+            0
+          );
+        } else {
+          // Full render for new data or structural changes
+          Plotly.react("chart", traces, layout, {
+            responsive: true,
+            displayModeBar: true,
+            staticPlot: false,
+            doubleClick: "reset",
+          });
+        }
 
         // Bind click once
         if (!clickHandlerBound) {
@@ -1810,9 +1933,38 @@
           const signal = refreshAbort.signal;
 
           if (s) s.textContent = "Loading…";
+          const chartEl = el("chart");
+          if (chartEl) chartEl.classList.add("loading");
 
-          const dataObj = await fetchAll(signal);
+          // Use cache for instant response, refresh in background
+          const useCache = !isUserFilterChange && dataCache;
+          let dataObj;
+
+          if (useCache && dataCache) {
+            // Show cached data immediately
+            dataObj = dataCache.data || {};
+            lastUnfilteredData = dataObj;
+            const cachedPoints = applyFilters(dataObj);
+            if (cachedPoints.length > 0) {
+              scheduleRender(cachedPoints, lastFaintTrails);
+              renderListTopFromPoints(cachedPoints, currentTab);
+              if (s)
+                s.textContent = `Loaded ${
+                  cachedPoints.length
+                } (cached) • ${new Date().toLocaleTimeString()}`;
+            }
+          }
+
+          // Fetch fresh data
+          dataObj = await fetchAll(signal, useCache);
           lastUnfilteredData = dataObj; // Store raw data
+
+          // Clear filter cache when data changes
+          if (!useCache) {
+            filterCache = null;
+            lastFilterKey = null;
+          }
+
           const points = applyFilters(dataObj);
 
           // blink guard: only trigger on network issues, not intentional filter changes
@@ -1846,6 +1998,7 @@
 
           scheduleRender(points, faint);
           renderListTopFromPoints(points, currentTab);
+          if (chartEl) chartEl.classList.remove("loading");
 
           // start/stop flash based on current view
           if (anyShouldFlash(points)) startFlashLoop();
