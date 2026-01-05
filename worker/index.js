@@ -145,6 +145,7 @@ function computeRank(d) {
   const flags = d.flags || {};
   const sqRel = !!flags.sq30_release;
   const sqOn = !!flags.sq30_on;
+  const phaseZoneChange = !!flags.phase_zone_change;
 
   const state = String(d.state || "");
   const aligned = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
@@ -164,6 +165,9 @@ function computeRank(d) {
 
   if (sqRel) score += 15;
   else if (sqOn) score += 6;
+
+  // Bonus for phase zone change (regime shift)
+  if (phaseZoneChange) score += 3;
 
   if (Number.isFinite(rr)) score += Math.min(10, rr * 2);
 

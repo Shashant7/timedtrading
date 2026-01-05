@@ -563,11 +563,11 @@
       `Rank: ${d.rank ?? "—"} | RR: ${d.rr != null ? fmtNum(d.rr,2) : "—"}`,
       `HTF: ${fmtNum(d.htf_score,2)} | LTF: ${fmtNum(d.ltf_score,2)}`,
       `Bubble completion (TP-based): ${fmtPct01(completionForSize(d))}`,
-      `Phase: ${fmtPct01(d.phase_pct)}`,
+      `Phase: ${fmtPct01(d.phase_pct)}${d.phase_zone ? " (" + d.phase_zone + ")" : ""}`,
       `Age: ${Number.isFinite(ageMin) ? ageMin.toFixed(1)+"m" : "—"} | Staleness: ${d.staleness || "—"}`,
       `Trigger: ${fmtNum(d.trigger_price,2)} | Price: ${fmtNum(d.price,2)}`,
       `SL: ${fmtNum(d.sl,2)} | TP: ${fmtNum(d.tp,2)} | ETA: ${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}`,
-      `Flags: sq_on=${!!flags.sq30_on}, sq_rel=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}`
+      `Flags: sq_on=${!!flags.sq30_on}, sq_rel=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}, phase_zone_change=${!!flags.phase_zone_change}`
     ].join("<br>");
   }
 
@@ -979,7 +979,7 @@
         const t = normTicker(d.ticker || d.symbol || d.contract || "—");
         const rr = (d.rr != null) ? Number(d.rr).toFixed(2) : "—";
         const comp = fmtPct01(completionForSize(d));
-        const ph = d.phase_pct != null ? Math.round(Number(d.phase_pct)*100) + "%" : "—";
+        const ph = d.phase_pct != null ? Math.round(Number(d.phase_pct)*100) + "%" + (d.phase_zone ? " (" + d.phase_zone + ")" : "") : "—";
         const sq = d.flags?.sq30_release ? "⚡" : (d.flags?.sq30_on ? "🧨" : "");
         const corridor = entryType(d);
         const corridorTag = corridor.corridor ? (corridor.side==="LONG" ? "LONG corridor" : "SHORT corridor") : "—";
@@ -1060,7 +1060,7 @@
         <div class="hr"></div>
 
         <div class="row"><div class="k">HTF/LTF</div><div class="v">${fmtNum(d.htf_score,2)} / ${fmtNum(d.ltf_score,2)}</div></div>
-        <div class="row"><div class="k">Phase</div><div class="v">${fmtPct01(d.phase_pct)}</div></div>
+        <div class="row"><div class="k">Phase</div><div class="v">${fmtPct01(d.phase_pct)}${d.phase_zone ? " (" + d.phase_zone + ")" : ""}</div></div>
         <div class="row"><div class="k">Open TV</div><div class="v"><a href="${tvUrlForTicker(selectedTicker)}" target="_blank" rel="noopener noreferrer">TradingView</a></div></div>
       </div>
     `;
