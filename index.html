@@ -1,33 +1,34 @@
 <!doctype html>
-<!-- UI_VERSION: 2026-01-02-full-1to6 -->
+<!-- UI_VERSION: 2026-01-04-corridors-trails-flash-mobile -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Timed Trading — Bubble Quadrant</title>
   <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+
   <style>
     :root { --bg:#0b1020; --card:#121a33; --text:#e7ecff; --muted:#93a4d6; --line:#26325f; --good:#2ecc71; --bad:#e74c3c; }
     body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:var(--text); }
-    header { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
-    .title { font-weight:800; letter-spacing:.2px; }
-    .pill { background:var(--card); border:1px solid var(--line); border-radius:999px; padding:8px 12px; display:flex; gap:10px; align-items:center;}
+    header { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+    .title { font-weight:900; letter-spacing:.2px; }
+    .pill { background:var(--card); border:1px solid var(--line); border-radius:999px; padding:8px 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
     .pill label { font-size:12px; color:var(--muted); }
     select,input { background:#0f1630; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:8px 10px; }
     input[type="checkbox"] { transform: scale(1.1); }
     .btn { cursor:pointer; background:#1a2550; border:1px solid var(--line); color:var(--text);
-           border-radius:12px; padding:9px 12px; font-weight:700; }
+           border-radius:12px; padding:9px 12px; font-weight:800; }
     .btn:active { transform: translateY(1px); }
     .muted { color:var(--muted); font-size:12px; }
     main { padding:14px 18px; }
-    .grid { display:grid; grid-template-columns: 1fr 360px; gap:12px; align-items:start; }
+    .grid { display:grid; grid-template-columns: 1fr 380px; gap:12px; align-items:start; }
     #chart { width:100%; height:78vh; border:1px solid var(--line); border-radius:16px; background:var(--card); }
     .side { border:1px solid var(--line); border-radius:16px; background:var(--card); padding:12px; }
     .side h3 { margin:8px 0 10px 0; font-size:14px; color:var(--text); }
     .tabs { display:flex; gap:8px; flex-wrap:wrap; }
     .tab { padding:6px 10px; border:1px solid var(--line); border-radius:999px; cursor:pointer; font-size:12px; color:var(--muted); }
     .tab.active { color:var(--text); background:#0f1630; }
-    .list { margin-top:10px; display:flex; flex-direction:column; gap:8px; max-height:34vh; overflow:auto; }
+    .list { margin-top:10px; display:flex; flex-direction:column; gap:8px; max-height:30vh; overflow:auto; }
     .item { border:1px solid var(--line); border-radius:12px; padding:8px; cursor:pointer; }
     .row { display:flex; justify-content:space-between; gap:8px; }
     .k { color:var(--muted); font-size:12px; }
@@ -38,6 +39,18 @@
     .details { margin-top:10px; border-top:1px solid var(--line); padding-top:10px; }
     a { color:#a8b6ff; text-decoration:none; }
     a:hover { text-decoration:underline; }
+    .hr { border-top:1px solid var(--line); margin:10px 0; }
+    .tradeCard { border:1px solid var(--line); border-radius:12px; padding:10px; background:#0f1630; }
+    .tradeTitle { font-weight:900; }
+    .pillRow { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .chip { border:1px solid var(--line); border-radius:999px; padding:3px 8px; font-size:12px; color:var(--text); background:rgba(255,255,255,0.03); }
+
+    /* Mobile */
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      #chart { height: 62vh; }
+      .side { position: relative; }
+    }
   </style>
 </head>
 
@@ -99,6 +112,11 @@
     </div>
 
     <div class="pill">
+      <label>Swap axes</label>
+      <label class="muted"><input type="checkbox" id="swapAxes"> Y=LTF / X=HTF</label>
+    </div>
+
+    <div class="pill">
       <label>Auto-refresh</label>
       <select id="refreshSec">
         <option value="0">Off</option>
@@ -112,7 +130,7 @@
     <div class="muted" id="status"></div>
 
     <div class="muted" style="width:100%;">
-      Click bubble to open TradingView. Labels show ⚡ release / 🧨 squeeze. Trail appears on click.
+      Entry corridors shaded. Flash = 🧨 squeeze ON inside corridor. ⚡ = squeeze release. Click selects + shows trail + trade card.
     </div>
   </header>
 
@@ -120,10 +138,10 @@
     <div class="grid">
       <div id="chart"></div>
 
-      <div class="side">
+      <div class="side" id="sidePanel">
         <div class="tabs">
-          <div class="tab active" id="tabLong">Top Long (Q2)</div>
-          <div class="tab" id="tabShort">Top Short (Q3)</div>
+          <div class="tab active" id="tabLong">Top Long (Q1→Q2)</div>
+          <div class="tab" id="tabShort">Top Short (Q4→Q3)</div>
           <div class="tab" id="tabSetup">Top Setups (Q1/Q4)</div>
         </div>
 
@@ -153,14 +171,25 @@
 
   const el = (id) => document.getElementById(id);
   const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+  function on(id, evt, handler) { const node = el(id); if (!node) return; node.addEventListener(evt, handler); }
 
-  function on(id, evt, handler) {
-    const node = el(id);
-    if (!node) return;
-    node.addEventListener(evt, handler);
-  }
+  // Corridor definition (in score space)
+  // Long corridor: HTF > 0 and LTF in [-8, +12] (pullback resolving)
+  // Short corridor: HTF < 0 and LTF in [-12, +8] (pullback resolving)
+  const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
+  const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
 
+  // Trail behavior
+  const ALWAYS_ON_TRAIL_FOR_CORRIDOR = true; // always show faint trail when in corridor
+  const TRAIL_MAX_POINTS = 8;
+
+  // Flash behavior: ONLY when squeeze is ON and inside corridor
+  const FLASH_PERIOD_MS = 900;
+
+  // Label behavior
   const LABEL_SIZE_THRESHOLD = 28;
+
+  // Staleness fade
   const STALE_WARN_MIN = 30;
   const STALE_MAX_MIN = 240;
 
@@ -170,11 +199,6 @@
     if (s === "HTF_BEAR_LTF_BEAR") return "Q3";
     if (s === "HTF_BEAR_LTF_PULLBACK") return "Q4";
     return "Q?";
-  }
-
-  function bubbleSize(completion) {
-    const c = (typeof completion === "number") ? completion : 0;
-    return 10 + c * 40;
   }
 
   function stalenessOpacity(tsMs) {
@@ -190,11 +214,30 @@
     if (!Number.isFinite(n)) return "—";
     return n.toFixed(d);
   }
-
   function fmtPct01(v) {
     const n = Number(v);
     if (!Number.isFinite(n)) return "—";
     return `${Math.round(n*100)}%`;
+  }
+
+  // Completion used for bubble sizing:
+  // Prefer TP progress when trigger_price + tp exist; otherwise fallback to payload completion.
+  function completionForSize(d) {
+    const c = Number(d.completion);
+    const trig = Number(d.trigger_price);
+    const tp = Number(d.tp);
+    const px = Number(d.price);
+
+    if ([trig, tp, px].every(Number.isFinite) && tp !== trig) {
+      const prog = (px - trig) / (tp - trig);
+      return clamp(Math.abs(prog), 0, 1);
+    }
+    return Number.isFinite(c) ? clamp(c, 0, 1) : 0;
+  }
+
+  function bubbleSize(d) {
+    const c = completionForSize(d);
+    return 10 + c * 40;
   }
 
   function tvUrlForTicker(ticker) {
@@ -202,24 +245,49 @@
     return `https://www.tradingview.com/chart/?symbol=${q}`;
   }
 
+  function isLongCorridor(htf, ltf) {
+    return (htf > 0) && (ltf >= LONG_CORRIDOR.ltfMin) && (ltf <= LONG_CORRIDOR.ltfMax);
+  }
+  function isShortCorridor(htf, ltf) {
+    return (htf < 0) && (ltf >= SHORT_CORRIDOR.ltfMin) && (ltf <= SHORT_CORRIDOR.ltfMax);
+  }
+
+  function entryType(d) {
+    const h = Number(d.htf_score), l = Number(d.ltf_score);
+    if (!Number.isFinite(h) || !Number.isFinite(l)) return { corridor:false, side:null };
+    if (isLongCorridor(h, l)) return { corridor:true, side:"LONG" };
+    if (isShortCorridor(h, l)) return { corridor:true, side:"SHORT" };
+    return { corridor:false, side:null };
+  }
+
+  function whyString(d) {
+    const reasons = Array.isArray(d.reasons) ? d.reasons : [];
+    const trig = d.trigger_reason ? `${d.trigger_reason}${d.trigger_dir ? " ("+d.trigger_dir+")" : ""}` : "";
+    const corridor = entryType(d);
+    const corridorWhy = corridor.corridor ? (corridor.side==="LONG" ? "Entry corridor (Q1→Q2)" : "Entry corridor (Q4→Q3)") : "";
+    const bits = [corridorWhy, trig].filter(Boolean);
+    return bits.length ? bits.join(" | ") : (reasons[0] || "—");
+  }
+
   function hoverText(t, d) {
-    const r = Array.isArray(d.reasons) ? d.reasons : [];
     const flags = d.flags || {};
     const ageMin = (Date.now() - (d.ts || Date.now())) / 60000;
+    const corridor = entryType(d);
 
     return [
       `<b>${t}</b>`,
       `State: ${d.state || ""} (${quadrantFromState(d.state)})`,
+      corridor.corridor ? `<b>${corridor.side} corridor</b>` : `Not in entry corridor`,
+      `Why: ${whyString(d)}`,
       `Rank: ${d.rank ?? "—"} | RR: ${d.rr != null ? fmtNum(d.rr,2) : "—"}`,
       `HTF: ${fmtNum(d.htf_score,2)} | LTF: ${fmtNum(d.ltf_score,2)}`,
-      `Completion: ${fmtPct01(d.completion)} | Phase: ${fmtPct01(d.phase_pct)}`,
+      `Bubble completion (TP-based): ${fmtPct01(completionForSize(d))}`,
+      `Phase: ${fmtPct01(d.phase_pct)}`,
       `Age: ${Number.isFinite(ageMin) ? ageMin.toFixed(1)+"m" : "—"} | Staleness: ${d.staleness || "—"}`,
-      `Price: ${fmtNum(d.price,2)} | SL: ${fmtNum(d.sl,2)} | TP: ${fmtNum(d.tp,2)}`,
-      `ETA: ${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}`,
-      d.trigger_reason ? `Trigger: ${d.trigger_reason} (${d.trigger_dir||""})` : "",
-      `Flags: sq_on=${!!flags.sq30_on}, sq_rel=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}`,
-      r.length ? `<br><b>Reasons</b><br>${r.map(x=>`• ${x}`).join("<br>")}` : ""
-    ].filter(Boolean).join("<br>");
+      `Trigger: ${fmtNum(d.trigger_price,2)} | Price: ${fmtNum(d.price,2)}`,
+      `SL: ${fmtNum(d.sl,2)} | TP: ${fmtNum(d.tp,2)} | ETA: ${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}`,
+      `Flags: sq_on=${!!flags.sq30_on}, sq_rel=${!!flags.sq30_release}, phase_dot=${!!flags.phase_dot}`
+    ].join("<br>");
   }
 
   async function fetchJSON(url) {
@@ -248,7 +316,8 @@
     const url = `${base}?ticker=${encodeURIComponent(ticker)}`;
     const json = await fetchJSON(url);
     if (!json.ok) return [];
-    return json.trail || [];
+    const trail = json.trail || [];
+    return trail.slice(-TRAIL_MAX_POINTS);
   }
 
   function applyFilters(dataObj) {
@@ -256,6 +325,7 @@
     const compMax = Number(el("compMax").value);
     const rrMin = Number(el("rrMin").value);
     const rankMin = Number(el("rankMin").value);
+    const swap = el("swapAxes").checked;
 
     const allow = new Set();
     if (el("q1").checked) allow.add("HTF_BULL_LTF_PULLBACK");
@@ -267,12 +337,11 @@
     for (const [ticker, d] of Object.entries(dataObj)) {
       if (!d) continue;
       const T = String(ticker||"").toUpperCase();
-
       if (search && !T.includes(search)) continue;
       if (!allow.has(d.state)) continue;
 
-      const c = (typeof d.completion === "number") ? d.completion : 0;
-      if (c > compMax) continue;
+      const cs = completionForSize(d);
+      if (cs > compMax) continue;
 
       const rr = (d.rr != null) ? Number(d.rr) : null;
       if (rrMin > 0 && !(rr != null && rr >= rrMin)) continue;
@@ -280,91 +349,179 @@
       const rk = Number(d.rank || 0);
       if (rankMin > 0 && rk < rankMin) continue;
 
-      out.push({ ticker: T, ...d });
+      out.push({ ticker: T, ...d, _swap: swap });
     }
     return out;
   }
 
   let clickHandlerBound = false;
   let selectedTicker = null;
-  let trailTraceName = "trail";
+  let selectedTrail = null;
+  let currentTab = "long";
+  let refreshTimer = null;
 
-  function render(points, trailPoints=null) {
+  // Flash state
+  function flashAlpha() {
+    const t = Date.now() % FLASH_PERIOD_MS;
+    return 0.35 + 0.55 * (0.5 + 0.5 * Math.sin((t / FLASH_PERIOD_MS) * 2 * Math.PI)); // 0.35..0.9
+  }
+
+  // Entry corridor shapes
+  function corridorShapes(swapAxes) {
+    // Without swap: x=LTF, y=HTF
+    // With swap: x=HTF, y=LTF
+    const shapes = [];
+    if (!swapAxes) {
+      // Long corridor: y>0, x in [-8,+12]
+      shapes.push({
+        type:"rect", xref:"x", yref:"y",
+        x0: LONG_CORRIDOR.ltfMin, x1: LONG_CORRIDOR.ltfMax,
+        y0: 0, y1: 50,
+        fillcolor:"rgba(46,204,113,0.10)", line:{width:0}
+      });
+      // Short corridor: y<0, x in [-12,+8]
+      shapes.push({
+        type:"rect", xref:"x", yref:"y",
+        x0: SHORT_CORRIDOR.ltfMin, x1: SHORT_CORRIDOR.ltfMax,
+        y0: -50, y1: 0,
+        fillcolor:"rgba(231,76,60,0.10)", line:{width:0}
+      });
+    } else {
+      // Swapped: x=HTF, y=LTF
+      shapes.push({
+        type:"rect", xref:"x", yref:"y",
+        x0: 0, x1: 50,
+        y0: LONG_CORRIDOR.ltfMin, y1: LONG_CORRIDOR.ltfMax,
+        fillcolor:"rgba(46,204,113,0.10)", line:{width:0}
+      });
+      shapes.push({
+        type:"rect", xref:"x", yref:"y",
+        x0: -50, x1: 0,
+        y0: SHORT_CORRIDOR.ltfMin, y1: SHORT_CORRIDOR.ltfMax,
+        fillcolor:"rgba(231,76,60,0.10)", line:{width:0}
+      });
+    }
+    // Outer frame
+    shapes.push({ type:"rect", xref:"x", yref:"y", x0:-50, x1:50, y0:-50, y1:50, line:{color:"#3a4aa0", width:1}, fillcolor:"rgba(0,0,0,0)" });
+    return shapes;
+  }
+
+  function render(points, faintTrailsByTicker) {
     if (!window.Plotly) throw new Error("Plotly failed to load (CDN blocked).");
+    const swap = points[0]?._swap ?? false;
 
-    const x=[], y=[], hover=[], sizes=[], colors=[], opacities=[], labels=[], lws=[], lcs=[], custom=[];
+    // Main marker trace
+    const X=[], Y=[], H=[], sizes=[], colors=[], opacities=[], labels=[], lws=[], lcs=[], custom=[];
     for (const p of points) {
-      const px = (typeof p.ltf_score === "number") ? p.ltf_score : 0;
-      const py = (typeof p.htf_score === "number") ? p.htf_score : 0;
+      const h = Number(p.htf_score), l = Number(p.ltf_score);
+      const x = swap ? h : l;
+      const y = swap ? l : h;
 
-      const size = bubbleSize(p.completion);
-      const phase = (typeof p.phase_pct === "number") ? p.phase_pct : 0;
-      const alpha = stalenessOpacity(p.ts);
+      const compS = completionForSize(p);
+      const size = 10 + compS * 40;
+      const phase = Number.isFinite(Number(p.phase_pct)) ? Number(p.phase_pct) : 0;
+      const baseAlpha = stalenessOpacity(p.ts);
 
       const flags = p.flags || {};
       const sqRel = !!flags.sq30_release;
       const sqOn  = !!flags.sq30_on;
 
+      const ent = entryType(p);
+      const inCorridor = ent.corridor;
+
+      // Stroke
       const lw = sqRel ? 6 : (sqOn ? 4 : 1);
       const lc = sqRel ? "rgba(0,255,255,0.95)" : (sqOn ? "rgba(255,215,0,0.95)" : "rgba(255,255,255,0.35)");
+
+      // Flash: only if sqOn AND in corridor
+      const alpha = (sqOn && inCorridor) ? Math.min(1, flashAlpha()) : baseAlpha;
 
       const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
       const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
       const lbl = showLabel ? `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}` : "";
 
-      x.push(px); y.push(py);
-      hover.push(hoverText(p.ticker, p));
-      sizes.push(size); colors.push(phase); opacities.push(alpha);
-      labels.push(lbl); lws.push(lw); lcs.push(lc);
+      X.push(x); Y.push(y);
+      H.push(hoverText(p.ticker, p));
+      sizes.push(size);
+      colors.push(phase);
+      opacities.push(alpha);
+      labels.push(lbl);
+      lws.push(lw);
+      lcs.push(lc);
       custom.push({ ticker:p.ticker, tv:tvUrlForTicker(p.ticker) });
     }
 
     const traces = [{
+      name:"bubbles",
       type:"scatter",
       mode:"markers+text",
-      x, y,
+      x: X, y: Y,
       text: labels,
       textposition:"top center",
       textfont:{ size:12, color:"rgba(231,236,255,0.9)" },
       hoverinfo:"text",
-      hovertext:hover,
-      customdata:custom,
+      hovertext: H,
+      customdata: custom,
       marker:{
-        size:sizes,
-        color:colors,
+        size: sizes,
+        color: colors,
         colorscale:"Turbo",
         cmin:0, cmax:1,
         showscale:true,
         colorbar:{ title:"Phase %" },
-        opacity:opacities,
+        opacity: opacities,
         line:{ width:lws, color:lcs }
       }
     }];
 
-    if (trailPoints && trailPoints.length) {
+    // Always-on faint trails for corridor names (optional)
+    if (ALWAYS_ON_TRAIL_FOR_CORRIDOR && faintTrailsByTicker) {
+      for (const [tk, tr] of Object.entries(faintTrailsByTicker)) {
+        if (!tr || tr.length < 2) continue;
+        traces.push({
+          name:`trail_${tk}`,
+          type:"scatter",
+          mode:"lines+markers",
+          x: tr.map(p => swap ? (p.htf_score ?? 0) : (p.ltf_score ?? 0)),
+          y: tr.map(p => swap ? (p.ltf_score ?? 0) : (p.htf_score ?? 0)),
+          line:{ width:1, color:"rgba(180,200,255,0.25)" },
+          marker:{ size:4, color:"rgba(180,200,255,0.35)" },
+          hoverinfo:"skip",
+          showlegend:false
+        });
+      }
+    }
+
+    // Selected trail (strong)
+    if (selectedTrail && selectedTrail.length >= 2) {
       traces.push({
-        name: trailTraceName,
+        name:"selected_trail",
         type:"scatter",
         mode:"lines+markers",
-        x: trailPoints.map(p=>p.ltf_score ?? 0),
-        y: trailPoints.map(p=>p.htf_score ?? 0),
-        line:{ width:2, color:"rgba(180,200,255,0.5)" },
-        marker:{ size:6, color:"rgba(180,200,255,0.7)" },
-        hoverinfo:"skip"
+        x: selectedTrail.map(p => swap ? (p.htf_score ?? 0) : (p.ltf_score ?? 0)),
+        y: selectedTrail.map(p => swap ? (p.ltf_score ?? 0) : (p.htf_score ?? 0)),
+        line:{ width:3, color:"rgba(180,200,255,0.85)" },
+        marker:{ size:7, color:"rgba(180,200,255,0.85)" },
+        hoverinfo:"skip",
+        showlegend:false
       });
     }
+
+    const xTitle = swap ? "HTF Score" : "LTF Score";
+    const yTitle = swap ? "LTF Score" : "HTF Score";
 
     const layout = {
       paper_bgcolor:"rgba(0,0,0,0)",
       plot_bgcolor:"rgba(0,0,0,0)",
       margin:{ l:55, r:24, t:20, b:55 },
-      xaxis:{ title:"LTF Score", range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
-      yaxis:{ title:"HTF Score", range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
+      xaxis:{ title:xTitle, range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
+      yaxis:{ title:yTitle, range:[-50,50], zeroline:true, zerolinecolor:"#9aa7d8", gridcolor:"#26325f" },
+      shapes: corridorShapes(swap),
       annotations:[
-        { x:-35, y: 42, xref:"x", yref:"y", text:"Q1 Prep", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x: 35, y: 42, xref:"x", yref:"y", text:"Q2 Bull", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x:-35, y:-45, xref:"x", yref:"y", text:"Q3 Bear", showarrow:false, font:{color:"#93a4d6", size:12} },
-        { x: 35, y:-45, xref:"x", yref:"y", text:"Q4 Pullback", showarrow:false, font:{color:"#93a4d6", size:12} }
+        { x:-35, y: 42, xref:"x", yref:"y", text: swap ? "HTF<0 / LTF>0 zone" : "Q1 Prep", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x: 35, y: 42, xref:"x", yref:"y", text: swap ? "Bull aligned" : "Q2 Bull", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x:-35, y:-45, xref:"x", yref:"y", text: swap ? "Bear aligned" : "Q3 Bear", showarrow:false, font:{color:"#93a4d6", size:12} },
+        { x: 35, y:-45, xref:"x", yref:"y", text: swap ? "HTF>0 / LTF<0 zone" : "Q4 Pullback", showarrow:false, font:{color:"#93a4d6", size:12} }
       ]
     };
 
@@ -375,9 +532,7 @@
         const p = evt?.points?.[0];
         const cd = p?.customdata;
         if (!cd?.ticker) return;
-        // open TV in new tab
         window.open(cd.tv, "_blank", "noopener,noreferrer");
-        // also select for trail/details
         selectTicker(cd.ticker);
       });
       clickHandlerBound = true;
@@ -393,11 +548,15 @@
     const list = el("topList");
     list.innerHTML = "";
     items.forEach(d => {
-      const t = d.ticker || d.symbol || d.contract || "—";
+      const t = (d.ticker || d.symbol || d.contract || "—").toUpperCase();
       const rr = (d.rr != null) ? Number(d.rr).toFixed(2) : "—";
-      const comp = d.completion != null ? Math.round(Number(d.completion)*100) + "%" : "—";
+      const comp = fmtPct01(completionForSize(d));
       const ph = d.phase_pct != null ? Math.round(Number(d.phase_pct)*100) + "%" : "—";
       const sq = d.flags?.sq30_release ? "⚡" : (d.flags?.sq30_on ? "🧨" : "");
+      const corridor = entryType(d);
+      const corridorTag = corridor.corridor ? (corridor.side==="LONG" ? "LONG corridor" : "SHORT corridor") : "—";
+      const why = whyString(d);
+
       const div = document.createElement("div");
       div.className = "item";
       div.innerHTML = `
@@ -406,14 +565,17 @@
           <div class="badge">RR ${rr}</div>
         </div>
         <div class="row" style="margin-top:6px;">
-          <div class="k">State</div><div class="v">${d.state||"—"}</div>
+          <div class="k">Trade</div><div class="v">${corridorTag}</div>
         </div>
         <div class="row">
           <div class="k">Comp</div><div class="v">${comp}</div>
           <div class="k">Phase</div><div class="v">${ph}</div>
         </div>
+        <div class="row">
+          <div class="k">Why</div><div class="v">${why}</div>
+        </div>
       `;
-      div.addEventListener("click", () => selectTicker(String(t).toUpperCase()));
+      div.addEventListener("click", () => selectTicker(t));
       list.appendChild(div);
     });
   }
@@ -425,47 +587,79 @@
 
     const latest = await fetchJSON(`https://timed-trading-ingest.shashant.workers.dev/timed/latest?ticker=${encodeURIComponent(ticker)}`);
     const d = latest.data || null;
-    const trail = await fetchTrail(ticker);
+    selectedTrail = await fetchTrail(ticker);
 
     if (!d) {
       details.innerHTML = `<h3>Selected</h3><div class="muted">No data for ${ticker}</div>`;
       return;
     }
 
+    const ent = entryType(d);
+    const side = ent.side || (d.state === "HTF_BULL_LTF_BULL" ? "LONG" : d.state === "HTF_BEAR_LTF_BEAR" ? "SHORT" : "—");
+    const why = whyString(d);
+
     details.innerHTML = `
       <h3>${ticker}</h3>
-      <div class="row"><span class="badge">Rank ${d.rank ?? "—"}</span> <span class="badge">RR ${d.rr != null ? Number(d.rr).toFixed(2) : "—"}</span></div>
-      <div class="details">
-        <div class="row"><div class="k">State</div><div class="v">${d.state||"—"}</div></div>
+
+      <div class="tradeCard">
+        <div class="tradeTitle">${ent.corridor ? (side==="LONG" ? "LONG ENTRY SETUP" : "SHORT ENTRY SETUP") : "CONTEXT / MONITOR"}</div>
+        <div class="muted" style="margin-top:6px;">${why}</div>
+
+        <div class="pillRow">
+          <span class="chip">Dir: ${side}</span>
+          <span class="chip">Rank: ${d.rank ?? "—"}</span>
+          <span class="chip">RR: ${d.rr != null ? fmtNum(d.rr,2) : "—"}</span>
+          <span class="chip">ETA: ${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}</span>
+        </div>
+
+        <div class="hr"></div>
+
+        <div class="row"><div class="k">Trigger</div><div class="v">${fmtNum(d.trigger_price,2)} (${d.trigger_reason||"—"} ${d.trigger_dir?`/${d.trigger_dir}`:""})</div></div>
+        <div class="row"><div class="k">Price now</div><div class="v">${fmtNum(d.price,2)}</div></div>
+        <div class="row"><div class="k">Stop (SL)</div><div class="v">${fmtNum(d.sl,2)}</div></div>
+        <div class="row"><div class="k">Target (TP)</div><div class="v">${fmtNum(d.tp,2)}</div></div>
+        <div class="row"><div class="k">Bubble size</div><div class="v">${fmtPct01(completionForSize(d))} toward TP</div></div>
+
+        <div class="hr"></div>
+
         <div class="row"><div class="k">HTF/LTF</div><div class="v">${fmtNum(d.htf_score,2)} / ${fmtNum(d.ltf_score,2)}</div></div>
-        <div class="row"><div class="k">Price</div><div class="v">${fmtNum(d.price,2)}</div></div>
-        <div class="row"><div class="k">SL / TP</div><div class="v">${fmtNum(d.sl,2)} / ${fmtNum(d.tp,2)}</div></div>
-        <div class="row"><div class="k">Completion / Phase</div><div class="v">${fmtPct01(d.completion)} / ${fmtPct01(d.phase_pct)}</div></div>
-        <div class="row"><div class="k">ETA</div><div class="v">${d.eta_days != null ? fmtNum(d.eta_days,1)+"d" : "—"}</div></div>
-        <div class="row"><div class="k">Trigger</div><div class="v">${d.trigger_reason||"—"} ${d.trigger_dir?`(${d.trigger_dir})`:""}</div></div>
+        <div class="row"><div class="k">Phase</div><div class="v">${fmtPct01(d.phase_pct)}</div></div>
         <div class="row"><div class="k">Open TV</div><div class="v"><a href="${tvUrlForTicker(ticker)}" target="_blank" rel="noopener noreferrer">TradingView</a></div></div>
       </div>
     `;
 
-    // re-render chart with trail overlay
-    // We need current full dataset to preserve bubbles; simplest: call refresh() which will include trail
-    await refresh(trail);
+    await refresh(); // re-render with selectedTrail
   }
 
-  let currentTab = "long";
-  let refreshTimer = null;
-  let lastDataObj = null;
+  async function buildFaintTrails(points) {
+    // Faint trails only for corridor entries (avoid clutter)
+    const out = {};
+    const corridorTickers = points
+      .filter(p => entryType(p).corridor)
+      .map(p => p.ticker);
 
-  async function refresh(trailOverride=null) {
+    // limit to avoid too many requests on big watchlists
+    const MAX = 18;
+    const take = corridorTickers.slice(0, MAX);
+
+    await Promise.all(take.map(async (t) => {
+      try { out[t] = await fetchTrail(t); } catch { /* ignore */ }
+    }));
+
+    return out;
+  }
+
+  async function refresh() {
     const s = el("status");
     try {
       if (s) s.textContent = "Loading…";
       const dataObj = await fetchAll();
-      lastDataObj = dataObj;
       const points = applyFilters(dataObj);
 
-      const trail = trailOverride ? trailOverride : (selectedTicker ? await fetchTrail(selectedTicker) : null);
-      render(points, trail);
+      // build faint trails for corridor entries
+      const faint = await buildFaintTrails(points);
+
+      render(points, faint);
 
       // Side lists
       const top = await fetchTop(currentTab, 10);
@@ -485,19 +679,22 @@
     if (sec > 0) refreshTimer = setInterval(() => refresh(), sec * 1000);
   }
 
+  // Tabs map to worker buckets
+  // long = Q2, short = Q3, setup = Q1/Q4
+  function tabBucket() {
+    if (currentTab === "long") return "long";
+    if (currentTab === "short") return "short";
+    return "setup";
+  }
+
   on("refreshBtn","click", ()=> refresh());
   on("refreshSec","change", ()=> { resetAutoRefresh(); refresh(); });
 
-  ["search","q1","q2","q3","q4","compMax","rrMin","rankMin"].forEach(id => on(id,"input", ()=> refresh()));
+  ["search","q1","q2","q3","q4","compMax","rrMin","rankMin","swapAxes"].forEach(id => on(id,"input", ()=> refresh()));
 
   on("tabLong","click", ()=>{ currentTab="long"; setActiveTab("tabLong"); refresh(); });
   on("tabShort","click",()=>{ currentTab="short"; setActiveTab("tabShort"); refresh(); });
   on("tabSetup","click",()=>{ currentTab="setup"; setActiveTab("tabSetup"); refresh(); });
-
-  function setActiveTab(which) {
-    ["tabLong","tabShort","tabSetup"].forEach(id => el(id).classList.remove("active"));
-    el(which).classList.add("active");
-  }
 
   resetAutoRefresh();
   refresh();
