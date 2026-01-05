@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- UI_VERSION: 2026-01-05-corridors-trails-flash-stable -->
+<!-- UI_VERSION: 2026-01-05-groups-perf-debounce-sectors-FINAL -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -42,6 +42,16 @@
     .pillRow { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
     .chip { border:1px solid var(--line); border-radius:999px; padding:3px 8px; font-size:12px; color:var(--text); background:rgba(255,255,255,0.03); }
 
+    .groupHdr {
+      margin-top:10px;
+      padding:6px 8px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      font-size:12px;
+      color:var(--muted);
+      background:rgba(255,255,255,0.02);
+    }
+
     /* Mobile */
     @media (max-width: 980px) {
       .grid { grid-template-columns: 1fr; }
@@ -59,6 +69,16 @@
       <label>Data</label>
       <select id="endpoint">
         <option value="https://timed-trading-ingest.shashant.workers.dev/timed/all">/timed/all</option>
+      </select>
+    </div>
+
+    <div class="pill">
+      <label>Group</label>
+      <select id="groupSel">
+        <option value="ALL" selected>All</option>
+        <option value="ANY">Any group</option>
+        <option value="UNGROUPED">Ungrouped</option>
+        <option value="__DIVIDER__" disabled>──────────</option>
       </select>
     </div>
 
@@ -109,6 +129,25 @@
     </div>
 
     <div class="pill">
+      <label>Eligible only</label>
+      <label class="muted"><input type="checkbox" id="eligibleOnly"> hide failing</label>
+    </div>
+
+    <div class="pill">
+      <label>Labels</label>
+      <select id="labelsMode">
+        <option value="smart" selected>Smart</option>
+        <option value="off">Off (fast)</option>
+        <option value="all">All</option>
+      </select>
+    </div>
+
+    <div class="pill">
+      <label>Faint trails</label>
+      <label class="muted"><input type="checkbox" id="showFaintTrails"> On (slower)</label>
+    </div>
+
+    <div class="pill">
       <label>Swap axes</label>
       <label class="muted"><input type="checkbox" id="swapAxes"> Y=LTF / X=HTF</label>
     </div>
@@ -127,7 +166,7 @@
     <div class="muted" id="status"></div>
 
     <div class="muted" style="width:100%;">
-      Corridors shaded. Flash = 🧨 squeeze ON inside corridor (eligible). ⚡ = squeeze release. Click selects + trail + trade card. Bubbles won’t disappear—filtered ones dim.
+      Corridors shaded. Flash=🧨 squeeze ON inside corridor (eligible). ⚡=squeeze release. Click selects + trail + trade card.
     </div>
   </header>
 
@@ -153,7 +192,9 @@
   </main>
 
 <script>
+  // ─────────────────────────────────────────────────────────────
   // Crash guard
+  // ─────────────────────────────────────────────────────────────
   window.addEventListener("error", (e) => {
     console.error(e);
     const msg = `[JS ERROR] ${e.message}\n${e.filename}:${e.lineno}:${e.colno}`;
@@ -171,40 +212,161 @@
   const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
   function on(id, evt, handler) { const node = el(id); if (!node) return; node.addEventListener(evt, handler); }
 
-  // Corridor definitions (must match Worker)
-  const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
+  // ─────────────────────────────────────────────────────────────
+  // Groups (normalized; BRK-B -> BRK.B)
+  // ─────────────────────────────────────────────────────────────
+  const GROUPS = {
+    "UPTICKS": new Set([
+      "APLD","TSLA","STX","AU","CCJ","CLS","CRS","VST","FSLR","JCI","ORCL","AMZN","BRK.B","BABA","WMT","PH","GEV","HII","ULTA","SHOP","CSX","PWR","HOOD","SPGI","APP","PANW","RDDT","TT","GLXY","ETHA"
+    ]),
+    "SuperGranny": new Set(["META","NVDA","AMD","ANET","GS"]),
+    "GRNI": new Set([
+      "VST","TSLA","TJX","SPGI","SOFI","PWR","PNC","PLTR","PANW","NVDA","NFLX","MSTR","MSFT","MNST","META","LRCX","KLAC","JPM","HOOD","GS","GOOGL","GEV","GE","EXPE","ETN","EMR","DE","CRWD","COST","CDNS","CAT","BK","AXP","AXON","AVGO","ANET","AMZN","AMD","AAPL"
+    ]),
+    "GRNJ": new Set([
+      "RKLB","LITE","SN","ALB","RDDT","RGLD","MTZ","ON","ALLY","DY","CCJ","EWBC","PATH","WFRD","WAL","IESC","ENS","TWLO","MLI","KTOS","MDB","TLN","EME","AWI","IBP","DCI","WTS","FIX","UTHR","NBIS","SGI","AYI","RIOT","NXT","SANM","BWXT","PEGA","JOBY","IONQ","SOFI","ITT","STRL","QLYS","MP","GLXY","HIMS","IOT","BE","NEU","AVAV","PSTG","RBLX"
+    ]),
+    "GRNY": new Set([
+      "GEV","LRCX","PNC","GOOGL","GS","META","MNST","KLAC","TJX","GE","EXPE","CAT","BK","SPGI","TSLA","EMR","JPM","AXP","ANET","AXON","AAPL","NVDA","AVGO","PWR","CDNS","DE","MSFT","COST","VST","PLTR","AMZN","HOOD","ETN","SOFI","AMD","PANW","CRWD","NFLX","MSTR"
+    ]),
+    "Social": new Set(["CSCO","BA","NKE","AAPL","PI","APLD"]),
+
+    // ✅ S&P Sectors
+    "SP_Sectors": new Set(["XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV"])
+  };
+
+    // Friendly labels for the dropdown (optional)
+  const GROUP_LABELS = {
+    SP_Sectors: "S&P Sectors",
+    // everything else falls back to the key name
+  };
+
+  // Controls the order the groups appear in the dropdown
+  // (Any group keys not listed will be appended alphabetically)
+  const GROUP_ORDER = ["SP_Sectors","UPTICKS","SuperGranny","GRNI","GRNJ","GRNY","Social"];
+
+  function populateGroupSelect() {
+    const sel = el("groupSel");
+    if (!sel) return;
+
+    // preserve current selection (if any)
+    const prev = sel.value || "ALL";
+
+    // Remove everything AFTER the divider (or after the first 3 system options if divider missing)
+    const dividerIdx = Array.from(sel.options).findIndex(o => o.value === "__DIVIDER__");
+    const cutIdx = dividerIdx >= 0 ? dividerIdx + 1 : 3;
+    while (sel.options.length > cutIdx) sel.remove(cutIdx);
+
+    // Build list of group keys
+    const keys = Object.keys(GROUPS || {}).filter(Boolean);
+
+    // Ordered keys: take GROUP_ORDER first, then remaining alphabetically
+    const ordered = [];
+    for (const k of GROUP_ORDER) if (keys.includes(k)) ordered.push(k);
+    const remaining = keys.filter(k => !ordered.includes(k)).sort((a,b)=> a.localeCompare(b));
+    ordered.push(...remaining);
+
+    // Add options
+    for (const key of ordered) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = GROUP_LABELS[key] || key;
+      sel.appendChild(opt);
+    }
+
+    // restore selection if still valid, else default
+    const exists = Array.from(sel.options).some(o => o.value === prev);
+    sel.value = exists ? prev : "ALL";
+  }
+
+  function normTicker(t) {
+    const s = String(t || "").trim().toUpperCase();
+    if (s === "BRK-B") return "BRK.B";
+    return s;
+  }
+  function groupsForTicker(t) {
+    const T = normTicker(t);
+    const out = [];
+    for (const [g, set] of Object.entries(GROUPS)) if (set.has(T)) out.push(g);
+    return out;
+  }
+  function passesGroupFilter(t) {
+    const sel = el("groupSel").value;
+    if (sel === "ALL") return true;
+    const gs = groupsForTicker(t);
+    if (sel === "ANY") return gs.length > 0;
+    if (sel === "UNGROUPED") return gs.length === 0;
+    return gs.includes(sel);
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Corridors (must match Worker)
+  // ─────────────────────────────────────────────────────────────
+  const LONG_CORRIDOR  = { ltfMin: -8,  ltfMax: 12 };
   const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
 
-  // Trails
-  const ALWAYS_ON_TRAIL_FOR_CORRIDOR = true;
   const TRAIL_MAX_POINTS = 8;
-  const MAX_FAINT_TRAILS = 18;
-
-  // Flash only inside corridor & eligible
   const FLASH_PERIOD_MS = 900;
-
-  // Labels
   const LABEL_SIZE_THRESHOLD = 28;
 
-  // Staleness fade
   const STALE_WARN_MIN = 30;
-  const STALE_MAX_MIN = 240;
+  const STALE_MAX_MIN  = 240;
 
-  // Stability (no blinking)
+  // Stability
   let lastGoodPoints = [];
   let refreshInFlight = false;
   let refreshAbort = null;
 
-  // Selection + trails
+  // Selection
   let clickHandlerBound = false;
   let selectedTicker = null;
   let selectedTrail = null;
+
+  // Trails cache
+  const trailCache = new Map(); // ticker -> { atMs, trail }
+  const TRAIL_CACHE_TTL_MS = 60_000;
+
+  // Hover cache (small perf win)
+  const hoverCache = new Map(); // key -> html
+
+  // Debounce
+  let debounceTimer = null;
+  const DEBOUNCE_MS = 250;
+
+  // Tabs / auto refresh
   let currentTab = "long";
   let refreshTimer = null;
+
+  // Flash loop state
+  let flashTimer = null;
+  let lastFaintTrails = null;
 
   function flashAlpha() {
     const t = Date.now() % FLASH_PERIOD_MS;
     return 0.35 + 0.55 * (0.5 + 0.5 * Math.sin((t / FLASH_PERIOD_MS) * 2 * Math.PI));
+  }
+
+  function startFlashLoop() {
+    if (flashTimer) return;
+    flashTimer = setInterval(() => {
+      // Don't fight refresh / fetch
+      if (refreshInFlight) return;
+      if (!lastGoodPoints.length) return;
+      // Preserve faint trails + selected trail during flash frames
+      render(lastGoodPoints, lastFaintTrails);
+    }, 350);
+  }
+  function stopFlashLoop() {
+    if (flashTimer) clearInterval(flashTimer);
+    flashTimer = null;
+  }
+
+  function anyShouldFlash(points) {
+    return points.some(p =>
+      p?.flags?.sq30_on &&
+      entryType(p).corridor &&
+      (p._eligible !== false)
+    );
   }
 
   function quadrantFromState(s) {
@@ -258,7 +420,6 @@
   function isShortCorridor(htf, ltf) {
     return (htf < 0) && (ltf >= SHORT_CORRIDOR.ltfMin) && (ltf <= SHORT_CORRIDOR.ltfMax);
   }
-
   function entryType(d) {
     const h = Number(d.htf_score), l = Number(d.ltf_score);
     if (!Number.isFinite(h) || !Number.isFinite(l)) return { corridor:false, side:null };
@@ -281,9 +442,11 @@
     const ageMin = (Date.now() - (d.ts || Date.now())) / 60000;
     const corridor = entryType(d);
     const eligible = (d._eligible !== false);
+    const gs = groupsForTicker(t);
 
     return [
       `<b>${t}</b>`,
+      gs.length ? `Groups: ${gs.join(", ")}` : `Groups: —`,
       `State: ${d.state || ""} (${quadrantFromState(d.state)})`,
       corridor.corridor ? `<b>${corridor.side} corridor</b>` : `Not in entry corridor`,
       `Why: ${whyString(d)}`,
@@ -299,6 +462,26 @@
     ].join("<br>");
   }
 
+  function hoverTextCached(t, d) {
+    // Keep the key tight so it invalidates when relevant stuff changes
+    const key = `${t}|${d.ts}|${d.rank}|${d.rr}|${d.state}|${d.htf_score}|${d.ltf_score}`;
+    const got = hoverCache.get(key);
+    if (got) return got;
+    const txt = hoverText(t, d);
+    hoverCache.set(key, txt);
+    // prevent runaway growth
+    if (hoverCache.size > 600) {
+      // delete ~200 oldest-ish (Map preserves insertion order)
+      let i = 0;
+      for (const k of hoverCache.keys()) {
+        hoverCache.delete(k);
+        i++;
+        if (i >= 200) break;
+      }
+    }
+    return txt;
+  }
+
   async function fetchJSON(url, signal=null) {
     const res = await fetch(url, { cache:"no-store", signal });
     if (!res.ok) throw new Error(`Fetch failed ${res.status}`);
@@ -312,21 +495,18 @@
     return json.data || {};
   }
 
-  async function fetchTop(bucket, n=10) {
-    const base = "https://timed-trading-ingest.shashant.workers.dev/timed/top";
-    const url = `${base}?bucket=${encodeURIComponent(bucket)}&n=${n}`;
-    const json = await fetchJSON(url);
-    if (!json.ok) throw new Error("top API not ok");
-    return json.data || [];
-  }
-
   async function fetchTrail(ticker) {
+    const T = normTicker(ticker);
+    const now = Date.now();
+    const cached = trailCache.get(T);
+    if (cached && (now - cached.atMs) < TRAIL_CACHE_TTL_MS) return cached.trail;
+
     const base = "https://timed-trading-ingest.shashant.workers.dev/timed/trail";
-    const url = `${base}?ticker=${encodeURIComponent(ticker)}`;
+    const url = `${base}?ticker=${encodeURIComponent(T)}`;
     const json = await fetchJSON(url);
-    if (!json.ok) return [];
-    const trail = json.trail || [];
-    return trail.slice(-TRAIL_MAX_POINTS);
+    const trail = (json && json.ok && Array.isArray(json.trail)) ? json.trail.slice(-TRAIL_MAX_POINTS) : [];
+    trailCache.set(T, { atMs: now, trail });
+    return trail;
   }
 
   function applyFilters(dataObj) {
@@ -335,6 +515,7 @@
     const rrMin = Number(el("rrMin").value);
     const rankMin = Number(el("rankMin").value);
     const swap = el("swapAxes").checked;
+    const eligibleOnly = el("eligibleOnly").checked;
 
     const allow = new Set();
     if (el("q1").checked) allow.add("HTF_BULL_LTF_PULLBACK");
@@ -343,19 +524,17 @@
     if (el("q4").checked) allow.add("HTF_BEAR_LTF_PULLBACK");
 
     const out = [];
-
-    for (const [ticker, d] of Object.entries(dataObj)) {
+    for (const [tickerRaw, d] of Object.entries(dataObj)) {
       if (!d) continue;
+      const T = normTicker(tickerRaw);
 
-      const T = String(ticker || "").toUpperCase();
+      if (!passesGroupFilter(T)) continue;
       if (search && !T.includes(search)) continue;
-
       if (!allow.has(d.state)) continue;
 
       const cs = completionForSize(d);
       if (cs > compMax) continue;
 
-      // Soft eligibility (dim instead of disappear)
       const rr = (d.rr != null) ? Number(d.rr) : null;
       const rk = (d.rank != null) ? Number(d.rank) : null;
 
@@ -363,50 +542,69 @@
       const rkPass = (rankMin <= 0) ? true : (rk != null && rk >= rankMin);
       const eligible = rrPass && rkPass;
 
+      if (eligibleOnly && !eligible) continue;
+
       out.push({ ticker: T, ...d, _swap: swap, _eligible: eligible });
     }
+    return out;
+  }
 
+  async function buildFaintTrails(points) {
+    if (!el("showFaintTrails").checked) return null;
+
+    const out = {};
+    const corridorTickers = points
+      .filter(p => entryType(p).corridor)
+      .map(p => p.ticker);
+
+    // avoid self-DOS
+    const MAX = 18;
+    const take = corridorTickers.slice(0, MAX);
+
+    await Promise.all(take.map(async (t) => {
+      try { out[t] = await fetchTrail(t); } catch {}
+    }));
     return out;
   }
 
   function corridorShapes(swapAxes) {
     const shapes = [];
     if (!swapAxes) {
-      shapes.push({
-        type:"rect", xref:"x", yref:"y",
-        x0: LONG_CORRIDOR.ltfMin, x1: LONG_CORRIDOR.ltfMax,
-        y0: 0, y1: 50,
-        fillcolor:"rgba(46,204,113,0.10)", line:{width:0}
-      });
-      shapes.push({
-        type:"rect", xref:"x", yref:"y",
-        x0: SHORT_CORRIDOR.ltfMin, x1: SHORT_CORRIDOR.ltfMax,
-        y0: -50, y1: 0,
-        fillcolor:"rgba(231,76,60,0.10)", line:{width:0}
-      });
+      // x=LTF, y=HTF
+      shapes.push({ type:"rect", xref:"x", yref:"y", x0: LONG_CORRIDOR.ltfMin, x1: LONG_CORRIDOR.ltfMax, y0: 0, y1: 50,
+        fillcolor:"rgba(46,204,113,0.10)", line:{width:0} });
+      shapes.push({ type:"rect", xref:"x", yref:"y", x0: SHORT_CORRIDOR.ltfMin, x1: SHORT_CORRIDOR.ltfMax, y0: -50, y1: 0,
+        fillcolor:"rgba(231,76,60,0.10)", line:{width:0} });
     } else {
-      shapes.push({
-        type:"rect", xref:"x", yref:"y",
-        x0: 0, x1: 50,
-        y0: LONG_CORRIDOR.ltfMin, y1: LONG_CORRIDOR.ltfMax,
-        fillcolor:"rgba(46,204,113,0.10)", line:{width:0}
-      });
-      shapes.push({
-        type:"rect", xref:"x", yref:"y",
-        x0: -50, x1: 0,
-        y0: SHORT_CORRIDOR.ltfMin, y1: SHORT_CORRIDOR.ltfMax,
-        fillcolor:"rgba(231,76,60,0.10)", line:{width:0}
-      });
+      // x=HTF, y=LTF
+      shapes.push({ type:"rect", xref:"x", yref:"y", x0: 0, x1: 50, y0: LONG_CORRIDOR.ltfMin, y1: LONG_CORRIDOR.ltfMax,
+        fillcolor:"rgba(46,204,113,0.10)", line:{width:0} });
+      shapes.push({ type:"rect", xref:"x", yref:"y", x0: -50, x1: 0, y0: SHORT_CORRIDOR.ltfMin, y1: SHORT_CORRIDOR.ltfMax,
+        fillcolor:"rgba(231,76,60,0.10)", line:{width:0} });
     }
-    shapes.push({ type:"rect", xref:"x", yref:"y", x0:-50, x1:50, y0:-50, y1:50, line:{color:"#3a4aa0", width:1}, fillcolor:"rgba(0,0,0,0)" });
+    // outer frame
+    shapes.push({ type:"rect", xref:"x", yref:"y", x0:-50, x1:50, y0:-50, y1:50,
+      line:{color:"#3a4aa0", width:1}, fillcolor:"rgba(0,0,0,0)" });
     return shapes;
   }
 
   function render(points, faintTrailsByTicker) {
     if (!window.Plotly) throw new Error("Plotly failed to load (CDN blocked).");
+    if (!points || !points.length) {
+      Plotly.react("chart", [], { paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)" }, { responsive:true });
+      return;
+    }
+
     const swap = points[0]?._swap ?? false;
 
+    const labelsMode = el("labelsMode").value; // smart/off/all
+    const showText =
+      labelsMode === "all" ? "all" :
+      labelsMode === "off" ? "none" :
+      "smart";
+
     const X=[], Y=[], H=[], sizes=[], colors=[], opacities=[], labels=[], lws=[], lcs=[], custom=[];
+
     for (const p of points) {
       const h = Number(p.htf_score), l = Number(p.ltf_score);
       const x = swap ? h : l;
@@ -425,18 +623,23 @@
 
       const eligible = (p._eligible !== false);
       const baseAlpha = stalenessOpacity(p.ts) * (eligible ? 1.0 : 0.18);
+      const alpha = (sqOn && inCorridor && eligible) ? Math.min(1, flashAlpha()) : baseAlpha;
 
       const lw = sqRel ? 6 : (sqOn ? 4 : 1);
       const lc = sqRel ? "rgba(0,255,255,0.95)" : (sqOn ? "rgba(255,215,0,0.95)" : "rgba(255,255,255,0.35)");
 
-      const alpha = (sqOn && inCorridor && eligible) ? Math.min(1, flashAlpha()) : baseAlpha;
-
-      const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
-      const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
-      const lbl = showLabel ? `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}` : "";
+      let lbl = "";
+      if (showText === "all") {
+        const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
+        lbl = `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}`;
+      } else if (showText === "smart") {
+        const showLabel = (size >= LABEL_SIZE_THRESHOLD) || sqRel;
+        const sqEmoji = sqRel ? "⚡" : (sqOn ? "🧨" : "");
+        lbl = showLabel ? `${p.ticker}${sqEmoji ? " " + sqEmoji : ""}` : "";
+      }
 
       X.push(x); Y.push(y);
-      H.push(hoverText(p.ticker, p));
+      H.push(hoverTextCached(p.ticker, p));
       sizes.push(size);
       colors.push(phase);
       opacities.push(alpha);
@@ -446,10 +649,12 @@
       custom.push({ ticker:p.ticker, tv:tvUrlForTicker(p.ticker) });
     }
 
+    const mode = (labelsMode === "off") ? "markers" : "markers+text";
+
     const traces = [{
       name:"bubbles",
       type:"scatter",
-      mode:"markers+text",
+      mode,
       x: X, y: Y,
       text: labels,
       textposition:"top center",
@@ -469,8 +674,8 @@
       }
     }];
 
-    // Faint trails (corridor tickers)
-    if (ALWAYS_ON_TRAIL_FOR_CORRIDOR && faintTrailsByTicker) {
+    // Faint trails (optional)
+    if (faintTrailsByTicker) {
       for (const [tk, tr] of Object.entries(faintTrailsByTicker)) {
         if (!tr || tr.length < 2) continue;
         traces.push({
@@ -496,9 +701,7 @@
       const sizes2 = Array.from({length:n}, (_,i) => 5 + (i/(n-1))*8); // 5..13
       const alphas = Array.from({length:n}, (_,i) => 0.25 + (i/(n-1))*0.75); // 0.25..1
       const colors2 = alphas.map(a => `rgba(180,200,255,${a.toFixed(3)})`);
-      const symbols = Array.from({length:n}, (_,i) =>
-        i === 0 ? "circle-open" : (i === n-1 ? "star" : "circle")
-      );
+      const symbols = Array.from({length:n}, (_,i) => i===0 ? "circle-open" : (i===n-1 ? "star" : "circle"));
 
       traces.push({
         name:"selected_trail_line",
@@ -546,6 +749,7 @@
 
     Plotly.react("chart", traces, layout, { responsive:true, displayModeBar:true });
 
+    // Bind click once
     if (!clickHandlerBound) {
       el("chart").on("plotly_click", (evt) => {
         const p = evt?.points?.[0];
@@ -558,69 +762,140 @@
     }
   }
 
-  function setActiveTab(which) {
-    ["tabLong","tabShort","tabSetup"].forEach(id => el(id).classList.remove("active"));
-    el(which).classList.add("active");
+    function setActiveTab(which) {
+    ["tabLong","tabShort","tabSetup"].forEach(id => {
+      const node = el(id);
+      if (node) node.classList.remove("active");
+    });
+    const w = el(which);
+    if (w) w.classList.add("active");
   }
 
+  function renderListTopFromPoints(points, tab) {
+    // tab: "long" | "short" | "setup"
+    const isLong  = (d)=> d.state === "HTF_BULL_LTF_BULL";
+    const isShort = (d)=> d.state === "HTF_BEAR_LTF_BEAR";
+    const isSetup = (d)=> d.state === "HTF_BULL_LTF_PULLBACK" || d.state === "HTF_BEAR_LTF_PULLBACK";
+
+    const pool =
+      tab === "long"  ? points.filter(isLong) :
+      tab === "short" ? points.filter(isShort) :
+                        points.filter(isSetup);
+
+    // Sort by rank desc then RR desc
+    pool.sort((a,b)=> (Number(b.rank||0)-Number(a.rank||0)) || (Number(b.rr||0)-Number(a.rr||0)));
+
+    // Take top N (bigger gives grouping value)
+    const topN = pool.slice(0, 30);
+    renderList(topN);
+  }
+
+  // Grouped sidebar rendering (ticker can appear in multiple groups)
   function renderList(items) {
     const list = el("topList");
     list.innerHTML = "";
-    items.forEach(d => {
-      const t = (d.ticker || d.symbol || d.contract || "—").toUpperCase();
-      const rr = (d.rr != null) ? Number(d.rr).toFixed(2) : "—";
-      const comp = fmtPct01(completionForSize(d));
-      const ph = d.phase_pct != null ? Math.round(Number(d.phase_pct)*100) + "%" : "—";
-      const sq = d.flags?.sq30_release ? "⚡" : (d.flags?.sq30_on ? "🧨" : "");
-      const corridor = entryType(d);
-      const corridorTag = corridor.corridor ? (corridor.side==="LONG" ? "LONG corridor" : "SHORT corridor") : "—";
-      const why = whyString(d);
 
-      const div = document.createElement("div");
-      div.className = "item";
-      div.innerHTML = `
-        <div class="row">
-          <div><b>${t}</b> ${sq} <span class="badge">Rank ${d.rank ?? "—"}</span></div>
-          <div class="badge">RR ${rr}</div>
-        </div>
-        <div class="row" style="margin-top:6px;">
-          <div class="k">Trade</div><div class="v">${corridorTag}</div>
-        </div>
-        <div class="row">
-          <div class="k">Comp</div><div class="v">${comp}</div>
-          <div class="k">Phase</div><div class="v">${ph}</div>
-        </div>
-        <div class="row">
-          <div class="k">Why</div><div class="v">${why}</div>
-        </div>
-      `;
-      div.addEventListener("click", () => selectTicker(t));
-      list.appendChild(div);
-    });
+    const order = ["SP_Sectors","UPTICKS","SuperGranny","GRNI","GRNJ","GRNY","Social","UNGROUPED"];
+    const labelMap = {
+      SP_Sectors: "S&P Sectors",
+      UPTICKS: "UPTICKS",
+      SuperGranny: "SuperGranny",
+      GRNI: "GRNI",
+      GRNJ: "GRNJ",
+      GRNY: "GRNY",
+      Social: "Social",
+      UNGROUPED: "Ungrouped"
+    };
+
+    const buckets = new Map();
+    for (const g of order) buckets.set(g, new Map());
+
+    for (const d of items) {
+      const t = normTicker(d.ticker || d.symbol || d.contract || "—");
+      const gs = groupsForTicker(t);
+      const targets = gs.length ? gs : ["UNGROUPED"];
+      for (const g of targets) {
+        if (!buckets.has(g)) buckets.set(g, new Map());
+        buckets.get(g).set(t, { ...d, ticker: t });
+      }
+    }
+
+    for (const g of order) {
+      const map = buckets.get(g);
+      if (!map || map.size === 0) continue;
+
+      const arr = Array.from(map.values());
+      arr.sort((a,b) => (Number(b.rank||0) - Number(a.rank||0)) || (Number(b.rr||0) - Number(a.rr||0)));
+
+      const hdr = document.createElement("div");
+      hdr.className = "groupHdr";
+      hdr.textContent = `Group: ${labelMap[g] || g} (${arr.length})`;
+      list.appendChild(hdr);
+
+      arr.forEach(d => {
+        const t = normTicker(d.ticker || d.symbol || d.contract || "—");
+        const rr = (d.rr != null) ? Number(d.rr).toFixed(2) : "—";
+        const comp = fmtPct01(completionForSize(d));
+        const ph = d.phase_pct != null ? Math.round(Number(d.phase_pct)*100) + "%" : "—";
+        const sq = d.flags?.sq30_release ? "⚡" : (d.flags?.sq30_on ? "🧨" : "");
+        const corridor = entryType(d);
+        const corridorTag = corridor.corridor ? (corridor.side==="LONG" ? "LONG corridor" : "SHORT corridor") : "—";
+        const why = whyString(d);
+
+        const gs = groupsForTicker(t);
+        const gsTxt = gs.length ? gs.join(", ") : "—";
+
+        const div = document.createElement("div");
+        div.className = "item";
+        div.innerHTML = `
+          <div class="row">
+            <div><b>${t}</b> ${sq} <span class="badge">Rank ${d.rank ?? "—"}</span></div>
+            <div class="badge">RR ${rr}</div>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <div class="k">Trade</div><div class="v">${corridorTag}</div>
+          </div>
+          <div class="row">
+            <div class="k">Comp</div><div class="v">${comp}</div>
+            <div class="k">Phase</div><div class="v">${ph}</div>
+          </div>
+          <div class="row">
+            <div class="k">Why</div><div class="v">${why}</div>
+          </div>
+          <div class="row">
+            <div class="k">Groups</div><div class="v">${gsTxt}</div>
+          </div>
+        `;
+        div.addEventListener("click", () => selectTicker(t));
+        list.appendChild(div);
+      });
+    }
   }
 
   async function selectTicker(ticker) {
-    selectedTicker = ticker;
+    selectedTicker = normTicker(ticker);
     const details = el("details");
-    details.innerHTML = `<h3>Selected</h3><div class="muted">Loading ${ticker}…</div>`;
+    details.innerHTML = `<h3>Selected</h3><div class="muted">Loading ${selectedTicker}…</div>`;
 
-    const latest = await fetchJSON(`https://timed-trading-ingest.shashant.workers.dev/timed/latest?ticker=${encodeURIComponent(ticker)}`);
+    const latest = await fetchJSON(`https://timed-trading-ingest.shashant.workers.dev/timed/latest?ticker=${encodeURIComponent(selectedTicker)}`);
     const d = latest.data || null;
-    selectedTrail = await fetchTrail(ticker);
+    selectedTrail = await fetchTrail(selectedTicker);
 
     if (!d) {
-      details.innerHTML = `<h3>Selected</h3><div class="muted">No data for ${ticker}</div>`;
+      details.innerHTML = `<h3>Selected</h3><div class="muted">No data for ${selectedTicker}</div>`;
       return;
     }
 
     const ent = entryType(d);
     const side = ent.side || (d.state === "HTF_BULL_LTF_BULL" ? "LONG" : d.state === "HTF_BEAR_LTF_BEAR" ? "SHORT" : "—");
     const why = whyString(d);
+    const gs = groupsForTicker(selectedTicker);
 
     details.innerHTML = `
-      <h3>${ticker}</h3>
+      <h3>${selectedTicker}</h3>
+      <div class="muted">${gs.length ? "Groups: " + gs.join(", ") : "Groups: —"}</div>
 
-      <div class="tradeCard">
+      <div class="tradeCard" style="margin-top:8px;">
         <div class="tradeTitle">${ent.corridor ? (side==="LONG" ? "LONG ENTRY SETUP" : "SHORT ENTRY SETUP") : "CONTEXT / MONITOR"}</div>
         <div class="muted" style="margin-top:6px;">${why}</div>
 
@@ -643,31 +918,20 @@
 
         <div class="row"><div class="k">HTF/LTF</div><div class="v">${fmtNum(d.htf_score,2)} / ${fmtNum(d.ltf_score,2)}</div></div>
         <div class="row"><div class="k">Phase</div><div class="v">${fmtPct01(d.phase_pct)}</div></div>
-        <div class="row"><div class="k">Open TV</div><div class="v"><a href="${tvUrlForTicker(ticker)}" target="_blank" rel="noopener noreferrer">TradingView</a></div></div>
+        <div class="row"><div class="k">Open TV</div><div class="v"><a href="${tvUrlForTicker(selectedTicker)}" target="_blank" rel="noopener noreferrer">TradingView</a></div></div>
       </div>
     `;
 
-    await refresh();
+    scheduleRefresh(); // redraw with selected trail
   }
 
-  async function buildFaintTrails(points) {
-    const out = {};
-    const corridorTickers = points
-      .filter(p => entryType(p).corridor)
-      .map(p => p.ticker);
-
-    const take = corridorTickers.slice(0, MAX_FAINT_TRAILS);
-
-    await Promise.all(take.map(async (t) => {
-      try { out[t] = await fetchTrail(t); } catch { /* ignore */ }
-    }));
-
-    return out;
+  function scheduleRefresh() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => refresh(), DEBOUNCE_MS);
   }
 
   async function refresh() {
     const s = el("status");
-
     if (refreshInFlight) return;
     refreshInFlight = true;
 
@@ -681,25 +945,31 @@
       const dataObj = await fetchAll(signal);
       const points = applyFilters(dataObj);
 
+      // blink guard
       const minKeep = Math.max(6, Math.floor(lastGoodPoints.length * 0.30));
       const looksLikeBlink = lastGoodPoints.length > 0 && points.length < minKeep;
 
       if (looksLikeBlink) {
-        const faint = await buildFaintTrails(lastGoodPoints).catch(()=> ({}));
-        render(lastGoodPoints, faint);
-        const top = await fetchTop(currentTab, 10).catch(()=>[]);
-        renderList(top);
-        if (s) s.textContent = `Loaded ${points.length} (holding last stable view) • ${new Date().toLocaleTimeString()}`;
+        render(lastGoodPoints, lastFaintTrails);
+        renderListTopFromPoints(lastGoodPoints, currentTab);
+
+        // flash state from stable view
+        if (anyShouldFlash(lastGoodPoints)) startFlashLoop(); else stopFlashLoop();
+
+        if (s) s.textContent = `Loaded ${points.length} (holding stable view) • ${new Date().toLocaleTimeString()}`;
         return;
       }
 
       lastGoodPoints = points;
 
-      const faint = await buildFaintTrails(points).catch(()=> ({}));
-      render(points, faint);
+      const faint = await buildFaintTrails(points).catch(()=> null);
+      lastFaintTrails = faint;
 
-      const top = await fetchTop(currentTab, 10).catch(()=>[]);
-      renderList(top);
+      render(points, faint);
+      renderListTopFromPoints(points, currentTab);
+
+      // start/stop flash based on current view
+      if (anyShouldFlash(points)) startFlashLoop(); else stopFlashLoop();
 
       if (s) s.textContent = `Loaded ${points.length} tickers • ${new Date().toLocaleTimeString()}`;
     } catch (e) {
@@ -710,10 +980,14 @@
       console.error(e);
 
       if (lastGoodPoints.length) {
-        const faint = await buildFaintTrails(lastGoodPoints).catch(()=> ({}));
-        render(lastGoodPoints, faint);
-        if (s) s.textContent = `Network hiccup — showing last stable view • ${new Date().toLocaleTimeString()}`;
+        render(lastGoodPoints, lastFaintTrails);
+        renderListTopFromPoints(lastGoodPoints, currentTab);
+
+        if (anyShouldFlash(lastGoodPoints)) startFlashLoop(); else stopFlashLoop();
+
+        if (s) s.textContent = `Network hiccup — stable view • ${new Date().toLocaleTimeString()}`;
       } else {
+        stopFlashLoop();
         if (s) s.textContent = `Error: ${e.message}`;
       }
     } finally {
@@ -728,15 +1002,24 @@
     if (sec > 0) refreshTimer = setInterval(() => refresh(), sec * 1000);
   }
 
+  // Wire events (debounced)
   on("refreshBtn","click", ()=> refresh());
   on("refreshSec","change", ()=> { resetAutoRefresh(); refresh(); });
 
-  ["search","q1","q2","q3","q4","compMax","rrMin","rankMin","swapAxes"].forEach(id => on(id,"input", ()=> refresh()));
+  ["search","q1","q2","q3","q4","compMax","rrMin","rankMin","swapAxes","groupSel","eligibleOnly","labelsMode","showFaintTrails"]
+    .forEach(id => on(id,"input", ()=> scheduleRefresh()));
 
-  on("tabLong","click", ()=>{ currentTab="long"; setActiveTab("tabLong"); refresh(); });
-  on("tabShort","click",()=>{ currentTab="short"; setActiveTab("tabShort"); refresh(); });
-  on("tabSetup","click",()=>{ currentTab="setup"; setActiveTab("tabSetup"); refresh(); });
+  on("tabLong","click", ()=>{ currentTab="long"; setActiveTab("tabLong"); scheduleRefresh(); });
+  on("tabShort","click",()=>{ currentTab="short"; setActiveTab("tabShort"); scheduleRefresh(); });
+  on("tabSetup","click",()=>{ currentTab="setup"; setActiveTab("tabSetup"); scheduleRefresh(); });
 
+  // If tab is hidden, stop flashing to save CPU/battery
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopFlashLoop();
+    else if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
+  });
+
+  populateGroupSelect();
   resetAutoRefresh();
   refresh();
 </script>
