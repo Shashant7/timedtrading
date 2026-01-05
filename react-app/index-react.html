@@ -958,6 +958,14 @@
               </div>
             </div>
 
+            {/* Bias/Direction - More prominent */}
+            <div className="mb-2">
+              <div className="text-[10px] text-[#93a4d6] mb-0.5">Bias / Direction</div>
+              <div className={`inline-block px-3 py-1 rounded font-bold text-sm ${dir.bg} ${dir.color} border-2 border-current/30`}>
+                {dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text}
+              </div>
+            </div>
+
             {/* Why */}
             <div className="mb-2">
               <div className="text-[10px] text-[#93a4d6] mb-0.5">Why</div>
@@ -1219,6 +1227,23 @@
           return false;
         };
 
+        const handlePresetClick = (preset) => {
+          const active = isActive(preset);
+          if (active) {
+            // Toggle off - reset to defaults
+            if (preset.label === "Prime Only") {
+              onFilterChange({ minRank: 0, minRR: 0, maxCompletion: 1.01 });
+            } else if (preset.label === "In Corridor") {
+              onFilterChange({ inCorridor: false });
+            } else if (preset.label === "Squeeze Release") {
+              onFilterChange({ squeezeRelease: false });
+            }
+          } else {
+            // Toggle on - apply filter
+            onFilterChange(preset.filter);
+          }
+        };
+
         // Build group options
         const groupKeys = Object.keys(GROUPS).filter(Boolean);
         const ordered = [];
@@ -1239,7 +1264,7 @@
                         ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
                         : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0] text-[#93a4d6]"
                     }`}
-                    onClick={() => onFilterChange(preset.filter)}
+                    onClick={() => handlePresetClick(preset)}
                   >
                     {preset.icon} {preset.label}
                   </button>
@@ -1306,6 +1331,19 @@
                 ⭐ PRIME SETUP ⭐
               </div>
             )}
+
+            {/* Bias/Direction - Prominent */}
+            {(() => {
+              const dir = getDirection(ticker);
+              return (
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="text-sm text-[#93a4d6] mb-2">Bias / Direction</div>
+                  <div className={`inline-block px-4 py-2 rounded-lg font-bold text-lg ${dir.bg} ${dir.color} border-2 border-current/30`}>
+                    {dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Action Description */}
             <div className={`mb-4 p-4 rounded-lg border ${actionInfo.bg} border-current/30`}>
