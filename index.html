@@ -52,121 +52,224 @@
       background:rgba(255,255,255,0.02);
     }
 
+    /* Collapsible filter sections */
+    .filterSection {
+      border:1px solid var(--line);
+      border-radius:12px;
+      margin-bottom:8px;
+      overflow:hidden;
+      background:var(--card);
+    }
+    .filterSectionHeader {
+      padding:10px 12px;
+      cursor:pointer;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      user-select:none;
+      font-weight:600;
+      font-size:13px;
+    }
+    .filterSectionHeader:hover {
+      background:rgba(255,255,255,0.03);
+    }
+    .filterSectionContent {
+      padding:12px;
+      display:grid;
+      gap:8px;
+      max-height:0;
+      overflow:hidden;
+      transition:max-height 0.3s ease, padding 0.3s ease;
+    }
+    .filterSectionContent.expanded {
+      max-height:500px;
+    }
+    .filterSectionHeader::after {
+      content:"▼";
+      font-size:10px;
+      transition:transform 0.3s;
+      opacity:0.6;
+    }
+    .filterSectionHeader.collapsed::after {
+      transform:rotate(-90deg);
+    }
+
+    /* Compact header */
+    header {
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .headerMain {
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+      flex:1;
+    }
+    .headerActions {
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+
+    /* Stats bar */
+    .statsBar {
+      display:flex;
+      gap:16px;
+      padding:8px 12px;
+      background:rgba(255,255,255,0.02);
+      border-radius:8px;
+      font-size:11px;
+      color:var(--muted);
+      margin-bottom:8px;
+    }
+    .stat {
+      display:flex;
+      gap:4px;
+      align-items:center;
+    }
+    .statValue {
+      color:var(--text);
+      font-weight:600;
+    }
+
     /* Mobile */
     @media (max-width: 980px) {
       .grid { grid-template-columns: 1fr; }
       #chart { height: 62vh; }
       .side { position: relative; }
+      .filterSectionContent.expanded {
+        max-height:800px;
+      }
     }
   </style>
 </head>
 
 <body>
   <header>
-    <div class="title">Timed Trading — Bubble Quadrant</div>
+    <div class="headerMain">
+      <div class="title">Timed Trading — Bubble Quadrant</div>
+      
+      <div class="pill">
+        <label>Group</label>
+        <select id="groupSel">
+          <option value="ALL" selected>All</option>
+          <option value="ANY">Any group</option>
+          <option value="UNGROUPED">Ungrouped</option>
+          <option value="__DIVIDER__" disabled>──────────</option>
+        </select>
+      </div>
 
-    <div class="pill">
-      <label>Data</label>
-      <select id="endpoint">
-        <option value="https://timed-trading-ingest.shashant.workers.dev/timed/all">/timed/all</option>
-      </select>
+      <div class="pill">
+        <label>Search</label>
+        <input id="search" placeholder="Ticker..." style="width:120px;" />
+      </div>
+
+      <div class="statsBar" id="statsBar">
+        <div class="stat"><span class="statValue" id="statCount">—</span> <span>tickers</span></div>
+        <div class="stat"><span class="statValue" id="statEligible">—</span> <span>eligible</span></div>
+        <div class="stat"><span class="statValue" id="statCorridor">—</span> <span>in corridor</span></div>
+      </div>
     </div>
 
-    <div class="pill">
-      <label>Group</label>
-      <select id="groupSel">
-        <option value="ALL" selected>All</option>
-        <option value="ANY">Any group</option>
-        <option value="UNGROUPED">Ungrouped</option>
-        <option value="__DIVIDER__" disabled>──────────</option>
-      </select>
+    <div class="headerActions">
+      <div class="pill">
+        <label>Auto-refresh</label>
+        <select id="refreshSec">
+          <option value="0">Off</option>
+          <option value="15">15s</option>
+          <option value="30" selected>30s</option>
+          <option value="60">60s</option>
+        </select>
+      </div>
+      <button class="btn" id="refreshBtn">Refresh</button>
+      <div class="muted" id="status" style="min-width:200px;"></div>
     </div>
 
-    <div class="pill">
-      <label>Search</label>
-      <input id="search" placeholder="Ticker (e.g., SPY, MES1!)" />
-    </div>
+    <div style="width:100%; margin-top:8px;">
+      <div class="filterSection">
+        <div class="filterSectionHeader collapsed" id="filterToggle">
+          Filters & Settings
+        </div>
+        <div class="filterSectionContent" id="filterContent">
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:8px;">
+            <div class="pill">
+              <label>Data</label>
+              <select id="endpoint">
+                <option value="https://timed-trading-ingest.shashant.workers.dev/timed/all">/timed/all</option>
+              </select>
+            </div>
 
-    <div class="pill">
-      <label>Show</label>
-      <label class="muted"><input type="checkbox" id="q1" checked> Q1</label>
-      <label class="muted"><input type="checkbox" id="q2" checked> Q2</label>
-      <label class="muted"><input type="checkbox" id="q3" checked> Q3</label>
-      <label class="muted"><input type="checkbox" id="q4" checked> Q4</label>
-    </div>
+            <div class="pill">
+              <label>Show</label>
+              <label class="muted"><input type="checkbox" id="q1" checked> Q1</label>
+              <label class="muted"><input type="checkbox" id="q2" checked> Q2</label>
+              <label class="muted"><input type="checkbox" id="q3" checked> Q3</label>
+              <label class="muted"><input type="checkbox" id="q4" checked> Q4</label>
+            </div>
 
-    <div class="pill">
-      <label>Completion ≤</label>
-      <select id="compMax">
-        <option value="1.01">100%</option>
-        <option value="0.80">80%</option>
-        <option value="0.60">60%</option>
-        <option value="0.40">40%</option>
-        <option value="0.25">25%</option>
-      </select>
-    </div>
+            <div class="pill">
+              <label>Completion ≤</label>
+              <select id="compMax">
+                <option value="1.01">100%</option>
+                <option value="0.80">80%</option>
+                <option value="0.60">60%</option>
+                <option value="0.40">40%</option>
+                <option value="0.25">25%</option>
+              </select>
+            </div>
 
-    <div class="pill">
-      <label>RR ≥</label>
-      <select id="rrMin">
-        <option value="0">Any</option>
-        <option value="1">1.0</option>
-        <option value="1.5" selected>1.5</option>
-        <option value="2">2.0</option>
-        <option value="3">3.0</option>
-      </select>
-    </div>
+            <div class="pill">
+              <label>RR ≥</label>
+              <select id="rrMin">
+                <option value="0">Any</option>
+                <option value="1">1.0</option>
+                <option value="1.5" selected>1.5</option>
+                <option value="2">2.0</option>
+                <option value="3">3.0</option>
+              </select>
+            </div>
 
-    <div class="pill">
-      <label>Rank ≥</label>
-      <select id="rankMin">
-        <option value="0">Any</option>
-        <option value="50">50</option>
-        <option value="60">60</option>
-        <option value="70" selected>70</option>
-        <option value="80">80</option>
-      </select>
-    </div>
+            <div class="pill">
+              <label>Rank ≥</label>
+              <select id="rankMin">
+                <option value="0">Any</option>
+                <option value="50">50</option>
+                <option value="60">60</option>
+                <option value="70" selected>70</option>
+                <option value="80">80</option>
+              </select>
+            </div>
 
-    <div class="pill">
-      <label>Eligible only</label>
-      <label class="muted"><input type="checkbox" id="eligibleOnly"> hide failing</label>
-    </div>
+            <div class="pill">
+              <label>Eligible only</label>
+              <label class="muted"><input type="checkbox" id="eligibleOnly"> hide failing</label>
+            </div>
 
-    <div class="pill">
-      <label>Labels</label>
-      <select id="labelsMode">
-        <option value="smart" selected>Smart</option>
-        <option value="off">Off (fast)</option>
-        <option value="all">All</option>
-      </select>
-    </div>
+            <div class="pill">
+              <label>Labels</label>
+              <select id="labelsMode">
+                <option value="smart" selected>Smart</option>
+                <option value="off">Off (fast)</option>
+                <option value="all">All</option>
+              </select>
+            </div>
 
-    <div class="pill">
-      <label>Faint trails</label>
-      <label class="muted"><input type="checkbox" id="showFaintTrails"> On (slower)</label>
-    </div>
+            <div class="pill">
+              <label>Faint trails</label>
+              <label class="muted"><input type="checkbox" id="showFaintTrails"> On (slower)</label>
+            </div>
 
-    <div class="pill">
-      <label>Swap axes</label>
-      <label class="muted"><input type="checkbox" id="swapAxes"> Y=LTF / X=HTF</label>
-    </div>
-
-    <div class="pill">
-      <label>Auto-refresh</label>
-      <select id="refreshSec">
-        <option value="0">Off</option>
-        <option value="15">15s</option>
-        <option value="30" selected>30s</option>
-        <option value="60">60s</option>
-      </select>
-    </div>
-
-    <button class="btn" id="refreshBtn">Refresh</button>
-    <div class="muted" id="status"></div>
-
-    <div class="muted" style="width:100%;">
-      Corridors shaded. Flash=🧨 squeeze ON inside corridor (eligible). ⚡=squeeze release. Click selects + trail + trade card.
+            <div class="pill">
+              <label>Swap axes</label>
+              <label class="muted"><input type="checkbox" id="swapAxes"> Y=LTF / X=HTF</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="muted" style="font-size:11px; margin-top:4px;">
+        Corridors shaded. Flash=🧨 squeeze ON inside corridor (eligible). ⚡=squeeze release. Click selects + trail + trade card.
+      </div>
     </div>
   </header>
 
@@ -314,8 +417,10 @@
 
   // Stability
   let lastGoodPoints = [];
+  let lastUnfilteredData = null; // Store raw data before filtering
   let refreshInFlight = false;
   let refreshAbort = null;
+  let isUserFilterChange = false; // Track intentional filter changes
 
   // Selection
   let clickHandlerBound = false;
@@ -340,6 +445,10 @@
   // Flash loop state
   let flashTimer = null;
   let lastFaintTrails = null;
+  
+  // Performance: use requestAnimationFrame for renders
+  let renderScheduled = false;
+  let pendingRender = null;
 
   function flashAlpha() {
     const t = Date.now() % FLASH_PERIOD_MS;
@@ -353,7 +462,7 @@
       if (refreshInFlight) return;
       if (!lastGoodPoints.length) return;
       // Preserve faint trails + selected trail during flash frames
-      render(lastGoodPoints, lastFaintTrails);
+      scheduleRender(lastGoodPoints, lastFaintTrails);
     }, 350);
   }
   function stopFlashLoop() {
@@ -588,10 +697,26 @@
     return shapes;
   }
 
+  // Performance: Schedule render with requestAnimationFrame
+  function scheduleRender(points, faintTrailsByTicker) {
+    pendingRender = { points, faintTrailsByTicker };
+    if (!renderScheduled) {
+      renderScheduled = true;
+      requestAnimationFrame(() => {
+        if (pendingRender) {
+          render(pendingRender.points, pendingRender.faintTrailsByTicker);
+          pendingRender = null;
+        }
+        renderScheduled = false;
+      });
+    }
+  }
+
   function render(points, faintTrailsByTicker) {
     if (!window.Plotly) throw new Error("Plotly failed to load (CDN blocked).");
     if (!points || !points.length) {
       Plotly.react("chart", [], { paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)" }, { responsive:true });
+      updateStats(points);
       return;
     }
 
@@ -760,6 +885,24 @@
       });
       clickHandlerBound = true;
     }
+    
+    updateStats(points);
+  }
+
+  function updateStats(points) {
+    if (!points || !points.length) {
+      el("statCount").textContent = "0";
+      el("statEligible").textContent = "0";
+      el("statCorridor").textContent = "0";
+      return;
+    }
+    
+    const eligible = points.filter(p => p._eligible !== false).length;
+    const inCorridor = points.filter(p => entryType(p).corridor).length;
+    
+    el("statCount").textContent = points.length;
+    el("statEligible").textContent = eligible;
+    el("statCorridor").textContent = inCorridor;
   }
 
     function setActiveTab(which) {
@@ -926,6 +1069,7 @@
   }
 
   function scheduleRefresh() {
+    isUserFilterChange = true; // Mark as intentional filter change
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => refresh(), DEBOUNCE_MS);
   }
@@ -943,14 +1087,15 @@
       if (s) s.textContent = "Loading…";
 
       const dataObj = await fetchAll(signal);
+      lastUnfilteredData = dataObj; // Store raw data
       const points = applyFilters(dataObj);
 
-      // blink guard
+      // blink guard: only trigger on network issues, not intentional filter changes
       const minKeep = Math.max(6, Math.floor(lastGoodPoints.length * 0.30));
-      const looksLikeBlink = lastGoodPoints.length > 0 && points.length < minKeep;
+      const looksLikeBlink = !isUserFilterChange && lastGoodPoints.length > 0 && points.length < minKeep;
 
       if (looksLikeBlink) {
-        render(lastGoodPoints, lastFaintTrails);
+        scheduleRender(lastGoodPoints, lastFaintTrails);
         renderListTopFromPoints(lastGoodPoints, currentTab);
 
         // flash state from stable view
@@ -960,12 +1105,14 @@
         return;
       }
 
+      // Reset filter change flag after processing
+      isUserFilterChange = false;
       lastGoodPoints = points;
 
       const faint = await buildFaintTrails(points).catch(()=> null);
       lastFaintTrails = faint;
 
-      render(points, faint);
+      scheduleRender(points, faint);
       renderListTopFromPoints(points, currentTab);
 
       // start/stop flash based on current view
@@ -980,7 +1127,7 @@
       console.error(e);
 
       if (lastGoodPoints.length) {
-        render(lastGoodPoints, lastFaintTrails);
+        scheduleRender(lastGoodPoints, lastFaintTrails);
         renderListTopFromPoints(lastGoodPoints, currentTab);
 
         if (anyShouldFlash(lastGoodPoints)) startFlashLoop(); else stopFlashLoop();
@@ -1023,6 +1170,15 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopFlashLoop();
     else if (anyShouldFlash(lastGoodPoints)) startFlashLoop();
+  });
+
+  // Collapsible filter section
+  on("filterToggle","click", () => {
+    const header = el("filterToggle");
+    const content = el("filterContent");
+    const isCollapsed = header.classList.contains("collapsed");
+    header.classList.toggle("collapsed");
+    content.classList.toggle("expanded");
   });
 
   populateGroupSelect();
