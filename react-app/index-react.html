@@ -1,574 +1,707 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Timed Trading — React Dashboard</title>
-  
-  <!-- React & ReactDOM via CDN -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  
-  <!-- Babel Standalone for JSX -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- Recharts for lightweight charting -->
-  <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
-  
-  <style>
-    :root {
-      --bg: #0b1020;
-      --card: #121a33;
-      --text: #e7ecff;
-      --muted: #93a4d6;
-      --line: #26325f;
-      --good: #2ecc71;
-      --bad: #e74c3c;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — React Dashboard</title>
+
+    <!-- React & ReactDOM via CDN -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.development.js"
+      onerror="console.error('Failed to load React')"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+      onerror="console.error('Failed to load ReactDOM')"
+    ></script>
+
+    <!-- Babel Standalone for JSX -->
+    <script 
+      src="https://unpkg.com/@babel/standalone/babel.min.js"
+      onerror="console.error('Failed to load Babel')"
+    ></script>
     
-    body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-      background: var(--bg);
-      color: var(--text);
-    }
+    <!-- Tailwind CSS -->
+    <script 
+      src="https://cdn.tailwindcss.com"
+      onerror="console.error('Failed to load Tailwind')"
+    ></script>
     
-    .loading-spinner {
-      border: 2px solid var(--line);
-      border-top: 2px solid var(--text);
-      border-radius: 50%;
-      width: 20px;
-      height: 20px;
-      animation: spin 1s linear infinite;
-    }
+    <!-- Recharts for lightweight charting -->
+    <script 
+      src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"
+      onerror="console.error('Failed to load Recharts')"
+    ></script>
     
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    
-    .prime-glow {
-      box-shadow: 0 0 12px rgba(46, 204, 113, 0.4);
-    }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  
-  <script type="text/babel">
-    const { useState, useEffect, useMemo, useCallback, memo } = React;
-    const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } = Recharts;
-    
-    // ─────────────────────────────────────────────────────────────
-    // Types & Constants
-    // ─────────────────────────────────────────────────────────────
-    const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
-    const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
-    const API_BASE = 'https://timed-trading-ingest.shashant.workers.dev';
-    
-    // ─────────────────────────────────────────────────────────────
-    // Hooks
-    // ─────────────────────────────────────────────────────────────
-    function useTickerData() {
-      const [data, setData] = useState({});
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(null);
-      const [lastUpdate, setLastUpdate] = useState(null);
-      
-      const fetchData = useCallback(async () => {
-        try {
-          setLoading(true);
-          const res = await fetch(`${API_BASE}/timed/all`);
-          const json = await res.json();
-          if (json.ok) {
-            setData(json.data || {});
-            setLastUpdate(new Date());
-            setError(null);
-          } else {
-            setError('Failed to fetch data');
+    <!-- Loading indicator while scripts load -->
+    <script>
+      window.addEventListener('load', function() {
+        // Check if all scripts loaded
+        setTimeout(function() {
+          const root = document.getElementById('root');
+          if (root && root.innerHTML === '') {
+            if (typeof React === 'undefined') {
+              root.innerHTML = '<div style="padding: 40px; text-align: center; color: #e7ecff;"><h2 style="color: #e74c3c;">Loading Error</h2><p>React failed to load. Check console (F12) for details.</p></div>';
+            }
           }
-        } catch (e) {
-          setError(e.message);
-        } finally {
-          setLoading(false);
+        }, 2000);
+      });
+    </script>
+
+    <style>
+      :root {
+        --bg: #0b1020;
+        --card: #121a33;
+        --text: #e7ecff;
+        --muted: #93a4d6;
+        --line: #26325f;
+        --good: #2ecc71;
+        --bad: #e74c3c;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Arial;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .loading-spinner {
+        border: 2px solid var(--line);
+        border-top: 2px solid var(--text);
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
         }
-      }, []);
-      
-      useEffect(() => {
-        fetchData();
-        const interval = setInterval(fetchData, 30000); // 30s auto-refresh
-        return () => clearInterval(interval);
-      }, [fetchData]);
-      
-      return { data, loading, error, lastUpdate, refetch: fetchData };
-    }
-    
-    function useDebounce(value, delay) {
-      const [debouncedValue, setDebouncedValue] = useState(value);
-      
-      useEffect(() => {
-        const handler = setTimeout(() => {
-          setDebouncedValue(value);
-        }, delay);
-        
-        return () => {
-          clearTimeout(handler);
-        };
-      }, [value, delay]);
-      
-      return debouncedValue;
-    }
-    
-    // ─────────────────────────────────────────────────────────────
-    // Utils
-    // ─────────────────────────────────────────────────────────────
-    function isPrimeBubble(ticker) {
-      const rank = Number(ticker.rank || 0);
-      const rr = ticker.rr != null ? Number(ticker.rr) : 0;
-      const comp = ticker.completion != null ? Number(ticker.completion) : 1;
-      const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : 1;
-      const flags = ticker.flags || {};
-      const sqRel = !!flags.sq30_release;
-      const phaseZoneChange = !!flags.phase_zone_change;
-      const state = String(ticker.state || "");
-      const aligned = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
-      
-      return (
-        rank >= 75 &&
-        rr >= 1.5 &&
-        comp < 0.4 &&
-        phase < 0.6 &&
-        (aligned || sqRel || phaseZoneChange)
-      );
-    }
-    
-    function entryType(ticker) {
-      const h = Number(ticker.htf_score);
-      const l = Number(ticker.ltf_score);
-      if (!Number.isFinite(h) || !Number.isFinite(l)) {
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .prime-glow {
+        box-shadow: 0 0 12px rgba(46, 204, 113, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div style="padding: 40px; text-align: center; color: #e7ecff;">
+        <div class="loading-spinner" style="margin: 0 auto 20px;"></div>
+        <p>Loading dashboard...</p>
+      </div>
+    </div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback, memo } = React;
+      const {
+        ScatterChart,
+        Scatter,
+        XAxis,
+        YAxis,
+        CartesianGrid,
+        Tooltip,
+        ResponsiveContainer,
+        Cell,
+      } = Recharts;
+
+      // ─────────────────────────────────────────────────────────────
+      // Types & Constants
+      // ─────────────────────────────────────────────────────────────
+      const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
+      const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
+      const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+
+      // ─────────────────────────────────────────────────────────────
+      // Hooks
+      // ─────────────────────────────────────────────────────────────
+      function useTickerData() {
+        const [data, setData] = useState({});
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [lastUpdate, setLastUpdate] = useState(null);
+
+        const fetchData = useCallback(async () => {
+          try {
+            setLoading(true);
+            const res = await fetch(`${API_BASE}/timed/all`);
+            const json = await res.json();
+            if (json.ok) {
+              setData(json.data || {});
+              setLastUpdate(new Date());
+              setError(null);
+            } else {
+              setError("Failed to fetch data");
+            }
+          } catch (e) {
+            setError(e.message);
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchData();
+          const interval = setInterval(fetchData, 30000); // 30s auto-refresh
+          return () => clearInterval(interval);
+        }, [fetchData]);
+
+        return { data, loading, error, lastUpdate, refetch: fetchData };
+      }
+
+      function useDebounce(value, delay) {
+        const [debouncedValue, setDebouncedValue] = useState(value);
+
+        useEffect(() => {
+          const handler = setTimeout(() => {
+            setDebouncedValue(value);
+          }, delay);
+
+          return () => {
+            clearTimeout(handler);
+          };
+        }, [value, delay]);
+
+        return debouncedValue;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Utils
+      // ─────────────────────────────────────────────────────────────
+      function isPrimeBubble(ticker) {
+        const rank = Number(ticker.rank || 0);
+        const rr = ticker.rr != null ? Number(ticker.rr) : 0;
+        const comp = ticker.completion != null ? Number(ticker.completion) : 1;
+        const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : 1;
+        const flags = ticker.flags || {};
+        const sqRel = !!flags.sq30_release;
+        const phaseZoneChange = !!flags.phase_zone_change;
+        const state = String(ticker.state || "");
+        const aligned =
+          state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+
+        return (
+          rank >= 75 &&
+          rr >= 1.5 &&
+          comp < 0.4 &&
+          phase < 0.6 &&
+          (aligned || sqRel || phaseZoneChange)
+        );
+      }
+
+      function entryType(ticker) {
+        const h = Number(ticker.htf_score);
+        const l = Number(ticker.ltf_score);
+        if (!Number.isFinite(h) || !Number.isFinite(l)) {
+          return { corridor: false, side: null };
+        }
+        if (h > 0 && l >= LONG_CORRIDOR.ltfMin && l <= LONG_CORRIDOR.ltfMax) {
+          return { corridor: true, side: "LONG" };
+        }
+        if (h < 0 && l >= SHORT_CORRIDOR.ltfMin && l <= SHORT_CORRIDOR.ltfMax) {
+          return { corridor: true, side: "SHORT" };
+        }
         return { corridor: false, side: null };
       }
-      if (h > 0 && l >= LONG_CORRIDOR.ltfMin && l <= LONG_CORRIDOR.ltfMax) {
-        return { corridor: true, side: "LONG" };
+
+      function completionForSize(ticker) {
+        const c = Number(ticker.completion);
+        const trig = Number(ticker.trigger_price);
+        const tp = Number(ticker.tp);
+        const px = Number(ticker.price);
+        if ([trig, tp, px].every(Number.isFinite) && tp !== trig) {
+          const prog = (px - trig) / (tp - trig);
+          return Math.max(0, Math.min(1, Math.abs(prog)));
+        }
+        return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
       }
-      if (h < 0 && l >= SHORT_CORRIDOR.ltfMin && l <= SHORT_CORRIDOR.ltfMax) {
-        return { corridor: true, side: "SHORT" };
+
+      function applyFilters(dataObj, filters) {
+        const out = [];
+        for (const [tickerRaw, d] of Object.entries(dataObj)) {
+          if (!d) continue;
+          const ticker = String(tickerRaw).trim().toUpperCase();
+
+          if (filters.search && !ticker.includes(filters.search.toUpperCase()))
+            continue;
+          if (filters.quadrants && !filters.quadrants.includes(d.state))
+            continue;
+          if (filters.minRank && (Number(d.rank) || 0) < filters.minRank)
+            continue;
+          if (filters.minRR && (Number(d.rr) || 0) < filters.minRR) continue;
+          if (
+            filters.maxCompletion &&
+            completionForSize(d) > filters.maxCompletion
+          )
+            continue;
+
+          out.push({ ticker, ...d });
+        }
+        return out;
       }
-      return { corridor: false, side: null };
-    }
-    
-    function completionForSize(ticker) {
-      const c = Number(ticker.completion);
-      const trig = Number(ticker.trigger_price);
-      const tp = Number(ticker.tp);
-      const px = Number(ticker.price);
-      if ([trig, tp, px].every(Number.isFinite) && tp !== trig) {
-        const prog = (px - trig) / (tp - trig);
-        return Math.max(0, Math.min(1, Math.abs(prog)));
+
+      // ─────────────────────────────────────────────────────────────
+      // Components
+      // ─────────────────────────────────────────────────────────────
+      const Bubble = memo(({ ticker, onClick, onHover, isHovered }) => {
+        const comp = completionForSize(ticker);
+        const size = 10 + comp * 40;
+        const phase = Number(ticker.phase_pct) || 0;
+        const prime = isPrimeBubble(ticker);
+        const ent = entryType(ticker);
+        const flags = ticker.flags || {};
+
+        const color =
+          phase < 0.3 ? "#2ecc71" : phase < 0.6 ? "#f39c12" : "#e74c3c";
+        const opacity = isHovered ? 1 : 0.7;
+        const borderWidth = prime ? 3 : flags.sq30_release ? 2 : 1;
+        const borderColor = prime
+          ? "#2ecc71"
+          : flags.sq30_release
+          ? "#00ffff"
+          : "#ffffff";
+
+        return (
+          <g
+            onClick={() => onClick(ticker.ticker)}
+            onMouseEnter={() => onHover(ticker.ticker)}
+            onMouseLeave={() => onHover(null)}
+            style={{ cursor: "pointer" }}
+          >
+            <circle
+              cx={Number(ticker.ltf_score) || 0}
+              cy={Number(ticker.htf_score) || 0}
+              r={size}
+              fill={color}
+              fillOpacity={opacity}
+              stroke={borderColor}
+              strokeWidth={borderWidth}
+            />
+            {prime && (
+              <text
+                x={Number(ticker.ltf_score) || 0}
+                y={(Number(ticker.htf_score) || 0) - size - 5}
+                textAnchor="middle"
+                fontSize="14"
+                fill="#2ecc71"
+              >
+                ⭐
+              </text>
+            )}
+          </g>
+        );
+      });
+
+      function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover }) {
+        const data = useMemo(
+          () =>
+            tickers.map((t) => ({
+              x: Number(t.ltf_score) || 0,
+              y: Number(t.htf_score) || 0,
+              ticker: t,
+            })),
+          [tickers]
+        );
+
+        return (
+          <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart
+                margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#26325f" />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  name="LTF Score"
+                  domain={[-50, 50]}
+                  stroke="#93a4d6"
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  name="HTF Score"
+                  domain={[-50, 50]}
+                  stroke="#93a4d6"
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const t = payload[0].payload.ticker;
+                    return (
+                      <div className="bg-[#121a33] border border-[#26325f] rounded p-3 text-sm">
+                        <div className="font-bold">{t.ticker}</div>
+                        <div>Rank: {t.rank || "—"}</div>
+                        <div>RR: {t.rr ? Number(t.rr).toFixed(2) : "—"}</div>
+                        <div>State: {t.state || "—"}</div>
+                        {isPrimeBubble(t) && (
+                          <div className="text-[#2ecc71]">⭐ PRIME SETUP</div>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                <Scatter data={data}>
+                  {data.map((entry, index) => (
+                    <Bubble
+                      key={entry.ticker.ticker}
+                      ticker={entry.ticker}
+                      onClick={onBubbleClick}
+                      onHover={onHover}
+                      isHovered={hoveredTicker === entry.ticker.ticker}
+                    />
+                  ))}
+                </Scatter>
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
+        );
       }
-      return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
-    }
-    
-    function applyFilters(dataObj, filters) {
-      const out = [];
-      for (const [tickerRaw, d] of Object.entries(dataObj)) {
-        if (!d) continue;
-        const ticker = String(tickerRaw).trim().toUpperCase();
-        
-        if (filters.search && !ticker.includes(filters.search.toUpperCase())) continue;
-        if (filters.quadrants && !filters.quadrants.includes(d.state)) continue;
-        if (filters.minRank && (Number(d.rank) || 0) < filters.minRank) continue;
-        if (filters.minRR && (Number(d.rr) || 0) < filters.minRR) continue;
-        if (filters.maxCompletion && completionForSize(d) > filters.maxCompletion) continue;
-        
-        out.push({ ticker, ...d });
-      }
-      return out;
-    }
-    
-    // ─────────────────────────────────────────────────────────────
-    // Components
-    // ─────────────────────────────────────────────────────────────
-    const Bubble = memo(({ ticker, onClick, onHover, isHovered }) => {
-      const comp = completionForSize(ticker);
-      const size = 10 + comp * 40;
-      const phase = Number(ticker.phase_pct) || 0;
-      const prime = isPrimeBubble(ticker);
-      const ent = entryType(ticker);
-      const flags = ticker.flags || {};
-      
-      const color = phase < 0.3 ? '#2ecc71' : phase < 0.6 ? '#f39c12' : '#e74c3c';
-      const opacity = isHovered ? 1 : 0.7;
-      const borderWidth = prime ? 3 : (flags.sq30_release ? 2 : 1);
-      const borderColor = prime ? '#2ecc71' : (flags.sq30_release ? '#00ffff' : '#ffffff');
-      
-      return (
-        <g
-          onClick={() => onClick(ticker.ticker)}
-          onMouseEnter={() => onHover(ticker.ticker)}
-          onMouseLeave={() => onHover(null)}
-          style={{ cursor: 'pointer' }}
-        >
-          <circle
-            cx={Number(ticker.ltf_score) || 0}
-            cy={Number(ticker.htf_score) || 0}
-            r={size}
-            fill={color}
-            fillOpacity={opacity}
-            stroke={borderColor}
-            strokeWidth={borderWidth}
-          />
-          {prime && (
-            <text
-              x={Number(ticker.ltf_score) || 0}
-              y={(Number(ticker.htf_score) || 0) - size - 5}
-              textAnchor="middle"
-              fontSize="14"
-              fill="#2ecc71"
-            >
-              ⭐
-            </text>
-          )}
-        </g>
-      );
-    });
-    
-    function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover }) {
-      const data = useMemo(() => 
-        tickers.map(t => ({
-          x: Number(t.ltf_score) || 0,
-          y: Number(t.htf_score) || 0,
-          ticker: t
-        })), [tickers]
-      );
-      
-      return (
-        <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#26325f" />
-              <XAxis 
-                type="number" 
-                dataKey="x" 
-                name="LTF Score"
-                domain={[-50, 50]}
-                stroke="#93a4d6"
-              />
-              <YAxis 
-                type="number" 
-                dataKey="y" 
-                name="HTF Score"
-                domain={[-50, 50]}
-                stroke="#93a4d6"
-              />
-              <Tooltip
-                content={({ active, payload }) => {
-                  if (!active || !payload?.[0]) return null;
-                  const t = payload[0].payload.ticker;
-                  return (
-                    <div className="bg-[#121a33] border border-[#26325f] rounded p-3 text-sm">
-                      <div className="font-bold">{t.ticker}</div>
-                      <div>Rank: {t.rank || '—'}</div>
-                      <div>RR: {t.rr ? Number(t.rr).toFixed(2) : '—'}</div>
-                      <div>State: {t.state || '—'}</div>
-                      {isPrimeBubble(t) && <div className="text-[#2ecc71]">⭐ PRIME SETUP</div>}
-                    </div>
-                  );
-                }}
-              />
-              <Scatter data={data}>
-                {data.map((entry, index) => (
-                  <Bubble
-                    key={entry.ticker.ticker}
-                    ticker={entry.ticker}
-                    onClick={onBubbleClick}
-                    onHover={onHover}
-                    isHovered={hoveredTicker === entry.ticker.ticker}
-                  />
-                ))}
-              </Scatter>
-            </ScatterChart>
-          </ResponsiveContainer>
-        </div>
-      );
-    }
-    
-    function TickerItem({ ticker, isSelected, onClick }) {
-      const prime = isPrimeBubble(ticker);
-      const flags = ticker.flags || {};
-      const ent = entryType(ticker);
-      
-      return (
-        <div
-          className={`p-3 rounded-lg border cursor-pointer transition-all mb-2 ${
-            isSelected 
-              ? 'border-blue-500 bg-blue-500/10' 
-              : prime 
-              ? 'border-green-500 bg-green-500/10 prime-glow'
-              : 'border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550]'
-          }`}
-          onClick={onClick}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="font-bold">{ticker.ticker}</span>
-              {prime && <span className="text-green-500">⭐</span>}
-              {flags.sq30_release && <span className="text-cyan-400">⚡</span>}
-              {flags.sq30_on && <span className="text-yellow-400">🧨</span>}
+
+      function TickerItem({ ticker, isSelected, onClick }) {
+        const prime = isPrimeBubble(ticker);
+        const flags = ticker.flags || {};
+        const ent = entryType(ticker);
+
+        return (
+          <div
+            className={`p-3 rounded-lg border cursor-pointer transition-all mb-2 ${
+              isSelected
+                ? "border-blue-500 bg-blue-500/10"
+                : prime
+                ? "border-green-500 bg-green-500/10 prime-glow"
+                : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550]"
+            }`}
+            onClick={onClick}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="font-bold">{ticker.ticker}</span>
+                {prime && <span className="text-green-500">⭐</span>}
+                {flags.sq30_release && (
+                  <span className="text-cyan-400">⚡</span>
+                )}
+                {flags.sq30_on && <span className="text-yellow-400">🧨</span>}
+              </div>
+              <div className="flex gap-2">
+                <span className="px-2 py-1 rounded text-xs bg-[#26325f]">
+                  Rank {ticker.rank || "—"}
+                </span>
+                <span className="px-2 py-1 rounded text-xs bg-[#26325f]">
+                  RR {ticker.rr ? Number(ticker.rr).toFixed(2) : "—"}
+                </span>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <span className="px-2 py-1 rounded text-xs bg-[#26325f]">Rank {ticker.rank || '—'}</span>
-              <span className="px-2 py-1 rounded text-xs bg-[#26325f]">RR {ticker.rr ? Number(ticker.rr).toFixed(2) : '—'}</span>
+            <div className="mt-2 text-xs text-[#93a4d6]">
+              {ticker.state} • {Math.round(completionForSize(ticker) * 100)}%
+              complete
+              {ent.corridor && ` • ${ent.side} corridor`}
             </div>
           </div>
-          <div className="mt-2 text-xs text-[#93a4d6]">
-            {ticker.state} • {Math.round(completionForSize(ticker) * 100)}% complete
-            {ent.corridor && ` • ${ent.side} corridor`}
+        );
+      }
+
+      function QuickFilters({ filters, onFilterChange }) {
+        const presets = [
+          {
+            label: "Prime Only",
+            filter: { minRank: 75, minRR: 1.5, maxCompletion: 0.4 },
+          },
+          { label: "In Corridor", filter: { inCorridor: true } },
+          { label: "Squeeze Release", filter: { squeezeRelease: true } },
+        ];
+
+        return (
+          <div className="flex gap-2 flex-wrap mb-4">
+            {presets.map((preset, i) => (
+              <button
+                key={i}
+                className="px-3 py-1 rounded-lg border border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] text-sm"
+                onClick={() => onFilterChange(preset.filter)}
+              >
+                {preset.label}
+              </button>
+            ))}
           </div>
-        </div>
-      );
-    }
-    
-    function QuickFilters({ filters, onFilterChange }) {
-      const presets = [
-        { label: 'Prime Only', filter: { minRank: 75, minRR: 1.5, maxCompletion: 0.4 } },
-        { label: 'In Corridor', filter: { inCorridor: true } },
-        { label: 'Squeeze Release', filter: { squeezeRelease: true } },
-      ];
-      
-      return (
-        <div className="flex gap-2 flex-wrap mb-4">
-          {presets.map((preset, i) => (
-            <button
-              key={i}
-              className="px-3 py-1 rounded-lg border border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] text-sm"
-              onClick={() => onFilterChange(preset.filter)}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      );
-    }
-    
-    function TickerDetails({ ticker, onClose }) {
-      if (!ticker) return null;
-      
-      const prime = isPrimeBubble(ticker);
-      const ent = entryType(ticker);
-      const flags = ticker.flags || {};
-      
-      return (
-        <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold">{ticker.ticker}</h3>
-            <button
-              onClick={onClose}
-              className="text-[#93a4d6] hover:text-white"
-            >
-              ✕
-            </button>
-          </div>
-          
-          {prime && (
-            <div className="mb-4 p-3 bg-green-500/20 border border-green-500 rounded-lg text-center font-bold text-green-500">
-              ⭐ PRIME SETUP ⭐
+        );
+      }
+
+      function TickerDetails({ ticker, onClose }) {
+        if (!ticker) return null;
+
+        const prime = isPrimeBubble(ticker);
+        const ent = entryType(ticker);
+        const flags = ticker.flags || {};
+
+        return (
+          <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold">{ticker.ticker}</h3>
+              <button
+                onClick={onClose}
+                className="text-[#93a4d6] hover:text-white"
+              >
+                ✕
+              </button>
             </div>
-          )}
-          
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-[#93a4d6]">Rank</span>
-              <span>{ticker.rank || '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[#93a4d6]">RR</span>
-              <span>{ticker.rr ? Number(ticker.rr).toFixed(2) : '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[#93a4d6]">State</span>
-              <span>{ticker.state || '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[#93a4d6]">Completion</span>
-              <span>{Math.round(completionForSize(ticker) * 100)}%</span>
-            </div>
-            {ent.corridor && (
-              <div className="flex justify-between">
-                <span className="text-[#93a4d6]">Corridor</span>
-                <span className="text-green-500">{ent.side}</span>
+
+            {prime && (
+              <div className="mb-4 p-3 bg-green-500/20 border border-green-500 rounded-lg text-center font-bold text-green-500">
+                ⭐ PRIME SETUP ⭐
               </div>
             )}
-            <div className="flex justify-between">
-              <span className="text-[#93a4d6]">Price</span>
-              <span>{ticker.price ? Number(ticker.price).toFixed(2) : '—'}</span>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-[#93a4d6]">Rank</span>
+                <span>{ticker.rank || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#93a4d6]">RR</span>
+                <span>{ticker.rr ? Number(ticker.rr).toFixed(2) : "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#93a4d6]">State</span>
+                <span>{ticker.state || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#93a4d6]">Completion</span>
+                <span>{Math.round(completionForSize(ticker) * 100)}%</span>
+              </div>
+              {ent.corridor && (
+                <div className="flex justify-between">
+                  <span className="text-[#93a4d6]">Corridor</span>
+                  <span className="text-green-500">{ent.side}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-[#93a4d6]">Price</span>
+                <span>
+                  {ticker.price ? Number(ticker.price).toFixed(2) : "—"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#93a4d6]">TP</span>
+                <span>{ticker.tp ? Number(ticker.tp).toFixed(2) : "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#93a4d6]">SL</span>
+                <span>{ticker.sl ? Number(ticker.sl).toFixed(2) : "—"}</span>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-[#93a4d6]">TP</span>
-              <span>{ticker.tp ? Number(ticker.tp).toFixed(2) : '—'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[#93a4d6]">SL</span>
-              <span>{ticker.sl ? Number(ticker.sl).toFixed(2) : '—'}</span>
+
+            <div className="mt-4 pt-4 border-t border-[#26325f]">
+              <a
+                href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+                  ticker.ticker
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-colors"
+              >
+                Open in TradingView
+              </a>
             </div>
           </div>
-          
-          <div className="mt-4 pt-4 border-t border-[#26325f]">
-            <a
-              href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker.ticker)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-colors"
-            >
-              Open in TradingView
-            </a>
-          </div>
-        </div>
-      );
-    }
-    
-    // ─────────────────────────────────────────────────────────────
-    // Main App
-    // ─────────────────────────────────────────────────────────────
-    function App() {
-      const { data, loading, error, lastUpdate, refetch } = useTickerData();
-      const [filters, setFilters] = useState({
-        search: '',
-        quadrants: ['HTF_BULL_LTF_PULLBACK', 'HTF_BULL_LTF_BULL', 'HTF_BEAR_LTF_BEAR', 'HTF_BEAR_LTF_PULLBACK'],
-        minRank: 0,
-        minRR: 0,
-        maxCompletion: 1.01,
-      });
-      const [selectedTicker, setSelectedTicker] = useState(null);
-      const [hoveredTicker, setHoveredTicker] = useState(null);
-      
-      const debouncedSearch = useDebounce(filters.search, 300);
-      const effectiveFilters = { ...filters, search: debouncedSearch };
-      
-      const tickers = useMemo(() => {
-        return applyFilters(data, effectiveFilters);
-      }, [data, effectiveFilters]);
-      
-      const primeTickers = useMemo(() => 
-        tickers.filter(isPrimeBubble),
-        [tickers]
-      );
-      
-      const handleFilterChange = useCallback((newFilters) => {
-        setFilters(prev => ({ ...prev, ...newFilters }));
-      }, []);
-      
-      return (
-        <div className="min-h-screen p-4">
-          <div className="max-w-7xl mx-auto">
-            {/* Header */}
-            <header className="mb-6">
-              <div className="flex items-center justify-between mb-4">
-                <h1 className="text-3xl font-bold">Timed Trading — React Dashboard</h1>
-                <div className="flex items-center gap-4">
-                  {loading && <div className="loading-spinner"></div>}
-                  <button
-                    onClick={refetch}
-                    className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
-                  >
-                    Refresh
-                  </button>
-                  {lastUpdate && (
-                    <span className="text-sm text-[#93a4d6]">
-                      Updated {lastUpdate.toLocaleTimeString()}
-                    </span>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Main App
+      // ─────────────────────────────────────────────────────────────
+      function App() {
+        const { data, loading, error, lastUpdate, refetch } = useTickerData();
+        const [filters, setFilters] = useState({
+          search: "",
+          quadrants: [
+            "HTF_BULL_LTF_PULLBACK",
+            "HTF_BULL_LTF_BULL",
+            "HTF_BEAR_LTF_BEAR",
+            "HTF_BEAR_LTF_PULLBACK",
+          ],
+          minRank: 0,
+          minRR: 0,
+          maxCompletion: 1.01,
+        });
+        const [selectedTicker, setSelectedTicker] = useState(null);
+        const [hoveredTicker, setHoveredTicker] = useState(null);
+
+        const debouncedSearch = useDebounce(filters.search, 300);
+        const effectiveFilters = { ...filters, search: debouncedSearch };
+
+        const tickers = useMemo(() => {
+          return applyFilters(data, effectiveFilters);
+        }, [data, effectiveFilters]);
+
+        const primeTickers = useMemo(
+          () => tickers.filter(isPrimeBubble),
+          [tickers]
+        );
+
+        const handleFilterChange = useCallback((newFilters) => {
+          setFilters((prev) => ({ ...prev, ...newFilters }));
+        }, []);
+
+        return (
+          <div className="min-h-screen p-4">
+            <div className="max-w-7xl mx-auto">
+              {/* Header */}
+              <header className="mb-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h1 className="text-3xl font-bold">
+                    Timed Trading — React Dashboard
+                  </h1>
+                  <div className="flex items-center gap-4">
+                    {loading && <div className="loading-spinner"></div>}
+                    <button
+                      onClick={refetch}
+                      className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
+                    >
+                      Refresh
+                    </button>
+                    {lastUpdate && (
+                      <span className="text-sm text-[#93a4d6]">
+                        Updated {lastUpdate.toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick Stats */}
+                <div className="flex gap-4 text-sm">
+                  <span className="text-[#93a4d6]">
+                    {tickers.length} tickers
+                  </span>
+                  <span className="text-green-500">
+                    {primeTickers.length} prime setups
+                  </span>
+                  {error && (
+                    <span className="text-red-500">Error: {error}</span>
                   )}
                 </div>
-              </div>
-              
-              {/* Quick Stats */}
-              <div className="flex gap-4 text-sm">
-                <span className="text-[#93a4d6]">
-                  {tickers.length} tickers
-                </span>
-                <span className="text-green-500">
-                  {primeTickers.length} prime setups
-                </span>
-                {error && <span className="text-red-500">Error: {error}</span>}
-              </div>
-              
-              {/* Filters */}
-              <div className="mt-4">
-                <input
-                  type="text"
-                  placeholder="Search ticker..."
-                  value={filters.search}
-                  onChange={(e) => handleFilterChange({ search: e.target.value })}
-                  className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6] mb-4"
-                />
-                <QuickFilters filters={filters} onFilterChange={handleFilterChange} />
-              </div>
-            </header>
-            
-            {/* Main Content */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Chart */}
-              <div className="lg:col-span-2">
-                <div className="h-[600px]">
-                  {loading && tickers.length === 0 ? (
-                    <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
-                      <div className="text-center">
-                        <div className="loading-spinner mx-auto mb-4"></div>
-                        <div className="text-[#93a4d6]">Loading tickers...</div>
+
+                {/* Filters */}
+                <div className="mt-4">
+                  <input
+                    type="text"
+                    placeholder="Search ticker..."
+                    value={filters.search}
+                    onChange={(e) =>
+                      handleFilterChange({ search: e.target.value })
+                    }
+                    className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6] mb-4"
+                  />
+                  <QuickFilters
+                    filters={filters}
+                    onFilterChange={handleFilterChange}
+                  />
+                </div>
+              </header>
+
+              {/* Main Content */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Chart */}
+                <div className="lg:col-span-2">
+                  <div className="h-[600px]">
+                    {loading && tickers.length === 0 ? (
+                      <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="loading-spinner mx-auto mb-4"></div>
+                          <div className="text-[#93a4d6]">
+                            Loading tickers...
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <BubbleChart
-                      tickers={tickers}
-                      onBubbleClick={setSelectedTicker}
-                      hoveredTicker={hoveredTicker}
-                      onHover={setHoveredTicker}
+                    ) : (
+                      <BubbleChart
+                        tickers={tickers}
+                        onBubbleClick={setSelectedTicker}
+                        hoveredTicker={hoveredTicker}
+                        onHover={setHoveredTicker}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Sidebar */}
+                <div className="space-y-4">
+                  {/* Selected Ticker Details */}
+                  {selectedTicker && (
+                    <TickerDetails
+                      ticker={tickers.find((t) => t.ticker === selectedTicker)}
+                      onClose={() => setSelectedTicker(null)}
                     />
                   )}
-                </div>
-              </div>
-              
-              {/* Sidebar */}
-              <div className="space-y-4">
-                {/* Selected Ticker Details */}
-                {selectedTicker && (
-                  <TickerDetails
-                    ticker={tickers.find(t => t.ticker === selectedTicker)}
-                    onClose={() => setSelectedTicker(null)}
-                  />
-                )}
-                
-                {/* Ticker List */}
-                <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                  <h2 className="text-lg font-bold mb-4">Top Setups</h2>
-                  <div className="max-h-[400px] overflow-y-auto">
-                    {tickers
-                      .sort((a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0))
-                      .slice(0, 20)
-                      .map(ticker => (
-                        <TickerItem
-                          key={ticker.ticker}
-                          ticker={ticker}
-                          isSelected={selectedTicker === ticker.ticker}
-                          onClick={() => setSelectedTicker(ticker.ticker)}
-                        />
-                      ))}
+
+                  {/* Ticker List */}
+                  <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                    <h2 className="text-lg font-bold mb-4">Top Setups</h2>
+                    <div className="max-h-[400px] overflow-y-auto">
+                      {tickers
+                        .sort(
+                          (a, b) =>
+                            (Number(b.rank) || 0) - (Number(a.rank) || 0)
+                        )
+                        .slice(0, 20)
+                        .map((ticker) => (
+                          <TickerItem
+                            key={ticker.ticker}
+                            ticker={ticker}
+                            isSelected={selectedTicker === ticker.ticker}
+                            onClick={() => setSelectedTicker(ticker.ticker)}
+                          />
+                        ))}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      );
-    }
-    
-    // Render
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
-</body>
-</html>
+        );
+      }
 
+      // Render with error handling
+      try {
+        if (typeof React === 'undefined' || typeof ReactDOM === 'undefined') {
+          throw new Error('React or ReactDOM not loaded');
+        }
+        
+        const rootElement = document.getElementById("root");
+        if (!rootElement) {
+          throw new Error('Root element not found');
+        }
+        
+        // Check if React 18 createRoot is available
+        if (ReactDOM.createRoot) {
+          const root = ReactDOM.createRoot(rootElement);
+          root.render(<App />);
+        } else {
+          // Fallback for React 17
+          ReactDOM.render(<App />, rootElement);
+        }
+      } catch (error) {
+        console.error('Error rendering app:', error);
+        document.getElementById("root").innerHTML = `
+          <div style="padding: 40px; text-align: center; color: #e7ecff;">
+            <h2 style="color: #e74c3c;">Error Loading Dashboard</h2>
+            <p>${error.message}</p>
+            <p style="margin-top: 20px; color: #93a4d6;">
+              Please check the browser console (F12) for details.
+            </p>
+            <p style="margin-top: 10px; color: #93a4d6;">
+              Make sure you have an internet connection to load CDN resources.
+            </p>
+          </div>
+        `;
+      }
+    </script>
+  </body>
+</html>
