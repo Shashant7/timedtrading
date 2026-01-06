@@ -1559,7 +1559,7 @@
         // Initial fetch and periodic refresh
         React.useEffect(() => {
           fetchActivity();
-          const interval = setInterval(fetchActivity, 30000); // Refresh every 30s
+          const interval = setInterval(fetchActivity, 5 * 60 * 1000); // Refresh every 5 minutes to align with data updates
           return () => clearInterval(interval);
         }, [fetchActivity]);
 

@@ -1479,13 +1479,13 @@ export default {
 
     // GET /timed/activity
     if (url.pathname === "/timed/activity" && req.method === "GET") {
-      // Rate limiting - higher limit since this is a frequently refreshing feed
+      // Rate limiting - aligned with 5-minute refresh interval
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
       const rateLimit = await checkRateLimit(
         KV,
         ip,
         "/timed/activity",
-        300, // 300 requests per hour (5 per minute) - allows for 30s refresh interval
+        100, // 100 requests per hour (12 per hour = every 5 minutes)
         3600
       );
 
@@ -1568,7 +1568,10 @@ export default {
         }
 
         // Generate aligned state event
-        if ((alignedLong || alignedShort) && !hasRecentEventOfType("state_aligned")) {
+        if (
+          (alignedLong || alignedShort) &&
+          !hasRecentEventOfType("state_aligned")
+        ) {
           currentEvents.push({
             type: "state_aligned",
             ticker: ticker,
