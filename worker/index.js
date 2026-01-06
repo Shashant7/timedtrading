@@ -125,30 +125,30 @@ function computeRR(d) {
   const price = Number(d.price);
   const sl = Number(d.sl);
   if (!Number.isFinite(price) || !Number.isFinite(sl)) return null;
-  
-  // Use median TP from tp_levels if available, otherwise fall back to first TP
+
+  // Use MAX TP from tp_levels if available, otherwise fall back to first TP
   let tp = Number(d.tp);
   if (d.tp_levels && Array.isArray(d.tp_levels) && d.tp_levels.length > 0) {
     // Extract prices from tp_levels (handle both object and number formats)
     const tpPrices = d.tp_levels
-      .map(tpItem => {
-        if (typeof tpItem === 'object' && tpItem !== null && tpItem.price != null) {
+      .map((tpItem) => {
+        if (
+          typeof tpItem === "object" &&
+          tpItem !== null &&
+          tpItem.price != null
+        ) {
           return Number(tpItem.price);
         }
-        return typeof tpItem === 'number' ? tpItem : Number(tpItem);
+        return typeof tpItem === "number" ? tpItem : Number(tpItem);
       })
-      .filter(p => Number.isFinite(p))
-      .sort((a, b) => a - b);
-    
+      .filter((p) => Number.isFinite(p));
+
     if (tpPrices.length > 0) {
-      // Calculate median
-      const mid = Math.floor(tpPrices.length / 2);
-      tp = tpPrices.length % 2 === 0
-        ? (tpPrices[mid - 1] + tpPrices[mid]) / 2
-        : tpPrices[mid];
+      // Use maximum TP (best-case scenario for RR calculation)
+      tp = Math.max(...tpPrices);
     }
   }
-  
+
   if (!Number.isFinite(tp)) return null;
   const risk = Math.abs(price - sl);
   const gain = Math.abs(tp - price);
