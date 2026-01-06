@@ -1233,10 +1233,8 @@ export default {
         );
       const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
       if (data) {
-        // Ensure RR is computed if missing or invalid
-        if (data.rr == null || !Number.isFinite(Number(data.rr))) {
-          data.rr = computeRR(data);
-        }
+        // Always recompute RR to ensure it uses the latest max TP from tp_levels
+        data.rr = computeRR(data);
       }
       return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
     }
@@ -1295,10 +1293,8 @@ export default {
       const data = {};
       for (const { ticker, value } of results) {
         if (value) {
-          // Ensure RR is computed if missing or invalid
-          if (value.rr == null || !Number.isFinite(Number(value.rr))) {
-            value.rr = computeRR(value);
-          }
+          // Always recompute RR to ensure it uses the latest max TP from tp_levels
+          value.rr = computeRR(value);
           data[ticker] = value;
         }
       }
@@ -1717,7 +1713,7 @@ export default {
     }
 
     // POST /timed/cleanup-tickers?key=... (Remove unapproved tickers, keep only approved list, normalize Gold/Silver)
-// POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
+    // POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
     if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
@@ -1827,42 +1823,165 @@ export default {
       // Approved ticker list (normalized to uppercase)
       const approvedTickers = new Set([
         // Upticks
-        "TSLA", "STX", "AU", "CCJ", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL",
-        "AMZN", "BRK-B", "BRK.B", "BABA", "WMT", "PH", "GEV", "HII", "ULTA",
-        "SHOP", "CSX", "PWR", "HOOD", "SPGI", "APP", "PANW", "RDDT", "TT",
-        "GLXY", "ETHA",
+        "TSLA",
+        "STX",
+        "AU",
+        "CCJ",
+        "CLS",
+        "CRS",
+        "VST",
+        "FSLR",
+        "JCI",
+        "ORCL",
+        "AMZN",
+        "BRK-B",
+        "BRK.B",
+        "BABA",
+        "WMT",
+        "PH",
+        "GEV",
+        "HII",
+        "ULTA",
+        "SHOP",
+        "CSX",
+        "PWR",
+        "HOOD",
+        "SPGI",
+        "APP",
+        "PANW",
+        "RDDT",
+        "TT",
+        "GLXY",
+        "ETHA",
         // Super Granny
-        "META", "NVDA", "AMD", "ANET", "GS",
+        "META",
+        "NVDA",
+        "AMD",
+        "ANET",
+        "GS",
         // GRNI
-        "TJX", "SOFI", "PNC", "PLTR", "NFLX", "MSTR", "MSFT", "MNST", "LRCX",
-        "KLAC", "JPM", "GOOGL", "GE", "EXPE", "ETN", "EMR", "DE", "CRWD",
-        "COST", "CDNS", "CAT", "BK", "AXP", "AXON", "AVGO", "AAPL",
+        "TJX",
+        "SOFI",
+        "PNC",
+        "PLTR",
+        "NFLX",
+        "MSTR",
+        "MSFT",
+        "MNST",
+        "LRCX",
+        "KLAC",
+        "JPM",
+        "GOOGL",
+        "GE",
+        "EXPE",
+        "ETN",
+        "EMR",
+        "DE",
+        "CRWD",
+        "COST",
+        "CDNS",
+        "CAT",
+        "BK",
+        "AXP",
+        "AXON",
+        "AVGO",
+        "AAPL",
         // GRNJ
-        "RKLB", "LITE", "SN", "ALB", "RGLD", "MTZ", "ON", "ALLY", "DY",
-        "EWBC", "PATH", "WFRD", "WAL", "IESC", "ENS", "TWLO", "MLI", "KTOS",
-        "MDB", "TLN", "EME", "AWI", "IBP", "DCI", "WTS", "FIX", "UTHR", "NBIS",
-        "SGI", "AYI", "RIOT", "NXT", "SANM", "BWXT", "PEGA", "JOBY", "IONQ",
-        "ITT", "STRL", "QLYS", "MP", "HIMS", "IOT", "BE", "NEU", "AVAV", "PSTG",
+        "RKLB",
+        "LITE",
+        "SN",
+        "ALB",
+        "RGLD",
+        "MTZ",
+        "ON",
+        "ALLY",
+        "DY",
+        "EWBC",
+        "PATH",
+        "WFRD",
+        "WAL",
+        "IESC",
+        "ENS",
+        "TWLO",
+        "MLI",
+        "KTOS",
+        "MDB",
+        "TLN",
+        "EME",
+        "AWI",
+        "IBP",
+        "DCI",
+        "WTS",
+        "FIX",
+        "UTHR",
+        "NBIS",
+        "SGI",
+        "AYI",
+        "RIOT",
+        "NXT",
+        "SANM",
+        "BWXT",
+        "PEGA",
+        "JOBY",
+        "IONQ",
+        "ITT",
+        "STRL",
+        "QLYS",
+        "MP",
+        "HIMS",
+        "IOT",
+        "BE",
+        "NEU",
+        "AVAV",
+        "PSTG",
         "RBLX",
         // GRNY (already covered above)
         // Social
-        "CSCO", "BA", "NKE", "PI", "APLD", "MU",
+        "CSCO",
+        "BA",
+        "NKE",
+        "PI",
+        "APLD",
+        "MU",
         // SP Sectors
-        "XLK", "XLF", "XLY", "XLP", "XLC", "XLB", "XLE", "XLU", "XLV",
+        "XLK",
+        "XLF",
+        "XLY",
+        "XLP",
+        "XLC",
+        "XLB",
+        "XLE",
+        "XLU",
+        "XLV",
         // Futures (normalize to common formats)
-        "ES", "ES1!", "MES1!", "NQ", "NQ1!", "MNQ1!", "BTC", "BTC1!", "BTCUSD",
-        "ETH", "ETH1!", "ETHT", "ETHUSD", "GOLD", "XAUUSD", "SILVER", "XAGUSD",
+        "ES",
+        "ES1!",
+        "MES1!",
+        "NQ",
+        "NQ1!",
+        "MNQ1!",
+        "BTC",
+        "BTC1!",
+        "BTCUSD",
+        "ETH",
+        "ETH1!",
+        "ETHT",
+        "ETHUSD",
+        "GOLD",
+        "XAUUSD",
+        "SILVER",
+        "XAGUSD",
       ]);
 
       // Ticker normalization map (handle variations)
       const tickerMap = {
         "BRK-B": "BRK.B", // Map BRK-B to BRK.B format
-        "GOLD": "GOLD", // Keep as is
-        "SILVER": "SILVER", // Keep as is
-        "ES": "ES1!", // Map ES to ES1!
-        "NQ": "NQ1!", // Map NQ to NQ1!
-        "BTC": "BTC1!", // Map BTC to BTC1!
-        "ETH": "ETH1!", // Map ETH to ETH1!
+        GOLD: "GOLD", // Keep as is
+        SILVER: "SILVER", // Keep as is
+        ES: "ES1!", // Map ES to ES1!
+        NQ: "NQ1!", // Map NQ to NQ1!
+        BTC: "BTC1!", // Map BTC to BTC1!
+        ETH: "ETH1!", // Map ETH to ETH1!
       };
 
       const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
@@ -1877,7 +1996,10 @@ export default {
         const upperTicker = ticker.toUpperCase();
         const normalized = tickerMap[upperTicker] || upperTicker;
 
-        if (approvedTickers.has(upperTicker) || approvedTickers.has(normalized)) {
+        if (
+          approvedTickers.has(upperTicker) ||
+          approvedTickers.has(normalized)
+        ) {
           // Keep this ticker
           if (normalized !== upperTicker && tickerMap[upperTicker]) {
             // Need to rename
@@ -1905,7 +2027,7 @@ export default {
       for (const { from, to } of renamed) {
         const latestData = await kvGetJSON(KV, `timed:latest:${from}`);
         const trailData = await kvGetJSON(KV, `timed:trail:${from}`);
-        
+
         if (latestData) {
           await kvPutJSON(KV, `timed:latest:${to}`, latestData);
           await KV.delete(`timed:latest:${from}`);
