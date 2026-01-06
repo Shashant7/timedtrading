@@ -614,8 +614,8 @@
       // Native SVG Bubble component (works without Recharts)
       const SVGBubble = memo(({ ticker, onClick, onHover, isHovered, scaleX, scaleY, offsetX, offsetY, showLabels }) => {
         const comp = completionForSize(ticker);
-        // Smaller bubbles: reduced from 10+comp*40 to 4+comp*12
-        const size = 4 + comp * 12;
+        // Larger bubbles for better visibility
+        const size = 8 + comp * 20;
         const phase = Number(ticker.phase_pct) || 0;
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
@@ -709,8 +709,8 @@
 
       const Bubble = memo(({ ticker, onClick, onHover, isHovered, showLabels }) => {
         const comp = completionForSize(ticker);
-        // Smaller bubbles: reduced from 10+comp*40 to 4+comp*12
-        const size = 4 + comp * 12;
+        // Larger bubbles for better visibility
+        const size = 8 + comp * 20;
         const phase = Number(ticker.phase_pct) || 0;
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
@@ -807,9 +807,9 @@
         
         // Fallback: Native SVG chart (works without Recharts)
         if (!RechartsComponents) {
-          // Larger chart: increased from 800x600 to 1200x800
-          const chartWidth = 1200;
-          const chartHeight = 800;
+          // Larger chart: increased for better visibility
+          const chartWidth = 1400;
+          const chartHeight = 900;
           const margin = 80;
           const plotWidth = chartWidth - 2 * margin;
           const plotHeight = chartHeight - 2 * margin;
@@ -842,7 +842,7 @@
                 viewBox={`0 0 ${chartWidth} ${chartHeight}`}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={() => setTooltip(null)}
-                style={{ minHeight: "800px" }}
+                style={{ minHeight: "900px" }}
               >
                 {/* Grid with better styling */}
                 <defs>
@@ -2097,7 +2097,7 @@
             <div 
               className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 w-full h-full overflow-y-auto slide-in-right shadow-2xl"
               onClick={(e) => e.stopPropagation()}
-              style={{ minHeight: '800px' }}
+              style={{ minHeight: '900px' }}
             >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">{ticker.ticker}</h3>
@@ -2514,7 +2514,7 @@
         return (
           <>
             <div className="min-h-screen p-4">
-              <div className="max-w-7xl mx-auto">
+              <div className="w-full mx-auto">
               {/* Navigation */}
               <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                 <div className="flex items-center gap-3 flex-wrap">
@@ -2634,7 +2634,7 @@
                   
                   {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                   <div className="flex-1 min-w-0">
-                    <div className="h-[800px]">
+                    <div className="h-[900px]">
                     {loading && tickers.length === 0 ? (
                       <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
                         <div className="text-center">
