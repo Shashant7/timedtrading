@@ -1513,24 +1513,30 @@
       // Separate component for Quadrant Progression to properly use hooks
       function QuadrantProgression({ ticker, flags }) {
         const [trail, setTrail] = React.useState([]);
-        const [loading, setLoading] = React.useState(true);
+        const [loading, setLoading] = React.useState(false); // Start as false
+        const [hasLoaded, setHasLoaded] = React.useState(false);
         
         React.useEffect(() => {
-          async function loadTrail() {
-            try {
-              const response = await fetch(`https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker.ticker)}`);
-              const data = await response.json();
-              if (data.ok && Array.isArray(data.trail)) {
-                setTrail(data.trail);
+          // Defer trail loading to not block initial render
+          if (!hasLoaded) {
+            setLoading(true);
+            const timeoutId = setTimeout(async () => {
+              try {
+                const response = await fetch(`https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker.ticker)}`);
+                const data = await response.json();
+                if (data.ok && Array.isArray(data.trail)) {
+                  setTrail(data.trail);
+                }
+              } catch (e) {
+                console.error("Failed to load trail:", e);
+              } finally {
+                setLoading(false);
+                setHasLoaded(true);
               }
-            } catch (e) {
-              console.error("Failed to load trail:", e);
-            } finally {
-              setLoading(false);
-            }
+            }, 200); // Small delay to not block UI
+            return () => clearTimeout(timeoutId);
           }
-          loadTrail();
-        }, [ticker.ticker]);
+        }, [ticker.ticker, hasLoaded]);
 
         const patterns = detectPatterns(trail, flags || {});
         const currentQuad = getQuadrantFromState(ticker.state);
@@ -1856,13 +1862,22 @@
                 </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                <span className="text-[#93a4d6]">TP</span>
+                <span className="text-[#93a4d6]">TP (Primary)</span>
                 <span className="font-semibold">
                   {ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}
                   {ticker.tp_levels && Array.isArray(ticker.tp_levels) && ticker.tp_levels.length > 0 && (() => {
                     const firstTp = ticker.tp_levels[0];
                     const tpInfo = typeof firstTp === 'object' && firstTp !== null ? firstTp : { price: firstTp };
-                    return tpInfo.label ? ` (${tpInfo.label})` : '';
+                    if (tpInfo.label) {
+                      const refParts = [];
+                      if (tpInfo.timeframe) refParts.push(tpInfo.timeframe);
+                      if (tpInfo.multiplier != null && !isNaN(tpInfo.multiplier)) {
+                        refParts.push(`${Number(tpInfo.multiplier).toFixed(3)}x ATR`);
+                      }
+                      const refStr = refParts.length > 0 ? ` (${tpInfo.label} - ${refParts.join(', ')})` : ` (${tpInfo.label})`;
+                      return refStr;
+                    }
+                    return '';
                   })()}
                 </span>
               </div>
@@ -1881,12 +1896,22 @@
                       const type = tpInfo.type || '';
                       const confidence = tpInfo.confidence || null;
                       
+                      // Build reference string from all available metadata
+                      const referenceParts = [];
+                      if (tpInfo.timeframe) referenceParts.push(tpInfo.timeframe);
+                      if (tpInfo.multiplier != null && !isNaN(tpInfo.multiplier)) {
+                        referenceParts.push(`${Number(tpInfo.multiplier).toFixed(3)}x ATR`);
+                      }
+                      if (tpInfo.source) referenceParts.push(tpInfo.source);
+                      if (tpInfo.type) referenceParts.push(tpInfo.type);
+                      const referenceStr = referenceParts.length > 0 ? referenceParts.join(' • ') : null;
+                      
                       return (
-                        <div key={idx} className="flex items-center justify-between p-1.5 rounded bg-[#0f1630] border border-[#26325f]/50 hover:border-[#3a4aa0] transition-colors">
+                        <div key={idx} className="flex items-start justify-between p-1.5 rounded bg-[#0f1630] border border-[#26325f]/50 hover:border-[#3a4aa0] transition-colors">
                           <div className="flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-xs font-semibold text-green-400">{label}</span>
-                              <span className="text-xs font-mono text-white">${price.toFixed(2)}</span>
+                              <span className="text-xs font-mono text-white font-bold">${price.toFixed(2)}</span>
                               {confidence !== null && (
                                 <span className={`text-[10px] px-1 py-0.5 rounded ${
                                   confidence >= 0.8 ? 'bg-green-500/20 text-green-400' :
@@ -1897,11 +1922,9 @@
                                 </span>
                               )}
                             </div>
-                            {(source || type) && (
-                              <div className="text-[10px] text-[#93a4d6] mt-0.5">
-                                {source && <span>{source}</span>}
-                                {source && type && <span> • </span>}
-                                {type && <span>{type}</span>}
+                            {referenceStr && (
+                              <div className="text-[10px] text-[#93a4d6] mt-1 italic">
+                                {referenceStr}
                               </div>
                             )}
                           </div>
@@ -1984,6 +2007,13 @@
         });
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [hoveredTicker, setHoveredTicker] = useState(null);
+        
+        // Debug: log when selectedTicker changes
+        React.useEffect(() => {
+          if (selectedTicker) {
+            console.log('Selected ticker:', selectedTicker);
+          }
+        }, [selectedTicker]);
 
         const debouncedSearch = useDebounce(filters.search, 300);
         const effectiveFilters = { ...filters, search: debouncedSearch };
@@ -2249,14 +2279,14 @@
                 {/* Selected Ticker Details Overlay */}
                 {selectedTicker && (() => {
                   // Search in filtered tickers first, then fallback to all data
-                  let foundTicker = tickers.find((t) => t.ticker === selectedTicker);
+                  let foundTicker = tickers.find((t) => t && t.ticker === selectedTicker);
                   if (!foundTicker && data && typeof data === 'object') {
                     // Fallback: search in original data object
                     const dataArray = Array.isArray(data) ? data : Object.values(data);
                     foundTicker = dataArray.find((t) => t && t.ticker === selectedTicker);
                   }
                   if (!foundTicker) {
-                    console.warn(`Ticker ${selectedTicker} not found`);
+                    console.warn('Ticker not found:', selectedTicker, 'Available:', tickers.map(t => t.ticker).slice(0, 5));
                     return null;
                   }
                   return (
