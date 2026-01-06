@@ -38,6 +38,7 @@
       // Constants
       // ─────────────────────────────────────────────────────────────
       const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+      const API_KEY = "AwesomeSauce"; // TODO: Move to environment variable or secure storage
       const TRADE_SIZE = 1000; // $1000 per trade
       const FUTURES_TICKERS = new Set(["ES", "NQ", "YM", "RTY", "CL", "GC", "SI", "HG", "NG"]);
 
@@ -81,32 +82,89 @@
       }
 
       function useSimulatedTrades() {
-        const [trades, setTrades] = useState(() => {
-          const saved = localStorage.getItem("simulatedTrades");
-          return saved ? JSON.parse(saved) : [];
-        });
+        const [trades, setTrades] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
 
-        useEffect(() => {
-          localStorage.setItem("simulatedTrades", JSON.stringify(trades));
-        }, [trades]);
-
-        const addTrade = useCallback((trade) => {
-          setTrades((prev) => [trade, ...prev]);
-        }, []);
-
-        const updateTrade = useCallback((tradeId, updates) => {
-          setTrades((prev) =>
-            prev.map((t) => (t.id === tradeId ? { ...t, ...updates } : t))
-          );
-        }, []);
-
-        const clearTrades = useCallback(() => {
-          if (confirm("Clear all simulated trades?")) {
-            setTrades([]);
+        // Fetch trades from Worker
+        const fetchTrades = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const res = await fetch(`${API_BASE}/timed/trades`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok && json.trades) {
+              setTrades(json.trades);
+            } else {
+              throw new Error(json.error || "Invalid response");
+            }
+          } catch (err) {
+            setError(err.message);
+            console.error("Fetch trades error:", err);
+          } finally {
+            setLoading(false);
           }
         }, []);
 
-        return { trades, addTrade, updateTrade, clearTrades };
+        // Load trades on mount
+        useEffect(() => {
+          fetchTrades();
+        }, [fetchTrades]);
+
+        // Save trade to Worker
+        const saveTrade = useCallback(async (trade) => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/trades?key=${API_KEY}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(trade),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok) {
+              // Refresh trades list
+              await fetchTrades();
+              return json.trade;
+            }
+            throw new Error(json.error || "Failed to save trade");
+          } catch (err) {
+            console.error("Save trade error:", err);
+            throw err;
+          }
+        }, [fetchTrades]);
+
+        const addTrade = useCallback(async (trade) => {
+          await saveTrade(trade);
+        }, [saveTrade]);
+
+        const updateTrade = useCallback(async (tradeId, updates) => {
+          const existingTrade = trades.find((t) => t.id === tradeId);
+          if (!existingTrade) {
+            console.error("Trade not found:", tradeId);
+            return;
+          }
+          const updatedTrade = { ...existingTrade, ...updates };
+          await saveTrade(updatedTrade);
+        }, [trades, saveTrade]);
+
+        const clearTrades = useCallback(async () => {
+          if (confirm("Clear all simulated trades? This cannot be undone.")) {
+            // Delete all trades one by one (Worker doesn't have bulk delete)
+            for (const trade of trades) {
+              try {
+                await fetch(`${API_BASE}/timed/trades/${trade.id}?key=${API_KEY}`, {
+                  method: "DELETE",
+                });
+              } catch (err) {
+                console.error("Error deleting trade:", trade.id, err);
+              }
+            }
+            await fetchTrades();
+          }
+        }, [trades, fetchTrades]);
+
+        return { trades, loading, error, addTrade, updateTrade, clearTrades, refetch: fetchTrades };
       }
 
       // ─────────────────────────────────────────────────────────────
@@ -148,11 +206,20 @@
           corridorAlignedOK &&
           (enteredAligned || trigOk || sqRelease || hasTrigger);
 
-        // Threshold gates (matching worker defaults)
-        const minRR = 1.5;
-        const maxComp = 0.4;
-        const maxPhase = 0.6;
-        const minRank = 70;
+        // Check Momentum Elite status
+        const momentumElite = !!flags.momentum_elite;
+        
+        // Threshold gates (with Momentum Elite adjustments - matching worker logic)
+        const baseMinRR = 1.5;
+        const baseMaxComp = 0.4;
+        const baseMaxPhase = 0.6;
+        const baseMinRank = 70;
+        
+        // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
+        const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR; // Lower RR requirement
+        const maxComp = momentumElite ? Math.min(0.5, baseMaxComp * 1.25) : baseMaxComp; // Allow higher completion
+        const maxPhase = momentumElite ? Math.min(0.7, baseMaxPhase * 1.17) : baseMaxPhase; // Allow higher phase
+        const minRank = momentumElite ? Math.max(60, baseMinRank - 10) : baseMinRank; // Lower rank requirement
 
         const rr = Number(ticker.rr) || 0;
         const comp = Number(ticker.completion) || 0;
@@ -164,7 +231,13 @@
         const phaseOk = phase <= maxPhase;
         const rankOk = rank >= minRank;
 
-        return shouldConsiderAlert && rrOk && compOk && phaseOk && rankOk;
+        // Also consider Momentum Elite as a trigger condition (quality signal)
+        const momentumEliteTrigger = momentumElite && inCorridor && corridorAlignedOK;
+        
+        // Enhanced trigger: original conditions OR Momentum Elite in good setup
+        const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+
+        return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
       }
 
       function entryType(ticker) {
@@ -191,7 +264,7 @@
         return null;
       }
 
-      function calculateTrade(ticker, entryPrice) {
+      function calculateTrade(ticker, entryPrice, existingTrade = null) {
         const direction = getDirection(ticker);
         if (!direction) return null;
 
@@ -211,15 +284,33 @@
         let pnlPct = 0;
         let status = "OPEN";
 
+        // Check for partial trim (if position was already trimmed)
+        const trimmedPct = existingTrade ? (existingTrade.trimmedPct || 0) : 0;
+        const remainingShares = shares * (1 - trimmedPct);
+        
         if (direction === "LONG") {
           pnl = (currentPrice - entryPrice) * shares;
           pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
           
           // Check if hit TP or SL
           if (currentPrice >= tp) {
-            pnl = (tp - entryPrice) * shares;
-            pnlPct = ((tp - entryPrice) / entryPrice) * 100;
-            status = "WIN";
+            // If not already trimmed, trim 50% at first TP hit
+            if (trimmedPct === 0) {
+              // Return special status for trimming
+              return {
+                shares,
+                pnl: (tp - entryPrice) * shares * 0.5, // Profit on trimmed portion
+                pnlPct: ((tp - entryPrice) / entryPrice) * 100,
+                status: "TP_HIT_TRIM",
+                currentPrice,
+                trimmedPct: 0.5, // Mark as 50% trimmed
+              };
+            } else {
+              // Already trimmed, full exit at TP
+              pnl = (tp - entryPrice) * shares;
+              pnlPct = ((tp - entryPrice) / entryPrice) * 100;
+              status = "WIN";
+            }
           } else if (currentPrice <= sl) {
             pnl = (sl - entryPrice) * shares;
             pnlPct = ((sl - entryPrice) / entryPrice) * 100;
@@ -232,9 +323,23 @@
           
           // Check if hit TP or SL
           if (currentPrice <= tp) {
-            pnl = (entryPrice - tp) * shares;
-            pnlPct = ((entryPrice - tp) / entryPrice) * 100;
-            status = "WIN";
+            // If not already trimmed, trim 50% at first TP hit
+            if (trimmedPct === 0) {
+              // Return special status for trimming
+              return {
+                shares,
+                pnl: (entryPrice - tp) * shares * 0.5, // Profit on trimmed portion
+                pnlPct: ((entryPrice - tp) / entryPrice) * 100,
+                status: "TP_HIT_TRIM",
+                currentPrice,
+                trimmedPct: 0.5, // Mark as 50% trimmed
+              };
+            } else {
+              // Already trimmed, full exit at TP
+              pnl = (entryPrice - tp) * shares;
+              pnlPct = ((entryPrice - tp) / entryPrice) * 100;
+              status = "WIN";
+            }
           } else if (currentPrice >= sl) {
             pnl = (entryPrice - sl) * shares;
             pnlPct = ((entryPrice - sl) / entryPrice) * 100;
@@ -290,6 +395,7 @@
                     state: data.state,
                     flags: data.flags || {},
                     inCorridor: entryType(data).corridor,
+                    scriptVersion: data.script_version || "unknown", // Store model version
                     ...tradeCalc,
                   };
                   addTrade(trade);
@@ -299,11 +405,15 @@
 
             // Update existing open trades
             trades.forEach((trade) => {
-              if (trade.ticker === ticker && (trade.status === "OPEN" || !trade.status)) {
-                const tradeCalc = calculateTrade(data, trade.entryPrice);
+              if (trade.ticker === ticker && (trade.status === "OPEN" || !trade.status || trade.status === "TP_HIT_TRIM")) {
+                const tradeCalc = calculateTrade(data, trade.entryPrice, trade);
                 if (tradeCalc) {
+                  // If status is TP_HIT_TRIM, keep it as trimmed but update PnL
+                  const newStatus = tradeCalc.status === "TP_HIT_TRIM" ? "TP_HIT_TRIM" : tradeCalc.status;
                   updateTrade(trade.id, {
                     ...tradeCalc,
+                    status: newStatus,
+                    trimmedPct: tradeCalc.trimmedPct || trade.trimmedPct || 0,
                     lastUpdate: new Date().toISOString(),
                   });
                 }
@@ -497,6 +607,8 @@
             ? "text-green-400"
             : trade.status === "LOSS"
             ? "text-red-400"
+            : trade.status === "TP_HIT_TRIM"
+            ? "text-blue-400"
             : "text-yellow-400";
 
         return (
@@ -526,7 +638,12 @@
               {trade.pnlPct.toFixed(2)}%
             </td>
             <td className={`p-2 text-sm font-semibold ${statusColor}`}>
-              {trade.status || "OPEN"}
+              {trade.status === "TP_HIT_TRIM" 
+                ? `TRIMMED (${((trade.trimmedPct || 0) * 100).toFixed(0)}%)`
+                : trade.status || "OPEN"}
+            </td>
+            <td className="p-2 text-xs text-[#93a4d6] font-mono">
+              {trade.scriptVersion || "unknown"}
             </td>
             <td className="p-2 text-xs text-[#93a4d6]">
               {new Date(trade.entryTime).toLocaleString()}
@@ -781,14 +898,30 @@
       // ─────────────────────────────────────────────────────────────
       function App() {
         const { data, loading, error, lastUpdate, refetch } = useTickerData();
-        const { trades, addTrade, updateTrade, clearTrades } = useSimulatedTrades();
-        const analytics = useTradeAnalytics(trades);
+        const { trades, loading: tradesLoading, error: tradesError, addTrade, updateTrade, clearTrades, refetch: refetchTrades } = useSimulatedTrades();
+        
+        // Version filter state
+        const [selectedVersion, setSelectedVersion] = useState("all");
+        
+        // Get unique versions from trades (for dropdown)
+        const availableVersions = useMemo(() => {
+          const versionSet = new Set(trades.map(t => t.scriptVersion || "unknown").filter(Boolean));
+          return Array.from(versionSet).sort().reverse(); // Most recent first
+        }, [trades]);
+        
+        // Filter trades by version (client-side)
+        const filteredTrades = useMemo(() => {
+          if (selectedVersion === "all") return trades;
+          return trades.filter(t => (t.scriptVersion || "unknown") === selectedVersion);
+        }, [trades, selectedVersion]);
+        
+        const analytics = useTradeAnalytics(filteredTrades);
 
         // Simulate trades based on ticker data
         useTradeSimulation(data, trades, addTrade, updateTrade);
 
-        const openTrades = trades.filter((t) => t.status === "OPEN" || !t.status);
-        const closedTrades = trades.filter(
+        const openTrades = filteredTrades.filter((t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM");
+        const closedTrades = filteredTrades.filter(
           (t) => t.status === "WIN" || t.status === "LOSS"
         );
 
@@ -820,6 +953,33 @@
                 </div>
               </nav>
 
+              {/* Version Filter */}
+              <div className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-sm text-[#93a4d6]">Model Version:</span>
+                  <select
+                    value={selectedVersion}
+                    onChange={(e) => setSelectedVersion(e.target.value)}
+                    className="px-3 py-1.5 rounded bg-[#0f1630] border border-[#26325f] text-sm text-white hover:bg-[#1a2550] transition-colors"
+                  >
+                    <option value="all">All Versions ({trades.length} trades)</option>
+                    {availableVersions.map((v) => {
+                      const count = trades.filter(t => (t.scriptVersion || "unknown") === v).length;
+                      return (
+                        <option key={v} value={v}>
+                          {v} ({count} trades)
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {selectedVersion !== "all" && (
+                    <span className="text-xs text-[#93a4d6]">
+                      Showing {filteredTrades.length} of {trades.length} trades
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* Header */}
               <header className="mb-6">
                 <div className="flex items-center justify-between mb-4">
@@ -827,9 +987,9 @@
                     Timed Trading — Simulation Dashboard
                   </h1>
                   <div className="flex items-center gap-4">
-                    {loading && <div className="loading-spinner"></div>}
+                    {(loading || tradesLoading) && <div className="loading-spinner"></div>}
                     <button
-                      onClick={refetch}
+                      onClick={() => { refetch(); refetchTrades(); }}
                       className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
                     >
                       Refresh
@@ -882,19 +1042,21 @@
                         <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
                         <th className="p-2 text-xs text-[#93a4d6]">P&L %</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Status</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Version</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Entry Time</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {trades.length === 0 ? (
+                      {filteredTrades.length === 0 ? (
                         <tr>
-                          <td colSpan="12" className="p-8 text-center text-[#93a4d6]">
-                            No trades yet. Trades will be automatically created when alerts
-                            trigger.
+                          <td colSpan="13" className="p-8 text-center text-[#93a4d6]">
+                            {selectedVersion === "all" 
+                              ? "No trades yet. Trades will be automatically created when alerts trigger."
+                              : `No trades found for version ${selectedVersion}.`}
                           </td>
                         </tr>
                       ) : (
-                        trades.map((trade) => (
+                        filteredTrades.map((trade) => (
                           <TradeRow key={trade.id} trade={trade} />
                         ))
                       )}
