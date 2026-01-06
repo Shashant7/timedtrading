@@ -906,9 +906,15 @@ export default {
     // GET /timed/all
     if (url.pathname === "/timed/all" && req.method === "GET") {
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      // Use Promise.all for parallel KV reads instead of sequential
+      const dataPromises = tickers.map((t) =>
+        kvGetJSON(KV, `timed:latest:${t}`).then((value) => ({ ticker: t, value }))
+      );
+      const results = await Promise.all(dataPromises);
       const data = {};
-      for (const t of tickers)
-        data[t] = await kvGetJSON(KV, `timed:latest:${t}`);
+      for (const { ticker, value } of results) {
+        if (value) data[ticker] = value;
+      }
       return sendJSON(
         { ok: true, count: tickers.length, data },
         200,
