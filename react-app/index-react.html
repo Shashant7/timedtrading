@@ -590,15 +590,15 @@
             completionForSize(d) > filters.maxCompletion
           )
             continue;
-          if (filters.inCorridor) {
+          if (filters.inCorridor === true) {
             const ent = entryType(d);
             if (!ent.corridor) continue;
           }
-          if (filters.squeezeRelease) {
+          if (filters.squeezeRelease === true) {
             const flags = d.flags || {};
             if (!flags.sq30_release) continue;
           }
-          if (filters.momentumElite) {
+          if (filters.momentumElite === true) {
             const flags = d.flags || {};
             if (!flags.momentum_elite) continue;
           }
@@ -870,7 +870,17 @@
                 <line x1={offsetX} y1={offsetY} x2={offsetX} y2={offsetY + plotHeight} stroke="#93a4d6" strokeWidth="2" opacity="0.6" />
                 
                 {/* Axis labels */}
-                <text x={offsetX - 30} y={offsetY + plotHeight / 2} fill="#93a4d6" textAnchor="middle" fontSize="13" fontWeight="600">HTF Score</text>
+                <text 
+                  x={offsetX - 50} 
+                  y={offsetY + plotHeight / 2} 
+                  fill="#93a4d6" 
+                  textAnchor="middle" 
+                  fontSize="13" 
+                  fontWeight="600"
+                  transform={`rotate(-90 ${offsetX - 50} ${offsetY + plotHeight / 2})`}
+                >
+                  HTF Score
+                </text>
                 <text x={offsetX + plotWidth / 2} y={offsetY + plotHeight + 40} fill="#93a4d6" textAnchor="middle" fontSize="13" fontWeight="600">LTF Score</text>
                 
                 {/* Axis scale markers */}
@@ -895,11 +905,11 @@
                   );
                 })}
                 
-                {/* Quadrant labels with better styling */}
-                <text x={offsetX + plotWidth * 0.25} y={offsetY + 30} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q1 Prep</text>
-                <text x={offsetX + plotWidth * 0.75} y={offsetY + 30} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q2 Bull</text>
-                <text x={offsetX + plotWidth * 0.25} y={offsetY + plotHeight - 10} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q3 Bear</text>
-                <text x={offsetX + plotWidth * 0.75} y={offsetY + plotHeight - 10} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q4 Pullback</text>
+                {/* Quadrant labels - moved further from center for more bubble space */}
+                <text x={offsetX + plotWidth * 0.12} y={offsetY + 20} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q1 Prep</text>
+                <text x={offsetX + plotWidth * 0.88} y={offsetY + 20} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q2 Bull</text>
+                <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 5} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q3 Bear</text>
+                <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 5} fill="#93a4d6" fontSize="12" fontWeight="600" textAnchor="middle">Q4 Pullback</text>
                 
                 {/* Corridors */}
                 <rect 
@@ -1464,6 +1474,178 @@
         };
       }
 
+      // ─────────────────────────────────────────────────────────────
+      // Activity Feed Component
+      // ─────────────────────────────────────────────────────────────
+      function ActivityFeed() {
+        const [events, setEvents] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const feedRef = React.useRef(null);
+
+        const fetchActivity = React.useCallback(async () => {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            
+            const res = await fetch(
+              'https://timed-trading-ingest.shashant.workers.dev/timed/activity?limit=50',
+              { signal: controller.signal }
+            );
+            clearTimeout(timeoutId);
+            
+            if (res.ok) {
+              const data = await res.json();
+              if (data.ok && Array.isArray(data.events)) {
+                setEvents(data.events);
+              }
+            }
+          } catch (err) {
+            if (err.name !== 'AbortError') {
+              console.error('Activity feed fetch error:', err);
+            }
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        // Initial fetch and periodic refresh
+        React.useEffect(() => {
+          fetchActivity();
+          const interval = setInterval(fetchActivity, 30000); // Refresh every 30s
+          return () => clearInterval(interval);
+        }, [fetchActivity]);
+
+        // Auto-scroll to top when new events arrive
+        React.useEffect(() => {
+          if (feedRef.current && events.length > 0) {
+            feedRef.current.scrollTop = 0;
+          }
+        }, [events.length]);
+
+        const formatTime = (ts) => {
+          const date = new Date(ts);
+          const now = new Date();
+          const diffMs = now - date;
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffHours = Math.floor(diffMs / 3600000);
+          const diffDays = Math.floor(diffMs / 86400000);
+
+          if (diffMins < 1) return 'just now';
+          if (diffMins < 60) return `${diffMins}m ago`;
+          if (diffHours < 24) return `${diffHours}h ago`;
+          if (diffDays < 7) return `${diffDays}d ago`;
+          return date.toLocaleDateString();
+        };
+
+        const getEventIcon = (type) => {
+          switch (type) {
+            case 'corridor_entry': return '🚪';
+            case 'squeeze_start': return '⚡';
+            case 'squeeze_release': return '💥';
+            case 'state_aligned': return '🎯';
+            case 'momentum_elite': return '🚀';
+            default: return '📊';
+          }
+        };
+
+        const getEventColor = (type) => {
+          switch (type) {
+            case 'corridor_entry': return 'text-blue-400';
+            case 'squeeze_start': return 'text-yellow-400';
+            case 'squeeze_release': return 'text-green-400';
+            case 'state_aligned': return 'text-purple-400';
+            case 'momentum_elite': return 'text-pink-400';
+            default: return 'text-gray-400';
+          }
+        };
+
+        const getEventLabel = (event) => {
+          switch (event.type) {
+            case 'corridor_entry':
+              return `${event.ticker} entered ${event.side || 'corridor'}`;
+            case 'squeeze_start':
+              return `${event.ticker} squeeze started`;
+            case 'squeeze_release':
+              return `${event.ticker} squeeze released${event.side ? ` (${event.side})` : ''}`;
+            case 'state_aligned':
+              return `${event.ticker} aligned ${event.side || ''}`;
+            case 'momentum_elite':
+              return `${event.ticker} Momentum Elite`;
+            default:
+              return `${event.ticker} event`;
+          }
+        };
+
+        return (
+          <div className="w-80 bg-[#0f1630] border border-[#26325f] rounded-xl p-4 flex flex-col">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#26325f]">
+              <h3 className="text-lg font-semibold text-white">Activity Feed</h3>
+              <button
+                onClick={fetchActivity}
+                className="text-xs text-[#93a4d6] hover:text-white transition-colors"
+                title="Refresh"
+              >
+                ↻
+              </button>
+            </div>
+            
+            <div
+              ref={feedRef}
+              className="flex-1 overflow-y-auto space-y-2 pr-2"
+              style={{ maxHeight: '760px' }}
+            >
+              {loading && events.length === 0 ? (
+                <div className="text-center text-[#93a4d6] py-8">
+                  <div className="loading-spinner mx-auto mb-2"></div>
+                  Loading events...
+                </div>
+              ) : events.length === 0 ? (
+                <div className="text-center text-[#93a4d6] py-8">
+                  No recent activity
+                </div>
+              ) : (
+                events.map((event) => (
+                  <div
+                    key={event.id || `${event.ticker}-${event.ts}`}
+                    className="bg-[#121a33] border border-[#26325f] rounded p-2 text-xs hover:border-[#3a4a7a] transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className="text-base">{getEventIcon(event.type)}</span>
+                        <span className={`font-semibold ${getEventColor(event.type)} truncate`}>
+                          {getEventLabel(event)}
+                        </span>
+                      </div>
+                      <span className="text-[#6b7a9f] text-[10px] whitespace-nowrap">
+                        {formatTime(event.ts)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-[#93a4d6] mt-1">
+                      {event.price && (
+                        <span>${Number(event.price).toFixed(2)}</span>
+                      )}
+                      {event.rank && (
+                        <span>Rank {event.rank}</span>
+                      )}
+                      {event.state && (
+                        <span className="truncate" title={event.state}>
+                          {event.state.split('_').pop()}
+                        </span>
+                      )}
+                    </div>
+                    {event.trigger_dir && (
+                      <div className="text-[#6b7a9f] text-[10px] mt-1">
+                        Direction: {event.trigger_dir}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        );
+      }
+
       function QuickFilters({ filters, onFilterChange }) {
         const presets = [
           {
@@ -1518,6 +1700,9 @@
           if (preset.label === "Squeeze Release") {
             return filters.squeezeRelease === true;
           }
+          if (preset.label === "🚀 Momentum Elite") {
+            return filters.momentumElite === true;
+          }
           // Check if quadrant filter matches
           if (preset.label.startsWith("Q")) {
             const presetQuadrants = preset.filter.quadrants || [];
@@ -1541,9 +1726,20 @@
             if (preset.label === "Prime Only") {
               onFilterChange({ minRank: 0, minRR: 0, maxCompletion: 1.01 });
             } else if (preset.label === "In Corridor") {
-              onFilterChange({ inCorridor: false });
+              // Remove the inCorridor filter
+              const newFilters = { ...filters };
+              delete newFilters.inCorridor;
+              onFilterChange(newFilters);
             } else if (preset.label === "Squeeze Release") {
-              onFilterChange({ squeezeRelease: false });
+              // Remove the squeezeRelease filter
+              const newFilters = { ...filters };
+              delete newFilters.squeezeRelease;
+              onFilterChange(newFilters);
+            } else if (preset.label === "🚀 Momentum Elite") {
+              // Remove the momentumElite filter
+              const newFilters = { ...filters };
+              delete newFilters.momentumElite;
+              onFilterChange(newFilters);
             } else if (preset.label.startsWith("Q")) {
               // Reset to all quadrants
               onFilterChange({ 
@@ -2412,9 +2608,14 @@
 
               {/* Main Content - Chart on top, full width */}
               <div className="space-y-4">
-                {/* Chart - Full width, larger */}
-                <div>
-                  <div className="h-[800px]">
+                {/* Chart with Activity Feed */}
+                <div className="flex gap-4">
+                  {/* Activity Feed - Left side */}
+                  <ActivityFeed />
+                  
+                  {/* Chart - Full width, larger */}
+                  <div className="flex-1">
+                    <div className="h-[800px]">
                     {loading && tickers.length === 0 ? (
                       <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
                         <div className="text-center">
@@ -2434,6 +2635,7 @@
                         selectedTrail={selectedTrail}
                       />
                     )}
+                    </div>
                   </div>
                 </div>
 
