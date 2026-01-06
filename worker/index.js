@@ -12,6 +12,7 @@
 // GET  /timed/health
 // GET  /timed/version
 // POST /timed/purge?key=... (manual purge)
+// POST /timed/clear-rate-limit?key=...&ip=...&endpoint=... (clear rate limit)
 // GET  /timed/trades?version=2.1.0 (get trades, optional version filter)
 // POST /timed/trades?key=... (create/update trade)
 // DELETE /timed/trades/:id?key=... (delete trade)
@@ -1709,6 +1710,83 @@ export default {
           purged: result.purged,
           tickerCount: result.tickerCount,
           version: CURRENT_DATA_VERSION,
+        },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
+    // POST /timed/clear-rate-limit?key=...&ip=...&endpoint=... (Clear rate limit)
+    if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      const ip = url.searchParams.get("ip") || null;
+      const endpoint = url.searchParams.get("endpoint") || null;
+
+      let cleared = 0;
+      const clearedKeys = [];
+
+      if (ip && endpoint) {
+        // Clear specific IP + endpoint combination
+        const key = `ratelimit:${ip}:${endpoint}`;
+        await KV.delete(key);
+        cleared++;
+        clearedKeys.push(key);
+      } else if (ip) {
+        // Clear all rate limits for a specific IP (all endpoints)
+        // Note: KV doesn't support wildcard queries, so we need to know the endpoints
+        // For now, clear common endpoints
+        const commonEndpoints = [
+          "/timed/all",
+          "/timed/latest",
+          "/timed/activity",
+          "/timed/trail",
+          "/timed/top",
+          "/timed/momentum",
+        ];
+        for (const ep of commonEndpoints) {
+          const key = `ratelimit:${ip}:${ep}`;
+          await KV.delete(key);
+          cleared++;
+          clearedKeys.push(key);
+        }
+      } else if (endpoint) {
+        // Clear all rate limits for a specific endpoint (all IPs)
+        // Note: This is not directly possible without listing all IPs
+        // For now, return an error suggesting to specify IP
+        return sendJSON(
+          {
+            ok: false,
+            error: "Cannot clear endpoint without IP. Please specify both 'ip' and 'endpoint', or just 'ip' to clear all endpoints for that IP.",
+          },
+          400,
+          corsHeaders(env, req)
+        );
+      } else {
+        // No parameters - return usage info
+        return sendJSON(
+          {
+            ok: false,
+            error: "Missing parameters. Usage: ?ip=...&endpoint=... or ?ip=...",
+            usage: {
+              clearSpecific:
+                "POST /timed/clear-rate-limit?key=YOUR_KEY&ip=IP_ADDRESS&endpoint=/timed/activity",
+              clearAllForIP:
+                "POST /timed/clear-rate-limit?key=YOUR_KEY&ip=IP_ADDRESS",
+            },
+          },
+          400,
+          corsHeaders(env, req)
+        );
+      }
+
+      return sendJSON(
+        {
+          ok: true,
+          message: `Cleared ${cleared} rate limit(s)`,
+          cleared,
+          keys: clearedKeys,
         },
         200,
         corsHeaders(env, req)
