@@ -765,65 +765,87 @@ daily21EMA = e21D
 
 float sl = na
 if dir == 1
-    // For longs: use the highest (safest) SL below price
-    // Priority: Daily 21 EMA (safest) > SuperTrend > ATR > Support
+    // For longs: Use highest (safest) SL below price
+    // Priority: Support structure (if higher than Daily 21 EMA) > Daily 21 EMA (trailing) > other options
     slCandidates = array.new<float>()
     
-    // 1. Daily 21 EMA (safest default, if below price)
-    if not na(daily21EMA) and daily21EMA < price_now
-        array.push(slCandidates, daily21EMA)
+    // 1. Daily 21 EMA - viable if below price (trailing stop)
+    daily21EMAViable = not na(daily21EMA) and daily21EMA < price_now
     
-    // 2. Weekly SuperTrend (if below price)
-    if not na(stLW) and stLW < price_now
-        array.push(slCandidates, stLW)
-    
-    // 3. ATR-based stop from trigger
-    atrBasedSL = not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop)
-    if atrBasedSL < price_now
-        array.push(slCandidates, atrBasedSL)
-    
-    // 4. Nearest support (if enabled and below price)
+    // 2. Support structure - use if higher than Daily 21 EMA (clear support level)
+    float supportSL = na
     if usePivotSR and not na(nearestSupport) and nearestSupport < price_now
-        array.push(slCandidates, nearestSupport * 0.99)
+        supportSL = nearestSupport * 0.99  // Slightly below support for safety
+        // Only use support if it's higher than Daily 21 EMA (safer stop)
+        if daily21EMAViable and supportSL > daily21EMA
+            sl := supportSL  // Use support structure (higher than Daily 21 EMA)
+        else if daily21EMAViable
+            sl := daily21EMA  // Use Daily 21 EMA (support not higher)
+        else
+            array.push(slCandidates, supportSL)  // Support available but Daily 21 EMA not viable
     
-    // Choose the highest (safest) SL - default to Daily 21 EMA if available
-    if array.size(slCandidates) > 0
-        array.sort(slCandidates, order.descending)
-        sl := array.get(slCandidates, 0)
-    else if not na(daily21EMA)
-        sl := daily21EMA  // Fallback to Daily 21 EMA even if above price (use it anyway)
-    else
-        sl := price_now - atrStop  // Last resort
-else
-    // For shorts: use the lowest (safest) SL above price
-    // Priority: Daily 21 EMA (safest) < SuperTrend < ATR < Resistance
-    slCandidates = array.new<float>()
-    
-    // 1. Daily 21 EMA (safest default, if above price)
-    if not na(daily21EMA) and daily21EMA > price_now
-        array.push(slCandidates, daily21EMA)
-    
-    // 2. Weekly SuperTrend (if above price)
-    if not na(stLW) and stLW > price_now
+    // 3. Weekly SuperTrend (if below price and not using support/Daily 21 EMA)
+    if na(sl) and not na(stLW) and stLW < price_now
         array.push(slCandidates, stLW)
     
-    // 3. ATR-based stop from trigger
-    atrBasedSL = not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop)
-    if atrBasedSL > price_now
-        array.push(slCandidates, atrBasedSL)
+    // 4. ATR-based stop from trigger (if no better option)
+    if na(sl)
+        atrBasedSL = not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop)
+        if atrBasedSL < price_now
+            array.push(slCandidates, atrBasedSL)
     
-    // 4. Nearest resistance (if enabled and above price)
+    // Choose SL: Support > Daily 21 EMA > highest of other candidates
+    if na(sl)
+        if daily21EMAViable
+            sl := daily21EMA  // Trail the Daily 21 EMA
+        else if array.size(slCandidates) > 0
+            array.sort(slCandidates, order.descending)
+            sl := array.get(slCandidates, 0)
+        else if not na(daily21EMA)
+            sl := daily21EMA  // Fallback to Daily 21 EMA even if above price
+        else
+            sl := price_now - atrStop  // Last resort
+else
+    // For shorts: Use lowest (safest) SL above price
+    // Priority: Resistance structure (if lower than Daily 21 EMA) > Daily 21 EMA (trailing) > other options
+    slCandidates = array.new<float>()
+    
+    // 1. Daily 21 EMA - viable if above price (trailing stop)
+    daily21EMAViable = not na(daily21EMA) and daily21EMA > price_now
+    
+    // 2. Resistance structure - use if lower than Daily 21 EMA (clear resistance level)
+    float resistanceSL = na
     if usePivotSR and not na(nearestResistance) and nearestResistance > price_now
-        array.push(slCandidates, nearestResistance * 1.01)
+        resistanceSL = nearestResistance * 1.01  // Slightly above resistance for safety
+        // Only use resistance if it's lower than Daily 21 EMA (safer stop)
+        if daily21EMAViable and resistanceSL < daily21EMA
+            sl := resistanceSL  // Use resistance structure (lower than Daily 21 EMA)
+        else if daily21EMAViable
+            sl := daily21EMA  // Use Daily 21 EMA (resistance not lower)
+        else
+            array.push(slCandidates, resistanceSL)  // Resistance available but Daily 21 EMA not viable
     
-    // Choose the lowest (safest) SL - default to Daily 21 EMA if available
-    if array.size(slCandidates) > 0
-        array.sort(slCandidates, order.ascending)
-        sl := array.get(slCandidates, 0)
-    else if not na(daily21EMA)
-        sl := daily21EMA  // Fallback to Daily 21 EMA even if below price (use it anyway)
-    else
-        sl := price_now + atrStop  // Last resort
+    // 3. Weekly SuperTrend (if above price and not using resistance/Daily 21 EMA)
+    if na(sl) and not na(stLW) and stLW > price_now
+        array.push(slCandidates, stLW)
+    
+    // 4. ATR-based stop from trigger (if no better option)
+    if na(sl)
+        atrBasedSL = not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop)
+        if atrBasedSL > price_now
+            array.push(slCandidates, atrBasedSL)
+    
+    // Choose SL: Resistance > Daily 21 EMA > lowest of other candidates
+    if na(sl)
+        if daily21EMAViable
+            sl := daily21EMA  // Trail the Daily 21 EMA
+        else if array.size(slCandidates) > 0
+            array.sort(slCandidates, order.ascending)
+            sl := array.get(slCandidates, 0)
+        else if not na(daily21EMA)
+            sl := daily21EMA  // Fallback to Daily 21 EMA even if below price
+        else
+            sl := price_now + atrStop  // Last resort
 
 elapsedDays = (not na(triggerTs)) ? ((time - triggerTs) / 86400000.0) : na
 etaDays = (not na(elapsedDays) and completion > 0 and completion < 0.999) ? (elapsedDays * (1.0 / completion - 1.0)) : na

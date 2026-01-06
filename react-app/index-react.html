@@ -128,6 +128,40 @@
       }
       
       @keyframes momentum-pulse {
+        0%, 100% {
+          box-shadow: 0 0 15px rgba(168, 85, 247, 0.5), 0 0 25px rgba(236, 72, 153, 0.3);
+        }
+        50% {
+          box-shadow: 0 0 25px rgba(168, 85, 247, 0.8), 0 0 45px rgba(236, 72, 153, 0.6);
+        }
+      }
+      
+      /* Slide-in overlay from right */
+      .slide-in-right {
+        animation: slideInRight 0.3s ease-out;
+      }
+      @keyframes slideInRight {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      
+      /* Comet trail effect */
+      .comet-trail {
+        stroke-dasharray: 5, 5;
+        animation: cometMove 2s linear infinite;
+      }
+      @keyframes cometMove {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: 20; }
+      }
+      
+      @keyframes momentum-pulse-old {
         0%, 100% { 
           box-shadow: 0 0 15px rgba(168, 85, 247, 0.5), 0 0 25px rgba(236, 72, 153, 0.3);
         }
@@ -220,18 +254,23 @@
         const fetchData = useCallback(async () => {
           try {
             setLoading(true);
+            setError(null); // Clear any previous errors
             // Add timeout to prevent hanging - increased to 30s for large datasets
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
             
             const res = await fetch(`${API_BASE}/timed/all`, {
-              signal: controller.signal
+              signal: controller.signal,
+              headers: {
+                'Accept': 'application/json'
+              }
             });
             
             clearTimeout(timeoutId);
             
             if (!res.ok) {
-              throw new Error(`HTTP ${res.status}`);
+              const errorText = await res.text();
+              throw new Error(`HTTP ${res.status}: ${errorText || 'Unknown error'}`);
             }
             
             const json = await res.json();
@@ -240,15 +279,22 @@
               setLastUpdate(new Date());
               setError(null);
             } else {
-              setError("Failed to fetch data");
+              setError(`API Error: ${json.error || 'Failed to fetch data'}`);
             }
           } catch (e) {
             if (e.name === 'AbortError') {
               setError("Request timeout - please try again");
+            } else if (e.message.includes('Failed to fetch') || e.message.includes('Load failed')) {
+              setError("Network error - check console for details. API may be temporarily unavailable.");
             } else {
               setError(e.message);
             }
             console.error('Fetch error:', e);
+            console.error('Error details:', {
+              name: e.name,
+              message: e.message,
+              stack: e.stack
+            });
           } finally {
             setLoading(false);
           }
@@ -552,6 +598,10 @@
             const flags = d.flags || {};
             if (!flags.sq30_release) continue;
           }
+          if (filters.momentumElite) {
+            const flags = d.flags || {};
+            if (!flags.momentum_elite) continue;
+          }
 
           out.push({ ticker, ...d });
         }
@@ -750,7 +800,7 @@
         );
       });
 
-      function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover }) {
+      function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover, selectedTicker, selectedTrail }) {
         const [tooltip, setTooltip] = useState(null);
         const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
         const [showLabels, setShowLabels] = useState(true);
@@ -867,24 +917,104 @@
                   fill="rgba(231,76,60,0.1)" 
                 />
                 
-                {/* Bubbles */}
-                {tickers.map(ticker => (
-                  <SVGBubble
-                    key={ticker.ticker}
-                    ticker={ticker}
-                    onClick={onBubbleClick}
-                    onHover={(t) => {
-                      onHover(t);
-                      if (t) setTooltip(tickers.find(tt => tt.ticker === t));
-                    }}
-                    isHovered={hoveredTicker === ticker.ticker}
-                    scaleX={scaleX}
-                    scaleY={-scaleY}
-                    offsetX={offsetX + 50 * scaleX}
-                    offsetY={offsetY + plotHeight - 50 * scaleY}
-                    showLabels={showLabels}
-                  />
-                ))}
+                {/* Bubbles - Show only selected ticker with trail if selected, otherwise show all */}
+                {selectedTicker && selectedTrail ? (
+                  <>
+                    {/* Trail path - comet effect */}
+                    {selectedTrail.length > 1 && selectedTrail.map((point, idx) => {
+                      if (idx === 0) return null;
+                      const prevPoint = selectedTrail[idx - 1];
+                      const x1 = (Number(prevPoint.ltf_score) || 0) * scaleX + offsetX + 50 * scaleX;
+                      const y1 = (Number(prevPoint.htf_score) || 0) * -scaleY + offsetY + plotHeight - 50 * scaleY;
+                      const x2 = (Number(point.ltf_score) || 0) * scaleX + offsetX + 50 * scaleX;
+                      const y2 = (Number(point.htf_score) || 0) * -scaleY + offsetY + plotHeight - 50 * scaleY;
+                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.5; // Fade in from past to present
+                      return (
+                        <line
+                          key={`trail-${idx}`}
+                          x1={x1}
+                          y1={y1}
+                          x2={x2}
+                          y2={y2}
+                          stroke="#00ffff"
+                          strokeWidth="2"
+                          opacity={opacity}
+                          className="comet-trail"
+                        />
+                      );
+                    })}
+                    {/* Trail points (smaller bubbles) - show historical positions */}
+                    {selectedTrail.slice(0, -1).map((point, idx) => {
+                      // Create a ticker-like object from trail point
+                      const tickerData = {
+                        ticker: selectedTicker,
+                        htf_score: point.htf_score || 0,
+                        ltf_score: point.ltf_score || 0,
+                        phase_pct: point.phase_pct || 0,
+                        completion: point.completion || 0,
+                        flags: {},
+                        state: point.state || '',
+                      };
+                      const x = (Number(tickerData.ltf_score) || 0) * scaleX + offsetX + 50 * scaleX;
+                      const y = (Number(tickerData.htf_score) || 0) * -scaleY + offsetY + plotHeight - 50 * scaleY;
+                      const size = 3 + (idx / selectedTrail.length) * 4; // Smaller, growing towards present
+                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.4; // Fade in from past to present
+                      
+                      return (
+                        <circle
+                          key={`trail-point-${idx}`}
+                          cx={x}
+                          cy={y}
+                          r={size}
+                          fill="#00ffff"
+                          fillOpacity={opacity}
+                          stroke="#00ffff"
+                          strokeWidth="1"
+                          strokeOpacity={opacity * 0.5}
+                        />
+                      );
+                    })}
+                    {/* Current position (larger, highlighted) */}
+                    {(() => {
+                      const currentTicker = tickers.find(t => t.ticker === selectedTicker);
+                      if (currentTicker) {
+                        return (
+                          <SVGBubble
+                            key={selectedTicker}
+                            ticker={currentTicker}
+                            onClick={() => {}}
+                            onHover={() => {}}
+                            isHovered={true}
+                            scaleX={scaleX}
+                            scaleY={-scaleY}
+                            offsetX={offsetX + 50 * scaleX}
+                            offsetY={offsetY + plotHeight - 50 * scaleY}
+                            showLabels={true}
+                          />
+                        );
+                      }
+                      return null;
+                    })()}
+                  </>
+                ) : (
+                  tickers.map(ticker => (
+                    <SVGBubble
+                      key={ticker.ticker}
+                      ticker={ticker}
+                      onClick={onBubbleClick}
+                      onHover={(t) => {
+                        onHover(t);
+                        if (t) setTooltip(tickers.find(tt => tt.ticker === t));
+                      }}
+                      isHovered={hoveredTicker === ticker.ticker}
+                      scaleX={scaleX}
+                      scaleY={-scaleY}
+                      offsetX={offsetX + 50 * scaleX}
+                      offsetY={offsetY + plotHeight - 50 * scaleY}
+                      showLabels={showLabels}
+                    />
+                  ))
+                )}
               </svg>
               
                 {/* Tooltip */}
@@ -1352,6 +1482,11 @@
             icon: "⚡",
           },
           {
+            label: "🚀 Momentum Elite",
+            filter: { momentumElite: true },
+            icon: "🚀",
+          },
+          {
             label: "Q1: Bull Setup",
             filter: { quadrants: ["HTF_BULL_LTF_PULLBACK"] },
             icon: "📈",
@@ -1761,17 +1896,18 @@
 
         return (
           <>
-            {/* Backdrop */}
+            {/* Backdrop - lighter, doesn't block chart */}
             <div 
-              className="fixed inset-0 bg-black/60 z-[9998]"
+              className="fixed inset-0 bg-black/20 z-[9998]"
               onClick={onClose}
               style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
             />
-            {/* Overlay Card */}
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+            {/* Overlay Card - slides in from right */}
+            <div className="fixed right-0 top-0 bottom-0 z-[9999] flex items-center p-4 pointer-events-none" style={{ position: 'fixed', top: 0, right: 0, bottom: 0 }}>
               <div 
-                className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto slide-in pointer-events-auto shadow-2xl"
+                className="bg-[#121a33] border-2 border-[#26325f] rounded-l-xl p-6 w-full max-w-lg h-full overflow-y-auto slide-in-right pointer-events-auto shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: '500px' }}
               >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">{ticker.ticker}</h3>
@@ -2126,7 +2262,40 @@
           group: "ALL",
         });
         const [selectedTicker, setSelectedTicker] = useState(null);
+        const [selectedTrail, setSelectedTrail] = useState(null);
         const [hoveredTicker, setHoveredTicker] = useState(null);
+        
+        // Fetch trail data when ticker is selected
+        useEffect(() => {
+          if (selectedTicker) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            
+            fetch(
+              `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(selectedTicker)}`,
+              { signal: controller.signal }
+            )
+              .then(res => res.json())
+              .then(data => {
+                if (data.ok && Array.isArray(data.trail)) {
+                  setSelectedTrail(data.trail);
+                } else {
+                  setSelectedTrail([]);
+                }
+              })
+              .catch(err => {
+                if (err.name !== 'AbortError') {
+                  console.error('Failed to load trail:', err);
+                }
+                setSelectedTrail([]);
+              })
+              .finally(() => {
+                clearTimeout(timeoutId);
+              });
+          } else {
+            setSelectedTrail(null);
+          }
+        }, [selectedTicker]);
         
         // Safe setter for selectedTicker to prevent infinite loops
         const handleTickerSelect = useCallback((ticker) => {
@@ -2261,6 +2430,8 @@
                         onBubbleClick={handleTickerSelect}
                         hoveredTicker={hoveredTicker}
                         onHover={setHoveredTicker}
+                        selectedTicker={selectedTicker}
+                        selectedTrail={selectedTrail}
                       />
                     )}
                   </div>

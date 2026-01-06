@@ -32,18 +32,76 @@ const sendJSON = (obj, status = 200, headers = {}) =>
     headers: { "Content-Type": "application/json", ...headers },
   });
 
-function corsHeaders(env) {
-  const origin = env.CORS_ALLOW_ORIGIN || "*";
-  return {
-    "Access-Control-Allow-Origin": origin,
+function corsHeaders(env, req) {
+  // Get allowed origins from environment variable (comma-separated)
+  const corsConfig = env.CORS_ALLOW_ORIGIN || "";
+  const allowedOrigins = corsConfig
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const origin = req?.headers?.get("Origin") || "";
+
+  // Debug logging (will appear in Cloudflare Worker logs)
+  console.log("CORS check:", {
+    hasConfig: !!corsConfig,
+    configLength: corsConfig.length,
+    configValue: corsConfig.substring(0, 50), // First 50 chars for safety
+    allowedOriginsCount: allowedOrigins.length,
+    allowedOrigins: allowedOrigins,
+    requestedOrigin: origin,
+    originLength: origin.length,
+  });
+
+  // If no allowed origins configured, default to "*" (backward compatible)
+  // Otherwise, only allow configured origins
+  let allowed;
+  if (allowedOrigins.length === 0) {
+    allowed = "*";
+  } else if (allowedOrigins.includes(origin)) {
+    allowed = origin;
+  } else {
+    // Log for debugging (remove in production if needed)
+    console.log("CORS mismatch:", {
+      requested: origin,
+      requestedLength: origin.length,
+      allowed: allowedOrigins,
+      allowedLengths: allowedOrigins.map((o) => o.length),
+      config: corsConfig,
+      exactMatch: allowedOrigins.some((o) => o === origin),
+      caseInsensitiveMatch: allowedOrigins.some(
+        (o) => o.toLowerCase() === origin.toLowerCase()
+      ),
+    });
+    allowed = "null";
+  }
+
+  const headers = {
+    "Access-Control-Allow-Origin": allowed,
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
+    Vary: "Origin", // Important: tells Cloudflare to vary cache by Origin
   };
+
+  // For preflight requests, add additional headers
+  if (req?.method === "OPTIONS") {
+    headers["Access-Control-Max-Age"] = "86400"; // 24 hours
+    // Include the requested method and headers in the response
+    const requestedMethod = req.headers.get("Access-Control-Request-Method");
+    const requestedHeaders = req.headers.get("Access-Control-Request-Headers");
+    if (requestedMethod) {
+      headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS";
+    }
+    if (requestedHeaders) {
+      headers["Access-Control-Allow-Headers"] = requestedHeaders;
+    }
+  }
+
+  return headers;
 }
 
-function ackJSON(env, obj, fallbackStatus = 200) {
+function ackJSON(env, obj, fallbackStatus = 200, req = null) {
   const always200 = (env.TV_ACK_ALWAYS_200 ?? "true") !== "false";
-  return sendJSON(obj, always200 ? 200 : fallbackStatus, corsHeaders(env));
+  return sendJSON(obj, always200 ? 200 : fallbackStatus, corsHeaders(env, req));
 }
 
 const normTicker = (t) =>
@@ -85,6 +143,34 @@ function stableHash(str) {
   return (h >>> 0).toString(16);
 }
 
+// Rate limiting helper
+async function checkRateLimit(
+  KV,
+  identifier,
+  endpoint,
+  limit = 100,
+  window = 3600
+) {
+  const key = `ratelimit:${identifier}:${endpoint}`;
+  const count = await KV.get(key);
+  const current = count ? Number(count) : 0;
+
+  if (current >= limit) {
+    return {
+      allowed: false,
+      remaining: 0,
+      resetAt: Date.now() + window * 1000,
+    };
+  }
+
+  await KV.put(key, String(current + 1), { expirationTtl: window });
+  return {
+    allowed: true,
+    remaining: limit - current - 1,
+    resetAt: Date.now() + window * 1000,
+  };
+}
+
 async function ensureTickerIndex(KV, ticker) {
   const key = "timed:tickers";
   const cur = (await kvGetJSON(KV, key)) || [];
@@ -122,6 +208,8 @@ function stalenessBucket(ticker, ts) {
 }
 
 function computeRR(d) {
+  // Use current price (real-time) for RR calculation, not trigger price
+  // d.price should be the current market price from TradingView
   const price = Number(d.price);
   const sl = Number(d.sl);
   if (!Number.isFinite(price) || !Number.isFinite(sl)) return null;
@@ -150,8 +238,29 @@ function computeRR(d) {
   }
 
   if (!Number.isFinite(tp)) return null;
-  const risk = Math.abs(price - sl);
-  const gain = Math.abs(tp - price);
+
+  // Determine direction from state to calculate risk/reward correctly
+  const state = String(d.state || "");
+  const isLong = state.includes("BULL");
+  const isShort = state.includes("BEAR");
+
+  let risk, gain;
+
+  if (isLong) {
+    // For LONG: SL should be below price, TP should be above price
+    risk = price - sl; // Risk is distance from current price to SL (down)
+    gain = tp - price; // Gain is distance from current price to TP (up)
+  } else if (isShort) {
+    // For SHORT: SL should be above price, TP should be below price
+    risk = sl - price; // Risk is distance from current price to SL (up)
+    gain = price - tp; // Gain is distance from current price to TP (down)
+  } else {
+    // Fallback to absolute values if direction unclear
+    risk = Math.abs(price - sl);
+    gain = Math.abs(tp - price);
+  }
+
+  // Ensure both risk and gain are positive
   if (risk <= 0 || gain <= 0) return null;
   return gain / risk;
 }
@@ -623,7 +732,11 @@ function requireKeyOr401(req, env) {
   const url = new URL(req.url);
   const qKey = url.searchParams.get("key");
   if (qKey && qKey === expected) return null;
-  return sendJSON({ ok: false, error: "unauthorized" }, 401, corsHeaders(env));
+  return sendJSON(
+    { ok: false, error: "unauthorized" },
+    401,
+    corsHeaders(env, req)
+  );
 }
 
 function validateTimedPayload(body) {
@@ -651,7 +764,7 @@ export default {
     const url = new URL(req.url);
 
     if (req.method === "OPTIONS") {
-      return new Response("", { status: 204, headers: corsHeaders(env) });
+      return new Response("", { status: 204, headers: corsHeaders(env, req) });
     }
 
     // POST /timed/ingest
@@ -673,7 +786,7 @@ export default {
         );
 
       const v = validateTimedPayload(body);
-      if (!v.ok) return ackJSON(env, v, 400);
+      if (!v.ok) return ackJSON(env, v, 400, req);
 
       const ticker = v.ticker;
       const payload = v.payload;
@@ -713,7 +826,7 @@ export default {
       const hash = stableHash(basis);
       const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
       if (await KV.get(dedupeKey))
-        return ackJSON(env, { ok: true, deduped: true, ticker });
+        return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
       await kvPutText(KV, dedupeKey, "1", 60);
 
       // Derived: staleness
@@ -901,34 +1014,82 @@ export default {
         }
       }
 
-      return ackJSON(env, { ok: true, ticker });
+      return ackJSON(env, { ok: true, ticker }, 200, req);
     }
 
     // GET /timed/latest?ticker=
     if (url.pathname === "/timed/latest" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/latest",
+        200,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const ticker = normTicker(url.searchParams.get("ticker"));
       if (!ticker)
         return sendJSON(
           { ok: false, error: "missing ticker" },
           400,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-      return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env));
+      return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
     }
 
     // GET /timed/tickers
     if (url.pathname === "/timed/tickers" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/tickers",
+        200,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
       return sendJSON(
         { ok: true, tickers, count: tickers.length },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
     // GET /timed/all
     if (url.pathname === "/timed/all" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(KV, ip, "/timed/all", 100, 3600);
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
       // Use Promise.all for parallel KV reads instead of sequential
       const dataPromises = tickers.map((t) =>
@@ -945,21 +1106,33 @@ export default {
       return sendJSON(
         { ok: true, count: tickers.length, data },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
     // GET /timed/trail?ticker=
     if (url.pathname === "/timed/trail" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(KV, ip, "/timed/trail", 200, 3600);
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const ticker = normTicker(url.searchParams.get("ticker"));
       if (!ticker)
         return sendJSON(
           { ok: false, error: "missing ticker" },
           400,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       const trail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
-      return sendJSON({ ok: true, ticker, trail }, 200, corsHeaders(env));
+      return sendJSON({ ok: true, ticker, trail }, 200, corsHeaders(env, req));
     }
 
     // GET /timed/top?bucket=long|short|setup&n=10
@@ -1000,39 +1173,97 @@ export default {
       return sendJSON(
         { ok: true, bucket, n: filtered.length, data: filtered },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
     // GET /timed/momentum?ticker=XYZ
     if (url.pathname === "/timed/momentum" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/momentum",
+        200,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const ticker = normTicker(url.searchParams.get("ticker"));
       if (!ticker)
         return sendJSON(
           { ok: false, error: "missing ticker" },
           400,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       const data = await kvGetJSON(KV, `timed:momentum:${ticker}`);
-      return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env));
+      return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
     }
 
     // GET /timed/momentum/history?ticker=XYZ
     if (url.pathname === "/timed/momentum/history" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/momentum/history",
+        200,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const ticker = normTicker(url.searchParams.get("ticker"));
       if (!ticker)
         return sendJSON(
           { ok: false, error: "missing ticker" },
           400,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       const history =
         (await kvGetJSON(KV, `timed:momentum:history:${ticker}`)) || [];
-      return sendJSON({ ok: true, ticker, history }, 200, corsHeaders(env));
+      return sendJSON(
+        { ok: true, ticker, history },
+        200,
+        corsHeaders(env, req)
+      );
     }
 
     // GET /timed/momentum/all
     if (url.pathname === "/timed/momentum/all" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/momentum/all",
+        100,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
       const eliteTickers = [];
       for (const t of tickers) {
@@ -1044,12 +1275,24 @@ export default {
       return sendJSON(
         { ok: true, count: eliteTickers.length, tickers: eliteTickers },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
     // GET /timed/health
     if (url.pathname === "/timed/health" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(KV, ip, "/timed/health", 60, 3600);
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const last = Number(await KV.get("timed:last_ingest_ms")) || 0;
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
       const storedVersion = await getStoredVersion(KV);
@@ -1064,7 +1307,7 @@ export default {
           expectedVersion: CURRENT_DATA_VERSION,
         },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
@@ -1085,12 +1328,60 @@ export default {
           version: CURRENT_DATA_VERSION,
         },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
+      );
+    }
+
+    // GET /timed/cors-debug (Debug CORS configuration)
+    if (url.pathname === "/timed/cors-debug" && req.method === "GET") {
+      const corsConfig = env.CORS_ALLOW_ORIGIN || "";
+      const allowedOrigins = corsConfig
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean);
+      const origin = req?.headers?.get("Origin") || "";
+
+      return sendJSON(
+        {
+          ok: true,
+          cors: {
+            config: corsConfig,
+            allowedOrigins: allowedOrigins,
+            requestedOrigin: origin,
+            isAllowed: allowedOrigins.includes(origin),
+            willReturn:
+              allowedOrigins.length === 0
+                ? "*"
+                : allowedOrigins.includes(origin)
+                ? origin
+                : "null",
+          },
+        },
+        200,
+        corsHeaders(env, req)
       );
     }
 
     // GET /timed/version (Check current version)
     if (url.pathname === "/timed/version" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/version",
+        60,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const storedVersion = await getStoredVersion(KV);
       return sendJSON(
         {
@@ -1100,18 +1391,36 @@ export default {
           match: storedVersion === CURRENT_DATA_VERSION,
         },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
     // GET /timed/alert-debug?ticker=XYZ (Debug why alerts aren't firing)
     if (url.pathname === "/timed/alert-debug" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/alert-debug",
+        100,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
       const ticker = normTicker(url.searchParams.get("ticker"));
       if (!ticker) {
         return sendJSON(
           { ok: false, error: "missing ticker" },
           400,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       }
 
@@ -1120,7 +1429,7 @@ export default {
         return sendJSON(
           { ok: false, error: "no data for ticker", ticker },
           404,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       }
 
@@ -1265,12 +1574,29 @@ export default {
           },
         },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
     // GET /timed/trades?version=2.1.0 (Get all trades, optional version filter)
     if (url.pathname === "/timed/trades" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/trades",
+        200,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
       const versionFilter = url.searchParams.get("version");
       const tradesKey = "timed:trades:all";
       const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
@@ -1299,7 +1625,7 @@ export default {
           trades: filteredTrades,
         },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
@@ -1313,7 +1639,7 @@ export default {
         return sendJSON(
           { ok: false, error: "missing trade id" },
           400,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       }
 
@@ -1347,7 +1673,7 @@ export default {
           action: existingIndex >= 0 ? "updated" : "created",
         },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
@@ -1361,7 +1687,7 @@ export default {
         return sendJSON(
           { ok: false, error: "missing trade id" },
           400,
-          corsHeaders(env)
+          corsHeaders(env, req)
         );
       }
 
@@ -1378,10 +1704,14 @@ export default {
           remainingCount: filteredTrades.length,
         },
         200,
-        corsHeaders(env)
+        corsHeaders(env, req)
       );
     }
 
-    return sendJSON({ ok: false, error: "not_found" }, 404, corsHeaders(env));
+    return sendJSON(
+      { ok: false, error: "not_found" },
+      404,
+      corsHeaders(env, req)
+    );
   },
 };
