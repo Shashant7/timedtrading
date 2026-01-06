@@ -613,6 +613,32 @@ async function appendTrail(KV, ticker, point, maxN = 8) {
   await kvPutJSON(KV, key, keep);
 }
 
+// Activity feed tracking (1 week history)
+async function appendActivity(KV, event) {
+  const key = "timed:activity:feed";
+  const now = Date.now();
+  const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+  const feed = (await kvGetJSON(KV, key)) || [];
+
+  // Add new event with timestamp
+  const activityEvent = {
+    ...event,
+    ts: now,
+    id: `${event.ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
+  };
+
+  feed.unshift(activityEvent); // Add to beginning
+
+  // Remove events older than 1 week
+  const filtered = feed.filter((e) => e.ts > oneWeekAgo);
+
+  // Keep max 500 events
+  const keep = filtered.slice(0, 500);
+
+  await kvPutJSON(KV, key, keep);
+}
+
 // Version management and migration
 const CURRENT_DATA_VERSION = "2.1.0"; // Must match SCRIPT_VERSION in Pine Script
 
@@ -786,10 +812,22 @@ export default {
         );
 
       const v = validateTimedPayload(body);
-      if (!v.ok) return ackJSON(env, v, 400, req);
+      if (!v.ok) {
+        console.log(`[INGEST VALIDATION FAILED]`, v);
+        return ackJSON(env, v, 400, req);
+      }
 
       const ticker = v.ticker;
       const payload = v.payload;
+
+      // Log ingestion for debugging
+      console.log(`[INGEST] ${ticker}:`, {
+        ts: payload.ts,
+        htf: payload.htf_score,
+        ltf: payload.ltf_score,
+        state: payload.state,
+        price: payload.price,
+      });
 
       // Check version and migrate if needed
       const incomingVersion = payload.script_version || "unknown";
@@ -825,8 +863,11 @@ export default {
 
       const hash = stableHash(basis);
       const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
-      if (await KV.get(dedupeKey))
+      const alreadyDeduped = await KV.get(dedupeKey);
+      if (alreadyDeduped) {
+        console.log(`[INGEST DEDUPED] ${ticker} - same data within 60s`);
         return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
+      }
       await kvPutText(KV, dedupeKey, "1", 60);
 
       // Derived: staleness
@@ -887,12 +928,101 @@ export default {
       const corridorAlignedOK =
         (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
 
-      // Must be: in corridor + corridor aligns + (entered aligned OR trigger OR squeeze release)
+      // Allow alerts if:
+      // 1. In corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
+      // 2. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
       const shouldConsiderAlert =
-        inCorridor && corridorAlignedOK && (enteredAligned || trigOk || sqRel);
+        inCorridor &&
+        ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
+          (sqRel && side)); // Squeeze release in corridor is a valid trigger even if not fully aligned
+
+      // Activity feed tracking - detect events
+      const prevCorridorKey = `timed:prevcorridor:${ticker}`;
+      const prevInCorridor = await KV.get(prevCorridorKey);
+      const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
+      const prevSqueezeOn = await KV.get(prevSqueezeKey);
+      const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
+      const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
+      const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
+      const prevMomentumElite = await KV.get(prevMomentumEliteKey);
+
+      // Track corridor entry
+      if (inCorridor && prevInCorridor !== "true") {
+        await appendActivity(KV, {
+          type: "corridor_entry",
+          ticker: ticker,
+          side: side,
+          price: payload.price,
+          state: payload.state,
+          rank: payload.rank,
+        });
+        await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
+      } else if (!inCorridor && prevInCorridor === "true") {
+        await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
+      }
+
+      // Track squeeze start
+      if (flags.sq30_on && prevSqueezeOn !== "true") {
+        await appendActivity(KV, {
+          type: "squeeze_start",
+          ticker: ticker,
+          price: payload.price,
+          state: payload.state,
+          rank: payload.rank,
+        });
+        await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
+      } else if (!flags.sq30_on && prevSqueezeOn === "true") {
+        await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
+      }
+
+      // Track squeeze release
+      if (sqRel && prevSqueezeRel !== "true") {
+        await appendActivity(KV, {
+          type: "squeeze_release",
+          ticker: ticker,
+          side: side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
+          price: payload.price,
+          state: payload.state,
+          rank: payload.rank,
+          trigger_dir: payload.trigger_dir,
+        });
+        await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
+      } else if (!sqRel && prevSqueezeRel === "true") {
+        await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
+      }
+
+      // Track state change to aligned
+      if (enteredAligned) {
+        await appendActivity(KV, {
+          type: "state_aligned",
+          ticker: ticker,
+          side: alignedLong ? "LONG" : "SHORT",
+          price: payload.price,
+          state: payload.state,
+          rank: payload.rank,
+        });
+      }
+
+      // Track Momentum Elite status change
+      const currentMomentumElite = !!(
+        payload.flags && payload.flags.momentum_elite
+      );
+      if (currentMomentumElite && prevMomentumElite !== "true") {
+        await appendActivity(KV, {
+          type: "momentum_elite",
+          ticker: ticker,
+          price: payload.price,
+          state: payload.state,
+          rank: payload.rank,
+        });
+        await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
+      } else if (!currentMomentumElite && prevMomentumElite === "true") {
+        await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
+      }
 
       // Store latest (do this BEFORE alert so UI has it)
       await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+      console.log(`[INGEST STORED] ${ticker} - latest data saved`);
 
       // Trail (light)
       await appendTrail(
@@ -917,6 +1047,7 @@ export default {
 
       await ensureTickerIndex(KV, ticker);
       await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
+      console.log(`[INGEST COMPLETE] ${ticker} - added to index and stored`);
 
       // Threshold gates (with Momentum Elite adjustments)
       const momentumElite = !!flags.momentum_elite;
@@ -951,11 +1082,43 @@ export default {
       const rankOk = Number(payload.rank || 0) >= minRank;
 
       // Also consider Momentum Elite as a trigger condition (quality signal)
+      // Momentum Elite can trigger even if not fully aligned, as long as in corridor
       const momentumEliteTrigger =
-        momentumElite && inCorridor && corridorAlignedOK;
+        momentumElite && inCorridor && (corridorAlignedOK || sqRel);
 
       // Enhanced trigger: original conditions OR Momentum Elite in good setup
       const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+
+      // Debug logging for alert conditions - log all tickers in corridor
+      if (inCorridor) {
+        console.log(`[ALERT DEBUG] ${ticker}:`, {
+          inCorridor,
+          corridorAlignedOK,
+          side,
+          state: payload.state,
+          enteredAligned,
+          trigOk,
+          trigReason,
+          sqRel,
+          shouldConsiderAlert,
+          momentumEliteTrigger,
+          enhancedTrigger,
+          rrOk,
+          rr: payload.rr,
+          minRR,
+          compOk,
+          completion: payload.completion,
+          maxComp,
+          phaseOk,
+          phase: payload.phase_pct,
+          maxPhase,
+          rankOk,
+          rank: payload.rank,
+          minRank,
+          momentumElite,
+          flags: payload.flags,
+        });
+      }
 
       if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
         // Dedup alert by trigger_ts if present (best), else ts
@@ -964,9 +1127,17 @@ export default {
             ? String(payload.trigger_ts)
             : String(payload.ts);
         const akey = `timed:alerted:${ticker}:${keyTs}`;
+        const alreadyAlerted = await KV.get(akey);
 
-        if (!(await KV.get(akey))) {
+        if (!alreadyAlerted) {
           await kvPutText(KV, akey, "1", 24 * 60 * 60);
+
+          console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
+            akey,
+            keyTs,
+            side,
+            rank: payload.rank,
+          });
 
           const why =
             (side === "LONG"
@@ -1011,7 +1182,22 @@ export default {
               `Link: ${tv}`,
             ]
           );
+        } else {
+          console.log(`[DISCORD ALERT] Skipped ${ticker} - already alerted`, {
+            akey,
+            keyTs,
+          });
         }
+      } else if (inCorridor && corridorAlignedOK) {
+        // Log why alert didn't fire
+        const reasons = [];
+        if (!enhancedTrigger) reasons.push("no trigger condition");
+        if (!rrOk) reasons.push(`RR ${payload.rr} < ${minRR}`);
+        if (!compOk)
+          reasons.push(`Completion ${payload.completion} > ${maxComp}`);
+        if (!phaseOk) reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
+        if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
+        console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
       }
 
       return ackJSON(env, { ok: true, ticker }, 200, req);
@@ -1274,6 +1460,186 @@ export default {
       }
       return sendJSON(
         { ok: true, count: eliteTickers.length, tickers: eliteTickers },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
+    // GET /timed/activity
+    if (url.pathname === "/timed/activity" && req.method === "GET") {
+      // Rate limiting
+      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/activity",
+        100,
+        3600
+      );
+
+      if (!rateLimit.allowed) {
+        return sendJSON(
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          429,
+          corsHeaders(env, req)
+        );
+      }
+
+      const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
+
+      // Also generate events from current ticker states (for historical display)
+      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      const now = Date.now();
+      const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+      const currentEvents = [];
+
+      // Generate events from current state (only if not already in feed)
+      for (const ticker of tickers) {
+        const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        if (!latest) continue;
+
+        const flags = latest.flags || {};
+        const side = corridorSide(latest);
+        const inCorridor = !!side;
+        const state = String(latest.state || "");
+        const alignedLong = state === "HTF_BULL_LTF_BULL";
+        const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+
+        // Check if we already have recent events for this ticker
+        const hasRecentEvent = feed.some(
+          (e) => e.ticker === ticker && e.ts > oneWeekAgo
+        );
+
+        // Generate corridor entry event if in corridor
+        if (inCorridor && !hasRecentEvent) {
+          currentEvents.push({
+            type: "corridor_entry",
+            ticker: ticker,
+            side: side,
+            price: latest.price,
+            state: latest.state,
+            rank: latest.rank,
+            ts: latest.ts || now,
+            id: `current-${ticker}-corridor-${now}`,
+          });
+        }
+
+        // Generate squeeze start event if squeeze is on
+        if (flags.sq30_on && !hasRecentEvent) {
+          currentEvents.push({
+            type: "squeeze_start",
+            ticker: ticker,
+            price: latest.price,
+            state: latest.state,
+            rank: latest.rank,
+            ts: latest.ts || now,
+            id: `current-${ticker}-squeeze-${now}`,
+          });
+        }
+
+        // Generate squeeze release event if squeeze released
+        if (flags.sq30_release && !hasRecentEvent) {
+          currentEvents.push({
+            type: "squeeze_release",
+            ticker: ticker,
+            side:
+              side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
+            price: latest.price,
+            state: latest.state,
+            rank: latest.rank,
+            trigger_dir: latest.trigger_dir,
+            ts: latest.ts || now,
+            id: `current-${ticker}-squeeze-rel-${now}`,
+          });
+        }
+
+        // Generate aligned state event
+        if ((alignedLong || alignedShort) && !hasRecentEvent) {
+          currentEvents.push({
+            type: "state_aligned",
+            ticker: ticker,
+            side: alignedLong ? "LONG" : "SHORT",
+            price: latest.price,
+            state: latest.state,
+            rank: latest.rank,
+            ts: latest.ts || now,
+            id: `current-${ticker}-aligned-${now}`,
+          });
+        }
+
+        // Generate Momentum Elite event
+        if (flags.momentum_elite && !hasRecentEvent) {
+          currentEvents.push({
+            type: "momentum_elite",
+            ticker: ticker,
+            price: latest.price,
+            state: latest.state,
+            rank: latest.rank,
+            ts: latest.ts || now,
+            id: `current-${ticker}-momentum-${now}`,
+          });
+        }
+      }
+
+      // Merge feed events with current events, deduplicate by ticker+type
+      const allEvents = [...feed, ...currentEvents];
+      const seen = new Set();
+      const uniqueEvents = allEvents.filter((e) => {
+        const key = `${e.ticker}-${e.type}-${Math.floor(
+          e.ts / (60 * 60 * 1000)
+        )}`; // Group by hour
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return e.ts > oneWeekAgo; // Only keep events from last week
+      });
+
+      // Sort by timestamp descending
+      uniqueEvents.sort((a, b) => b.ts - a.ts);
+
+      const limit = Math.min(
+        100,
+        Number(url.searchParams.get("limit") || "100")
+      );
+      const filtered = uniqueEvents.slice(0, limit);
+
+      return sendJSON(
+        {
+          ok: true,
+          count: filtered.length,
+          events: filtered,
+        },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
+    // GET /timed/check-ticker?ticker=AAPL
+    if (url.pathname === "/timed/check-ticker" && req.method === "GET") {
+      const ticker = url.searchParams.get("ticker");
+      if (!ticker) {
+        return sendJSON(
+          { ok: false, error: "ticker parameter required" },
+          400,
+          corsHeaders(env, req)
+        );
+      }
+
+      const tickerUpper = ticker.toUpperCase();
+      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      const inIndex = tickers.includes(tickerUpper);
+      const latest = await kvGetJSON(KV, `timed:latest:${tickerUpper}`);
+      const trail = await kvGetJSON(KV, `timed:trail:${tickerUpper}`);
+
+      return sendJSON(
+        {
+          ok: true,
+          ticker: tickerUpper,
+          inIndex,
+          hasLatest: !!latest,
+          hasTrail: !!trail,
+          latestData: latest || null,
+          trailLength: trail ? trail.length : 0,
+        },
         200,
         corsHeaders(env, req)
       );
