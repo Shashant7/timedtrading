@@ -1716,7 +1716,8 @@ export default {
       );
     }
 
-    // POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
+    // POST /timed/cleanup-tickers?key=... (Remove unapproved tickers, keep only approved list, normalize Gold/Silver)
+// POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
     if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
@@ -1752,7 +1753,8 @@ export default {
         return sendJSON(
           {
             ok: true,
-            message: "Rate limit reset acknowledged. Note: Cloudflare KV doesn't support listing all keys, so active rate limits will expire naturally after 1 hour. For immediate clearing, use ?ip=IP_ADDRESS to clear all endpoints for a specific IP.",
+            message:
+              "Rate limit reset acknowledged. Note: Cloudflare KV doesn't support listing all keys, so active rate limits will expire naturally after 1 hour. For immediate clearing, use ?ip=IP_ADDRESS to clear all endpoints for a specific IP.",
             note: "To clear all rate limits for your IP immediately, use: ?ip=YOUR_IP",
             endpoints: allEndpoints,
           },
