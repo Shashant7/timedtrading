@@ -1706,7 +1706,7 @@
         );
       }
 
-      function TickerDetails({ ticker, onClose }) {
+      function TickerDetails({ ticker, onClose, allTickers = [] }) {
         if (!ticker) return null;
 
         const prime = isPrimeBubble(ticker);
@@ -1847,7 +1847,7 @@
               {(() => {
                 const dynamicRank = computeDynamicRank(ticker);
                 const baseRank = Number(ticker.rank) || 0;
-                const allTickersWithRank = tickers.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
+                const allTickersWithRank = (allTickers || []).map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
                 const sortedByDynamic = [...allTickersWithRank].sort((a, b) => b.dynamicRank - a.dynamicRank);
                 const top40Position = sortedByDynamic.findIndex(t => t.ticker === ticker.ticker) + 1;
                 const isInTop40 = top40Position > 0 && top40Position <= 40;
@@ -2355,6 +2355,7 @@
             <TickerDetails
               ticker={foundTicker}
               onClose={onClose}
+              allTickers={tickers}
             />
           );
           
