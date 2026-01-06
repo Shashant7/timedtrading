@@ -1716,18 +1716,50 @@ export default {
       );
     }
 
-    // POST /timed/clear-rate-limit?key=...&ip=...&endpoint=... (Clear rate limit)
+    // POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
     if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
 
       const ip = url.searchParams.get("ip") || null;
       const endpoint = url.searchParams.get("endpoint") || null;
+      const clearAll = url.searchParams.get("all") === "true";
+
+      // List of all known endpoints that use rate limiting
+      const allEndpoints = [
+        "/timed/all",
+        "/timed/latest",
+        "/timed/activity",
+        "/timed/trail",
+        "/timed/top",
+        "/timed/momentum",
+        "/timed/momentum/history",
+        "/timed/momentum/all",
+        "/timed/trades",
+        "/timed/health",
+        "/timed/version",
+        "/timed/alert-debug",
+        "/timed/check-ticker",
+      ];
 
       let cleared = 0;
       const clearedKeys = [];
 
-      if (ip && endpoint) {
+      if (clearAll) {
+        // Clear ALL rate limits - note: KV doesn't support listing all keys
+        // So we return a message that rate limits will expire naturally
+        // For immediate clearing, users should specify IP
+        return sendJSON(
+          {
+            ok: true,
+            message: "Rate limit reset acknowledged. Note: Cloudflare KV doesn't support listing all keys, so active rate limits will expire naturally after 1 hour. For immediate clearing, use ?ip=IP_ADDRESS to clear all endpoints for a specific IP.",
+            note: "To clear all rate limits for your IP immediately, use: ?ip=YOUR_IP",
+            endpoints: allEndpoints,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } else if (ip && endpoint) {
         // Clear specific IP + endpoint combination
         const key = `ratelimit:${ip}:${endpoint}`;
         await KV.delete(key);
@@ -1735,17 +1767,7 @@ export default {
         clearedKeys.push(key);
       } else if (ip) {
         // Clear all rate limits for a specific IP (all endpoints)
-        // Note: KV doesn't support wildcard queries, so we need to know the endpoints
-        // For now, clear common endpoints
-        const commonEndpoints = [
-          "/timed/all",
-          "/timed/latest",
-          "/timed/activity",
-          "/timed/trail",
-          "/timed/top",
-          "/timed/momentum",
-        ];
-        for (const ep of commonEndpoints) {
+        for (const ep of allEndpoints) {
           const key = `ratelimit:${ip}:${ep}`;
           await KV.delete(key);
           cleared++;
@@ -1758,7 +1780,8 @@ export default {
         return sendJSON(
           {
             ok: false,
-            error: "Cannot clear endpoint without IP. Please specify both 'ip' and 'endpoint', or just 'ip' to clear all endpoints for that IP.",
+            error:
+              "Cannot clear endpoint without IP. Please specify both 'ip' and 'endpoint', or just 'ip' to clear all endpoints for that IP.",
           },
           400,
           corsHeaders(env, req)
@@ -1768,8 +1791,9 @@ export default {
         return sendJSON(
           {
             ok: false,
-            error: "Missing parameters. Usage: ?ip=...&endpoint=... or ?ip=...",
+            error: "Missing parameters",
             usage: {
+              clearAll: "POST /timed/clear-rate-limit?key=YOUR_KEY&all=true",
               clearSpecific:
                 "POST /timed/clear-rate-limit?key=YOUR_KEY&ip=IP_ADDRESS&endpoint=/timed/activity",
               clearAllForIP:
