@@ -6,7 +6,7 @@ A TradingView Indicator system that scores tickers against signals across LTF an
 
 ```
 timedtrading/
-├── index.html                          # CloudFlare Pages frontend (Bubble Quadrant Chart)
+├── react-app/index-react.html          # Main React Dashboard (Bubble Quadrant Chart)
 ├── worker/                             # CloudFlare Worker
 │   ├── index.js                       # Worker code (KV storage, Discord alerts)
 │   ├── wrangler.toml                  # Worker configuration

@@ -1,0 +1,42 @@
+{
+	"folders": [
+		{
+			"name": "Timed Trading",
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.exclude": {
+			"**/.git": false,
+			"**/.DS_Store": true,
+			"**/node_modules": true,
+			"**/.wrangler": true
+		},
+		"files.associations": {
+			"*.pine": "javascript",
+			"*.toml": "toml"
+		},
+		"editor.formatOnSave": true,
+		"editor.defaultFormatter": "esbenp.prettier-vscode",
+		"files.watcherExclude": {
+			"**/.git/objects/**": true,
+			"**/.git/subtree-cache/**": true,
+			"**/node_modules/**": true,
+			"**/.wrangler/**": true
+		},
+		"search.exclude": {
+			"**/node_modules": true,
+			"**/.wrangler": true,
+			"**/.git": true
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"esbenp.prettier-vscode",
+			"dbaeumer.vscode-eslint",
+			"bradlc.vscode-tailwindcss",
+			"tamasfe.even-better-toml"
+		]
+	}
+}
+

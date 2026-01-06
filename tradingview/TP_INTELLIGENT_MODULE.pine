@@ -1,0 +1,293 @@
+// ============================================================================
+// INTELLIGENT TP CALCULATION MODULE
+// To be integrated into TimedTrading_ScoreEngine.pine
+// ============================================================================
+
+//─────────────────────────────────────────────────────────────────────────────
+// Inputs for Intelligent TP
+//─────────────────────────────────────────────────────────────────────────────
+groupIntelligentTP = "Intelligent TP Features"
+useChartPatterns = input.bool(true, "Chart Patterns & Measured Moves", group=groupIntelligentTP)
+useHTFStructure = input.bool(true, "HTF Structure (Highs/Lows)", group=groupIntelligentTP)
+useLiquidityZones = input.bool(true, "Buyside/Sellside Liquidity", group=groupIntelligentTP)
+useFVG = input.bool(true, "Fair Value Gap (FVG) Analysis", group=groupIntelligentTP)
+useGapAnalysis = input.bool(true, "Open Gap Analysis", group=groupIntelligentTP)
+
+// Pattern detection settings
+patternLookback = input.int(50, "Pattern lookback (bars)", group=groupIntelligentTP, minval=20, maxval=200)
+liquidityTolerance = input.float(0.5, "Liquidity zone tolerance (% of ATR)", group=groupIntelligentTP, step=0.1, minval=0.1)
+fvgMinSize = input.float(0.3, "FVG min size (ATR multiple)", group=groupIntelligentTP, step=0.1, minval=0.1)
+gapMinSize = input.float(0.5, "Gap min size (ATR multiple)", group=groupIntelligentTP, step=0.1, minval=0.1)
+
+//─────────────────────────────────────────────────────────────────────────────
+// TP Level Structure Helper
+//─────────────────────────────────────────────────────────────────────────────
+// Note: Pine Script doesn't support objects, so we'll use arrays or strings
+// For JSON output, we'll build structured strings
+
+f_tp_level_str(float price, string label, string source, string type, float multiplier, string tf, float confidence, int priority) =>
+    "{\"price\":" + f_fmt(price, 2) + 
+    ",\"label\":\"" + label + "\"" +
+    ",\"source\":\"" + source + "\"" +
+    ",\"type\":\"" + type + "\"" +
+    ",\"multiplier\":" + (na(multiplier) ? "null" : f_fmt(multiplier, 3)) +
+    ",\"timeframe\":\"" + tf + "\"" +
+    ",\"confidence\":" + (na(confidence) ? "null" : f_fmt(confidence, 2)) +
+    ",\"priority\":" + str.tostring(priority) + "}"
+
+//─────────────────────────────────────────────────────────────────────────────
+// 1. Chart Patterns & Measured Moves
+//─────────────────────────────────────────────────────────────────────────────
+f_detect_double_top(float[] highs, int lookback) =>
+    // Simplified: find two similar highs within lookback
+    // In practice, would need more sophisticated pattern matching
+    na(float)
+
+f_detect_head_shoulders(float[] highs, float[] lows) =>
+    // H&S pattern detection
+    na(float)
+
+f_measured_move(float patternHeight, float breakoutPrice, bool isLong) =>
+    // Project measured move from pattern
+    isLong ? (breakoutPrice + patternHeight) : (breakoutPrice - patternHeight)
+
+//─────────────────────────────────────────────────────────────────────────────
+// 2. HTF Structure (Swing Highs/Lows)
+//─────────────────────────────────────────────────────────────────────────────
+f_swing_high_tf(string tf, int left, int right) =>
+    request.security(syminfo.tickerid, tf, ta.pivothigh(high, left, right), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_swing_low_tf(string tf, int left, int right) =>
+    request.security(syminfo.tickerid, tf, ta.pivotlow(low, left, right), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Get recent swing highs/lows on multiple timeframes
+swingHighW = useHTFStructure ? f_swing_high_tf("W", 5, 5) : na
+swingLowW  = useHTFStructure ? f_swing_low_tf("W", 5, 5) : na
+swingHighD = useHTFStructure ? f_swing_high_tf("D", 5, 5) : na
+swingLowD  = useHTFStructure ? f_swing_low_tf("D", 5, 5) : na
+swingHigh4H = useHTFStructure ? f_swing_high_tf("240", 3, 3) : na
+swingLow4H  = useHTFStructure ? f_swing_low_tf("240", 3, 3) : na
+
+//─────────────────────────────────────────────────────────────────────────────
+// 3. Buyside/Sellside Liquidity Detection
+//─────────────────────────────────────────────────────────────────────────────
+// Buyside = Equal lows (liquidity pools that get taken)
+// Sellside = Equal highs (liquidity pools that get taken)
+
+f_find_equal_lows_tf(string tf, float tolerance) =>
+    // Find recent equal lows within tolerance
+    // Returns array of price levels
+    array.new<float>()
+
+f_find_equal_highs_tf(string tf, float tolerance) =>
+    // Find recent equal highs within tolerance
+    array.new<float>()
+
+// Detect liquidity zones on multiple timeframes
+liquidityLows4H = useLiquidityZones ? f_find_equal_lows_tf("240", liquidityTolerance * ATR4H) : array.new<float>()
+liquidityHighs4H = useLiquidityZones ? f_find_equal_highs_tf("240", liquidityTolerance * ATR4H) : array.new<float>()
+liquidityLowsD = useLiquidityZones ? f_find_equal_lows_tf("D", liquidityTolerance * ATRd) : array.new<float>()
+liquidityHighsD = useLiquidityZones ? f_find_equal_highs_tf("D", liquidityTolerance * ATRd) : array.new<float>()
+liquidityLowsW = useLiquidityZones ? f_find_equal_lows_tf("W", liquidityTolerance * ATRw) : array.new<float>()
+liquidityHighsW = useLiquidityZones ? f_find_equal_highs_tf("W", liquidityTolerance * ATRw) : array.new<float>()
+
+//─────────────────────────────────────────────────────────────────────────────
+// 4. Fair Value Gap (FVG) Detection
+//─────────────────────────────────────────────────────────────────────────────
+// FVG = 3-bar imbalance where middle bar doesn't overlap with outer bars
+// Price tends to return to fill FVGs
+
+f_detect_fvg(bool isBullish) =>
+    // Bullish FVG: low[1] > high[2] and low[1] > high[0]
+    // Bearish FVG: high[1] < low[2] and high[1] < low[0]
+    fvgTop = isBullish ? high[1] : na
+    fvgBottom = isBullish ? math.max(low[2], low[0]) : na
+    fvgMid = isBullish and not na(fvgTop) and not na(fvgBottom) ? ((fvgTop + fvgBottom) / 2) : na
+    
+    // Check if FVG is significant (min size)
+    fvgSize = not na(fvgTop) and not na(fvgBottom) ? (fvgTop - fvgBottom) : 0
+    isSignificant = fvgSize >= (fvgMinSize * ta.atr(14))
+    
+    [fvgMid, isSignificant]
+
+// Detect FVGs on multiple timeframes
+[fvgMidD, fvgSigD] = useFVG ? f_detect_fvg(dir == 1) : [na, false]
+[fvgMidW, fvgSigW] = useFVG ? request.security(syminfo.tickerid, "W", f_detect_fvg(dir == 1), barmerge.gaps_off, barmerge.lookahead_off) : [na, false]
+
+//─────────────────────────────────────────────────────────────────────────────
+// 5. Open Gap Analysis
+//─────────────────────────────────────────────────────────────────────────────
+f_detect_gap_tf(string tf) =>
+    // Gap up: low > high[1]
+    // Gap down: high < low[1]
+    prevHigh = request.security(syminfo.tickerid, tf, high[1], barmerge.gaps_off, barmerge.lookahead_off)
+    prevLow = request.security(syminfo.tickerid, tf, low[1], barmerge.gaps_off, barmerge.lookahead_off)
+    currHigh = request.security(syminfo.tickerid, tf, high, barmerge.gaps_off, barmerge.lookahead_off)
+    currLow = request.security(syminfo.tickerid, tf, low, barmerge.gaps_off, barmerge.lookahead_off)
+    
+    gapUp = not na(prevHigh) and not na(currLow) and currLow > prevHigh
+    gapDown = not na(prevLow) and not na(currHigh) and currHigh < prevLow
+    
+    gapSize = gapUp ? (currLow - prevHigh) : (gapDown ? (prevLow - currHigh) : 0)
+    gapMid = gapUp ? ((currLow + prevHigh) / 2) : (gapDown ? ((prevLow + currHigh) / 2) : na)
+    
+    // Check if gap is significant
+    atrGap = request.security(syminfo.tickerid, tf, ta.atr(14), barmerge.gaps_off, barmerge.lookahead_off)
+    isSignificant = gapSize >= (gapMinSize * atrGap)
+    
+    [gapMid, gapSize, isSignificant, gapUp, gapDown]
+
+// Calculate gap age and fill probability
+f_gap_fill_probability(int ageBars) =>
+    // Probability decreases with age
+    ageBars <= 5 ? 0.80 :
+     ageBars <= 20 ? 0.60 :
+     ageBars <= 50 ? 0.40 :
+     0.20
+
+// Detect gaps on Daily and Weekly
+[gapMidD, gapSizeD, gapSigD, gapUpD, gapDownD] = useGapAnalysis ? f_detect_gap_tf("D") : [na, 0, false, false, false]
+[gapMidW, gapSizeW, gapSigW, gapUpW, gapDownW] = useGapAnalysis ? f_detect_gap_tf("W") : [na, 0, false, false, false]
+
+//─────────────────────────────────────────────────────────────────────────────
+// Enhanced TP Level Collection (Integrate with existing allTargets)
+//─────────────────────────────────────────────────────────────────────────────
+// This section should be integrated into the existing TP calculation section
+// around line 488-575 in TimedTrading_ScoreEngine.pine
+
+// Add HTF structure levels
+if useHTFStructure
+    if dir == 1  // Long
+        if not na(swingHighW) and swingHighW > price_now
+            array.push(allTargets, swingHighW)
+        if not na(swingHighD) and swingHighD > price_now
+            array.push(allTargets, swingHighD)
+        if not na(swingHigh4H) and swingHigh4H > price_now
+            array.push(allTargets, swingHigh4H)
+    else  // Short
+        if not na(swingLowW) and swingLowW < price_now
+            array.push(allTargets, swingLowW)
+        if not na(swingLowD) and swingLowD < price_now
+            array.push(allTargets, swingLowD)
+        if not na(swingLow4H) and swingLow4H < price_now
+            array.push(allTargets, swingLow4H)
+
+// Add liquidity zones (these are magnets before continuation)
+if useLiquidityZones
+    if dir == 1  // Long - sellside liquidity above
+        // Add equal highs as potential targets (liquidity gets taken)
+        sizeHighs4H = array.size(liquidityHighs4H)
+        if sizeHighs4H > 0
+            for i = 0 to sizeHighs4H - 1
+                if i < sizeHighs4H
+                    liq = array.get(liquidityHighs4H, i)
+                    if not na(liq) and liq > price_now
+                        array.push(allTargets, liq)
+    else  // Short - buyside liquidity below
+        sizeLows4H = array.size(liquidityLows4H)
+        if sizeLows4H > 0
+            for i = 0 to sizeLows4H - 1
+                if i < sizeLows4H
+                    liq = array.get(liquidityLows4H, i)
+                    if not na(liq) and liq < price_now
+                        array.push(allTargets, liq)
+
+// Add FVG midpoints (price tends to return to fill)
+if useFVG
+    if not na(fvgMidD) and fvgSigD
+        if dir == 1 and fvgMidD > price_now
+            array.push(allTargets, fvgMidD)
+        if dir == -1 and fvgMidD < price_now
+            array.push(allTargets, fvgMidD)
+    if not na(fvgMidW) and fvgSigW
+        if dir == 1 and fvgMidW > price_now
+            array.push(allTargets, fvgMidW)
+        if dir == -1 and fvgMidW < price_now
+            array.push(allTargets, fvgMidW)
+
+// Add gap fills (with probability-based confidence)
+if useGapAnalysis
+    if gapSigD and not na(gapMidD)
+        // Gap fill probability based on age (simplified - would need to track gap creation time)
+        gapProb = 0.70  // Default, would calculate from gap age
+        if dir == 1 and gapDownD and gapMidD < price_now
+            array.push(allTargets, gapMidD)
+        if dir == -1 and gapUpD and gapMidD > price_now
+            array.push(allTargets, gapMidD)
+    if gapSigW and not na(gapMidW)
+        gapProb = 0.60  // Weekly gaps less likely to fill
+        if dir == 1 and gapDownW and gapMidW < price_now
+            array.push(allTargets, gapMidW)
+        if dir == -1 and gapUpW and gapMidW > price_now
+            array.push(allTargets, gapMidW)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Enhanced TP Array String Builder (with metadata)
+//─────────────────────────────────────────────────────────────────────────────
+// This replaces the simple tpArrayStr builder around line 658-669
+
+// Build enhanced TP array with metadata
+tpArrayStr = "["
+sizeAllTp = array.size(allTargets)
+tpCounter = 1
+
+if sizeAllTp > 0
+    // Sort targets first (already done in main script)
+    for i = 0 to sizeAllTp - 1
+        if i < sizeAllTp
+            if i > 0
+                tpArrayStr += ","
+            
+            val = array.get(allTargets, i)
+            if not na(val)
+                // Determine source/type for this level
+                // This is simplified - in practice would track source when adding to array
+                label = "TP" + str.tostring(tpCounter)
+                source = "ATR Level"  // Default, would be determined by source
+                type = "ATR_FIB"
+                multiplier = na(float)
+                tf = "D"
+                confidence = 0.75  // Default confidence
+                
+                // Check if it's from HTF structure
+                if useHTFStructure
+                    if (not na(swingHighW) and math.abs(val - swingHighW) < syminfo.mintick * 2) or
+                       (not na(swingHighD) and math.abs(val - swingHighD) < syminfo.mintick * 2) or
+                       (not na(swingLowW) and math.abs(val - swingLowW) < syminfo.mintick * 2) or
+                       (not na(swingLowD) and math.abs(val - swingLowD) < syminfo.mintick * 2)
+                        source := "Swing High/Low"
+                        type := "STRUCTURE"
+                        confidence := 0.80
+                
+                // Check if it's from liquidity zone
+                if useLiquidityZones
+                    // Would check against liquidity arrays
+                    // source := "Liquidity Zone"
+                    // type := "LIQUIDITY"
+                    // confidence := 0.70
+                
+                // Check if it's from FVG
+                if useFVG
+                    if (not na(fvgMidD) and math.abs(val - fvgMidD) < syminfo.mintick * 2) or
+                       (not na(fvgMidW) and math.abs(val - fvgMidW) < syminfo.mintick * 2)
+                        source := "Fair Value Gap"
+                        type := "FVG"
+                        confidence := 0.65
+                
+                // Check if it's from gap
+                if useGapAnalysis
+                    if (not na(gapMidD) and math.abs(val - gapMidD) < syminfo.mintick * 2) or
+                       (not na(gapMidW) and math.abs(val - gapMidW) < syminfo.mintick * 2)
+                        source := "Gap Fill"
+                        type := "GAP"
+                        confidence := 0.60
+                
+                // Build TP level JSON string
+                tpLevelJson = f_tp_level_str(val, label, source, type, multiplier, tf, confidence, tpCounter)
+                tpArrayStr += tpLevelJson
+                tpCounter += 1
+
+tpArrayStr += "]"
+
+// Use this enhanced tpArrayStr in the main JSON output instead of the simple version
+
