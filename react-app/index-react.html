@@ -1351,6 +1351,26 @@
             filter: { squeezeRelease: true },
             icon: "⚡",
           },
+          {
+            label: "Q1: Bull Setup",
+            filter: { quadrants: ["HTF_BULL_LTF_PULLBACK"] },
+            icon: "📈",
+          },
+          {
+            label: "Q2: Bull Momentum",
+            filter: { quadrants: ["HTF_BULL_LTF_BULL"] },
+            icon: "🚀",
+          },
+          {
+            label: "Q3: Bear Momentum",
+            filter: { quadrants: ["HTF_BEAR_LTF_BEAR"] },
+            icon: "📉",
+          },
+          {
+            label: "Q4: Bear Setup",
+            filter: { quadrants: ["HTF_BEAR_LTF_PULLBACK"] },
+            icon: "🔻",
+          },
         ];
 
         const isActive = (preset) => {
@@ -1362,6 +1382,19 @@
           }
           if (preset.label === "Squeeze Release") {
             return filters.squeezeRelease === true;
+          }
+          // Check if quadrant filter matches
+          if (preset.label.startsWith("Q")) {
+            const presetQuadrants = preset.filter.quadrants || [];
+            const currentQuadrants = filters.quadrants || [];
+            // Check if preset quadrants are the only ones selected
+            if (presetQuadrants.length === 1 && currentQuadrants.length === 1) {
+              return presetQuadrants[0] === currentQuadrants[0];
+            }
+            // Check if preset quadrants are subset of current (and no others)
+            if (presetQuadrants.length === 1 && currentQuadrants.includes(presetQuadrants[0])) {
+              return currentQuadrants.length === 1;
+            }
           }
           return false;
         };
@@ -1376,6 +1409,16 @@
               onFilterChange({ inCorridor: false });
             } else if (preset.label === "Squeeze Release") {
               onFilterChange({ squeezeRelease: false });
+            } else if (preset.label.startsWith("Q")) {
+              // Reset to all quadrants
+              onFilterChange({ 
+                quadrants: [
+                  "HTF_BULL_LTF_PULLBACK",
+                  "HTF_BULL_LTF_BULL",
+                  "HTF_BEAR_LTF_BEAR",
+                  "HTF_BEAR_LTF_PULLBACK",
+                ]
+              });
             }
           } else {
             // Toggle on - apply filter
@@ -1845,31 +1888,44 @@
 
             <div className="space-y-2.5 text-sm">
               {(() => {
+                const baseScore = Number(ticker.rank) || 0; // Base Score from worker
                 const dynamicRank = computeDynamicRank(ticker);
-                const baseRank = Number(ticker.rank) || 0;
                 const allTickersWithRank = (allTickers || []).map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
                 const sortedByDynamic = [...allTickersWithRank].sort((a, b) => b.dynamicRank - a.dynamicRank);
-                const top40Position = sortedByDynamic.findIndex(t => t.ticker === ticker.ticker) + 1;
-                const isInTop40 = top40Position > 0 && top40Position <= 40;
+                const rankPosition = sortedByDynamic.findIndex(t => t.ticker === ticker.ticker) + 1;
+                const totalTickers = allTickers.length;
+                const isInTop40 = rankPosition > 0 && rankPosition <= 40;
                 
                 return (
                   <>
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Rank</span>
-                    <span className="font-semibold">
-                      {dynamicRank !== baseRank 
-                        ? `${dynamicRank} (base score: ${baseRank})` 
-                        : dynamicRank}
-                    </span>
-                  </div>
-                  {isInTop40 && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Top 40 Position</span>
-                      <span className="font-semibold text-yellow-400">
-                        #{top40Position} of 40
+                      <span className="text-[#93a4d6]">Base Score</span>
+                      <span className="font-semibold text-blue-400">
+                        {baseScore}
                       </span>
                     </div>
-                  )}
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Rank</span>
+                      <span className="font-semibold">
+                        {rankPosition > 0 ? `#${rankPosition} of ${totalTickers}` : "—"}
+                      </span>
+                    </div>
+                    {dynamicRank !== baseScore && (
+                      <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                        <span className="text-[#93a4d6]">Dynamic Score</span>
+                        <span className="font-semibold text-green-400">
+                          {dynamicRank}
+                        </span>
+                      </div>
+                    )}
+                    {isInTop40 && (
+                      <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                        <span className="text-[#93a4d6]">Top 40 Position</span>
+                        <span className="font-semibold text-yellow-400">
+                          #{rankPosition} of 40
+                        </span>
+                      </div>
+                    )}
                   </>
                 );
               })()}
