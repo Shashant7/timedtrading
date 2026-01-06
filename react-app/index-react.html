@@ -804,13 +804,35 @@
         const [tooltip, setTooltip] = useState(null);
         const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
         const [showLabels, setShowLabels] = useState(true);
+        const containerRef = React.useRef(null);
+        const [dimensions, setDimensions] = React.useState({ width: 1600, height: 1000 });
+        
+        // Update dimensions on mount and resize to use full container space
+        React.useEffect(() => {
+          const updateDimensions = () => {
+            if (containerRef.current) {
+              const rect = containerRef.current.getBoundingClientRect();
+              // Use actual container size, with minimums
+              setDimensions({ 
+                width: Math.max(rect.width - 16, 1200), // Account for padding
+                height: Math.max(rect.height - 16, 800) 
+              });
+            }
+          };
+          // Initial update
+          const timeoutId = setTimeout(updateDimensions, 100);
+          window.addEventListener('resize', updateDimensions);
+          return () => {
+            clearTimeout(timeoutId);
+            window.removeEventListener('resize', updateDimensions);
+          };
+        }, []);
         
         // Fallback: Native SVG chart (works without Recharts)
         if (!RechartsComponents) {
-          // Larger chart: increased for better visibility
-          const chartWidth = 1400;
-          const chartHeight = 900;
-          const margin = 80;
+          const chartWidth = dimensions.width;
+          const chartHeight = dimensions.height;
+          const margin = 50; // Reduced margin for more plot space
           const plotWidth = chartWidth - 2 * margin;
           const plotHeight = chartHeight - 2 * margin;
           
@@ -826,7 +848,7 @@
           };
           
           return (
-            <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-4 relative">
+            <div ref={containerRef} className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-2 relative">
               {/* Label toggle */}
               <div className="absolute top-2 right-2 z-10">
                 <button
@@ -840,9 +862,10 @@
                 width="100%" 
                 height="100%" 
                 viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                preserveAspectRatio="xMidYMid meet"
                 onMouseMove={handleMouseMove}
                 onMouseLeave={() => setTooltip(null)}
-                style={{ minHeight: "900px" }}
+                className="w-full h-full"
               >
                 {/* Grid with better styling */}
                 <defs>
@@ -2634,7 +2657,7 @@
                   
                   {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                   <div className="flex-1 min-w-0">
-                    <div className="h-[900px]">
+                    <div className="h-full min-h-[900px]">
                     {loading && tickers.length === 0 ? (
                       <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
                         <div className="text-center">
