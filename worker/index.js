@@ -1479,13 +1479,13 @@ export default {
 
     // GET /timed/activity
     if (url.pathname === "/timed/activity" && req.method === "GET") {
-      // Rate limiting
+      // Rate limiting - higher limit since this is a frequently refreshing feed
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
       const rateLimit = await checkRateLimit(
         KV,
         ip,
         "/timed/activity",
-        100,
+        300, // 300 requests per hour (5 per minute) - allows for 30s refresh interval
         3600
       );
 

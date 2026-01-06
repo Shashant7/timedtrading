@@ -1503,6 +1503,7 @@
       function ActivityFeed({ onTickerClick }) {
         const [events, setEvents] = useState([]);
         const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
         const feedRef = React.useRef(null);
 
         const fetchActivity = React.useCallback(async () => {
@@ -1520,6 +1521,7 @@
             
             if (res.ok && data.ok && Array.isArray(data.events)) {
               setEvents(data.events);
+              setError(null); // Clear any previous errors
             } else {
               // Log error for debugging
               console.warn('Activity feed response:', {
@@ -1529,6 +1531,16 @@
                 error: data.error,
                 eventsCount: data.events?.length || 0
               });
+              
+              // Handle rate limit error
+              if (res.status === 429) {
+                setError('Rate limit exceeded. Please wait a moment and refresh.');
+              } else if (data.error) {
+                setError(data.error);
+              } else {
+                setError(null);
+              }
+              
               // Still set events if it's an empty array (no error, just no data)
               if (res.ok && Array.isArray(data.events)) {
                 setEvents(data.events);
@@ -1537,6 +1549,7 @@
           } catch (err) {
             if (err.name !== 'AbortError') {
               console.error('Activity feed fetch error:', err);
+              setError('Failed to load activity feed');
             }
           } finally {
             setLoading(false);
@@ -1633,6 +1646,16 @@
                 <div className="text-center text-[#93a4d6] py-8">
                   <div className="loading-spinner mx-auto mb-2"></div>
                   Loading events...
+                </div>
+              ) : error ? (
+                <div className="text-center text-yellow-400 py-8 px-2">
+                  <div className="text-sm mb-2">{error}</div>
+                  <button
+                    onClick={fetchActivity}
+                    className="text-xs text-[#93a4d6] hover:text-white underline"
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : events.length === 0 ? (
                 <div className="text-center text-[#93a4d6] py-8">
