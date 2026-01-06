@@ -1477,7 +1477,7 @@
       // ─────────────────────────────────────────────────────────────
       // Activity Feed Component
       // ─────────────────────────────────────────────────────────────
-      function ActivityFeed() {
+      function ActivityFeed({ onTickerClick }) {
         const [events, setEvents] = useState([]);
         const [loading, setLoading] = useState(true);
         const feedRef = React.useRef(null);
@@ -1607,7 +1607,8 @@
                 events.map((event) => (
                   <div
                     key={event.id || `${event.ticker}-${event.ts}`}
-                    className="bg-[#121a33] border border-[#26325f] rounded p-2 text-xs hover:border-[#3a4a7a] transition-colors"
+                    onClick={() => onTickerClick && onTickerClick(event.ticker)}
+                    className="bg-[#121a33] border border-[#26325f] rounded p-2 text-xs hover:border-[#3a4a7a] hover:bg-[#1a2440] transition-colors cursor-pointer"
                   >
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -2091,20 +2092,13 @@
         const actionInfo = getActionDescription(ticker);
 
         return (
-          <>
-            {/* Backdrop - lighter, doesn't block chart */}
+          <div className="w-full h-full">
+            {/* Detail Card - slides in from right, positioned in hero layout */}
             <div 
-              className="fixed inset-0 bg-black/20 z-[9998]"
-              onClick={onClose}
-              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
-            />
-            {/* Overlay Card - slides in from right */}
-            <div className="fixed right-0 top-0 bottom-0 z-[9999] flex items-center p-4 pointer-events-none" style={{ position: 'fixed', top: 0, right: 0, bottom: 0 }}>
-              <div 
-                className="bg-[#121a33] border-2 border-[#26325f] rounded-l-xl p-6 w-full max-w-lg h-full overflow-y-auto slide-in-right pointer-events-auto shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-                style={{ maxWidth: '500px' }}
-              >
+              className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 w-full h-full overflow-y-auto slide-in-right shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              style={{ minHeight: '800px' }}
+            >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">{ticker.ticker}</h3>
               <button
@@ -2435,7 +2429,7 @@
             </div>
               </div>
             </div>
-          </>
+          </div>
         );
       }
 
@@ -2606,15 +2600,17 @@
                 </div>
               </header>
 
-              {/* Main Content - Chart on top, full width */}
+              {/* Main Content - Hero Layout: Activity Feed (left) | Bubble Chart (center) | Detail (right) */}
               <div className="space-y-4">
-                {/* Chart with Activity Feed */}
-                <div className="flex gap-4">
-                  {/* Activity Feed - Left side */}
-                  <ActivityFeed />
+                {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
+                <div className="flex gap-4 items-start">
+                  {/* Activity Feed - Left side (complementary, fixed width) */}
+                  <div className="flex-shrink-0">
+                    <ActivityFeed onTickerClick={handleTickerSelect} />
+                  </div>
                   
-                  {/* Chart - Full width, larger */}
-                  <div className="flex-1">
+                  {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
+                  <div className="flex-1 min-w-0">
                     <div className="h-[800px]">
                     {loading && tickers.length === 0 ? (
                       <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
@@ -2636,6 +2632,16 @@
                       />
                     )}
                     </div>
+                  </div>
+                  
+                  {/* Detail View - Right side (slides in when ticker selected, fixed width) */}
+                  <div className="flex-shrink-0 w-[450px]">
+                    <OverlayPortal
+                      selectedTicker={selectedTicker}
+                      tickers={tickers}
+                      data={data}
+                      onClose={() => handleTickerSelect(null)}
+                    />
                   </div>
                 </div>
 
@@ -2776,13 +2782,6 @@
             </div>
           </div>
           
-          {/* Overlay Portal - renders outside main container */}
-          <OverlayPortal
-            selectedTicker={selectedTicker}
-            tickers={tickers}
-            data={data}
-            onClose={() => handleTickerSelect(null)}
-          />
           </>
         );
       }
