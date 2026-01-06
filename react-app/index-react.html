@@ -1518,17 +1518,34 @@
         
         React.useEffect(() => {
           // Defer trail loading to not block initial render
-          if (!hasLoaded) {
+          if (!hasLoaded && ticker && ticker.ticker) {
             setLoading(true);
             const timeoutId = setTimeout(async () => {
               try {
-                const response = await fetch(`https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker.ticker)}`);
+                const controller = new AbortController();
+                const timeoutId2 = setTimeout(() => controller.abort(), 5000); // 5s timeout
+                
+                const response = await fetch(
+                  `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker.ticker)}`,
+                  { signal: controller.signal }
+                );
+                
+                clearTimeout(timeoutId2);
+                
+                if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+                }
+                
                 const data = await response.json();
                 if (data.ok && Array.isArray(data.trail)) {
                   setTrail(data.trail);
                 }
               } catch (e) {
-                console.error("Failed to load trail:", e);
+                if (e.name !== 'AbortError') {
+                  console.error("Failed to load trail:", e);
+                }
+                // Set empty trail on error to prevent infinite retries
+                setTrail([]);
               } finally {
                 setLoading(false);
                 setHasLoaded(true);
@@ -1536,7 +1553,7 @@
             }, 200); // Small delay to not block UI
             return () => clearTimeout(timeoutId);
           }
-        }, [ticker.ticker, hasLoaded]);
+        }, [ticker?.ticker, hasLoaded]);
 
         const patterns = detectPatterns(trail, flags || {});
         const currentQuad = getQuadrantFromState(ticker.state);
@@ -2008,12 +2025,14 @@
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [hoveredTicker, setHoveredTicker] = useState(null);
         
-        // Debug: log when selectedTicker changes
-        React.useEffect(() => {
-          if (selectedTicker) {
-            console.log('Selected ticker:', selectedTicker);
+        // Safe setter for selectedTicker to prevent infinite loops
+        const handleTickerSelect = useCallback((ticker) => {
+          try {
+            setSelectedTicker(ticker);
+          } catch (error) {
+            console.error('Error setting selected ticker:', error);
           }
-        }, [selectedTicker]);
+        }, []);
 
         const debouncedSearch = useDebounce(filters.search, 300);
         const effectiveFilters = { ...filters, search: debouncedSearch };
@@ -2136,7 +2155,7 @@
                     ) : (
                       <BubbleChart
                         tickers={tickers}
-                        onBubbleClick={setSelectedTicker}
+                        onBubbleClick={handleTickerSelect}
                         hoveredTicker={hoveredTicker}
                         onHover={setHoveredTicker}
                       />
@@ -2172,7 +2191,7 @@
                               <SetupCard
                                 ticker={{ ...ticker, rank: ticker.dynamicRank }}
                                 isSelected={selectedTicker === ticker.ticker}
-                                onClick={() => setSelectedTicker(ticker.ticker)}
+                                onClick={() => handleTickerSelect(ticker.ticker)}
                               />
                             </div>
                           </div>
@@ -2204,7 +2223,7 @@
                                 key={ticker.ticker}
                                 ticker={{ ...ticker, rank: ticker.dynamicRank }}
                                 isSelected={selectedTicker === ticker.ticker}
-                                onClick={() => setSelectedTicker(ticker.ticker)}
+                                onClick={() => handleTickerSelect(ticker.ticker)}
                               />
                             ))}
                           </div>
@@ -2234,7 +2253,7 @@
                                 key={ticker.ticker}
                                 ticker={{ ...ticker, rank: ticker.dynamicRank }}
                                 isSelected={selectedTicker === ticker.ticker}
-                                onClick={() => setSelectedTicker(ticker.ticker)}
+                                onClick={() => handleTickerSelect(ticker.ticker)}
                               />
                             ))}
                           </div>
@@ -2267,7 +2286,7 @@
                                 key={ticker.ticker}
                                 ticker={{ ...ticker, rank: ticker.dynamicRank }}
                                 isSelected={selectedTicker === ticker.ticker}
-                                onClick={() => setSelectedTicker(ticker.ticker)}
+                                onClick={() => handleTickerSelect(ticker.ticker)}
                               />
                             ))}
                           </div>
@@ -2286,7 +2305,7 @@
             selectedTicker={selectedTicker}
             tickers={tickers}
             data={data}
-            onClose={() => setSelectedTicker(null)}
+            onClose={() => handleTickerSelect(null)}
           />
           </>
         );
@@ -2296,35 +2315,42 @@
       function OverlayPortal({ selectedTicker, tickers, data, onClose }) {
         if (!selectedTicker) return null;
         
-        // Search in filtered tickers first, then fallback to all data
-        let foundTicker = tickers.find((t) => t && t.ticker === selectedTicker);
-        if (!foundTicker && data && typeof data === 'object') {
-          // Fallback: search in original data object
-          const dataArray = Array.isArray(data) ? data : Object.values(data);
-          foundTicker = dataArray.find((t) => t && t.ticker === selectedTicker);
-        }
-        if (!foundTicker) {
-          console.warn('Ticker not found:', selectedTicker, 'Available:', tickers.map(t => t.ticker).slice(0, 5));
-          return null;
-        }
-        
-        // Use portal to render at document body level
-        if (ReactDOM.createPortal) {
-          return ReactDOM.createPortal(
+        try {
+          // Search in filtered tickers first, then fallback to all data
+          let foundTicker = tickers.find((t) => t && t.ticker === selectedTicker);
+          if (!foundTicker && data && typeof data === 'object') {
+            // Fallback: search in original data object
+            const dataArray = Array.isArray(data) ? data : Object.values(data);
+            foundTicker = dataArray.find((t) => t && t.ticker === selectedTicker);
+          }
+          if (!foundTicker) {
+            console.warn('Ticker not found:', selectedTicker);
+            return null;
+          }
+          
+          const overlayContent = (
             <TickerDetails
               ticker={foundTicker}
               onClose={onClose}
-            />,
-            document.body
+            />
           );
+          
+          // Use portal to render at document body level, but only if available
+          if (ReactDOM && ReactDOM.createPortal && document && document.body) {
+            try {
+              return ReactDOM.createPortal(overlayContent, document.body);
+            } catch (portalError) {
+              console.error('Portal error:', portalError);
+              // Fallback to inline rendering
+              return overlayContent;
+            }
+          }
+          // Fallback if portal not available
+          return overlayContent;
+        } catch (error) {
+          console.error('OverlayPortal error:', error);
+          return null;
         }
-        // Fallback if portal not available
-        return (
-          <TickerDetails
-            ticker={foundTicker}
-            onClose={onClose}
-          />
-        );
       }
 
       // Render with error handling
