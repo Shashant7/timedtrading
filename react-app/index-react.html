@@ -220,9 +220,9 @@
         const fetchData = useCallback(async () => {
           try {
             setLoading(true);
-            // Add timeout to prevent hanging
+            // Add timeout to prevent hanging - increased to 30s for large datasets
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
             
             const res = await fetch(`${API_BASE}/timed/all`, {
               signal: controller.signal
