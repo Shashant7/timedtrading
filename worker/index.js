@@ -1819,6 +1819,123 @@ export default {
       );
     }
 
+    // POST /timed/cleanup-tickers?key=... (Cleanup tickers to match approved list)
+    if (url.pathname === "/timed/cleanup-tickers" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      // Approved ticker list (normalized to uppercase)
+      const approvedTickers = new Set([
+        // Upticks
+        "TSLA", "STX", "AU", "CCJ", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL",
+        "AMZN", "BRK-B", "BRK.B", "BABA", "WMT", "PH", "GEV", "HII", "ULTA",
+        "SHOP", "CSX", "PWR", "HOOD", "SPGI", "APP", "PANW", "RDDT", "TT",
+        "GLXY", "ETHA",
+        // Super Granny
+        "META", "NVDA", "AMD", "ANET", "GS",
+        // GRNI
+        "TJX", "SOFI", "PNC", "PLTR", "NFLX", "MSTR", "MSFT", "MNST", "LRCX",
+        "KLAC", "JPM", "GOOGL", "GE", "EXPE", "ETN", "EMR", "DE", "CRWD",
+        "COST", "CDNS", "CAT", "BK", "AXP", "AXON", "AVGO", "AAPL",
+        // GRNJ
+        "RKLB", "LITE", "SN", "ALB", "RGLD", "MTZ", "ON", "ALLY", "DY",
+        "EWBC", "PATH", "WFRD", "WAL", "IESC", "ENS", "TWLO", "MLI", "KTOS",
+        "MDB", "TLN", "EME", "AWI", "IBP", "DCI", "WTS", "FIX", "UTHR", "NBIS",
+        "SGI", "AYI", "RIOT", "NXT", "SANM", "BWXT", "PEGA", "JOBY", "IONQ",
+        "ITT", "STRL", "QLYS", "MP", "HIMS", "IOT", "BE", "NEU", "AVAV", "PSTG",
+        "RBLX",
+        // GRNY (already covered above)
+        // Social
+        "CSCO", "BA", "NKE", "PI", "APLD", "MU",
+        // SP Sectors
+        "XLK", "XLF", "XLY", "XLP", "XLC", "XLB", "XLE", "XLU", "XLV",
+        // Futures (normalize to common formats)
+        "ES", "ES1!", "MES1!", "NQ", "NQ1!", "MNQ1!", "BTC", "BTC1!", "BTCUSD",
+        "ETH", "ETH1!", "ETHT", "ETHUSD", "GOLD", "XAUUSD", "SILVER", "XAGUSD",
+      ]);
+
+      // Ticker normalization map (handle variations)
+      const tickerMap = {
+        "BRK-B": "BRK.B", // Map BRK-B to BRK.B format
+        "GOLD": "GOLD", // Keep as is
+        "SILVER": "SILVER", // Keep as is
+        "ES": "ES1!", // Map ES to ES1!
+        "NQ": "NQ1!", // Map NQ to NQ1!
+        "BTC": "BTC1!", // Map BTC to BTC1!
+        "ETH": "ETH1!", // Map ETH to ETH1!
+      };
+
+      const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      const currentSet = new Set(currentTickers.map((t) => t.toUpperCase()));
+
+      const toRemove = [];
+      const toKeep = [];
+      const renamed = [];
+
+      // Process each current ticker
+      for (const ticker of currentTickers) {
+        const upperTicker = ticker.toUpperCase();
+        const normalized = tickerMap[upperTicker] || upperTicker;
+
+        if (approvedTickers.has(upperTicker) || approvedTickers.has(normalized)) {
+          // Keep this ticker
+          if (normalized !== upperTicker && tickerMap[upperTicker]) {
+            // Need to rename
+            renamed.push({ from: ticker, to: normalized });
+            toKeep.push(normalized);
+          } else {
+            toKeep.push(ticker);
+          }
+        } else {
+          // Remove this ticker
+          toRemove.push(ticker);
+        }
+      }
+
+      // Remove unapproved tickers from KV
+      let removedCount = 0;
+      for (const ticker of toRemove) {
+        await KV.delete(`timed:latest:${ticker}`);
+        await KV.delete(`timed:trail:${ticker}`);
+        removedCount++;
+      }
+
+      // Rename tickers if needed
+      let renamedCount = 0;
+      for (const { from, to } of renamed) {
+        const latestData = await kvGetJSON(KV, `timed:latest:${from}`);
+        const trailData = await kvGetJSON(KV, `timed:trail:${from}`);
+        
+        if (latestData) {
+          await kvPutJSON(KV, `timed:latest:${to}`, latestData);
+          await KV.delete(`timed:latest:${from}`);
+        }
+        if (trailData) {
+          await kvPutJSON(KV, `timed:trail:${to}`, trailData);
+          await KV.delete(`timed:trail:${from}`);
+        }
+        renamedCount++;
+      }
+
+      // Update ticker index
+      await kvPutJSON(KV, "timed:tickers", toKeep.sort());
+
+      return sendJSON(
+        {
+          ok: true,
+          message: "Ticker cleanup completed",
+          removed: removedCount,
+          renamed: renamedCount,
+          kept: toKeep.length,
+          removedTickers: toRemove.sort(),
+          renamedTickers: renamed,
+          finalTickers: toKeep.sort(),
+        },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
     // GET /timed/cors-debug (Debug CORS configuration)
     if (url.pathname === "/timed/cors-debug" && req.method === "GET") {
       const corsConfig = env.CORS_ALLOW_ORIGIN || "";
