@@ -1975,6 +1975,34 @@
                   })()}
                 </span>
               </div>
+              {ticker.tp_levels && Array.isArray(ticker.tp_levels) && ticker.tp_levels.length > 1 && (() => {
+                // Calculate max TP
+                const tpPrices = ticker.tp_levels
+                  .map(tpItem => {
+                    if (typeof tpItem === 'object' && tpItem !== null && tpItem.price != null) {
+                      return Number(tpItem.price);
+                    }
+                    return typeof tpItem === 'number' ? tpItem : Number(tpItem);
+                  })
+                  .filter(p => Number.isFinite(p));
+                
+                if (tpPrices.length > 0) {
+                  const maxTP = Math.max(...tpPrices);
+                  const primaryTP = Number(ticker.tp) || tpPrices[0];
+                  
+                  if (maxTP > primaryTP) {
+                    return (
+                      <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                        <span className="text-[#93a4d6]">TP (Max)</span>
+                        <span className="font-semibold text-green-400">
+                          ${maxTP.toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  }
+                }
+                return null;
+              })()}
               {ticker.tp_levels && Array.isArray(ticker.tp_levels) && ticker.tp_levels.length > 0 && (
                 <div className="py-1 border-b border-[#26325f]/50">
                   <div className="text-[#93a4d6] text-xs mb-2 font-semibold">TP Levels</div>

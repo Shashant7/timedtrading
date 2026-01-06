@@ -753,24 +753,71 @@ if not na(tp) and usePivotSR
     if dir == -1 and not na(nearestSupport) and nearestSupport > tp
         tp := nearestSupport * 1.02  // 2% above support
 
-// VOLATILITY-ADJUSTED SL
+// VOLATILITY-ADJUSTED SL with Daily 21 EMA as safe default
 atrStopBase = ATRw * 0.35
 atrStop = useVolatilitySL ? (atrStopBase * math.max(0.8, math.min(1.5, atrRD > 0 ? atrRD : 1.0))) : atrStopBase
 if useVolatilitySL
     minSL = ATRd * 1.5
     atrStop := math.max(atrStop, minSL)
 
+// Daily 21 EMA as safe SL default
+daily21EMA = e21D
+
 float sl = na
 if dir == 1
-    sl := stLW < price_now ? stLW : (not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop))
-    // Respect support if enabled
-    if usePivotSR and not na(nearestSupport) and nearestSupport > sl
-        sl := nearestSupport * 0.99
+    // For longs: use Daily 21 EMA if it's below price (safe), otherwise use closer option
+    slCandidates = array.new<float>()
+    
+    // 1. Daily 21 EMA (safest, if below price)
+    if not na(daily21EMA) and daily21EMA < price_now
+        array.push(slCandidates, daily21EMA)
+    
+    // 2. Weekly SuperTrend (if below price and closer than Daily 21 EMA)
+    if not na(stLW) and stLW < price_now
+        if array.size(slCandidates) == 0 or stLW > array.get(slCandidates, 0)
+            array.push(slCandidates, stLW)
+    
+    // 3. ATR-based stop from trigger
+    atrBasedSL = not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop)
+    array.push(slCandidates, atrBasedSL)
+    
+    // 4. Nearest support (if enabled and closer)
+    if usePivotSR and not na(nearestSupport) and nearestSupport < price_now
+        array.push(slCandidates, nearestSupport * 0.99)
+    
+    // Choose the highest (safest) SL that's still below price
+    if array.size(slCandidates) > 0
+        array.sort(slCandidates, order.descending)
+        sl := array.get(slCandidates, 0)
+    else
+        sl := daily21EMA  // Fallback to Daily 21 EMA
 else
-    sl := stLW > price_now ? stLW : (not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop))
-    // Respect resistance if enabled
-    if usePivotSR and not na(nearestResistance) and nearestResistance < sl
-        sl := nearestResistance * 1.01
+    // For shorts: use Daily 21 EMA if it's above price (safe), otherwise use closer option
+    slCandidates = array.new<float>()
+    
+    // 1. Daily 21 EMA (safest, if above price)
+    if not na(daily21EMA) and daily21EMA > price_now
+        array.push(slCandidates, daily21EMA)
+    
+    // 2. Weekly SuperTrend (if above price and closer than Daily 21 EMA)
+    if not na(stLW) and stLW > price_now
+        if array.size(slCandidates) == 0 or stLW < array.get(slCandidates, 0)
+            array.push(slCandidates, stLW)
+    
+    // 3. ATR-based stop from trigger
+    atrBasedSL = not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop)
+    array.push(slCandidates, atrBasedSL)
+    
+    // 4. Nearest resistance (if enabled and closer)
+    if usePivotSR and not na(nearestResistance) and nearestResistance > price_now
+        array.push(slCandidates, nearestResistance * 1.01)
+    
+    // Choose the lowest (safest) SL that's still above price
+    if array.size(slCandidates) > 0
+        array.sort(slCandidates, order.ascending)
+        sl := array.get(slCandidates, 0)
+    else
+        sl := daily21EMA  // Fallback to Daily 21 EMA
 
 elapsedDays = (not na(triggerTs)) ? ((time - triggerTs) / 86400000.0) : na
 etaDays = (not na(elapsedDays) and completion > 0 and completion < 0.999) ? (elapsedDays * (1.0 / completion - 1.0)) : na
