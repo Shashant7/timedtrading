@@ -1231,6 +1231,12 @@ export default {
           corsHeaders(env, req)
         );
       const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+      if (data) {
+        // Ensure RR is computed if missing or invalid
+        if (data.rr == null || !Number.isFinite(Number(data.rr))) {
+          data.rr = computeRR(data);
+        }
+      }
       return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
     }
 
@@ -1287,7 +1293,13 @@ export default {
       const results = await Promise.all(dataPromises);
       const data = {};
       for (const { ticker, value } of results) {
-        if (value) data[ticker] = value;
+        if (value) {
+          // Ensure RR is computed if missing or invalid
+          if (value.rr == null || !Number.isFinite(Number(value.rr))) {
+            value.rr = computeRR(value);
+          }
+          data[ticker] = value;
+        }
       }
       return sendJSON(
         { ok: true, count: tickers.length, data },
