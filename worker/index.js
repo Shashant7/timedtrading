@@ -1505,13 +1505,15 @@ export default {
         const alignedLong = state === "HTF_BULL_LTF_BULL";
         const alignedShort = state === "HTF_BEAR_LTF_BEAR";
 
-        // Check if we already have recent events for this ticker
-        const hasRecentEvent = feed.some(
-          (e) => e.ticker === ticker && e.ts > oneWeekAgo
-        );
+        // Check if we already have recent events for this ticker+type combination
+        const hasRecentEventOfType = (type) => {
+          return feed.some(
+            (e) => e.ticker === ticker && e.type === type && e.ts > oneWeekAgo
+          );
+        };
 
         // Generate corridor entry event if in corridor
-        if (inCorridor && !hasRecentEvent) {
+        if (inCorridor && !hasRecentEventOfType("corridor_entry")) {
           currentEvents.push({
             type: "corridor_entry",
             ticker: ticker,
@@ -1525,7 +1527,7 @@ export default {
         }
 
         // Generate squeeze start event if squeeze is on
-        if (flags.sq30_on && !hasRecentEvent) {
+        if (flags.sq30_on && !hasRecentEventOfType("squeeze_start")) {
           currentEvents.push({
             type: "squeeze_start",
             ticker: ticker,
@@ -1538,7 +1540,7 @@ export default {
         }
 
         // Generate squeeze release event if squeeze released
-        if (flags.sq30_release && !hasRecentEvent) {
+        if (flags.sq30_release && !hasRecentEventOfType("squeeze_release")) {
           currentEvents.push({
             type: "squeeze_release",
             ticker: ticker,
@@ -1554,7 +1556,7 @@ export default {
         }
 
         // Generate aligned state event
-        if ((alignedLong || alignedShort) && !hasRecentEvent) {
+        if ((alignedLong || alignedShort) && !hasRecentEventOfType("state_aligned")) {
           currentEvents.push({
             type: "state_aligned",
             ticker: ticker,
@@ -1568,7 +1570,7 @@ export default {
         }
 
         // Generate Momentum Elite event
-        if (flags.momentum_elite && !hasRecentEvent) {
+        if (flags.momentum_elite && !hasRecentEventOfType("momentum_elite")) {
           currentEvents.push({
             type: "momentum_elite",
             ticker: ticker,

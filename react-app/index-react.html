@@ -1516,9 +1516,21 @@
             );
             clearTimeout(timeoutId);
             
-            if (res.ok) {
-              const data = await res.json();
-              if (data.ok && Array.isArray(data.events)) {
+            const data = await res.json();
+            
+            if (res.ok && data.ok && Array.isArray(data.events)) {
+              setEvents(data.events);
+            } else {
+              // Log error for debugging
+              console.warn('Activity feed response:', {
+                status: res.status,
+                ok: res.ok,
+                dataOk: data.ok,
+                error: data.error,
+                eventsCount: data.events?.length || 0
+              });
+              // Still set events if it's an empty array (no error, just no data)
+              if (res.ok && Array.isArray(data.events)) {
                 setEvents(data.events);
               }
             }
