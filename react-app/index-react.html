@@ -1424,16 +1424,16 @@
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(ticker);
 
-        // Use React Portal to render at document body level to avoid z-index issues
-        return ReactDOM.createPortal(
+        return (
           <>
             {/* Backdrop */}
             <div 
               className="fixed inset-0 bg-black/60 z-[9998]"
               onClick={onClose}
+              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
             />
             {/* Overlay Card */}
-            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
               <div 
                 className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto slide-in pointer-events-auto shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
@@ -1957,8 +1957,7 @@
             </div>
               </div>
             </div>
-          </>,
-          document.body
+          </>
         );
       }
 
