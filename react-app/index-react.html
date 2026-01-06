@@ -400,14 +400,13 @@
       }
 
       function completionForSize(ticker) {
+        // Use the completion value from Pine Script payload directly
+        // Pine Script calculates: completion = abs(close - triggerPrice) / expectedMove
+        // This is more accurate than recalculating from trigger to TP because:
+        // 1. It accounts for expectedMove (which may differ from TP distance)
+        // 2. It handles direction correctly
+        // 3. It works even when price hasn't reached trigger yet
         const c = Number(ticker.completion);
-        const trig = Number(ticker.trigger_price);
-        const tp = Number(ticker.tp);
-        const px = Number(ticker.price);
-        if ([trig, tp, px].every(Number.isFinite) && tp !== trig) {
-          const prog = (px - trig) / (tp - trig);
-          return Math.max(0, Math.min(1, Math.abs(prog)));
-        }
         return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
       }
 
@@ -1425,15 +1424,16 @@
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(ticker);
 
-        return (
+        // Use React Portal to render at document body level to avoid z-index issues
+        return ReactDOM.createPortal(
           <>
             {/* Backdrop */}
             <div 
-              className="fixed inset-0 bg-black/60 z-40"
+              className="fixed inset-0 bg-black/60 z-[9998]"
               onClick={onClose}
             />
             {/* Overlay Card */}
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 pointer-events-none">
               <div 
                 className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto slide-in pointer-events-auto shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
@@ -1957,7 +1957,8 @@
             </div>
               </div>
             </div>
-          </>
+          </>,
+          document.body
         );
       }
 
@@ -2250,12 +2251,25 @@
                 </div>
 
                 {/* Selected Ticker Details Overlay */}
-                {selectedTicker && (
-                  <TickerDetails
-                    ticker={tickers.find((t) => t.ticker === selectedTicker)}
-                    onClose={() => setSelectedTicker(null)}
-                  />
-                )}
+                {selectedTicker && (() => {
+                  // Search in filtered tickers first, then fallback to all data
+                  let foundTicker = tickers.find((t) => t.ticker === selectedTicker);
+                  if (!foundTicker && data && typeof data === 'object') {
+                    // Fallback: search in original data object
+                    const dataArray = Array.isArray(data) ? data : Object.values(data);
+                    foundTicker = dataArray.find((t) => t && t.ticker === selectedTicker);
+                  }
+                  if (!foundTicker) {
+                    console.warn(`Ticker ${selectedTicker} not found`);
+                    return null;
+                  }
+                  return (
+                    <TickerDetails
+                      ticker={foundTicker}
+                      onClose={() => setSelectedTicker(null)}
+                    />
+                  );
+                })()}
               </div>
             </div>
           </div>
