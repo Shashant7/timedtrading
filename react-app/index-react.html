@@ -2427,7 +2427,6 @@
                 📊 Open in TradingView
               </a>
             </div>
-              </div>
             </div>
           </div>
         );
@@ -2543,6 +2542,11 @@
                   </h1>
                   <div className="flex items-center gap-4">
                     {loading && <div className="loading-spinner"></div>}
+                    {error && (
+                      <div className="px-4 py-2 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm">
+                        Error: {error}
+                      </div>
+                    )}
                     <button
                       onClick={refetch}
                       className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
@@ -2600,7 +2604,26 @@
                 </div>
               </header>
 
+              {/* Error Display */}
+              {error && (
+                <div className="mb-4 p-4 bg-red-500/20 border-2 border-red-500 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-red-400 mb-2">Error Loading Data</h3>
+                      <p className="text-red-300">{error}</p>
+                    </div>
+                    <button
+                      onClick={refetch}
+                      className="px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-white font-semibold"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Main Content - Hero Layout: Activity Feed (left) | Bubble Chart (center) | Detail (right) */}
+              {!error && (
               <div className="space-y-4">
                 {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
                 <div className="flex gap-4 items-start">
@@ -2779,6 +2802,7 @@
                 </div>
 
               </div>
+              )}
             </div>
           </div>
           

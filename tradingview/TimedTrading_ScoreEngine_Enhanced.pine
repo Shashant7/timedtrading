@@ -79,9 +79,15 @@ fvgMinSize = input.float(0.3, "FVG min size (ATR multiple)", group=groupIntellig
 gapMinSize = input.float(0.5, "Gap min size (ATR multiple)", group=groupIntelligentTP, step=0.1, minval=0.1)
 
 groupAlerts = "Alerts (Baseline + Meaningful change)"
-scoreDelta = input.float(3.0, "Min |Δscore| to resend", group=groupAlerts, minval=0.5, step=0.5)
-minMinutesBetweenSends = input.int(5, "Min minutes between sends (throttle)", group=groupAlerts, minval=0)
+scoreDelta = input.float(3.0, "Min |Δscore| to resend (0=always send)", group=groupAlerts, minval=0, step=0.5)
+minMinutesBetweenSends = input.int(5, "Min minutes between sends (0=no throttle)", group=groupAlerts, minval=0)
 forceBaseline = input.bool(false, "FORCE: Send baseline every bar (temporary)", group=groupAlerts)
+// Note: TradingView Watchlist Alerts have a platform limitation - equity alerts may not fire during extended hours
+// (pre-market 4am-9am ET, after-hours 4pm-8pm ET) even if bars are forming. This is a TradingView limitation, not a script issue.
+// 24-hour markets (futures ES/NQ, crypto BTC/ETH) will continue to fire during extended hours.
+// The session check below is kept for individual chart alerts, but watchlist alerts are restricted by TradingView.
+bypassSessionCheck = input.bool(false, "Bypass Session Check (for individual chart alerts)", group=groupAlerts, tooltip="Bypass session restrictions. Note: Watchlist alerts are still limited by TradingView during extended hours.")
+periodicUpdateMinutes = input.int(30, "Periodic update interval (minutes, 0=disabled)", group=groupAlerts, minval=0, tooltip="Send update even if no change, to maintain current data")
 debugHeartbeat = input.bool(false, "DEBUG: Heartbeat alert every bar close", group=groupAlerts)
 
 //─────────────────────────────────────────────────────────────────────────────
@@ -106,14 +112,24 @@ f_is_forex() =>
     str.contains(syminfo.ticker, "DXY") or str.contains(syminfo.ticker, "EUR") or str.contains(syminfo.ticker, "GBP")
 
 // Session detection (for equities)
+// Note: TradingView Watchlist Alerts are restricted during extended hours for equities (platform limitation)
+// This session check is mainly for individual chart alerts. Watchlist alerts will be limited by TradingView regardless.
 f_is_rth() =>
     hour(time, "America/New_York") >= 9 and hour(time, "America/New_York") < 16
 
-f_is_premarket() =>
-    hour(time, "America/New_York") >= 4 and hour(time, "America/New_York") < 9
-
-f_is_afterhours() =>
-    hour(time, "America/New_York") >= 16 and hour(time, "America/New_York") < 20
+// Check if current session allows alerts
+f_is_allowed_session() =>
+    // Bypass option for individual chart alerts (doesn't affect TradingView's watchlist alert restrictions)
+    if bypassSessionCheck
+        true
+    // Crypto, futures, forex: always allow (24/7 trading)
+    else if f_is_crypto() or f_is_futures() or f_is_forex()
+        true
+    else
+        // Equities: Allow during Regular Trading Hours (9am-4pm ET)
+        // Extended hours (4am-9am, 4pm-8pm) may work for individual chart alerts but not watchlist alerts
+        // This is a TradingView platform limitation, not a script limitation
+        f_is_rth()
 
 //─────────────────────────────────────────────────────────────────────────────
 // DAILY anchors (Golden Gate) - Combined to reduce request.security calls
@@ -575,6 +591,35 @@ f_detect_gap_tf(string tf) =>
 f_gap_fill_probability(int ageBars) =>
     ageBars <= 5 ? 0.80 : ageBars <= 20 ? 0.60 : ageBars <= 50 ? 0.40 : 0.20
 
+// Buyside/Sellside Liquidity Detection on HTF
+// Buyside liquidity = swing lows (stops below) - acts as magnet before price moves up
+// Sellside liquidity = swing highs (stops above) - acts as magnet before price moves down
+// These liquidity zones often need to be "swept" before price can move much higher/lower
+f_detect_liquidity_tf(string tf, int lookback, float currentPrice, float atrRef) =>
+    // Get swing highs and lows (most recent)
+    swingHigh = f_swing_high_tf(tf, lookback, lookback)
+    swingLow = f_swing_low_tf(tf, lookback, lookback)
+    
+    // Buyside liquidity: swing lows below current price
+    // These are stops below that act as a magnet - price may need to sweep these before moving up
+    // We detect the nearest swing low below price (most recent)
+    float buysideLiquidity = na
+    if not na(swingLow) and swingLow < currentPrice
+        // Price is above the swing low - this liquidity zone could be swept
+        // The swing low represents the liquidity level (stops below)
+        buysideLiquidity := swingLow
+    
+    // Sellside liquidity: swing highs above current price
+    // These are stops above that act as a magnet - price may need to sweep these before moving down
+    // We detect the nearest swing high above price (most recent)
+    float sellsideLiquidity = na
+    if not na(swingHigh) and swingHigh > currentPrice
+        // Price is below the swing high - this liquidity zone could be swept
+        // The swing high represents the liquidity level (stops above)
+        sellsideLiquidity := swingHigh
+    
+    [buysideLiquidity, sellsideLiquidity]
+
 // Collect all valid targets from all timeframes
 allTargets = array.new<float>()
 
@@ -636,14 +681,22 @@ if size4H > 0
 //─────────────────────────────────────────────────────────────────────────────
 // Intelligent TP: HTF Structure (Swing Highs/Lows)
 //─────────────────────────────────────────────────────────────────────────────
+// Extract function calls for consistency (called on each calculation)
+float structSwingHighW = na
+float structSwingLowW = na
+float structSwingHighD = na
+float structSwingLowD = na
+float structSwingHigh4H = na
+float structSwingLow4H = na
 if useHTFStructure
-    structSwingHighW = f_swing_high_tf("W", 5, 5)
-    structSwingLowW  = f_swing_low_tf("W", 5, 5)
-    structSwingHighD = f_swing_high_tf("D", 5, 5)
-    structSwingLowD  = f_swing_low_tf("D", 5, 5)
-    structSwingHigh4H = f_swing_high_tf("240", 3, 3)
-    structSwingLow4H  = f_swing_low_tf("240", 3, 3)
-    
+    structSwingHighW := f_swing_high_tf("W", 5, 5)
+    structSwingLowW  := f_swing_low_tf("W", 5, 5)
+    structSwingHighD := f_swing_high_tf("D", 5, 5)
+    structSwingLowD  := f_swing_low_tf("D", 5, 5)
+    structSwingHigh4H := f_swing_high_tf("240", 3, 3)
+    structSwingLow4H  := f_swing_low_tf("240", 3, 3)
+
+if useHTFStructure
     if dir == 1  // Long
         if not na(structSwingHighW) and structSwingHighW > price_now
             array.push(allTargets, structSwingHighW)
@@ -662,10 +715,17 @@ if useHTFStructure
 //─────────────────────────────────────────────────────────────────────────────
 // Intelligent TP: Fair Value Gaps (FVG)
 //─────────────────────────────────────────────────────────────────────────────
+// Extract FVG function calls for consistency (called on each calculation)
+// Note: f_detect_fvg returns [float, bool] - [fvgMid, isSignificant]
+// Always call functions for consistency, then use conditionally
+[fvgMidD_temp, fvgSigD_temp] = f_detect_fvg(dir == 1)
+[fvgMidW_temp, fvgSigW_temp] = request.security(syminfo.tickerid, "W", f_detect_fvg(dir == 1), barmerge.gaps_off, barmerge.lookahead_off)
+fvgMidD = useFVG ? fvgMidD_temp : na
+fvgSigD = useFVG ? fvgSigD_temp : false
+fvgMidW = useFVG ? fvgMidW_temp : na
+fvgSigW = useFVG ? fvgSigW_temp : false
+
 if useFVG
-    [fvgMidD, fvgSigD] = f_detect_fvg(dir == 1)
-    [fvgMidW, fvgSigW] = request.security(syminfo.tickerid, "W", f_detect_fvg(dir == 1), barmerge.gaps_off, barmerge.lookahead_off)
-    
     if not na(fvgMidD) and fvgSigD
         if dir == 1 and fvgMidD > price_now
             array.push(allTargets, fvgMidD)
@@ -678,12 +738,60 @@ if useFVG
             array.push(allTargets, fvgMidW)
 
 //─────────────────────────────────────────────────────────────────────────────
+// Intelligent TP: Buyside/Sellside Liquidity (HTF)
+//─────────────────────────────────────────────────────────────────────────────
+// Extract liquidity function calls for consistency (called on each calculation)
+// Always call functions for consistency, then use conditionally
+[buysideLiquidityW_temp, sellsideLiquidityW_temp] = f_detect_liquidity_tf("W", 5, price_now, ATRw)
+[buysideLiquidityD_temp, sellsideLiquidityD_temp] = f_detect_liquidity_tf("D", 5, price_now, ATRd)
+[buysideLiquidity4H_temp, sellsideLiquidity4H_temp] = f_detect_liquidity_tf("240", 3, price_now, ATR4H)
+buysideLiquidityW = useLiquidityZones ? buysideLiquidityW_temp : na
+sellsideLiquidityW = useLiquidityZones ? sellsideLiquidityW_temp : na
+buysideLiquidityD = useLiquidityZones ? buysideLiquidityD_temp : na
+sellsideLiquidityD = useLiquidityZones ? sellsideLiquidityD_temp : na
+buysideLiquidity4H = useLiquidityZones ? buysideLiquidity4H_temp : na
+sellsideLiquidity4H = useLiquidityZones ? sellsideLiquidity4H_temp : na
+
+if useLiquidityZones
+    // For LONG trades: Sellside liquidity (swing highs) above price acts as magnet/resistance
+    // These are stops above that may need to be swept before price can move much higher
+    if dir == 1  // Long
+        if not na(sellsideLiquidityW) and sellsideLiquidityW > price_now
+            array.push(allTargets, sellsideLiquidityW)
+        if not na(sellsideLiquidityD) and sellsideLiquidityD > price_now
+            array.push(allTargets, sellsideLiquidityD)
+        if not na(sellsideLiquidity4H) and sellsideLiquidity4H > price_now
+            array.push(allTargets, sellsideLiquidity4H)
+    else  // Short
+        // Buyside liquidity below price - may need to be swept or acts as support
+        // These are stops below that may need to be swept before price can move much lower
+        if not na(buysideLiquidityW) and buysideLiquidityW < price_now
+            array.push(allTargets, buysideLiquidityW)
+        if not na(buysideLiquidityD) and buysideLiquidityD < price_now
+            array.push(allTargets, buysideLiquidityD)
+        if not na(buysideLiquidity4H) and buysideLiquidity4H < price_now
+            array.push(allTargets, buysideLiquidity4H)
+
+//─────────────────────────────────────────────────────────────────────────────
 // Intelligent TP: Gap Analysis
 //─────────────────────────────────────────────────────────────────────────────
+// Extract gap function calls for consistency (called on each calculation)
+// Note: f_detect_gap_tf returns [float, float, bool, bool, bool] - [gapMid, gapSize, isSignificant, gapUp, gapDown]
+// Always call functions for consistency, then use conditionally
+[gapMidD_temp, gapSizeD_temp, gapSigD_temp, gapUpD_temp, gapDownD_temp] = f_detect_gap_tf("D")
+[gapMidW_temp, gapSizeW_temp, gapSigW_temp, gapUpW_temp, gapDownW_temp] = f_detect_gap_tf("W")
+gapMidD = useGapAnalysis ? gapMidD_temp : na
+gapSizeD = useGapAnalysis ? gapSizeD_temp : na
+gapSigD = useGapAnalysis ? gapSigD_temp : false
+gapUpD = useGapAnalysis ? gapUpD_temp : false
+gapDownD = useGapAnalysis ? gapDownD_temp : false
+gapMidW = useGapAnalysis ? gapMidW_temp : na
+gapSizeW = useGapAnalysis ? gapSizeW_temp : na
+gapSigW = useGapAnalysis ? gapSigW_temp : false
+gapUpW = useGapAnalysis ? gapUpW_temp : false
+gapDownW = useGapAnalysis ? gapDownW_temp : false
+
 if useGapAnalysis
-    [gapMidD, gapSizeD, gapSigD, gapUpD, gapDownD] = f_detect_gap_tf("D")
-    [gapMidW, gapSizeW, gapSigW, gapUpW, gapDownW] = f_detect_gap_tf("W")
-    
     if gapSigD and not na(gapMidD)
         if dir == 1 and gapDownD and gapMidD < price_now
             array.push(allTargets, gapMidD)
@@ -775,7 +883,7 @@ if dir == 1
     // 2. Support structure - use if higher than Daily 21 EMA (clear support level)
     float supportSL = na
     if usePivotSR and not na(nearestSupport) and nearestSupport < price_now
-        supportSL = nearestSupport * 0.99  // Slightly below support for safety
+        supportSL := nearestSupport * 0.99  // Slightly below support for safety
         // Only use support if it's higher than Daily 21 EMA (safer stop)
         if daily21EMAViable and supportSL > daily21EMA
             sl := supportSL  // Use support structure (higher than Daily 21 EMA)
@@ -816,7 +924,7 @@ else
     // 2. Resistance structure - use if lower than Daily 21 EMA (clear resistance level)
     float resistanceSL = na
     if usePivotSR and not na(nearestResistance) and nearestResistance > price_now
-        resistanceSL = nearestResistance * 1.01  // Slightly above resistance for safety
+        resistanceSL := nearestResistance * 1.01  // Slightly above resistance for safety
         // Only use resistance if it's lower than Daily 21 EMA (safer stop)
         if daily21EMAViable and resistanceSL < daily21EMA
             sl := resistanceSL  // Use resistance structure (lower than Daily 21 EMA)
@@ -864,9 +972,14 @@ var float  lastSentLTF   = na
 var string lastSentState = ""
 var int    lastSentTime  = na
 
-scoreMoved = (na(lastSentHTF) or na(lastSentLTF)) ? true :            (math.abs(htfScore - lastSentHTF) >= scoreDelta) or (math.abs(ltfScore - lastSentLTF) >= scoreDelta)
+scoreMoved = (na(lastSentHTF) or na(lastSentLTF)) ? true : 
+             (scoreDelta <= 0) ? true :  // If scoreDelta is 0, always consider it moved
+             (math.abs(htfScore - lastSentHTF) >= scoreDelta) or (math.abs(ltfScore - lastSentLTF) >= scoreDelta)
 
 stateChanged = (lastSentState != state)
+
+// Check if enough time has passed for periodic update
+periodicUpdateDue = periodicUpdateMinutes > 0 and not na(lastSentTime) and (time - lastSentTime >= periodicUpdateMinutes * 60 * 1000)
 
 throttleOK =
      forceBaseline ? true :
@@ -875,7 +988,10 @@ throttleOK =
      (time - lastSentTime >= minMinutesBetweenSends * 60 * 1000)
 
 meaningful = stateChanged or scoreMoved or sq30_rel
-shouldSend = barstate.isconfirmed and throttleOK and (forceBaseline or (not sentBaseline or meaningful))
+// Send if: force baseline, first baseline, meaningful change, OR periodic update due
+// Session check: For individual chart alerts, respects session. Watchlist alerts are limited by TradingView during extended hours.
+sessionOK = f_is_allowed_session()
+shouldSend = barstate.isconfirmed and throttleOK and sessionOK and (forceBaseline or (not sentBaseline or meaningful or periodicUpdateDue))
 
 // Reasons
 reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H/1H)"
@@ -904,15 +1020,8 @@ if sizeAllTp > 0
                 tf = "D"
                 confidence = 0.75
                 
-                // Check if it matches HTF structure levels
+                // Check if it matches HTF structure levels (using parent scope variables)
                 if useHTFStructure
-                    structSwingHighW = f_swing_high_tf("W", 5, 5)
-                    structSwingLowW  = f_swing_low_tf("W", 5, 5)
-                    structSwingHighD = f_swing_high_tf("D", 5, 5)
-                    structSwingLowD  = f_swing_low_tf("D", 5, 5)
-                    structSwingHigh4H = f_swing_high_tf("240", 3, 3)
-                    structSwingLow4H  = f_swing_low_tf("240", 3, 3)
-                    
                     if (not na(structSwingHighW) and math.abs(val - structSwingHighW) < syminfo.mintick * 2) or
                        (not na(structSwingHighD) and math.abs(val - structSwingHighD) < syminfo.mintick * 2) or
                        (not na(structSwingLowW) and math.abs(val - structSwingLowW) < syminfo.mintick * 2) or
@@ -924,32 +1033,40 @@ if sizeAllTp > 0
                         confidence := 0.80
                         tf := "W"
                 
-                // Check if it matches FVG
+                // Check if it matches FVG (using parent scope variables)
                 if useFVG
-                    [fvgMidD, fvgSigD] = f_detect_fvg(dir == 1)
-                    [fvgMidW, fvgSigW] = request.security(syminfo.tickerid, "W", f_detect_fvg(dir == 1), barmerge.gaps_off, barmerge.lookahead_off)
                     if (not na(fvgMidD) and math.abs(val - fvgMidD) < syminfo.mintick * 2) or
                        (not na(fvgMidW) and math.abs(val - fvgMidW) < syminfo.mintick * 2)
                         source := "Fair Value Gap"
                         type := "FVG"
                         confidence := 0.65
                 
-                // Check if it matches gap
+                // Check if it matches gap (using parent scope variables)
                 if useGapAnalysis
-                    [gapMidD, _, gapSigD, _, _] = f_detect_gap_tf("D")
-                    [gapMidW, _, gapSigW, _, _] = f_detect_gap_tf("W")
                     if (not na(gapMidD) and math.abs(val - gapMidD) < syminfo.mintick * 2) or
                        (not na(gapMidW) and math.abs(val - gapMidW) < syminfo.mintick * 2)
                         source := "Gap Fill"
                         type := "GAP"
                         confidence := 0.60
                 
+                // Check if it matches liquidity zones (using parent scope variables)
+                if useLiquidityZones
+                    if (not na(sellsideLiquidityW) and math.abs(val - sellsideLiquidityW) < syminfo.mintick * 2) or
+                       (not na(sellsideLiquidityD) and math.abs(val - sellsideLiquidityD) < syminfo.mintick * 2) or
+                       (not na(sellsideLiquidity4H) and math.abs(val - sellsideLiquidity4H) < syminfo.mintick * 2) or
+                       (not na(buysideLiquidityW) and math.abs(val - buysideLiquidityW) < syminfo.mintick * 2) or
+                       (not na(buysideLiquidityD) and math.abs(val - buysideLiquidityD) < syminfo.mintick * 2) or
+                       (not na(buysideLiquidity4H) and math.abs(val - buysideLiquidity4H) < syminfo.mintick * 2)
+                        source := dir == 1 ? "Sellside Liquidity" : "Buyside Liquidity"
+                        type := "LIQUIDITY"
+                        confidence := 0.70
+                
                 // Check if it's from ATR levels (determine multiplier and timeframe)
                 if type == "ATR_FIB"
                     // Try to match against known ATR levels
-                    sizeD = array.size(levelsD)
-                    sizeW = array.size(levelsW)
-                    size4H = array.size(levels4H)
+                    sizeD := array.size(levelsD)
+                    sizeW := array.size(levelsW)
+                    size4H := array.size(levels4H)
                     
                     // Check Daily levels
                     for j = 0 to sizeD - 1
