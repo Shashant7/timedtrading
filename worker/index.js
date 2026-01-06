@@ -1479,13 +1479,13 @@ export default {
 
     // GET /timed/activity
     if (url.pathname === "/timed/activity" && req.method === "GET") {
-      // Rate limiting - aligned with 5-minute refresh interval
+      // Rate limiting - aligned with 5-minute refresh interval (generous limit)
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
       const rateLimit = await checkRateLimit(
         KV,
         ip,
         "/timed/activity",
-        100, // 100 requests per hour (12 per hour = every 5 minutes)
+        200, // 200 requests per hour (plenty of headroom for 5-minute refresh = 12/hour)
         3600
       );
 
