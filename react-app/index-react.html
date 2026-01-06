@@ -2032,8 +2032,9 @@
         }, []);
 
         return (
-          <div className="min-h-screen p-4">
-            <div className="max-w-7xl mx-auto">
+          <>
+            <div className="min-h-screen p-4">
+              <div className="max-w-7xl mx-auto">
               {/* Navigation */}
               <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                 <div className="flex items-center gap-3 flex-wrap">
@@ -2276,29 +2277,53 @@
                   </div>
                 </div>
 
-                {/* Selected Ticker Details Overlay */}
-                {selectedTicker && (() => {
-                  // Search in filtered tickers first, then fallback to all data
-                  let foundTicker = tickers.find((t) => t && t.ticker === selectedTicker);
-                  if (!foundTicker && data && typeof data === 'object') {
-                    // Fallback: search in original data object
-                    const dataArray = Array.isArray(data) ? data : Object.values(data);
-                    foundTicker = dataArray.find((t) => t && t.ticker === selectedTicker);
-                  }
-                  if (!foundTicker) {
-                    console.warn('Ticker not found:', selectedTicker, 'Available:', tickers.map(t => t.ticker).slice(0, 5));
-                    return null;
-                  }
-                  return (
-                    <TickerDetails
-                      ticker={foundTicker}
-                      onClose={() => setSelectedTicker(null)}
-                    />
-                  );
-                })()}
               </div>
             </div>
           </div>
+          
+          {/* Overlay Portal - renders outside main container */}
+          <OverlayPortal
+            selectedTicker={selectedTicker}
+            tickers={tickers}
+            data={data}
+            onClose={() => setSelectedTicker(null)}
+          />
+        </div>
+        );
+      }
+      
+      // Render overlay outside main container using portal
+      function OverlayPortal({ selectedTicker, tickers, data, onClose }) {
+        if (!selectedTicker) return null;
+        
+        // Search in filtered tickers first, then fallback to all data
+        let foundTicker = tickers.find((t) => t && t.ticker === selectedTicker);
+        if (!foundTicker && data && typeof data === 'object') {
+          // Fallback: search in original data object
+          const dataArray = Array.isArray(data) ? data : Object.values(data);
+          foundTicker = dataArray.find((t) => t && t.ticker === selectedTicker);
+        }
+        if (!foundTicker) {
+          console.warn('Ticker not found:', selectedTicker, 'Available:', tickers.map(t => t.ticker).slice(0, 5));
+          return null;
+        }
+        
+        // Use portal to render at document body level
+        if (ReactDOM.createPortal) {
+          return ReactDOM.createPortal(
+            <TickerDetails
+              ticker={foundTicker}
+              onClose={onClose}
+            />,
+            document.body
+          );
+        }
+        // Fallback if portal not available
+        return (
+          <TickerDetails
+            ticker={foundTicker}
+            onClose={onClose}
+          />
         );
       }
 
