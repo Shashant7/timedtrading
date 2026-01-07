@@ -1777,6 +1777,42 @@
             filter: { quadrants: ["HTF_BEAR_LTF_PULLBACK"] },
             icon: "🔻",
           },
+          // Group filters
+          {
+            label: "📊 Upticks",
+            filter: { group: "UPTICKS" },
+            icon: "📊",
+          },
+          {
+            label: "⭐ Super Granny",
+            filter: { group: "SuperGranny" },
+            icon: "⭐",
+          },
+          {
+            label: "🔵 GRNI",
+            filter: { group: "GRNI" },
+            icon: "🔵",
+          },
+          {
+            label: "🟢 GRNJ",
+            filter: { group: "GRNJ" },
+            icon: "🟢",
+          },
+          {
+            label: "🟡 GRNY",
+            filter: { group: "GRNY" },
+            icon: "🟡",
+          },
+          {
+            label: "💬 Social",
+            filter: { group: "Social" },
+            icon: "💬",
+          },
+          {
+            label: "📈 SP Sectors",
+            filter: { group: "SP_Sectors" },
+            icon: "📈",
+          },
         ];
 
         const isActive = (preset) => {
@@ -1804,6 +1840,10 @@
             if (presetQuadrants.length === 1 && currentQuadrants.includes(presetQuadrants[0])) {
               return currentQuadrants.length === 1;
             }
+          }
+          // Check if group filter matches
+          if (preset.filter.group) {
+            return filters.group === preset.filter.group;
           }
           return false;
         };
@@ -1839,6 +1879,11 @@
                   "HTF_BEAR_LTF_PULLBACK",
                 ]
               });
+            } else if (preset.filter.group) {
+              // Remove group filter - reset to ALL
+              const newFilters = { ...filters };
+              delete newFilters.group;
+              onFilterChange(newFilters);
             }
           } else {
             // Toggle on - apply filter
