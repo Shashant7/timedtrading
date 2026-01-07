@@ -402,6 +402,21 @@
       // ─────────────────────────────────────────────────────────────
       
       // Phase-based color (Turbo-like gradient: 0=green, 0.5=yellow, 1=red)
+      // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
+      function phaseCompletionToColor(phasePct) {
+        const p = Math.max(0, Math.min(1, phasePct));
+        if (p < 0.3) {
+          // Green: #2ecc71 (under 30%)
+          return "#2ecc71";
+        } else if (p < 0.6) {
+          // Yellow: #f39c12 (30-60%)
+          return "#f39c12";
+        } else {
+          // Red: #e74c3c (60-100%)
+          return "#e74c3c";
+        }
+      }
+
       function phaseToColor(phase) {
         const p = Math.max(0, Math.min(1, phase));
         if (p < 0.2) {
@@ -613,16 +628,25 @@
       // ─────────────────────────────────────────────────────────────
       // Native SVG Bubble component (works without Recharts)
       const SVGBubble = memo(({ ticker, onClick, onHover, isHovered, scaleX, scaleY, offsetX, offsetY, showLabels }) => {
-        const comp = completionForSize(ticker);
-        // Larger bubbles for better visibility
-        const size = 8 + comp * 20;
-        const phase = Number(ticker.phase_pct) || 0;
+        const comp = Number(ticker.completion) || 0;
+        const phasePct = Number(ticker.phase_pct) || 0;
+        const rr = Number(ticker.rr) || 0;
+        
+        // Bubble size based on RR, adjusted for completion (lower completion = larger size)
+        // RR is the opportunity, but we want to reduce size as completion increases
+        // Formula: baseSize + (RR * multiplier) * (1 - completion)
+        // This makes high RR + low completion = largest bubbles
+        const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
+        const baseSize = 8;
+        const rrMultiplier = 6; // Scale factor for RR
+        const size = baseSize + (rr * rrMultiplier * completionPenalty);
+        
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
         const ent = entryType(ticker);
 
-        // Phase-based gradient color
-        const color = phaseToColor(phase);
+        // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
+        const color = phaseCompletionToColor(phasePct);
         const opacity = isHovered ? 1 : (prime ? 0.9 : 0.7);
         const borderWidth = prime ? 3 : flags.sq30_release ? 2 : flags.sq30_on ? 2 : 1;
         const borderColor = prime 
@@ -708,15 +732,21 @@
       });
 
       const Bubble = memo(({ ticker, onClick, onHover, isHovered, showLabels }) => {
-        const comp = completionForSize(ticker);
-        // Larger bubbles for better visibility
-        const size = 8 + comp * 20;
-        const phase = Number(ticker.phase_pct) || 0;
+        const comp = Number(ticker.completion) || 0;
+        const phasePct = Number(ticker.phase_pct) || 0;
+        const rr = Number(ticker.rr) || 0;
+        
+        // Bubble size based on RR, adjusted for completion (lower completion = larger size)
+        const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
+        const baseSize = 8;
+        const rrMultiplier = 6; // Scale factor for RR
+        const size = baseSize + (rr * rrMultiplier * completionPenalty);
+        
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
 
-        // Phase-based gradient color
-        const color = phaseToColor(phase);
+        // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
+        const color = phaseCompletionToColor(phasePct);
         const opacity = isHovered ? 1 : (prime ? 0.9 : 0.7);
         const borderWidth = prime ? 3 : flags.sq30_release ? 2 : flags.sq30_on ? 2 : 1;
         const borderColor = prime 

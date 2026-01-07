@@ -415,6 +415,8 @@
                     status: newStatus,
                     trimmedPct: tradeCalc.trimmedPct || trade.trimmedPct || 0,
                     lastUpdate: new Date().toISOString(),
+                    // Preserve original entryTime - don't update it
+                    entryTime: trade.entryTime,
                   });
                 }
               }
@@ -932,12 +934,6 @@
               <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-sm text-[#93a4d6]">Navigate:</span>
-                  <a
-                    href="../index.html"
-                    className="px-3 py-1.5 rounded bg-[#0f1630] border border-[#26325f] text-sm hover:bg-[#1a2550] transition-colors"
-                  >
-                    Classic Dashboard
-                  </a>
                   <a
                     href="index-react.html"
                     className="px-3 py-1.5 rounded bg-[#0f1630] border border-[#26325f] text-sm hover:bg-[#1a2550] transition-colors"
