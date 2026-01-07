@@ -2030,49 +2030,89 @@
         const handlePresetClick = (preset) => {
           const active = isActive(preset);
           if (active) {
-            // Toggle off - reset to defaults
+            // Toggle off - remove this specific filter, keep others
+            const newFilters = { ...filters };
+            
             if (preset.label === "Prime Only") {
-              onFilterChange({ minRank: 0, minRR: 0, maxCompletion: 1.01 });
+              // Reset Prime Only filters to defaults
+              newFilters.minRank = 0;
+              newFilters.minRR = 0;
+              newFilters.maxCompletion = 1.01;
             } else if (preset.label === "In Corridor") {
-              // Remove the inCorridor filter
-              const newFilters = { ...filters };
               delete newFilters.inCorridor;
-              onFilterChange(newFilters);
             } else if (preset.label === "Squeeze Release") {
-              // Remove the squeezeRelease filter
-              const newFilters = { ...filters };
               delete newFilters.squeezeRelease;
-              onFilterChange(newFilters);
             } else if (preset.label === "🚀 Momentum Elite") {
-              // Remove the momentumElite filter
-              const newFilters = { ...filters };
               delete newFilters.momentumElite;
-              onFilterChange(newFilters);
-            } else if (preset.label === "Top Long Setup" || preset.label === "Top Short Setup" || preset.label.startsWith("Q")) {
-              // Reset to all quadrants
-              onFilterChange({ 
-                quadrants: [
+            } else if (preset.label === "Top Long Setup") {
+              // Restore all quadrants if Top Long Setup was the only quadrant filter
+              const currentQuadrants = filters.quadrants || [];
+              if (currentQuadrants.length === 1 && currentQuadrants[0] === "HTF_BULL_LTF_PULLBACK") {
+                newFilters.quadrants = [
                   "HTF_BULL_LTF_PULLBACK",
                   "HTF_BULL_LTF_BULL",
                   "HTF_BEAR_LTF_BEAR",
                   "HTF_BEAR_LTF_PULLBACK",
-                ]
-              });
+                ];
+              }
+            } else if (preset.label === "Top Short Setup") {
+              // Restore all quadrants if Top Short Setup was the only quadrant filter
+              const currentQuadrants = filters.quadrants || [];
+              if (currentQuadrants.length === 1 && currentQuadrants[0] === "HTF_BEAR_LTF_PULLBACK") {
+                newFilters.quadrants = [
+                  "HTF_BULL_LTF_PULLBACK",
+                  "HTF_BULL_LTF_BULL",
+                  "HTF_BEAR_LTF_BEAR",
+                  "HTF_BEAR_LTF_PULLBACK",
+                ];
+              }
+            } else if (preset.label.startsWith("Q")) {
+              // For Q1-Q4, restore all quadrants if this was the only one
+              const presetQuadrants = preset.filter.quadrants || [];
+              const currentQuadrants = filters.quadrants || [];
+              if (presetQuadrants.length === 1 && currentQuadrants.length === 1 && currentQuadrants[0] === presetQuadrants[0]) {
+                newFilters.quadrants = [
+                  "HTF_BULL_LTF_PULLBACK",
+                  "HTF_BULL_LTF_BULL",
+                  "HTF_BEAR_LTF_BEAR",
+                  "HTF_BEAR_LTF_PULLBACK",
+                ];
+              }
             } else if (preset.filter.group) {
-              // Remove group filter - reset to ALL
-              const newFilters = { ...filters };
-              delete newFilters.group;
-              onFilterChange(newFilters);
+              // Reset group filter
+              newFilters.group = "ALL";
             } else if (preset.filter.top40) {
-              // Remove Top 40 filter
-              const newFilters = { ...filters };
               delete newFilters.top40;
-              onFilterChange(newFilters);
             }
+            
+            onFilterChange(newFilters);
           } else {
-            // Toggle on - apply filter
-            onFilterChange(preset.filter);
+            // Toggle on - apply filter, merge with existing filters
+            const mergedFilters = { ...filters, ...preset.filter };
+            
+            // Special handling for quadrant filters - replace, don't merge arrays
+            if (preset.filter.quadrants) {
+              mergedFilters.quadrants = preset.filter.quadrants;
+            }
+            
+            onFilterChange(mergedFilters);
           }
+        };
+
+        const resetAllFilters = () => {
+          onFilterChange({
+            search: "",
+            quadrants: [
+              "HTF_BULL_LTF_PULLBACK",
+              "HTF_BULL_LTF_BULL",
+              "HTF_BEAR_LTF_BEAR",
+              "HTF_BEAR_LTF_PULLBACK",
+            ],
+            minRank: 0,
+            minRR: 0,
+            maxCompletion: 1.01,
+            group: "ALL",
+          });
         };
 
         // Build group options
@@ -2084,7 +2124,7 @@
 
         return (
           <div className="space-y-3 mb-4">
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap items-center">
               {presets.map((preset, i) => {
                 const active = isActive(preset);
                 return (
@@ -2101,6 +2141,14 @@
                   </button>
                 );
               })}
+              {/* Reset Filters Button */}
+              <button
+                onClick={resetAllFilters}
+                className="px-4 py-2 rounded-lg border border-red-500/50 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-semibold transition-all"
+                title="Reset all filters to defaults"
+              >
+                🔄 Reset Filters
+              </button>
             </div>
             <div className="flex items-center gap-2">
               <label className="text-sm text-[#93a4d6] font-semibold">Group:</label>
