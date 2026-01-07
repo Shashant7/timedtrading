@@ -1212,7 +1212,7 @@ export default {
         KV,
         ip,
         "/timed/latest",
-        200,
+        1000, // Increased for single-user
         3600
       );
 
@@ -1247,7 +1247,7 @@ export default {
         KV,
         ip,
         "/timed/tickers",
-        200,
+        1000, // Increased for single-user
         3600
       );
 
@@ -1271,7 +1271,7 @@ export default {
     if (url.pathname === "/timed/all" && req.method === "GET") {
       // Rate limiting
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(KV, ip, "/timed/all", 100, 3600);
+      const rateLimit = await checkRateLimit(KV, ip, "/timed/all", 1000, 3600); // Increased for single-user
 
       if (!rateLimit.allowed) {
         return sendJSON(
@@ -1309,7 +1309,7 @@ export default {
     if (url.pathname === "/timed/trail" && req.method === "GET") {
       // Rate limiting
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(KV, ip, "/timed/trail", 200, 3600);
+      const rateLimit = await checkRateLimit(KV, ip, "/timed/trail", 1000, 3600); // Increased for single-user
 
       if (!rateLimit.allowed) {
         return sendJSON(
@@ -1380,7 +1380,7 @@ export default {
         KV,
         ip,
         "/timed/momentum",
-        200,
+        1000, // Increased for single-user
         3600
       );
 
@@ -1411,7 +1411,7 @@ export default {
         KV,
         ip,
         "/timed/momentum/history",
-        200,
+        1000, // Increased for single-user
         3600
       );
 
@@ -1447,7 +1447,7 @@ export default {
         KV,
         ip,
         "/timed/momentum/all",
-        100,
+        1000, // Increased for single-user
         3600
       );
 
@@ -1482,7 +1482,7 @@ export default {
         KV,
         ip,
         "/timed/activity",
-        200, // 200 requests per hour (plenty of headroom for 5-minute refresh = 12/hour)
+        1000, // Increased for single-user (plenty of headroom)
         3600
       );
 
@@ -1663,7 +1663,7 @@ export default {
     if (url.pathname === "/timed/health" && req.method === "GET") {
       // Rate limiting
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(KV, ip, "/timed/health", 60, 3600);
+      const rateLimit = await checkRateLimit(KV, ip, "/timed/health", 500, 3600); // Increased for single-user
 
       if (!rateLimit.allowed) {
         return sendJSON(
@@ -2096,7 +2096,7 @@ export default {
         KV,
         ip,
         "/timed/version",
-        60,
+        500, // Increased for single-user
         3600
       );
 
@@ -2129,7 +2129,7 @@ export default {
         KV,
         ip,
         "/timed/alert-debug",
-        100,
+        500, // Increased for single-user
         3600
       );
 
@@ -2312,7 +2312,7 @@ export default {
         KV,
         ip,
         "/timed/trades",
-        200,
+        1000, // Increased for single-user
         3600
       );
 
