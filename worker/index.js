@@ -2930,22 +2930,24 @@ Your role is to help traders understand their setups, analyze market conditions,
         } recent activity events** (corridor entries, squeeze releases, alignments)
 
 ### Sample Ticker Data (Top 10):
-${tickerContext
-  .slice(0, 10)
-  .map((t) => {
-    const rr = Number(t.rr) || 0;
-    const price = Number(t.price) || 0;
-    const phasePct = Number(t.phase_pct) || 0;
-    const completion = Number(t.completion) || 0;
-    return `- **${t.ticker || "UNKNOWN"}**: Rank ${
-      t.rank || 0
-    }, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(2)}, State: ${
-      t.state || "UNKNOWN"
-    }, Phase: ${(phasePct * 100).toFixed(0)}%, Completion: ${(
-      completion * 100
-    ).toFixed(0)}%`;
-  })
-  .join("\n")}
+${tickerContext.length > 0
+  ? tickerContext
+      .slice(0, 10)
+      .map((t) => {
+        try {
+          const rr = Number(t.rr) || 0;
+          const price = Number(t.price) || 0;
+          const phasePct = Number(t.phase_pct) || 0;
+          const completion = Number(t.completion) || 0;
+          return `- **${String(t.ticker || "UNKNOWN")}**: Rank ${Number(t.rank) || 0}, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(2)}, State: ${String(t.state || "UNKNOWN")}, Phase: ${(phasePct * 100).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%`;
+        } catch (e) {
+          console.error("[AI CHAT] Error formatting ticker:", t, e);
+          return `- **${String(t.ticker || "UNKNOWN")}**: Data unavailable`;
+        }
+      })
+      .filter(Boolean)
+      .join("\n")
+  : "No ticker data available"}
 
 ### Recent Activity:
 ${
