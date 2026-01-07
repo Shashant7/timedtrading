@@ -26,4 +26,17 @@ preview_id = "YOUR_KV_PREVIEW_ID"  # Optional: for preview environments
 # - ALERT_MAX_COMPLETION: Maximum completion % (default: "0.4")
 # - ALERT_MAX_PHASE: Maximum phase % (default: "0.6")
 # - ALERT_MIN_RANK: Minimum rank (default: "70")
+# - OPENAI_API_KEY: OpenAI API key for AI Assistant
+# - OPENAI_MODEL: OpenAI model (default: "gpt-3.5-turbo")
+
+# Scheduled triggers for periodic AI updates
+# Times are in UTC (9:45 AM ET = 14:45 UTC, 12:00 PM ET = 17:00 UTC, 3:30 PM ET = 20:30 UTC)
+[[triggers.crons]]
+cron = "45 14 * * 1-5"  # 9:45 AM ET (14:45 UTC) on weekdays - AI Market Update
+[[triggers.crons]]
+cron = "0 17 * * 1-5"   # 12:00 PM ET (17:00 UTC) on weekdays - AI Market Update
+[[triggers.crons]]
+cron = "30 20 * * 1-5"  # 3:30 PM ET (20:30 UTC) on weekdays - AI Market Update
+[[triggers.crons]]
+cron = "*/5 * * * *"    # Every 5 minutes - Update open trades
 

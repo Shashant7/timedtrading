@@ -17,6 +17,10 @@
 // POST /timed/trades?key=... (create/update trade)
 // DELETE /timed/trades/:id?key=... (delete trade)
 // GET  /timed/alert-debug?ticker=XYZ (debug why alerts aren't firing)
+// GET  /timed/debug/trades (get all trades with details)
+// GET  /timed/debug/tickers (get all tickers with latest data)
+// GET  /timed/debug/config (check Discord and other config)
+// POST /timed/debug/simulate-trades?key=... (manually simulate trades for all tickers)
 
 async function readBodyAsJSON(req) {
   const raw = await req.text();
@@ -297,6 +301,344 @@ function fmt2(x) {
 function pct01(x) {
   const n = Number(x);
   return Number.isFinite(n) ? `${Math.round(n * 100)}%` : "—";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Trade Simulation Functions (Worker-Level)
+// ─────────────────────────────────────────────────────────────
+
+const TRADE_SIZE = 1000; // $1000 per trade
+const FUTURES_TICKERS = new Set([
+  "ES",
+  "NQ",
+  "YM",
+  "RTY",
+  "CL",
+  "GC",
+  "SI",
+  "HG",
+  "NG",
+]);
+
+// Check if ticker should trigger a trade (matches UI logic)
+function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
+  const tickerUpper = String(ticker || "").toUpperCase();
+
+  // Skip futures
+  if (FUTURES_TICKERS.has(tickerUpper)) return false;
+
+  // Must have valid entry/exit levels
+  if (!tickerData.price || !tickerData.sl || !tickerData.tp) return false;
+
+  const flags = tickerData.flags || {};
+  const state = String(tickerData.state || "");
+  const alignedLong = state === "HTF_BULL_LTF_BULL";
+  const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+  const aligned = alignedLong || alignedShort;
+
+  const h = Number(tickerData.htf_score);
+  const l = Number(tickerData.ltf_score);
+  const inCorridor =
+    Number.isFinite(h) &&
+    Number.isFinite(l) &&
+    ((h > 0 && l >= -8 && l <= 12) || // LONG corridor
+      (h < 0 && l >= -12 && l <= 8)); // SHORT corridor
+
+  const side =
+    h > 0 && l >= -8 && l <= 12
+      ? "LONG"
+      : h < 0 && l >= -12 && l <= 8
+      ? "SHORT"
+      : null;
+  const corridorAlignedOK =
+    (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+
+  if (!inCorridor || !corridorAlignedOK) return false;
+
+  // Check for trigger conditions
+  const enteredAligned = prevData && prevData.state !== state && aligned;
+  const trigReason = String(tickerData.trigger_reason || "");
+  const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+  const sqRelease = !!flags.sq30_release;
+  const hasTrigger = !!tickerData.trigger_price && !!tickerData.trigger_ts;
+
+  const shouldConsiderAlert =
+    inCorridor &&
+    corridorAlignedOK &&
+    (enteredAligned || trigOk || sqRelease || hasTrigger);
+
+  const momentumElite = !!flags.momentum_elite;
+  const baseMinRR = 1.5;
+  const baseMaxComp = 0.4;
+  const baseMaxPhase = 0.6;
+  const baseMinRank = 70;
+
+  const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
+  const maxComp = momentumElite
+    ? Math.min(0.5, baseMaxComp * 1.25)
+    : baseMaxComp;
+  const maxPhase = momentumElite
+    ? Math.min(0.7, baseMaxPhase * 1.17)
+    : baseMaxPhase;
+  const minRank = momentumElite ? Math.max(60, baseMinRank - 10) : baseMinRank;
+
+  const rr = Number(tickerData.rr) || 0;
+  const comp = Number(tickerData.completion) || 0;
+  const phase = Number(tickerData.phase_pct) || 0;
+  const rank = Number(tickerData.rank) || 0;
+
+  const rrOk = rr >= minRR;
+  const compOk = comp <= maxComp;
+  const phaseOk = phase <= maxPhase;
+  const rankOk = rank >= minRank;
+
+  const momentumEliteTrigger = momentumElite && inCorridor && corridorAlignedOK;
+  const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+
+  return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
+}
+
+// Get direction from state
+function getTradeDirection(state) {
+  const s = String(state || "");
+  if (s.includes("BULL")) return "LONG";
+  if (s.includes("BEAR")) return "SHORT";
+  return null;
+}
+
+// Calculate trade P&L and status
+function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
+  const direction = getTradeDirection(tickerData.state);
+  if (!direction) return null;
+
+  const sl = Number(tickerData.sl);
+  const tp = Number(tickerData.tp);
+  const currentPrice = Number(tickerData.price);
+
+  if (
+    !Number.isFinite(sl) ||
+    !Number.isFinite(tp) ||
+    !Number.isFinite(currentPrice)
+  ) {
+    return null;
+  }
+
+  const shares = Math.floor(TRADE_SIZE / entryPrice);
+  let pnl = 0;
+  let pnlPct = 0;
+  let status = "OPEN";
+  const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;
+
+  if (direction === "LONG") {
+    const hitTP = currentPrice >= tp;
+    const hitSL = currentPrice <= sl;
+
+    if (hitTP) {
+      if (trimmedPct === 0) {
+        return {
+          shares,
+          pnl: (tp - entryPrice) * shares * 0.5,
+          pnlPct: ((tp - entryPrice) / entryPrice) * 100,
+          status: "TP_HIT_TRIM",
+          currentPrice,
+          trimmedPct: 0.5,
+        };
+      } else {
+        pnl = (tp - entryPrice) * shares;
+        pnlPct = ((tp - entryPrice) / entryPrice) * 100;
+        status = pnl >= 0 ? "WIN" : "LOSS";
+      }
+    } else if (hitSL) {
+      pnl = (sl - entryPrice) * shares;
+      pnlPct = ((sl - entryPrice) / entryPrice) * 100;
+      status = "LOSS";
+    } else {
+      pnl = (currentPrice - entryPrice) * shares;
+      pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+      status = "OPEN";
+    }
+  } else {
+    // SHORT
+    const hitTP = currentPrice <= tp;
+    const hitSL = currentPrice >= sl;
+
+    if (hitTP) {
+      if (trimmedPct === 0) {
+        return {
+          shares,
+          pnl: (entryPrice - tp) * shares * 0.5,
+          pnlPct: ((entryPrice - tp) / entryPrice) * 100,
+          status: "TP_HIT_TRIM",
+          currentPrice,
+          trimmedPct: 0.5,
+        };
+      } else {
+        pnl = (entryPrice - tp) * shares;
+        pnlPct = ((entryPrice - tp) / entryPrice) * 100;
+        status = pnl >= 0 ? "WIN" : "LOSS";
+      }
+    } else if (hitSL) {
+      pnl = (entryPrice - sl) * shares;
+      pnlPct = ((entryPrice - sl) / entryPrice) * 100;
+      status = "LOSS";
+    } else {
+      pnl = (entryPrice - currentPrice) * shares;
+      pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
+      status = "OPEN";
+    }
+  }
+
+  return {
+    shares,
+    pnl,
+    pnlPct,
+    status,
+    currentPrice,
+  };
+}
+
+// Process trade simulation for a ticker (called on ingest)
+async function processTradeSimulation(KV, ticker, tickerData, prevData) {
+  try {
+    const tradesKey = "timed:trades:all";
+    const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+    // Get direction
+    const direction = getTradeDirection(tickerData.state);
+    if (!direction) return;
+
+    // Check for existing open trade
+    const existingOpenTrade = allTrades.find(
+      (t) =>
+        t.ticker === ticker &&
+        t.direction === direction &&
+        (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM")
+    );
+
+    if (existingOpenTrade) {
+      // Update existing trade
+      const tradeCalc = calculateTradePnl(
+        tickerData,
+        existingOpenTrade.entryPrice,
+        existingOpenTrade
+      );
+      if (tradeCalc) {
+        const newStatus =
+          tradeCalc.status === "TP_HIT_TRIM" ? "TP_HIT_TRIM" : tradeCalc.status;
+        const updatedTrade = {
+          ...existingOpenTrade,
+          ...tradeCalc,
+          status: newStatus,
+          trimmedPct: tradeCalc.trimmedPct || existingOpenTrade.trimmedPct || 0,
+          lastUpdate: new Date().toISOString(),
+          sl: Number(tickerData.sl) || existingOpenTrade.sl,
+          tp: Number(tickerData.tp) || existingOpenTrade.tp,
+          rr: Number(tickerData.rr) || existingOpenTrade.rr,
+          rank: Number(tickerData.rank) || existingOpenTrade.rank,
+        };
+
+        const tradeIndex = allTrades.findIndex(
+          (t) => t.id === existingOpenTrade.id
+        );
+        if (tradeIndex >= 0) {
+          allTrades[tradeIndex] = updatedTrade;
+          await kvPutJSON(KV, tradesKey, allTrades);
+          console.log(
+            `[TRADE SIM] Updated trade ${ticker} ${direction}: ${newStatus}`
+          );
+        }
+      }
+    } else {
+      // Check if we should create a new trade
+      const shouldTrigger = shouldTriggerTradeSimulation(
+        ticker,
+        tickerData,
+        prevData
+      );
+      console.log(
+        `[TRADE SIM] ${ticker} ${direction}: shouldTrigger=${shouldTrigger}`
+      );
+
+      if (shouldTrigger) {
+        const now = Date.now();
+        const recentCloseWindow = 5 * 60 * 1000; // 5 minutes
+
+        // Check for recently closed trade (prevent rapid re-entry)
+        const recentlyClosedTrade = allTrades.find(
+          (t) =>
+            t.ticker === ticker &&
+            t.direction === direction &&
+            (t.status === "WIN" || t.status === "LOSS") &&
+            t.entryTime &&
+            now - new Date(t.entryTime).getTime() < recentCloseWindow
+        );
+
+        if (!recentlyClosedTrade) {
+          const entryPrice =
+            Number(tickerData.trigger_price) || Number(tickerData.price);
+          const tradeCalc = calculateTradePnl(tickerData, entryPrice);
+
+          if (tradeCalc) {
+            const trade = {
+              id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
+              ticker,
+              direction,
+              entryPrice,
+              entryTime: new Date().toISOString(),
+              sl: Number(tickerData.sl),
+              tp: Number(tickerData.tp),
+              rr: Number(tickerData.rr) || 0,
+              rank: Number(tickerData.rank) || 0,
+              state: tickerData.state,
+              flags: tickerData.flags || {},
+              scriptVersion: tickerData.script_version || "unknown",
+              ...tradeCalc,
+            };
+
+            allTrades.push(trade);
+            allTrades.sort((a, b) => {
+              const timeA = new Date(a.entryTime || 0).getTime();
+              const timeB = new Date(b.entryTime || 0).getTime();
+              return timeB - timeA;
+            });
+
+            await kvPutJSON(KV, tradesKey, allTrades);
+            console.log(
+              `[TRADE SIM] ✅ Created new trade ${ticker} ${direction} (Rank ${
+                trade.rank
+              }, RR ${trade.rr.toFixed(2)})`
+            );
+          } else {
+            console.log(
+              `[TRADE SIM] ⚠️ ${ticker} ${direction}: tradeCalc returned null`
+            );
+          }
+        } else {
+          console.log(
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: recently closed trade exists, skipping`
+          );
+        }
+      } else {
+        // Log why trade wasn't created
+        const rr = Number(tickerData.rr) || 0;
+        const comp = Number(tickerData.completion) || 0;
+        const phase = Number(tickerData.phase_pct) || 0;
+        const rank = Number(tickerData.rank) || 0;
+        console.log(
+          `[TRADE SIM] ❌ ${ticker} ${direction}: Conditions not met`,
+          {
+            rr,
+            comp,
+            phase,
+            rank,
+            state: tickerData.state,
+          }
+        );
+      }
+    }
+  } catch (err) {
+    console.error(`[TRADE SIM ERROR] ${ticker}:`, err);
+  }
 }
 
 //─────────────────────────────────────────────────────────────────────────────
@@ -1235,6 +1577,9 @@ export default {
         payload.ingest_ts = now; // Timestamp when this data was ingested
         payload.ingest_time = new Date(now).toISOString(); // Human-readable format
 
+        // Get previous data BEFORE storing new data (for trade simulation comparison)
+        const prevLatest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+
         // Store latest (do this BEFORE alert so UI has it)
         await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
         console.log(
@@ -1242,6 +1587,9 @@ export default {
             now
           ).toISOString()}`
         );
+
+        // Process trade simulation (create/update trades automatically)
+        await processTradeSimulation(KV, ticker, payload, prevLatest);
 
         // Trail (light)
         await appendTrail(
@@ -1376,6 +1724,8 @@ export default {
           allConditionsMet:
             enhancedTrigger && rrOk && compOk && phaseOk && rankOk,
         });
+
+        // Trade simulation already processed above (before alert logic)
 
         if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
           // Dedup alert by trigger_ts if present (best), else ts
@@ -2944,15 +3294,18 @@ export default {
           }
 
           // Build system prompt with context
-          const systemPrompt = `You are an expert trading analyst assistant for the Timed Trading platform. 
-Your role is to help traders understand their setups, analyze market conditions, and make informed decisions.
+          const systemPrompt = `You are an expert trading analyst assistant and active monitor for the Timed Trading platform. 
+Your role is to continuously observe market conditions, identify opportunities, warn about risks, and help traders make informed decisions.
 
 ## YOUR CAPABILITIES
-- Analyze ticker data (ranks, RR, phase, completion, states)
-- Interpret trading signals and setups
-- Explain the quadrant-based trading system
-- Provide risk assessments and actionable insights
-- Reference real-time market data and activity
+- **Real-time Monitoring**: Continuously observe ticker data, activity feeds, and market conditions
+- **Proactive Alerts**: Identify good trades to watch, warnings about risks, trim/exit signals
+- **Pattern Recognition**: Learn from trade history and identify profitable patterns
+- **Data Analysis**: Analyze ticker data (ranks, RR, phase, completion, states)
+- **Signal Interpretation**: Interpret trading signals and setups
+- **System Education**: Explain the quadrant-based trading system
+- **Risk Management**: Provide risk assessments and actionable insights
+- **Research Capabilities**: Answer questions about setups, signals, and market research (note: external research APIs can be added later)
 
 ## AVAILABLE DATA
 - **${
@@ -3032,37 +3385,70 @@ The platform uses a quadrant-based approach combining Higher Timeframe (HTF) and
 - **Phase %**: Position in the market cycle (0-100%). Lower (<40%) = early, higher (>60%) = late.
 - **Completion %**: How far price has moved toward target (0-100%). Lower = more upside potential.
 
+## MONITORING & PROACTIVE ALERTS
+
+As an active monitor, you should:
+
+1. **Identify Opportunities**:
+   - Prime setups (Rank ≥75, RR ≥1.5, Completion <40%, Phase <60%)
+   - Momentum Elite stocks entering good setups
+   - New corridor entries with strong signals
+   - Squeeze releases indicating potential moves
+
+2. **Flag Warnings**:
+   - High completion (>70%) - consider trimming or exiting
+   - Late phase (>80%) - risk of reversal
+   - Positions approaching stop loss
+   - Setups losing quality (rank dropping, RR deteriorating)
+
+3. **Pattern Recognition**:
+   - Identify which setups/types perform best
+   - Recognize when similar patterns led to wins/losses
+   - Suggest improvements based on historical performance
+
+4. **Continuous Learning**:
+   - Reference trade history when relevant
+   - Learn from what worked and what didn't
+   - Adapt recommendations based on patterns
+
 ## RESPONSE GUIDELINES
 
 1. **Be concise but thorough**: 
    - Simple queries: 2-4 sentences
    - Analysis questions: More detailed but organized
+   - Monitoring queries: Structured with Opportunities, Warnings, Insights, Recommendations
    - Use bullet points for multiple items
 
 2. **Always reference data**: 
    - Cite specific ranks, RR values, prices, states
+   - Reference activity feed events when relevant
+   - Mention trade history patterns when applicable
    - If ticker data isn't available, say so clearly
 
 3. **Provide actionable insights**:
    - Not just data, but interpretation
-   - Highlight risks and opportunities
-   - Suggest next steps when appropriate
+   - Highlight risks and opportunities proactively
+   - Suggest next steps (watch, enter, trim, exit)
+   - Be specific: "Consider trimming 50% of POSITION at $PRICE"
 
 4. **Risk awareness**:
    - Always mention risks for high-completion setups
    - Caution about late-phase positions
    - Note when setups lack confirmation
+   - Warn about approaching stop losses
 
 5. **Formatting**:
    - Use **bold** for tickers and key terms
    - Use \`code\` for technical terms
    - Use bullet points for lists
+   - Use emojis for quick scanning: 🎯 Opportunities, ⚠️ Warnings, 📊 Insights, 💡 Recommendations
    - Keep paragraphs short (2-3 sentences max)
 
 6. **Educational approach**:
    - Explain concepts if user seems unfamiliar
    - Define abbreviations on first use
    - Provide context for recommendations
+   - Reference the trading system when explaining decisions
 
 ## EXAMPLE RESPONSES
 
@@ -3136,12 +3522,16 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               errorData
             );
             // Provide user-friendly error messages for common OpenAI errors
-            let errorMessage = errorData.error?.message || `OpenAI API error: ${aiResponse.status}`;
+            let errorMessage =
+              errorData.error?.message ||
+              `OpenAI API error: ${aiResponse.status}`;
             if (aiResponse.status === 429) {
               if (errorData.error?.code === "insufficient_quota") {
-                errorMessage = "OpenAI API quota exceeded. Please check your billing and plan details.";
+                errorMessage =
+                  "OpenAI API quota exceeded. Please check your billing and plan details.";
               } else {
-                errorMessage = "OpenAI API rate limit exceeded. Please try again later.";
+                errorMessage =
+                  "OpenAI API rate limit exceeded. Please try again later.";
               }
             }
             throw new Error(errorMessage);
@@ -3264,10 +3654,1345 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
       }
     } // End of POST /timed/ai/chat handler
 
+    // GET /timed/ai/updates (Get periodic AI updates)
+    if (url.pathname === "/timed/ai/updates" && req.method === "GET") {
+      const origin = req?.headers?.get("Origin") || "";
+      const allowedOrigin = origin.includes("timedtrading.pages.dev")
+        ? origin
+        : "*";
+      const aiChatCorsHeaders = {
+        "Access-Control-Allow-Origin": allowedOrigin,
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        Vary: "Origin",
+      };
+
+      try {
+        const limit = parseInt(url.searchParams.get("limit") || "10", 10);
+
+        // Get list of updates
+        const updatesListKey = `timed:ai:updates:list`;
+        const updatesList = (await kvGetJSON(KV, updatesListKey)) || [];
+
+        // Fetch actual update data
+        const updatesPromises = updatesList
+          .slice(0, limit)
+          .map(async (item) => {
+            try {
+              const updateData = await kvGetJSON(KV, item.key);
+              return updateData;
+            } catch (err) {
+              return null;
+            }
+          });
+
+        const updates = (await Promise.all(updatesPromises))
+          .filter(Boolean)
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        return sendJSON(
+          {
+            ok: true,
+            updates,
+            count: updates.length,
+          },
+          200,
+          aiChatCorsHeaders
+        );
+      } catch (error) {
+        console.error("[AI UPDATES ERROR]", error);
+        return sendJSON(
+          {
+            ok: false,
+            error: error.message || "Failed to fetch updates",
+          },
+          500,
+          aiChatCorsHeaders
+        );
+      }
+    }
+
+    // GET /timed/ai/daily-summary (Daily Summary of Simulation Dashboard Performance)
+    if (url.pathname === "/timed/ai/daily-summary" && req.method === "GET") {
+      const origin = req?.headers?.get("Origin") || "";
+      const allowedOrigin = origin.includes("timedtrading.pages.dev")
+        ? origin
+        : "*";
+      const aiChatCorsHeaders = {
+        "Access-Control-Allow-Origin": allowedOrigin,
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        Vary: "Origin",
+      };
+
+      try {
+        const openaiApiKey = env.OPENAI_API_KEY;
+        if (!openaiApiKey) {
+          return sendJSON(
+            {
+              ok: false,
+              error:
+                "AI service not configured. Please set OPENAI_API_KEY secret.",
+            },
+            503,
+            aiChatCorsHeaders
+          );
+        }
+
+        // Get date filter (default: today)
+        const dateParam = url.searchParams.get("date");
+        const targetDate = dateParam ? new Date(dateParam) : new Date();
+        const todayStart = new Date(targetDate);
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(targetDate);
+        todayEnd.setHours(23, 59, 59, 999);
+
+        // Fetch all trades from unified storage
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+        // Filter trades by date
+        const todayTrades = allTrades.filter((trade) => {
+          if (!trade.entryTime) return false;
+          const entryDate = new Date(trade.entryTime);
+          return entryDate >= todayStart && entryDate <= todayEnd;
+        });
+
+        // Categorize trades
+        const newTrades = todayTrades.filter(
+          (t) => t.status === "OPEN" || !t.status
+        );
+        const closedTrades = todayTrades.filter(
+          (t) => t.status === "WIN" || t.status === "LOSS"
+        );
+        const trimmedTrades = todayTrades.filter(
+          (t) => t.status === "TP_HIT_TRIM"
+        );
+
+        // Calculate P&L
+        const closedPnl = closedTrades.reduce(
+          (sum, t) => sum + (Number(t.pnl) || 0),
+          0
+        );
+        const openPnl = newTrades.reduce(
+          (sum, t) => sum + (Number(t.pnl) || 0),
+          0
+        );
+        const trimmedPnl = trimmedTrades.reduce(
+          (sum, t) => sum + (Number(t.pnl) || 0),
+          0
+        );
+
+        // Calculate win rate
+        const wins = closedTrades.filter((t) => t.status === "WIN").length;
+        const losses = closedTrades.filter((t) => t.status === "LOSS").length;
+        const winRate =
+          closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
+
+        // Analyze patterns for learning
+        const winningTrades = closedTrades.filter((t) => t.status === "WIN");
+        const losingTrades = closedTrades.filter((t) => t.status === "LOSS");
+
+        // Analyze by signal types (trigger reasons and flags)
+        const signalAnalysis = {};
+        const allTradesForSignals = [...todayTrades];
+        allTradesForSignals.forEach((trade) => {
+          const signals = [];
+
+          // Trigger reasons
+          if (trade.state) {
+            const state = String(trade.state || "");
+            if (state.includes("BULL")) signals.push("HTF_BULL");
+            if (state.includes("BEAR")) signals.push("HTF_BEAR");
+            if (state.includes("PULLBACK")) signals.push("LTF_PULLBACK");
+            if (state.includes("LTF_BULL")) signals.push("LTF_BULL");
+            if (state.includes("LTF_BEAR")) signals.push("LTF_BEAR");
+          }
+
+          // Flags
+          const flags = trade.flags || {};
+          if (flags.sq30_release) signals.push("SQUEEZE_RELEASE");
+          if (flags.sq30_on) signals.push("SQUEEZE_ON");
+          if (flags.phase_zone_change) signals.push("PHASE_ZONE_CHANGE");
+          if (flags.momentum_elite) signals.push("MOMENTUM_ELITE");
+
+          // Trigger reason
+          if (trade.trigger_reason) {
+            const triggerReason = String(trade.trigger_reason || "");
+            if (triggerReason === "EMA_CROSS") signals.push("EMA_CROSS_DAILY");
+            if (triggerReason === "SQUEEZE_RELEASE")
+              signals.push("SQUEEZE_RELEASE_TRIGGER");
+          }
+
+          const signalKey =
+            signals.length > 0 ? signals.sort().join("+") : "NO_SIGNALS";
+
+          if (!signalAnalysis[signalKey]) {
+            signalAnalysis[signalKey] = {
+              total: 0,
+              wins: 0,
+              losses: 0,
+              totalPnl: 0,
+              trades: [],
+            };
+          }
+
+          signalAnalysis[signalKey].total++;
+          if (trade.status === "WIN") signalAnalysis[signalKey].wins++;
+          if (trade.status === "LOSS") signalAnalysis[signalKey].losses++;
+          signalAnalysis[signalKey].totalPnl += Number(trade.pnl) || 0;
+          signalAnalysis[signalKey].trades.push({
+            ticker: trade.ticker,
+            status: trade.status,
+            pnl: Number(trade.pnl) || 0,
+            rank: Number(trade.rank) || 0,
+            rr: Number(trade.rr) || 0,
+          });
+        });
+
+        // Analyze by rank ranges
+        const rankAnalysis = {};
+        closedTrades.forEach((trade) => {
+          const rank = Number(trade.rank) || 0;
+          let range = "Unknown";
+          if (rank >= 80) range = "Rank ≥ 80";
+          else if (rank >= 70) range = "Rank 70-80";
+          else if (rank >= 60) range = "Rank 60-70";
+          else if (rank > 0) range = "Rank < 60";
+
+          if (!rankAnalysis[range]) {
+            rankAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
+          }
+          if (trade.status === "WIN") rankAnalysis[range].wins++;
+          if (trade.status === "LOSS") rankAnalysis[range].losses++;
+          rankAnalysis[range].totalPnl += Number(trade.pnl) || 0;
+        });
+
+        // Analyze by RR ranges
+        const rrAnalysis = {};
+        closedTrades.forEach((trade) => {
+          const rr = Number(trade.rr) || 0;
+          let range = "Unknown";
+          if (rr >= 2.0) range = "RR ≥ 2.0";
+          else if (rr >= 1.5) range = "RR 1.5-2.0";
+          else if (rr >= 1.0) range = "RR 1.0-1.5";
+          else if (rr > 0) range = "RR < 1.0";
+
+          if (!rrAnalysis[range]) {
+            rrAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
+          }
+          if (trade.status === "WIN") rrAnalysis[range].wins++;
+          if (trade.status === "LOSS") rrAnalysis[range].losses++;
+          rrAnalysis[range].totalPnl += Number(trade.pnl) || 0;
+        });
+
+        // Find most common signals
+        const topSignals = Object.entries(signalAnalysis)
+          .filter(([_, stats]) => stats.total >= 2)
+          .sort((a, b) => {
+            const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+            const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+            return bRate - aRate;
+          })
+          .slice(0, 5);
+
+        // Build summary prompt
+        const summaryPrompt = `You are a senior trading analyst providing a comprehensive daily market thesis. Write as if someone asked you: "How did the market do today? What interesting developments were there?"
+
+Your response should be thesis-driven, narrative, and detailed - like a professional market commentary.
+
+## TODAY'S PERFORMANCE SUMMARY
+
+**Date:** ${targetDate.toLocaleDateString()}
+
+### Trade Activity:
+- **New Trades:** ${newTrades.length}
+- **Closed Trades:** ${closedTrades.length} (${wins} wins, ${losses} losses)
+- **Trimmed Trades:** ${trimmedTrades.length}
+
+### P&L Summary:
+- **Closed P&L:** $${closedPnl.toFixed(2)}
+- **Open P&L:** $${openPnl.toFixed(2)}
+- **Trimmed P&L:** $${trimmedPnl.toFixed(2)}
+- **Total P&L:** $${(closedPnl + openPnl + trimmedPnl).toFixed(2)}
+- **Win Rate:** ${winRate.toFixed(1)}%
+
+### Signal Breakdown - What Drove Today's Trades:
+
+**Most Common Signal Combinations:**
+${
+  topSignals.length > 0
+    ? topSignals
+        .map(
+          ([signals, stats]) =>
+            `- **${signals}**: ${stats.total} trades | ${stats.wins}W/${
+              stats.losses
+            }L (${(
+              (stats.wins / (stats.wins + stats.losses || 1)) *
+              100
+            ).toFixed(1)}% win rate) | P&L: $${stats.totalPnl.toFixed(2)}`
+        )
+        .join("\n")
+    : "No significant signal patterns"
+}
+
+**Signal Details:**
+- **EMA Crossovers (Daily)**: ${
+          allTradesForSignals.filter((t) => t.trigger_reason === "EMA_CROSS")
+            .length
+        } trades
+- **Squeeze Releases**: ${
+          allTradesForSignals.filter((t) => t.flags?.sq30_release).length
+        } trades
+- **Momentum Elite**: ${
+          allTradesForSignals.filter((t) => t.flags?.momentum_elite).length
+        } trades
+- **Phase Zone Changes**: ${
+          allTradesForSignals.filter((t) => t.flags?.phase_zone_change).length
+        } trades
+
+---
+
+### Performance by Rank:
+${
+  Object.entries(rankAnalysis)
+    .map(
+      ([range, stats]) =>
+        `- **${range}**: ${stats.wins}W/${
+          stats.losses
+        }L | P&L: $${stats.totalPnl.toFixed(2)}`
+    )
+    .join("\n") || "No data"
+}
+
+---
+
+### Performance by RR:
+${
+  Object.entries(rrAnalysis)
+    .map(
+      ([range, stats]) =>
+        `- **${range}**: ${stats.wins}W/${
+          stats.losses
+        }L | P&L: $${stats.totalPnl.toFixed(2)}`
+    )
+    .join("\n") || "No data"
+}
+
+---
+
+### Top Performers:
+${
+  winningTrades
+    .sort((a, b) => (Number(b.pnl) || 0) - (Number(a.pnl) || 0))
+    .slice(0, 5)
+    .map((t) => {
+      const rr = Number(t.rr) || 0;
+      const rrFormatted =
+        rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+      return `- **${t.ticker}**: +$${(Number(t.pnl) || 0).toFixed(2)} | Rank ${
+        t.rank || 0
+      } | RR ${rrFormatted}`;
+    })
+    .join("\n") || "None"
+}
+
+### Worst Performers:
+${
+  losingTrades
+    .sort((a, b) => (Number(a.pnl) || 0) - (Number(b.pnl) || 0))
+    .slice(0, 5)
+    .map((t) => {
+      const rr = Number(t.rr) || 0;
+      const rrFormatted =
+        rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+      return `- **${t.ticker}**: $${(Number(t.pnl) || 0).toFixed(2)} | Rank ${
+        t.rank || 0
+      } | RR ${rrFormatted}`;
+    })
+    .join("\n") || "None"
+}
+
+### Current Open Positions (For Actionable Recommendations):
+${
+  newTrades.length > 0
+    ? newTrades
+        .slice(0, 10)
+        .map((t) => {
+          const entryPrice = Number(t.entryPrice) || 0;
+          const currentPrice = Number(t.currentPrice) || entryPrice;
+          const sl = Number(t.sl) || 0;
+          const tp = Number(t.tp) || 0;
+          const rr = Number(t.rr) || 0;
+          const rrFormatted =
+            rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+          const direction = String(t.direction || "LONG");
+          const riskPerShare =
+            direction === "LONG" ? entryPrice - sl : sl - entryPrice;
+          const rewardPerShare =
+            direction === "LONG" ? tp - entryPrice : entryPrice - tp;
+          const distanceToTP =
+            direction === "LONG" ? tp - currentPrice : currentPrice - tp;
+          const distanceToSL =
+            direction === "LONG" ? currentPrice - sl : sl - currentPrice;
+          const pctToTP =
+            entryPrice > 0
+              ? ((distanceToTP / rewardPerShare) * 100).toFixed(0)
+              : "0";
+          const trimLevel = tp; // Trim at first TP
+
+          return `- **${t.ticker}** (${direction}): Entry $${entryPrice.toFixed(
+            2
+          )} | Current $${currentPrice.toFixed(2)} | SL $${sl.toFixed(
+            2
+          )} | TP $${tp.toFixed(2)} | RR ${rrFormatted} | Rank ${
+            t.rank || 0
+          } | ${pctToTP}% to TP`;
+        })
+        .join("\n")
+    : "No open positions"
+}
+
+## YOUR TASK
+
+Write a comprehensive, thesis-driven daily market summary. Structure it as follows:
+
+### 1. **Market Thesis** (2-3 paragraphs)
+Start with a clear thesis statement: "Today's market was characterized by [X]..." 
+- What was the overall market character? (Bullish momentum, choppy consolidation, bearish pressure, etc.)
+- What drove the day's activity? (EMA crossovers, squeeze releases, specific setups)
+- Were there any notable patterns or themes?
+
+### 2. **Signal-Driven Analysis** (Detailed breakdown)
+For each major signal type, explain:
+- **EMA Crossovers**: How many occurred? Were they on the daily timeframe? Did they lead to successful trades? What was the typical setup?
+- **Squeeze Releases**: How many squeeze releases triggered trades? Were they bullish or bearish? How did they perform?
+- **Momentum Elite**: Did Momentum Elite stocks outperform? What was their win rate?
+- **Phase Zone Changes**: Did phase transitions lead to good entries? Were they early or late in the cycle?
+
+Break down what specifically drove the scores and signals. For example:
+- "The majority of winning trades today were driven by EMA crossovers on the daily timeframe, particularly when combined with squeeze releases. These setups showed an average rank of 78 and RR of 2.1:1..."
+- "Squeeze releases were the dominant signal, accounting for X% of new entries. However, they showed mixed results - bullish squeezes in Q2 (HTF_BULL_LTF_BULL) performed well with a Y% win rate, while bearish squeezes struggled..."
+
+### 3. **Interesting Developments** (What stood out)
+- Were there any unusual patterns? (e.g., "Rank ≥80 trades significantly outperformed today")
+- Did certain sectors or setups surprise? (e.g., "Short setups unexpectedly outperformed longs")
+- Any notable failures or successes? (e.g., "High RR trades (>2.0) had perfect win rate but low volume")
+
+### 4. **Performance Breakdown by Signals**
+Reference the signal analysis data above. Explain which signal combinations worked best and why.
+
+### 5. **Actionable Trade Recommendations** (Walk-through with actual details)
+For each open position, provide specific guidance:
+
+**Format for each recommendation:**
+\`\`\`
+**[TICKER]** - [DIRECTION] Setup
+- **Current Price**: $X.XX
+- **Entry Price**: $X.XX (if different from current)
+- **Stop Loss**: $X.XX (risk: $X.XX per share, X.X% risk)
+- **Take Profit**: $X.XX (reward: $X.XX per share, X.X% reward)
+- **Risk/Reward**: X.X:1
+- **Current Status**: X% to TP / X% above SL
+- **When to Trim**: Trim 50% at $X.XX (first TP level)
+- **Action Plan**: [Specific guidance - e.g., "Hold until TP at $X.XX, then trim 50%. Move SL to breakeven if price reaches $X.XX"]
+- **Risk Assessment**: [Any concerns - e.g., "Approaching SL, consider tightening stop if price breaks below $X.XX"]
+\`\`\`
+
+Provide 3-5 most important open positions with full walk-through details. Be specific about price levels, percentages, and exact actions.
+
+### 6. **Recommendations for Scoring/Capturing** (System improvements)
+Based on today's data:
+- Should we adjust minimum rank thresholds? (e.g., "Rank ≥80 showed 85% win rate vs 60% for Rank 70-80")
+- Should we adjust RR requirements? (e.g., "RR ≥2.0 trades had perfect win rate")
+- Are certain signal combinations performing better? (e.g., "EMA_CROSS+SQUEEZE_RELEASE+MOMENTUM_ELITE had 90% win rate")
+- What patterns should we focus on? (e.g., "Focus on Momentum Elite stocks with squeeze releases")
+
+### 7. **What to Watch Tomorrow**
+- What setups are forming?
+- What signals are developing?
+- Any warnings or opportunities?
+
+**Writing Style:**
+- Write in a narrative, conversational tone (like explaining to a colleague)
+- Use specific data points and examples
+- Be detailed about signal mechanics (e.g., "EMA crossovers on the daily timeframe when price was above the 21 EMA")
+- Reference actual tickers when relevant
+- Make it insightful, not just data-dumping
+
+**Length:** Aim for 800-1200 words. Be thorough but focused.`;
+
+        // Call OpenAI API
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+        let aiResponse;
+        try {
+          aiResponse = await fetch(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${openaiApiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model:
+                  env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                    ? env.OPENAI_MODEL
+                    : "gpt-3.5-turbo",
+                messages: [{ role: "system", content: summaryPrompt }],
+                temperature: 0.7,
+                max_tokens: 2000,
+              }),
+              signal: controller.signal,
+            }
+          );
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === "AbortError") {
+            throw new Error("Request timeout");
+          }
+          throw new Error(`Network error: ${fetchError.message}`);
+        }
+
+        clearTimeout(timeoutId);
+
+        if (!aiResponse.ok) {
+          throw new Error(`OpenAI API error: ${aiResponse.status}`);
+        }
+
+        const aiData = await aiResponse.json();
+        const summary =
+          aiData.choices?.[0]?.message?.content || "Daily summary unavailable.";
+
+        return sendJSON(
+          {
+            ok: true,
+            summary,
+            stats: {
+              date: targetDate.toISOString().split("T")[0],
+              newTrades: newTrades.length,
+              closedTrades: closedTrades.length,
+              trimmedTrades: trimmedTrades.length,
+              wins,
+              losses,
+              winRate: winRate.toFixed(1),
+              closedPnl: closedPnl.toFixed(2),
+              openPnl: openPnl.toFixed(2),
+              trimmedPnl: trimmedPnl.toFixed(2),
+              totalPnl: (closedPnl + openPnl + trimmedPnl).toFixed(2),
+              rankAnalysis,
+              rrAnalysis,
+              signalAnalysis,
+              topSignals: topSignals.map(([signals, stats]) => ({
+                signals,
+                ...stats,
+              })),
+            },
+            timestamp: Date.now(),
+          },
+          200,
+          aiChatCorsHeaders
+        );
+      } catch (error) {
+        console.error("[DAILY SUMMARY ERROR]", error);
+        return sendJSON(
+          {
+            ok: false,
+            error: error.message || "Daily summary service error",
+          },
+          500,
+          aiChatCorsHeaders
+        );
+      }
+    }
+
+    // GET /timed/ai/monitor (Real-time Monitoring & Proactive Alerts)
+    if (url.pathname === "/timed/ai/monitor" && req.method === "GET") {
+      const origin = req?.headers?.get("Origin") || "";
+      const allowedOrigin = origin.includes("timedtrading.pages.dev")
+        ? origin
+        : "*";
+      const aiChatCorsHeaders = {
+        "Access-Control-Allow-Origin": allowedOrigin,
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        Vary: "Origin",
+      };
+
+      try {
+        const openaiApiKey = env.OPENAI_API_KEY;
+        if (!openaiApiKey) {
+          return sendJSON(
+            {
+              ok: false,
+              error:
+                "AI service not configured. Please set OPENAI_API_KEY secret.",
+            },
+            503,
+            aiChatCorsHeaders
+          );
+        }
+
+        // Fetch all ticker data
+        const allKeys = await KV.list({ prefix: "timed:latest:" });
+        const tickerDataPromises = allKeys.keys
+          .slice(0, 50)
+          .map(async (key) => {
+            try {
+              const data = await kvGetJSON(KV, key.name);
+              if (data) {
+                const ticker = key.name.replace("timed:latest:", "");
+                return {
+                  ticker,
+                  rank: Number(data.rank) || 0,
+                  rr: Number(data.rr) || 0,
+                  price: Number(data.price) || 0,
+                  state: String(data.state || ""),
+                  phase_pct: Number(data.phase_pct) || 0,
+                  completion: Number(data.completion) || 0,
+                  flags: data.flags || {},
+                  htf_score: Number(data.htf_score) || 0,
+                  ltf_score: Number(data.ltf_score) || 0,
+                  sl: Number(data.sl) || 0,
+                  tp: Number(data.tp) || 0,
+                };
+              }
+              return null;
+            } catch (err) {
+              console.error(`[AI MONITOR] Error fetching ${key.name}:`, err);
+              return null;
+            }
+          });
+
+        const allTickers = (await Promise.all(tickerDataPromises))
+          .filter(Boolean)
+          .sort((a, b) => (b.rank || 0) - (a.rank || 0));
+
+        // Fetch recent activity feed (last 20 events)
+        const activityKeys = await KV.list({ prefix: "timed:activity:" });
+        const recentActivity = [];
+        const activityPromises = activityKeys.keys
+          .slice(-20)
+          .map(async (key) => {
+            try {
+              const data = await kvGetJSON(KV, key.name);
+              if (data) {
+                return {
+                  ticker: String(data.ticker || "UNKNOWN"),
+                  type: String(data.type || "event"),
+                  ts: Number(data.ts) || Date.now(),
+                  price: Number(data.price) || 0,
+                  rank: Number(data.rank) || 0,
+                };
+              }
+              return null;
+            } catch (err) {
+              return null;
+            }
+          });
+
+        const activityEvents = (await Promise.all(activityPromises))
+          .filter(Boolean)
+          .sort((a, b) => b.ts - a.ts)
+          .slice(0, 20);
+
+        // Fetch trade history for pattern recognition
+        const tradesKey = "timed:trades:all";
+        const allTradesForHistory = (await kvGetJSON(KV, tradesKey)) || [];
+        const tradeHistory = allTradesForHistory
+          .filter((t) => t.status === "WIN" || t.status === "LOSS")
+          .slice(-30)
+          .map((t) => ({
+            ticker: String(t.ticker || ""),
+            direction: String(t.direction || ""),
+            status: String(t.status || ""),
+            pnl: Number(t.pnl) || 0,
+            rank: Number(t.rank) || 0,
+            rr: Number(t.rr) || 0,
+            entryTime: String(t.entryTime || ""),
+          }));
+
+        // Analyze for proactive alerts
+        const primeSetups = allTickers.filter(
+          (t) =>
+            t.rank >= 75 &&
+            t.rr >= 1.5 &&
+            t.completion < 0.4 &&
+            t.phase_pct < 0.6
+        );
+
+        const highRiskPositions = allTickers.filter(
+          (t) => t.completion > 0.7 || t.phase_pct > 0.8
+        );
+
+        const momentumEliteSetups = allTickers.filter(
+          (t) => t.flags?.momentum_elite && t.rank >= 70
+        );
+
+        // Build monitoring prompt
+        const monitoringPrompt = `You are an AI trading monitor for the Timed Trading platform. Your role is to continuously observe market conditions, identify opportunities, warn about risks, and provide actionable insights.
+
+## YOUR MONITORING CAPABILITIES
+- **Real-time Market Analysis**: Monitor all tickers and activity feeds
+- **Proactive Alerts**: Identify good trades, warnings, trim/exit signals
+- **Pattern Recognition**: Learn from trade history and identify patterns
+- **Risk Management**: Flag high-risk positions and suggest exits
+- **Opportunity Detection**: Surface prime setups and momentum elite stocks
+
+## CURRENT MARKET DATA
+- **${allTickers.length} total tickers** being monitored
+- **${
+          primeSetups.length
+        } prime setups** (Rank ≥75, RR ≥1.5, Completion <40%, Phase <60%)
+- **${
+          highRiskPositions.length
+        } high-risk positions** (Completion >70% or Phase >80%)
+- **${momentumEliteSetups.length} Momentum Elite setups**
+- **${activityEvents.length} recent activity events**
+- **${tradeHistory.length} closed trades** for pattern analysis
+
+### Top Prime Setups (${primeSetups.slice(0, 10).length}):
+${
+  primeSetups
+    .slice(0, 10)
+    .map((t) => {
+      const rr = Number(t.rr) || 0;
+      const rrFormatted =
+        rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+      return `- **${t.ticker}**: Rank ${
+        t.rank
+      } | RR ${rrFormatted} | Price $${t.price.toFixed(2)} | Phase ${(
+        t.phase_pct * 100
+      ).toFixed(0)}% | Completion ${(t.completion * 100).toFixed(0)}%`;
+    })
+    .join("\n") || "None"
+}
+
+### High-Risk Positions (${highRiskPositions.slice(0, 10).length}):
+${
+  highRiskPositions
+    .slice(0, 10)
+    .map(
+      (t) =>
+        `- **${t.ticker}**: Rank ${t.rank}, Completion ${(
+          t.completion * 100
+        ).toFixed(0)}%, Phase ${(t.phase_pct * 100).toFixed(
+          0
+        )}%, Price $${t.price.toFixed(2)}`
+    )
+    .join("\n") || "None"
+}
+
+### Recent Activity (Last ${activityEvents.slice(0, 10).length}):
+${
+  activityEvents
+    .slice(0, 10)
+    .map(
+      (a) =>
+        `- ${new Date(a.ts).toLocaleTimeString()}: **${a.ticker}** ${
+          a.type
+        } at $${a.price.toFixed(2)}`
+    )
+    .join("\n") || "None"
+}
+
+### Trade History Patterns (Last ${tradeHistory.length}):
+${
+  tradeHistory.length > 0
+    ? `Win Rate: ${(
+        (tradeHistory.filter((t) => t.status === "WIN").length /
+          tradeHistory.length) *
+        100
+      ).toFixed(1)}%\n` +
+      `Avg P&L: $${(
+        tradeHistory.reduce((sum, t) => sum + (t.pnl || 0), 0) /
+        tradeHistory.length
+      ).toFixed(2)}\n` +
+      `Best Performers: ${tradeHistory
+        .filter((t) => t.pnl > 0)
+        .sort((a, b) => b.pnl - a.pnl)
+        .slice(0, 5)
+        .map((t) => `${t.ticker} (+$${t.pnl.toFixed(2)})`)
+        .join(", ")}`
+    : "No trade history available"
+}
+
+## MONITORING RESPONSE FORMAT
+Provide a structured analysis with:
+
+1. **🎯 Opportunities** (Prime setups worth watching)
+2. **⚠️ Warnings** (High-risk positions, consider trimming/exiting)
+3. **📊 Market Insights** (Overall market conditions, patterns)
+4. **💡 Recommendations** (Actionable next steps)
+
+Be concise but thorough. Focus on actionable insights, not just data.`;
+
+        // Call OpenAI API
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+        let aiResponse;
+        try {
+          aiResponse = await fetch(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${openaiApiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model:
+                  env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                    ? env.OPENAI_MODEL
+                    : "gpt-3.5-turbo",
+                messages: [{ role: "system", content: monitoringPrompt }],
+                temperature: 0.7,
+                max_tokens: 1000,
+              }),
+              signal: controller.signal,
+            }
+          );
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === "AbortError") {
+            throw new Error("Request timeout");
+          }
+          throw new Error(`Network error: ${fetchError.message}`);
+        }
+
+        clearTimeout(timeoutId);
+
+        if (!aiResponse.ok) {
+          let errorData = {};
+          try {
+            errorData = await aiResponse.json();
+          } catch (e) {
+            errorData = { error: { message: aiResponse.statusText } };
+          }
+          throw new Error(
+            errorData.error?.message || `OpenAI API error: ${aiResponse.status}`
+          );
+        }
+
+        const aiData = await aiResponse.json();
+        const aiMessage =
+          aiData.choices?.[0]?.message?.content ||
+          "Monitoring analysis unavailable.";
+
+        return sendJSON(
+          {
+            ok: true,
+            analysis: aiMessage,
+            stats: {
+              totalTickers: allTickers.length,
+              primeSetups: primeSetups.length,
+              highRiskPositions: highRiskPositions.length,
+              momentumElite: momentumEliteSetups.length,
+              recentActivity: activityEvents.length,
+              tradeHistory: tradeHistory.length,
+            },
+            timestamp: Date.now(),
+          },
+          200,
+          aiChatCorsHeaders
+        );
+      } catch (error) {
+        console.error("[AI MONITOR ERROR]", error);
+        return sendJSON(
+          {
+            ok: false,
+            error: error.message || "Monitoring service error",
+          },
+          500,
+          aiChatCorsHeaders
+        );
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Debug Endpoints
+    // ─────────────────────────────────────────────────────────────
+
+    // GET /timed/debug/trades - Get all trades with details
+    if (url.pathname === "/timed/debug/trades" && req.method === "GET") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+        const openTrades = allTrades.filter(
+          (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+        );
+        const closedTrades = allTrades.filter(
+          (t) => t.status === "WIN" || t.status === "LOSS"
+        );
+
+        return sendJSON(
+          {
+            ok: true,
+            total: allTrades.length,
+            open: openTrades.length,
+            closed: closedTrades.length,
+            trades: allTrades,
+            summary: {
+              byVersion: allTrades.reduce((acc, t) => {
+                const v = t.scriptVersion || "unknown";
+                acc[v] = (acc[v] || 0) + 1;
+                return acc;
+              }, {}),
+              byStatus: allTrades.reduce((acc, t) => {
+                const s = t.status || "OPEN";
+                acc[s] = (acc[s] || 0) + 1;
+                return acc;
+              }, {}),
+            },
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
+    // GET /timed/debug/tickers - Get all tickers with latest data
+    if (url.pathname === "/timed/debug/tickers" && req.method === "GET") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const tickerDataPromises = tickerIndex
+          .slice(0, 100)
+          .map(async (ticker) => {
+            const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            return {
+              ticker,
+              hasData: !!data,
+              data: data
+                ? {
+                    price: data.price,
+                    state: data.state,
+                    rank: data.rank,
+                    rr: data.rr,
+                    completion: data.completion,
+                    phase_pct: data.phase_pct,
+                    sl: data.sl,
+                    tp: data.tp,
+                    script_version: data.script_version,
+                    ingest_time: data.ingest_time,
+                  }
+                : null,
+            };
+          });
+
+        const tickerData = await Promise.all(tickerDataPromises);
+
+        return sendJSON(
+          {
+            ok: true,
+            totalTickers: tickerIndex.length,
+            tickersWithData: tickerData.filter((t) => t.hasData).length,
+            tickers: tickerData,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
+    // GET /timed/debug/config - Check Discord and other configuration
+    if (url.pathname === "/timed/debug/config" && req.method === "GET") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      return sendJSON(
+        {
+          ok: true,
+          config: {
+            discordEnabled: (env.DISCORD_ENABLE || "false") === "true",
+            discordWebhookSet: !!env.DISCORD_WEBHOOK_URL,
+            discordWebhookUrl: env.DISCORD_WEBHOOK_URL
+              ? "***SET***"
+              : "NOT SET",
+            openaiApiKeySet: !!env.OPENAI_API_KEY,
+            openaiModel: env.OPENAI_MODEL || "gpt-3.5-turbo",
+            alertMinRR: env.ALERT_MIN_RR || "1.5",
+            alertMaxCompletion: env.ALERT_MAX_COMPLETION || "0.4",
+            alertMaxPhase: env.ALERT_MAX_PHASE || "0.6",
+            alertMinRank: env.ALERT_MIN_RANK || "70",
+          },
+        },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
+    // POST /timed/debug/simulate-trades?key=... - Manually simulate trades for all tickers
+    if (
+      url.pathname === "/timed/debug/simulate-trades" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const results = {
+          processed: 0,
+          created: 0,
+          updated: 0,
+          skipped: 0,
+          errors: [],
+        };
+
+        // Process first 50 tickers to avoid timeout
+        for (const ticker of tickerIndex.slice(0, 50)) {
+          try {
+            const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            if (latestData) {
+              const prevLatest = null; // No previous data for manual simulation
+              await processTradeSimulation(KV, ticker, latestData, prevLatest);
+              results.processed++;
+            } else {
+              results.skipped++;
+            }
+          } catch (err) {
+            results.errors.push({ ticker, error: err.message });
+          }
+        }
+
+        // Get final trade count
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const openTrades = allTrades.filter(
+          (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+        );
+
+        return sendJSON(
+          {
+            ok: true,
+            message: `Processed ${results.processed} tickers`,
+            results,
+            currentTrades: {
+              total: allTrades.length,
+              open: openTrades.length,
+            },
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
     return sendJSON(
       { ok: false, error: "not_found" },
       404,
       corsHeaders(env, req)
     );
+  },
+
+  // Scheduled handler for periodic AI updates (9:45 AM, noon, 3:30 PM ET) and trade updates (every 5 min)
+  async scheduled(event, env, ctx) {
+    const KV = env.KV_TIMED;
+    const now = new Date();
+    const hour = now.getUTCHours();
+    const minute = now.getUTCMinutes();
+
+    // Always update open trades (runs every 5 minutes)
+    try {
+      const tradesKey = "timed:trades:all";
+      const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+      const openTrades = allTrades.filter(
+        (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+      );
+
+      if (openTrades.length > 0) {
+        console.log(
+          `[TRADE UPDATE CRON] Updating ${openTrades.length} open trades`
+        );
+
+        for (const trade of openTrades) {
+          try {
+            const latestData = await kvGetJSON(
+              KV,
+              `timed:latest:${trade.ticker}`
+            );
+            if (latestData) {
+              const tradeCalc = calculateTradePnl(
+                latestData,
+                trade.entryPrice,
+                trade
+              );
+              if (tradeCalc) {
+                const newStatus =
+                  tradeCalc.status === "TP_HIT_TRIM"
+                    ? "TP_HIT_TRIM"
+                    : tradeCalc.status;
+                const updatedTrade = {
+                  ...trade,
+                  ...tradeCalc,
+                  status: newStatus,
+                  trimmedPct: tradeCalc.trimmedPct || trade.trimmedPct || 0,
+                  lastUpdate: new Date().toISOString(),
+                  sl: Number(latestData.sl) || trade.sl,
+                  tp: Number(latestData.tp) || trade.tp,
+                  rr: Number(latestData.rr) || trade.rr,
+                  rank: Number(latestData.rank) || trade.rank,
+                };
+
+                const tradeIndex = allTrades.findIndex(
+                  (t) => t.id === trade.id
+                );
+                if (tradeIndex >= 0) {
+                  allTrades[tradeIndex] = updatedTrade;
+                }
+              }
+            }
+          } catch (err) {
+            console.error(
+              `[TRADE UPDATE CRON] Error updating trade ${trade.ticker}:`,
+              err
+            );
+          }
+        }
+
+        // Save updated trades
+        allTrades.sort((a, b) => {
+          const timeA = new Date(a.entryTime || 0).getTime();
+          const timeB = new Date(b.entryTime || 0).getTime();
+          return timeB - timeA;
+        });
+        await kvPutJSON(KV, tradesKey, allTrades);
+        console.log(`[TRADE UPDATE CRON] Updated ${openTrades.length} trades`);
+      }
+    } catch (error) {
+      console.error("[TRADE UPDATE CRON ERROR]", error);
+    }
+
+    // AI Updates (only at specific times: 9:45 AM, noon, 3:30 PM ET)
+    const isAITime =
+      (hour === 14 && minute === 45) || // 9:45 AM ET
+      (hour === 17 && minute === 0) || // 12:00 PM ET
+      (hour === 20 && minute === 30); // 3:30 PM ET
+
+    if (!isAITime) {
+      return; // Only do AI updates at specific times
+    }
+
+    const openaiApiKey = env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      console.error("[SCHEDULED] OpenAI API key not configured");
+      return;
+    }
+
+    try {
+      // Determine update time label
+      let updateTime = "Market Update";
+      if (hour === 14 && minute === 45) {
+        updateTime = "Morning Market Update (9:45 AM ET)";
+      } else if (hour === 17 && minute === 0) {
+        updateTime = "Midday Market Update (12:00 PM ET)";
+      } else if (hour === 20 && minute === 30) {
+        updateTime = "Afternoon Market Update (3:30 PM ET)";
+      }
+
+      // Fetch all ticker data
+      const allKeys = await KV.list({ prefix: "timed:latest:" });
+      const tickerDataPromises = allKeys.keys.slice(0, 50).map(async (key) => {
+        try {
+          const data = await kvGetJSON(KV, key.name);
+          if (data) {
+            const ticker = key.name.replace("timed:latest:", "");
+            return {
+              ticker,
+              rank: Number(data.rank) || 0,
+              rr: Number(data.rr) || 0,
+              price: Number(data.price) || 0,
+              state: String(data.state || ""),
+              phase_pct: Number(data.phase_pct) || 0,
+              completion: Number(data.completion) || 0,
+              flags: data.flags || {},
+            };
+          }
+          return null;
+        } catch (err) {
+          return null;
+        }
+      });
+
+      const allTickers = (await Promise.all(tickerDataPromises))
+        .filter(Boolean)
+        .sort((a, b) => (b.rank || 0) - (a.rank || 0));
+
+      // Fetch recent activity
+      const activityKeys = await KV.list({ prefix: "timed:activity:" });
+      const activityPromises = activityKeys.keys.slice(-20).map(async (key) => {
+        try {
+          const data = await kvGetJSON(KV, key.name);
+          if (data) {
+            return {
+              ticker: String(data.ticker || "UNKNOWN"),
+              type: String(data.type || "event"),
+              ts: Number(data.ts) || Date.now(),
+              price: Number(data.price) || 0,
+            };
+          }
+          return null;
+        } catch (err) {
+          return null;
+        }
+      });
+
+      const activityEvents = (await Promise.all(activityPromises))
+        .filter(Boolean)
+        .sort((a, b) => b.ts - a.ts)
+        .slice(0, 10);
+
+      // Analyze for proactive alerts
+      const primeSetups = allTickers.filter(
+        (t) =>
+          t.rank >= 75 && t.rr >= 1.5 && t.completion < 0.4 && t.phase_pct < 0.6
+      );
+
+      const highRiskPositions = allTickers.filter(
+        (t) => t.completion > 0.7 || t.phase_pct > 0.8
+      );
+
+      // Build monitoring prompt
+      const monitoringPrompt = `You are providing a ${updateTime} for the Timed Trading platform.
+
+## CURRENT MARKET DATA
+- **${allTickers.length} total tickers** being monitored
+- **${
+        primeSetups.length
+      } prime setups** (Rank ≥75, RR ≥1.5, Completion <40%, Phase <60%)
+- **${
+        highRiskPositions.length
+      } high-risk positions** (Completion >70% or Phase >80%)
+- **${activityEvents.length} recent activity events**
+
+### Top Prime Setups:
+${
+  primeSetups
+    .slice(0, 10)
+    .map((t) => {
+      const rr = Number(t.rr) || 0;
+      const rrFormatted =
+        rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+      return `- **${t.ticker}**: Rank ${
+        t.rank
+      } | RR ${rrFormatted} | Price $${t.price.toFixed(2)} | Phase ${(
+        t.phase_pct * 100
+      ).toFixed(0)}% | Completion ${(t.completion * 100).toFixed(0)}%`;
+    })
+    .join("\n") || "None"
+}
+
+### Recent Activity:
+${
+  activityEvents
+    .slice(0, 10)
+    .map(
+      (a) =>
+        `- ${new Date(a.ts).toLocaleTimeString()}: **${a.ticker}** ${
+          a.type
+        } at $${a.price.toFixed(2)}`
+    )
+    .join("\n") || "None"
+}
+
+Provide a concise market update with:
+1. **🎯 Key Opportunities** (Top 3-5 setups to watch)
+2. **⚠️ Warnings** (High-risk positions or market conditions)
+3. **📊 Market Insights** (Overall conditions, trends)
+
+Be concise (3-5 sentences per section).`;
+
+      // Call OpenAI API
+      const aiResponse = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${openaiApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model:
+              env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                ? env.OPENAI_MODEL
+                : "gpt-3.5-turbo",
+            messages: [{ role: "system", content: monitoringPrompt }],
+            temperature: 0.7,
+            max_tokens: 800,
+          }),
+        }
+      );
+
+      if (!aiResponse.ok) {
+        throw new Error(`OpenAI API error: ${aiResponse.status}`);
+      }
+
+      const aiData = await aiResponse.json();
+      const aiMessage =
+        aiData.choices?.[0]?.message?.content || "Market update unavailable.";
+
+      // Store update in KV
+      const updateKey = `timed:ai:update:${
+        now.toISOString().split("T")[0]
+      }:${hour}:${minute}`;
+      const updateData = {
+        timestamp: now.toISOString(),
+        updateTime,
+        analysis: aiMessage,
+        stats: {
+          totalTickers: allTickers.length,
+          primeSetups: primeSetups.length,
+          highRiskPositions: highRiskPositions.length,
+          recentActivity: activityEvents.length,
+        },
+      };
+
+      await KV.put(updateKey, JSON.stringify(updateData));
+
+      // Also store in a list for easy retrieval
+      const updatesListKey = `timed:ai:updates:list`;
+      const existingList = (await kvGetJSON(KV, updatesListKey)) || [];
+      existingList.unshift({
+        key: updateKey,
+        timestamp: now.toISOString(),
+        updateTime,
+      });
+      // Keep only last 30 updates
+      await KV.put(updatesListKey, JSON.stringify(existingList.slice(0, 30)));
+
+      console.log(
+        `[SCHEDULED] Generated ${updateTime} at ${now.toISOString()}`
+      );
+    } catch (error) {
+      console.error("[SCHEDULED ERROR]", error);
+    }
   },
 };
