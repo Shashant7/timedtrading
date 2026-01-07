@@ -1994,7 +1994,16 @@
           if (preset.label === "🚀 Momentum Elite") {
             return filters.momentumElite === true;
           }
-          // Check if quadrant filter matches
+          // Check for "Top Long Setup" and "Top Short Setup" specifically
+          if (preset.label === "Top Long Setup") {
+            const currentQuadrants = filters.quadrants || [];
+            return currentQuadrants.length === 1 && currentQuadrants[0] === "HTF_BULL_LTF_PULLBACK";
+          }
+          if (preset.label === "Top Short Setup") {
+            const currentQuadrants = filters.quadrants || [];
+            return currentQuadrants.length === 1 && currentQuadrants[0] === "HTF_BEAR_LTF_PULLBACK";
+          }
+          // Check if quadrant filter matches (for Q1, Q2, Q3, Q4 labels)
           if (preset.label.startsWith("Q")) {
             const presetQuadrants = preset.filter.quadrants || [];
             const currentQuadrants = filters.quadrants || [];
@@ -2039,7 +2048,7 @@
               const newFilters = { ...filters };
               delete newFilters.momentumElite;
               onFilterChange(newFilters);
-            } else if (preset.label.startsWith("Q")) {
+            } else if (preset.label === "Top Long Setup" || preset.label === "Top Short Setup" || preset.label.startsWith("Q")) {
               // Reset to all quadrants
               onFilterChange({ 
                 quadrants: [

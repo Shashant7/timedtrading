@@ -993,7 +993,9 @@ export default {
         }
 
         // Dedupe rapid repeats (only if exact same data within 60s)
-        // Note: This prevents spam but may filter legitimate updates if data hasn't changed
+        // Note: For Force Baseline, TV sends all alerts with same timestamp/data structure
+        // We still want to index all tickers, so dedupe only prevents duplicate alert processing
+        // but ticker indexing happens regardless
         const basis = JSON.stringify({
           ts: payload.ts,
           htf: payload.htf_score,
@@ -1003,6 +1005,8 @@ export default {
           phase_pct: payload.phase_pct,
           rr: payload.rr,
           trigger_ts: payload.trigger_ts,
+          // Note: We don't include ticker in hash because Force Baseline sends same data structure for all
+          // Dedupe is per-ticker, so each ticker gets processed even if data is identical
         });
 
         const hash = stableHash(basis);
@@ -1269,16 +1273,18 @@ export default {
         console.log(
           `[INGEST COMPLETE] ${ticker} - ${
             wasNewTicker ? "NEW TICKER ADDED" : "updated existing"
-          } - Total tickers in index: ${currentTickers.length}`
+          } - Total tickers in index: ${currentTickers.length} - Version: ${
+            payload.script_version || "unknown"
+          }`
         );
 
         // Log all tickers in index if count is low (to debug missing tickers)
         if (currentTickers.length < 130) {
           console.log(
             `[INGEST INDEX DEBUG] Current tickers (${currentTickers.length}):`,
-            currentTickers.slice(0, 20).join(", "),
-            currentTickers.length > 20
-              ? `... (showing first 20 of ${currentTickers.length})`
+            currentTickers.slice(0, 30).join(", "),
+            currentTickers.length > 30
+              ? `... (showing first 30 of ${currentTickers.length})`
               : ""
           );
         }
@@ -1566,6 +1572,9 @@ export default {
       }
 
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      const storedVersion =
+        (await getStoredVersion(KV)) || CURRENT_DATA_VERSION;
+
       // Use Promise.all for parallel KV reads instead of sequential
       const dataPromises = tickers.map((t) =>
         kvGetJSON(KV, `timed:latest:${t}`).then((value) => ({
@@ -1575,15 +1584,29 @@ export default {
       );
       const results = await Promise.all(dataPromises);
       const data = {};
+      let versionFilteredCount = 0;
       for (const { ticker, value } of results) {
         if (value) {
-          // Always recompute RR to ensure it uses the latest max TP from tp_levels
-          value.rr = computeRR(value);
-          data[ticker] = value;
+          // Only return data matching the current version (filter out old version data)
+          const tickerVersion = value.script_version || "unknown";
+          if (tickerVersion === storedVersion) {
+            // Always recompute RR to ensure it uses the latest max TP from tp_levels
+            value.rr = computeRR(value);
+            data[ticker] = value;
+          } else {
+            versionFilteredCount++;
+          }
         }
       }
       return sendJSON(
-        { ok: true, count: tickers.length, data },
+        {
+          ok: true,
+          count: Object.keys(data).length,
+          totalIndex: tickers.length,
+          versionFiltered: versionFilteredCount,
+          dataVersion: storedVersion,
+          data,
+        },
         200,
         corsHeaders(env, req)
       );
