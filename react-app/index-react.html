@@ -3849,10 +3849,16 @@
           </>
         );
       }
+      
+      // Make App accessible from outside the Babel script
+      window.App = App;
+    </script>
 
+    <!-- Initialize app - separate script to avoid Babel parsing issues -->
+    <script>
       // Render with error handling
       // Wait for all scripts to load before rendering
-      const initializeApp = function() {
+      function initializeApp() {
         try {
           // Check if React and ReactDOM are loaded
           if (typeof React === "undefined") {
