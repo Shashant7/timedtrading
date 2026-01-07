@@ -3040,7 +3040,7 @@
       // ─────────────────────────────────────────────────────────────
       // AI Chat Interface Component
       // ─────────────────────────────────────────────────────────────
-      function AIChatInterface({ isOpen, onClose, tickerData }) {
+      const AIChatInterface = ({ isOpen, onClose, tickerData }) => {
         const [messages, setMessages] = useState([
           {
             role: 'assistant',
@@ -3266,7 +3266,7 @@
             </form>
           </div>
         );
-      }
+      };
 
       // ─────────────────────────────────────────────────────────────
       // Main App
