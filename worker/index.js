@@ -2786,9 +2786,17 @@ export default {
 
     // OPTIONS /timed/ai/chat (CORS preflight)
     if (url.pathname === "/timed/ai/chat" && req.method === "OPTIONS") {
+      const origin = req?.headers?.get("Origin") || "";
+      const aiChatCorsHeaders = {
+        "Access-Control-Allow-Origin": origin.includes("timedtrading.pages.dev") ? origin : (origin || "*"),
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Max-Age": "86400",
+        Vary: "Origin",
+      };
       return new Response(null, {
         status: 204,
-        headers: corsHeaders(env, req),
+        headers: aiChatCorsHeaders,
       });
     }
 
@@ -3153,13 +3161,14 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             timestamp: Date.now(),
           },
           200,
-          corsHeaders(env, req)
+          aiChatCorsHeaders
         );
       } catch (error) {
         console.error("[AI CHAT ERROR]", error);
         console.error("[AI CHAT ERROR] Stack:", error.stack);
         console.error("[AI CHAT ERROR] Message:", error.message);
         console.error("[AI CHAT ERROR] Name:", error.name);
+        // Always return CORS headers even on error
         return sendJSON(
           {
             ok: false,
@@ -3168,7 +3177,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               process.env.NODE_ENV === "development" ? error.stack : undefined,
           },
           500,
-          corsHeaders(env, req)
+          aiChatCorsHeaders
         );
       }
     }
