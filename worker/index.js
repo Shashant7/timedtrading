@@ -774,9 +774,28 @@ function validateTimedPayload(body) {
   const htf = Number(body?.htf_score);
   const ltf = Number(body?.ltf_score);
 
-  if (!isNum(ts)) return { ok: false, error: "missing/invalid ts" };
-  if (!isNum(htf)) return { ok: false, error: "missing/invalid htf_score" };
-  if (!isNum(ltf)) return { ok: false, error: "missing/invalid ltf_score" };
+  // More detailed error messages
+  if (!isNum(ts)) {
+    return { 
+      ok: false, 
+      error: "missing/invalid ts",
+      details: { received: body?.ts, type: typeof body?.ts }
+    };
+  }
+  if (!isNum(htf)) {
+    return { 
+      ok: false, 
+      error: "missing/invalid htf_score",
+      details: { received: body?.htf_score, type: typeof body?.htf_score }
+    };
+  }
+  if (!isNum(ltf)) {
+    return { 
+      ok: false, 
+      error: "missing/invalid ltf_score",
+      details: { received: body?.ltf_score, type: typeof body?.ltf_score }
+    };
+  }
 
   return {
     ok: true,
@@ -812,9 +831,30 @@ export default {
           400
         );
 
+      // Log raw payload for debugging (especially for missing tickers)
+      const tickerFromBody = normTicker(body?.ticker);
+      console.log(`[INGEST RAW] ${tickerFromBody || 'UNKNOWN'}:`, {
+        hasTicker: !!body?.ticker,
+        hasTs: body?.ts !== undefined,
+        hasHtf: body?.htf_score !== undefined,
+        hasLtf: body?.ltf_score !== undefined,
+        ts: body?.ts,
+        htf: body?.htf_score,
+        ltf: body?.ltf_score,
+        tsType: typeof body?.ts,
+        htfType: typeof body?.htf_score,
+        ltfType: typeof body?.ltf_score,
+      });
+
       const v = validateTimedPayload(body);
       if (!v.ok) {
-        console.log(`[INGEST VALIDATION FAILED]`, v);
+        console.log(`[INGEST VALIDATION FAILED] ${tickerFromBody || 'UNKNOWN'}:`, {
+          error: v.error,
+          ticker: body?.ticker,
+          ts: body?.ts,
+          htf: body?.htf_score,
+          ltf: body?.ltf_score,
+        });
         return ackJSON(env, v, 400, req);
       }
 
