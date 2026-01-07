@@ -884,7 +884,7 @@
         );
       });
 
-      function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover, selectedTicker, selectedTrail }) {
+      function BubbleChart({ tickers, onBubbleClick, hoveredTicker, onHover, selectedTicker, selectedTrail, allData }) {
         const [tooltip, setTooltip] = useState(null);
         const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
         const [showLabels, setShowLabels] = useState(true);
@@ -1093,8 +1093,32 @@
                     })}
                     {/* Current position (larger, highlighted) */}
                     {(() => {
-                      const currentTicker = tickers.find(t => t.ticker === selectedTicker);
-                      if (currentTicker) {
+                      // Try to find ticker in filtered list first
+                      let currentTicker = tickers.find(t => {
+                        if (!t || typeof t !== 'object') return false;
+                        const tTicker = String(t.ticker || '').toUpperCase();
+                        return tTicker === String(selectedTicker).toUpperCase();
+                      });
+                      
+                      // If not in filtered list, try to get from allData (for tickers filtered out but selected)
+                      if (!currentTicker && allData && typeof allData === 'object') {
+                        const tickerUpper = String(selectedTicker).toUpperCase();
+                        if (allData[tickerUpper]) {
+                          currentTicker = allData[tickerUpper];
+                        } else {
+                          // Search through values
+                          const dataArray = Object.values(allData);
+                          currentTicker = dataArray.find(t => {
+                            if (!t || typeof t !== 'object') return false;
+                            const tTicker = String(t.ticker || '').toUpperCase();
+                            return tTicker === tickerUpper;
+                          });
+                        }
+                      }
+                      
+                      // Only render if we have valid scores to position the bubble
+                      if (currentTicker && 
+                          (currentTicker.htf_score !== undefined || currentTicker.ltf_score !== undefined)) {
                         return (
                           <SVGBubble
                             key={selectedTicker}
@@ -3046,6 +3070,7 @@
                         onHover={setHoveredTicker}
                         selectedTicker={selectedTicker}
                         selectedTrail={selectedTrail}
+                        allData={data}
                       />
                     )}
                     </div>
@@ -3205,20 +3230,107 @@
       }
       
       // Render overlay outside main container using portal
+      function TickerDetailsLoader({ tickerSymbol, onClose }) {
+        const [tickerData, setTickerData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        
+        useEffect(() => {
+          const fetchTicker = async () => {
+            try {
+              setLoading(true);
+              const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (json.ok && json.latestData) {
+                setTickerData(json.latestData);
+              } else {
+                throw new Error(json.error || 'Ticker not found');
+              }
+            } catch (err) {
+              console.error('Failed to fetch ticker:', err);
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          };
+          
+          fetchTicker();
+        }, [tickerSymbol]);
+        
+        if (loading) {
+          return (
+            <div className="w-[450px] bg-[#0f1630] border border-[#26325f] rounded-xl p-6">
+              <div className="text-center">
+                <div className="loading-spinner mx-auto mb-4"></div>
+                <div className="text-[#93a4d6]">Loading {tickerSymbol}...</div>
+              </div>
+            </div>
+          );
+        }
+        
+        if (error || !tickerData) {
+          return (
+            <div className="w-[450px] bg-[#0f1630] border border-red-500 rounded-xl p-6">
+              <div className="text-center">
+                <div className="text-red-400 mb-2">Failed to load {tickerSymbol}</div>
+                <div className="text-[#93a4d6] text-sm mb-4">{error || 'No data available'}</div>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          );
+        }
+        
+        return <TickerDetails ticker={tickerData} onClose={onClose} allTickers={[]} />;
+      }
+      
       function OverlayPortal({ selectedTicker, tickers, data, onClose }) {
         if (!selectedTicker) return null;
         
         try {
-          // Search in filtered tickers first, then fallback to all data
-          let foundTicker = tickers.find((t) => t && t.ticker === selectedTicker);
+          // Normalize ticker name
+          const tickerUpper = String(selectedTicker).toUpperCase();
+          
+          // Search in filtered tickers first
+          let foundTicker = tickers.find((t) => {
+            if (!t || typeof t !== 'object') return false;
+            const tTicker = String(t.ticker || '').toUpperCase();
+            return tTicker === tickerUpper;
+          });
+          
+          // If not found, search in original data object
           if (!foundTicker && data && typeof data === 'object') {
-            // Fallback: search in original data object
-            const dataArray = Array.isArray(data) ? data : Object.values(data);
-            foundTicker = dataArray.find((t) => t && t.ticker === selectedTicker);
+            if (Array.isArray(data)) {
+              foundTicker = data.find((t) => {
+                if (!t || typeof t !== 'object') return false;
+                const tTicker = String(t.ticker || '').toUpperCase();
+                return tTicker === tickerUpper;
+              });
+            } else {
+              // Object format: check if ticker is a key (data structure: { "ETHA": {...}, ... })
+              if (data[tickerUpper]) {
+                foundTicker = data[tickerUpper];
+              } else {
+                // Search through all values in case structure is different
+                const dataArray = Object.values(data);
+                foundTicker = dataArray.find((t) => {
+                  if (!t || typeof t !== 'object') return false;
+                  const tTicker = String(t.ticker || '').toUpperCase();
+                  return tTicker === tickerUpper;
+                });
+              }
+            }
           }
+          
+          // If still not found, fetch from API
           if (!foundTicker) {
-            console.warn('Ticker not found:', selectedTicker);
-            return null;
+            console.warn('Ticker not found in local data, fetching from API:', tickerUpper);
+            return <TickerDetailsLoader tickerSymbol={tickerUpper} onClose={onClose} />;
           }
           
           // TEMPORARILY DISABLE PORTAL - render inline to avoid freeze issues
