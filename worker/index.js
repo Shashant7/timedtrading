@@ -2815,9 +2815,7 @@ export default {
         Vary: "Origin",
       };
       
-      // Wrap entire handler in try-catch to ensure CORS headers are always returned
-      try {
-        // Handle JSON parsing errors with CORS headers
+      // Handle JSON parsing errors with CORS headers
       let body;
       try {
         const result = await readBodyAsJSON(req);
@@ -3201,7 +3199,6 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             }
           );
         }
-      } // End of outer try-catch
     } // End of POST /timed/ai/chat handler
 
     return sendJSON(
