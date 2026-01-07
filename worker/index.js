@@ -2972,34 +2972,62 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
           { role: "user", content: body.message },
         ];
 
-        // Call OpenAI API
-        const aiResponse = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${openaiApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: env.OPENAI_MODEL || "gpt-3.5-turbo",
-              messages: messages,
-              temperature: 0.7,
-              max_tokens: 800,
-            }),
+        // Call OpenAI API with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        let aiResponse;
+        try {
+          aiResponse = await fetch(
+            "https://api.openai.com/v1/chat/completions",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${openaiApiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: env.OPENAI_MODEL || "gpt-3.5-turbo",
+                messages: messages,
+                temperature: 0.7,
+                max_tokens: 800,
+              }),
+              signal: controller.signal,
+            }
+          );
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === 'AbortError') {
+            throw new Error("Request timeout - OpenAI API took too long to respond");
           }
-        );
+          throw new Error(`Network error: ${fetchError.message}`);
+        }
+        
+        clearTimeout(timeoutId);
 
         if (!aiResponse.ok) {
-          const errorData = await aiResponse.json().catch(() => ({}));
+          let errorData = {};
+          try {
+            errorData = await aiResponse.json();
+          } catch (e) {
+            // If response isn't JSON, use status text
+            errorData = { error: { message: aiResponse.statusText } };
+          }
+          console.error("[AI CHAT] OpenAI API error:", aiResponse.status, errorData);
           throw new Error(
             errorData.error?.message || `OpenAI API error: ${aiResponse.status}`
           );
         }
 
-        const aiData = await aiResponse.json();
+        let aiData;
+        try {
+          aiData = await aiResponse.json();
+        } catch (e) {
+          throw new Error("Invalid JSON response from OpenAI API");
+        }
+        
         const aiMessage =
-          aiData.choices[0]?.message?.content ||
+          aiData.choices?.[0]?.message?.content ||
           "Sorry, I couldn't process that request.";
 
         // Extract sources if any tickers were mentioned
