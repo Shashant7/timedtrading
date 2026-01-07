@@ -3201,8 +3201,8 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             }
           );
         }
-      }
-    }
+      } // End of outer try-catch
+    } // End of POST /timed/ai/chat handler
 
     return sendJSON(
       { ok: false, error: "not_found" },
