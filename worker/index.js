@@ -3219,6 +3219,9 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
         // Catch any unhandled errors that might crash the worker
         console.error("[AI CHAT FATAL ERROR]", fatalError);
         console.error("[AI CHAT FATAL ERROR] Stack:", fatalError?.stack);
+        console.error("[AI CHAT FATAL ERROR] Message:", fatalError?.message);
+        console.error("[AI CHAT FATAL ERROR] Name:", fatalError?.name);
+        console.error("[AI CHAT FATAL ERROR] Type:", typeof fatalError);
         // Always return CORS headers even on fatal errors
         // Re-create CORS headers in case they're out of scope
         const origin = req?.headers?.get("Origin") || "";
@@ -3229,15 +3232,30 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
           "Access-Control-Allow-Headers": "Content-Type",
           Vary: "Origin",
         };
-        return sendJSON(
-          {
-            ok: false,
-            error: "Internal server error",
-            details: fatalError?.message || "Unknown error",
-          },
-          500,
-          fatalCorsHeaders
-        );
+        try {
+          return sendJSON(
+            {
+              ok: false,
+              error: "Internal server error",
+              details: fatalError?.message || "Unknown error",
+            },
+            500,
+            fatalCorsHeaders
+          );
+        } catch (sendError) {
+          // Last resort - return basic response
+          console.error("[AI CHAT] Even sendJSON failed:", sendError);
+          return new Response(
+            JSON.stringify({ ok: false, error: "Internal server error" }),
+            {
+              status: 500,
+              headers: {
+                "Content-Type": "application/json",
+                ...fatalCorsHeaders,
+              },
+            }
+          );
+        }
       }
     } // End of POST /timed/ai/chat handler
 
