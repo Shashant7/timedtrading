@@ -2794,7 +2794,26 @@ export default {
 
     // POST /timed/ai/chat (AI Chat Assistant)
     if (url.pathname === "/timed/ai/chat" && req.method === "POST") {
-      const { obj: body, err } = await readBodyAsJSON(req);
+      // Handle JSON parsing errors with CORS headers
+      let body;
+      try {
+        const result = await readBodyAsJSON(req);
+        if (result.err) {
+          return sendJSON(
+            { ok: false, error: "Invalid JSON in request body" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+        body = result.obj;
+      } catch (e) {
+        return sendJSON(
+          { ok: false, error: "Failed to parse request body" },
+          400,
+          corsHeaders(env, req)
+        );
+      }
+
       if (!body || !body.message) {
         return sendJSON(
           { ok: false, error: "missing message" },
