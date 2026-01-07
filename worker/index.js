@@ -3201,6 +3201,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             }
           );
         }
+      } // End of inner try-catch for OpenAI API
       } catch (fatalError) {
         // Catch any unhandled errors that might crash the worker
         console.error("[AI CHAT FATAL ERROR]", fatalError);
