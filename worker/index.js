@@ -2812,14 +2812,17 @@ export default {
         // Fetch full ticker data for context
         const tickerSymbols = body.tickerData || [];
         const tickerContext = [];
-        
+
         // Handle ticker data fetching with error handling
         try {
           const tickerDataPromises = tickerSymbols
             .slice(0, 20)
             .map(async (ticker) => {
               try {
-                const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
+                const latestData = await kvGetJSON(
+                  KV,
+                  `timed:latest:${ticker}`
+                );
                 if (latestData) {
                   return {
                     ticker: ticker,
@@ -2834,13 +2837,18 @@ export default {
                 }
                 return null;
               } catch (err) {
-                console.error(`[AI CHAT] Error fetching ticker ${ticker}:`, err);
+                console.error(
+                  `[AI CHAT] Error fetching ticker ${ticker}:`,
+                  err
+                );
                 return null;
               }
             });
 
           const tickerDataResults = await Promise.all(tickerDataPromises);
-          tickerDataResults.filter(Boolean).forEach((t) => tickerContext.push(t));
+          tickerDataResults
+            .filter(Boolean)
+            .forEach((t) => tickerContext.push(t));
         } catch (err) {
           console.error("[AI CHAT] Error fetching ticker data:", err);
           // Continue with empty ticker context - not critical
@@ -2880,12 +2888,13 @@ Your role is to help traders understand their setups, analyze market conditions,
 ${tickerContext
   .slice(0, 10)
   .map(
-    (t) =>
-      `- **${t.ticker}**: Rank ${t.rank}, RR ${t.rr?.toFixed(
-        2
-      )}:1, Price $${t.price?.toFixed(2)}, State: ${t.state}, Phase: ${(
-        t.phase_pct * 100
-      )?.toFixed(0)}%, Completion: ${(t.completion * 100)?.toFixed(0)}%`
+    (t) => {
+      const rr = Number(t.rr) || 0;
+      const price = Number(t.price) || 0;
+      const phasePct = Number(t.phase_pct) || 0;
+      const completion = Number(t.completion) || 0;
+      return `- **${t.ticker || "UNKNOWN"}**: Rank ${t.rank || 0}, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(2)}, State: ${t.state || "UNKNOWN"}, Phase: ${(phasePct * 100).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%`;
+    }
   )
   .join("\n")}
 
@@ -2893,7 +2902,10 @@ ${tickerContext
 ${
   activityContext.length > 0
     ? activityContext
-        .map((a) => `- ${a.time}: **${a.ticker}** ${a.type} at $${a.price}`)
+        .map((a) => {
+          const price = Number(a.price) || 0;
+          return `- ${a.time || "Unknown time"}: **${a.ticker || "UNKNOWN"}** ${a.type || "event"} at $${price.toFixed(2)}`;
+        })
         .join("\n")
     : "No recent activity"
 }
@@ -2975,7 +2987,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
         // Call OpenAI API with timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-        
+
         let aiResponse;
         try {
           aiResponse = await fetch(
@@ -2997,12 +3009,14 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
           );
         } catch (fetchError) {
           clearTimeout(timeoutId);
-          if (fetchError.name === 'AbortError') {
-            throw new Error("Request timeout - OpenAI API took too long to respond");
+          if (fetchError.name === "AbortError") {
+            throw new Error(
+              "Request timeout - OpenAI API took too long to respond"
+            );
           }
           throw new Error(`Network error: ${fetchError.message}`);
         }
-        
+
         clearTimeout(timeoutId);
 
         if (!aiResponse.ok) {
@@ -3013,7 +3027,11 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             // If response isn't JSON, use status text
             errorData = { error: { message: aiResponse.statusText } };
           }
-          console.error("[AI CHAT] OpenAI API error:", aiResponse.status, errorData);
+          console.error(
+            "[AI CHAT] OpenAI API error:",
+            aiResponse.status,
+            errorData
+          );
           throw new Error(
             errorData.error?.message || `OpenAI API error: ${aiResponse.status}`
           );
@@ -3025,7 +3043,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
         } catch (e) {
           throw new Error("Invalid JSON response from OpenAI API");
         }
-        
+
         const aiMessage =
           aiData.choices?.[0]?.message?.content ||
           "Sorry, I couldn't process that request.";
@@ -3057,10 +3075,14 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
         );
       } catch (error) {
         console.error("[AI CHAT ERROR]", error);
+        console.error("[AI CHAT ERROR] Stack:", error.stack);
+        console.error("[AI CHAT ERROR] Message:", error.message);
+        console.error("[AI CHAT ERROR] Name:", error.name);
         return sendJSON(
           {
             ok: false,
             error: error.message || "AI service error",
+            details: process.env.NODE_ENV === "development" ? error.stack : undefined,
           },
           500,
           corsHeaders(env, req)
