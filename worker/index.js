@@ -2888,13 +2888,16 @@ export default {
           if (Array.isArray(rawActivityData)) {
             rawActivityData.slice(0, 10).forEach((event) => {
               try {
-                if (event && typeof event === 'object') {
+                if (event && typeof event === "object") {
                   const ts = event.ts ? Number(event.ts) : Date.now();
                   const price = Number(event.price) || 0;
                   activityContext.push({
                     ticker: String(event.ticker || "UNKNOWN"),
                     type: String(event.type || "event"),
-                    time: ts > 0 ? new Date(ts).toLocaleTimeString() : "Unknown time",
+                    time:
+                      ts > 0
+                        ? new Date(ts).toLocaleTimeString()
+                        : "Unknown time",
                     price: price,
                     rank: Number(event.rank) || 0,
                   });
@@ -2930,35 +2933,47 @@ Your role is to help traders understand their setups, analyze market conditions,
         } recent activity events** (corridor entries, squeeze releases, alignments)
 
 ### Sample Ticker Data (Top 10):
-${tickerContext.length > 0
-  ? tickerContext
-      .slice(0, 10)
-      .map((t) => {
-        try {
-          const rr = Number(t.rr) || 0;
-          const price = Number(t.price) || 0;
-          const phasePct = Number(t.phase_pct) || 0;
-          const completion = Number(t.completion) || 0;
-          return `- **${String(t.ticker || "UNKNOWN")}**: Rank ${Number(t.rank) || 0}, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(2)}, State: ${String(t.state || "UNKNOWN")}, Phase: ${(phasePct * 100).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%`;
-        } catch (e) {
-          console.error("[AI CHAT] Error formatting ticker:", t, e);
-          return `- **${String(t.ticker || "UNKNOWN")}**: Data unavailable`;
-        }
-      })
-      .filter(Boolean)
-      .join("\n")
-  : "No ticker data available"}
+${
+  tickerContext.length > 0
+    ? tickerContext
+        .slice(0, 10)
+        .map((t) => {
+          try {
+            const rr = Number(t.rr) || 0;
+            const price = Number(t.price) || 0;
+            const phasePct = Number(t.phase_pct) || 0;
+            const completion = Number(t.completion) || 0;
+            return `- **${String(t.ticker || "UNKNOWN")}**: Rank ${
+              Number(t.rank) || 0
+            }, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(
+              2
+            )}, State: ${String(t.state || "UNKNOWN")}, Phase: ${(
+              phasePct * 100
+            ).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%`;
+          } catch (e) {
+            console.error("[AI CHAT] Error formatting ticker:", t, e);
+            return `- **${String(t.ticker || "UNKNOWN")}**: Data unavailable`;
+          }
+        })
+        .filter(Boolean)
+        .join("\n")
+    : "No ticker data available"
+}
 
 ### Recent Activity:
 ${
   activityContext.length > 0
     ? activityContext
         .map((a) => {
-          const price = Number(a.price) || 0;
-          return `- ${a.time || "Unknown time"}: **${a.ticker || "UNKNOWN"}** ${
-            a.type || "event"
-          } at $${price.toFixed(2)}`;
+          try {
+            const price = Number(a.price) || 0;
+            return `- ${String(a.time || "Unknown time")}: **${String(a.ticker || "UNKNOWN")}** ${String(a.type || "event")} at $${price.toFixed(2)}`;
+          } catch (e) {
+            console.error("[AI CHAT] Error formatting activity:", a, e);
+            return null;
+          }
         })
+        .filter(Boolean)
         .join("\n")
     : "No recent activity"
 }
