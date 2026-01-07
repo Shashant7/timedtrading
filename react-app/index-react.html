@@ -3684,7 +3684,7 @@
       }
       
       // Render overlay outside main container using portal
-      function TickerDetailsLoader({ tickerSymbol, onClose }) {
+      const TickerDetailsLoader = ({ tickerSymbol, onClose }) => {
         const [tickerData, setTickerData] = useState(null);
         const [allLoadedData, setAllLoadedData] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -3763,7 +3763,7 @@
         return <TickerDetails ticker={tickerData} onClose={onClose} allTickers={[]} allLoadedData={allLoadedData} />;
       }
       
-      function OverlayPortal({ selectedTicker, tickers, data, onClose }) {
+      const OverlayPortal = ({ selectedTicker, tickers, data, onClose }) => {
         if (!selectedTicker) return null;
         
         try {
