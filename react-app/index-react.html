@@ -612,11 +612,25 @@
         const conditions = {};
         
         // Multi-ticker search: "AAPL, GOOGL, TSLA"
-        if (query.includes(',') && !query.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum/)) {
+        if (query.includes(',') && !query.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup/)) {
           return { type: 'multi-ticker', tickers: query.split(',').map(t => t.trim().toUpperCase()) };
         }
         
-        // Check for natural language patterns
+        // Top 40 filter
+        if (queryLower.match(/\btop\s*40\b|\btop40\b/)) {
+          conditions.top40 = true;
+        }
+        
+        // Top Long Setup
+        if (queryLower.match(/\btop\s*long\s*setup\b|\btop\s*long\b/)) {
+          conditions.topLongSetup = true;
+        }
+        
+        // Top Short Setup
+        if (queryLower.match(/\btop\s*short\s*setup\b|\btop\s*short\b/)) {
+          conditions.topShortSetup = true;
+        }
+        
         // Prime setup
         if (queryLower.match(/\bprime\b|\bprime setup\b/)) {
           conditions.prime = true;
@@ -637,42 +651,77 @@
           conditions.squeezeRelease = true;
         }
         
-        // Rank conditions: "rank > 75", "rank above 75", "rank below 50", "rank >= 70"
-        const rankMatch = queryLower.match(/\brank\s*(?:>|above|>=|greater than)\s*(\d+)/);
-        if (rankMatch) {
-          conditions.minRank = parseInt(rankMatch[1], 10);
-        }
-        const rankBelowMatch = queryLower.match(/\brank\s*(?:<|below|<=|less than)\s*(\d+)/);
-        if (rankBelowMatch) {
-          // Note: We'll need maxRank filter, but for now we'll skip this
+        // Helper function to extract numeric value with various operators
+        const extractNumericCondition = (pattern, fieldName, isPercentage = false) => {
+          // Match operators: >, >=, <, <=, above, below, over, under, greater than, less than, at least, at most
+          const operators = {
+            '>': 'min',
+            '>=': 'min',
+            'above': 'min',
+            'over': 'min',
+            'greater than': 'min',
+            'at least': 'min',
+            '<': 'max',
+            '<=': 'max',
+            'below': 'max',
+            'under': 'max',
+            'less than': 'max',
+            'at most': 'max'
+          };
+          
+          for (const [op, type] of Object.entries(operators)) {
+            const regex = new RegExp(`\\b${pattern}\\s*(?:${op.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\s*([\\d.]+)\\s*%?`, 'i');
+            const match = queryLower.match(regex);
+            if (match) {
+              const value = isPercentage ? parseFloat(match[1]) / 100 : parseFloat(match[1]);
+              return { type, value };
+            }
+          }
+          return null;
+        };
+        
+        // Rank conditions: "rank > 75", "rank above 75", "rank over 75", "rank below 50", "rank under 50"
+        const rankCondition = extractNumericCondition('rank', 'rank');
+        if (rankCondition) {
+          if (rankCondition.type === 'min') {
+            conditions.minRank = rankCondition.value;
+          } else {
+            // For max rank, we'd need a maxRank filter - skip for now
+          }
         }
         
-        // RR/Risk-Reward conditions: "RR > 2", "risk reward > 2", "RR >= 1.5"
-        const rrMatch = queryLower.match(/\b(?:rr|risk[-\s]?reward)\s*(?:>|above|>=|greater than)\s*([\d.]+)/);
-        if (rrMatch) {
-          conditions.minRR = parseFloat(rrMatch[1]);
+        // RR/Risk-Reward conditions: "RR > 2", "risk reward over 2", "RR above 1.5"
+        const rrCondition = extractNumericCondition('(?:rr|risk[\\s-]?reward)', 'rr');
+        if (rrCondition && rrCondition.type === 'min') {
+          conditions.minRR = rrCondition.value;
         }
         
-        // Phase conditions: "phase > 50%", "phase above 50", "phase < 30%"
-        const phaseMatch = queryLower.match(/\bphase\s*(?:>|above|>=|greater than)\s*(\d+)\s*%?/);
-        if (phaseMatch) {
-          conditions.minPhase = parseInt(phaseMatch[1], 10) / 100; // Convert to 0-1 range
+        // Phase conditions: "phase > 50%", "phase over 50%", "phase above 50", "phase under 30%"
+        const phaseMinCondition = extractNumericCondition('phase', 'phase', true);
+        if (phaseMinCondition && phaseMinCondition.type === 'min') {
+          conditions.minPhase = phaseMinCondition.value;
         }
-        const phaseBelowMatch = queryLower.match(/\bphase\s*(?:<|below|<=|less than)\s*(\d+)\s*%?/);
-        if (phaseBelowMatch) {
-          conditions.maxPhase = parseInt(phaseBelowMatch[1], 10) / 100;
-        }
-        
-        // Completion conditions: "completion < 30%", "completion below 50%"
-        const compMatch = queryLower.match(/\bcompletion\s*(?:<|below|<=|less than)\s*(\d+)\s*%?/);
-        if (compMatch) {
-          conditions.maxCompletion = parseInt(compMatch[1], 10) / 100;
+        const phaseMaxCondition = extractNumericCondition('phase', 'phase', true);
+        if (phaseMaxCondition && phaseMaxCondition.type === 'max') {
+          conditions.maxPhase = phaseMaxCondition.value;
         }
         
-        // Price change: "moved 5 points", "moved $5", "price change > 5"
-        const priceChangeMatch = queryLower.match(/\bmoved\s+(\d+(?:\.\d+)?)\s*(?:points?|\$|dollars?)?/);
+        // Completion conditions: "completion < 30%", "completion under 30%", "completion below 50%"
+        const compCondition = extractNumericCondition('completion', 'completion', true);
+        if (compCondition && compCondition.type === 'max') {
+          conditions.maxCompletion = compCondition.value;
+        }
+        
+        // Price change: "moved 5 points", "moved $5", "price change > 5", "price change over 5"
+        const priceChangeMatch = queryLower.match(/\b(?:moved|price\s*change)\s+(?:over|above|greater\s*than|>|>=|at\s*least)\s*(\d+(?:\.\d+)?)\s*(?:points?|\$|dollars?)?/);
         if (priceChangeMatch) {
           conditions.minPriceChange = parseFloat(priceChangeMatch[1]);
+        } else {
+          // Also support "moved 5 points" without operator
+          const simplePriceChangeMatch = queryLower.match(/\bmoved\s+(\d+(?:\.\d+)?)\s*(?:points?|\$|dollars?)?/);
+          if (simplePriceChangeMatch) {
+            conditions.minPriceChange = parseFloat(simplePriceChangeMatch[1]);
+          }
         }
         
         // If we found any conditions, return them
@@ -738,6 +787,14 @@
             }
           }
 
+          // Handle Top Long Setup and Top Short Setup from natural language
+          if (effectiveFilters.topLongSetup === true) {
+            if (d.state !== "HTF_BULL_LTF_PULLBACK") continue;
+          }
+          if (effectiveFilters.topShortSetup === true) {
+            if (d.state !== "HTF_BEAR_LTF_PULLBACK") continue;
+          }
+          
           if (effectiveFilters.quadrants && !effectiveFilters.quadrants.includes(d.state))
             continue;
           if (effectiveFilters.minRank && (Number(d.rank) || 0) < effectiveFilters.minRank)
