@@ -406,6 +406,65 @@ function getTradeDirection(state) {
   return null;
 }
 
+// Calculate RR at entry price (for trade creation) instead of current price
+function calculateRRAtEntry(tickerData, entryPrice) {
+  const sl = Number(tickerData.sl);
+  const tp = Number(tickerData.tp);
+
+  if (
+    !Number.isFinite(entryPrice) ||
+    !Number.isFinite(sl) ||
+    !Number.isFinite(tp)
+  ) {
+    return null;
+  }
+
+  // Use MAX TP from tp_levels if available
+  let maxTP = tp;
+  if (
+    tickerData.tp_levels &&
+    Array.isArray(tickerData.tp_levels) &&
+    tickerData.tp_levels.length > 0
+  ) {
+    const tpPrices = tickerData.tp_levels
+      .map((tpItem) => {
+        if (
+          typeof tpItem === "object" &&
+          tpItem !== null &&
+          tpItem.price != null
+        ) {
+          return Number(tpItem.price);
+        }
+        return typeof tpItem === "number" ? Number(tpItem) : null;
+      })
+      .filter((p) => Number.isFinite(p));
+
+    if (tpPrices.length > 0) {
+      maxTP = Math.max(...tpPrices);
+    }
+  }
+
+  const state = String(tickerData.state || "");
+  const isLong = state.includes("BULL");
+  const isShort = state.includes("BEAR");
+
+  let risk, gain;
+
+  if (isLong) {
+    risk = entryPrice - sl; // Risk from entry to SL
+    gain = maxTP - entryPrice; // Gain from entry to TP
+  } else if (isShort) {
+    risk = sl - entryPrice; // Risk from entry to SL
+    gain = entryPrice - maxTP; // Gain from entry to TP
+  } else {
+    risk = Math.abs(entryPrice - sl);
+    gain = Math.abs(maxTP - entryPrice);
+  }
+
+  if (risk <= 0 || gain <= 0) return null;
+  return gain / risk;
+}
+
 // Calculate trade P&L and status
 function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
   const direction = getTradeDirection(tickerData.state);
@@ -435,22 +494,29 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
 
     if (hitTP) {
       if (trimmedPct === 0) {
+        // First TP hit - trim 50%
+        const trimPnl = (tp - entryPrice) * shares * 0.5;
+        const trimPnlPct = ((tp - entryPrice) / entryPrice) * 100;
         return {
           shares,
-          pnl: (tp - entryPrice) * shares * 0.5,
-          pnlPct: ((tp - entryPrice) / entryPrice) * 100,
+          pnl: trimPnl,
+          pnlPct: trimPnlPct,
           status: "TP_HIT_TRIM",
           currentPrice,
           trimmedPct: 0.5,
         };
       } else {
+        // Already trimmed - full exit at TP
         pnl = (tp - entryPrice) * shares;
         pnlPct = ((tp - entryPrice) / entryPrice) * 100;
+        // CRITICAL: Status must be based on actual P&L, not just TP hit
+        // If entry price was worse than TP (slippage, bad fill), P&L can be negative
         status = pnl >= 0 ? "WIN" : "LOSS";
       }
     } else if (hitSL) {
       pnl = (sl - entryPrice) * shares;
       pnlPct = ((sl - entryPrice) / entryPrice) * 100;
+      // SL hit is always a loss
       status = "LOSS";
     } else {
       pnl = (currentPrice - entryPrice) * shares;
@@ -523,8 +589,30 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
         existingOpenTrade
       );
       if (tradeCalc) {
-        const newStatus =
+        // Ensure status matches actual P&L (fix for trades marked WIN with negative P&L)
+        let newStatus =
           tradeCalc.status === "TP_HIT_TRIM" ? "TP_HIT_TRIM" : tradeCalc.status;
+        if (
+          (newStatus === "WIN" || newStatus === "LOSS") &&
+          tradeCalc.pnl !== undefined
+        ) {
+          // Double-check: WIN must have positive P&L, LOSS must have negative P&L
+          if (newStatus === "WIN" && tradeCalc.pnl < 0) {
+            console.log(
+              `[TRADE SIM] ⚠️ Correcting ${ticker} ${direction}: WIN with negative P&L (${tradeCalc.pnl.toFixed(
+                2
+              )}) -> LOSS`
+            );
+            newStatus = "LOSS";
+          } else if (newStatus === "LOSS" && tradeCalc.pnl > 0) {
+            console.log(
+              `[TRADE SIM] ⚠️ Correcting ${ticker} ${direction}: LOSS with positive P&L (${tradeCalc.pnl.toFixed(
+                2
+              )}) -> WIN`
+            );
+            newStatus = "WIN";
+          }
+        }
         const updatedTrade = {
           ...existingOpenTrade,
           ...tradeCalc,
@@ -550,13 +638,26 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
       }
     } else {
       // Check if we should create a new trade
+      // Calculate RR at entry price (trigger_price) for trade creation, not current price
+      const entryPrice =
+        Number(tickerData.trigger_price) || Number(tickerData.price);
+      const entryRR = calculateRRAtEntry(tickerData, entryPrice);
+
+      // Create a temporary tickerData with entry RR for checking conditions
+      const tickerDataForCheck = {
+        ...tickerData,
+        rr: entryRR, // Use entry RR instead of current RR
+      };
+
       const shouldTrigger = shouldTriggerTradeSimulation(
         ticker,
-        tickerData,
+        tickerDataForCheck,
         prevData
       );
       console.log(
-        `[TRADE SIM] ${ticker} ${direction}: shouldTrigger=${shouldTrigger}`
+        `[TRADE SIM] ${ticker} ${direction}: shouldTrigger=${shouldTrigger}, entryRR=${
+          entryRR?.toFixed(2) || "null"
+        }, currentRR=${tickerData.rr?.toFixed(2) || "null"}`
       );
 
       if (shouldTrigger) {
@@ -573,9 +674,15 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
             now - new Date(t.entryTime).getTime() < recentCloseWindow
         );
 
-        if (!recentlyClosedTrade) {
-          const entryPrice =
-            Number(tickerData.trigger_price) || Number(tickerData.price);
+        // Also check for ANY existing open trade (more strict duplicate prevention)
+        const anyOpenTrade = allTrades.find(
+          (t) =>
+            t.ticker === ticker &&
+            t.direction === direction &&
+            (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM")
+        );
+
+        if (!recentlyClosedTrade && !anyOpenTrade) {
           const tradeCalc = calculateTradePnl(tickerData, entryPrice);
 
           if (tradeCalc) {
@@ -587,7 +694,7 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
               entryTime: new Date().toISOString(),
               sl: Number(tickerData.sl),
               tp: Number(tickerData.tp),
-              rr: Number(tickerData.rr) || 0,
+              rr: entryRR || Number(tickerData.rr) || 0, // Use entry RR
               rank: Number(tickerData.rank) || 0,
               state: tickerData.state,
               flags: tickerData.flags || {},
@@ -606,7 +713,7 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
             console.log(
               `[TRADE SIM] ✅ Created new trade ${ticker} ${direction} (Rank ${
                 trade.rank
-              }, RR ${trade.rr.toFixed(2)})`
+              }, Entry RR ${trade.rr.toFixed(2)})`
             );
           } else {
             console.log(
@@ -614,24 +721,43 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
             );
           }
         } else {
-          console.log(
-            `[TRADE SIM] ⚠️ ${ticker} ${direction}: recently closed trade exists, skipping`
-          );
+          if (anyOpenTrade) {
+            console.log(
+              `[TRADE SIM] ⚠️ ${ticker} ${direction}: open trade already exists, skipping`
+            );
+          } else {
+            console.log(
+              `[TRADE SIM] ⚠️ ${ticker} ${direction}: recently closed trade exists, skipping`
+            );
+          }
         }
       } else {
         // Log why trade wasn't created
-        const rr = Number(tickerData.rr) || 0;
+        const rr = entryRR || Number(tickerData.rr) || 0;
         const comp = Number(tickerData.completion) || 0;
         const phase = Number(tickerData.phase_pct) || 0;
         const rank = Number(tickerData.rank) || 0;
+        const h = Number(tickerData.htf_score);
+        const l = Number(tickerData.ltf_score);
+        const inCorridor =
+          Number.isFinite(h) &&
+          Number.isFinite(l) &&
+          ((h > 0 && l >= -8 && l <= 12) || (h < 0 && l >= -12 && l <= 8));
+        const aligned =
+          tickerData.state === "HTF_BULL_LTF_BULL" ||
+          tickerData.state === "HTF_BEAR_LTF_BEAR";
+
         console.log(
           `[TRADE SIM] ❌ ${ticker} ${direction}: Conditions not met`,
           {
-            rr,
+            entryRR: entryRR?.toFixed(2),
+            currentRR: tickerData.rr?.toFixed(2),
             comp,
             phase,
             rank,
             state: tickerData.state,
+            inCorridor,
+            aligned,
           }
         );
       }
@@ -3006,19 +3132,19 @@ export default {
 
     // GET /timed/trades?version=2.1.0 (Get all trades, optional version filter)
     if (url.pathname === "/timed/trades" && req.method === "GET") {
-      // Rate limiting
+      // Rate limiting - increased limits for UI polling (100 requests per minute)
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
       const rateLimit = await checkRateLimit(
         KV,
         ip,
         "/timed/trades",
-        1000, // Increased for single-user
-        3600
+        100, // 100 requests
+        60 // per minute (instead of per hour)
       );
 
       if (!rateLimit.allowed) {
         return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+          { ok: false, error: "rate_limit_exceeded", retryAfter: 60 },
           429,
           corsHeaders(env, req)
         );
@@ -4746,10 +4872,36 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
                 trade
               );
               if (tradeCalc) {
-                const newStatus =
+                // Ensure status matches actual P&L (fix for trades marked WIN with negative P&L)
+                let newStatus =
                   tradeCalc.status === "TP_HIT_TRIM"
                     ? "TP_HIT_TRIM"
                     : tradeCalc.status;
+                if (
+                  (newStatus === "WIN" || newStatus === "LOSS") &&
+                  tradeCalc.pnl !== undefined
+                ) {
+                  // Double-check: WIN must have positive P&L, LOSS must have negative P&L
+                  if (newStatus === "WIN" && tradeCalc.pnl < 0) {
+                    console.log(
+                      `[TRADE UPDATE CRON] ⚠️ Correcting ${trade.ticker} ${
+                        trade.direction
+                      }: WIN with negative P&L (${tradeCalc.pnl.toFixed(
+                        2
+                      )}) -> LOSS`
+                    );
+                    newStatus = "LOSS";
+                  } else if (newStatus === "LOSS" && tradeCalc.pnl > 0) {
+                    console.log(
+                      `[TRADE UPDATE CRON] ⚠️ Correcting ${trade.ticker} ${
+                        trade.direction
+                      }: LOSS with positive P&L (${tradeCalc.pnl.toFixed(
+                        2
+                      )}) -> WIN`
+                    );
+                    newStatus = "WIN";
+                  }
+                }
                 const updatedTrade = {
                   ...trade,
                   ...tradeCalc,
