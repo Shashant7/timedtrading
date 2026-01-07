@@ -3838,39 +3838,99 @@
       }
 
       // Render with error handling
-      try {
-        if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
-          throw new Error("React or ReactDOM not loaded");
-        }
+      // Wait for all scripts to load before rendering
+      function initializeApp() {
+        try {
+          // Check if React and ReactDOM are loaded
+          if (typeof React === "undefined") {
+            throw new Error("React not loaded. Check CDN connection.");
+          }
+          if (typeof ReactDOM === "undefined") {
+            throw new Error("ReactDOM not loaded. Check CDN connection.");
+          }
 
-        const rootElement = document.getElementById("root");
-        if (!rootElement) {
-          throw new Error("Root element not found");
-        }
+          const rootElement = document.getElementById("root");
+          if (!rootElement) {
+            throw new Error("Root element not found");
+          }
 
-        // Check if React 18 createRoot is available
-        if (ReactDOM.createRoot) {
-          const root = ReactDOM.createRoot(rootElement);
-          root.render(<App />);
-        } else {
-          // Fallback for React 17
-          ReactDOM.render(<App />, rootElement);
+          // Check if React 18 createRoot is available
+          if (ReactDOM.createRoot) {
+            const root = ReactDOM.createRoot(rootElement);
+            root.render(<App />);
+          } else {
+            // Fallback for React 17
+            ReactDOM.render(<App />, rootElement);
+          }
+          
+          console.log("[App] Dashboard initialized successfully");
+        } catch (error) {
+          console.error("Error rendering app:", error);
+          const rootElement = document.getElementById("root");
+          if (rootElement) {
+            rootElement.innerHTML = `
+              <div style="padding: 40px; text-align: center; color: #e7ecff; max-width: 800px; margin: 0 auto;">
+                <h2 style="color: #e74c3c; margin-bottom: 20px;">Error Loading Dashboard</h2>
+                <p style="margin-bottom: 20px; color: #ff6b6b;">${error.message}</p>
+                <div style="background: #1a2440; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left; color: #93a4d6;">
+                  <h3 style="color: #e7ecff; margin-bottom: 10px;">Troubleshooting:</h3>
+                  <ul style="list-style: disc; padding-left: 20px; line-height: 1.8;">
+                    <li>Open browser console (F12 or Cmd+Option+I) to see detailed errors</li>
+                    <li>Check your internet connection - CDN resources need to load</li>
+                    <li>Try refreshing the page (Cmd+R or Ctrl+R)</li>
+                    <li>Check if React is loaded: <code style="background: #26325f; padding: 2px 6px; border-radius: 4px;">typeof React !== 'undefined'</code></li>
+                    <li>Check if API is reachable: <a href="https://timed-trading-ingest.shashant.workers.dev/timed/health" target="_blank" style="color: #4a9eff;">API Health Check</a></li>
+                  </ul>
+                </div>
+                <button 
+                  onclick="window.location.reload()" 
+                  style="padding: 12px 24px; background: #4a9eff; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin-top: 20px;"
+                >
+                  Reload Page
+                </button>
+              </div>
+            `;
+          }
         }
-      } catch (error) {
-        console.error("Error rendering app:", error);
-        document.getElementById("root").innerHTML = `
-          <div style="padding: 40px; text-align: center; color: #e7ecff;">
-            <h2 style="color: #e74c3c;">Error Loading Dashboard</h2>
-            <p>${error.message}</p>
-            <p style="margin-top: 20px; color: #93a4d6;">
-              Please check the browser console (F12) for details.
-            </p>
-            <p style="margin-top: 10px; color: #93a4d6;">
-              Make sure you have an internet connection to load CDN resources.
-            </p>
-          </div>
-        `;
       }
+
+      // Wait for DOM and scripts to be ready
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", function() {
+          // Wait a bit for Babel to process
+          setTimeout(initializeApp, 100);
+        });
+      } else {
+        // DOM already loaded
+        setTimeout(initializeApp, 100);
+      }
+
+      // Fallback: If React still isn't loaded after 5 seconds, show error
+      setTimeout(function() {
+        if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
+          const rootElement = document.getElementById("root");
+          if (rootElement && rootElement.innerHTML.includes("Loading dashboard")) {
+            rootElement.innerHTML = `
+              <div style="padding: 40px; text-align: center; color: #e7ecff;">
+                <h2 style="color: #e74c3c;">CDN Resources Not Loading</h2>
+                <p style="margin: 20px 0; color: #93a4d6;">
+                  React or other CDN resources failed to load. This may be due to:
+                </p>
+                <ul style="text-align: left; display: inline-block; color: #93a4d6; margin: 20px 0;">
+                  <li>Network connectivity issues</li>
+                  <li>Ad blockers blocking CDN scripts</li>
+                  <li>Corporate firewall blocking unpkg.com</li>
+                </ul>
+                <p style="margin-top: 20px;">
+                  <button onclick="window.location.reload()" style="padding: 12px 24px; background: #4a9eff; color: white; border: none; border-radius: 8px; cursor: pointer;">
+                    Retry
+                  </button>
+                </p>
+              </div>
+            `;
+          }
+        }
+      }, 5000);
     </script>
   </body>
 </html>
