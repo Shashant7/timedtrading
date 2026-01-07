@@ -125,32 +125,14 @@ async function kvPutJSON(KV, key, val, ttlSec = null) {
   const opts = {};
   if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
     opts.expirationTtl = Math.floor(ttlSec);
-  try {
-    await KV.put(key, JSON.stringify(val), opts);
-  } catch (error) {
-    console.error(`[KV ERROR] PUT ${key}:`, {
-      error: error.message,
-      status: error.status,
-      statusText: error.statusText,
-    });
-    throw error; // Re-throw so caller can handle
-  }
+  await KV.put(key, JSON.stringify(val), opts);
 }
 
 async function kvPutText(KV, key, text, ttlSec = null) {
   const opts = {};
   if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
     opts.expirationTtl = Math.floor(ttlSec);
-  try {
-    await KV.put(key, text, opts);
-  } catch (error) {
-    console.error(`[KV ERROR] PUT ${key}:`, {
-      error: error.message,
-      status: error.status,
-      statusText: error.statusText,
-    });
-    throw error; // Re-throw so caller can handle
-  }
+  await KV.put(key, text, opts);
 }
 
 function stableHash(str) {
@@ -659,7 +641,7 @@ async function appendActivity(KV, event) {
 }
 
 // Version management and migration
-const CURRENT_DATA_VERSION = "2.1.0"; // Must match SCRIPT_VERSION in Pine Script
+const CURRENT_DATA_VERSION = "2.4.0"; // Must match SCRIPT_VERSION in Pine Script
 
 async function getStoredVersion(KV) {
   const versionKey = "timed:data_version";
@@ -674,7 +656,14 @@ async function setStoredVersion(KV, version) {
 
 async function checkAndMigrate(KV, incomingVersion) {
   const storedVersion = await getStoredVersion(KV);
+  return checkAndMigrateWithStoredVersion(KV, storedVersion, incomingVersion);
+}
 
+async function checkAndMigrateWithStoredVersion(
+  KV,
+  storedVersion,
+  incomingVersion
+) {
   // If no stored version, this is first run - set it and continue
   if (!storedVersion) {
     await setStoredVersion(KV, incomingVersion);
@@ -725,50 +714,74 @@ async function purgeOldData(KV) {
   // Get tickers BEFORE clearing the index
   const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
   const tickerCount = tickers.length;
-  let purged = 0;
 
-  // Purge latest data for all tickers
+  // Build all delete operations in parallel for faster execution
+  const deletePromises = [];
+
+  // Clear ticker index first (to prevent race conditions)
+  deletePromises.push(KV.delete("timed:tickers"));
+
+  // Create all delete operations for each ticker in parallel
   for (const ticker of tickers) {
-    await KV.delete(`timed:latest:${ticker}`);
-    purged++;
+    // Latest data
+    deletePromises.push(KV.delete(`timed:latest:${ticker}`));
+    // Trails
+    deletePromises.push(KV.delete(`timed:trail:${ticker}`));
+    // Momentum data (all keys)
+    deletePromises.push(KV.delete(`timed:momentum:${ticker}`));
+    deletePromises.push(KV.delete(`timed:momentum:marketcap:${ticker}`));
+    deletePromises.push(KV.delete(`timed:momentum:adr:${ticker}`));
+    deletePromises.push(KV.delete(`timed:momentum:volume:${ticker}`));
+    deletePromises.push(KV.delete(`timed:momentum:changes:${ticker}`));
+    deletePromises.push(KV.delete(`timed:momentum:history:${ticker}`));
+    // State tracking
+    deletePromises.push(KV.delete(`timed:prevstate:${ticker}`));
+    // Additional state tracking keys
+    deletePromises.push(KV.delete(`timed:prevcorridor:${ticker}`));
+    deletePromises.push(KV.delete(`timed:prevsqueeze:${ticker}`));
+    deletePromises.push(KV.delete(`timed:prevsqueezerel:${ticker}`));
+    deletePromises.push(KV.delete(`timed:prevmomentumelite:${ticker}`));
   }
 
-  // Purge trails
-  for (const ticker of tickers) {
-    await KV.delete(`timed:trail:${ticker}`);
-  }
+  // Execute all deletes in parallel (much faster than sequential)
+  await Promise.all(deletePromises);
 
-  // Purge momentum data
-  for (const ticker of tickers) {
-    await KV.delete(`timed:momentum:${ticker}`);
-    await KV.delete(`timed:momentum:marketcap:${ticker}`);
-    await KV.delete(`timed:momentum:adr:${ticker}`);
-    await KV.delete(`timed:momentum:volume:${ticker}`);
-    await KV.delete(`timed:momentum:changes:${ticker}`);
-    await KV.delete(`timed:momentum:history:${ticker}`);
-  }
-
-  // Purge state tracking
-  for (const ticker of tickers) {
-    await KV.delete(`timed:prevstate:${ticker}`);
-  }
-
-  // Clear ticker index (will rebuild as new data comes in)
-  await KV.delete("timed:tickers");
-
-  return { purged, tickerCount };
+  return { purged: tickerCount, tickerCount };
 }
 
 async function notifyDiscord(env, title, lines = []) {
-  if ((env.DISCORD_ENABLE || "false") !== "true") return;
+  if ((env.DISCORD_ENABLE || "false") !== "true") {
+    console.log(
+      `[DISCORD] Notifications disabled (DISCORD_ENABLE=${env.DISCORD_ENABLE})`
+    );
+    return;
+  }
   const url = env.DISCORD_WEBHOOK_URL;
-  if (!url) return;
+  if (!url) {
+    console.log(`[DISCORD] Webhook URL not configured`);
+    return;
+  }
   const content = `**${title}**\n` + lines.map((x) => `• ${x}`).join("\n");
-  await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-  }).catch(() => {});
+  console.log(`[DISCORD] Sending notification: ${title}`);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    if (!response.ok) {
+      console.error(
+        `[DISCORD] Failed to send notification: ${response.status} ${response.statusText}`
+      );
+    } else {
+      console.log(`[DISCORD] Notification sent successfully`);
+    }
+  } catch (error) {
+    console.error(`[DISCORD] Error sending notification:`, {
+      error: String(error),
+      message: error.message,
+    });
+  }
 }
 
 function requireKeyOr401(req, env) {
@@ -832,456 +845,619 @@ export default {
     }
 
     // POST /timed/ingest
+    // NOTE: This endpoint uses API key authentication instead of rate limiting
+    // TradingView webhooks are authenticated via ?key= parameter
     if (url.pathname === "/timed/ingest" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
+      let body = null; // Declare outside try for catch block access
+      try {
+        // Early logging to confirm request reception
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        console.log(
+          `[INGEST REQUEST RECEIVED] IP: ${ip}, User-Agent: ${
+            req.headers.get("User-Agent") || "none"
+          }`
+        );
 
-      const { obj: body, raw, err } = await readBodyAsJSON(req);
-      if (!body)
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) {
+          console.log(`[INGEST AUTH FAILED] IP: ${ip}`);
+          return authFail;
+        }
+
+        console.log(`[INGEST AUTH PASSED] Processing request from IP: ${ip}`);
+        const { obj: bodyData, raw, err } = await readBodyAsJSON(req);
+        body = bodyData; // Assign to outer variable
+        if (!body) {
+          console.log(
+            `[INGEST JSON PARSE FAILED] IP: ${ip}, Error: ${String(
+              err || "unknown"
+            )}, Raw sample: ${String(raw || "").slice(0, 200)}`
+          );
+          return ackJSON(
+            env,
+            {
+              ok: false,
+              error: "bad_json",
+              sample: String(raw || "").slice(0, 200),
+              parseError: String(err || ""),
+            },
+            400,
+            req
+          );
+        }
+
+        // Log raw payload for debugging (especially for missing tickers)
+        const tickerFromBody = normTicker(body?.ticker);
+        console.log(`[INGEST RAW] ${tickerFromBody || "UNKNOWN"}:`, {
+          hasTicker: !!body?.ticker,
+          hasTs: body?.ts !== undefined,
+          hasHtf: body?.htf_score !== undefined,
+          hasLtf: body?.ltf_score !== undefined,
+          ts: body?.ts,
+          htf: body?.htf_score,
+          ltf: body?.ltf_score,
+          tsType: typeof body?.ts,
+          htfType: typeof body?.htf_score,
+          ltfType: typeof body?.ltf_score,
+        });
+
+        const v = validateTimedPayload(body);
+        if (!v.ok) {
+          console.log(
+            `[INGEST VALIDATION FAILED] ${tickerFromBody || "UNKNOWN"}:`,
+            {
+              error: v.error,
+              ticker: body?.ticker,
+              ts: body?.ts,
+              htf: body?.htf_score,
+              ltf: body?.ltf_score,
+            }
+          );
+          return ackJSON(env, v, 400, req);
+        }
+
+        const ticker = v.ticker;
+        const payload = v.payload;
+
+        // Log ingestion for debugging
+        console.log(`[INGEST] ${ticker}:`, {
+          ts: payload.ts,
+          htf: payload.htf_score,
+          ltf: payload.ltf_score,
+          state: payload.state,
+          price: payload.price,
+          script_version: payload.script_version,
+        });
+
+        // Check version and migrate if needed (non-blocking for large migrations)
+        const incomingVersion = payload.script_version || "unknown";
+        const storedVersion = await getStoredVersion(KV);
+        let migration = { migrated: false, reason: "version_match" };
+
+        if (!storedVersion) {
+          // First run - set version immediately
+          await setStoredVersion(KV, incomingVersion);
+        } else if (storedVersion !== incomingVersion) {
+          // Version changed - run migration in background to avoid timeout
+          console.log(
+            `Version change detected: ${storedVersion} -> ${incomingVersion}, starting background migration`
+          );
+
+          // Update version immediately to prevent concurrent migrations from multiple requests
+          // Migration will still run (it checks storedVersion at start, before we update)
+          // But subsequent requests won't trigger migration again
+          await setStoredVersion(KV, incomingVersion);
+
+          // Start migration in background (fire and forget) - don't wait for completion
+          // This prevents timeout on large data sets (133+ tickers)
+          // Use storedVersion from before update to run migration correctly
+          const migrationPromise = checkAndMigrateWithStoredVersion(
+            KV,
+            storedVersion,
+            incomingVersion
+          );
+          migrationPromise
+            .then((result) => {
+              if (result.migrated) {
+                console.log(
+                  `Background migration completed: ${result.oldVersion} -> ${
+                    result.newVersion
+                  }, purged ${result.tickerCount || 0} tickers`
+                );
+                // Optionally notify Discord about migration
+                notifyDiscord(env, `🔄 Data Model Migration`, [
+                  `Version: ${result.oldVersion} → ${result.newVersion}`,
+                  `Tickers purged: ${result.tickerCount || 0}`,
+                  `Archive created: ${result.archived ? "Yes" : "No"}`,
+                  `Migration completed in background`,
+                ]).catch(() => {}); // Don't let Discord notification errors break anything
+              }
+            })
+            .catch((err) => {
+              console.error(`[MIGRATION ERROR]`, {
+                error: String(err),
+                stack: err.stack,
+                fromVersion: storedVersion,
+                toVersion: incomingVersion,
+              });
+            });
+
+          migration = {
+            migrated: true,
+            reason: "version_changed",
+            inProgress: true,
+          };
+        }
+
+        // Dedupe rapid repeats (only if exact same data within 60s)
+        // Note: This prevents spam but may filter legitimate updates if data hasn't changed
+        const basis = JSON.stringify({
+          ts: payload.ts,
+          htf: payload.htf_score,
+          ltf: payload.ltf_score,
+          state: payload.state || "",
+          completion: payload.completion,
+          phase_pct: payload.phase_pct,
+          rr: payload.rr,
+          trigger_ts: payload.trigger_ts,
+        });
+
+        const hash = stableHash(basis);
+        const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
+        const alreadyDeduped = await KV.get(dedupeKey);
+        if (alreadyDeduped) {
+          console.log(
+            `[INGEST DEDUPED] ${ticker} - same data within 60s (hash: ${hash.substring(
+              0,
+              8
+            )})`
+          );
+          // Still update the ticker data (in case this is a refresh/rebroadcast)
+          // But don't process alerts/activity again
+          await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+          await ensureTickerIndex(KV, ticker);
+          return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
+        }
+        await kvPutText(KV, dedupeKey, "1", 60);
+        console.log(
+          `[INGEST NOT DEDUPED] ${ticker} - new or changed data (hash: ${hash.substring(
+            0,
+            8
+          )})`
+        );
+
+        // Derived: staleness
+        const stale = stalenessBucket(ticker, payload.ts);
+        payload.market_type = stale.mt;
+        payload.age_min = stale.ageMin;
+        payload.staleness = stale.bucket;
+
+        // Derived: rr/rank
+        payload.rr = payload.rr ?? computeRR(payload);
+        // (optional clamp to prevent any bizarre edge cases)
+        if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
+
+        // Calculate Momentum Elite (worker-based with caching)
+        const momentumEliteData = await computeMomentumElite(
+          KV,
+          ticker,
+          payload
+        );
+        if (momentumEliteData && momentumEliteData.momentum_elite) {
+          // Update flags with Momentum Elite status
+          if (!payload.flags) payload.flags = {};
+          payload.flags.momentum_elite = true;
+          // Store full criteria for debugging/display
+          payload.momentum_elite_criteria = momentumEliteData.criteria;
+        } else {
+          // Ensure flag is set to false if not elite
+          if (!payload.flags) payload.flags = {};
+          payload.flags.momentum_elite = false;
+        }
+
+        payload.rank = computeRank(payload);
+
+        // Detect state transition into aligned (enter Q2/Q3)
+        const prevKey = `timed:prevstate:${ticker}`;
+        const prevState = await KV.get(prevKey);
+        await kvPutText(
+          KV,
+          prevKey,
+          String(payload.state || ""),
+          7 * 24 * 60 * 60
+        );
+
+        const state = String(payload.state || "");
+        const alignedLong = state === "HTF_BULL_LTF_BULL";
+        const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+        const aligned = alignedLong || alignedShort;
+        const enteredAligned = aligned && prevState !== state;
+
+        const trigReason = String(payload.trigger_reason || "");
+        const trigOk =
+          trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+
+        const flags = payload.flags || {};
+        const sqRel = !!flags.sq30_release;
+
+        // Corridor-only logic (must match UI)
+        const side = corridorSide(payload); // LONG/SHORT/null
+        const inCorridor = !!side;
+
+        // corridor must match alignment
+        const corridorAlignedOK =
+          (side === "LONG" && alignedLong) ||
+          (side === "SHORT" && alignedShort);
+
+        // Allow alerts if:
+        // 1. In corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
+        // 2. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
+        const shouldConsiderAlert =
+          inCorridor &&
+          ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
+            (sqRel && side)); // Squeeze release in corridor is a valid trigger even if not fully aligned
+
+        // Activity feed tracking - detect events
+        const prevCorridorKey = `timed:prevcorridor:${ticker}`;
+        const prevInCorridor = await KV.get(prevCorridorKey);
+        const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
+        const prevSqueezeOn = await KV.get(prevSqueezeKey);
+        const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
+        const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
+        const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
+        const prevMomentumElite = await KV.get(prevMomentumEliteKey);
+
+        // Track corridor entry
+        if (inCorridor && prevInCorridor !== "true") {
+          await appendActivity(KV, {
+            type: "corridor_entry",
+            ticker: ticker,
+            side: side,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
+        } else if (!inCorridor && prevInCorridor === "true") {
+          await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
+        }
+
+        // Track squeeze start
+        if (flags.sq30_on && prevSqueezeOn !== "true") {
+          await appendActivity(KV, {
+            type: "squeeze_start",
+            ticker: ticker,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
+        } else if (!flags.sq30_on && prevSqueezeOn === "true") {
+          await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
+        }
+
+        // Track squeeze release
+        if (sqRel && prevSqueezeRel !== "true") {
+          await appendActivity(KV, {
+            type: "squeeze_release",
+            ticker: ticker,
+            side:
+              side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            trigger_dir: payload.trigger_dir,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
+        } else if (!sqRel && prevSqueezeRel === "true") {
+          await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
+        }
+
+        // Track state change to aligned
+        if (enteredAligned) {
+          await appendActivity(KV, {
+            type: "state_aligned",
+            ticker: ticker,
+            side: alignedLong ? "LONG" : "SHORT",
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+        }
+
+        // Track Momentum Elite status change
+        const currentMomentumElite = !!(
+          payload.flags && payload.flags.momentum_elite
+        );
+        if (currentMomentumElite && prevMomentumElite !== "true") {
+          await appendActivity(KV, {
+            type: "momentum_elite",
+            ticker: ticker,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
+        } else if (!currentMomentumElite && prevMomentumElite === "true") {
+          await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
+        }
+
+        // Add ingestion timestamp to payload for per-ticker tracking
+        const now = Date.now();
+        payload.ingest_ts = now; // Timestamp when this data was ingested
+        payload.ingest_time = new Date(now).toISOString(); // Human-readable format
+
+        // Store latest (do this BEFORE alert so UI has it)
+        await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+        console.log(
+          `[INGEST STORED] ${ticker} - latest data saved at ${new Date(
+            now
+          ).toISOString()}`
+        );
+
+        // Trail (light)
+        await appendTrail(
+          KV,
+          ticker,
+          {
+            ts: payload.ts,
+            price: payload.price, // Add price to trail for momentum calculations
+            htf_score: payload.htf_score,
+            ltf_score: payload.ltf_score,
+            completion: payload.completion,
+            phase_pct: payload.phase_pct,
+            state: payload.state,
+            rank: payload.rank,
+            flags: payload.flags || {},
+            momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
+            trigger_reason: payload.trigger_reason,
+            trigger_dir: payload.trigger_dir,
+          },
+          20
+        ); // Increased to 20 points for better history
+
+        await ensureTickerIndex(KV, ticker);
+        await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
+
+        // Get current ticker count for logging
+        const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        console.log(
+          `[INGEST COMPLETE] ${ticker} - added to index and stored. Total tickers in index: ${currentTickers.length}`
+        );
+
+        // Threshold gates (with Momentum Elite adjustments)
+        const momentumElite = !!flags.momentum_elite;
+
+        // Momentum Elite gets relaxed thresholds (higher quality stocks)
+        const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
+        const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
+        const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
+        const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
+
+        // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
+        const minRR = momentumElite
+          ? Math.max(1.2, baseMinRR * 0.9)
+          : baseMinRR; // Lower RR requirement
+        const maxComp = momentumElite
+          ? Math.min(0.5, baseMaxComp * 1.25)
+          : baseMaxComp; // Allow higher completion
+        const maxPhase = momentumElite
+          ? Math.min(0.7, baseMaxPhase * 1.17)
+          : baseMaxPhase; // Allow higher phase
+        const minRank = momentumElite
+          ? Math.max(60, baseMinRank - 10)
+          : baseMinRank; // Lower rank requirement
+
+        const rrOk = payload.rr != null && Number(payload.rr) >= minRR;
+        const compOk =
+          payload.completion == null
+            ? true
+            : Number(payload.completion) <= maxComp;
+        const phaseOk =
+          payload.phase_pct == null
+            ? true
+            : Number(payload.phase_pct) <= maxPhase;
+        const rankOk = Number(payload.rank || 0) >= minRank;
+
+        // Also consider Momentum Elite as a trigger condition (quality signal)
+        // Momentum Elite can trigger even if not fully aligned, as long as in corridor
+        const momentumEliteTrigger =
+          momentumElite && inCorridor && (corridorAlignedOK || sqRel);
+
+        // Enhanced trigger: original conditions OR Momentum Elite in good setup
+        const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+
+        // Debug logging for alert conditions - log all tickers in corridor
+        if (inCorridor) {
+          console.log(`[ALERT DEBUG] ${ticker}:`, {
+            inCorridor,
+            corridorAlignedOK,
+            side,
+            state: payload.state,
+            enteredAligned,
+            trigOk,
+            trigReason,
+            sqRel,
+            shouldConsiderAlert,
+            momentumEliteTrigger,
+            enhancedTrigger,
+            rrOk,
+            rr: payload.rr,
+            minRR,
+            compOk,
+            completion: payload.completion,
+            maxComp,
+            phaseOk,
+            phase: payload.phase_pct,
+            maxPhase,
+            rankOk,
+            rank: payload.rank,
+            minRank,
+            momentumElite,
+            flags: payload.flags,
+          });
+        }
+
+        // Log alert evaluation summary
+        console.log(`[ALERT EVAL] ${ticker}:`, {
+          enhancedTrigger,
+          rrOk,
+          rr: payload.rr,
+          compOk,
+          completion: payload.completion,
+          phaseOk,
+          phase: payload.phase_pct,
+          rankOk,
+          rank: payload.rank,
+          allConditionsMet:
+            enhancedTrigger && rrOk && compOk && phaseOk && rankOk,
+        });
+
+        if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
+          // Dedup alert by trigger_ts if present (best), else ts
+          const keyTs =
+            payload.trigger_ts != null
+              ? String(payload.trigger_ts)
+              : String(payload.ts);
+          const akey = `timed:alerted:${ticker}:${keyTs}`;
+          const alreadyAlerted = await KV.get(akey);
+
+          if (!alreadyAlerted) {
+            await kvPutText(KV, akey, "1", 24 * 60 * 60);
+
+            console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
+              akey,
+              keyTs,
+              side,
+              rank: payload.rank,
+            });
+
+            const why =
+              (side === "LONG"
+                ? "Entry corridor Q1→Q2"
+                : "Entry corridor Q4→Q3") +
+              (momentumElite ? " | 🚀 Momentum Elite" : "") +
+              (enteredAligned ? " | Entered aligned" : "") +
+              (trigReason
+                ? ` | ${trigReason}${
+                    payload.trigger_dir ? " (" + payload.trigger_dir + ")" : ""
+                  }`
+                : "") +
+              (sqRel ? " | ⚡ squeeze release" : "");
+
+            const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+              ticker
+            )}`;
+
+            await notifyDiscord(
+              env,
+              `TimedTrading 🎯 ${ticker} — ${side} (Rank ${payload.rank})`,
+              [
+                `Why: ${why}`,
+                `State: ${payload.state}`,
+                `HTF/LTF: ${fmt2(payload.htf_score)} / ${fmt2(
+                  payload.ltf_score
+                )}`,
+                `Trigger: ${fmt2(payload.trigger_price)} | Price: ${fmt2(
+                  payload.price
+                )}`,
+                `SL: ${fmt2(payload.sl)} | TP: ${fmt2(payload.tp)} | ETA: ${
+                  payload.eta_days != null
+                    ? Number(payload.eta_days).toFixed(1) + "d"
+                    : "—"
+                }`,
+                `RR: ${
+                  payload.rr != null ? Number(payload.rr).toFixed(2) : "—"
+                } | Rank: ${payload.rank}`,
+                `Completion: ${pct01(payload.completion)} | Phase: ${pct01(
+                  payload.phase_pct
+                )}`,
+                `Link: ${tv}`,
+              ]
+            );
+          } else {
+            console.log(`[DISCORD ALERT] Skipped ${ticker} - already alerted`, {
+              akey,
+              keyTs,
+            });
+          }
+        } else if (inCorridor && corridorAlignedOK) {
+          // Log why alert didn't fire
+          const reasons = [];
+          if (!enhancedTrigger) reasons.push("no trigger condition");
+          if (!rrOk) reasons.push(`RR ${payload.rr} < ${minRR}`);
+          if (!compOk)
+            reasons.push(`Completion ${payload.completion} > ${maxComp}`);
+          if (!phaseOk)
+            reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
+          if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
+          console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
+        }
+
+        // Get final ticker count
+        const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        console.log(
+          `[INGEST SUCCESS] ${ticker} - completed successfully. Total tickers: ${finalTickers.length}`
+        );
+        return ackJSON(
+          env,
+          { ok: true, ticker, totalTickers: finalTickers.length },
+          200,
+          req
+        );
+      } catch (error) {
+        // Catch any unexpected errors during ingestion
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const ticker = normTicker(body?.ticker) || "UNKNOWN";
+        console.error(`[INGEST ERROR] ${ticker} - IP: ${ip}`, {
+          error: String(error),
+          stack: error.stack,
+          message: error.message,
+          body: body ? { ticker: body.ticker, ts: body.ts } : null,
+        });
+        // Return 500 instead of 429 to avoid confusion
         return ackJSON(
           env,
           {
             ok: false,
-            error: "bad_json",
-            sample: String(raw || "").slice(0, 200),
-            parseError: String(err || ""),
+            error: "internal_error",
+            message: "An error occurred during ingestion",
+            ticker: ticker !== "UNKNOWN" ? ticker : null,
           },
-          400
+          500,
+          req
         );
-
-      // Log raw payload for debugging (especially for missing tickers)
-      const tickerFromBody = normTicker(body?.ticker);
-      console.log(`[INGEST RAW] ${tickerFromBody || "UNKNOWN"}:`, {
-        hasTicker: !!body?.ticker,
-        hasTs: body?.ts !== undefined,
-        hasHtf: body?.htf_score !== undefined,
-        hasLtf: body?.ltf_score !== undefined,
-        ts: body?.ts,
-        htf: body?.htf_score,
-        ltf: body?.ltf_score,
-        tsType: typeof body?.ts,
-        htfType: typeof body?.htf_score,
-        ltfType: typeof body?.ltf_score,
-      });
-
-      const v = validateTimedPayload(body);
-      if (!v.ok) {
-        console.log(
-          `[INGEST VALIDATION FAILED] ${tickerFromBody || "UNKNOWN"}:`,
-          {
-            error: v.error,
-            ticker: body?.ticker,
-            ts: body?.ts,
-            htf: body?.htf_score,
-            ltf: body?.ltf_score,
-          }
-        );
-        return ackJSON(env, v, 400, req);
       }
-
-      const ticker = v.ticker;
-      const payload = v.payload;
-
-      // Log ingestion for debugging
-      console.log(`[INGEST] ${ticker}:`, {
-        ts: payload.ts,
-        htf: payload.htf_score,
-        ltf: payload.ltf_score,
-        state: payload.state,
-        price: payload.price,
-      });
-
-      // Check version and migrate if needed
-      const incomingVersion = payload.script_version || "unknown";
-      const migration = await checkAndMigrate(KV, incomingVersion);
-
-      // Log migration if it occurred (first payload after version change)
-      if (migration.migrated) {
-        console.log(
-          `Migration completed: ${migration.oldVersion} -> ${migration.newVersion}`
-        );
-        // Optionally notify Discord about migration
-        if (migration.migrated) {
-          await notifyDiscord(env, `🔄 Data Model Migration`, [
-            `Version: ${migration.oldVersion} → ${migration.newVersion}`,
-            `Tickers purged: ${migration.tickerCount || 0}`,
-            `Archive created: ${migration.archived ? "Yes" : "No"}`,
-            `New data will be ingested with version ${incomingVersion}`,
-          ]);
-        }
-      }
-
-      // Dedupe rapid repeats
-      const basis = JSON.stringify({
-        ts: payload.ts,
-        htf: payload.htf_score,
-        ltf: payload.ltf_score,
-        state: payload.state || "",
-        completion: payload.completion,
-        phase_pct: payload.phase_pct,
-        rr: payload.rr,
-        trigger_ts: payload.trigger_ts,
-      });
-
-      const hash = stableHash(basis);
-      const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
-      const alreadyDeduped = await KV.get(dedupeKey);
-      if (alreadyDeduped) {
-        console.log(`[INGEST DEDUPED] ${ticker} - same data within 60s`);
-        return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
-      }
-      await kvPutText(KV, dedupeKey, "1", 60);
-
-      // Derived: staleness
-      const stale = stalenessBucket(ticker, payload.ts);
-      payload.market_type = stale.mt;
-      payload.age_min = stale.ageMin;
-      payload.staleness = stale.bucket;
-
-      // Derived: rr/rank
-      payload.rr = payload.rr ?? computeRR(payload);
-      // (optional clamp to prevent any bizarre edge cases)
-      if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
-
-      // Calculate Momentum Elite (worker-based with caching)
-      const momentumEliteData = await computeMomentumElite(KV, ticker, payload);
-      if (momentumEliteData && momentumEliteData.momentum_elite) {
-        // Update flags with Momentum Elite status
-        if (!payload.flags) payload.flags = {};
-        payload.flags.momentum_elite = true;
-        // Store full criteria for debugging/display
-        payload.momentum_elite_criteria = momentumEliteData.criteria;
-      } else {
-        // Ensure flag is set to false if not elite
-        if (!payload.flags) payload.flags = {};
-        payload.flags.momentum_elite = false;
-      }
-
-      payload.rank = computeRank(payload);
-
-      // Detect state transition into aligned (enter Q2/Q3)
-      const prevKey = `timed:prevstate:${ticker}`;
-      const prevState = await KV.get(prevKey);
-      await kvPutText(
-        KV,
-        prevKey,
-        String(payload.state || ""),
-        7 * 24 * 60 * 60
-      );
-
-      const state = String(payload.state || "");
-      const alignedLong = state === "HTF_BULL_LTF_BULL";
-      const alignedShort = state === "HTF_BEAR_LTF_BEAR";
-      const aligned = alignedLong || alignedShort;
-      const enteredAligned = aligned && prevState !== state;
-
-      const trigReason = String(payload.trigger_reason || "");
-      const trigOk =
-        trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
-
-      const flags = payload.flags || {};
-      const sqRel = !!flags.sq30_release;
-
-      // Corridor-only logic (must match UI)
-      const side = corridorSide(payload); // LONG/SHORT/null
-      const inCorridor = !!side;
-
-      // corridor must match alignment
-      const corridorAlignedOK =
-        (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
-
-      // Allow alerts if:
-      // 1. In corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
-      // 2. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
-      const shouldConsiderAlert =
-        inCorridor &&
-        ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
-          (sqRel && side)); // Squeeze release in corridor is a valid trigger even if not fully aligned
-
-      // Activity feed tracking - detect events
-      const prevCorridorKey = `timed:prevcorridor:${ticker}`;
-      const prevInCorridor = await KV.get(prevCorridorKey);
-      const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
-      const prevSqueezeOn = await KV.get(prevSqueezeKey);
-      const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
-      const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
-      const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
-      const prevMomentumElite = await KV.get(prevMomentumEliteKey);
-
-      // Track corridor entry
-      if (inCorridor && prevInCorridor !== "true") {
-        await appendActivity(KV, {
-          type: "corridor_entry",
-          ticker: ticker,
-          side: side,
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
-        });
-        await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
-      } else if (!inCorridor && prevInCorridor === "true") {
-        await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
-      }
-
-      // Track squeeze start
-      if (flags.sq30_on && prevSqueezeOn !== "true") {
-        await appendActivity(KV, {
-          type: "squeeze_start",
-          ticker: ticker,
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
-        });
-        await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
-      } else if (!flags.sq30_on && prevSqueezeOn === "true") {
-        await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
-      }
-
-      // Track squeeze release
-      if (sqRel && prevSqueezeRel !== "true") {
-        await appendActivity(KV, {
-          type: "squeeze_release",
-          ticker: ticker,
-          side: side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
-          trigger_dir: payload.trigger_dir,
-        });
-        await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
-      } else if (!sqRel && prevSqueezeRel === "true") {
-        await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
-      }
-
-      // Track state change to aligned
-      if (enteredAligned) {
-        await appendActivity(KV, {
-          type: "state_aligned",
-          ticker: ticker,
-          side: alignedLong ? "LONG" : "SHORT",
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
-        });
-      }
-
-      // Track Momentum Elite status change
-      const currentMomentumElite = !!(
-        payload.flags && payload.flags.momentum_elite
-      );
-      if (currentMomentumElite && prevMomentumElite !== "true") {
-        await appendActivity(KV, {
-          type: "momentum_elite",
-          ticker: ticker,
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
-        });
-        await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
-      } else if (!currentMomentumElite && prevMomentumElite === "true") {
-        await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
-      }
-
-      // Store latest (do this BEFORE alert so UI has it)
-      try {
-        await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-        console.log(`[INGEST STORED] ${ticker} - latest data saved`);
-      } catch (error) {
-        console.error(`[INGEST STORAGE FAILED] ${ticker}:`, {
-          error: error.message,
-          status: error.status,
-          statusText: error.statusText,
-        });
-        // Continue processing even if storage fails (don't block the request)
-        // The data will be retried on next alert
-      }
-
-      // Trail (light)
-      await appendTrail(
-        KV,
-        ticker,
-        {
-          ts: payload.ts,
-          price: payload.price, // Add price to trail for momentum calculations
-          htf_score: payload.htf_score,
-          ltf_score: payload.ltf_score,
-          completion: payload.completion,
-          phase_pct: payload.phase_pct,
-          state: payload.state,
-          rank: payload.rank,
-          flags: payload.flags || {},
-          momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
-          trigger_reason: payload.trigger_reason,
-          trigger_dir: payload.trigger_dir,
-        },
-        20
-      ); // Increased to 20 points for better history
-
-      try {
-        await ensureTickerIndex(KV, ticker);
-        await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
-        console.log(`[INGEST COMPLETE] ${ticker} - added to index and stored`);
-      } catch (error) {
-        console.error(`[INGEST INDEX FAILED] ${ticker}:`, {
-          error: error.message,
-          status: error.status,
-          statusText: error.statusText,
-        });
-        // Continue - index update failure is not critical
-      }
-
-      // Threshold gates (with Momentum Elite adjustments)
-      const momentumElite = !!flags.momentum_elite;
-
-      // Momentum Elite gets relaxed thresholds (higher quality stocks)
-      const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
-      const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
-      const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
-      const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
-
-      // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
-      const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR; // Lower RR requirement
-      const maxComp = momentumElite
-        ? Math.min(0.5, baseMaxComp * 1.25)
-        : baseMaxComp; // Allow higher completion
-      const maxPhase = momentumElite
-        ? Math.min(0.7, baseMaxPhase * 1.17)
-        : baseMaxPhase; // Allow higher phase
-      const minRank = momentumElite
-        ? Math.max(60, baseMinRank - 10)
-        : baseMinRank; // Lower rank requirement
-
-      const rrOk = payload.rr != null && Number(payload.rr) >= minRR;
-      const compOk =
-        payload.completion == null
-          ? true
-          : Number(payload.completion) <= maxComp;
-      const phaseOk =
-        payload.phase_pct == null
-          ? true
-          : Number(payload.phase_pct) <= maxPhase;
-      const rankOk = Number(payload.rank || 0) >= minRank;
-
-      // Also consider Momentum Elite as a trigger condition (quality signal)
-      // Momentum Elite can trigger even if not fully aligned, as long as in corridor
-      const momentumEliteTrigger =
-        momentumElite && inCorridor && (corridorAlignedOK || sqRel);
-
-      // Enhanced trigger: original conditions OR Momentum Elite in good setup
-      const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
-
-      // Debug logging for alert conditions - log all tickers in corridor
-      if (inCorridor) {
-        console.log(`[ALERT DEBUG] ${ticker}:`, {
-          inCorridor,
-          corridorAlignedOK,
-          side,
-          state: payload.state,
-          enteredAligned,
-          trigOk,
-          trigReason,
-          sqRel,
-          shouldConsiderAlert,
-          momentumEliteTrigger,
-          enhancedTrigger,
-          rrOk,
-          rr: payload.rr,
-          minRR,
-          compOk,
-          completion: payload.completion,
-          maxComp,
-          phaseOk,
-          phase: payload.phase_pct,
-          maxPhase,
-          rankOk,
-          rank: payload.rank,
-          minRank,
-          momentumElite,
-          flags: payload.flags,
-        });
-      }
-
-      if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
-        // Dedup alert by trigger_ts if present (best), else ts
-        const keyTs =
-          payload.trigger_ts != null
-            ? String(payload.trigger_ts)
-            : String(payload.ts);
-        const akey = `timed:alerted:${ticker}:${keyTs}`;
-        const alreadyAlerted = await KV.get(akey);
-
-        if (!alreadyAlerted) {
-          await kvPutText(KV, akey, "1", 24 * 60 * 60);
-
-          console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
-            akey,
-            keyTs,
-            side,
-            rank: payload.rank,
-          });
-
-          const why =
-            (side === "LONG"
-              ? "Entry corridor Q1→Q2"
-              : "Entry corridor Q4→Q3") +
-            (momentumElite ? " | 🚀 Momentum Elite" : "") +
-            (enteredAligned ? " | Entered aligned" : "") +
-            (trigReason
-              ? ` | ${trigReason}${
-                  payload.trigger_dir ? " (" + payload.trigger_dir + ")" : ""
-                }`
-              : "") +
-            (sqRel ? " | ⚡ squeeze release" : "");
-
-          const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-            ticker
-          )}`;
-
-          await notifyDiscord(
-            env,
-            `TimedTrading 🎯 ${ticker} — ${side} (Rank ${payload.rank})`,
-            [
-              `Why: ${why}`,
-              `State: ${payload.state}`,
-              `HTF/LTF: ${fmt2(payload.htf_score)} / ${fmt2(
-                payload.ltf_score
-              )}`,
-              `Trigger: ${fmt2(payload.trigger_price)} | Price: ${fmt2(
-                payload.price
-              )}`,
-              `SL: ${fmt2(payload.sl)} | TP: ${fmt2(payload.tp)} | ETA: ${
-                payload.eta_days != null
-                  ? Number(payload.eta_days).toFixed(1) + "d"
-                  : "—"
-              }`,
-              `RR: ${
-                payload.rr != null ? Number(payload.rr).toFixed(2) : "—"
-              } | Rank: ${payload.rank}`,
-              `Completion: ${pct01(payload.completion)} | Phase: ${pct01(
-                payload.phase_pct
-              )}`,
-              `Link: ${tv}`,
-            ]
-          );
-        } else {
-          console.log(`[DISCORD ALERT] Skipped ${ticker} - already alerted`, {
-            akey,
-            keyTs,
-          });
-        }
-      } else if (inCorridor && corridorAlignedOK) {
-        // Log why alert didn't fire
-        const reasons = [];
-        if (!enhancedTrigger) reasons.push("no trigger condition");
-        if (!rrOk) reasons.push(`RR ${payload.rr} < ${minRR}`);
-        if (!compOk)
-          reasons.push(`Completion ${payload.completion} > ${maxComp}`);
-        if (!phaseOk) reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
-        if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
-        console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
-      }
-
-      return ackJSON(env, { ok: true, ticker }, 200, req);
     }
 
     // GET /timed/latest?ticker=
@@ -1616,6 +1792,12 @@ export default {
             price: latest.price,
             state: latest.state,
             rank: latest.rank,
+            sl: latest.sl,
+            tp: latest.tp,
+            tp_levels: latest.tp_levels,
+            rr: latest.rr,
+            phase_pct: latest.phase_pct,
+            completion: latest.completion,
             ts: latest.ts || now,
             id: `current-${ticker}-corridor-${now}`,
           });
@@ -1629,6 +1811,12 @@ export default {
             price: latest.price,
             state: latest.state,
             rank: latest.rank,
+            sl: latest.sl,
+            tp: latest.tp,
+            tp_levels: latest.tp_levels,
+            rr: latest.rr,
+            phase_pct: latest.phase_pct,
+            completion: latest.completion,
             ts: latest.ts || now,
             id: `current-${ticker}-squeeze-${now}`,
           });
@@ -1645,6 +1833,12 @@ export default {
             state: latest.state,
             rank: latest.rank,
             trigger_dir: latest.trigger_dir,
+            sl: latest.sl,
+            tp: latest.tp,
+            tp_levels: latest.tp_levels,
+            rr: latest.rr,
+            phase_pct: latest.phase_pct,
+            completion: latest.completion,
             ts: latest.ts || now,
             id: `current-${ticker}-squeeze-rel-${now}`,
           });
@@ -1662,6 +1856,12 @@ export default {
             price: latest.price,
             state: latest.state,
             rank: latest.rank,
+            sl: latest.sl,
+            tp: latest.tp,
+            tp_levels: latest.tp_levels,
+            rr: latest.rr,
+            phase_pct: latest.phase_pct,
+            completion: latest.completion,
             ts: latest.ts || now,
             id: `current-${ticker}-aligned-${now}`,
           });
@@ -1675,6 +1875,12 @@ export default {
             price: latest.price,
             state: latest.state,
             rank: latest.rank,
+            sl: latest.sl,
+            tp: latest.tp,
+            tp_levels: latest.tp_levels,
+            rr: latest.rr,
+            phase_pct: latest.phase_pct,
+            completion: latest.completion,
             ts: latest.ts || now,
             id: `current-${ticker}-momentum-${now}`,
           });

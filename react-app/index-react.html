@@ -259,27 +259,60 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
             
-            const res = await fetch(`${API_BASE}/timed/all`, {
-              signal: controller.signal,
-              headers: {
-                'Accept': 'application/json'
-              }
-            });
+            // Fetch both ticker data and ticker index to ensure all 133 tickers are shown
+            const [dataRes, tickersRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/all`, {
+                signal: controller.signal,
+                headers: { 'Accept': 'application/json' }
+              }),
+              fetch(`${API_BASE}/timed/tickers`, {
+                signal: controller.signal,
+                headers: { 'Accept': 'application/json' }
+              })
+            ]);
             
             clearTimeout(timeoutId);
             
-            if (!res.ok) {
-              const errorText = await res.text();
-              throw new Error(`HTTP ${res.status}: ${errorText || 'Unknown error'}`);
+            if (!dataRes.ok) {
+              const errorText = await dataRes.text();
+              throw new Error(`HTTP ${dataRes.status}: ${errorText || 'Unknown error'}`);
             }
             
-            const json = await res.json();
-            if (json.ok) {
-              setData(json.data || {});
+            const dataJson = await dataRes.json();
+            const tickersJson = await tickersRes.json();
+            
+            if (dataJson.ok) {
+              const tickerData = dataJson.data || {};
+              const allTickers = (tickersJson.ok && tickersJson.tickers) ? tickersJson.tickers : [];
+              
+              // Merge: ensure all tickers from index are present, even if no recent data
+              // This maintains the full 133 ticker baseline
+              const mergedData = { ...tickerData };
+              allTickers.forEach(ticker => {
+                if (!mergedData[ticker]) {
+                  // Add placeholder for tickers without recent data
+                  // They'll appear on the chart with their last known position (if available)
+                  // or won't render until data comes in
+                  mergedData[ticker] = {
+                    ticker: ticker,
+                    // Note: Without data, these tickers won't render bubbles
+                    // but they'll be available when data arrives
+                  };
+                }
+              });
+              
+              setData(mergedData);
               setLastUpdate(new Date());
               setError(null);
+              
+              // Log ticker counts for debugging
+              const tickersWithData = Object.keys(mergedData).filter(t => {
+                const d = mergedData[t];
+                return d && d.htf_score !== undefined && d.ltf_score !== undefined;
+              });
+              console.log(`[UI] Loaded ${tickersWithData.length} tickers with data, ${allTickers.length} total in index`);
             } else {
-              setError(`API Error: ${json.error || 'Failed to fetch data'}`);
+              setError(`API Error: ${dataJson.error || 'Failed to fetch data'}`);
             }
           } catch (e) {
             if (e.name === 'AbortError') {
@@ -573,11 +606,17 @@
       function applyFilters(dataObj, filters) {
         const out = [];
         for (const [tickerRaw, d] of Object.entries(dataObj)) {
-          if (!d) continue;
-          const ticker = String(tickerRaw).trim().toUpperCase();
+          // Skip completely empty entries, but allow entries with just ticker name
+          if (!d || typeof d !== 'object') continue;
+          const ticker = String(tickerRaw || d.ticker || '').trim().toUpperCase();
+          if (!ticker) continue;
 
           // Only show tickers that are in at least one group
           if (!isTickerInGroups(ticker)) continue;
+          
+          // Skip tickers that don't have scores (can't render without position data)
+          // These will appear once they receive data from TradingView
+          if (d.htf_score === undefined && d.ltf_score === undefined) continue;
 
           if (filters.search && !ticker.includes(filters.search.toUpperCase()))
             continue;
@@ -644,10 +683,12 @@
         // RR is the opportunity, but we want to reduce size as completion increases
         // Formula: baseSize + (RR * multiplier) * (1 - completion)
         // This makes high RR + low completion = largest bubbles
+        // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
+        const cappedRR = Math.min(rr, 5); // Cap RR at 5 for size calculation
         const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
         const baseSize = 8;
         const rrMultiplier = 6; // Scale factor for RR
-        const size = baseSize + (rr * rrMultiplier * completionPenalty);
+        const size = baseSize + (cappedRR * rrMultiplier * completionPenalty);
         
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
@@ -745,10 +786,12 @@
         const rr = Number(ticker.rr) || 0;
         
         // Bubble size based on RR, adjusted for completion (lower completion = larger size)
+        // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
+        const cappedRR = Math.min(rr, 5); // Cap RR at 5 for size calculation
         const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
         const baseSize = 8;
         const rrMultiplier = 6; // Scale factor for RR
-        const size = baseSize + (rr * rrMultiplier * completionPenalty);
+        const size = baseSize + (cappedRR * rrMultiplier * completionPenalty);
         
         const prime = isPrimeBubble(ticker);
         const flags = ticker.flags || {};
@@ -1538,11 +1581,28 @@
       // ─────────────────────────────────────────────────────────────
       // Activity Feed Component
       // ─────────────────────────────────────────────────────────────
-      function ActivityFeed({ onTickerClick }) {
+      function ActivityFeed({ onTickerClick, tickerData }) {
         const [events, setEvents] = useState([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const feedRef = React.useRef(null);
+        
+        // Helper to get latest ticker data and merge with event
+        const getEventWithTickerData = useCallback((event) => {
+          const latestData = tickerData?.[event.ticker] || {};
+          // Merge event data with latest ticker data, preferring event data (snapshot at time of event)
+          // but falling back to latest data for missing fields
+          return {
+            ...event,
+            price: event.price || latestData.price,
+            sl: event.sl !== undefined ? event.sl : latestData.sl,
+            tp: event.tp !== undefined ? event.tp : latestData.tp,
+            tp_levels: event.tp_levels || latestData.tp_levels,
+            rr: event.rr !== undefined ? event.rr : latestData.rr,
+            phase_pct: event.phase_pct !== undefined ? event.phase_pct : latestData.phase_pct,
+            completion: event.completion !== undefined ? event.completion : latestData.completion,
+          };
+        }, [tickerData]);
 
         const fetchActivity = React.useCallback(async () => {
           try {
@@ -1700,43 +1760,118 @@
                   No recent activity
                 </div>
               ) : (
-                events.map((event) => (
-                  <div
-                    key={event.id || `${event.ticker}-${event.ts}`}
-                    onClick={() => onTickerClick && onTickerClick(event.ticker)}
-                    className="bg-[#121a33] border border-[#26325f] rounded p-2 text-xs hover:border-[#3a4a7a] hover:bg-[#1a2440] transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                        <span className="text-base">{getEventIcon(event.type)}</span>
-                        <span className={`font-semibold ${getEventColor(event.type)} truncate`}>
-                          {getEventLabel(event)}
+                events.map((event) => {
+                  const eventData = getEventWithTickerData(event);
+                  // Calculate Max TP from tp_levels array
+                  let maxTP = eventData.tp;
+                  if (eventData.tp_levels && Array.isArray(eventData.tp_levels) && eventData.tp_levels.length > 0) {
+                    const tpPrices = eventData.tp_levels
+                      .map(tpItem => {
+                        if (typeof tpItem === 'object' && tpItem !== null && tpItem.price != null) {
+                          return Number(tpItem.price);
+                        }
+                        return typeof tpItem === 'number' ? tpItem : Number(tpItem);
+                      })
+                      .filter(p => Number.isFinite(p));
+                    if (tpPrices.length > 0) {
+                      maxTP = Math.max(...tpPrices);
+                    }
+                  }
+                  
+                  return (
+                    <div
+                      key={event.id || `${event.ticker}-${event.ts}`}
+                      onClick={() => onTickerClick && onTickerClick(event.ticker)}
+                      className="bg-[#121a33] border border-[#26325f] rounded p-2 text-xs hover:border-[#3a4a7a] hover:bg-[#1a2440] transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                          <span className="text-base">{getEventIcon(event.type)}</span>
+                          <span className={`font-semibold ${getEventColor(event.type)} truncate`}>
+                            {getEventLabel(event)}
+                          </span>
+                        </div>
+                        <span className="text-[#6b7a9f] text-[10px] whitespace-nowrap">
+                          {formatTime(event.ts)}
                         </span>
                       </div>
-                      <span className="text-[#6b7a9f] text-[10px] whitespace-nowrap">
-                        {formatTime(event.ts)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[#93a4d6] mt-1">
-                      {event.price && (
-                        <span>${Number(event.price).toFixed(2)}</span>
-                      )}
-                      {event.rank && (
-                        <span>Rank {event.rank}</span>
-                      )}
-                      {event.state && (
-                        <span className="truncate" title={event.state}>
-                          {event.state.split('_').pop()}
-                        </span>
-                      )}
-                    </div>
-                    {event.trigger_dir && (
-                      <div className="text-[#6b7a9f] text-[10px] mt-1">
-                        Direction: {event.trigger_dir}
+                      
+                      {/* Standardized Fields - Always Show */}
+                      <div className="space-y-1.5 border-t border-[#26325f]/50 pt-1.5 mt-1.5">
+                        {/* Price Row */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[#6b7a9f] text-[10px]">Price:</span>
+                          <span className="text-white font-semibold text-[10px]">
+                            {eventData.price ? `$${Number(eventData.price).toFixed(2)}` : '—'}
+                          </span>
+                        </div>
+                        
+                        {/* SL Row */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[#6b7a9f] text-[10px]">SL:</span>
+                          <span className="text-red-400 font-mono text-[10px]">
+                            {eventData.sl != null ? `$${Number(eventData.sl).toFixed(2)}` : '—'}
+                          </span>
+                        </div>
+                        
+                        {/* Max TP Row */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[#6b7a9f] text-[10px]">Max TP:</span>
+                          <span className="text-green-400 font-mono text-[10px]">
+                            {maxTP != null ? `$${Number(maxTP).toFixed(2)}` : '—'}
+                          </span>
+                        </div>
+                        
+                        {/* RR Row */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[#6b7a9f] text-[10px]">RR:</span>
+                          <span className="text-blue-400 font-mono text-[10px]">
+                            {eventData.rr != null ? Number(eventData.rr).toFixed(2) : '—'}
+                          </span>
+                        </div>
+                        
+                        {/* Phase Complete Row */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[#6b7a9f] text-[10px]">Phase:</span>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-16 h-1 bg-[#26325f] rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${(Number(eventData.phase_pct) || 0) * 100}%`,
+                                  backgroundColor: (() => {
+                                    const phase = Number(eventData.phase_pct) || 0;
+                                    if (phase < 0.3) return '#2ecc71';
+                                    if (phase < 0.6) return '#f39c12';
+                                    return '#e74c3c';
+                                  })(),
+                                }}
+                              />
+                            </div>
+                            <span className="text-white font-mono text-[10px] min-w-[2.5rem]">
+                              {eventData.phase_pct != null ? `${Math.round(Number(eventData.phase_pct) * 100)}%` : '—'}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))
+                      
+                      {/* Additional Info - Compact */}
+                      {(event.rank || event.state || event.trigger_dir) && (
+                        <div className="flex items-center gap-2 text-[#6b7a9f] text-[10px] mt-1.5 pt-1.5 border-t border-[#26325f]/30">
+                          {event.rank && <span>Rank {event.rank}</span>}
+                          {event.state && (
+                            <span className="truncate" title={event.state}>
+                              {event.state.split('_').pop()}
+                            </span>
+                          )}
+                          {event.trigger_dir && (
+                            <span>Dir: {event.trigger_dir}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
@@ -2795,7 +2930,7 @@
                 <div className="flex gap-4 items-start">
                   {/* Activity Feed - Left side (complementary, fixed width) */}
                   <div className="flex-shrink-0">
-                    <ActivityFeed onTickerClick={handleTickerSelect} />
+                    <ActivityFeed onTickerClick={handleTickerSelect} tickerData={data} />
                   </div>
                   
                   {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
