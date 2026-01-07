@@ -3135,10 +3135,16 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               aiResponse.status,
               errorData
             );
-            throw new Error(
-              errorData.error?.message ||
-                `OpenAI API error: ${aiResponse.status}`
-            );
+            // Provide user-friendly error messages for common OpenAI errors
+            let errorMessage = errorData.error?.message || `OpenAI API error: ${aiResponse.status}`;
+            if (aiResponse.status === 429) {
+              if (errorData.error?.code === "insufficient_quota") {
+                errorMessage = "OpenAI API quota exceeded. Please check your billing and plan details.";
+              } else {
+                errorMessage = "OpenAI API rate limit exceeded. Please try again later.";
+              }
+            }
+            throw new Error(errorMessage);
           }
 
           let aiData;
