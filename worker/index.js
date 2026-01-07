@@ -2818,7 +2818,7 @@ export default {
       // Wrap entire handler in try-catch to ensure CORS headers are always returned
       try {
         // Handle JSON parsing errors with CORS headers
-      let body;
+        let body;
       try {
         const result = await readBodyAsJSON(req);
         if (result.err) {
