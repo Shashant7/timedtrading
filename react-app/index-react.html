@@ -2486,7 +2486,7 @@
         );
       }
 
-      function TickerDetails({ ticker, onClose, allTickers = [] }) {
+      function TickerDetails({ ticker, onClose, allTickers = [], allLoadedData = null }) {
         if (!ticker) return null;
 
         const prime = isPrimeBubble(ticker);
@@ -2495,6 +2495,21 @@
         const phase = Number(ticker.phase_pct) || 0;
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(ticker);
+        
+        // Convert allLoadedData (object) to array if provided, otherwise use allTickers
+        // allLoadedData contains ALL loaded tickers (unfiltered), while allTickers is filtered
+        const allLoadedTickersArray = (() => {
+          if (allLoadedData && typeof allLoadedData === 'object') {
+            if (Array.isArray(allLoadedData)) {
+              return allLoadedData;
+            } else {
+              // Convert object to array: { "GOOGL": {...}, "MSFT": {...} } -> [...]
+              return Object.values(allLoadedData).filter(t => t && typeof t === 'object' && t.ticker);
+            }
+          }
+          // Fallback to allTickers if allLoadedData not provided
+          return allTickers || [];
+        })();
 
         return (
           <div className="w-full h-full">
@@ -2621,10 +2636,14 @@
               {(() => {
                 const baseScore = Number(ticker.rank) || 0; // Base Score from worker
                 const dynamicRank = computeDynamicRank(ticker);
-                const allTickersWithRank = (allTickers || []).map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
+                // Use allLoadedTickersArray (ALL loaded tickers) for absolute ranking, not filtered list
+                const allTickersWithRank = allLoadedTickersArray.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
                 const sortedByDynamic = [...allTickersWithRank].sort((a, b) => b.dynamicRank - a.dynamicRank);
-                const rankPosition = sortedByDynamic.findIndex(t => t.ticker === ticker.ticker) + 1;
-                const totalTickers = allTickers.length;
+                const rankPosition = sortedByDynamic.findIndex(t => {
+                  if (!t || !t.ticker) return false;
+                  return String(t.ticker).toUpperCase() === String(ticker.ticker).toUpperCase();
+                }) + 1;
+                const totalTickers = allLoadedTickersArray.length;
                 const isInTop40 = rankPosition > 0 && rankPosition <= 40;
                 
                 return (
@@ -3232,6 +3251,7 @@
       // Render overlay outside main container using portal
       function TickerDetailsLoader({ tickerSymbol, onClose }) {
         const [tickerData, setTickerData] = useState(null);
+        const [allLoadedData, setAllLoadedData] = useState(null);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         
@@ -3239,14 +3259,33 @@
           const fetchTicker = async () => {
             try {
               setLoading(true);
-              const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`);
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
-              if (json.ok && json.latestData) {
-                setTickerData(json.latestData);
-              } else {
-                throw new Error(json.error || 'Ticker not found');
+              // Fetch both the ticker data and all tickers for absolute ranking
+              const [tickerRes, allRes] = await Promise.all([
+                fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`),
+                fetch(`${API_BASE}/timed/all`)
+              ]);
+              
+              if (!tickerRes.ok) throw new Error(`HTTP ${tickerRes.status}`);
+              const tickerJson = await tickerRes.json();
+              if (!tickerJson.ok || !tickerJson.latestData) {
+                throw new Error(tickerJson.error || 'Ticker not found');
               }
+              
+              // Try to get all tickers for ranking (may fail, that's okay)
+              let allData = null;
+              try {
+                if (allRes.ok) {
+                  const allJson = await allRes.json();
+                  if (allJson.ok && allJson.data) {
+                    allData = allJson.data;
+                  }
+                }
+              } catch (e) {
+                console.warn('Failed to fetch all tickers for ranking:', e);
+              }
+              
+              setTickerData(tickerJson.latestData);
+              setAllLoadedData(allData);
             } catch (err) {
               console.error('Failed to fetch ticker:', err);
               setError(err.message);
@@ -3286,7 +3325,7 @@
           );
         }
         
-        return <TickerDetails ticker={tickerData} onClose={onClose} allTickers={[]} />;
+        return <TickerDetails ticker={tickerData} onClose={onClose} allTickers={[]} allLoadedData={allLoadedData} />;
       }
       
       function OverlayPortal({ selectedTicker, tickers, data, onClose }) {
@@ -3340,6 +3379,7 @@
               ticker={foundTicker}
               onClose={onClose}
               allTickers={tickers}
+              allLoadedData={data}
             />
           );
           
