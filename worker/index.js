@@ -2784,6 +2784,14 @@ export default {
       );
     }
 
+    // OPTIONS /timed/ai/chat (CORS preflight)
+    if (url.pathname === "/timed/ai/chat" && req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(env, req),
+      });
+    }
+
     // POST /timed/ai/chat (AI Chat Assistant)
     if (url.pathname === "/timed/ai/chat" && req.method === "POST") {
       const { obj: body, err } = await readBodyAsJSON(req);
@@ -3005,7 +3013,10 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: (env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4") ? env.OPENAI_MODEL : "gpt-3.5-turbo",
+                model:
+                  env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                    ? env.OPENAI_MODEL
+                    : "gpt-3.5-turbo",
                 messages: messages,
                 temperature: 0.7,
                 max_tokens: 800,
