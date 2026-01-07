@@ -3170,34 +3170,37 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
           aiChatCorsHeaders
         );
       } catch (error) {
+        // Catch any errors (including errors in error handling)
         console.error("[AI CHAT ERROR]", error);
         console.error("[AI CHAT ERROR] Stack:", error.stack);
         console.error("[AI CHAT ERROR] Message:", error.message);
         console.error("[AI CHAT ERROR] Name:", error.name);
         // Always return CORS headers even on error
-        return sendJSON(
-          {
-            ok: false,
-            error: error.message || "AI service error",
-            details:
-              process.env.NODE_ENV === "development" ? error.stack : undefined,
-          },
-          500,
-          aiChatCorsHeaders
-        );
-      } catch (outerError) {
-        // Catch any unhandled errors (including errors in error handling)
-        console.error("[AI CHAT FATAL ERROR]", outerError);
-        console.error("[AI CHAT FATAL ERROR] Stack:", outerError.stack);
-        return sendJSON(
-          {
-            ok: false,
-            error: "Internal server error",
-            details: outerError.message,
-          },
-          500,
-          aiChatCorsHeaders
-        );
+        try {
+          return sendJSON(
+            {
+              ok: false,
+              error: error.message || "AI service error",
+              details:
+                process.env.NODE_ENV === "development" ? error.stack : undefined,
+            },
+            500,
+            aiChatCorsHeaders
+          );
+        } catch (sendError) {
+          // If even sendJSON fails, return a basic response with CORS headers
+          console.error("[AI CHAT FATAL ERROR] Failed to send error response:", sendError);
+          return new Response(
+            JSON.stringify({ ok: false, error: "Internal server error" }),
+            {
+              status: 500,
+              headers: {
+                "Content-Type": "application/json",
+                ...aiChatCorsHeaders,
+              },
+            }
+          );
+        }
       }
     }
 
