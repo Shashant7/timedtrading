@@ -311,6 +311,7 @@
                 return d && d.htf_score !== undefined && d.ltf_score !== undefined;
               });
               console.log(`[UI] Loaded ${tickersWithData.length} tickers with data, ${allTickers.length} total in index`);
+              console.log(`[UI] Version: 2.4.0 - RR calculation uses fused SL levels, Activity Feed matches Bubble Chart`);
             } else {
               setError(`API Error: ${dataJson.error || 'Failed to fetch data'}`);
             }
@@ -1588,19 +1589,25 @@
         const feedRef = React.useRef(null);
         
         // Helper to get latest ticker data and merge with event
+        // IMPORTANT: Always use latest RR from tickerData to match Bubble Chart (which recomputes RR)
+        // This ensures Activity Feed RR matches Bubble Chart RR (both use recomputed values from /timed/all)
         const getEventWithTickerData = useCallback((event) => {
           const latestData = tickerData?.[event.ticker] || {};
-          // Merge event data with latest ticker data, preferring event data (snapshot at time of event)
-          // but falling back to latest data for missing fields
+          // Merge event data with latest ticker data, preferring latest data for RR (matches Bubble Chart computation)
+          // Use event data for historical snapshots (price, sl, tp at event time) but latest RR for consistency
           return {
             ...event,
             price: event.price || latestData.price,
             sl: event.sl !== undefined ? event.sl : latestData.sl,
             tp: event.tp !== undefined ? event.tp : latestData.tp,
             tp_levels: event.tp_levels || latestData.tp_levels,
-            rr: event.rr !== undefined ? event.rr : latestData.rr,
+            // Always use latest RR to match Bubble Chart (which uses recomputed RR from /timed/all)
+            // This ensures consistency since worker recomputes RR using fused SL levels
+            rr: latestData.rr !== undefined ? latestData.rr : event.rr,
             phase_pct: event.phase_pct !== undefined ? event.phase_pct : latestData.phase_pct,
             completion: event.completion !== undefined ? event.completion : latestData.completion,
+            // Include momentum_pct from latest data if available
+            momentum_pct: latestData.momentum_pct || event.momentum_pct,
           };
         }, [tickerData]);
 
