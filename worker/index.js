@@ -1309,7 +1309,13 @@ export default {
     if (url.pathname === "/timed/trail" && req.method === "GET") {
       // Rate limiting
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(KV, ip, "/timed/trail", 1000, 3600); // Increased for single-user
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/trail",
+        1000,
+        3600
+      ); // Increased for single-user
 
       if (!rateLimit.allowed) {
         return sendJSON(
@@ -1663,7 +1669,13 @@ export default {
     if (url.pathname === "/timed/health" && req.method === "GET") {
       // Rate limiting
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(KV, ip, "/timed/health", 500, 3600); // Increased for single-user
+      const rateLimit = await checkRateLimit(
+        KV,
+        ip,
+        "/timed/health",
+        500,
+        3600
+      ); // Increased for single-user
 
       if (!rateLimit.allowed) {
         return sendJSON(
@@ -1940,6 +1952,7 @@ export default {
         "CSCO",
         "BA",
         "NKE",
+        "AAPL",
         "PI",
         "APLD",
         "MU",

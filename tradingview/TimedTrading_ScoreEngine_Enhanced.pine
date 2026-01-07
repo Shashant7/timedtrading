@@ -87,7 +87,7 @@ forceBaseline = input.bool(false, "FORCE: Send baseline every bar (temporary)", 
 // 24-hour markets (futures ES/NQ, crypto BTC/ETH) will continue to fire during extended hours.
 // The session check below is kept for individual chart alerts, but watchlist alerts are restricted by TradingView.
 bypassSessionCheck = input.bool(false, "Bypass Session Check (for individual chart alerts)", group=groupAlerts, tooltip="Bypass session restrictions. Note: Watchlist alerts are still limited by TradingView during extended hours.")
-periodicUpdateMinutes = input.int(30, "Periodic update interval (minutes, 0=disabled)", group=groupAlerts, minval=0, tooltip="Send update even if no change, to maintain current data")
+periodicUpdateMinutes = input.int(5, "Periodic update interval (minutes, 0=disabled)", group=groupAlerts, minval=0, tooltip="Send update even if no change, to maintain current data. Set to 5 to ensure all watchlist tickers are always current.")
 debugHeartbeat = input.bool(false, "DEBUG: Heartbeat alert every bar close", group=groupAlerts)
 
 //─────────────────────────────────────────────────────────────────────────────
