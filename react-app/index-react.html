@@ -3852,7 +3852,7 @@
 
       // Render with error handling
       // Wait for all scripts to load before rendering
-      function initializeApp() {
+      const initializeApp = function() {
         try {
           // Check if React and ReactDOM are loaded
           if (typeof React === "undefined") {
@@ -3870,10 +3870,10 @@
           // Check if React 18 createRoot is available
           if (ReactDOM.createRoot) {
             const root = ReactDOM.createRoot(rootElement);
-            root.render(<App />);
+            root.render(React.createElement(App));
           } else {
             // Fallback for React 17
-            ReactDOM.render(<App />, rootElement);
+            ReactDOM.render(React.createElement(App), rootElement);
           }
           
           console.log("[App] Dashboard initialized successfully");
