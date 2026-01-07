@@ -991,7 +991,9 @@ meaningful = stateChanged or scoreMoved or sq30_rel
 // Send if: force baseline, first baseline, meaningful change, OR periodic update due
 // Session check: For individual chart alerts, respects session. Watchlist alerts are limited by TradingView during extended hours.
 sessionOK = f_is_allowed_session()
-shouldSend = barstate.isconfirmed and throttleOK and sessionOK and (forceBaseline or (not sentBaseline or meaningful or periodicUpdateDue))
+// Always send if periodic update is due (ensures all watchlist tickers maintain current data)
+// This ensures every ticker in the watchlist gets regular updates even if nothing changes
+shouldSend = barstate.isconfirmed and throttleOK and sessionOK and (forceBaseline or (not sentBaseline or meaningful or (periodicUpdateMinutes > 0 and periodicUpdateDue)))
 
 // Reasons
 reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H/1H)"
