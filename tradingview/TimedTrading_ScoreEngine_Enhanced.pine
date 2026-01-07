@@ -874,6 +874,20 @@ if useVolatilitySL
 // For shorts: Use LOWEST valid SL above price (safest = lowest, represents true resistance)
 daily21EMA = e21D
 
+// Check if Daily 21 EMA is too close to price (within 0.5% or 0.5 ATR)
+// If too close, use swing low/high or previous candle low/high instead for more realistic SL
+daily21EMADistance = not na(daily21EMA) ? math.abs(price_now - daily21EMA) / price_now : 999
+daily21EMAATRDistance = not na(daily21EMA) and ATRd > 0 ? math.abs(price_now - daily21EMA) / ATRd : 999
+daily21EMATooClose = daily21EMADistance < 0.005 or daily21EMAATRDistance < 0.5
+
+// Get swing low/high for daily timeframe (more reliable than EMA when EMA is too close)
+swingLowD = f_swing_low_tf(tfD, 5, 5)
+swingHighD = f_swing_high_tf(tfD, 5, 5)
+
+// Previous candle low/high (on daily timeframe)
+prevCandleLowD = request.security(syminfo.tickerid, tfD, low[1], barmerge.gaps_off, barmerge.lookahead_off)
+prevCandleHighD = request.security(syminfo.tickerid, tfD, high[1], barmerge.gaps_off, barmerge.lookahead_off)
+
 float sl = na
 if dir == 1
     // For longs: Collect ALL valid SL candidates below price, then use the HIGHEST (safest)
@@ -883,9 +897,18 @@ if dir == 1
     if usePivotSR and not na(nearestSupport) and nearestSupport < price_now
         array.push(slCandidates, nearestSupport * 0.99)  // Slightly below support for safety
     
-    // 2. Daily 21 EMA - if below price, represents trailing support (only if valid)
-    if not na(daily21EMA) and daily21EMA < price_now
+    // 2. Daily 21 EMA - if below price and NOT too close, represents trailing support
+    // If too close, skip EMA and use swing/candle levels instead
+    if not na(daily21EMA) and daily21EMA < price_now and not daily21EMATooClose
         array.push(slCandidates, daily21EMA)
+    
+    // 2b. If Daily 21 EMA is too close, use swing low or previous candle low instead
+    if daily21EMATooClose
+        // Prefer swing low (structure) over previous candle low (more recent)
+        if not na(swingLowD) and swingLowD < price_now
+            array.push(slCandidates, swingLowD * 0.99)  // Slightly below swing low
+        else if not na(prevCandleLowD) and prevCandleLowD < price_now
+            array.push(slCandidates, prevCandleLowD * 0.99)  // Slightly below previous candle low
     
     // 3. Weekly SuperTrend - if below price, represents structure support
     if not na(stLW) and stLW < price_now
@@ -902,8 +925,12 @@ if dir == 1
         array.sort(slCandidates, order.descending)
         sl := array.get(slCandidates, 0)  // Highest = safest stop
     else
-        // Fallback: Use Daily 21 EMA even if above price (less ideal)
-        if not na(daily21EMA)
+        // Fallback: Use swing low, previous candle low, or Daily 21 EMA
+        if not na(swingLowD) and swingLowD < price_now
+            sl := swingLowD * 0.99
+        else if not na(prevCandleLowD) and prevCandleLowD < price_now
+            sl := prevCandleLowD * 0.99
+        else if not na(daily21EMA)
             sl := daily21EMA
         else
             sl := price_now - atrStop  // Last resort
@@ -915,9 +942,18 @@ else
     if usePivotSR and not na(nearestResistance) and nearestResistance > price_now
         array.push(slCandidates, nearestResistance * 1.01)  // Slightly above resistance for safety
     
-    // 2. Daily 21 EMA - if above price, represents trailing resistance (only if valid)
-    if not na(daily21EMA) and daily21EMA > price_now
+    // 2. Daily 21 EMA - if above price and NOT too close, represents trailing resistance
+    // If too close, skip EMA and use swing/candle levels instead
+    if not na(daily21EMA) and daily21EMA > price_now and not daily21EMATooClose
         array.push(slCandidates, daily21EMA)
+    
+    // 2b. If Daily 21 EMA is too close, use swing high or previous candle high instead
+    if daily21EMATooClose
+        // Prefer swing high (structure) over previous candle high (more recent)
+        if not na(swingHighD) and swingHighD > price_now
+            array.push(slCandidates, swingHighD * 1.01)  // Slightly above swing high
+        else if not na(prevCandleHighD) and prevCandleHighD > price_now
+            array.push(slCandidates, prevCandleHighD * 1.01)  // Slightly above previous candle high
     
     // 3. Weekly SuperTrend - if above price, represents structure resistance
     if not na(stLW) and stLW > price_now
@@ -934,8 +970,12 @@ else
         array.sort(slCandidates, order.ascending)
         sl := array.get(slCandidates, 0)  // Lowest = safest stop
     else
-        // Fallback: Use Daily 21 EMA even if below price (less ideal)
-        if not na(daily21EMA)
+        // Fallback: Use swing high, previous candle high, or Daily 21 EMA
+        if not na(swingHighD) and swingHighD > price_now
+            sl := swingHighD * 1.01
+        else if not na(prevCandleHighD) and prevCandleHighD > price_now
+            sl := prevCandleHighD * 1.01
+        else if not na(daily21EMA)
             sl := daily21EMA
         else
             sl := price_now + atrStop  // Last resort

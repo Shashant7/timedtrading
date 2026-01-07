@@ -2887,15 +2887,19 @@ Your role is to help traders understand their setups, analyze market conditions,
 ### Sample Ticker Data (Top 10):
 ${tickerContext
   .slice(0, 10)
-  .map(
-    (t) => {
-      const rr = Number(t.rr) || 0;
-      const price = Number(t.price) || 0;
-      const phasePct = Number(t.phase_pct) || 0;
-      const completion = Number(t.completion) || 0;
-      return `- **${t.ticker || "UNKNOWN"}**: Rank ${t.rank || 0}, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(2)}, State: ${t.state || "UNKNOWN"}, Phase: ${(phasePct * 100).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%`;
-    }
-  )
+  .map((t) => {
+    const rr = Number(t.rr) || 0;
+    const price = Number(t.price) || 0;
+    const phasePct = Number(t.phase_pct) || 0;
+    const completion = Number(t.completion) || 0;
+    return `- **${t.ticker || "UNKNOWN"}**: Rank ${
+      t.rank || 0
+    }, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(2)}, State: ${
+      t.state || "UNKNOWN"
+    }, Phase: ${(phasePct * 100).toFixed(0)}%, Completion: ${(
+      completion * 100
+    ).toFixed(0)}%`;
+  })
   .join("\n")}
 
 ### Recent Activity:
@@ -2904,7 +2908,9 @@ ${
     ? activityContext
         .map((a) => {
           const price = Number(a.price) || 0;
-          return `- ${a.time || "Unknown time"}: **${a.ticker || "UNKNOWN"}** ${a.type || "event"} at $${price.toFixed(2)}`;
+          return `- ${a.time || "Unknown time"}: **${a.ticker || "UNKNOWN"}** ${
+            a.type || "event"
+          } at $${price.toFixed(2)}`;
         })
         .join("\n")
     : "No recent activity"
@@ -2999,7 +3005,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: env.OPENAI_MODEL || "gpt-3.5-turbo",
+                model: (env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4") ? env.OPENAI_MODEL : "gpt-3.5-turbo",
                 messages: messages,
                 temperature: 0.7,
                 max_tokens: 800,
@@ -3082,7 +3088,8 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
           {
             ok: false,
             error: error.message || "AI service error",
-            details: process.env.NODE_ENV === "development" ? error.stack : undefined,
+            details:
+              process.env.NODE_ENV === "development" ? error.stack : undefined,
           },
           500,
           corsHeaders(env, req)
