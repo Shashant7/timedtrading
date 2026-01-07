@@ -3463,18 +3463,20 @@
         ]);
         const [input, setInput] = useState('');
         const [loading, setLoading] = useState(false);
-        const messagesEndRef = React.useRef(null);
-        const inputRef = React.useRef(null);
+        const messagesEndRef = useRef(null);
+        const inputRef = useRef(null);
 
         const scrollToBottom = () => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+          if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+          }
         };
 
-        React.useEffect(() => {
+        useEffect(() => {
           scrollToBottom();
         }, [messages]);
 
-        React.useEffect(() => {
+        useEffect(() => {
           if (isOpen && inputRef.current) {
             inputRef.current.focus();
           }
