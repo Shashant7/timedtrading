@@ -2788,7 +2788,9 @@ export default {
     if (url.pathname === "/timed/ai/chat" && req.method === "OPTIONS") {
       const origin = req?.headers?.get("Origin") || "";
       const aiChatCorsHeaders = {
-        "Access-Control-Allow-Origin": origin.includes("timedtrading.pages.dev") ? origin : (origin || "*"),
+        "Access-Control-Allow-Origin": origin.includes("timedtrading.pages.dev")
+          ? origin
+          : origin || "*",
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Max-Age": "86400",
@@ -2805,12 +2807,17 @@ export default {
       // Get CORS headers early - always allow timedtrading.pages.dev for AI chat
       const origin = req?.headers?.get("Origin") || "";
       const aiChatCorsHeaders = {
-        "Access-Control-Allow-Origin": origin.includes("timedtrading.pages.dev") ? origin : (origin || "*"),
+        "Access-Control-Allow-Origin": origin.includes("timedtrading.pages.dev")
+          ? origin
+          : origin || "*",
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
         Vary: "Origin",
       };
       
+      // Wrap entire handler in try-catch to ensure CORS headers are always returned
+      try {
+
       // Handle JSON parsing errors with CORS headers
       let body;
       try {
