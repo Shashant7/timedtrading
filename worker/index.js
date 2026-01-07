@@ -2784,6 +2784,98 @@ export default {
       );
     }
 
+    // POST /timed/ai/chat (AI Chat Assistant)
+    if (url.pathname === "/timed/ai/chat" && req.method === "POST") {
+      const { obj: body, err } = await readBodyAsJSON(req);
+      if (!body || !body.message) {
+        return sendJSON(
+          { ok: false, error: "missing message" },
+          400,
+          corsHeaders(env, req)
+        );
+      }
+
+      try {
+        // TODO: Implement AI integration
+        // For now, return a placeholder response
+        // 
+        // Example implementation with OpenAI:
+        // const openaiApiKey = env.OPENAI_API_KEY;
+        // if (!openaiApiKey) {
+        //   return sendJSON(
+        //     { ok: false, error: "AI service not configured" },
+        //     503,
+        //     corsHeaders(env, req)
+        //   );
+        // }
+        //
+        // const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        //   method: "POST",
+        //   headers: {
+        //     "Authorization": `Bearer ${openaiApiKey}`,
+        //     "Content-Type": "application/json",
+        //   },
+        //   body: JSON.stringify({
+        //     model: "gpt-3.5-turbo",
+        //     messages: [
+        //       {
+        //         role: "system",
+        //         content: "You are an expert trading analyst assistant..."
+        //       },
+        //       ...(body.conversationHistory || []).map(msg => ({
+        //         role: msg.role,
+        //         content: msg.content
+        //       })),
+        //       { role: "user", content: body.message }
+        //     ],
+        //     temperature: 0.7,
+        //     max_tokens: 500,
+        //   }),
+        // });
+        //
+        // const aiData = await response.json();
+        // const aiResponse = aiData.choices[0]?.message?.content || "Sorry, I couldn't process that.";
+
+        // Placeholder response
+        const placeholderResponse = `I understand you're asking: "${body.message}"
+
+This is a placeholder response. To enable AI chat:
+
+1. Set OPENAI_API_KEY in Cloudflare Workers secrets:
+   wrangler secret put OPENAI_API_KEY
+
+2. Uncomment and configure the AI integration code in worker/index.js
+
+3. The AI will have access to:
+   - Ticker data: ${body.tickerData?.length || 0} tickers
+   - Activity feed: ${body.activityData?.length || 0} recent events
+   - External news and social sentiment (when configured)
+
+Would you like help setting this up?`;
+
+        return sendJSON(
+          {
+            ok: true,
+            response: placeholderResponse,
+            sources: [],
+            timestamp: Date.now(),
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (error) {
+        console.error("[AI CHAT ERROR]", error);
+        return sendJSON(
+          {
+            ok: false,
+            error: error.message || "AI service error",
+          },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
     return sendJSON(
       { ok: false, error: "not_found" },
       404,
