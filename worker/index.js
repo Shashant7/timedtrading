@@ -2799,7 +2799,11 @@ export default {
         const openaiApiKey = env.OPENAI_API_KEY;
         if (!openaiApiKey) {
           return sendJSON(
-            { ok: false, error: "AI service not configured. Please set OPENAI_API_KEY secret." },
+            {
+              ok: false,
+              error:
+                "AI service not configured. Please set OPENAI_API_KEY secret.",
+            },
             503,
             corsHeaders(env, req)
           );
@@ -2808,73 +2812,138 @@ export default {
         // Fetch full ticker data for context
         const tickerSymbols = body.tickerData || [];
         const tickerContext = [];
-        const tickerDataPromises = tickerSymbols.slice(0, 20).map(async (ticker) => {
-          const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
-          if (latestData) {
-            return {
-              ticker: ticker,
-              rank: latestData.rank || 0,
-              rr: latestData.rr || 0,
-              price: latestData.price || 0,
-              state: latestData.state || '',
-              phase_pct: latestData.phase_pct || 0,
-              completion: latestData.completion || 0,
-              flags: latestData.flags || {},
-            };
-          }
-          return null;
-        });
+        const tickerDataPromises = tickerSymbols
+          .slice(0, 20)
+          .map(async (ticker) => {
+            const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            if (latestData) {
+              return {
+                ticker: ticker,
+                rank: latestData.rank || 0,
+                rr: latestData.rr || 0,
+                price: latestData.price || 0,
+                state: latestData.state || "",
+                phase_pct: latestData.phase_pct || 0,
+                completion: latestData.completion || 0,
+                flags: latestData.flags || {},
+              };
+            }
+            return null;
+          });
 
         const tickerDataResults = await Promise.all(tickerDataPromises);
-        tickerDataResults.filter(Boolean).forEach(t => tickerContext.push(t));
+        tickerDataResults.filter(Boolean).forEach((t) => tickerContext.push(t));
 
         // Format activity feed context
-        const activityContext = (body.activityData || []).slice(0, 10).map(event => ({
-          ticker: event.ticker,
-          type: event.type,
-          time: new Date(event.ts).toLocaleTimeString(),
-          price: event.price,
-          rank: event.rank,
-        }));
+        const activityContext = (body.activityData || [])
+          .slice(0, 10)
+          .map((event) => ({
+            ticker: event.ticker,
+            type: event.type,
+            time: new Date(event.ts).toLocaleTimeString(),
+            price: event.price,
+            rank: event.rank,
+          }));
 
         // Build system prompt with context
         const systemPrompt = `You are an expert trading analyst assistant for the Timed Trading platform. 
-You help users understand their trading setups, analyze market conditions, and provide actionable insights.
+Your role is to help traders understand their setups, analyze market conditions, and make informed decisions.
 
-AVAILABLE DATA:
-- ${tickerContext.length} tickers with real-time data (rank, RR, price, phase, completion, state)
-- ${activityContext.length} recent activity events
+## YOUR CAPABILITIES
+- Analyze ticker data (ranks, RR, phase, completion, states)
+- Interpret trading signals and setups
+- Explain the quadrant-based trading system
+- Provide risk assessments and actionable insights
+- Reference real-time market data and activity
 
-TICKER DATA SAMPLE (Top 20):
-${tickerContext.slice(0, 10).map(t => `- ${t.ticker}: Rank ${t.rank}, RR ${t.rr?.toFixed(2)}, Price $${t.price?.toFixed(2)}, State: ${t.state}, Phase: ${(t.phase_pct * 100)?.toFixed(0)}%, Completion: ${(t.completion * 100)?.toFixed(0)}%`).join('\n')}
+## AVAILABLE DATA
+- **${tickerContext.length} tickers** with real-time data (rank, RR, price, phase, completion, state)
+- **${activityContext.length} recent activity events** (corridor entries, squeeze releases, alignments)
 
-RECENT ACTIVITY:
-${activityContext.map(a => `- ${a.time}: ${a.ticker} ${a.type} at $${a.price}`).join('\n')}
+### Sample Ticker Data (Top 10):
+${tickerContext
+  .slice(0, 10)
+  .map(
+    (t) =>
+      `- **${t.ticker}**: Rank ${t.rank}, RR ${t.rr?.toFixed(2)}:1, Price $${t.price?.toFixed(2)}, State: ${t.state}, Phase: ${(t.phase_pct * 100)?.toFixed(0)}%, Completion: ${(t.completion * 100)?.toFixed(0)}%`
+  )
+  .join("\n")}
 
-When answering questions:
-1. Be concise but thorough (aim for 2-4 sentences for simple queries, more for analysis)
-2. Reference specific data points when available (ranks, RR, prices, states)
-3. Provide actionable insights and highlight risks when relevant
-4. Use markdown for formatting (bold with **text**, code with \`code\`)
-5. If asked about a specific ticker, fetch its data from the ticker list above
-6. Explain trading concepts clearly if the user seems unfamiliar
+### Recent Activity:
+${activityContext.length > 0
+  ? activityContext
+      .map((a) => `- ${a.time}: **${a.ticker}** ${a.type} at $${a.price}`)
+      .join("\n")
+  : "No recent activity"}
 
-QUADRANT SYSTEM:
-- Q1 (HTF_BULL_LTF_PULLBACK): Bull Setup - Waiting for entry
-- Q2 (HTF_BULL_LTF_BULL): Bull Momentum - Active long trend
-- Q3 (HTF_BEAR_LTF_BEAR): Bear Momentum - Active short trend  
-- Q4 (HTF_BEAR_LTF_PULLBACK): Bear Setup - Waiting for entry
+## TRADING SYSTEM OVERVIEW
 
-SETUP QUALITY INDICATORS:
-- Prime Setup: High rank (≥75), good RR (≥1.5), low completion (<40%), favorable phase (<60%)
-- Momentum Elite: High-quality momentum stock with strong fundamentals
-- In Corridor: Price in optimal entry zone for the direction
-- Squeeze Release: Momentum indicator suggesting directional move`;
+### Quadrant System:
+The platform uses a quadrant-based approach combining Higher Timeframe (HTF) and Lower Timeframe (LTF) signals:
+
+- **Q1 (HTF_BULL_LTF_PULLBACK)**: Bull Setup - High timeframe bullish, short-term pullback. Waiting for entry confirmation.
+- **Q2 (HTF_BULL_LTF_BULL)**: Bull Momentum - Both timeframes bullish. Active long trend, momentum phase.
+- **Q3 (HTF_BEAR_LTF_BEAR)**: Bear Momentum - Both timeframes bearish. Active short trend, momentum phase.
+- **Q4 (HTF_BEAR_LTF_PULLBACK)**: Bear Setup - High timeframe bearish, short-term pullback. Waiting for entry confirmation.
+
+### Setup Quality Indicators:
+- **Prime Setup**: High rank (≥75), excellent RR (≥1.5), low completion (<40%), favorable phase (<60%). Highest quality setups.
+- **Momentum Elite**: High-quality momentum stock with strong fundamentals (volume, ADR, momentum metrics).
+- **In Corridor**: Price is in the optimal entry zone for the directional setup (LTF score between -8 to +12 for LONG, -12 to +8 for SHORT).
+- **Squeeze Release**: Momentum indicator suggesting a directional move is beginning (pent-up energy releasing).
+
+### Key Metrics:
+- **Rank**: Composite score (0-100) based on multiple factors. Higher = better setup quality.
+- **RR (Risk/Reward)**: Ratio of potential profit to potential loss. ≥1.5 is considered good.
+- **Phase %**: Position in the market cycle (0-100%). Lower (<40%) = early, higher (>60%) = late.
+- **Completion %**: How far price has moved toward target (0-100%). Lower = more upside potential.
+
+## RESPONSE GUIDELINES
+
+1. **Be concise but thorough**: 
+   - Simple queries: 2-4 sentences
+   - Analysis questions: More detailed but organized
+   - Use bullet points for multiple items
+
+2. **Always reference data**: 
+   - Cite specific ranks, RR values, prices, states
+   - If ticker data isn't available, say so clearly
+
+3. **Provide actionable insights**:
+   - Not just data, but interpretation
+   - Highlight risks and opportunities
+   - Suggest next steps when appropriate
+
+4. **Risk awareness**:
+   - Always mention risks for high-completion setups
+   - Caution about late-phase positions
+   - Note when setups lack confirmation
+
+5. **Formatting**:
+   - Use **bold** for tickers and key terms
+   - Use \`code\` for technical terms
+   - Use bullet points for lists
+   - Keep paragraphs short (2-3 sentences max)
+
+6. **Educational approach**:
+   - Explain concepts if user seems unfamiliar
+   - Define abbreviations on first use
+   - Provide context for recommendations
+
+## EXAMPLE RESPONSES
+
+**Good response for "What's the status of AAPL?"**:
+"**AAPL** is currently ranked #X with an RR of X:1. It's in Q2 (Bull Momentum) with phase at X% and completion at X%. [Specific insight based on data]. [Risk assessment if relevant]."
+
+**Good response for "Show me prime setups"**:
+"Based on current data, here are the prime setups: [List with ranks and RR]. These setups have high rank (≥75), good RR (≥1.5), and are in early stages. [Overall market context]."
+
+Remember: You're a helpful assistant. Be professional, accurate, and prioritize user safety by emphasizing risk management.`;
 
         // Format conversation history
         const messages = [
           { role: "system", content: systemPrompt },
-          ...(body.conversationHistory || []).slice(-8).map(msg => ({
+          ...(body.conversationHistory || []).slice(-8).map((msg) => ({
             role: msg.role,
             content: msg.content,
           })),
@@ -2882,35 +2951,42 @@ SETUP QUALITY INDICATORS:
         ];
 
         // Call OpenAI API
-        const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${openaiApiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: env.OPENAI_MODEL || "gpt-3.5-turbo",
-            messages: messages,
-            temperature: 0.7,
-            max_tokens: 800,
-          }),
-        });
+        const aiResponse = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${openaiApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: env.OPENAI_MODEL || "gpt-3.5-turbo",
+              messages: messages,
+              temperature: 0.7,
+              max_tokens: 800,
+            }),
+          }
+        );
 
         if (!aiResponse.ok) {
           const errorData = await aiResponse.json().catch(() => ({}));
-          throw new Error(errorData.error?.message || `OpenAI API error: ${aiResponse.status}`);
+          throw new Error(
+            errorData.error?.message || `OpenAI API error: ${aiResponse.status}`
+          );
         }
 
         const aiData = await aiResponse.json();
-        const aiMessage = aiData.choices[0]?.message?.content || "Sorry, I couldn't process that request.";
+        const aiMessage =
+          aiData.choices[0]?.message?.content ||
+          "Sorry, I couldn't process that request.";
 
         // Extract sources if any tickers were mentioned
         const mentionedTickers = [];
         const tickerRegex = /\b([A-Z]{1,5})\b/g;
         const matches = body.message.toUpperCase().match(tickerRegex);
         if (matches) {
-          matches.forEach(ticker => {
-            if (tickerContext.some(t => t.ticker === ticker)) {
+          matches.forEach((ticker) => {
+            if (tickerContext.some((t) => t.ticker === ticker)) {
               mentionedTickers.push(ticker);
             }
           });
@@ -2920,7 +2996,10 @@ SETUP QUALITY INDICATORS:
           {
             ok: true,
             response: aiMessage,
-            sources: mentionedTickers.length > 0 ? [`Data from: ${mentionedTickers.join(', ')}`] : [],
+            sources:
+              mentionedTickers.length > 0
+                ? [`Data from: ${mentionedTickers.join(", ")}`]
+                : [],
             timestamp: Date.now(),
           },
           200,
