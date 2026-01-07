@@ -612,8 +612,10 @@
           const ticker = String(tickerRaw || d.ticker || '').trim().toUpperCase();
           if (!ticker) continue;
 
-          // Only show tickers that are in at least one group
-          if (!isTickerInGroups(ticker)) continue;
+          // Only show tickers that are in at least one group OR are S&P Sectors
+          // S&P Sectors should always be visible
+          const isSPSector = GROUPS.SP_Sectors && GROUPS.SP_Sectors.has(normTicker(ticker));
+          if (!isSPSector && !isTickerInGroups(ticker)) continue;
           
           // Skip tickers that don't have scores (can't render without position data)
           // These will appear once they receive data from TradingView
@@ -2043,7 +2045,10 @@
             } else if (preset.label === "Squeeze Release") {
               delete newFilters.squeezeRelease;
             } else if (preset.label === "🚀 Momentum Elite") {
+              // Explicitly delete to ensure it's removed
               delete newFilters.momentumElite;
+              // Set to undefined so handleFilterChange properly removes it
+              newFilters.momentumElite = undefined;
             } else if (preset.label === "Top Long Setup") {
               // Restore all quadrants if Top Long Setup was the only quadrant filter
               const currentQuadrants = filters.quadrants || [];
@@ -2100,7 +2105,9 @@
         };
 
         const resetAllFilters = () => {
-          onFilterChange({
+          // Explicitly reset all filters including boolean flags
+          // Use onFilterChange to ensure proper state updates
+          const defaultFilters = {
             search: "",
             quadrants: [
               "HTF_BULL_LTF_PULLBACK",
@@ -2112,6 +2119,15 @@
             minRR: 0,
             maxCompletion: 1.01,
             group: "ALL",
+          };
+          // Explicitly clear all boolean filters by setting to undefined
+          // handleFilterChange will delete undefined values
+          onFilterChange({
+            ...defaultFilters,
+            inCorridor: undefined,
+            squeezeRelease: undefined,
+            momentumElite: undefined,
+            top40: undefined,
           });
         };
 
@@ -2873,7 +2889,20 @@
         );
 
         const handleFilterChange = useCallback((newFilters) => {
-          setFilters((prev) => ({ ...prev, ...newFilters }));
+          setFilters((prev) => {
+            // Create a new object to ensure React detects the change
+            const updated = { ...prev };
+            // Apply new filters
+            Object.keys(newFilters).forEach(key => {
+              if (newFilters[key] === undefined || newFilters[key] === null) {
+                // Explicitly delete undefined/null values to clear filters
+                delete updated[key];
+              } else {
+                updated[key] = newFilters[key];
+              }
+            });
+            return updated;
+          });
         }, []);
 
         return (
