@@ -3189,10 +3189,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               {
                 ok: false,
                 error: error.message || "AI service error",
-                details:
-                  process.env.NODE_ENV === "development"
-                    ? error.stack
-                    : undefined,
+                details: error.stack,
               },
               500,
               aiChatCorsHeaders
