@@ -2796,68 +2796,131 @@ export default {
       }
 
       try {
-        // TODO: Implement AI integration
-        // For now, return a placeholder response
-        // 
-        // Example implementation with OpenAI:
-        // const openaiApiKey = env.OPENAI_API_KEY;
-        // if (!openaiApiKey) {
-        //   return sendJSON(
-        //     { ok: false, error: "AI service not configured" },
-        //     503,
-        //     corsHeaders(env, req)
-        //   );
-        // }
-        //
-        // const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        //   method: "POST",
-        //   headers: {
-        //     "Authorization": `Bearer ${openaiApiKey}`,
-        //     "Content-Type": "application/json",
-        //   },
-        //   body: JSON.stringify({
-        //     model: "gpt-3.5-turbo",
-        //     messages: [
-        //       {
-        //         role: "system",
-        //         content: "You are an expert trading analyst assistant..."
-        //       },
-        //       ...(body.conversationHistory || []).map(msg => ({
-        //         role: msg.role,
-        //         content: msg.content
-        //       })),
-        //       { role: "user", content: body.message }
-        //     ],
-        //     temperature: 0.7,
-        //     max_tokens: 500,
-        //   }),
-        // });
-        //
-        // const aiData = await response.json();
-        // const aiResponse = aiData.choices[0]?.message?.content || "Sorry, I couldn't process that.";
+        const openaiApiKey = env.OPENAI_API_KEY;
+        if (!openaiApiKey) {
+          return sendJSON(
+            { ok: false, error: "AI service not configured. Please set OPENAI_API_KEY secret." },
+            503,
+            corsHeaders(env, req)
+          );
+        }
 
-        // Placeholder response
-        const placeholderResponse = `I understand you're asking: "${body.message}"
+        // Fetch full ticker data for context
+        const tickerSymbols = body.tickerData || [];
+        const tickerContext = [];
+        const tickerDataPromises = tickerSymbols.slice(0, 20).map(async (ticker) => {
+          const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          if (latestData) {
+            return {
+              ticker: ticker,
+              rank: latestData.rank || 0,
+              rr: latestData.rr || 0,
+              price: latestData.price || 0,
+              state: latestData.state || '',
+              phase_pct: latestData.phase_pct || 0,
+              completion: latestData.completion || 0,
+              flags: latestData.flags || {},
+            };
+          }
+          return null;
+        });
 
-This is a placeholder response. To enable AI chat:
+        const tickerDataResults = await Promise.all(tickerDataPromises);
+        tickerDataResults.filter(Boolean).forEach(t => tickerContext.push(t));
 
-1. Set OPENAI_API_KEY in Cloudflare Workers secrets:
-   wrangler secret put OPENAI_API_KEY
+        // Format activity feed context
+        const activityContext = (body.activityData || []).slice(0, 10).map(event => ({
+          ticker: event.ticker,
+          type: event.type,
+          time: new Date(event.ts).toLocaleTimeString(),
+          price: event.price,
+          rank: event.rank,
+        }));
 
-2. Uncomment and configure the AI integration code in worker/index.js
+        // Build system prompt with context
+        const systemPrompt = `You are an expert trading analyst assistant for the Timed Trading platform. 
+You help users understand their trading setups, analyze market conditions, and provide actionable insights.
 
-3. The AI will have access to:
-   - Ticker data: ${body.tickerData?.length || 0} tickers
-   - Activity feed: ${body.activityData?.length || 0} recent events
-   - External news and social sentiment (when configured)
+AVAILABLE DATA:
+- ${tickerContext.length} tickers with real-time data (rank, RR, price, phase, completion, state)
+- ${activityContext.length} recent activity events
 
-Would you like help setting this up?`;
+TICKER DATA SAMPLE (Top 20):
+${tickerContext.slice(0, 10).map(t => `- ${t.ticker}: Rank ${t.rank}, RR ${t.rr?.toFixed(2)}, Price $${t.price?.toFixed(2)}, State: ${t.state}, Phase: ${(t.phase_pct * 100)?.toFixed(0)}%, Completion: ${(t.completion * 100)?.toFixed(0)}%`).join('\n')}
+
+RECENT ACTIVITY:
+${activityContext.map(a => `- ${a.time}: ${a.ticker} ${a.type} at $${a.price}`).join('\n')}
+
+When answering questions:
+1. Be concise but thorough (aim for 2-4 sentences for simple queries, more for analysis)
+2. Reference specific data points when available (ranks, RR, prices, states)
+3. Provide actionable insights and highlight risks when relevant
+4. Use markdown for formatting (bold with **text**, code with \`code\`)
+5. If asked about a specific ticker, fetch its data from the ticker list above
+6. Explain trading concepts clearly if the user seems unfamiliar
+
+QUADRANT SYSTEM:
+- Q1 (HTF_BULL_LTF_PULLBACK): Bull Setup - Waiting for entry
+- Q2 (HTF_BULL_LTF_BULL): Bull Momentum - Active long trend
+- Q3 (HTF_BEAR_LTF_BEAR): Bear Momentum - Active short trend  
+- Q4 (HTF_BEAR_LTF_PULLBACK): Bear Setup - Waiting for entry
+
+SETUP QUALITY INDICATORS:
+- Prime Setup: High rank (≥75), good RR (≥1.5), low completion (<40%), favorable phase (<60%)
+- Momentum Elite: High-quality momentum stock with strong fundamentals
+- In Corridor: Price in optimal entry zone for the direction
+- Squeeze Release: Momentum indicator suggesting directional move`;
+
+        // Format conversation history
+        const messages = [
+          { role: "system", content: systemPrompt },
+          ...(body.conversationHistory || []).slice(-8).map(msg => ({
+            role: msg.role,
+            content: msg.content,
+          })),
+          { role: "user", content: body.message },
+        ];
+
+        // Call OpenAI API
+        const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openaiApiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: env.OPENAI_MODEL || "gpt-3.5-turbo",
+            messages: messages,
+            temperature: 0.7,
+            max_tokens: 800,
+          }),
+        });
+
+        if (!aiResponse.ok) {
+          const errorData = await aiResponse.json().catch(() => ({}));
+          throw new Error(errorData.error?.message || `OpenAI API error: ${aiResponse.status}`);
+        }
+
+        const aiData = await aiResponse.json();
+        const aiMessage = aiData.choices[0]?.message?.content || "Sorry, I couldn't process that request.";
+
+        // Extract sources if any tickers were mentioned
+        const mentionedTickers = [];
+        const tickerRegex = /\b([A-Z]{1,5})\b/g;
+        const matches = body.message.toUpperCase().match(tickerRegex);
+        if (matches) {
+          matches.forEach(ticker => {
+            if (tickerContext.some(t => t.ticker === ticker)) {
+              mentionedTickers.push(ticker);
+            }
+          });
+        }
 
         return sendJSON(
           {
             ok: true,
-            response: placeholderResponse,
-            sources: [],
+            response: aiMessage,
+            sources: mentionedTickers.length > 0 ? [`Data from: ${mentionedTickers.join(', ')}`] : [],
             timestamp: Date.now(),
           },
           200,
