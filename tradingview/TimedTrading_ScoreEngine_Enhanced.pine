@@ -2,7 +2,7 @@
 indicator("TimedTrading_ScoreEngine_v2.1.0_Enhanced", overlay=false, max_labels_count=50)
 
 // Script version for data model versioning
-SCRIPT_VERSION = "2.4.0"
+SCRIPT_VERSION = "2.5.0"
 
 //─────────────────────────────────────────────────────────────────────────────
 // Inputs
@@ -868,90 +868,75 @@ if useVolatilitySL
     minSL = ATRd * 1.5
     atrStop := math.max(atrStop, minSL)
 
-// Daily 21 EMA as safe SL default
+// FUSED SL: Combine multiple levels to find realistic reversal point
+// Concept: "Below/above this level, we likely enter the opposite for some time"
+// For longs: Use HIGHEST valid SL below price (safest = highest, represents true support)
+// For shorts: Use LOWEST valid SL above price (safest = lowest, represents true resistance)
 daily21EMA = e21D
 
 float sl = na
 if dir == 1
-    // For longs: Use highest (safest) SL below price
-    // Priority: Support structure (if higher than Daily 21 EMA) > Daily 21 EMA (trailing) > other options
+    // For longs: Collect ALL valid SL candidates below price, then use the HIGHEST (safest)
     slCandidates = array.new<float>()
     
-    // 1. Daily 21 EMA - viable if below price (trailing stop)
-    daily21EMAViable = not na(daily21EMA) and daily21EMA < price_now
-    
-    // 2. Support structure - use if higher than Daily 21 EMA (clear support level)
-    float supportSL = na
+    // 1. Support structure - if below price, represents a clear support level
     if usePivotSR and not na(nearestSupport) and nearestSupport < price_now
-        supportSL := nearestSupport * 0.99  // Slightly below support for safety
-        // Only use support if it's higher than Daily 21 EMA (safer stop)
-        if daily21EMAViable and supportSL > daily21EMA
-            sl := supportSL  // Use support structure (higher than Daily 21 EMA)
-        else if daily21EMAViable
-            sl := daily21EMA  // Use Daily 21 EMA (support not higher)
-        else
-            array.push(slCandidates, supportSL)  // Support available but Daily 21 EMA not viable
+        array.push(slCandidates, nearestSupport * 0.99)  // Slightly below support for safety
     
-    // 3. Weekly SuperTrend (if below price and not using support/Daily 21 EMA)
-    if na(sl) and not na(stLW) and stLW < price_now
+    // 2. Daily 21 EMA - if below price, represents trailing support (only if valid)
+    if not na(daily21EMA) and daily21EMA < price_now
+        array.push(slCandidates, daily21EMA)
+    
+    // 3. Weekly SuperTrend - if below price, represents structure support
+    if not na(stLW) and stLW < price_now
         array.push(slCandidates, stLW)
     
-    // 4. ATR-based stop from trigger (if no better option)
-    if na(sl)
-        atrBasedSL = not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop)
-        if atrBasedSL < price_now
-            array.push(slCandidates, atrBasedSL)
+    // 4. ATR-based stop from trigger price - mechanical stop
+    atrBasedSL = not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop)
+    if atrBasedSL < price_now
+        array.push(slCandidates, atrBasedSL)
     
-    // Choose SL: Support > Daily 21 EMA > highest of other candidates
-    if na(sl)
-        if daily21EMAViable
-            sl := daily21EMA  // Trail the Daily 21 EMA
-        else if array.size(slCandidates) > 0
-            array.sort(slCandidates, order.descending)
-            sl := array.get(slCandidates, 0)
-        else if not na(daily21EMA)
-            sl := daily21EMA  // Fallback to Daily 21 EMA even if above price
+    // FUSE: Use the HIGHEST (safest) of all valid candidates below price
+    // This represents the most realistic reversal point (true support)
+    if array.size(slCandidates) > 0
+        array.sort(slCandidates, order.descending)
+        sl := array.get(slCandidates, 0)  // Highest = safest stop
+    else
+        // Fallback: Use Daily 21 EMA even if above price (less ideal)
+        if not na(daily21EMA)
+            sl := daily21EMA
         else
             sl := price_now - atrStop  // Last resort
 else
-    // For shorts: Use lowest (safest) SL above price
-    // Priority: Resistance structure (if lower than Daily 21 EMA) > Daily 21 EMA (trailing) > other options
+    // For shorts: Collect ALL valid SL candidates above price, then use the LOWEST (safest)
     slCandidates = array.new<float>()
     
-    // 1. Daily 21 EMA - viable if above price (trailing stop)
-    daily21EMAViable = not na(daily21EMA) and daily21EMA > price_now
-    
-    // 2. Resistance structure - use if lower than Daily 21 EMA (clear resistance level)
-    float resistanceSL = na
+    // 1. Resistance structure - if above price, represents a clear resistance level
     if usePivotSR and not na(nearestResistance) and nearestResistance > price_now
-        resistanceSL := nearestResistance * 1.01  // Slightly above resistance for safety
-        // Only use resistance if it's lower than Daily 21 EMA (safer stop)
-        if daily21EMAViable and resistanceSL < daily21EMA
-            sl := resistanceSL  // Use resistance structure (lower than Daily 21 EMA)
-        else if daily21EMAViable
-            sl := daily21EMA  // Use Daily 21 EMA (resistance not lower)
-        else
-            array.push(slCandidates, resistanceSL)  // Resistance available but Daily 21 EMA not viable
+        array.push(slCandidates, nearestResistance * 1.01)  // Slightly above resistance for safety
     
-    // 3. Weekly SuperTrend (if above price and not using resistance/Daily 21 EMA)
-    if na(sl) and not na(stLW) and stLW > price_now
+    // 2. Daily 21 EMA - if above price, represents trailing resistance (only if valid)
+    if not na(daily21EMA) and daily21EMA > price_now
+        array.push(slCandidates, daily21EMA)
+    
+    // 3. Weekly SuperTrend - if above price, represents structure resistance
+    if not na(stLW) and stLW > price_now
         array.push(slCandidates, stLW)
     
-    // 4. ATR-based stop from trigger (if no better option)
-    if na(sl)
-        atrBasedSL = not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop)
-        if atrBasedSL > price_now
-            array.push(slCandidates, atrBasedSL)
+    // 4. ATR-based stop from trigger price - mechanical stop
+    atrBasedSL = not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop)
+    if atrBasedSL > price_now
+        array.push(slCandidates, atrBasedSL)
     
-    // Choose SL: Resistance > Daily 21 EMA > lowest of other candidates
-    if na(sl)
-        if daily21EMAViable
-            sl := daily21EMA  // Trail the Daily 21 EMA
-        else if array.size(slCandidates) > 0
-            array.sort(slCandidates, order.ascending)
-            sl := array.get(slCandidates, 0)
-        else if not na(daily21EMA)
-            sl := daily21EMA  // Fallback to Daily 21 EMA even if below price
+    // FUSE: Use the LOWEST (safest) of all valid candidates above price
+    // This represents the most realistic reversal point (true resistance)
+    if array.size(slCandidates) > 0
+        array.sort(slCandidates, order.ascending)
+        sl := array.get(slCandidates, 0)  // Lowest = safest stop
+    else
+        // Fallback: Use Daily 21 EMA even if below price (less ideal)
+        if not na(daily21EMA)
+            sl := daily21EMA
         else
             sl := price_now + atrStop  // Last resort
 
@@ -979,6 +964,8 @@ scoreMoved = (na(lastSentHTF) or na(lastSentLTF)) ? true :
 stateChanged = (lastSentState != state)
 
 // Check if enough time has passed for periodic update
+// For tickers that haven't sent a baseline yet, we'll send on first bar (handled by not sentBaseline)
+// After baseline is sent, periodic updates will trigger every periodicUpdateMinutes
 periodicUpdateDue = periodicUpdateMinutes > 0 and not na(lastSentTime) and (time - lastSentTime >= periodicUpdateMinutes * 60 * 1000)
 
 throttleOK =
@@ -990,10 +977,13 @@ throttleOK =
 meaningful = stateChanged or scoreMoved or sq30_rel
 // Send if: force baseline, first baseline, meaningful change, OR periodic update due
 // Session check: For individual chart alerts, respects session. Watchlist alerts are limited by TradingView during extended hours.
+// IMPORTANT: For first baseline, we bypass session check to ensure all tickers send their initial data
+// After that, periodic updates will maintain data even if nothing changes
 sessionOK = f_is_allowed_session()
+firstBaseline = not sentBaseline
 // Always send if periodic update is due (ensures all watchlist tickers maintain current data)
 // This ensures every ticker in the watchlist gets regular updates even if nothing changes
-shouldSend = barstate.isconfirmed and throttleOK and sessionOK and (forceBaseline or (not sentBaseline or meaningful or (periodicUpdateMinutes > 0 and periodicUpdateDue)))
+shouldSend = barstate.isconfirmed and throttleOK and (firstBaseline or sessionOK) and (forceBaseline or firstBaseline or meaningful or (periodicUpdateMinutes > 0 and periodicUpdateDue))
 
 // Reasons
 reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H/1H)"

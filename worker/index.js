@@ -179,6 +179,9 @@ async function ensureTickerIndex(KV, ticker) {
     cur.push(ticker);
     cur.sort();
     await kvPutJSON(KV, key, cur);
+    console.log(
+      `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}`
+    );
   }
 }
 
@@ -641,7 +644,7 @@ async function appendActivity(KV, event) {
 }
 
 // Version management and migration
-const CURRENT_DATA_VERSION = "2.4.0"; // Must match SCRIPT_VERSION in Pine Script
+const CURRENT_DATA_VERSION = "2.5.0"; // Must match SCRIPT_VERSION in Pine Script
 
 async function getStoredVersion(KV) {
   const versionKey = "timed:data_version";
@@ -1012,10 +1015,21 @@ export default {
               8
             )})`
           );
-          // Still update the ticker data (in case this is a refresh/rebroadcast)
-          // But don't process alerts/activity again
+          // Still update the ticker data and ensure it's in index (for Force Baseline broadcasts)
+          // Recompute RR to ensure it's current (uses latest TP levels)
+          payload.rr = payload.rr ?? computeRR(payload);
+          if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
+
+          // Add ingestion timestamp even for deduped (track when last seen)
+          const now = Date.now();
+          payload.ingest_ts = now;
+          payload.ingest_time = new Date(now).toISOString();
+
           await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
           await ensureTickerIndex(KV, ticker);
+          console.log(
+            `[INGEST DEDUPED BUT STORED] ${ticker} - updated latest data and ensured in index`
+          );
           return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
         }
         await kvPutText(KV, dedupeKey, "1", 60);
@@ -1251,9 +1265,23 @@ export default {
 
         // Get current ticker count for logging
         const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const wasNewTicker = !currentTickers.includes(ticker);
         console.log(
-          `[INGEST COMPLETE] ${ticker} - added to index and stored. Total tickers in index: ${currentTickers.length}`
+          `[INGEST COMPLETE] ${ticker} - ${
+            wasNewTicker ? "NEW TICKER ADDED" : "updated existing"
+          } - Total tickers in index: ${currentTickers.length}`
         );
+
+        // Log all tickers in index if count is low (to debug missing tickers)
+        if (currentTickers.length < 130) {
+          console.log(
+            `[INGEST INDEX DEBUG] Current tickers (${currentTickers.length}):`,
+            currentTickers.slice(0, 20).join(", "),
+            currentTickers.length > 20
+              ? `... (showing first 20 of ${currentTickers.length})`
+              : ""
+          );
+        }
 
         // Threshold gates (with Momentum Elite adjustments)
         const momentumElite = !!flags.momentum_elite;
