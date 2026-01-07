@@ -604,8 +604,104 @@
         return Math.round(dynamicScore);
       }
 
+      // Parse natural language query into filter conditions
+      function parseNaturalLanguageQuery(query) {
+        if (!query || typeof query !== 'string') return null;
+        
+        const queryLower = query.toLowerCase().trim();
+        const conditions = {};
+        
+        // Multi-ticker search: "AAPL, GOOGL, TSLA"
+        if (query.includes(',') && !query.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum/)) {
+          return { type: 'multi-ticker', tickers: query.split(',').map(t => t.trim().toUpperCase()) };
+        }
+        
+        // Check for natural language patterns
+        // Prime setup
+        if (queryLower.match(/\bprime\b|\bprime setup\b/)) {
+          conditions.prime = true;
+        }
+        
+        // Momentum Elite
+        if (queryLower.match(/\bmomentum elite\b|\belite\b/)) {
+          conditions.momentumElite = true;
+        }
+        
+        // In corridor
+        if (queryLower.match(/\bin corridor\b|\bcorridor\b/)) {
+          conditions.inCorridor = true;
+        }
+        
+        // Squeeze release
+        if (queryLower.match(/\bsqueeze release\b|\bsqueeze released\b/)) {
+          conditions.squeezeRelease = true;
+        }
+        
+        // Rank conditions: "rank > 75", "rank above 75", "rank below 50", "rank >= 70"
+        const rankMatch = queryLower.match(/\brank\s*(?:>|above|>=|greater than)\s*(\d+)/);
+        if (rankMatch) {
+          conditions.minRank = parseInt(rankMatch[1], 10);
+        }
+        const rankBelowMatch = queryLower.match(/\brank\s*(?:<|below|<=|less than)\s*(\d+)/);
+        if (rankBelowMatch) {
+          // Note: We'll need maxRank filter, but for now we'll skip this
+        }
+        
+        // RR/Risk-Reward conditions: "RR > 2", "risk reward > 2", "RR >= 1.5"
+        const rrMatch = queryLower.match(/\b(?:rr|risk[-\s]?reward)\s*(?:>|above|>=|greater than)\s*([\d.]+)/);
+        if (rrMatch) {
+          conditions.minRR = parseFloat(rrMatch[1]);
+        }
+        
+        // Phase conditions: "phase > 50%", "phase above 50", "phase < 30%"
+        const phaseMatch = queryLower.match(/\bphase\s*(?:>|above|>=|greater than)\s*(\d+)\s*%?/);
+        if (phaseMatch) {
+          conditions.minPhase = parseInt(phaseMatch[1], 10) / 100; // Convert to 0-1 range
+        }
+        const phaseBelowMatch = queryLower.match(/\bphase\s*(?:<|below|<=|less than)\s*(\d+)\s*%?/);
+        if (phaseBelowMatch) {
+          conditions.maxPhase = parseInt(phaseBelowMatch[1], 10) / 100;
+        }
+        
+        // Completion conditions: "completion < 30%", "completion below 50%"
+        const compMatch = queryLower.match(/\bcompletion\s*(?:<|below|<=|less than)\s*(\d+)\s*%?/);
+        if (compMatch) {
+          conditions.maxCompletion = parseInt(compMatch[1], 10) / 100;
+        }
+        
+        // Price change: "moved 5 points", "moved $5", "price change > 5"
+        const priceChangeMatch = queryLower.match(/\bmoved\s+(\d+(?:\.\d+)?)\s*(?:points?|\$|dollars?)?/);
+        if (priceChangeMatch) {
+          conditions.minPriceChange = parseFloat(priceChangeMatch[1]);
+        }
+        
+        // If we found any conditions, return them
+        if (Object.keys(conditions).length > 0) {
+          return { type: 'query', conditions };
+        }
+        
+        return null;
+      }
+
       function applyFilters(dataObj, filters) {
         const out = [];
+        
+        // Parse natural language query if search field looks like a query
+        const queryResult = parseNaturalLanguageQuery(filters.search);
+        let effectiveFilters = { ...filters };
+        let multiTickerList = null;
+        
+        if (queryResult) {
+          if (queryResult.type === 'multi-ticker') {
+            multiTickerList = queryResult.tickers;
+            // Clear search filter since we're handling it manually
+            effectiveFilters = { ...effectiveFilters, search: '' };
+          } else if (queryResult.type === 'query') {
+            // Merge query conditions into filters
+            effectiveFilters = { ...effectiveFilters, ...queryResult.conditions, search: '' };
+          }
+        }
+        
         for (const [tickerRaw, d] of Object.entries(dataObj)) {
           // Skip completely empty entries, but allow entries with just ticker name
           if (!d || typeof d !== 'object') continue;
@@ -621,50 +717,78 @@
           // These will appear once they receive data from TradingView
           if (d.htf_score === undefined && d.ltf_score === undefined) continue;
 
-          if (filters.search && !ticker.includes(filters.search.toUpperCase()))
+          // Multi-ticker search
+          if (multiTickerList && multiTickerList.length > 0) {
+            if (!multiTickerList.includes(ticker)) continue;
+          } else if (effectiveFilters.search && !ticker.includes(effectiveFilters.search.toUpperCase())) {
+            // Regular search (if not multi-ticker)
             continue;
+          }
           
           // Group filter
-          if (filters.group && filters.group !== "ALL") {
+          if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
             const T = normTicker(ticker);
             const gs = groupsForTicker(T);
-            if (filters.group === "ANY") {
+            if (effectiveFilters.group === "ANY") {
               if (gs.length === 0) continue;
-            } else if (filters.group === "UNGROUPED") {
+            } else if (effectiveFilters.group === "UNGROUPED") {
               if (gs.length > 0) continue;
             } else {
-              if (!gs.includes(filters.group)) continue;
+              if (!gs.includes(effectiveFilters.group)) continue;
             }
           }
 
-          if (filters.quadrants && !filters.quadrants.includes(d.state))
+          if (effectiveFilters.quadrants && !effectiveFilters.quadrants.includes(d.state))
             continue;
-          if (filters.minRank && (Number(d.rank) || 0) < filters.minRank)
+          if (effectiveFilters.minRank && (Number(d.rank) || 0) < effectiveFilters.minRank)
             continue;
-          if (filters.minRR && (Number(d.rr) || 0) < filters.minRR) continue;
+          if (effectiveFilters.minRR && (Number(d.rr) || 0) < effectiveFilters.minRR) continue;
           if (
-            filters.maxCompletion &&
-            completionForSize(d) > filters.maxCompletion
+            effectiveFilters.maxCompletion &&
+            completionForSize(d) > effectiveFilters.maxCompletion
           )
             continue;
-          if (filters.inCorridor === true) {
+          if (effectiveFilters.inCorridor === true) {
             const ent = entryType(d);
             if (!ent.corridor) continue;
           }
-          if (filters.squeezeRelease === true) {
+          if (effectiveFilters.squeezeRelease === true) {
             const flags = d.flags || {};
             if (!flags.sq30_release) continue;
           }
-          if (filters.momentumElite === true) {
+          if (effectiveFilters.momentumElite === true) {
             const flags = d.flags || {};
             if (!flags.momentum_elite) continue;
+          }
+          if (effectiveFilters.prime === true) {
+            if (!isPrimeBubble(d)) continue;
+          }
+          if (effectiveFilters.minPriceChange !== undefined) {
+            // Calculate price change from trigger price to current price
+            const currentPrice = Number(d.price) || 0;
+            const triggerPrice = Number(d.trigger_price) || 0;
+            if (triggerPrice > 0) {
+              const priceChange = Math.abs(currentPrice - triggerPrice);
+              if (priceChange < effectiveFilters.minPriceChange) continue;
+            } else {
+              // No trigger price, skip this filter
+              continue;
+            }
+          }
+          if (effectiveFilters.minPhase !== undefined) {
+            const phase = Number(d.phase_pct) || 0;
+            if (phase < effectiveFilters.minPhase) continue;
+          }
+          if (effectiveFilters.maxPhase !== undefined) {
+            const phase = Number(d.phase_pct) || 0;
+            if (phase > effectiveFilters.maxPhase) continue;
           }
 
           out.push({ ticker, ...d });
         }
         
         // Apply Top 40 filter if active (after computing dynamic ranks)
-        if (filters.top40 === true) {
+        if (effectiveFilters.top40 === true) {
           const withRanks = out.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
           withRanks.sort((a, b) => b.dynamicRank - a.dynamicRank);
           return withRanks.slice(0, 40);
@@ -3025,15 +3149,20 @@
 
                 {/* Filters */}
                 <div className="mt-4">
-                  <input
-                    type="text"
-                    placeholder="Search ticker..."
-                    value={filters.search}
-                    onChange={(e) =>
-                      handleFilterChange({ search: e.target.value })
-                    }
-                    className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6] mb-4"
-                  />
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      placeholder="Search ticker(s) or use natural language... (e.g., 'AAPL, GOOGL' or 'prime setup and RR > 2')"
+                      value={filters.search}
+                      onChange={(e) =>
+                        handleFilterChange({ search: e.target.value })
+                      }
+                      className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6]"
+                    />
+                    <div className="mt-1 text-xs text-[#6b7a9f]">
+                      💡 Examples: <span className="text-[#93a4d6]">"AAPL, GOOGL, TSLA"</span> • <span className="text-[#93a4d6]">"prime setup"</span> • <span className="text-[#93a4d6]">"rank > 75 and RR > 2"</span> • <span className="text-[#93a4d6]">"in corridor and squeeze release"</span>
+                    </div>
+                  </div>
                   <QuickFilters
                     filters={filters}
                     onFilterChange={handleFilterChange}
