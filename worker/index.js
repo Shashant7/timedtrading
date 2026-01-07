@@ -2817,8 +2817,7 @@ export default {
       
       // Wrap entire handler in try-catch to ensure CORS headers are always returned
       try {
-
-      // Handle JSON parsing errors with CORS headers
+        // Handle JSON parsing errors with CORS headers
       let body;
       try {
         const result = await readBodyAsJSON(req);
@@ -3182,6 +3181,19 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             error: error.message || "AI service error",
             details:
               process.env.NODE_ENV === "development" ? error.stack : undefined,
+          },
+          500,
+          aiChatCorsHeaders
+        );
+      } catch (outerError) {
+        // Catch any unhandled errors (including errors in error handling)
+        console.error("[AI CHAT FATAL ERROR]", outerError);
+        console.error("[AI CHAT FATAL ERROR] Stack:", outerError.stack);
+        return sendJSON(
+          {
+            ok: false,
+            error: "Internal server error",
+            details: outerError.message,
           },
           500,
           aiChatCorsHeaders
