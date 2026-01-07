@@ -3761,7 +3761,7 @@
         }
         
         return <TickerDetails ticker={tickerData} onClose={onClose} allTickers={[]} allLoadedData={allLoadedData} />;
-      }
+      };
       
       const OverlayPortal = ({ selectedTicker, tickers, data, onClose }) => {
         if (!selectedTicker) return null;
@@ -3843,7 +3843,7 @@
           console.error('OverlayPortal error:', error);
           return null;
         }
-      }
+      };
 
       // Render with error handling
       // Wait for all scripts to load before rendering
