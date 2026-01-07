@@ -3269,6 +3269,173 @@
       };
 
       // ─────────────────────────────────────────────────────────────
+      // TickerDetailsLoader - must be defined before App
+      // ─────────────────────────────────────────────────────────────
+      const TickerDetailsLoader = ({ tickerSymbol, onClose }) => {
+        const [tickerData, setTickerData] = useState(null);
+        const [allLoadedData, setAllLoadedData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        
+        useEffect(() => {
+          const fetchTicker = async () => {
+            try {
+              setLoading(true);
+              // Fetch both the ticker data and all tickers for absolute ranking
+              const [tickerRes, allRes] = await Promise.all([
+                fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`),
+                fetch(`${API_BASE}/timed/all`)
+              ]);
+              
+              if (!tickerRes.ok) throw new Error(`HTTP ${tickerRes.status}`);
+              const tickerJson = await tickerRes.json();
+              if (!tickerJson.ok || !tickerJson.latestData) {
+                throw new Error(tickerJson.error || 'Ticker not found');
+              }
+              
+              // Try to get all tickers for ranking (may fail, that's okay)
+              let allData = null;
+              try {
+                if (allRes.ok) {
+                  const allJson = await allRes.json();
+                  if (allJson.ok && allJson.data) {
+                    allData = allJson.data;
+                  }
+                }
+              } catch (e) {
+                console.warn('Failed to fetch all tickers for ranking:', e);
+              }
+              
+              setTickerData(tickerJson.latestData);
+              setAllLoadedData(allData);
+            } catch (err) {
+              console.error('Failed to fetch ticker:', err);
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          };
+          
+          fetchTicker();
+        }, [tickerSymbol]);
+        
+        if (loading) {
+          return (
+            <div className="w-[450px] bg-[#0f1630] border border-[#26325f] rounded-xl p-6">
+              <div className="text-center">
+                <div className="loading-spinner mx-auto mb-4"></div>
+                <div className="text-[#93a4d6]">Loading {tickerSymbol}...</div>
+              </div>
+            </div>
+          );
+        }
+        
+        if (error || !tickerData) {
+          return (
+            <div className="w-[450px] bg-[#0f1630] border border-red-500 rounded-xl p-6">
+              <div className="text-center">
+                <div className="text-red-400 mb-2">Failed to load {tickerSymbol}</div>
+                <div className="text-[#93a4d6] text-sm mb-4">{error || 'No data available'}</div>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          );
+        }
+        
+        return <TickerDetails ticker={tickerData} onClose={onClose} allTickers={[]} allLoadedData={allLoadedData} />;
+      };
+      
+      // ─────────────────────────────────────────────────────────────
+      // OverlayPortal - must be defined before App
+      // ─────────────────────────────────────────────────────────────
+      const OverlayPortal = ({ selectedTicker, tickers, data, onClose }) => {
+        if (!selectedTicker) return null;
+        
+        try {
+          // Normalize ticker name
+          const tickerUpper = String(selectedTicker).toUpperCase();
+          
+          // Search in filtered tickers first
+          let foundTicker = tickers.find((t) => {
+            if (!t || typeof t !== 'object') return false;
+            const tTicker = String(t.ticker || '').toUpperCase();
+            return tTicker === tickerUpper;
+          });
+          
+          // If not found, search in original data object
+          if (!foundTicker && data && typeof data === 'object') {
+            if (Array.isArray(data)) {
+              foundTicker = data.find((t) => {
+                if (!t || typeof t !== 'object') return false;
+                const tTicker = String(t.ticker || '').toUpperCase();
+                return tTicker === tickerUpper;
+              });
+            } else {
+              // Object format: check if ticker is a key (data structure: { "ETHA": {...}, ... })
+              if (data[tickerUpper]) {
+                foundTicker = data[tickerUpper];
+              } else {
+                // Search through all values in case structure is different
+                const dataArray = Object.values(data);
+                foundTicker = dataArray.find((t) => {
+                  if (!t || typeof t !== 'object') return false;
+                  const tTicker = String(t.ticker || '').toUpperCase();
+                  return tTicker === tickerUpper;
+                });
+              }
+            }
+          }
+          
+          // If still not found, fetch from API
+          if (!foundTicker) {
+            console.warn('Ticker not found in local data, fetching from API:', tickerUpper);
+            return <TickerDetailsLoader tickerSymbol={tickerUpper} onClose={onClose} />;
+          }
+          
+          // TEMPORARILY DISABLE PORTAL - render inline to avoid freeze issues
+          // TODO: Re-enable portal once freeze is resolved
+          return (
+            <TickerDetails
+              ticker={foundTicker}
+              onClose={onClose}
+              allTickers={tickers}
+              allLoadedData={data}
+            />
+          );
+          
+          /* Portal code - disabled for now
+          const overlayContent = (
+            <TickerDetails
+              ticker={foundTicker}
+              onClose={onClose}
+            />
+          );
+          
+          // Use portal to render at document body level, but only if available
+          if (ReactDOM && ReactDOM.createPortal && document && document.body) {
+            try {
+              return ReactDOM.createPortal(overlayContent, document.body);
+            } catch (portalError) {
+              console.error('Portal error:', portalError);
+              // Fallback to inline rendering
+              return overlayContent;
+            }
+          }
+          // Fallback if portal not available
+          return overlayContent;
+          */
+        } catch (error) {
+          console.error('OverlayPortal error:', error);
+          return null;
+        }
+      };
+
+      // ─────────────────────────────────────────────────────────────
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
@@ -3682,168 +3849,6 @@
           </>
         );
       }
-      
-      // Render overlay outside main container using portal
-      const TickerDetailsLoader = ({ tickerSymbol, onClose }) => {
-        const [tickerData, setTickerData] = useState(null);
-        const [allLoadedData, setAllLoadedData] = useState(null);
-        const [loading, setLoading] = useState(true);
-        const [error, setError] = useState(null);
-        
-        useEffect(() => {
-          const fetchTicker = async () => {
-            try {
-              setLoading(true);
-              // Fetch both the ticker data and all tickers for absolute ranking
-              const [tickerRes, allRes] = await Promise.all([
-                fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`),
-                fetch(`${API_BASE}/timed/all`)
-              ]);
-              
-              if (!tickerRes.ok) throw new Error(`HTTP ${tickerRes.status}`);
-              const tickerJson = await tickerRes.json();
-              if (!tickerJson.ok || !tickerJson.latestData) {
-                throw new Error(tickerJson.error || 'Ticker not found');
-              }
-              
-              // Try to get all tickers for ranking (may fail, that's okay)
-              let allData = null;
-              try {
-                if (allRes.ok) {
-                  const allJson = await allRes.json();
-                  if (allJson.ok && allJson.data) {
-                    allData = allJson.data;
-                  }
-                }
-              } catch (e) {
-                console.warn('Failed to fetch all tickers for ranking:', e);
-              }
-              
-              setTickerData(tickerJson.latestData);
-              setAllLoadedData(allData);
-            } catch (err) {
-              console.error('Failed to fetch ticker:', err);
-              setError(err.message);
-            } finally {
-              setLoading(false);
-            }
-          };
-          
-          fetchTicker();
-        }, [tickerSymbol]);
-        
-        if (loading) {
-          return (
-            <div className="w-[450px] bg-[#0f1630] border border-[#26325f] rounded-xl p-6">
-              <div className="text-center">
-                <div className="loading-spinner mx-auto mb-4"></div>
-                <div className="text-[#93a4d6]">Loading {tickerSymbol}...</div>
-              </div>
-            </div>
-          );
-        }
-        
-        if (error || !tickerData) {
-          return (
-            <div className="w-[450px] bg-[#0f1630] border border-red-500 rounded-xl p-6">
-              <div className="text-center">
-                <div className="text-red-400 mb-2">Failed to load {tickerSymbol}</div>
-                <div className="text-[#93a4d6] text-sm mb-4">{error || 'No data available'}</div>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          );
-        }
-        
-        return <TickerDetails ticker={tickerData} onClose={onClose} allTickers={[]} allLoadedData={allLoadedData} />;
-      };
-      
-      const OverlayPortal = ({ selectedTicker, tickers, data, onClose }) => {
-        if (!selectedTicker) return null;
-        
-        try {
-          // Normalize ticker name
-          const tickerUpper = String(selectedTicker).toUpperCase();
-          
-          // Search in filtered tickers first
-          let foundTicker = tickers.find((t) => {
-            if (!t || typeof t !== 'object') return false;
-            const tTicker = String(t.ticker || '').toUpperCase();
-            return tTicker === tickerUpper;
-          });
-          
-          // If not found, search in original data object
-          if (!foundTicker && data && typeof data === 'object') {
-            if (Array.isArray(data)) {
-              foundTicker = data.find((t) => {
-                if (!t || typeof t !== 'object') return false;
-                const tTicker = String(t.ticker || '').toUpperCase();
-                return tTicker === tickerUpper;
-              });
-            } else {
-              // Object format: check if ticker is a key (data structure: { "ETHA": {...}, ... })
-              if (data[tickerUpper]) {
-                foundTicker = data[tickerUpper];
-              } else {
-                // Search through all values in case structure is different
-                const dataArray = Object.values(data);
-                foundTicker = dataArray.find((t) => {
-                  if (!t || typeof t !== 'object') return false;
-                  const tTicker = String(t.ticker || '').toUpperCase();
-                  return tTicker === tickerUpper;
-                });
-              }
-            }
-          }
-          
-          // If still not found, fetch from API
-          if (!foundTicker) {
-            console.warn('Ticker not found in local data, fetching from API:', tickerUpper);
-            return <TickerDetailsLoader tickerSymbol={tickerUpper} onClose={onClose} />;
-          }
-          
-          // TEMPORARILY DISABLE PORTAL - render inline to avoid freeze issues
-          // TODO: Re-enable portal once freeze is resolved
-          return (
-            <TickerDetails
-              ticker={foundTicker}
-              onClose={onClose}
-              allTickers={tickers}
-              allLoadedData={data}
-            />
-          );
-          
-          /* Portal code - disabled for now
-          const overlayContent = (
-            <TickerDetails
-              ticker={foundTicker}
-              onClose={onClose}
-            />
-          );
-          
-          // Use portal to render at document body level, but only if available
-          if (ReactDOM && ReactDOM.createPortal && document && document.body) {
-            try {
-              return ReactDOM.createPortal(overlayContent, document.body);
-            } catch (portalError) {
-              console.error('Portal error:', portalError);
-              // Fallback to inline rendering
-              return overlayContent;
-            }
-          }
-          // Fallback if portal not available
-          return overlayContent;
-          */
-        } catch (error) {
-          console.error('OverlayPortal error:', error);
-          return null;
-        }
-      };
 
       // Render with error handling
       // Wait for all scripts to load before rendering
