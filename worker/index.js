@@ -3225,7 +3225,9 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
         // Always return CORS headers even on fatal errors
         // Re-create CORS headers in case they're out of scope
         const origin = req?.headers?.get("Origin") || "";
-        const allowedOrigin = origin.includes("timedtrading.pages.dev") ? origin : "*";
+        const allowedOrigin = origin.includes("timedtrading.pages.dev")
+          ? origin
+          : "*";
         const fatalCorsHeaders = {
           "Access-Control-Allow-Origin": allowedOrigin,
           "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
