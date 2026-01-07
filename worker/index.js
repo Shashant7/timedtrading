@@ -2815,7 +2815,9 @@ export default {
         Vary: "Origin",
       };
       
-      // Handle JSON parsing errors with CORS headers
+      // Wrap entire handler in try-catch to ensure CORS headers are always returned
+      try {
+        // Handle JSON parsing errors with CORS headers
       let body;
       try {
         const result = await readBodyAsJSON(req);
@@ -3199,6 +3201,21 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             }
           );
         }
+      } catch (fatalError) {
+        // Catch any unhandled errors that might crash the worker
+        console.error("[AI CHAT FATAL ERROR]", fatalError);
+        console.error("[AI CHAT FATAL ERROR] Stack:", fatalError?.stack);
+        // Always return CORS headers even on fatal errors
+        return sendJSON(
+          {
+            ok: false,
+            error: "Internal server error",
+            details: fatalError?.message || "Unknown error",
+          },
+          500,
+          aiChatCorsHeaders
+        );
+      }
     } // End of POST /timed/ai/chat handler
 
     return sendJSON(
