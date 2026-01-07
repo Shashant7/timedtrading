@@ -620,6 +620,14 @@
 
           out.push({ ticker, ...d });
         }
+        
+        // Apply Top 40 filter if active (after computing dynamic ranks)
+        if (filters.top40 === true) {
+          const withRanks = out.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
+          withRanks.sort((a, b) => b.dynamicRank - a.dynamicRank);
+          return withRanks.slice(0, 40);
+        }
+        
         return out;
       }
 
@@ -1777,6 +1785,22 @@
             filter: { quadrants: ["HTF_BEAR_LTF_PULLBACK"] },
             icon: "🔻",
           },
+          // List filters (Top 40, Top Long Setup, Top Short Setup)
+          {
+            label: "🏆 Top 40",
+            filter: { top40: true },
+            icon: "🏆",
+          },
+          {
+            label: "📈 Top Long Setup",
+            filter: { quadrants: ["HTF_BULL_LTF_PULLBACK"] },
+            icon: "📈",
+          },
+          {
+            label: "📉 Top Short Setup",
+            filter: { quadrants: ["HTF_BEAR_LTF_PULLBACK"] },
+            icon: "📉",
+          },
           // Group filters
           {
             label: "📊 Upticks",
@@ -1845,6 +1869,10 @@
           if (preset.filter.group) {
             return filters.group === preset.filter.group;
           }
+          // Check if Top 40 filter matches
+          if (preset.filter.top40) {
+            return filters.top40 === true;
+          }
           return false;
         };
 
@@ -1883,6 +1911,11 @@
               // Remove group filter - reset to ALL
               const newFilters = { ...filters };
               delete newFilters.group;
+              onFilterChange(newFilters);
+            } else if (preset.filter.top40) {
+              // Remove Top 40 filter
+              const newFilters = { ...filters };
+              delete newFilters.top40;
               onFilterChange(newFilters);
             }
           } else {
