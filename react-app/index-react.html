@@ -868,10 +868,11 @@
         // Formula: baseSize + (RR * multiplier) * (1 - completion)
         // This makes high RR + low completion = largest bubbles
         // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
+        // Normalized to show more tickers - reduced multiplier significantly
         const cappedRR = Math.min(rr, 5); // Cap RR at 5 for size calculation
         const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
-        const baseSize = 8;
-        const rrMultiplier = 6; // Scale factor for RR
+        const baseSize = 4; // Reduced from 8
+        const rrMultiplier = 2; // Reduced from 6 - much smaller bubbles
         const size = baseSize + (cappedRR * rrMultiplier * completionPenalty);
         
         const prime = isPrimeBubble(ticker);

@@ -2812,27 +2812,39 @@ export default {
         // Fetch full ticker data for context
         const tickerSymbols = body.tickerData || [];
         const tickerContext = [];
-        const tickerDataPromises = tickerSymbols
-          .slice(0, 20)
-          .map(async (ticker) => {
-            const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            if (latestData) {
-              return {
-                ticker: ticker,
-                rank: latestData.rank || 0,
-                rr: latestData.rr || 0,
-                price: latestData.price || 0,
-                state: latestData.state || "",
-                phase_pct: latestData.phase_pct || 0,
-                completion: latestData.completion || 0,
-                flags: latestData.flags || {},
-              };
-            }
-            return null;
-          });
+        
+        // Handle ticker data fetching with error handling
+        try {
+          const tickerDataPromises = tickerSymbols
+            .slice(0, 20)
+            .map(async (ticker) => {
+              try {
+                const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
+                if (latestData) {
+                  return {
+                    ticker: ticker,
+                    rank: latestData.rank || 0,
+                    rr: latestData.rr || 0,
+                    price: latestData.price || 0,
+                    state: latestData.state || "",
+                    phase_pct: latestData.phase_pct || 0,
+                    completion: latestData.completion || 0,
+                    flags: latestData.flags || {},
+                  };
+                }
+                return null;
+              } catch (err) {
+                console.error(`[AI CHAT] Error fetching ticker ${ticker}:`, err);
+                return null;
+              }
+            });
 
-        const tickerDataResults = await Promise.all(tickerDataPromises);
-        tickerDataResults.filter(Boolean).forEach((t) => tickerContext.push(t));
+          const tickerDataResults = await Promise.all(tickerDataPromises);
+          tickerDataResults.filter(Boolean).forEach((t) => tickerContext.push(t));
+        } catch (err) {
+          console.error("[AI CHAT] Error fetching ticker data:", err);
+          // Continue with empty ticker context - not critical
+        }
 
         // Format activity feed context
         const activityContext = (body.activityData || [])
@@ -2857,24 +2869,34 @@ Your role is to help traders understand their setups, analyze market conditions,
 - Reference real-time market data and activity
 
 ## AVAILABLE DATA
-- **${tickerContext.length} tickers** with real-time data (rank, RR, price, phase, completion, state)
-- **${activityContext.length} recent activity events** (corridor entries, squeeze releases, alignments)
+- **${
+          tickerContext.length
+        } tickers** with real-time data (rank, RR, price, phase, completion, state)
+- **${
+          activityContext.length
+        } recent activity events** (corridor entries, squeeze releases, alignments)
 
 ### Sample Ticker Data (Top 10):
 ${tickerContext
   .slice(0, 10)
   .map(
     (t) =>
-      `- **${t.ticker}**: Rank ${t.rank}, RR ${t.rr?.toFixed(2)}:1, Price $${t.price?.toFixed(2)}, State: ${t.state}, Phase: ${(t.phase_pct * 100)?.toFixed(0)}%, Completion: ${(t.completion * 100)?.toFixed(0)}%`
+      `- **${t.ticker}**: Rank ${t.rank}, RR ${t.rr?.toFixed(
+        2
+      )}:1, Price $${t.price?.toFixed(2)}, State: ${t.state}, Phase: ${(
+        t.phase_pct * 100
+      )?.toFixed(0)}%, Completion: ${(t.completion * 100)?.toFixed(0)}%`
   )
   .join("\n")}
 
 ### Recent Activity:
-${activityContext.length > 0
-  ? activityContext
-      .map((a) => `- ${a.time}: **${a.ticker}** ${a.type} at $${a.price}`)
-      .join("\n")
-  : "No recent activity"}
+${
+  activityContext.length > 0
+    ? activityContext
+        .map((a) => `- ${a.time}: **${a.ticker}** ${a.type} at $${a.price}`)
+        .join("\n")
+    : "No recent activity"
+}
 
 ## TRADING SYSTEM OVERVIEW
 
