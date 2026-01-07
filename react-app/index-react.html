@@ -3051,6 +3051,8 @@
         ]);
         const [input, setInput] = useState('');
         const [loading, setLoading] = useState(false);
+        const [periodicUpdates, setPeriodicUpdates] = useState([]);
+        const [showUpdates, setShowUpdates] = useState(false);
         const messagesEndRef = useRef(null);
         const inputRef = useRef(null);
 
@@ -3069,6 +3071,79 @@
             inputRef.current.focus();
           }
         }, [isOpen]);
+
+        // Load periodic updates when chat opens
+        useEffect(() => {
+          if (isOpen) {
+            const fetchUpdates = async () => {
+              try {
+                const res = await fetch(`${API_BASE}/timed/ai/updates?limit=5`);
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.ok && data.updates) {
+                    setPeriodicUpdates(data.updates);
+                  }
+                }
+              } catch (err) {
+                console.warn('Failed to fetch periodic updates:', err);
+              }
+            };
+            fetchUpdates();
+          }
+        }, [isOpen]);
+
+        const handleMonitor = async () => {
+          setLoading(true);
+          
+          const monitorMessage = {
+            role: 'user',
+            content: '🔍 Run market monitoring analysis',
+            timestamp: new Date()
+          };
+          
+          setMessages(prev => [...prev, monitorMessage]);
+
+          try {
+            const response = await fetch(`${API_BASE}/timed/ai/monitor`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              }
+            });
+
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            if (!data.ok) {
+              throw new Error(data.error || 'Monitoring service error');
+            }
+
+            const assistantMessage = {
+              role: 'assistant',
+              content: `📊 **Market Monitoring Analysis**\n\n${data.analysis}\n\n---\n**Stats:** ${data.stats.primeSetups} prime setups, ${data.stats.highRiskPositions} high-risk positions, ${data.stats.momentumElite} Momentum Elite`,
+              timestamp: new Date(),
+              sources: [`Monitoring data: ${data.stats.totalTickers} tickers, ${data.stats.recentActivity} events`]
+            };
+
+            setMessages(prev => [...prev, assistantMessage]);
+          } catch (error) {
+            console.error('Monitor error:', error);
+            const errorMessage = {
+              role: 'assistant',
+              content: error.message.includes('not configured') 
+                ? '⚠️ AI service is not configured yet. Please set OPENAI_API_KEY in Cloudflare Workers secrets.'
+                : `❌ Error: ${error.message}. Please try again.`,
+              timestamp: new Date(),
+              error: true
+            };
+            setMessages(prev => [...prev, errorMessage]);
+          } finally {
+            setLoading(false);
+          }
+        };
 
         const handleSend = async (e) => {
           e.preventDefault();
@@ -3183,13 +3258,68 @@
                   <p className="text-xs text-[#93a4d6]">Powered by OpenAI</p>
                 </div>
               </div>
-              <button
-                onClick={onClose}
-                className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
-              >
-                ✕
-              </button>
+              <div className="flex items-center gap-2">
+                {periodicUpdates.length > 0 && (
+                  <button
+                    onClick={() => setShowUpdates(!showUpdates)}
+                    className="px-3 py-1.5 text-xs bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg text-purple-400 font-semibold transition-colors relative"
+                    title="View periodic updates"
+                  >
+                    📅 Updates
+                    {periodicUpdates.length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] flex items-center justify-center text-white">
+                        {periodicUpdates.length}
+                      </span>
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={handleMonitor}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-xs bg-green-500/20 hover:bg-green-500/30 disabled:bg-[#26325f] disabled:text-[#6b7a9f] border border-green-500/30 rounded-lg text-green-400 font-semibold transition-colors disabled:cursor-not-allowed"
+                  title="Run market monitoring analysis"
+                >
+                  🔍 Monitor
+                </button>
+                <button
+                  onClick={onClose}
+                  className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
+
+            {/* Periodic Updates Panel */}
+            {showUpdates && periodicUpdates.length > 0 && (
+              <div className="border-b border-[#26325f] bg-[#0f1630] max-h-64 overflow-y-auto">
+                <div className="p-3">
+                  <h4 className="text-xs font-semibold text-white mb-2">📅 Periodic Updates</h4>
+                  <div className="space-y-2">
+                    {periodicUpdates.map((update, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2 bg-[#121a33] border border-[#26325f] rounded-lg cursor-pointer hover:bg-[#1a2550] transition-colors"
+                        onClick={() => {
+                          setMessages(prev => [...prev, {
+                            role: 'assistant',
+                            content: `📅 **${update.updateTime}**\n\n${update.analysis}\n\n---\n**Stats:** ${update.stats.primeSetups} prime setups, ${update.stats.highRiskPositions} high-risk positions`,
+                            timestamp: new Date(update.timestamp)
+                          }]);
+                          setShowUpdates(false);
+                        }}
+                      >
+                        <div className="text-xs font-semibold text-purple-400">{update.updateTime}</div>
+                        <div className="text-xs text-[#93a4d6] mt-1 line-clamp-2">{update.analysis.substring(0, 100)}...</div>
+                        <div className="text-[10px] text-[#6b7a9f] mt-1">
+                          {new Date(update.timestamp).toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -3261,9 +3391,11 @@
                   Send
                 </button>
               </div>
-              <p className="text-xs text-[#6b7a9f] mt-2">
-                💡 Try: "What's the status of AAPL?" or "Show me prime setups"
-              </p>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-xs text-[#6b7a9f]">
+                  💡 Try: "What's the status of AAPL?" or "Show me prime setups"
+                </p>
+              </div>
             </form>
           </div>
         );

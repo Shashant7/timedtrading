@@ -289,18 +289,20 @@
         const remainingShares = shares * (1 - trimmedPct);
         
         if (direction === "LONG") {
-          pnl = (currentPrice - entryPrice) * shares;
-          pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+          // Check if hit TP or SL first
+          const hitTP = currentPrice >= tp;
+          const hitSL = currentPrice <= sl;
           
-          // Check if hit TP or SL
-          if (currentPrice >= tp) {
+          if (hitTP) {
             // If not already trimmed, trim 50% at first TP hit
             if (trimmedPct === 0) {
+              const trimPnl = (tp - entryPrice) * shares * 0.5;
+              const trimPnlPct = ((tp - entryPrice) / entryPrice) * 100;
               // Return special status for trimming
               return {
                 shares,
-                pnl: (tp - entryPrice) * shares * 0.5, // Profit on trimmed portion
-                pnlPct: ((tp - entryPrice) / entryPrice) * 100,
+                pnl: trimPnl,
+                pnlPct: trimPnlPct,
                 status: "TP_HIT_TRIM",
                 currentPrice,
                 trimmedPct: 0.5, // Mark as 50% trimmed
@@ -309,27 +311,35 @@
               // Already trimmed, full exit at TP
               pnl = (tp - entryPrice) * shares;
               pnlPct = ((tp - entryPrice) / entryPrice) * 100;
-              status = "WIN";
+              // Status based on actual P&L, not just TP hit
+              status = pnl >= 0 ? "WIN" : "LOSS";
             }
-          } else if (currentPrice <= sl) {
+          } else if (hitSL) {
             pnl = (sl - entryPrice) * shares;
             pnlPct = ((sl - entryPrice) / entryPrice) * 100;
             status = "LOSS";
+          } else {
+            // Still open - calculate current P&L
+            pnl = (currentPrice - entryPrice) * shares;
+            pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+            status = "OPEN";
           }
         } else {
           // SHORT
-          pnl = (entryPrice - currentPrice) * shares;
-          pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
+          // Check if hit TP or SL first
+          const hitTP = currentPrice <= tp;
+          const hitSL = currentPrice >= sl;
           
-          // Check if hit TP or SL
-          if (currentPrice <= tp) {
+          if (hitTP) {
             // If not already trimmed, trim 50% at first TP hit
             if (trimmedPct === 0) {
+              const trimPnl = (entryPrice - tp) * shares * 0.5;
+              const trimPnlPct = ((entryPrice - tp) / entryPrice) * 100;
               // Return special status for trimming
               return {
                 shares,
-                pnl: (entryPrice - tp) * shares * 0.5, // Profit on trimmed portion
-                pnlPct: ((entryPrice - tp) / entryPrice) * 100,
+                pnl: trimPnl,
+                pnlPct: trimPnlPct,
                 status: "TP_HIT_TRIM",
                 currentPrice,
                 trimmedPct: 0.5, // Mark as 50% trimmed
@@ -338,12 +348,18 @@
               // Already trimmed, full exit at TP
               pnl = (entryPrice - tp) * shares;
               pnlPct = ((entryPrice - tp) / entryPrice) * 100;
-              status = "WIN";
+              // Status based on actual P&L, not just TP hit
+              status = pnl >= 0 ? "WIN" : "LOSS";
             }
-          } else if (currentPrice >= sl) {
+          } else if (hitSL) {
             pnl = (entryPrice - sl) * shares;
             pnlPct = ((entryPrice - sl) / entryPrice) * 100;
             status = "LOSS";
+          } else {
+            // Still open - calculate current P&L
+            pnl = (entryPrice - currentPrice) * shares;
+            pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
+            status = "OPEN";
           }
         }
 
@@ -359,73 +375,8 @@
       // ─────────────────────────────────────────────────────────────
       // Trade Tracking
       // ─────────────────────────────────────────────────────────────
-      function useTradeSimulation(tickerData, trades, addTrade, updateTrade) {
-        const [prevData, setPrevData] = useState({});
-
-        useEffect(() => {
-          if (!tickerData || Object.keys(tickerData).length === 0) return;
-
-          // Check each ticker for new trade signals
-          for (const [ticker, data] of Object.entries(tickerData)) {
-            const prev = prevData[ticker];
-            
-            if (shouldTriggerTrade(data, prev)) {
-              // Check if we already have an open trade for this ticker
-              const existingTrade = trades.find(
-                (t) => t.ticker === ticker && (t.status === "OPEN" || !t.status)
-              );
-
-              if (!existingTrade) {
-                // Create new trade
-                const entryPrice = Number(data.trigger_price) || Number(data.price);
-                const direction = getDirection(data);
-                const tradeCalc = calculateTrade(data, entryPrice);
-
-                if (tradeCalc) {
-                  const trade = {
-                    id: `${ticker}-${Date.now()}`,
-                    ticker,
-                    direction,
-                    entryPrice,
-                    entryTime: new Date().toISOString(),
-                    sl: Number(data.sl),
-                    tp: Number(data.tp),
-                    rr: Number(data.rr) || 0,
-                    rank: Number(data.rank) || 0,
-                    state: data.state,
-                    flags: data.flags || {},
-                    inCorridor: entryType(data).corridor,
-                    scriptVersion: data.script_version || "unknown", // Store model version
-                    ...tradeCalc,
-                  };
-                  addTrade(trade);
-                }
-              }
-            }
-
-            // Update existing open trades
-            trades.forEach((trade) => {
-              if (trade.ticker === ticker && (trade.status === "OPEN" || !trade.status || trade.status === "TP_HIT_TRIM")) {
-                const tradeCalc = calculateTrade(data, trade.entryPrice, trade);
-                if (tradeCalc) {
-                  // If status is TP_HIT_TRIM, keep it as trimmed but update PnL
-                  const newStatus = tradeCalc.status === "TP_HIT_TRIM" ? "TP_HIT_TRIM" : tradeCalc.status;
-                  updateTrade(trade.id, {
-                    ...tradeCalc,
-                    status: newStatus,
-                    trimmedPct: tradeCalc.trimmedPct || trade.trimmedPct || 0,
-                    lastUpdate: new Date().toISOString(),
-                    // Preserve original entryTime - don't update it
-                    entryTime: trade.entryTime,
-                  });
-                }
-              }
-            });
-          }
-
-          setPrevData(tickerData);
-        }, [tickerData, trades, addTrade, updateTrade, prevData]);
-      }
+      // Trade simulation is now handled by Worker - UI just fetches and displays
+      // No need for useTradeSimulation hook anymore - Worker handles everything
 
       // ─────────────────────────────────────────────────────────────
       // Analytics & Learning
@@ -905,6 +856,11 @@
         // Version filter state
         const [selectedVersion, setSelectedVersion] = useState("all");
         
+        // Daily summary state
+        const [dailySummary, setDailySummary] = useState(null);
+        const [summaryLoading, setSummaryLoading] = useState(false);
+        const [showSummary, setShowSummary] = useState(false);
+        
         // Get unique versions from trades (for dropdown)
         const availableVersions = useMemo(() => {
           const versionSet = new Set(trades.map(t => t.scriptVersion || "unknown").filter(Boolean));
@@ -919,8 +875,36 @@
         
         const analytics = useTradeAnalytics(filteredTrades);
 
-        // Simulate trades based on ticker data
-        useTradeSimulation(data, trades, addTrade, updateTrade);
+        // Trade simulation is handled by Worker - just refresh trades periodically
+        useEffect(() => {
+          // Refresh trades every 30 seconds to get latest updates from Worker
+          const refreshInterval = setInterval(() => {
+            refetchTrades();
+          }, 30000);
+          
+          return () => clearInterval(refreshInterval);
+        }, [refetchTrades]);
+
+        // Fetch daily summary
+        const fetchDailySummary = useCallback(async () => {
+          setSummaryLoading(true);
+          try {
+            const res = await fetch(`${API_BASE}/timed/ai/daily-summary`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok) {
+              setDailySummary(json);
+              setShowSummary(true);
+            } else {
+              throw new Error(json.error || "Failed to fetch summary");
+            }
+          } catch (err) {
+            console.error("Daily summary error:", err);
+            alert(`Failed to fetch daily summary: ${err.message}`);
+          } finally {
+            setSummaryLoading(false);
+          }
+        }, []);
 
         const openTrades = filteredTrades.filter((t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM");
         const closedTrades = filteredTrades.filter(
@@ -991,6 +975,13 @@
                       Refresh
                     </button>
                     <button
+                      onClick={fetchDailySummary}
+                      disabled={summaryLoading}
+                      className="px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-colors text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {summaryLoading ? "Loading..." : "📊 Daily Summary"}
+                    </button>
+                    <button
                       onClick={clearTrades}
                       className="px-4 py-2 bg-red-500/20 border border-red-500 rounded-lg hover:bg-red-500/30 transition-colors text-red-400"
                     >
@@ -1004,6 +995,149 @@
                   </div>
                 </div>
               </header>
+
+              {/* Daily Summary Modal */}
+              {showSummary && dailySummary && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-2xl font-bold">📊 Daily Summary - {new Date(dailySummary.stats.date).toLocaleDateString()}</h2>
+                      <button
+                        onClick={() => setShowSummary(false)}
+                        className="text-[#93a4d6] hover:text-white text-xl"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
+                        <div className="text-xs text-[#93a4d6]">New Trades</div>
+                        <div className="text-xl font-bold text-white">{dailySummary.stats.newTrades}</div>
+                      </div>
+                      <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
+                        <div className="text-xs text-[#93a4d6]">Closed Trades</div>
+                        <div className="text-xl font-bold text-white">{dailySummary.stats.closedTrades}</div>
+                      </div>
+                      <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
+                        <div className="text-xs text-[#93a4d6]">Trimmed Trades</div>
+                        <div className="text-xl font-bold text-white">{dailySummary.stats.trimmedTrades}</div>
+                      </div>
+                      <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
+                        <div className="text-xs text-[#93a4d6]">Win Rate</div>
+                        <div className={`text-xl font-bold ${dailySummary.stats.winRate >= 50 ? "text-green-400" : "text-red-400"}`}>
+                          {dailySummary.stats.winRate}%
+                        </div>
+                      </div>
+                      <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
+                        <div className="text-xs text-[#93a4d6]">Closed P&L</div>
+                        <div className={`text-xl font-bold ${dailySummary.stats.closedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          ${dailySummary.stats.closedPnl}
+                        </div>
+                      </div>
+                      <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
+                        <div className="text-xs text-[#93a4d6]">Open P&L</div>
+                        <div className={`text-xl font-bold ${dailySummary.stats.openPnl >= 0 ? "text-green-400" : "text-yellow-400"}`}>
+                          ${dailySummary.stats.openPnl}
+                        </div>
+                      </div>
+                      <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
+                        <div className="text-xs text-[#93a4d6]">Total P&L</div>
+                        <div className={`text-xl font-bold ${dailySummary.stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          ${dailySummary.stats.totalPnl}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AI Summary */}
+                    <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4 mb-4">
+                      <h3 className="text-lg font-bold mb-3">🤖 AI Analysis & Recommendations</h3>
+                      <div className="text-sm text-[#e7ecff] whitespace-pre-wrap leading-relaxed space-y-3">
+                        {dailySummary.summary.split('\n\n').map((paragraph, pIdx) => {
+                          // Skip empty paragraphs
+                          if (!paragraph.trim()) return null;
+                          
+                          // Check if this is a header (starts with ### or ##)
+                          const isHeader = paragraph.trim().match(/^###?\s+(.+)$/);
+                          if (isHeader) {
+                            const level = paragraph.trim().startsWith('###') ? 3 : 2;
+                            return React.createElement(
+                              level === 2 ? 'h2' : 'h3',
+                              {
+                                key: pIdx,
+                                className: level === 2 
+                                  ? 'text-lg font-bold mt-4 mb-2 text-white border-b border-[#26325f] pb-2'
+                                  : 'text-base font-semibold mt-3 mb-2 text-white'
+                              },
+                              isHeader[1]
+                            );
+                          }
+                          
+                          // Regular paragraph
+                          return React.createElement('div', {
+                            key: pIdx,
+                            className: 'mb-3'
+                          }, paragraph.split('\n').map((line, lIdx) => {
+                            if (!line.trim()) return React.createElement('br', { key: lIdx });
+                            
+                            // Format markdown-like content
+                            let formatted = line;
+                            formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>');
+                            formatted = formatted.replace(/`(.+?)`/g, '<code class="bg-[#26325f] px-1.5 py-0.5 rounded text-xs font-mono text-blue-300">$1</code>');
+                            formatted = formatted.replace(/\|/g, '<span class="text-[#6b7a9f] mx-1">|</span>');
+                            
+                            // Check if it's a list item
+                            if (line.trim().startsWith('- ')) {
+                              return React.createElement('div', {
+                                key: lIdx,
+                                className: 'ml-4 mb-1',
+                                dangerouslySetInnerHTML: { __html: formatted }
+                              });
+                            }
+                            
+                            return React.createElement('p', {
+                              key: lIdx,
+                              className: 'mb-1',
+                              dangerouslySetInnerHTML: { __html: formatted || '&nbsp;' }
+                            });
+                          }));
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Performance Breakdown */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                        <h4 className="text-sm font-semibold mb-2">Performance by Rank</h4>
+                        <div className="space-y-1 text-xs">
+                          {Object.entries(dailySummary.stats.rankAnalysis || {}).map(([range, stats]) => (
+                            <div key={range} className="flex justify-between">
+                              <span className="text-[#93a4d6]">{range}:</span>
+                              <span className={`font-semibold ${stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {stats.wins}W/{stats.losses}L (${stats.totalPnl.toFixed(2)})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                        <h4 className="text-sm font-semibold mb-2">Performance by RR</h4>
+                        <div className="space-y-1 text-xs">
+                          {Object.entries(dailySummary.stats.rrAnalysis || {}).map(([range, stats]) => (
+                            <div key={range} className="flex justify-between">
+                              <span className="text-[#93a4d6]">{range}:</span>
+                              <span className={`font-semibold ${stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {stats.wins}W/{stats.losses}L (${stats.totalPnl.toFixed(2)})
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Analytics */}
               <div className="mb-6">
