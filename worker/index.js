@@ -2881,16 +2881,34 @@ export default {
           // Continue with empty ticker context - not critical
         }
 
-        // Format activity feed context
-        const activityContext = (body.activityData || [])
-          .slice(0, 10)
-          .map((event) => ({
-            ticker: event.ticker,
-            type: event.type,
-            time: new Date(event.ts).toLocaleTimeString(),
-            price: event.price,
-            rank: event.rank,
-          }));
+        // Format activity feed context with safe handling
+        const activityContext = [];
+        try {
+          const rawActivityData = body.activityData || [];
+          if (Array.isArray(rawActivityData)) {
+            rawActivityData.slice(0, 10).forEach((event) => {
+              try {
+                if (event && typeof event === 'object') {
+                  const ts = event.ts ? Number(event.ts) : Date.now();
+                  const price = Number(event.price) || 0;
+                  activityContext.push({
+                    ticker: String(event.ticker || "UNKNOWN"),
+                    type: String(event.type || "event"),
+                    time: ts > 0 ? new Date(ts).toLocaleTimeString() : "Unknown time",
+                    price: price,
+                    rank: Number(event.rank) || 0,
+                  });
+                }
+              } catch (e) {
+                console.error("[AI CHAT] Error formatting activity event:", e);
+                // Skip this event
+              }
+            });
+          }
+        } catch (err) {
+          console.error("[AI CHAT] Error processing activity data:", err);
+          // Continue with empty activity context - not critical
+        }
 
         // Build system prompt with context
         const systemPrompt = `You are an expert trading analyst assistant for the Timed Trading platform. 
