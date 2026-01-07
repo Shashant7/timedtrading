@@ -2788,7 +2788,9 @@ export default {
     if (url.pathname === "/timed/ai/chat" && req.method === "OPTIONS") {
       const origin = req?.headers?.get("Origin") || "";
       // Always allow timedtrading.pages.dev origin, otherwise use "*"
-      const allowedOrigin = origin.includes("timedtrading.pages.dev") ? origin : "*";
+      const allowedOrigin = origin.includes("timedtrading.pages.dev")
+        ? origin
+        : "*";
       const aiChatCorsHeaders = {
         "Access-Control-Allow-Origin": allowedOrigin,
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
@@ -2807,137 +2809,142 @@ export default {
       // Get CORS headers early - always allow timedtrading.pages.dev for AI chat
       const origin = req?.headers?.get("Origin") || "";
       // Always allow timedtrading.pages.dev origin, otherwise use "*"
-      const allowedOrigin = origin.includes("timedtrading.pages.dev") ? origin : "*";
+      const allowedOrigin = origin.includes("timedtrading.pages.dev")
+        ? origin
+        : "*";
       const aiChatCorsHeaders = {
         "Access-Control-Allow-Origin": allowedOrigin,
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
         Vary: "Origin",
       };
-      
+
       // Wrap entire handler in try-catch to ensure CORS headers are always returned
       try {
         // Handle JSON parsing errors with CORS headers
         let body;
-      try {
-        const result = await readBodyAsJSON(req);
-        if (result.err) {
+        try {
+          const result = await readBodyAsJSON(req);
+          if (result.err) {
+            return sendJSON(
+              { ok: false, error: "Invalid JSON in request body" },
+              400,
+              aiChatCorsHeaders
+            );
+          }
+          body = result.obj;
+        } catch (e) {
           return sendJSON(
-            { ok: false, error: "Invalid JSON in request body" },
+            { ok: false, error: "Failed to parse request body" },
             400,
             aiChatCorsHeaders
           );
         }
-        body = result.obj;
-      } catch (e) {
-        return sendJSON(
-          { ok: false, error: "Failed to parse request body" },
-          400,
-          aiChatCorsHeaders
-        );
-      }
 
-      if (!body || !body.message) {
-        return sendJSON(
-          { ok: false, error: "missing message" },
-          400,
-          aiChatCorsHeaders
-        );
-      }
-
-      try {
-        const openaiApiKey = env.OPENAI_API_KEY;
-        if (!openaiApiKey) {
+        if (!body || !body.message) {
           return sendJSON(
-            {
-              ok: false,
-              error:
-                "AI service not configured. Please set OPENAI_API_KEY secret.",
-            },
-            503,
+            { ok: false, error: "missing message" },
+            400,
             aiChatCorsHeaders
           );
         }
 
-        // Fetch full ticker data for context
-        const tickerSymbols = body.tickerData || [];
-        const tickerContext = [];
-
-        // Handle ticker data fetching with error handling
         try {
-          const tickerDataPromises = tickerSymbols
-            .slice(0, 20)
-            .map(async (ticker) => {
-              try {
-                const latestData = await kvGetJSON(
-                  KV,
-                  `timed:latest:${ticker}`
-                );
-                if (latestData) {
-                  return {
-                    ticker: ticker,
-                    rank: latestData.rank || 0,
-                    rr: latestData.rr || 0,
-                    price: latestData.price || 0,
-                    state: latestData.state || "",
-                    phase_pct: latestData.phase_pct || 0,
-                    completion: latestData.completion || 0,
-                    flags: latestData.flags || {},
-                  };
-                }
-                return null;
-              } catch (err) {
-                console.error(
-                  `[AI CHAT] Error fetching ticker ${ticker}:`,
-                  err
-                );
-                return null;
-              }
-            });
-
-          const tickerDataResults = await Promise.all(tickerDataPromises);
-          tickerDataResults
-            .filter(Boolean)
-            .forEach((t) => tickerContext.push(t));
-        } catch (err) {
-          console.error("[AI CHAT] Error fetching ticker data:", err);
-          // Continue with empty ticker context - not critical
-        }
-
-        // Format activity feed context with safe handling
-        const activityContext = [];
-        try {
-          const rawActivityData = body.activityData || [];
-          if (Array.isArray(rawActivityData)) {
-            rawActivityData.slice(0, 10).forEach((event) => {
-              try {
-                if (event && typeof event === "object") {
-                  const ts = event.ts ? Number(event.ts) : Date.now();
-                  const price = Number(event.price) || 0;
-                  activityContext.push({
-                    ticker: String(event.ticker || "UNKNOWN"),
-                    type: String(event.type || "event"),
-                    time:
-                      ts > 0
-                        ? new Date(ts).toLocaleTimeString()
-                        : "Unknown time",
-                    price: price,
-                    rank: Number(event.rank) || 0,
-                  });
-                }
-              } catch (e) {
-                console.error("[AI CHAT] Error formatting activity event:", e);
-                // Skip this event
-              }
-            });
+          const openaiApiKey = env.OPENAI_API_KEY;
+          if (!openaiApiKey) {
+            return sendJSON(
+              {
+                ok: false,
+                error:
+                  "AI service not configured. Please set OPENAI_API_KEY secret.",
+              },
+              503,
+              aiChatCorsHeaders
+            );
           }
-        } catch (err) {
-          console.error("[AI CHAT] Error processing activity data:", err);
-          // Continue with empty activity context - not critical
-        }
 
-        // Build system prompt with context
-        const systemPrompt = `You are an expert trading analyst assistant for the Timed Trading platform. 
+          // Fetch full ticker data for context
+          const tickerSymbols = body.tickerData || [];
+          const tickerContext = [];
+
+          // Handle ticker data fetching with error handling
+          try {
+            const tickerDataPromises = tickerSymbols
+              .slice(0, 20)
+              .map(async (ticker) => {
+                try {
+                  const latestData = await kvGetJSON(
+                    KV,
+                    `timed:latest:${ticker}`
+                  );
+                  if (latestData) {
+                    return {
+                      ticker: ticker,
+                      rank: latestData.rank || 0,
+                      rr: latestData.rr || 0,
+                      price: latestData.price || 0,
+                      state: latestData.state || "",
+                      phase_pct: latestData.phase_pct || 0,
+                      completion: latestData.completion || 0,
+                      flags: latestData.flags || {},
+                    };
+                  }
+                  return null;
+                } catch (err) {
+                  console.error(
+                    `[AI CHAT] Error fetching ticker ${ticker}:`,
+                    err
+                  );
+                  return null;
+                }
+              });
+
+            const tickerDataResults = await Promise.all(tickerDataPromises);
+            tickerDataResults
+              .filter(Boolean)
+              .forEach((t) => tickerContext.push(t));
+          } catch (err) {
+            console.error("[AI CHAT] Error fetching ticker data:", err);
+            // Continue with empty ticker context - not critical
+          }
+
+          // Format activity feed context with safe handling
+          const activityContext = [];
+          try {
+            const rawActivityData = body.activityData || [];
+            if (Array.isArray(rawActivityData)) {
+              rawActivityData.slice(0, 10).forEach((event) => {
+                try {
+                  if (event && typeof event === "object") {
+                    const ts = event.ts ? Number(event.ts) : Date.now();
+                    const price = Number(event.price) || 0;
+                    activityContext.push({
+                      ticker: String(event.ticker || "UNKNOWN"),
+                      type: String(event.type || "event"),
+                      time:
+                        ts > 0
+                          ? new Date(ts).toLocaleTimeString()
+                          : "Unknown time",
+                      price: price,
+                      rank: Number(event.rank) || 0,
+                    });
+                  }
+                } catch (e) {
+                  console.error(
+                    "[AI CHAT] Error formatting activity event:",
+                    e
+                  );
+                  // Skip this event
+                }
+              });
+            }
+          } catch (err) {
+            console.error("[AI CHAT] Error processing activity data:", err);
+            // Continue with empty activity context - not critical
+          }
+
+          // Build system prompt with context
+          const systemPrompt = `You are an expert trading analyst assistant for the Timed Trading platform. 
 Your role is to help traders understand their setups, analyze market conditions, and make informed decisions.
 
 ## YOUR CAPABILITIES
@@ -2949,11 +2956,11 @@ Your role is to help traders understand their setups, analyze market conditions,
 
 ## AVAILABLE DATA
 - **${
-          tickerContext.length
-        } tickers** with real-time data (rank, RR, price, phase, completion, state)
+            tickerContext.length
+          } tickers** with real-time data (rank, RR, price, phase, completion, state)
 - **${
-          activityContext.length
-        } recent activity events** (corridor entries, squeeze releases, alignments)
+            activityContext.length
+          } recent activity events** (corridor entries, squeeze releases, alignments)
 
 ### Sample Ticker Data (Top 10):
 ${
@@ -3067,146 +3074,161 @@ The platform uses a quadrant-based approach combining Higher Timeframe (HTF) and
 
 Remember: You're a helpful assistant. Be professional, accurate, and prioritize user safety by emphasizing risk management.`;
 
-        // Format conversation history
-        const messages = [
-          { role: "system", content: systemPrompt },
-          ...(body.conversationHistory || []).slice(-8).map((msg) => ({
-            role: msg.role,
-            content: msg.content,
-          })),
-          { role: "user", content: body.message },
-        ];
+          // Format conversation history
+          const messages = [
+            { role: "system", content: systemPrompt },
+            ...(body.conversationHistory || []).slice(-8).map((msg) => ({
+              role: msg.role,
+              content: msg.content,
+            })),
+            { role: "user", content: body.message },
+          ];
 
-        // Call OpenAI API with timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+          // Call OpenAI API with timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-        let aiResponse;
-        try {
-          aiResponse = await fetch(
-            "https://api.openai.com/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${openaiApiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model:
-                  env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
-                    ? env.OPENAI_MODEL
-                    : "gpt-3.5-turbo",
-                messages: messages,
-                temperature: 0.7,
-                max_tokens: 800,
-              }),
-              signal: controller.signal,
+          let aiResponse;
+          try {
+            aiResponse = await fetch(
+              "https://api.openai.com/v1/chat/completions",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${openaiApiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model:
+                    env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                      ? env.OPENAI_MODEL
+                      : "gpt-3.5-turbo",
+                  messages: messages,
+                  temperature: 0.7,
+                  max_tokens: 800,
+                }),
+                signal: controller.signal,
+              }
+            );
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === "AbortError") {
+              throw new Error(
+                "Request timeout - OpenAI API took too long to respond"
+              );
             }
-          );
-        } catch (fetchError) {
+            throw new Error(`Network error: ${fetchError.message}`);
+          }
+
           clearTimeout(timeoutId);
-          if (fetchError.name === "AbortError") {
+
+          if (!aiResponse.ok) {
+            let errorData = {};
+            try {
+              errorData = await aiResponse.json();
+            } catch (e) {
+              // If response isn't JSON, use status text
+              errorData = { error: { message: aiResponse.statusText } };
+            }
+            console.error(
+              "[AI CHAT] OpenAI API error:",
+              aiResponse.status,
+              errorData
+            );
             throw new Error(
-              "Request timeout - OpenAI API took too long to respond"
+              errorData.error?.message ||
+                `OpenAI API error: ${aiResponse.status}`
             );
           }
-          throw new Error(`Network error: ${fetchError.message}`);
-        }
 
-        clearTimeout(timeoutId);
-
-        if (!aiResponse.ok) {
-          let errorData = {};
+          let aiData;
           try {
-            errorData = await aiResponse.json();
+            aiData = await aiResponse.json();
           } catch (e) {
-            // If response isn't JSON, use status text
-            errorData = { error: { message: aiResponse.statusText } };
+            throw new Error("Invalid JSON response from OpenAI API");
           }
-          console.error(
-            "[AI CHAT] OpenAI API error:",
-            aiResponse.status,
-            errorData
-          );
-          throw new Error(
-            errorData.error?.message || `OpenAI API error: ${aiResponse.status}`
-          );
-        }
 
-        let aiData;
-        try {
-          aiData = await aiResponse.json();
-        } catch (e) {
-          throw new Error("Invalid JSON response from OpenAI API");
-        }
+          const aiMessage =
+            aiData.choices?.[0]?.message?.content ||
+            "Sorry, I couldn't process that request.";
 
-        const aiMessage =
-          aiData.choices?.[0]?.message?.content ||
-          "Sorry, I couldn't process that request.";
+          // Extract sources if any tickers were mentioned
+          const mentionedTickers = [];
+          const tickerRegex = /\b([A-Z]{1,5})\b/g;
+          const matches = body.message.toUpperCase().match(tickerRegex);
+          if (matches) {
+            matches.forEach((ticker) => {
+              if (tickerContext.some((t) => t.ticker === ticker)) {
+                mentionedTickers.push(ticker);
+              }
+            });
+          }
 
-        // Extract sources if any tickers were mentioned
-        const mentionedTickers = [];
-        const tickerRegex = /\b([A-Z]{1,5})\b/g;
-        const matches = body.message.toUpperCase().match(tickerRegex);
-        if (matches) {
-          matches.forEach((ticker) => {
-            if (tickerContext.some((t) => t.ticker === ticker)) {
-              mentionedTickers.push(ticker);
-            }
-          });
-        }
-
-        return sendJSON(
-          {
-            ok: true,
-            response: aiMessage,
-            sources:
-              mentionedTickers.length > 0
-                ? [`Data from: ${mentionedTickers.join(", ")}`]
-                : [],
-            timestamp: Date.now(),
-          },
-          200,
-          aiChatCorsHeaders
-        );
-      } catch (error) {
-        // Catch any errors (including errors in error handling)
-        console.error("[AI CHAT ERROR]", error);
-        console.error("[AI CHAT ERROR] Stack:", error.stack);
-        console.error("[AI CHAT ERROR] Message:", error.message);
-        console.error("[AI CHAT ERROR] Name:", error.name);
-        // Always return CORS headers even on error
-        try {
           return sendJSON(
             {
-              ok: false,
-              error: error.message || "AI service error",
-              details:
-                process.env.NODE_ENV === "development" ? error.stack : undefined,
+              ok: true,
+              response: aiMessage,
+              sources:
+                mentionedTickers.length > 0
+                  ? [`Data from: ${mentionedTickers.join(", ")}`]
+                  : [],
+              timestamp: Date.now(),
             },
-            500,
+            200,
             aiChatCorsHeaders
           );
-        } catch (sendError) {
-          // If even sendJSON fails, return a basic response with CORS headers
-          console.error("[AI CHAT FATAL ERROR] Failed to send error response:", sendError);
-          return new Response(
-            JSON.stringify({ ok: false, error: "Internal server error" }),
-            {
-              status: 500,
-              headers: {
-                "Content-Type": "application/json",
-                ...aiChatCorsHeaders,
+        } catch (error) {
+          // Catch any errors (including errors in error handling)
+          console.error("[AI CHAT ERROR]", error);
+          console.error("[AI CHAT ERROR] Stack:", error.stack);
+          console.error("[AI CHAT ERROR] Message:", error.message);
+          console.error("[AI CHAT ERROR] Name:", error.name);
+          // Always return CORS headers even on error
+          try {
+            return sendJSON(
+              {
+                ok: false,
+                error: error.message || "AI service error",
+                details:
+                  process.env.NODE_ENV === "development"
+                    ? error.stack
+                    : undefined,
               },
-            }
-          );
-        }
-      } // End of inner try-catch for OpenAI API
+              500,
+              aiChatCorsHeaders
+            );
+          } catch (sendError) {
+            // If even sendJSON fails, return a basic response with CORS headers
+            console.error(
+              "[AI CHAT FATAL ERROR] Failed to send error response:",
+              sendError
+            );
+            return new Response(
+              JSON.stringify({ ok: false, error: "Internal server error" }),
+              {
+                status: 500,
+                headers: {
+                  "Content-Type": "application/json",
+                  ...aiChatCorsHeaders,
+                },
+              }
+            );
+          }
+        } // End of inner try-catch for OpenAI API
       } catch (fatalError) {
         // Catch any unhandled errors that might crash the worker
         console.error("[AI CHAT FATAL ERROR]", fatalError);
         console.error("[AI CHAT FATAL ERROR] Stack:", fatalError?.stack);
         // Always return CORS headers even on fatal errors
+        // Re-create CORS headers in case they're out of scope
+        const origin = req?.headers?.get("Origin") || "";
+        const allowedOrigin = origin.includes("timedtrading.pages.dev") ? origin : "*";
+        const fatalCorsHeaders = {
+          "Access-Control-Allow-Origin": allowedOrigin,
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          Vary: "Origin",
+        };
         return sendJSON(
           {
             ok: false,
@@ -3214,7 +3236,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             details: fatalError?.message || "Unknown error",
           },
           500,
-          aiChatCorsHeaders
+          fatalCorsHeaders
         );
       }
     } // End of POST /timed/ai/chat handler
