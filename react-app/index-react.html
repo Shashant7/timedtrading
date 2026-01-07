@@ -3873,13 +3873,18 @@
             throw new Error("Root element not found");
           }
 
+          // Check if App component is available (from Babel script)
+          if (typeof window.App === "undefined") {
+            throw new Error("App component not loaded. Babel may not have finished processing.");
+          }
+
           // Check if React 18 createRoot is available
           if (ReactDOM.createRoot) {
             const root = ReactDOM.createRoot(rootElement);
-            root.render(React.createElement(App));
+            root.render(React.createElement(window.App));
           } else {
             // Fallback for React 17
-            ReactDOM.render(React.createElement(App), rootElement);
+            ReactDOM.render(React.createElement(window.App), rootElement);
           }
           
           console.log("[App] Dashboard initialized successfully");
