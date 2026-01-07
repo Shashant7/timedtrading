@@ -125,14 +125,32 @@ async function kvPutJSON(KV, key, val, ttlSec = null) {
   const opts = {};
   if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
     opts.expirationTtl = Math.floor(ttlSec);
-  await KV.put(key, JSON.stringify(val), opts);
+  try {
+    await KV.put(key, JSON.stringify(val), opts);
+  } catch (error) {
+    console.error(`[KV ERROR] PUT ${key}:`, {
+      error: error.message,
+      status: error.status,
+      statusText: error.statusText,
+    });
+    throw error; // Re-throw so caller can handle
+  }
 }
 
 async function kvPutText(KV, key, text, ttlSec = null) {
   const opts = {};
   if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
     opts.expirationTtl = Math.floor(ttlSec);
-  await KV.put(key, text, opts);
+  try {
+    await KV.put(key, text, opts);
+  } catch (error) {
+    console.error(`[KV ERROR] PUT ${key}:`, {
+      error: error.message,
+      status: error.status,
+      statusText: error.statusText,
+    });
+    throw error; // Re-throw so caller can handle
+  }
 }
 
 function stableHash(str) {
@@ -776,24 +794,24 @@ function validateTimedPayload(body) {
 
   // More detailed error messages
   if (!isNum(ts)) {
-    return { 
-      ok: false, 
+    return {
+      ok: false,
       error: "missing/invalid ts",
-      details: { received: body?.ts, type: typeof body?.ts }
+      details: { received: body?.ts, type: typeof body?.ts },
     };
   }
   if (!isNum(htf)) {
-    return { 
-      ok: false, 
+    return {
+      ok: false,
       error: "missing/invalid htf_score",
-      details: { received: body?.htf_score, type: typeof body?.htf_score }
+      details: { received: body?.htf_score, type: typeof body?.htf_score },
     };
   }
   if (!isNum(ltf)) {
-    return { 
-      ok: false, 
+    return {
+      ok: false,
       error: "missing/invalid ltf_score",
-      details: { received: body?.ltf_score, type: typeof body?.ltf_score }
+      details: { received: body?.ltf_score, type: typeof body?.ltf_score },
     };
   }
 
@@ -833,7 +851,7 @@ export default {
 
       // Log raw payload for debugging (especially for missing tickers)
       const tickerFromBody = normTicker(body?.ticker);
-      console.log(`[INGEST RAW] ${tickerFromBody || 'UNKNOWN'}:`, {
+      console.log(`[INGEST RAW] ${tickerFromBody || "UNKNOWN"}:`, {
         hasTicker: !!body?.ticker,
         hasTs: body?.ts !== undefined,
         hasHtf: body?.htf_score !== undefined,
@@ -848,13 +866,16 @@ export default {
 
       const v = validateTimedPayload(body);
       if (!v.ok) {
-        console.log(`[INGEST VALIDATION FAILED] ${tickerFromBody || 'UNKNOWN'}:`, {
-          error: v.error,
-          ticker: body?.ticker,
-          ts: body?.ts,
-          htf: body?.htf_score,
-          ltf: body?.ltf_score,
-        });
+        console.log(
+          `[INGEST VALIDATION FAILED] ${tickerFromBody || "UNKNOWN"}:`,
+          {
+            error: v.error,
+            ticker: body?.ticker,
+            ts: body?.ts,
+            htf: body?.htf_score,
+            ltf: body?.ltf_score,
+          }
+        );
         return ackJSON(env, v, 400, req);
       }
 
@@ -1062,8 +1083,18 @@ export default {
       }
 
       // Store latest (do this BEFORE alert so UI has it)
-      await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-      console.log(`[INGEST STORED] ${ticker} - latest data saved`);
+      try {
+        await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+        console.log(`[INGEST STORED] ${ticker} - latest data saved`);
+      } catch (error) {
+        console.error(`[INGEST STORAGE FAILED] ${ticker}:`, {
+          error: error.message,
+          status: error.status,
+          statusText: error.statusText,
+        });
+        // Continue processing even if storage fails (don't block the request)
+        // The data will be retried on next alert
+      }
 
       // Trail (light)
       await appendTrail(
@@ -1086,9 +1117,18 @@ export default {
         20
       ); // Increased to 20 points for better history
 
-      await ensureTickerIndex(KV, ticker);
-      await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
-      console.log(`[INGEST COMPLETE] ${ticker} - added to index and stored`);
+      try {
+        await ensureTickerIndex(KV, ticker);
+        await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
+        console.log(`[INGEST COMPLETE] ${ticker} - added to index and stored`);
+      } catch (error) {
+        console.error(`[INGEST INDEX FAILED] ${ticker}:`, {
+          error: error.message,
+          status: error.status,
+          statusText: error.statusText,
+        });
+        // Continue - index update failure is not critical
+      }
 
       // Threshold gates (with Momentum Elite adjustments)
       const momentumElite = !!flags.momentum_elite;
