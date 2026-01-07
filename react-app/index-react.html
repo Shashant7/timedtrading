@@ -3837,15 +3837,14 @@
             </div>
           </div>
           
-          <>
-            {/* AI Chat Interface */}
-            {chatOpen && (
-              <AIChatInterface 
-                isOpen={chatOpen} 
-                onClose={() => setChatOpen(false)} 
-                tickerData={data}
-              />
-            )}
+          {/* AI Chat Interface */}
+          {chatOpen && (
+            <AIChatInterface 
+              isOpen={chatOpen} 
+              onClose={() => setChatOpen(false)} 
+              tickerData={data}
+            />
+          )}
           </>
         );
       }
