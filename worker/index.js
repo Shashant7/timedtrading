@@ -2794,6 +2794,15 @@ export default {
 
     // POST /timed/ai/chat (AI Chat Assistant)
     if (url.pathname === "/timed/ai/chat" && req.method === "POST") {
+      // Get CORS headers early - always allow timedtrading.pages.dev for AI chat
+      const origin = req?.headers?.get("Origin") || "";
+      const aiChatCorsHeaders = {
+        "Access-Control-Allow-Origin": origin.includes("timedtrading.pages.dev") ? origin : (origin || "*"),
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        Vary: "Origin",
+      };
+      
       // Handle JSON parsing errors with CORS headers
       let body;
       try {
@@ -2802,7 +2811,7 @@ export default {
           return sendJSON(
             { ok: false, error: "Invalid JSON in request body" },
             400,
-            corsHeaders(env, req)
+            aiChatCorsHeaders
           );
         }
         body = result.obj;
@@ -2810,7 +2819,7 @@ export default {
         return sendJSON(
           { ok: false, error: "Failed to parse request body" },
           400,
-          corsHeaders(env, req)
+          aiChatCorsHeaders
         );
       }
 
@@ -2818,7 +2827,7 @@ export default {
         return sendJSON(
           { ok: false, error: "missing message" },
           400,
-          corsHeaders(env, req)
+          aiChatCorsHeaders
         );
       }
 
@@ -2832,7 +2841,7 @@ export default {
                 "AI service not configured. Please set OPENAI_API_KEY secret.",
             },
             503,
-            corsHeaders(env, req)
+            aiChatCorsHeaders
           );
         }
 
@@ -2967,7 +2976,9 @@ ${
         .map((a) => {
           try {
             const price = Number(a.price) || 0;
-            return `- ${String(a.time || "Unknown time")}: **${String(a.ticker || "UNKNOWN")}** ${String(a.type || "event")} at $${price.toFixed(2)}`;
+            return `- ${String(a.time || "Unknown time")}: **${String(
+              a.ticker || "UNKNOWN"
+            )}** ${String(a.type || "event")} at $${price.toFixed(2)}`;
           } catch (e) {
             console.error("[AI CHAT] Error formatting activity:", a, e);
             return null;
