@@ -3201,19 +3201,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
             }
           );
         }
-      } catch (outerError) {
-        // Catch any unhandled errors outside the inner try-catch
-        console.error("[AI CHAT OUTER ERROR]", outerError);
-        return sendJSON(
-          {
-            ok: false,
-            error: "Internal server error",
-            details: outerError.message,
-          },
-          500,
-          aiChatCorsHeaders
-        );
-      }
+      } // End of outer try-catch
     } // End of POST /timed/ai/chat handler
 
     return sendJSON(
