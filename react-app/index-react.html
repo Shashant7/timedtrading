@@ -3159,7 +3159,11 @@
             formatted = formatted.replace(/`(.+?)`/g, '<code class="bg-[#26325f] px-1 py-0.5 rounded text-xs">$1</code>');
             // Links
             formatted = formatted.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" class="text-blue-400 hover:underline">$1</a>');
-            return <p key={i} dangerouslySetInnerHTML={{ __html: formatted }} />;
+            // Use React.createElement instead of JSX for better Babel compatibility
+            return React.createElement('p', { 
+              key: i, 
+              dangerouslySetInnerHTML: { __html: formatted } 
+            });
           });
         };
 
