@@ -1938,12 +1938,34 @@ export default {
                   }, purged ${result.tickerCount || 0} tickers`
                 );
                 // Optionally notify Discord about migration
-                notifyDiscord(env, `🔄 Data Model Migration`, [
-                  `Version: ${result.oldVersion} → ${result.newVersion}`,
-                  `Tickers purged: ${result.tickerCount || 0}`,
-                  `Archive created: ${result.archived ? "Yes" : "No"}`,
-                  `Migration completed in background`,
-                ]).catch(() => {}); // Don't let Discord notification errors break anything
+                // Notify Discord about migration with embed card
+                const migrationEmbed = {
+                  title: "🔄 Data Model Migration",
+                  color: 0x0099ff, // Blue
+                  fields: [
+                    {
+                      name: "Version",
+                      value: `${result.oldVersion} → ${result.newVersion}`,
+                      inline: true,
+                    },
+                    {
+                      name: "Tickers Purged",
+                      value: `${result.tickerCount || 0}`,
+                      inline: true,
+                    },
+                    {
+                      name: "Archive Created",
+                      value: result.archived ? "Yes" : "No",
+                      inline: true,
+                    },
+                  ],
+                  description: "Migration completed in background",
+                  timestamp: new Date().toISOString(),
+                  footer: {
+                    text: "Timed Trading System",
+                  },
+                };
+                notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
               }
             })
             .catch((err) => {
