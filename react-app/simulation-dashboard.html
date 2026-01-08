@@ -415,14 +415,17 @@
       // ─────────────────────────────────────────────────────────────
       function useTradeAnalytics(trades) {
         return useMemo(() => {
+          // Closed trades: fully closed positions (WIN or LOSS)
           const closed = trades.filter((t) => t.status === "WIN" || t.status === "LOSS");
-          const open = trades.filter((t) => t.status === "OPEN" || !t.status);
+          // Open trades: currently open positions that haven't been trimmed yet
+          const open = trades.filter((t) => t.status === "OPEN" || (!t.status && t.status !== "TP_HIT_TRIM" && t.status !== "WIN" && t.status !== "LOSS"));
+          // Trimmed trades: open positions that have been partially trimmed (TP_HIT_TRIM)
           const trimmed = trades.filter((t) => t.status === "TP_HIT_TRIM");
 
-          const totalTrades = trades.length; // All trades, not just closed
           const openTrades = open.length;
           const trimmedTrades = trimmed.length;
           const closedTrades = closed.length;
+          const totalTrades = openTrades + trimmedTrades + closedTrades; // Sum of all categories
           
           const wins = closed.filter((t) => t.status === "WIN").length;
           const losses = closed.filter((t) => t.status === "LOSS").length;
