@@ -1599,7 +1599,7 @@ async function notifyDiscord(env, embed) {
     console.log(`[DISCORD] Webhook URL not configured`);
     return;
   }
-  
+
   console.log(`[DISCORD] Sending notification: ${embed.title || "Untitled"}`);
   try {
     const response = await fetch(url, {
@@ -1623,7 +1623,16 @@ async function notifyDiscord(env, embed) {
 }
 
 // Helper: Create Discord embed for trade entry
-function createTradeEntryEmbed(ticker, direction, entryPrice, sl, tp, rr, rank, state) {
+function createTradeEntryEmbed(
+  ticker,
+  direction,
+  entryPrice,
+  sl,
+  tp,
+  rr,
+  rank,
+  state
+) {
   const color = direction === "LONG" ? 0x00ff00 : 0xff0000; // Green for LONG, Red for SHORT
   return {
     title: `🎯 Trade Entered: ${ticker} ${direction}`,
@@ -1668,7 +1677,15 @@ function createTradeEntryEmbed(ticker, direction, entryPrice, sl, tp, rr, rank, 
 }
 
 // Helper: Create Discord embed for trade trimmed
-function createTradeTrimmedEmbed(ticker, direction, entryPrice, currentPrice, tp, pnl, pnlPct) {
+function createTradeTrimmedEmbed(
+  ticker,
+  direction,
+  entryPrice,
+  currentPrice,
+  tp,
+  pnl,
+  pnlPct
+) {
   return {
     title: `✂️ Trade Trimmed: ${ticker} ${direction}`,
     color: 0xffaa00, // Orange
@@ -1712,7 +1729,17 @@ function createTradeTrimmedEmbed(ticker, direction, entryPrice, currentPrice, tp
 }
 
 // Helper: Create Discord embed for trade closed
-function createTradeClosedEmbed(ticker, direction, status, entryPrice, exitPrice, pnl, pnlPct, rank, rr) {
+function createTradeClosedEmbed(
+  ticker,
+  direction,
+  status,
+  entryPrice,
+  exitPrice,
+  pnl,
+  pnlPct,
+  rank,
+  rr
+) {
   const color = status === "WIN" ? 0x00ff00 : 0xff0000; // Green for WIN, Red for LOSS
   const emoji = status === "WIN" ? "✅" : "❌";
   return {
@@ -2415,7 +2442,8 @@ export default {
 
             // Create Discord embed for trading opportunity
             const rr = payload.rr || 0;
-            const rrFormatted = rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+            const rrFormatted =
+              rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
             const opportunityEmbed = {
               title: `🎯 Trading Opportunity: ${ticker} ${side}`,
               color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
@@ -2462,9 +2490,10 @@ export default {
                 },
                 {
                   name: "ETA",
-                  value: payload.eta_days != null
-                    ? `${Number(payload.eta_days).toFixed(1)}d`
-                    : "—",
+                  value:
+                    payload.eta_days != null
+                      ? `${Number(payload.eta_days).toFixed(1)}d`
+                      : "—",
                   inline: true,
                 },
                 {

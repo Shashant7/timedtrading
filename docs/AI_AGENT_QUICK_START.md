@@ -3,6 +3,7 @@
 ## Overview
 
 This guide will help you set up the AI Trading Assistant feature. The AI agent can:
+
 - Answer questions about tickers and setups
 - Analyze market conditions
 - Search external news and social media
@@ -11,11 +12,13 @@ This guide will help you set up the AI Trading Assistant feature. The AI agent c
 ## Current Status
 
 ✅ **Completed:**
+
 - Architecture documentation
 - Basic chat UI component (`react-app/src/components/ai-chat/ChatInterface.jsx`)
 - Chat endpoint skeleton (`/timed/ai/chat` in worker)
 
 ⏳ **Next Steps:**
+
 - Configure AI API (OpenAI or Anthropic)
 - Integrate chat UI into main dashboard
 - Add external data sources (news, social media)
@@ -23,11 +26,13 @@ This guide will help you set up the AI Trading Assistant feature. The AI agent c
 ## Step 1: Choose Your AI Provider
 
 ### Option A: OpenAI (Recommended for MVP)
+
 - **Model**: GPT-3.5-turbo (fast, cheap) or GPT-4 (more capable)
 - **Cost**: ~$0.0015-0.06 per 1K tokens
 - **Setup**: Get API key from https://platform.openai.com/api-keys
 
 ### Option B: Anthropic Claude
+
 - **Model**: Claude 3 Haiku (fast) or Claude 3 Sonnet (balanced)
 - **Cost**: ~$0.008-0.024 per 1K tokens
 - **Setup**: Get API key from https://console.anthropic.com/
@@ -59,19 +64,19 @@ Edit `react-app/index-react.html`:
 const [chatOpen, setChatOpen] = useState(false);
 
 // Add button to open chat (in header or sidebar)
-<button onClick={() => setChatOpen(true)}>
-  💬 AI Assistant
-</button>
+<button onClick={() => setChatOpen(true)}>💬 AI Assistant</button>;
 
 // Add ChatInterface component
-{chatOpen && (
-  <ChatInterface
-    isOpen={chatOpen}
-    onClose={() => setChatOpen(false)}
-    tickerData={data}
-    activityData={activityData}
-  />
-)}
+{
+  chatOpen && (
+    <ChatInterface
+      isOpen={chatOpen}
+      onClose={() => setChatOpen(false)}
+      tickerData={data}
+      activityData={activityData}
+    />
+  );
+}
 ```
 
 ### Option B: Floating Widget
@@ -116,18 +121,18 @@ When answering:
 const response = await fetch("https://api.openai.com/v1/chat/completions", {
   method: "POST",
   headers: {
-    "Authorization": `Bearer ${openaiApiKey}`,
+    Authorization: `Bearer ${openaiApiKey}`,
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
     model: "gpt-3.5-turbo",
     messages: [
       { role: "system", content: systemPrompt },
-      ...(body.conversationHistory || []).slice(-10).map(msg => ({
+      ...(body.conversationHistory || []).slice(-10).map((msg) => ({
         role: msg.role,
-        content: msg.content
+        content: msg.content,
       })),
-      { role: "user", content: body.message }
+      { role: "user", content: body.message },
     ],
     temperature: 0.7,
     max_tokens: 500,
@@ -135,7 +140,8 @@ const response = await fetch("https://api.openai.com/v1/chat/completions", {
 });
 
 const aiData = await response.json();
-const aiResponse = aiData.choices[0]?.message?.content || "Sorry, I couldn't process that.";
+const aiResponse =
+  aiData.choices[0]?.message?.content || "Sorry, I couldn't process that.";
 ```
 
 ## Step 5: Add External Data Sources (Optional)
@@ -185,6 +191,7 @@ wrangler deploy
 ## Cost Monitoring
 
 Monitor your AI API usage:
+
 - OpenAI: https://platform.openai.com/usage
 - Anthropic: https://console.anthropic.com/settings/usage
 
@@ -193,15 +200,18 @@ Set up usage alerts to avoid unexpected costs.
 ## Troubleshooting
 
 ### "AI service not configured"
+
 - Make sure you've set the API key: `wrangler secret put OPENAI_API_KEY`
 - Redeploy the worker after setting secrets
 
 ### Rate limiting errors
+
 - Implement caching for common queries
 - Add rate limiting on the chat endpoint
 - Use cheaper models (GPT-3.5-turbo) for high volume
 
 ### Slow responses
+
 - Reduce `max_tokens` in API call
 - Use faster models (GPT-3.5-turbo vs GPT-4)
 - Cache responses for similar queries
@@ -219,7 +229,7 @@ Set up usage alerts to avoid unexpected costs.
 ## Support
 
 For questions or issues:
+
 - Check the architecture docs: `docs/AI_AGENT_ARCHITECTURE.md`
 - Review implementation plan: `docs/AI_AGENT_IMPLEMENTATION_PLAN.md`
 - Check worker logs: `wrangler tail`
-
