@@ -3793,7 +3793,7 @@
               {!error && (
               <div className="space-y-4">
                 {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
-                <div className="flex gap-4 items-start">
+                <div className="flex gap-4 items-stretch">
                   {/* Activity Feed - Left side (complementary, fixed width) */}
                   <div className="flex-shrink-0">
                     <ActivityFeed onTickerClick={handleTickerSelect} tickerData={data} />
@@ -3826,7 +3826,7 @@
                   </div>
                   
                   {/* Detail View - Right side (slides in when ticker selected, fixed width) */}
-                  <div className="flex-shrink-0 w-[450px]">
+                  <div className="flex-shrink-0 w-[450px] h-full min-h-[900px]">
                     <OverlayPortal
                       selectedTicker={selectedTicker}
                       tickers={tickers}
