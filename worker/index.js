@@ -636,7 +636,11 @@ function analyzeWinningPatterns(tradeHistory, currentTickers) {
   });
 
   return {
-    summary: `Analyzed ${tradeHistory.length} trades. Win rate: ${(winRate * 100).toFixed(1)}%. Best pattern: ${bestRankPattern?.[0] || "N/A"} with ${bestRRPattern?.[0] || "N/A"} RR. ${matchingSetups.length} current setups match winning patterns.`,
+    summary: `Analyzed ${tradeHistory.length} trades. Win rate: ${(
+      winRate * 100
+    ).toFixed(1)}%. Best pattern: ${bestRankPattern?.[0] || "N/A"} with ${
+      bestRRPattern?.[0] || "N/A"
+    } RR. ${matchingSetups.length} current setups match winning patterns.`,
     bestRankPattern: bestRankPattern?.[0] || null,
     bestRRPattern: bestRRPattern?.[0] || null,
     matchingSetups: matchingSetups.slice(0, 5).map((t) => t.ticker),
@@ -656,22 +660,23 @@ function generateProactiveAlerts(allTickers, allTrades) {
 
   // Alert 1: Positions approaching TP (within 2% of TP)
   openTrades.forEach((trade) => {
-    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
-    const tp = Number(trade.tp);
-    const sl = Number(trade.sl);
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice || 0);
+    const tp = Number(trade.tp || 0);
+    const sl = Number(trade.sl || 0);
+    const entryPrice = Number(trade.entryPrice || 0);
     const direction = trade.direction || "LONG";
 
-    if (tp && currentPrice && sl) {
+    if (tp > 0 && currentPrice > 0 && sl > 0 && entryPrice > 0) {
       let distanceToTP = 0;
       let pctToTP = 0;
 
       if (direction === "LONG") {
         distanceToTP = tp - currentPrice;
-        const totalDistance = tp - trade.entryPrice;
+        const totalDistance = tp - entryPrice;
         pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
       } else {
         distanceToTP = currentPrice - tp;
-        const totalDistance = trade.entryPrice - tp;
+        const totalDistance = entryPrice - tp;
         pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
       }
 
@@ -680,7 +685,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
           type: "TP_APPROACHING",
           priority: "high",
           ticker: trade.ticker,
-          message: `${trade.ticker} is within ${pctToTP.toFixed(1)}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Consider trimming 50% at TP.`,
+          message: `${trade.ticker} is within ${pctToTP.toFixed(
+            1
+          )}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(
+            2
+          )}. Consider trimming 50% at TP.`,
           currentPrice,
           tp,
           pctToTP,
@@ -691,21 +700,22 @@ function generateProactiveAlerts(allTickers, allTrades) {
 
   // Alert 2: Positions approaching SL (within 2% of SL)
   openTrades.forEach((trade) => {
-    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
-    const sl = Number(trade.sl);
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice || 0);
+    const sl = Number(trade.sl || 0);
+    const entryPrice = Number(trade.entryPrice || 0);
     const direction = trade.direction || "LONG";
 
-    if (sl && currentPrice) {
+    if (sl > 0 && currentPrice > 0 && entryPrice > 0) {
       let distanceToSL = 0;
       let pctToSL = 0;
 
       if (direction === "LONG") {
         distanceToSL = currentPrice - sl;
-        const totalDistance = trade.entryPrice - sl;
+        const totalDistance = entryPrice - sl;
         pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
       } else {
         distanceToSL = sl - currentPrice;
-        const totalDistance = sl - trade.entryPrice;
+        const totalDistance = sl - entryPrice;
         pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
       }
 
@@ -714,7 +724,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
           type: "SL_APPROACHING",
           priority: "high",
           ticker: trade.ticker,
-          message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(1)}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Monitor closely.`,
+          message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(
+            1
+          )}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(
+            2
+          )}. Monitor closely.`,
           currentPrice,
           sl,
           pctToSL,
@@ -731,7 +745,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
         type: "HIGH_COMPLETION",
         priority: "medium",
         ticker: ticker.ticker,
-        message: `${ticker.ticker} has reached ${(ticker.completion * 100).toFixed(0)}% completion. Consider trimming 50-75% to lock in profits.`,
+        message: `${ticker.ticker} has reached ${(
+          ticker.completion * 100
+        ).toFixed(
+          0
+        )}% completion. Consider trimming 50-75% to lock in profits.`,
         completion: ticker.completion,
       });
     }
@@ -745,7 +763,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
         type: "LATE_PHASE",
         priority: "medium",
         ticker: ticker.ticker,
-        message: `${ticker.ticker} is in late phase (${(ticker.phase_pct * 100).toFixed(0)}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
+        message: `${ticker.ticker} is in late phase (${(
+          ticker.phase_pct * 100
+        ).toFixed(
+          0
+        )}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
         phasePct: ticker.phase_pct,
       });
     }
@@ -766,7 +788,9 @@ function generateProactiveAlerts(allTickers, allTrades) {
       type: "NEW_OPPORTUNITY",
       priority: "high",
       ticker: "MULTIPLE",
-      message: `🎯 ${newPrimeSetups.length} new prime setups detected: ${newPrimeSetups
+      message: `🎯 ${
+        newPrimeSetups.length
+      } new prime setups detected: ${newPrimeSetups
         .slice(0, 5)
         .map((t) => t.ticker)
         .join(", ")}. Consider monitoring for entry.`,
@@ -791,7 +815,9 @@ function generateProactiveAlerts(allTickers, allTrades) {
       type: "MOMENTUM_ELITE",
       priority: "high",
       ticker: "MULTIPLE",
-      message: `🚀 ${momentumEliteSetups.length} Momentum Elite setups available: ${momentumEliteSetups
+      message: `🚀 ${
+        momentumEliteSetups.length
+      } Momentum Elite setups available: ${momentumEliteSetups
         .slice(0, 5)
         .map((t) => t.ticker)
         .join(", ")}. High-quality opportunities.`,
@@ -884,7 +910,11 @@ function analyzeWinningPatterns(tradeHistory, currentTickers) {
   });
 
   return {
-    summary: `Analyzed ${tradeHistory.length} trades. Win rate: ${(winRate * 100).toFixed(1)}%. Best pattern: ${bestRankPattern?.[0] || "N/A"} with ${bestRRPattern?.[0] || "N/A"} RR. ${matchingSetups.length} current setups match winning patterns.`,
+    summary: `Analyzed ${tradeHistory.length} trades. Win rate: ${(
+      winRate * 100
+    ).toFixed(1)}%. Best pattern: ${bestRankPattern?.[0] || "N/A"} with ${
+      bestRRPattern?.[0] || "N/A"
+    } RR. ${matchingSetups.length} current setups match winning patterns.`,
     bestRankPattern: bestRankPattern?.[0] || null,
     bestRRPattern: bestRRPattern?.[0] || null,
     matchingSetups: matchingSetups.slice(0, 5).map((t) => t.ticker),
@@ -903,22 +933,23 @@ function generateProactiveAlerts(allTickers, allTrades) {
 
   // Alert 1: Positions approaching TP (within 5% of TP)
   openTrades.forEach((trade) => {
-    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
-    const tp = Number(trade.tp);
-    const sl = Number(trade.sl);
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice || 0);
+    const tp = Number(trade.tp || 0);
+    const sl = Number(trade.sl || 0);
+    const entryPrice = Number(trade.entryPrice || 0);
     const direction = trade.direction || "LONG";
 
-    if (tp && currentPrice && sl) {
+    if (tp > 0 && currentPrice > 0 && sl > 0 && entryPrice > 0) {
       let distanceToTP = 0;
       let pctToTP = 0;
 
       if (direction === "LONG") {
         distanceToTP = tp - currentPrice;
-        const totalDistance = tp - trade.entryPrice;
+        const totalDistance = tp - entryPrice;
         pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
       } else {
         distanceToTP = currentPrice - tp;
-        const totalDistance = trade.entryPrice - tp;
+        const totalDistance = entryPrice - tp;
         pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
       }
 
@@ -927,7 +958,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
           type: "TP_APPROACHING",
           priority: "high",
           ticker: trade.ticker,
-          message: `${trade.ticker} is within ${pctToTP.toFixed(1)}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Consider trimming 50% at TP.`,
+          message: `${trade.ticker} is within ${pctToTP.toFixed(
+            1
+          )}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(
+            2
+          )}. Consider trimming 50% at TP.`,
           currentPrice,
           tp,
           pctToTP,
@@ -938,21 +973,22 @@ function generateProactiveAlerts(allTickers, allTrades) {
 
   // Alert 2: Positions approaching SL (within 5% of SL)
   openTrades.forEach((trade) => {
-    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
-    const sl = Number(trade.sl);
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice || 0);
+    const sl = Number(trade.sl || 0);
+    const entryPrice = Number(trade.entryPrice || 0);
     const direction = trade.direction || "LONG";
 
-    if (sl && currentPrice) {
+    if (sl > 0 && currentPrice > 0 && entryPrice > 0) {
       let distanceToSL = 0;
       let pctToSL = 0;
 
       if (direction === "LONG") {
         distanceToSL = currentPrice - sl;
-        const totalDistance = trade.entryPrice - sl;
+        const totalDistance = entryPrice - sl;
         pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
       } else {
         distanceToSL = sl - currentPrice;
-        const totalDistance = sl - trade.entryPrice;
+        const totalDistance = sl - entryPrice;
         pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
       }
 
@@ -961,7 +997,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
           type: "SL_APPROACHING",
           priority: "high",
           ticker: trade.ticker,
-          message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(1)}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Monitor closely.`,
+          message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(
+            1
+          )}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(
+            2
+          )}. Monitor closely.`,
           currentPrice,
           sl,
           pctToSL,
@@ -978,7 +1018,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
         type: "HIGH_COMPLETION",
         priority: "medium",
         ticker: ticker.ticker,
-        message: `${ticker.ticker} has reached ${(ticker.completion * 100).toFixed(0)}% completion. Consider trimming 50-75% to lock in profits.`,
+        message: `${ticker.ticker} has reached ${(
+          ticker.completion * 100
+        ).toFixed(
+          0
+        )}% completion. Consider trimming 50-75% to lock in profits.`,
         completion: ticker.completion,
       });
     }
@@ -992,7 +1036,11 @@ function generateProactiveAlerts(allTickers, allTrades) {
         type: "LATE_PHASE",
         priority: "medium",
         ticker: ticker.ticker,
-        message: `${ticker.ticker} is in late phase (${(ticker.phase_pct * 100).toFixed(0)}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
+        message: `${ticker.ticker} is in late phase (${(
+          ticker.phase_pct * 100
+        ).toFixed(
+          0
+        )}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
         phasePct: ticker.phase_pct,
       });
     }
@@ -1013,7 +1061,9 @@ function generateProactiveAlerts(allTickers, allTrades) {
       type: "NEW_OPPORTUNITY",
       priority: "high",
       ticker: "MULTIPLE",
-      message: `🎯 ${newPrimeSetups.length} new prime setups detected: ${newPrimeSetups
+      message: `🎯 ${
+        newPrimeSetups.length
+      } new prime setups detected: ${newPrimeSetups
         .slice(0, 5)
         .map((t) => t.ticker)
         .join(", ")}. Consider monitoring for entry.`,
@@ -1038,7 +1088,9 @@ function generateProactiveAlerts(allTickers, allTrades) {
       type: "MOMENTUM_ELITE",
       priority: "high",
       ticker: "MULTIPLE",
-      message: `🚀 ${momentumEliteSetups.length} Momentum Elite setups available: ${momentumEliteSetups
+      message: `🚀 ${
+        momentumEliteSetups.length
+      } Momentum Elite setups available: ${momentumEliteSetups
         .slice(0, 5)
         .map((t) => t.ticker)
         .join(", ")}. High-quality opportunities.`,
@@ -5013,12 +5065,18 @@ Based on today's data:
             state: String(t.state || ""),
             flags: t.flags || {},
           }));
-        
+
         // Pattern Recognition: Analyze winning patterns
-        const winningPatterns = analyzeWinningPatterns(tradeHistory, allTickers);
-        
+        const winningPatterns = analyzeWinningPatterns(
+          tradeHistory,
+          allTickers
+        );
+
         // Proactive Alerts: Detect conditions that need attention
-        const proactiveAlerts = generateProactiveAlerts(allTickers, allTradesForHistory);
+        const proactiveAlerts = generateProactiveAlerts(
+          allTickers,
+          allTradesForHistory
+        );
 
         // Analyze for proactive alerts
         const primeSetups = allTickers.filter(
@@ -5844,7 +5902,7 @@ Provide a structured analysis with:
     // Proactive Alerts & Pattern Recognition (every 15 minutes during market hours)
     // This runs more frequently to catch time-sensitive conditions
     const isProactiveAlertTime = minute % 15 === 0; // Every 15 minutes
-    
+
     if (isProactiveAlertTime) {
       try {
         const tradesKey = "timed:trades:all";
@@ -5855,36 +5913,41 @@ Provide a structured analysis with:
 
         // Fetch current ticker data for alert generation
         const allKeys = await KV.list({ prefix: "timed:latest:" });
-        const tickerDataPromises = allKeys.keys.slice(0, 50).map(async (key) => {
-          try {
-            const data = await kvGetJSON(KV, key.name);
-            if (data) {
-              const ticker = key.name.replace("timed:latest:", "");
-              return {
-                ticker,
-                rank: Number(data.rank) || 0,
-                rr: Number(data.rr) || 0,
-                price: Number(data.price) || 0,
-                completion: Number(data.completion) || 0,
-                phase_pct: Number(data.phase_pct) || 0,
-                flags: data.flags || {},
-              };
+        const tickerDataPromises = allKeys.keys
+          .slice(0, 50)
+          .map(async (key) => {
+            try {
+              const data = await kvGetJSON(KV, key.name);
+              if (data) {
+                const ticker = key.name.replace("timed:latest:", "");
+                return {
+                  ticker,
+                  rank: Number(data.rank) || 0,
+                  rr: Number(data.rr) || 0,
+                  price: Number(data.price) || 0,
+                  completion: Number(data.completion) || 0,
+                  phase_pct: Number(data.phase_pct) || 0,
+                  flags: data.flags || {},
+                };
+              }
+              return null;
+            } catch (err) {
+              return null;
             }
-            return null;
-          } catch (err) {
-            return null;
-          }
-        });
+          });
 
-        const allTickers = (await Promise.all(tickerDataPromises))
-          .filter(Boolean);
+        const allTickers = (await Promise.all(tickerDataPromises)).filter(
+          Boolean
+        );
 
         // Generate proactive alerts
         const proactiveAlerts = generateProactiveAlerts(allTickers, allTrades);
 
         // Store high-priority alerts in KV for retrieval
         if (proactiveAlerts.filter((a) => a.priority === "high").length > 0) {
-          const alertsKey = `timed:ai:alerts:${now.toISOString().split("T")[0]}`;
+          const alertsKey = `timed:ai:alerts:${
+            now.toISOString().split("T")[0]
+          }`;
           const existingAlerts = (await kvGetJSON(KV, alertsKey)) || [];
           const newHighPriorityAlerts = proactiveAlerts
             .filter((a) => a.priority === "high")
@@ -5894,8 +5957,10 @@ Provide a structured analysis with:
             }));
 
           // Merge and keep only last 50 alerts
-          const updatedAlerts = [...newHighPriorityAlerts, ...existingAlerts]
-            .slice(0, 50);
+          const updatedAlerts = [
+            ...newHighPriorityAlerts,
+            ...existingAlerts,
+          ].slice(0, 50);
           await kvPutJSON(KV, alertsKey, updatedAlerts);
 
           console.log(
