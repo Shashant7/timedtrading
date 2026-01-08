@@ -5299,7 +5299,7 @@ Provide 3-5 actionable next steps:
 - Use bullet points (-) for lists within sections
 - Use numbered lists (1., 2., 3.) for recommendations
 - Keep paragraphs short (2-3 sentences max)
-- Use `code` formatting for specific values like prices or percentages
+- Use code formatting for specific values like prices or percentages
 
 **IMPORTANT**: Reference the proactive alerts above and pattern recognition insights. Prioritize alerts marked as "high" priority. Be concise but thorough. Focus on actionable insights, not just data.`;
 
