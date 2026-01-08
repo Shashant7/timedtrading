@@ -837,7 +837,7 @@ function generateProactiveAlerts(allTickers, allTrades) {
 }
 
 // Process trade simulation for a ticker (called on ingest)
-async function processTradeSimulation(KV, ticker, tickerData, prevData) {
+async function processTradeSimulation(KV, ticker, tickerData, prevData, env = null) {
   try {
     const tradesKey = "timed:trades:all";
     const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
@@ -1014,6 +1014,22 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
                 trade.rank
               }, Entry RR ${trade.rr.toFixed(2)})`
             );
+            
+            // Send Discord notification for new trade entry
+            if (env) {
+              await notifyDiscord(
+                env,
+                `🎯 Trade Entered: ${ticker} ${direction}`,
+                [
+                  `Entry: $${entryPrice.toFixed(2)}`,
+                  `SL: $${Number(tickerData.sl).toFixed(2)}`,
+                  `TP: $${Number(tickerData.tp).toFixed(2)}`,
+                  `RR: ${(entryRR || 0).toFixed(2)}:1`,
+                  `Rank: ${trade.rank || 0}`,
+                  `State: ${tickerData.state || "N/A"}`,
+                ]
+              ).catch(() => {}); // Don't let Discord errors break trade creation
+            }
           } else {
             console.log(
               `[TRADE SIM] ⚠️ ${ticker} ${direction}: tradeCalc returned null`
@@ -2018,7 +2034,7 @@ export default {
         );
 
         // Process trade simulation (create/update trades automatically)
-        await processTradeSimulation(KV, ticker, payload, prevLatest);
+        await processTradeSimulation(KV, ticker, payload, prevLatest, env);
 
         // Trail (light)
         await appendTrail(
