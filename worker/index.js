@@ -892,6 +892,62 @@ async function processTradeSimulation(
             newStatus = "WIN";
           }
         }
+
+        // Update history for status changes
+        const history = existingOpenTrade.history || [
+          {
+            type: "ENTRY",
+            timestamp: existingOpenTrade.entryTime,
+            price: existingOpenTrade.entryPrice,
+            shares: existingOpenTrade.shares || 0,
+            value:
+              existingOpenTrade.entryPrice * (existingOpenTrade.shares || 0),
+            note: `Initial entry at $${existingOpenTrade.entryPrice.toFixed(
+              2
+            )}`,
+          },
+        ];
+
+        const currentPrice = Number(tickerData.price || 0);
+        const oldStatus = existingOpenTrade.status || "OPEN";
+
+        // Add history entry for trim
+        if (newStatus === "TP_HIT_TRIM" && oldStatus !== "TP_HIT_TRIM") {
+          const trimmedShares = Math.floor(
+            (existingOpenTrade.shares || 0) * 0.5
+          );
+          history.push({
+            type: "TRIM",
+            timestamp: new Date().toISOString(),
+            price: Number(tickerData.tp || existingOpenTrade.tp),
+            shares: trimmedShares,
+            value:
+              Number(tickerData.tp || existingOpenTrade.tp) * trimmedShares,
+            note: `Trimmed 50% at TP $${Number(
+              tickerData.tp || existingOpenTrade.tp
+            ).toFixed(2)}`,
+          });
+        }
+
+        // Add history entry for close
+        if (
+          (newStatus === "WIN" || newStatus === "LOSS") &&
+          oldStatus !== "WIN" &&
+          oldStatus !== "LOSS"
+        ) {
+          const remainingShares = existingOpenTrade.shares || 0;
+          history.push({
+            type: "EXIT",
+            timestamp: new Date().toISOString(),
+            price: currentPrice,
+            shares: remainingShares,
+            value: currentPrice * remainingShares,
+            note: `Closed ${
+              newStatus === "WIN" ? "profitably" : "at loss"
+            } at $${currentPrice.toFixed(2)}`,
+          });
+        }
+
         const updatedTrade = {
           ...existingOpenTrade,
           ...tradeCalc,
@@ -902,13 +958,13 @@ async function processTradeSimulation(
           tp: Number(tickerData.tp) || existingOpenTrade.tp,
           rr: Number(tickerData.rr) || existingOpenTrade.rr,
           rank: Number(tickerData.rank) || existingOpenTrade.rank,
+          history: history,
         };
 
         const tradeIndex = allTrades.findIndex(
           (t) => t.id === existingOpenTrade.id
         );
         if (tradeIndex >= 0) {
-          const oldStatus = existingOpenTrade.status || "OPEN";
           allTrades[tradeIndex] = updatedTrade;
           await kvPutJSON(KV, tradesKey, allTrades);
           console.log(
@@ -1035,13 +1091,122 @@ async function processTradeSimulation(
               ).toFixed(2)}%)`
             );
           } else {
+            // Scaling in - merge into existing trade
             console.log(
-              `[TRADE SIM] ℹ️ ${ticker} ${direction}: Open trade exists but entry price differs significantly (${existingEntryPrice.toFixed(
+              `[TRADE SIM] ℹ️ ${ticker} ${direction}: Scaling in - entry price differs significantly (${existingEntryPrice.toFixed(
                 2
               )} vs ${entryPrice.toFixed(2)}, diff: ${(
                 priceDiffPct * 100
-              ).toFixed(2)}%) - allowing scaling in`
+              ).toFixed(2)}%)`
             );
+
+            // Calculate new average entry price and total shares
+            const existingShares = anyOpenTrade.shares || 0;
+            const existingValue = existingEntryPrice * existingShares;
+            const newShares = Math.floor(TRADE_SIZE / entryPrice);
+            const newValue = entryPrice * newShares;
+            const totalShares = existingShares + newShares;
+            const totalValue = existingValue + newValue;
+            const avgEntryPrice =
+              totalShares > 0 ? totalValue / totalShares : entryPrice;
+
+            // Update existing trade with scaled-in position
+            const tradeCalc = calculateTradePnl(
+              tickerData,
+              avgEntryPrice,
+              anyOpenTrade
+            );
+            if (tradeCalc) {
+              // Add history entry for scaling in
+              const history = anyOpenTrade.history || [
+                {
+                  type: "ENTRY",
+                  timestamp: anyOpenTrade.entryTime,
+                  price: existingEntryPrice,
+                  shares: existingShares,
+                  value: existingValue,
+                  note: `Initial entry at $${existingEntryPrice.toFixed(2)}`,
+                },
+              ];
+
+              history.push({
+                type: "SCALE_IN",
+                timestamp: new Date().toISOString(),
+                price: entryPrice,
+                shares: newShares,
+                value: newValue,
+                note: `Scaled in at $${entryPrice.toFixed(
+                  2
+                )} (avg entry now $${avgEntryPrice.toFixed(2)})`,
+              });
+
+              const updatedTrade = {
+                ...anyOpenTrade,
+                entryPrice: avgEntryPrice, // Update to average entry price
+                shares: totalShares,
+                ...tradeCalc,
+                history: history,
+                lastUpdate: new Date().toISOString(),
+              };
+
+              const tradeIndex = allTrades.findIndex(
+                (t) => t.id === anyOpenTrade.id
+              );
+              if (tradeIndex >= 0) {
+                allTrades[tradeIndex] = updatedTrade;
+                await kvPutJSON(KV, tradesKey, allTrades);
+                console.log(
+                  `[TRADE SIM] ✅ Scaled in ${ticker} ${direction} - Avg Entry: $${avgEntryPrice.toFixed(
+                    2
+                  )}, Total Shares: ${totalShares}`
+                );
+
+                // Send Discord notification for scaling in
+                if (env) {
+                  const embed = {
+                    title: `📈 Position Scaled In: ${ticker} ${direction}`,
+                    color: 0x00ff00,
+                    fields: [
+                      {
+                        name: "New Entry Price",
+                        value: `$${entryPrice.toFixed(2)}`,
+                        inline: true,
+                      },
+                      {
+                        name: "Average Entry Price",
+                        value: `$${avgEntryPrice.toFixed(2)}`,
+                        inline: true,
+                      },
+                      {
+                        name: "Total Shares",
+                        value: `${totalShares}`,
+                        inline: true,
+                      },
+                      {
+                        name: "Current Price",
+                        value: `$${Number(tickerData.price).toFixed(2)}`,
+                        inline: true,
+                      },
+                      {
+                        name: "Current P&L",
+                        value: `$${tradeCalc.pnl?.toFixed(2) || "0.00"} (${
+                          tradeCalc.pnlPct?.toFixed(2) || "0.00"
+                        }%)`,
+                        inline: true,
+                      },
+                    ],
+                    footer: {
+                      text: "Timed Trading Simulator",
+                    },
+                    timestamp: new Date().toISOString(),
+                  };
+                  await notifyDiscord(env, embed).catch(() => {});
+                }
+              }
+            }
+
+            // Don't create a new trade - we've merged into existing
+            return;
           }
         } else if (anyOpenTrade) {
           // Open trade exists but no entry price - block to be safe
@@ -1105,22 +1270,23 @@ async function processTradeSimulation(
                 2
               )}, RR: ${entryRR?.toFixed(2) || "N/A"}`
             );
-            // Use alert timestamp (trigger_ts preferred, fallback to ts, then current time)
-            let entryTime;
-            if (tickerData.trigger_ts != null) {
-              entryTime = new Date(Number(tickerData.trigger_ts)).toISOString();
-            } else if (tickerData.ts != null) {
-              entryTime = new Date(Number(tickerData.ts)).toISOString();
-            } else {
-              entryTime = new Date().toISOString(); // Fallback to current time
-            }
+            // Use current time when trade is actually created (not trigger_ts which may be old)
+            // Store trigger_ts separately for reference if needed
+            const entryTime = new Date().toISOString();
+            const triggerTimestamp =
+              tickerData.trigger_ts != null
+                ? new Date(Number(tickerData.trigger_ts)).toISOString()
+                : tickerData.ts != null
+                ? new Date(Number(tickerData.ts)).toISOString()
+                : null;
 
             const trade = {
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
               ticker,
               direction,
               entryPrice,
-              entryTime: entryTime,
+              entryTime: entryTime, // When trade was actually created
+              triggerTimestamp: triggerTimestamp, // When signal was generated (for reference)
               sl: Number(tickerData.sl),
               tp: Number(tickerData.tp),
               rr: entryRR || Number(tickerData.rr) || 0, // Use entry RR
@@ -1128,6 +1294,23 @@ async function processTradeSimulation(
               state: tickerData.state,
               flags: tickerData.flags || {},
               scriptVersion: tickerData.script_version || "unknown",
+              // Trade history/audit trail
+              history: [
+                {
+                  type: "ENTRY",
+                  timestamp: entryTime,
+                  price: entryPrice,
+                  shares: tradeCalc.shares || 0,
+                  value: entryPrice * (tradeCalc.shares || 0),
+                  note: `Initial entry at $${entryPrice.toFixed(2)}${
+                    triggerTimestamp
+                      ? ` (signal: ${new Date(
+                          triggerTimestamp
+                        ).toLocaleString()})`
+                      : ""
+                  }`,
+                },
+              ],
               ...tradeCalc,
             };
 

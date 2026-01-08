@@ -672,7 +672,162 @@
         }
       }
 
-      function TradeRow({ trade, onTickerClick }) {
+      // Trade History Component
+      function TradeHistory({ history = [] }) {
+        if (!history || history.length === 0) {
+          return (
+            <div className="text-xs text-[#6b7a9f] italic p-2">
+              No history available
+            </div>
+          );
+        }
+
+        const getEventIcon = (type) => {
+          switch (type) {
+            case "ENTRY": return "📥";
+            case "SCALE_IN": return "➕";
+            case "TRIM": return "✂️";
+            case "EXIT": return "📤";
+            default: return "•";
+          }
+        };
+
+        const getEventColor = (type) => {
+          switch (type) {
+            case "ENTRY": return "text-green-400";
+            case "SCALE_IN": return "text-blue-400";
+            case "TRIM": return "text-yellow-400";
+            case "EXIT": return "text-purple-400";
+            default: return "text-[#93a4d6]";
+          }
+        };
+
+        return (
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {history.map((event, idx) => {
+              const eventDate = new Date(event.timestamp);
+              const formattedDate = eventDate.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric', 
+                year: 'numeric' 
+              });
+              const formattedTime = eventDate.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                hour12: true 
+              });
+
+              return (
+                <div
+                  key={idx}
+                  className="bg-[#0f1630] border border-[#26325f] rounded-lg p-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`text-xl ${getEventColor(event.type)}`}>
+                      {getEventIcon(event.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-sm font-semibold ${getEventColor(event.type)}`}>
+                          {event.type.replace('_', ' ')}
+                        </span>
+                        <span className="text-xs text-[#6b7a9f]">
+                          {formattedDate} {formattedTime}
+                        </span>
+                      </div>
+                      <div className="text-xs text-[#93a4d6] mb-2">
+                        {event.note}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <span className="text-[#6b7a9f]">Price:</span>
+                          <span className="ml-1 font-semibold text-white">
+                            ${Number(event.price).toFixed(2)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#6b7a9f]">Shares:</span>
+                          <span className="ml-1 font-semibold text-white">
+                            {event.shares}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#6b7a9f]">Value:</span>
+                          <span className="ml-1 font-semibold text-white">
+                            ${Number(event.value).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      // Trade Detail Modal Component
+      function TradeDetailModal({ trade, onClose }) {
+        if (!trade) return null;
+
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold">
+                  Trade History: {trade.ticker} {trade.direction}
+                </h2>
+                <button
+                  onClick={onClose}
+                  className="text-[#93a4d6] hover:text-white text-2xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f] transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Trade Summary */}
+              <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4 mb-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <div className="text-[#93a4d6] text-xs">Entry Price</div>
+                    <div className="font-semibold text-white">${trade.entryPrice?.toFixed(2) || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#93a4d6] text-xs">Current Price</div>
+                    <div className="font-semibold text-yellow-400">${(trade.currentPrice || trade.entryPrice)?.toFixed(2) || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[#93a4d6] text-xs">P&L</div>
+                    <div className={`font-semibold ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      ${trade.pnl?.toFixed(2) || "0.00"} ({trade.pnlPct?.toFixed(2) || "0.00"}%)
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[#93a4d6] text-xs">Status</div>
+                    <div className={`font-semibold ${
+                      trade.status === "WIN" ? "text-green-400" :
+                      trade.status === "LOSS" ? "text-red-400" :
+                      trade.status === "TP_HIT_TRIM" ? "text-blue-400" :
+                      "text-yellow-400"
+                    }`}>
+                      {trade.status || "OPEN"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Trade History Timeline */}
+              <div>
+                <h3 className="text-lg font-bold mb-3">📊 Trade Journey</h3>
+                <TradeHistory history={trade.history || []} />
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function TradeRow({ trade, onTickerClick, onTradeClick }) {
         const pnlColor = trade.pnl >= 0 ? "text-green-400" : "text-red-400";
         const statusColor =
           trade.status === "WIN"
@@ -694,14 +849,26 @@
         const trimmedValue = trimmedShares > 0 ? trimmedShares * (trade.tp || currentPrice) : 0; // Use TP price when trimmed
         const currentMarketValue = remainingShares * currentPrice;
 
+        // Parse entryTime - now uses current time when trade was created (not trigger_ts)
         const entryDate = new Date(trade.entryTime);
-        const formattedDate = entryDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        const formattedTime = entryDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const formattedDate = entryDate.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric', 
+          year: 'numeric' 
+        });
+        const formattedTime = entryDate.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: true 
+        });
 
         return (
           <tr 
             className="border-b border-[#26325f] hover:bg-[#1a2550] cursor-pointer transition-colors"
-            onClick={() => onTickerClick && onTickerClick(trade.ticker)}
+            onClick={() => {
+              if (onTradeClick) onTradeClick(trade);
+              else if (onTickerClick) onTickerClick(trade.ticker);
+            }}
           >
             <td className="p-2 text-sm">{trade.ticker}</td>
             <td className="p-2 text-sm">
@@ -1393,7 +1560,7 @@
                       breakdown.htf > 0 ? { label: "HTF Score", value: `+${breakdown.htf.toFixed(1)}`, color: "text-cyan-400" } : null,
                       breakdown.ltf > 0 ? { label: "LTF Score", value: `+${breakdown.ltf.toFixed(1)}`, color: "text-cyan-400" } : null,
                       breakdown.completion > 0 ? { label: "Completion Bonus", value: `+${breakdown.completion}`, color: "text-yellow-400" } : null,
-                      breakdown.phase !== 0 ? { label: "Phase", value: breakdown.phase > 0 ? `+${breakdown.phase}` : breakdown.phase.toString(), color: breakdown.phase > 0 ? "text-green-400" : "text-red-400" } : null,
+                      breakdown.phase !== 0 ? { label: "Phase", value: breakdown.phase > 0 ? `+${breakdown.phase.toFixed(2)}` : breakdown.phase.toFixed(2), color: breakdown.phase > 0 ? "text-green-400" : "text-red-400" } : null,
                       breakdown.squeezeRelease > 0 ? { label: "Squeeze Release", value: `+${breakdown.squeezeRelease}`, color: "text-purple-400" } : null,
                       breakdown.squeezeOn > 0 ? { label: "Squeeze On", value: `+${breakdown.squeezeOn}`, color: "text-yellow-400" } : null,
                       breakdown.phaseZoneChange > 0 ? { label: "Phase Zone Change", value: `+${breakdown.phaseZoneChange}`, color: "text-blue-400" } : null,
@@ -1542,6 +1709,9 @@
         
         // Selected ticker for detail view
         const [selectedTicker, setSelectedTicker] = useState(null);
+        
+        // Selected trade for history modal
+        const [selectedTrade, setSelectedTrade] = useState(null);
         
         // Get unique versions from trades (for dropdown)
         const availableVersions = useMemo(() => {
@@ -2010,7 +2180,12 @@
                           </tr>
                         ) : (
                           filteredTrades.map((trade) => (
-                            <TradeRow key={trade.id} trade={trade} onTickerClick={setSelectedTicker} />
+                            <TradeRow 
+                              key={trade.id} 
+                              trade={trade} 
+                              onTickerClick={setSelectedTicker}
+                              onTradeClick={setSelectedTrade}
+                            />
                           ))
                         )}
                       </tbody>
@@ -2029,6 +2204,11 @@
                   </div>
                 )}
               </div>
+
+              {/* Trade History Modal - Rendered outside table */}
+              {selectedTrade && (
+                <TradeDetailModal trade={selectedTrade} onClose={() => setSelectedTrade(null)} />
+              )}
             </div>
           </div>
         );
