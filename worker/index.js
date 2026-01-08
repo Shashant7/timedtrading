@@ -6401,38 +6401,128 @@ Provide 3-5 actionable next steps:
         let fixed = 0;
         const fixedTrades = [];
 
+        const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000; // 3 days ago
+
         for (const trade of allTrades) {
           let updated = false;
           const updatedTrade = { ...trade };
-          let triggerTimestamp = trade.triggerTimestamp;
+          let bestMatchTimestamp = null;
+          let bestMatchPrice = null;
+          let matchMethod = null;
 
-          // If trade doesn't have triggerTimestamp, try to get it from ticker's latest data
-          if (!triggerTimestamp && trade.ticker) {
-            try {
-              const tickerData = await kvGetJSON(KV, `timed:latest:${trade.ticker}`);
-              if (tickerData && tickerData.trigger_ts) {
-                triggerTimestamp = new Date(Number(tickerData.trigger_ts)).toISOString();
-                // Store it in the trade for future reference
-                updatedTrade.triggerTimestamp = triggerTimestamp;
-              }
-            } catch (err) {
-              // Ignore errors - ticker data might not exist
-            }
-          }
-
-          // Check if trade has triggerTimestamp that's significantly older than entryTime
-          if (triggerTimestamp && trade.entryTime) {
-            const triggerTime = new Date(triggerTimestamp).getTime();
+          // Method 1: Check if trade has triggerTimestamp that's significantly older than entryTime
+          if (trade.triggerTimestamp && trade.entryTime) {
+            const triggerTime = new Date(trade.triggerTimestamp).getTime();
             const entryTime = new Date(trade.entryTime).getTime();
-
-            // Detect backfill: triggerTimestamp is more than 1 hour old AND older than entryTime
             const isBackfill =
               triggerTime && now - triggerTime > 60 * 60 * 1000; // More than 1 hour old
 
             if (isBackfill && triggerTime < entryTime) {
-              // This is a backfill - use triggerTimestamp for entryTime
-              updatedTrade.entryTime = triggerTimestamp;
+              bestMatchTimestamp = trade.triggerTimestamp;
+              bestMatchPrice = trade.entryPrice;
+              matchMethod = "triggerTimestamp";
+            }
+          }
+
+          // Method 2: Search trail data for when entry price was actually touched (last 3 days)
+          if (!bestMatchTimestamp && trade.ticker && trade.entryPrice) {
+            try {
+              const trail = (await kvGetJSON(KV, `timed:trail:${trade.ticker}`)) || [];
+              const entryPrice = Number(trade.entryPrice);
+              const priceTolerance = entryPrice * 0.005; // 0.5% tolerance
+
+              // Search through trail points in reverse (most recent first)
+              // Find the point where price matches entryPrice within tolerance
+              for (let i = trail.length - 1; i >= 0; i--) {
+                const point = trail[i];
+                if (!point.ts || !point.price) continue;
+
+                const pointTime = Number(point.ts);
+                const pointPrice = Number(point.price);
+
+                // Only consider points from last 3 days
+                if (pointTime < threeDaysAgo) continue;
+
+                // Check if price matches entry price (within tolerance)
+                const priceDiff = Math.abs(pointPrice - entryPrice);
+                if (priceDiff <= priceTolerance) {
+                  // Found a match - use this timestamp
+                  bestMatchTimestamp = new Date(pointTime).toISOString();
+                  bestMatchPrice = pointPrice;
+                  matchMethod = "trail_price_match";
+                  break; // Use first match (most recent)
+                }
+              }
+
+              // If no exact match, find closest price match in last 3 days
+              if (!bestMatchTimestamp) {
+                let closestDiff = Infinity;
+                let closestPoint = null;
+                for (const point of trail) {
+                  if (!point.ts || !point.price) continue;
+                  const pointTime = Number(point.ts);
+                  const pointPrice = Number(point.price);
+                  if (pointTime < threeDaysAgo) continue;
+
+                  const priceDiff = Math.abs(pointPrice - entryPrice);
+                  if (priceDiff < closestDiff) {
+                    closestDiff = priceDiff;
+                    closestPoint = point;
+                  }
+                }
+
+                // Use closest match if it's within 2% of entry price
+                if (closestPoint && closestDiff <= entryPrice * 0.02) {
+                  bestMatchTimestamp = new Date(Number(closestPoint.ts)).toISOString();
+                  bestMatchPrice = Number(closestPoint.price);
+                  matchMethod = "trail_closest_match";
+                }
+              }
+            } catch (err) {
+              // Ignore errors - trail data might not exist
+            }
+          }
+
+          // Method 3: Try to get triggerTimestamp from ticker's latest data
+          if (!bestMatchTimestamp && trade.ticker) {
+            try {
+              const tickerData = await kvGetJSON(
+                KV,
+                `timed:latest:${trade.ticker}`
+              );
+              if (tickerData && tickerData.trigger_ts) {
+                const triggerTime = Number(tickerData.trigger_ts);
+                // Only use if it's from last 3 days and older than current entryTime
+                if (triggerTime >= threeDaysAgo) {
+                  const entryTime = trade.entryTime ? new Date(trade.entryTime).getTime() : now;
+                  if (triggerTime < entryTime) {
+                    bestMatchTimestamp = new Date(triggerTime).toISOString();
+                    bestMatchPrice = tickerData.trigger_price || trade.entryPrice;
+                    matchMethod = "ticker_trigger_ts";
+                    // Store it in the trade for future reference
+                    updatedTrade.triggerTimestamp = bestMatchTimestamp;
+                  }
+                }
+              }
+            } catch (err) {
+              // Ignore errors
+            }
+          }
+
+          // Update entryTime if we found a better match
+          if (bestMatchTimestamp && trade.entryTime) {
+            const currentEntryTime = new Date(trade.entryTime).getTime();
+            const newEntryTime = new Date(bestMatchTimestamp).getTime();
+
+            // Only update if new time is significantly different (more than 5 minutes) and older
+            if (Math.abs(newEntryTime - currentEntryTime) > 5 * 60 * 1000 && newEntryTime < currentEntryTime) {
+              updatedTrade.entryTime = bestMatchTimestamp;
               updated = true;
+
+              // Also update entry price if we found a better match from trail
+              if (bestMatchPrice && matchMethod.includes("trail") && Math.abs(bestMatchPrice - trade.entryPrice) > trade.entryPrice * 0.01) {
+                updatedTrade.entryPrice = bestMatchPrice;
+              }
             }
           }
 
@@ -6450,6 +6540,7 @@ Provide 3-5 actionable next steps:
                 return {
                   ...event,
                   timestamp: updatedTrade.entryTime,
+                  price: updatedTrade.entryPrice || event.price,
                 };
               }
               return event;
@@ -6463,6 +6554,9 @@ Provide 3-5 actionable next steps:
               ticker: trade.ticker,
               oldEntryTime: trade.entryTime,
               newEntryTime: updatedTrade.entryTime,
+              oldEntryPrice: trade.entryPrice,
+              newEntryPrice: updatedTrade.entryPrice,
+              matchMethod: matchMethod,
             });
             const index = allTrades.findIndex((t) => t.id === trade.id);
             if (index >= 0) {
@@ -6480,7 +6574,7 @@ Provide 3-5 actionable next steps:
             ok: true,
             fixed,
             totalTrades: allTrades.length,
-            fixedTrades: fixedTrades.slice(0, 20), // Show first 20
+            fixedTrades: fixedTrades.slice(0, 50), // Show first 50
           },
           200,
           corsHeaders(env, req)
