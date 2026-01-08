@@ -4471,7 +4471,11 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
 
         const updates = (await Promise.all(updatesPromises))
           .filter(Boolean)
-          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          .sort((a, b) => {
+            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return timeB - timeA;
+          });
 
         return sendJSON(
           {
