@@ -837,7 +837,13 @@ function generateProactiveAlerts(allTickers, allTrades) {
 }
 
 // Process trade simulation for a ticker (called on ingest)
-async function processTradeSimulation(KV, ticker, tickerData, prevData, env = null) {
+async function processTradeSimulation(
+  KV,
+  ticker,
+  tickerData,
+  prevData,
+  env = null
+) {
   try {
     const tradesKey = "timed:trades:all";
     const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
@@ -908,40 +914,45 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData, env = nu
           console.log(
             `[TRADE SIM] Updated trade ${ticker} ${direction}: ${oldStatus} -> ${newStatus}`
           );
-          
+
           // Send Discord notifications for status changes
           if (env && newStatus !== oldStatus) {
-            const currentPrice = Number(tickerData.price || updatedTrade.currentPrice || 0);
+            const currentPrice = Number(
+              tickerData.price || updatedTrade.currentPrice || 0
+            );
             const pnl = updatedTrade.pnl || 0;
             const pnlPct = updatedTrade.pnlPct || 0;
-            
+
             if (newStatus === "TP_HIT_TRIM" && oldStatus !== "TP_HIT_TRIM") {
               // Trade trimmed
-              await notifyDiscord(
-                env,
-                `✂️ Trade Trimmed: ${ticker} ${direction}`,
-                [
-                  `Entry: $${existingOpenTrade.entryPrice.toFixed(2)}`,
-                  `Current: $${currentPrice.toFixed(2)}`,
-                  `TP Hit: $${Number(tickerData.tp || updatedTrade.tp).toFixed(2)}`,
-                  `P&L: $${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
-                  `Status: 50% trimmed, 50% remaining`,
-                ]
-              ).catch(() => {}); // Don't let Discord errors break trade updates
-            } else if ((newStatus === "WIN" || newStatus === "LOSS") && oldStatus !== "WIN" && oldStatus !== "LOSS") {
+              const embed = createTradeTrimmedEmbed(
+                ticker,
+                direction,
+                existingOpenTrade.entryPrice,
+                currentPrice,
+                Number(tickerData.tp || updatedTrade.tp),
+                pnl,
+                pnlPct
+              );
+              await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade updates
+            } else if (
+              (newStatus === "WIN" || newStatus === "LOSS") &&
+              oldStatus !== "WIN" &&
+              oldStatus !== "LOSS"
+            ) {
               // Trade closed
-              const emoji = newStatus === "WIN" ? "✅" : "❌";
-              await notifyDiscord(
-                env,
-                `${emoji} Trade Closed: ${ticker} ${direction} - ${newStatus}`,
-                [
-                  `Entry: $${existingOpenTrade.entryPrice.toFixed(2)}`,
-                  `Exit: $${currentPrice.toFixed(2)}`,
-                  `P&L: $${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
-                  `Rank: ${updatedTrade.rank || existingOpenTrade.rank || "N/A"}`,
-                  `RR: ${(updatedTrade.rr || existingOpenTrade.rr || 0).toFixed(2)}:1`,
-                ]
-              ).catch(() => {}); // Don't let Discord errors break trade updates
+              const embed = createTradeClosedEmbed(
+                ticker,
+                direction,
+                newStatus,
+                existingOpenTrade.entryPrice,
+                currentPrice,
+                pnl,
+                pnlPct,
+                updatedTrade.rank || existingOpenTrade.rank || 0,
+                updatedTrade.rr || existingOpenTrade.rr || 0
+              );
+              await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade updates
             }
           }
         }
@@ -1051,21 +1062,20 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData, env = nu
                 trade.rank
               }, Entry RR ${trade.rr.toFixed(2)})`
             );
-            
+
             // Send Discord notification for new trade entry
             if (env) {
-              await notifyDiscord(
-                env,
-                `🎯 Trade Entered: ${ticker} ${direction}`,
-                [
-                  `Entry: $${entryPrice.toFixed(2)}`,
-                  `SL: $${Number(tickerData.sl).toFixed(2)}`,
-                  `TP: $${Number(tickerData.tp).toFixed(2)}`,
-                  `RR: ${(entryRR || 0).toFixed(2)}:1`,
-                  `Rank: ${trade.rank || 0}`,
-                  `State: ${tickerData.state || "N/A"}`,
-                ]
-              ).catch(() => {}); // Don't let Discord errors break trade creation
+              const embed = createTradeEntryEmbed(
+                ticker,
+                direction,
+                entryPrice,
+                Number(tickerData.sl),
+                Number(tickerData.tp),
+                entryRR || 0,
+                trade.rank || 0,
+                tickerData.state || "N/A"
+              );
+              await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade creation
             }
           } else {
             console.log(
@@ -1576,7 +1586,8 @@ async function purgeOldData(KV) {
   return { purged: tickerCount, tickerCount };
 }
 
-async function notifyDiscord(env, title, lines = []) {
+// Send Discord notification with embed card styling
+async function notifyDiscord(env, embed) {
   if ((env.DISCORD_ENABLE || "false") !== "true") {
     console.log(
       `[DISCORD] Notifications disabled (DISCORD_ENABLE=${env.DISCORD_ENABLE})`
@@ -1588,13 +1599,13 @@ async function notifyDiscord(env, title, lines = []) {
     console.log(`[DISCORD] Webhook URL not configured`);
     return;
   }
-  const content = `**${title}**\n` + lines.map((x) => `• ${x}`).join("\n");
-  console.log(`[DISCORD] Sending notification: ${title}`);
+  
+  console.log(`[DISCORD] Sending notification: ${embed.title || "Untitled"}`);
   try {
     const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds: [embed] }),
     });
     if (!response.ok) {
       console.error(
@@ -1609,6 +1620,141 @@ async function notifyDiscord(env, title, lines = []) {
       message: error.message,
     });
   }
+}
+
+// Helper: Create Discord embed for trade entry
+function createTradeEntryEmbed(ticker, direction, entryPrice, sl, tp, rr, rank, state) {
+  const color = direction === "LONG" ? 0x00ff00 : 0xff0000; // Green for LONG, Red for SHORT
+  return {
+    title: `🎯 Trade Entered: ${ticker} ${direction}`,
+    color: color,
+    fields: [
+      {
+        name: "Entry Price",
+        value: `$${entryPrice.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Stop Loss",
+        value: `$${sl.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Take Profit",
+        value: `$${tp.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Risk/Reward",
+        value: `${rr.toFixed(2)}:1`,
+        inline: true,
+      },
+      {
+        name: "Rank",
+        value: `${rank}`,
+        inline: true,
+      },
+      {
+        name: "State",
+        value: state || "N/A",
+        inline: true,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: "Timed Trading Simulator",
+    },
+  };
+}
+
+// Helper: Create Discord embed for trade trimmed
+function createTradeTrimmedEmbed(ticker, direction, entryPrice, currentPrice, tp, pnl, pnlPct) {
+  return {
+    title: `✂️ Trade Trimmed: ${ticker} ${direction}`,
+    color: 0xffaa00, // Orange
+    fields: [
+      {
+        name: "Entry Price",
+        value: `$${entryPrice.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Current Price",
+        value: `$${currentPrice.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "TP Hit",
+        value: `$${tp.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Realized P&L",
+        value: `$${pnl.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "P&L %",
+        value: `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`,
+        inline: true,
+      },
+      {
+        name: "Status",
+        value: "50% trimmed, 50% remaining",
+        inline: true,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: "Timed Trading Simulator",
+    },
+  };
+}
+
+// Helper: Create Discord embed for trade closed
+function createTradeClosedEmbed(ticker, direction, status, entryPrice, exitPrice, pnl, pnlPct, rank, rr) {
+  const color = status === "WIN" ? 0x00ff00 : 0xff0000; // Green for WIN, Red for LOSS
+  const emoji = status === "WIN" ? "✅" : "❌";
+  return {
+    title: `${emoji} Trade Closed: ${ticker} ${direction} - ${status}`,
+    color: color,
+    fields: [
+      {
+        name: "Entry Price",
+        value: `$${entryPrice.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Exit Price",
+        value: `$${exitPrice.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Final P&L",
+        value: `$${pnl.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "P&L %",
+        value: `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`,
+        inline: true,
+      },
+      {
+        name: "Rank",
+        value: `${rank || "N/A"}`,
+        inline: true,
+      },
+      {
+        name: "RR",
+        value: `${rr.toFixed(2)}:1`,
+        inline: true,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: "Timed Trading Simulator",
+    },
+  };
 }
 
 function requireKeyOr401(req, env) {
@@ -1685,7 +1831,7 @@ export default {
           }`
         );
 
-      const authFail = requireKeyOr401(req, env);
+        const authFail = requireKeyOr401(req, env);
         if (authFail) {
           console.log(`[INGEST AUTH FAILED] IP: ${ip}`);
           return authFail;
@@ -1700,64 +1846,64 @@ export default {
               err || "unknown"
             )}, Raw sample: ${String(raw || "").slice(0, 200)}`
           );
-        return ackJSON(
-          env,
-          {
-            ok: false,
-            error: "bad_json",
-            sample: String(raw || "").slice(0, 200),
-            parseError: String(err || ""),
-          },
+          return ackJSON(
+            env,
+            {
+              ok: false,
+              error: "bad_json",
+              sample: String(raw || "").slice(0, 200),
+              parseError: String(err || ""),
+            },
             400,
             req
-        );
+          );
         }
 
-      // Log raw payload for debugging (especially for missing tickers)
-      const tickerFromBody = normTicker(body?.ticker);
-      console.log(`[INGEST RAW] ${tickerFromBody || "UNKNOWN"}:`, {
-        hasTicker: !!body?.ticker,
-        hasTs: body?.ts !== undefined,
-        hasHtf: body?.htf_score !== undefined,
-        hasLtf: body?.ltf_score !== undefined,
-        ts: body?.ts,
-        htf: body?.htf_score,
-        ltf: body?.ltf_score,
-        tsType: typeof body?.ts,
-        htfType: typeof body?.htf_score,
-        ltfType: typeof body?.ltf_score,
-      });
+        // Log raw payload for debugging (especially for missing tickers)
+        const tickerFromBody = normTicker(body?.ticker);
+        console.log(`[INGEST RAW] ${tickerFromBody || "UNKNOWN"}:`, {
+          hasTicker: !!body?.ticker,
+          hasTs: body?.ts !== undefined,
+          hasHtf: body?.htf_score !== undefined,
+          hasLtf: body?.ltf_score !== undefined,
+          ts: body?.ts,
+          htf: body?.htf_score,
+          ltf: body?.ltf_score,
+          tsType: typeof body?.ts,
+          htfType: typeof body?.htf_score,
+          ltfType: typeof body?.ltf_score,
+        });
 
-      const v = validateTimedPayload(body);
-      if (!v.ok) {
-        console.log(
-          `[INGEST VALIDATION FAILED] ${tickerFromBody || "UNKNOWN"}:`,
-          {
-            error: v.error,
-            ticker: body?.ticker,
-            ts: body?.ts,
-            htf: body?.htf_score,
-            ltf: body?.ltf_score,
-          }
-        );
-        return ackJSON(env, v, 400, req);
-      }
+        const v = validateTimedPayload(body);
+        if (!v.ok) {
+          console.log(
+            `[INGEST VALIDATION FAILED] ${tickerFromBody || "UNKNOWN"}:`,
+            {
+              error: v.error,
+              ticker: body?.ticker,
+              ts: body?.ts,
+              htf: body?.htf_score,
+              ltf: body?.ltf_score,
+            }
+          );
+          return ackJSON(env, v, 400, req);
+        }
 
-      const ticker = v.ticker;
-      const payload = v.payload;
+        const ticker = v.ticker;
+        const payload = v.payload;
 
-      // Log ingestion for debugging
-      console.log(`[INGEST] ${ticker}:`, {
-        ts: payload.ts,
-        htf: payload.htf_score,
-        ltf: payload.ltf_score,
-        state: payload.state,
-        price: payload.price,
+        // Log ingestion for debugging
+        console.log(`[INGEST] ${ticker}:`, {
+          ts: payload.ts,
+          htf: payload.htf_score,
+          ltf: payload.ltf_score,
+          state: payload.state,
+          price: payload.price,
           script_version: payload.script_version,
-      });
+        });
 
         // Check version and migrate if needed (non-blocking for large migrations)
-      const incomingVersion = payload.script_version || "unknown";
+        const incomingVersion = payload.script_version || "unknown";
         const storedVersion = await getStoredVersion(KV);
         let migration = { migrated: false, reason: "version_match" };
 
@@ -1766,7 +1912,7 @@ export default {
           await setStoredVersion(KV, incomingVersion);
         } else if (storedVersion !== incomingVersion) {
           // Version changed - run migration in background to avoid timeout
-        console.log(
+          console.log(
             `Version change detected: ${storedVersion} -> ${incomingVersion}, starting background migration`
           );
 
@@ -1790,8 +1936,8 @@ export default {
                   `Background migration completed: ${result.oldVersion} -> ${
                     result.newVersion
                   }, purged ${result.tickerCount || 0} tickers`
-        );
-        // Optionally notify Discord about migration
+                );
+                // Optionally notify Discord about migration
                 notifyDiscord(env, `🔄 Data Model Migration`, [
                   `Version: ${result.oldVersion} → ${result.newVersion}`,
                   `Tickers purged: ${result.tickerCount || 0}`,
@@ -1820,23 +1966,23 @@ export default {
         // Note: For Force Baseline, TV sends all alerts with same timestamp/data structure
         // We still want to index all tickers, so dedupe only prevents duplicate alert processing
         // but ticker indexing happens regardless
-      const basis = JSON.stringify({
-        ts: payload.ts,
-        htf: payload.htf_score,
-        ltf: payload.ltf_score,
-        state: payload.state || "",
-        completion: payload.completion,
-        phase_pct: payload.phase_pct,
-        rr: payload.rr,
-        trigger_ts: payload.trigger_ts,
+        const basis = JSON.stringify({
+          ts: payload.ts,
+          htf: payload.htf_score,
+          ltf: payload.ltf_score,
+          state: payload.state || "",
+          completion: payload.completion,
+          phase_pct: payload.phase_pct,
+          rr: payload.rr,
+          trigger_ts: payload.trigger_ts,
           // Note: We don't include ticker in hash because Force Baseline sends same data structure for all
           // Dedupe is per-ticker, so each ticker gets processed even if data is identical
-      });
+        });
 
-      const hash = stableHash(basis);
-      const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
-      const alreadyDeduped = await KV.get(dedupeKey);
-      if (alreadyDeduped) {
+        const hash = stableHash(basis);
+        const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
+        const alreadyDeduped = await KV.get(dedupeKey);
+        if (alreadyDeduped) {
           console.log(
             `[INGEST DEDUPED] ${ticker} - same data within 60s (hash: ${hash.substring(
               0,
@@ -1858,9 +2004,9 @@ export default {
           console.log(
             `[INGEST DEDUPED BUT STORED] ${ticker} - updated latest data and ensured in index`
           );
-        return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
-      }
-      await kvPutText(KV, dedupeKey, "1", 60);
+          return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
+        }
+        await kvPutText(KV, dedupeKey, "1", 60);
         console.log(
           `[INGEST NOT DEDUPED] ${ticker} - new or changed data (hash: ${hash.substring(
             0,
@@ -1868,191 +2014,191 @@ export default {
           )})`
         );
 
-      // Derived: staleness
-      const stale = stalenessBucket(ticker, payload.ts);
-      payload.market_type = stale.mt;
-      payload.age_min = stale.ageMin;
-      payload.staleness = stale.bucket;
+        // Derived: staleness
+        const stale = stalenessBucket(ticker, payload.ts);
+        payload.market_type = stale.mt;
+        payload.age_min = stale.ageMin;
+        payload.staleness = stale.bucket;
 
-      // Derived: rr/rank
-      payload.rr = payload.rr ?? computeRR(payload);
-      // (optional clamp to prevent any bizarre edge cases)
-      if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
+        // Derived: rr/rank
+        payload.rr = payload.rr ?? computeRR(payload);
+        // (optional clamp to prevent any bizarre edge cases)
+        if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
 
-      // Calculate Momentum Elite (worker-based with caching)
+        // Calculate Momentum Elite (worker-based with caching)
         const momentumEliteData = await computeMomentumElite(
           KV,
           ticker,
           payload
         );
-      if (momentumEliteData && momentumEliteData.momentum_elite) {
-        // Update flags with Momentum Elite status
-        if (!payload.flags) payload.flags = {};
-        payload.flags.momentum_elite = true;
-        // Store full criteria for debugging/display
-        payload.momentum_elite_criteria = momentumEliteData.criteria;
-      } else {
-        // Ensure flag is set to false if not elite
-        if (!payload.flags) payload.flags = {};
-        payload.flags.momentum_elite = false;
-      }
+        if (momentumEliteData && momentumEliteData.momentum_elite) {
+          // Update flags with Momentum Elite status
+          if (!payload.flags) payload.flags = {};
+          payload.flags.momentum_elite = true;
+          // Store full criteria for debugging/display
+          payload.momentum_elite_criteria = momentumEliteData.criteria;
+        } else {
+          // Ensure flag is set to false if not elite
+          if (!payload.flags) payload.flags = {};
+          payload.flags.momentum_elite = false;
+        }
 
-      payload.rank = computeRank(payload);
+        payload.rank = computeRank(payload);
 
-      // Detect state transition into aligned (enter Q2/Q3)
-      const prevKey = `timed:prevstate:${ticker}`;
-      const prevState = await KV.get(prevKey);
-      await kvPutText(
-        KV,
-        prevKey,
-        String(payload.state || ""),
-        7 * 24 * 60 * 60
-      );
+        // Detect state transition into aligned (enter Q2/Q3)
+        const prevKey = `timed:prevstate:${ticker}`;
+        const prevState = await KV.get(prevKey);
+        await kvPutText(
+          KV,
+          prevKey,
+          String(payload.state || ""),
+          7 * 24 * 60 * 60
+        );
 
-      const state = String(payload.state || "");
-      const alignedLong = state === "HTF_BULL_LTF_BULL";
-      const alignedShort = state === "HTF_BEAR_LTF_BEAR";
-      const aligned = alignedLong || alignedShort;
-      const enteredAligned = aligned && prevState !== state;
+        const state = String(payload.state || "");
+        const alignedLong = state === "HTF_BULL_LTF_BULL";
+        const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+        const aligned = alignedLong || alignedShort;
+        const enteredAligned = aligned && prevState !== state;
 
-      const trigReason = String(payload.trigger_reason || "");
-      const trigOk =
-        trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+        const trigReason = String(payload.trigger_reason || "");
+        const trigOk =
+          trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
 
-      const flags = payload.flags || {};
-      const sqRel = !!flags.sq30_release;
+        const flags = payload.flags || {};
+        const sqRel = !!flags.sq30_release;
 
-      // Corridor-only logic (must match UI)
-      const side = corridorSide(payload); // LONG/SHORT/null
-      const inCorridor = !!side;
+        // Corridor-only logic (must match UI)
+        const side = corridorSide(payload); // LONG/SHORT/null
+        const inCorridor = !!side;
 
-      // corridor must match alignment
-      const corridorAlignedOK =
+        // corridor must match alignment
+        const corridorAlignedOK =
           (side === "LONG" && alignedLong) ||
           (side === "SHORT" && alignedShort);
 
-      // Allow alerts if:
-      // 1. In corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
-      // 2. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
-      const shouldConsiderAlert =
-        inCorridor &&
-        ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
-          (sqRel && side)); // Squeeze release in corridor is a valid trigger even if not fully aligned
+        // Allow alerts if:
+        // 1. In corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
+        // 2. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
+        const shouldConsiderAlert =
+          inCorridor &&
+          ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
+            (sqRel && side)); // Squeeze release in corridor is a valid trigger even if not fully aligned
 
-      // Activity feed tracking - detect events
-      const prevCorridorKey = `timed:prevcorridor:${ticker}`;
-      const prevInCorridor = await KV.get(prevCorridorKey);
-      const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
-      const prevSqueezeOn = await KV.get(prevSqueezeKey);
-      const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
-      const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
-      const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
-      const prevMomentumElite = await KV.get(prevMomentumEliteKey);
+        // Activity feed tracking - detect events
+        const prevCorridorKey = `timed:prevcorridor:${ticker}`;
+        const prevInCorridor = await KV.get(prevCorridorKey);
+        const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
+        const prevSqueezeOn = await KV.get(prevSqueezeKey);
+        const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
+        const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
+        const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
+        const prevMomentumElite = await KV.get(prevMomentumEliteKey);
 
-      // Track corridor entry
-      if (inCorridor && prevInCorridor !== "true") {
-        await appendActivity(KV, {
-          type: "corridor_entry",
-          ticker: ticker,
-          side: side,
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
+        // Track corridor entry
+        if (inCorridor && prevInCorridor !== "true") {
+          await appendActivity(KV, {
+            type: "corridor_entry",
+            ticker: ticker,
+            side: side,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
             sl: payload.sl,
             tp: payload.tp,
             tp_levels: payload.tp_levels,
             rr: payload.rr,
             phase_pct: payload.phase_pct,
             completion: payload.completion,
-        });
-        await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
-      } else if (!inCorridor && prevInCorridor === "true") {
-        await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
-      }
+          });
+          await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
+        } else if (!inCorridor && prevInCorridor === "true") {
+          await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
+        }
 
-      // Track squeeze start
-      if (flags.sq30_on && prevSqueezeOn !== "true") {
-        await appendActivity(KV, {
-          type: "squeeze_start",
-          ticker: ticker,
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
+        // Track squeeze start
+        if (flags.sq30_on && prevSqueezeOn !== "true") {
+          await appendActivity(KV, {
+            type: "squeeze_start",
+            ticker: ticker,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
             sl: payload.sl,
             tp: payload.tp,
             tp_levels: payload.tp_levels,
             rr: payload.rr,
             phase_pct: payload.phase_pct,
             completion: payload.completion,
-        });
-        await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
-      } else if (!flags.sq30_on && prevSqueezeOn === "true") {
-        await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
-      }
+          });
+          await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
+        } else if (!flags.sq30_on && prevSqueezeOn === "true") {
+          await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
+        }
 
-      // Track squeeze release
-      if (sqRel && prevSqueezeRel !== "true") {
-        await appendActivity(KV, {
-          type: "squeeze_release",
-          ticker: ticker,
+        // Track squeeze release
+        if (sqRel && prevSqueezeRel !== "true") {
+          await appendActivity(KV, {
+            type: "squeeze_release",
+            ticker: ticker,
             side:
               side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
-          trigger_dir: payload.trigger_dir,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            trigger_dir: payload.trigger_dir,
             sl: payload.sl,
             tp: payload.tp,
             tp_levels: payload.tp_levels,
             rr: payload.rr,
             phase_pct: payload.phase_pct,
             completion: payload.completion,
-        });
-        await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
-      } else if (!sqRel && prevSqueezeRel === "true") {
-        await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
-      }
+          });
+          await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
+        } else if (!sqRel && prevSqueezeRel === "true") {
+          await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
+        }
 
-      // Track state change to aligned
-      if (enteredAligned) {
-        await appendActivity(KV, {
-          type: "state_aligned",
-          ticker: ticker,
-          side: alignedLong ? "LONG" : "SHORT",
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
+        // Track state change to aligned
+        if (enteredAligned) {
+          await appendActivity(KV, {
+            type: "state_aligned",
+            ticker: ticker,
+            side: alignedLong ? "LONG" : "SHORT",
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
             sl: payload.sl,
             tp: payload.tp,
             tp_levels: payload.tp_levels,
             rr: payload.rr,
             phase_pct: payload.phase_pct,
             completion: payload.completion,
-        });
-      }
+          });
+        }
 
-      // Track Momentum Elite status change
-      const currentMomentumElite = !!(
-        payload.flags && payload.flags.momentum_elite
-      );
-      if (currentMomentumElite && prevMomentumElite !== "true") {
-        await appendActivity(KV, {
-          type: "momentum_elite",
-          ticker: ticker,
-          price: payload.price,
-          state: payload.state,
-          rank: payload.rank,
+        // Track Momentum Elite status change
+        const currentMomentumElite = !!(
+          payload.flags && payload.flags.momentum_elite
+        );
+        if (currentMomentumElite && prevMomentumElite !== "true") {
+          await appendActivity(KV, {
+            type: "momentum_elite",
+            ticker: ticker,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
             sl: payload.sl,
             tp: payload.tp,
             tp_levels: payload.tp_levels,
             rr: payload.rr,
             phase_pct: payload.phase_pct,
             completion: payload.completion,
-        });
-        await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
-      } else if (!currentMomentumElite && prevMomentumElite === "true") {
-        await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
-      }
+          });
+          await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
+        } else if (!currentMomentumElite && prevMomentumElite === "true") {
+          await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
+        }
 
         // Add ingestion timestamp to payload for per-ticker tracking
         const now = Date.now();
@@ -2062,8 +2208,8 @@ export default {
         // Get previous data BEFORE storing new data (for trade simulation comparison)
         const prevLatest = await kvGetJSON(KV, `timed:latest:${ticker}`);
 
-      // Store latest (do this BEFORE alert so UI has it)
-      await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+        // Store latest (do this BEFORE alert so UI has it)
+        await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
         console.log(
           `[INGEST STORED] ${ticker} - latest data saved at ${new Date(
             now
@@ -2073,29 +2219,29 @@ export default {
         // Process trade simulation (create/update trades automatically)
         await processTradeSimulation(KV, ticker, payload, prevLatest, env);
 
-      // Trail (light)
-      await appendTrail(
-        KV,
-        ticker,
-        {
-          ts: payload.ts,
-          price: payload.price, // Add price to trail for momentum calculations
-          htf_score: payload.htf_score,
-          ltf_score: payload.ltf_score,
-          completion: payload.completion,
-          phase_pct: payload.phase_pct,
-          state: payload.state,
-          rank: payload.rank,
-          flags: payload.flags || {},
-          momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
-          trigger_reason: payload.trigger_reason,
-          trigger_dir: payload.trigger_dir,
-        },
-        20
-      ); // Increased to 20 points for better history
+        // Trail (light)
+        await appendTrail(
+          KV,
+          ticker,
+          {
+            ts: payload.ts,
+            price: payload.price, // Add price to trail for momentum calculations
+            htf_score: payload.htf_score,
+            ltf_score: payload.ltf_score,
+            completion: payload.completion,
+            phase_pct: payload.phase_pct,
+            state: payload.state,
+            rank: payload.rank,
+            flags: payload.flags || {},
+            momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
+            trigger_reason: payload.trigger_reason,
+            trigger_dir: payload.trigger_dir,
+          },
+          20
+        ); // Increased to 20 points for better history
 
-      await ensureTickerIndex(KV, ticker);
-      await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
+        await ensureTickerIndex(KV, ticker);
+        await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
 
         // Get current ticker count for logging
         const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
@@ -2119,78 +2265,78 @@ export default {
           );
         }
 
-      // Threshold gates (with Momentum Elite adjustments)
-      const momentumElite = !!flags.momentum_elite;
+        // Threshold gates (with Momentum Elite adjustments)
+        const momentumElite = !!flags.momentum_elite;
 
-      // Momentum Elite gets relaxed thresholds (higher quality stocks)
-      const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
-      const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
-      const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
-      const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
+        // Momentum Elite gets relaxed thresholds (higher quality stocks)
+        const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
+        const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
+        const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
+        const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
 
-      // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
+        // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
         const minRR = momentumElite
           ? Math.max(1.2, baseMinRR * 0.9)
           : baseMinRR; // Lower RR requirement
-      const maxComp = momentumElite
-        ? Math.min(0.5, baseMaxComp * 1.25)
-        : baseMaxComp; // Allow higher completion
-      const maxPhase = momentumElite
-        ? Math.min(0.7, baseMaxPhase * 1.17)
-        : baseMaxPhase; // Allow higher phase
-      const minRank = momentumElite
-        ? Math.max(60, baseMinRank - 10)
-        : baseMinRank; // Lower rank requirement
+        const maxComp = momentumElite
+          ? Math.min(0.5, baseMaxComp * 1.25)
+          : baseMaxComp; // Allow higher completion
+        const maxPhase = momentumElite
+          ? Math.min(0.7, baseMaxPhase * 1.17)
+          : baseMaxPhase; // Allow higher phase
+        const minRank = momentumElite
+          ? Math.max(60, baseMinRank - 10)
+          : baseMinRank; // Lower rank requirement
 
-      const rrOk = payload.rr != null && Number(payload.rr) >= minRR;
-      const compOk =
-        payload.completion == null
-          ? true
-          : Number(payload.completion) <= maxComp;
-      const phaseOk =
-        payload.phase_pct == null
-          ? true
-          : Number(payload.phase_pct) <= maxPhase;
-      const rankOk = Number(payload.rank || 0) >= minRank;
+        const rrOk = payload.rr != null && Number(payload.rr) >= minRR;
+        const compOk =
+          payload.completion == null
+            ? true
+            : Number(payload.completion) <= maxComp;
+        const phaseOk =
+          payload.phase_pct == null
+            ? true
+            : Number(payload.phase_pct) <= maxPhase;
+        const rankOk = Number(payload.rank || 0) >= minRank;
 
-      // Also consider Momentum Elite as a trigger condition (quality signal)
-      // Momentum Elite can trigger even if not fully aligned, as long as in corridor
-      const momentumEliteTrigger =
-        momentumElite && inCorridor && (corridorAlignedOK || sqRel);
+        // Also consider Momentum Elite as a trigger condition (quality signal)
+        // Momentum Elite can trigger even if not fully aligned, as long as in corridor
+        const momentumEliteTrigger =
+          momentumElite && inCorridor && (corridorAlignedOK || sqRel);
 
-      // Enhanced trigger: original conditions OR Momentum Elite in good setup
-      const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+        // Enhanced trigger: original conditions OR Momentum Elite in good setup
+        const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-      // Debug logging for alert conditions - log all tickers in corridor
-      if (inCorridor) {
-        console.log(`[ALERT DEBUG] ${ticker}:`, {
-          inCorridor,
-          corridorAlignedOK,
-          side,
-          state: payload.state,
-          enteredAligned,
-          trigOk,
-          trigReason,
-          sqRel,
-          shouldConsiderAlert,
-          momentumEliteTrigger,
-          enhancedTrigger,
-          rrOk,
-          rr: payload.rr,
-          minRR,
-          compOk,
-          completion: payload.completion,
-          maxComp,
-          phaseOk,
-          phase: payload.phase_pct,
-          maxPhase,
-          rankOk,
-          rank: payload.rank,
-          minRank,
-          momentumElite,
-          flags: payload.flags,
-        });
-      }
+        // Debug logging for alert conditions - log all tickers in corridor
+        if (inCorridor) {
+          console.log(`[ALERT DEBUG] ${ticker}:`, {
+            inCorridor,
+            corridorAlignedOK,
+            side,
+            state: payload.state,
+            enteredAligned,
+            trigOk,
+            trigReason,
+            sqRel,
+            shouldConsiderAlert,
+            momentumEliteTrigger,
+            enhancedTrigger,
+            rrOk,
+            rr: payload.rr,
+            minRR,
+            compOk,
+            completion: payload.completion,
+            maxComp,
+            phaseOk,
+            phase: payload.phase_pct,
+            maxPhase,
+            rankOk,
+            rank: payload.rank,
+            minRank,
+            momentumElite,
+            flags: payload.flags,
+          });
+        }
 
         // Log alert evaluation summary
         console.log(`[ALERT EVAL] ${ticker}:`, {
@@ -2209,86 +2355,142 @@ export default {
 
         // Trade simulation already processed above (before alert logic)
 
-      if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
-        // Dedup alert by trigger_ts if present (best), else ts
-        const keyTs =
-          payload.trigger_ts != null
-            ? String(payload.trigger_ts)
-            : String(payload.ts);
-        const akey = `timed:alerted:${ticker}:${keyTs}`;
-        const alreadyAlerted = await KV.get(akey);
+        if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
+          // Dedup alert by trigger_ts if present (best), else ts
+          const keyTs =
+            payload.trigger_ts != null
+              ? String(payload.trigger_ts)
+              : String(payload.ts);
+          const akey = `timed:alerted:${ticker}:${keyTs}`;
+          const alreadyAlerted = await KV.get(akey);
 
-        if (!alreadyAlerted) {
-          await kvPutText(KV, akey, "1", 24 * 60 * 60);
+          if (!alreadyAlerted) {
+            await kvPutText(KV, akey, "1", 24 * 60 * 60);
 
-          console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
-            akey,
-            keyTs,
-            side,
-            rank: payload.rank,
-          });
+            console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
+              akey,
+              keyTs,
+              side,
+              rank: payload.rank,
+            });
 
-          const why =
-            (side === "LONG"
-              ? "Entry corridor Q1→Q2"
-              : "Entry corridor Q4→Q3") +
-            (momentumElite ? " | 🚀 Momentum Elite" : "") +
-            (enteredAligned ? " | Entered aligned" : "") +
-            (trigReason
-              ? ` | ${trigReason}${
-                  payload.trigger_dir ? " (" + payload.trigger_dir + ")" : ""
-                }`
-              : "") +
-            (sqRel ? " | ⚡ squeeze release" : "");
+            const why =
+              (side === "LONG"
+                ? "Entry corridor Q1→Q2"
+                : "Entry corridor Q4→Q3") +
+              (momentumElite ? " | 🚀 Momentum Elite" : "") +
+              (enteredAligned ? " | Entered aligned" : "") +
+              (trigReason
+                ? ` | ${trigReason}${
+                    payload.trigger_dir ? " (" + payload.trigger_dir + ")" : ""
+                  }`
+                : "") +
+              (sqRel ? " | ⚡ squeeze release" : "");
 
-          const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-            ticker
-          )}`;
+            const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+              ticker
+            )}`;
 
-          await notifyDiscord(
-            env,
-            `TimedTrading 🎯 ${ticker} — ${side} (Rank ${payload.rank})`,
-            [
-              `Why: ${why}`,
-              `State: ${payload.state}`,
-              `HTF/LTF: ${fmt2(payload.htf_score)} / ${fmt2(
-                payload.ltf_score
-              )}`,
-              `Trigger: ${fmt2(payload.trigger_price)} | Price: ${fmt2(
-                payload.price
-              )}`,
-              `SL: ${fmt2(payload.sl)} | TP: ${fmt2(payload.tp)} | ETA: ${
-                payload.eta_days != null
-                  ? Number(payload.eta_days).toFixed(1) + "d"
-                  : "—"
-              }`,
-              `RR: ${
-                payload.rr != null ? Number(payload.rr).toFixed(2) : "—"
-              } | Rank: ${payload.rank}`,
-              `Completion: ${pct01(payload.completion)} | Phase: ${pct01(
-                payload.phase_pct
-              )}`,
-              `Link: ${tv}`,
-            ]
-          );
-        } else {
-          console.log(`[DISCORD ALERT] Skipped ${ticker} - already alerted`, {
-            akey,
-            keyTs,
-          });
-        }
-      } else if (inCorridor && corridorAlignedOK) {
-        // Log why alert didn't fire
-        const reasons = [];
-        if (!enhancedTrigger) reasons.push("no trigger condition");
-        if (!rrOk) reasons.push(`RR ${payload.rr} < ${minRR}`);
-        if (!compOk)
-          reasons.push(`Completion ${payload.completion} > ${maxComp}`);
+            // Create Discord embed for trading opportunity
+            const rr = payload.rr || 0;
+            const rrFormatted = rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+            const opportunityEmbed = {
+              title: `🎯 Trading Opportunity: ${ticker} ${side}`,
+              color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
+              fields: [
+                {
+                  name: "Rank",
+                  value: `${payload.rank}`,
+                  inline: true,
+                },
+                {
+                  name: "State",
+                  value: payload.state || "N/A",
+                  inline: true,
+                },
+                {
+                  name: "Why",
+                  value: why || "N/A",
+                  inline: false,
+                },
+                {
+                  name: "HTF Score",
+                  value: `${fmt2(payload.htf_score)}`,
+                  inline: true,
+                },
+                {
+                  name: "LTF Score",
+                  value: `${fmt2(payload.ltf_score)}`,
+                  inline: true,
+                },
+                {
+                  name: "Risk/Reward",
+                  value: rrFormatted,
+                  inline: true,
+                },
+                {
+                  name: "Trigger Price",
+                  value: `$${fmt2(payload.trigger_price)}`,
+                  inline: true,
+                },
+                {
+                  name: "Current Price",
+                  value: `$${fmt2(payload.price)}`,
+                  inline: true,
+                },
+                {
+                  name: "ETA",
+                  value: payload.eta_days != null
+                    ? `${Number(payload.eta_days).toFixed(1)}d`
+                    : "—",
+                  inline: true,
+                },
+                {
+                  name: "Stop Loss",
+                  value: `$${fmt2(payload.sl)}`,
+                  inline: true,
+                },
+                {
+                  name: "Take Profit",
+                  value: `$${fmt2(payload.tp)}`,
+                  inline: true,
+                },
+                {
+                  name: "Completion",
+                  value: `${pct01(payload.completion)}`,
+                  inline: true,
+                },
+                {
+                  name: "Phase",
+                  value: `${pct01(payload.phase_pct)}`,
+                  inline: true,
+                },
+              ],
+              timestamp: new Date().toISOString(),
+              footer: {
+                text: "Timed Trading Alert",
+              },
+              url: tv, // Make the title clickable to open TradingView
+            };
+            await notifyDiscord(env, opportunityEmbed);
+          } else {
+            console.log(`[DISCORD ALERT] Skipped ${ticker} - already alerted`, {
+              akey,
+              keyTs,
+            });
+          }
+        } else if (inCorridor && corridorAlignedOK) {
+          // Log why alert didn't fire
+          const reasons = [];
+          if (!enhancedTrigger) reasons.push("no trigger condition");
+          if (!rrOk) reasons.push(`RR ${payload.rr} < ${minRR}`);
+          if (!compOk)
+            reasons.push(`Completion ${payload.completion} > ${maxComp}`);
           if (!phaseOk)
             reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
-        if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
-        console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
-      }
+          if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
+          console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
+        }
 
         // Get final ticker count
         const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
@@ -2431,9 +2633,9 @@ export default {
           // Only return data matching the current version (filter out old version data)
           const tickerVersion = value.script_version || "unknown";
           if (tickerVersion === storedVersion) {
-          // Always recompute RR to ensure it uses the latest max TP from tp_levels
-          value.rr = computeRR(value);
-          data[ticker] = value;
+            // Always recompute RR to ensure it uses the latest max TP from tp_levels
+            value.rr = computeRR(value);
+            data[ticker] = value;
           } else {
             versionFilteredCount++;
           }
@@ -5529,7 +5731,13 @@ Provide a structured analysis with:
             const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
             if (latestData) {
               const prevLatest = null; // No previous data for manual simulation
-              await processTradeSimulation(KV, ticker, latestData, prevLatest, env);
+              await processTradeSimulation(
+                KV,
+                ticker,
+                latestData,
+                prevLatest,
+                env
+              );
               results.processed++;
             } else {
               results.skipped++;
