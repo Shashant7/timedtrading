@@ -1014,7 +1014,7 @@ async function processTradeSimulation(
     } else {
       // Check if we should create a new trade
       // Use current market price as entry price (price field from TradingView)
-      // trigger_price is historical and may not reflect actual entry price
+      // For real-time alerts, always use current price. Only use trigger_price for confirmed backfills.
       let entryPrice =
         Number(tickerData.price) || Number(tickerData.trigger_price);
       const priceSource = tickerData.price ? "price" : "trigger_price";
@@ -1032,26 +1032,50 @@ async function processTradeSimulation(
         : null;
       const isBackfill = triggerTime && now - triggerTime > 60 * 60 * 1000; // More than 1 hour old
 
-      // For backfills, prefer trigger_price as entry price if available (more accurate for historical data)
+      // For backfills ONLY: use trigger_price if it's significantly different from current price
+      // This ensures real-time alerts always use current market price, not historical trigger_price
       if (
         isBackfill &&
         tickerData.trigger_price &&
-        Number(tickerData.trigger_price) > 0
+        Number(tickerData.trigger_price) > 0 &&
+        tickerData.price &&
+        Number(tickerData.price) > 0
       ) {
         const triggerPrice = Number(tickerData.trigger_price);
+        const currentPrice = Number(tickerData.price);
         // Only use trigger_price if it's significantly different from current price (indicates backfill)
-        const priceDiff = Math.abs(triggerPrice - entryPrice) / entryPrice;
+        const priceDiff = Math.abs(triggerPrice - currentPrice) / currentPrice;
         if (priceDiff > 0.01) {
-          // More than 1% difference
+          // More than 1% difference - use trigger_price for backfill
           entryPrice = triggerPrice;
           console.log(
             `[TRADE SIM] Using trigger_price $${triggerPrice.toFixed(
               2
-            )} for backfill (current: $${Number(tickerData.price || 0).toFixed(
+            )} for backfill (current: $${currentPrice.toFixed(2)})`
+          );
+        } else {
+          // Price is close - use current price even for backfills (more accurate)
+          entryPrice = currentPrice;
+          console.log(
+            `[TRADE SIM] Using current price $${currentPrice.toFixed(
               2
-            )})`
+            )} (trigger_price $${triggerPrice.toFixed(
+              2
+            )} is close, not using for backfill)`
           );
         }
+      } else if (
+        !isBackfill &&
+        tickerData.price &&
+        Number(tickerData.price) > 0
+      ) {
+        // Real-time alert: ALWAYS use current market price, never trigger_price
+        entryPrice = Number(tickerData.price);
+        console.log(
+          `[TRADE SIM] Real-time alert: using current price $${entryPrice.toFixed(
+            2
+          )} (not trigger_price)`
+        );
       }
 
       console.log(
