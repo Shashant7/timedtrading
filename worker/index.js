@@ -4984,10 +4984,7 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
     }
 
     // POST /timed/debug/purge-ticker?key=...&ticker=RIOT - Delete ALL trades for a specific ticker
-    if (
-      url.pathname === "/timed/debug/purge-ticker" &&
-      req.method === "POST"
-    ) {
+    if (url.pathname === "/timed/debug/purge-ticker" && req.method === "POST") {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
 
@@ -4995,7 +4992,7 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
         const tradesKey = "timed:trades:all";
         const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
         const tickerFilter = url.searchParams.get("ticker");
-        
+
         if (!tickerFilter) {
           return sendJSON(
             { ok: false, error: "ticker parameter required" },
@@ -5006,12 +5003,12 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
 
         const tickerUpper = String(tickerFilter).toUpperCase();
         const beforeCount = allTrades.length;
-        
+
         // Filter out all trades for this ticker
         const filteredTrades = allTrades.filter(
           (t) => String(t.ticker || "").toUpperCase() !== tickerUpper
         );
-        
+
         const removedCount = beforeCount - filteredTrades.length;
 
         if (removedCount === 0) {
@@ -5038,6 +5035,104 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
             remaining: filteredTrades.length,
             beforeCount: beforeCount,
             message: `Successfully purged all ${removedCount} trades for ${tickerUpper}`,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
+    // POST /timed/debug/cleanup-all-duplicates?key=... - Remove all duplicate trades (keeps most recent per ticker+direction)
+    if (
+      url.pathname === "/timed/debug/cleanup-all-duplicates" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        
+        const beforeCount = allTrades.length;
+        
+        // Group trades by ticker+direction, keep most recent
+        const tradeMap = new Map();
+        const duplicates = [];
+        
+        allTrades.forEach(trade => {
+          const key = `${String(trade.ticker || "").toUpperCase()}_${trade.direction || "UNKNOWN"}`;
+          const existing = tradeMap.get(key);
+          
+          if (!existing) {
+            tradeMap.set(key, trade);
+          } else {
+            // Compare entry times to keep the most recent
+            const existingTime = existing.entryTime ? new Date(existing.entryTime).getTime() : 0;
+            const currentTime = trade.entryTime ? new Date(trade.entryTime).getTime() : 0;
+            
+            if (currentTime > existingTime) {
+              duplicates.push(existing);
+              tradeMap.set(key, trade);
+            } else {
+              duplicates.push(trade);
+            }
+          }
+        });
+        
+        const cleanedTrades = Array.from(tradeMap.values());
+        const removedCount = beforeCount - cleanedTrades.length;
+        
+        if (removedCount === 0) {
+          return sendJSON(
+            {
+              ok: true,
+              message: "No duplicates found",
+              beforeCount,
+              afterCount: cleanedTrades.length,
+              removed: 0,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        }
+        
+        // Save cleaned trades
+        await kvPutJSON(KV, tradesKey, cleanedTrades);
+        
+        // Group duplicates by ticker for summary
+        const duplicatesByTicker = {};
+        duplicates.forEach(d => {
+          const ticker = String(d.ticker || "UNKNOWN").toUpperCase();
+          if (!duplicatesByTicker[ticker]) {
+            duplicatesByTicker[ticker] = [];
+          }
+          duplicatesByTicker[ticker].push({
+            id: d.id,
+            entryTime: d.entryTime,
+            entryPrice: d.entryPrice,
+            status: d.status,
+          });
+        });
+        
+        return sendJSON(
+          {
+            ok: true,
+            message: `Successfully removed ${removedCount} duplicate trades`,
+            beforeCount,
+            afterCount: cleanedTrades.length,
+            removed: removedCount,
+            duplicatesByTicker,
+            summary: Object.keys(duplicatesByTicker).map(ticker => ({
+              ticker,
+              count: duplicatesByTicker[ticker].length,
+            })),
           },
           200,
           corsHeaders(env, req)
