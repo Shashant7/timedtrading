@@ -280,8 +280,8 @@
           return null;
         }
 
-        // Calculate shares (assuming $1000 position size)
-        const shares = Math.floor(TRADE_SIZE / entryPrice);
+        // Calculate shares (assuming $1000 position size) - allow fractional shares for high-priced tickers
+        const shares = TRADE_SIZE / entryPrice;
 
         // Calculate P&L based on current price
         let pnl = 0;
@@ -389,9 +389,9 @@
         return useMemo(() => {
           // Helper to check if trade has remaining shares (not fully closed)
           const hasRemainingShares = (t) => {
-            const shares = t.shares || Math.floor(TRADE_SIZE / (t.entryPrice || 1));
+            const shares = t.shares || TRADE_SIZE / (t.entryPrice || 1); // Allow fractional shares
             const trimmedPct = t.trimmedPct || 0;
-            const remainingShares = shares - Math.floor(shares * trimmedPct);
+            const remainingShares = shares - (shares * trimmedPct); // Allow fractional shares
             return remainingShares > 0;
           };
 
@@ -431,9 +431,9 @@
           
           // Calculate realized P&L from trimmed positions
           const trimmedRealizedPnl = trimmed.reduce((sum, t) => {
-            const shares = t.shares || Math.floor(TRADE_SIZE / (t.entryPrice || 1));
+            const shares = t.shares || TRADE_SIZE / (t.entryPrice || 1); // Allow fractional shares
             const trimmedPct = t.trimmedPct || 0;
-            const trimmedShares = Math.floor(shares * trimmedPct);
+            const trimmedShares = shares * trimmedPct; // Allow fractional shares
             const entryPrice = t.entryPrice || 0;
             const tp = t.tp || entryPrice; // Use TP price where trimmed occurred
             
@@ -455,9 +455,9 @@
           
           // Open P&L: unrealized P&L from open positions (including remaining shares in trimmed positions)
           const openPnl = [...open, ...trimmed].reduce((sum, t) => {
-            const shares = t.shares || Math.floor(TRADE_SIZE / (t.entryPrice || 1));
+            const shares = t.shares || TRADE_SIZE / (t.entryPrice || 1); // Allow fractional shares
             const trimmedPct = t.trimmedPct || 0;
-            const remainingShares = shares - Math.floor(shares * trimmedPct);
+            const remainingShares = shares - (shares * trimmedPct); // Allow fractional shares
             const entryPrice = t.entryPrice || 0;
             const currentPrice = t.currentPrice || entryPrice;
             
@@ -780,10 +780,10 @@
         const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
         // Trade-specific calculations
-        const shares = trade ? (trade.shares || Math.floor(TRADE_SIZE / (trade.entryPrice || 1))) : null;
+        const shares = trade ? (trade.shares || TRADE_SIZE / (trade.entryPrice || 1)) : null; // Allow fractional shares
         const currentPrice = trade ? (trade.currentPrice || trade.entryPrice) : (tickerData.price || tickerData.currentPrice);
         const trimmedPct = trade ? (trade.trimmedPct || 0) : 0;
-        const trimmedShares = trade ? Math.floor(shares * trimmedPct) : 0;
+        const trimmedShares = trade ? (shares * trimmedPct) : 0; // Allow fractional shares
         const remainingShares = trade ? (shares - trimmedShares) : null;
 
         return (
@@ -1048,12 +1048,12 @@
             : "text-yellow-400";
 
         // Calculate position values
-        const shares = trade.shares || Math.floor(TRADE_SIZE / (trade.entryPrice || 1)); // Default TRADE_SIZE / entryPrice
+        const shares = trade.shares || TRADE_SIZE / (trade.entryPrice || 1); // Allow fractional shares for high-priced tickers
         const currentPrice = trade.currentPrice || trade.entryPrice;
         const marketValue = shares * currentPrice;
         const entryValue = shares * trade.entryPrice;
         const trimmedPct = trade.trimmedPct || 0;
-        const trimmedShares = Math.floor(shares * trimmedPct);
+        const trimmedShares = shares * trimmedPct; // Allow fractional shares
         const remainingShares = shares - trimmedShares;
         const trimmedValue = trimmedShares > 0 ? trimmedShares * (trade.tp || currentPrice) : 0; // Use TP price when trimmed
         const currentMarketValue = remainingShares * currentPrice;

@@ -407,6 +407,41 @@
         return debouncedValue;
       }
 
+      function useTrades() {
+        const [trades, setTrades] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+
+        const fetchTrades = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const res = await fetch(`${API_BASE}/timed/trades`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok && Array.isArray(json.trades)) {
+              setTrades(json.trades);
+            } else {
+              setTrades([]);
+            }
+          } catch (err) {
+            setError(err.message);
+            console.error("Failed to fetch trades:", err);
+            setTrades([]);
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchTrades();
+          const interval = setInterval(fetchTrades, 180000); // Refresh every 3 minutes
+          return () => clearInterval(interval);
+        }, [fetchTrades]);
+
+        return { trades, loading, error, refetch: fetchTrades };
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Groups (matching original)
       // ─────────────────────────────────────────────────────────────
@@ -1081,8 +1116,18 @@
         return null;
       }
 
-      function applyFilters(dataObj, filters) {
+      function applyFilters(dataObj, filters, trades = []) {
         const out = [];
+
+        // Create a set of tickers that have trades (normalize ticker names)
+        const tickersWithTrades = new Set();
+        if (Array.isArray(trades)) {
+          trades.forEach((trade) => {
+            if (trade && trade.ticker) {
+              tickersWithTrades.add(normTicker(trade.ticker));
+            }
+          });
+        }
 
         // Parse natural language query if search field looks like a query
         const queryResult = parseNaturalLanguageQuery(filters.search);
@@ -1210,6 +1255,11 @@
           if (effectiveFilters.maxPhase !== undefined) {
             const phase = Number(d.phase_pct) || 0;
             if (phase > effectiveFilters.maxPhase) continue;
+          }
+
+          // Trades filter - only show tickers that have trades
+          if (effectiveFilters.hasTrades === true) {
+            if (!tickersWithTrades.has(normTicker(ticker))) continue;
           }
 
           out.push({ ticker, ...d });
@@ -2936,7 +2986,52 @@
       }
 
       function QuickFilters({ filters, onFilterChange }) {
-        const presets = [
+        // Groups (seed list) - one row
+        const groupPresets = [
+          {
+            label: "Upticks",
+            filter: { group: "UPTICKS" },
+            icon: "📊",
+          },
+          {
+            label: "Super Granny",
+            filter: { group: "SuperGranny" },
+            icon: "⭐",
+          },
+          {
+            label: "GRNI",
+            filter: { group: "GRNI" },
+            icon: "🔵",
+          },
+          {
+            label: "GRNJ",
+            filter: { group: "GRNJ" },
+            icon: "🟢",
+          },
+          {
+            label: "GRNY",
+            filter: { group: "GRNY" },
+            icon: "🟡",
+          },
+          {
+            label: "Social",
+            filter: { group: "Social" },
+            icon: "💬",
+          },
+          {
+            label: "SP Sectors",
+            filter: { group: "SP_Sectors" },
+            icon: "📈",
+          },
+          {
+            label: "Futures",
+            filter: { group: "Futures" },
+            icon: "⚡",
+          },
+        ];
+
+        // Filters - one row
+        const filterPresets = [
           {
             label: "Prime Only",
             filter: { minRank: 75, minRR: 1.5, maxCompletion: 0.4 },
@@ -2977,7 +3072,6 @@
             filter: { quadrants: ["HTF_BEAR_LTF_PULLBACK"] },
             icon: "🔻",
           },
-          // List filters (Top 40, Top Long Setup, Top Short Setup)
           {
             label: "Top 40",
             filter: { top40: true },
@@ -2993,41 +3087,10 @@
             filter: { quadrants: ["HTF_BEAR_LTF_PULLBACK"] },
             icon: "📉",
           },
-          // Group filters
           {
-            label: "Upticks",
-            filter: { group: "UPTICKS" },
-            icon: "📊",
-          },
-          {
-            label: "Super Granny",
-            filter: { group: "SuperGranny" },
-            icon: "⭐",
-          },
-          {
-            label: "GRNI",
-            filter: { group: "GRNI" },
-            icon: "🔵",
-          },
-          {
-            label: "GRNJ",
-            filter: { group: "GRNJ" },
-            icon: "🟢",
-          },
-          {
-            label: "GRNY",
-            filter: { group: "GRNY" },
-            icon: "🟡",
-          },
-          {
-            label: "Social",
-            filter: { group: "Social" },
-            icon: "💬",
-          },
-          {
-            label: "SP Sectors",
-            filter: { group: "SP_Sectors" },
-            icon: "📈",
+            label: "Trades",
+            filter: { hasTrades: true },
+            icon: "💼",
           },
         ];
 
@@ -3045,7 +3108,7 @@
           if (preset.label === "Squeeze Release") {
             return filters.squeezeRelease === true;
           }
-          if (preset.label === "🚀 Momentum Elite") {
+          if (preset.label === "Momentum Elite") {
             return filters.momentumElite === true;
           }
           // Check for "Top Long Setup" and "Top Short Setup" specifically
@@ -3087,6 +3150,10 @@
           if (preset.filter.top40) {
             return filters.top40 === true;
           }
+          // Check if Trades filter matches
+          if (preset.filter.hasTrades) {
+            return filters.hasTrades === true;
+          }
           return false;
         };
 
@@ -3105,7 +3172,7 @@
               delete newFilters.inCorridor;
             } else if (preset.label === "Squeeze Release") {
               delete newFilters.squeezeRelease;
-            } else if (preset.label === "🚀 Momentum Elite") {
+            } else if (preset.label === "Momentum Elite") {
               // Explicitly delete to ensure it's removed
               delete newFilters.momentumElite;
               // Set to undefined so handleFilterChange properly removes it
@@ -3159,6 +3226,8 @@
               newFilters.group = "ALL";
             } else if (preset.filter.top40) {
               delete newFilters.top40;
+            } else if (preset.filter.hasTrades) {
+              delete newFilters.hasTrades;
             }
 
             onFilterChange(newFilters);
@@ -3199,35 +3268,36 @@
             squeezeRelease: undefined,
             momentumElite: undefined,
             top40: undefined,
+            hasTrades: undefined,
           });
         };
 
-        // Build group options
-        const groupKeys = Object.keys(GROUPS).filter(Boolean);
-        const ordered = [];
-        for (const k of GROUP_ORDER) if (groupKeys.includes(k)) ordered.push(k);
-        const remaining = groupKeys.filter((k) => !ordered.includes(k)).sort();
-        ordered.push(...remaining);
+        const renderPresetButton = (preset, i) => {
+          const active = isActive(preset);
+          return (
+            <button
+              key={i}
+              className={`px-4 py-2 rounded-lg border text-sm font-semibold transition-all ${
+                active
+                  ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
+                  : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0] text-[#93a4d6]"
+              }`}
+              onClick={() => handlePresetClick(preset)}
+            >
+              {preset.icon} {preset.label}
+            </button>
+          );
+        };
 
         return (
           <div className="space-y-3 mb-4">
+            {/* Groups Row */}
             <div className="flex gap-2 flex-wrap items-center">
-              {presets.map((preset, i) => {
-                const active = isActive(preset);
-                return (
-                  <button
-                    key={i}
-                    className={`px-4 py-2 rounded-lg border text-sm font-semibold transition-all ${
-                      active
-                        ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
-                        : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0] text-[#93a4d6]"
-                    }`}
-                    onClick={() => handlePresetClick(preset)}
-                  >
-                    {preset.icon} {preset.label}
-                  </button>
-                );
-              })}
+              {groupPresets.map((preset, i) => renderPresetButton(preset, i))}
+            </div>
+            {/* Filters Row */}
+            <div className="flex gap-2 flex-wrap items-center">
+              {filterPresets.map((preset, i) => renderPresetButton(preset, i))}
               {/* Reset Filters Button */}
               <button
                 onClick={resetAllFilters}
@@ -3236,28 +3306,6 @@
               >
                 🔄 Reset Filters
               </button>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-[#93a4d6] font-semibold">
-                Group:
-              </label>
-              <select
-                value={filters.group || "ALL"}
-                onChange={(e) => onFilterChange({ group: e.target.value })}
-                className="px-3 py-2 rounded-lg border border-[#26325f] bg-[#0f1630] text-[#93a4d6] text-sm hover:bg-[#1a2550] focus:outline-none focus:border-[#3a4aa0]"
-              >
-                <option value="ALL">All Tickers</option>
-                <option value="ANY">Any Group</option>
-                <option value="UNGROUPED">Ungrouped</option>
-                <option value="__DIVIDER__" disabled>
-                  ──────────
-                </option>
-                {ordered.map((key) => (
-                  <option key={key} value={key}>
-                    {GROUP_LABELS[key] || key}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
         );
@@ -5087,6 +5135,7 @@
       // ─────────────────────────────────────────────────────────────
       function App() {
         const { data, loading, error, lastUpdate, refetch } = useTickerData();
+        const { trades } = useTrades();
         const [filters, setFilters] = useState({
           search: "",
           quadrants: [
@@ -5152,8 +5201,8 @@
         const effectiveFilters = { ...filters, search: debouncedSearch };
 
         const tickers = useMemo(() => {
-          return applyFilters(data, effectiveFilters);
-        }, [data, effectiveFilters]);
+          return applyFilters(data, effectiveFilters, trades);
+        }, [data, effectiveFilters, trades]);
 
         const primeTickers = useMemo(
           () => tickers.filter(isPrimeBubble),

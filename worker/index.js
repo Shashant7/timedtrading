@@ -482,7 +482,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     return null;
   }
 
-  const shares = Math.floor(TRADE_SIZE / entryPrice);
+  const shares = TRADE_SIZE / entryPrice; // Allow fractional shares for high-priced tickers
   let pnl = 0;
   let pnlPct = 0;
   let status = "OPEN";
@@ -913,9 +913,7 @@ async function processTradeSimulation(
 
         // Add history entry for trim
         if (newStatus === "TP_HIT_TRIM" && oldStatus !== "TP_HIT_TRIM") {
-          const trimmedShares = Math.floor(
-            (existingOpenTrade.shares || 0) * 0.5
-          );
+          const trimmedShares = (existingOpenTrade.shares || 0) * 0.5; // Allow fractional shares
           history.push({
             type: "TRIM",
             timestamp: new Date().toISOString(),
@@ -1141,7 +1139,7 @@ async function processTradeSimulation(
             // Calculate new average entry price and total shares
             const existingShares = anyOpenTrade.shares || 0;
             const existingValue = existingEntryPrice * existingShares;
-            const newShares = Math.floor(TRADE_SIZE / entryPrice);
+            const newShares = TRADE_SIZE / entryPrice; // Allow fractional shares for high-priced tickers
             const newValue = entryPrice * newShares;
             const totalShares = existingShares + newShares;
             const totalValue = existingValue + newValue;
