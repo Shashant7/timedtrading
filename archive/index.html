@@ -1052,7 +1052,7 @@
           `Why: ${whyString(d)}`,
           `${isPrimeBubble(d) ? "⭐ PRIME SETUP ⭐" : ""}`,
           `Eligible: ${eligible ? "YES" : "NO (fails RR/Rank filter)"}`,
-          `Rank: ${d.rank ?? "—"} | RR: ${
+          `Score: ${d.rank ?? "—"} | RR: ${
             d.rr != null ? fmtNum(d.rr, 2) : "—"
           }`,
           `HTF: ${fmtNum(d.htf_score, 2)} | LTF: ${fmtNum(d.ltf_score, 2)}`,
