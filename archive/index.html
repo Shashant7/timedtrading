@@ -1960,22 +1960,26 @@
           breakdown.momentumElite > 0 ? { label: "Momentum Elite", value: `+${breakdown.momentumElite}`, color: "#a78bfa" } : null,
         ].filter(Boolean);
         
-        const breakdownHtml = breakdownComponents.length > 0 ? `
+        // Always show score breakdown (at minimum base score)
+        const breakdownHtml = `
         <div class="hr"></div>
         <div style="margin-top:8px;">
           <div style="font-size:11px; color:#93a4d6; margin-bottom:6px; font-weight:bold;">Score Breakdown</div>
-          ${breakdownComponents.map(comp => `
+          ${breakdownComponents.length > 0 ? breakdownComponents.map(comp => `
             <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
               <span style="color:#93a4d6;">${comp.label}</span>
               <span style="color:${comp.color}; font-weight:bold;">${comp.value}</span>
             </div>
-          `).join("")}
+          `).join("") : `<div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px;">
+            <span style="color:#93a4d6;">Base Score</span>
+            <span style="color:#60a5fa; font-weight:bold;">${breakdown.base}</span>
+          </div>`}
           <div style="display:flex; justify-content:space-between; font-size:12px; margin-top:8px; padding-top:8px; border-top:1px solid #26325f; font-weight:bold;">
             <span style="color:#93a4d6;">Total Score</span>
             <span style="color:#60a5fa; font-size:14px;">${Math.round(breakdown.total)}</span>
           </div>
         </div>
-        ` : "";
+        `;
 
         details.innerHTML = `
       <h3>${selectedTicker}</h3>
