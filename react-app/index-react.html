@@ -2694,7 +2694,7 @@
         })();
 
         return (
-          <div className="w-full h-full min-h-[900px] flex flex-col">
+          <div className="w-full h-[900px] flex flex-col">
             {/* Detail Card - slides in from right, positioned in hero layout */}
             <div 
               className="bg-[#121a33] border-2 border-[#26325f] rounded-xl w-full h-full flex flex-col slide-in-right shadow-2xl"
@@ -3793,7 +3793,7 @@
               {!error && (
               <div className="space-y-4">
                 {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
-                <div className="flex gap-4 items-stretch">
+                <div className="flex gap-4 items-start">
                   {/* Activity Feed - Left side (complementary, fixed width) */}
                   <div className="flex-shrink-0">
                     <ActivityFeed onTickerClick={handleTickerSelect} tickerData={data} />
@@ -3801,7 +3801,7 @@
                   
                   {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                   <div className="flex-1 min-w-0">
-                    <div className="h-full min-h-[900px]">
+                    <div className="h-[900px]">
                     {loading && tickers.length === 0 ? (
                       <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
                         <div className="text-center">
@@ -3826,7 +3826,7 @@
                   </div>
                   
                   {/* Detail View - Right side (slides in when ticker selected, fixed width) */}
-                  <div className="flex-shrink-0 w-[450px] h-full min-h-[900px]">
+                  <div className="flex-shrink-0 w-[450px] h-[900px]">
                     <OverlayPortal
                       selectedTicker={selectedTicker}
                       tickers={tickers}
