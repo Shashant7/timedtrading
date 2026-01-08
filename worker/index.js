@@ -5246,10 +5246,10 @@ List prime setups worth watching and pattern matches. For each opportunity:
 - Leave a blank line between each opportunity
 
 Example format:
-```
+\`\`\`
 - **AWI**: Rank 89 | RR 2.00:1 | Price $189.56 | Phase 34% | Completion 15%
   Prime setup with excellent risk/reward and early stage positioning.
-```
+\`\`\`
 
 ### ⚠️ Warnings
 
@@ -5265,7 +5265,7 @@ For each warning:
 - Leave a blank line between each warning
 
 Example format:
-```
+\`\`\`
 **High-Risk Positions:**
 - **ALB**: Rank 90 | Completion 19% | Phase 83% | Price $162.05
   Late phase position - consider trimming or tightening stops.
@@ -5273,7 +5273,7 @@ Example format:
 **Approaching TP:**
 - **GS**: Within 2.3% of TP at $940.68
   Consider trimming 50% at TP to lock in profits.
-```
+\`\`\`
 
 ### 📊 Market Insights
 
