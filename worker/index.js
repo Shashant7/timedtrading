@@ -1017,15 +1017,53 @@ async function processTradeSimulation(
       // Check if we should create a new trade
       // Use current market price as entry price (price field from TradingView)
       // trigger_price is historical and may not reflect actual entry price
-      const entryPrice =
+      let entryPrice =
         Number(tickerData.price) || Number(tickerData.trigger_price);
       const priceSource = tickerData.price ? "price" : "trigger_price";
+
+      // Detect backfill: if trigger_ts is significantly older, prefer trigger_price for entry
+      const triggerTimestamp =
+        tickerData.trigger_ts != null
+          ? new Date(Number(tickerData.trigger_ts)).toISOString()
+          : tickerData.ts != null
+          ? new Date(Number(tickerData.ts)).toISOString()
+          : null;
+      const now = Date.now();
+      const triggerTime = triggerTimestamp
+        ? new Date(triggerTimestamp).getTime()
+        : null;
+      const isBackfill = triggerTime && now - triggerTime > 60 * 60 * 1000; // More than 1 hour old
+
+      // For backfills, prefer trigger_price as entry price if available (more accurate for historical data)
+      if (
+        isBackfill &&
+        tickerData.trigger_price &&
+        Number(tickerData.trigger_price) > 0
+      ) {
+        const triggerPrice = Number(tickerData.trigger_price);
+        // Only use trigger_price if it's significantly different from current price (indicates backfill)
+        const priceDiff = Math.abs(triggerPrice - entryPrice) / entryPrice;
+        if (priceDiff > 0.01) {
+          // More than 1% difference
+          entryPrice = triggerPrice;
+          console.log(
+            `[TRADE SIM] Using trigger_price $${triggerPrice.toFixed(
+              2
+            )} for backfill (current: $${Number(tickerData.price || 0).toFixed(
+              2
+            )})`
+          );
+        }
+      }
+
       console.log(
         `[TRADE SIM] ${ticker} entry price: $${entryPrice.toFixed(
           2
-        )} (from ${priceSource}), current price: $${Number(
-          tickerData.price
-        ).toFixed(2)}, trigger_price: ${
+        )} (from ${priceSource}${
+          isBackfill ? ", BACKFILL" : ""
+        }), current price: $${Number(tickerData.price || 0).toFixed(
+          2
+        )}, trigger_price: ${
           tickerData.trigger_price
             ? "$" + Number(tickerData.trigger_price).toFixed(2)
             : "null"
@@ -1270,15 +1308,12 @@ async function processTradeSimulation(
                 2
               )}, RR: ${entryRR?.toFixed(2) || "N/A"}`
             );
-            // Use current time when trade is actually created (not trigger_ts which may be old)
-            // Store trigger_ts separately for reference if needed
-            const entryTime = new Date().toISOString();
-            const triggerTimestamp =
-              tickerData.trigger_ts != null
-                ? new Date(Number(tickerData.trigger_ts)).toISOString()
-                : tickerData.ts != null
-                ? new Date(Number(tickerData.ts)).toISOString()
-                : null;
+            // Determine entry time: use trigger_ts if it's a backfill (already detected above), otherwise use current time
+            // Use trigger_ts for entryTime if it's a backfill, otherwise use current time
+            const entryTime =
+              isBackfill && triggerTimestamp
+                ? triggerTimestamp
+                : new Date().toISOString();
 
             const trade = {
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
@@ -6338,6 +6373,99 @@ Provide 3-5 actionable next steps:
             ok: true,
             message: `Recalculated ranks for ${results.processed} tickers`,
             results,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
+    // POST /timed/debug/fix-backfill-trades?key=... - Fix entryTime for backfilled trades
+    if (
+      url.pathname === "/timed/debug/fix-backfill-trades" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const now = Date.now();
+        let fixed = 0;
+        const fixedTrades = [];
+
+        for (const trade of allTrades) {
+          let updated = false;
+          const updatedTrade = { ...trade };
+
+          // Check if trade has triggerTimestamp that's significantly older than entryTime
+          if (trade.triggerTimestamp && trade.entryTime) {
+            const triggerTime = new Date(trade.triggerTimestamp).getTime();
+            const entryTime = new Date(trade.entryTime).getTime();
+
+            // Detect backfill: triggerTimestamp is more than 1 hour old AND older than entryTime
+            const isBackfill =
+              triggerTime && now - triggerTime > 60 * 60 * 1000; // More than 1 hour old
+
+            if (isBackfill && triggerTime < entryTime) {
+              // This is a backfill - use triggerTimestamp for entryTime
+              updatedTrade.entryTime = trade.triggerTimestamp;
+              updated = true;
+            }
+          }
+
+          // Update history entry timestamp if it matches the old entryTime
+          if (
+            updated &&
+            updatedTrade.history &&
+            Array.isArray(updatedTrade.history)
+          ) {
+            updatedTrade.history = updatedTrade.history.map((event) => {
+              if (
+                event.type === "ENTRY" &&
+                event.timestamp === trade.entryTime
+              ) {
+                return {
+                  ...event,
+                  timestamp: updatedTrade.entryTime,
+                };
+              }
+              return event;
+            });
+          }
+
+          if (updated) {
+            fixed++;
+            fixedTrades.push({
+              id: trade.id,
+              ticker: trade.ticker,
+              oldEntryTime: trade.entryTime,
+              newEntryTime: updatedTrade.entryTime,
+            });
+            const index = allTrades.findIndex((t) => t.id === trade.id);
+            if (index >= 0) {
+              allTrades[index] = updatedTrade;
+            }
+          }
+        }
+
+        if (fixed > 0) {
+          await kvPutJSON(KV, tradesKey, allTrades);
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            fixed,
+            totalTrades: allTrades.length,
+            fixedTrades: fixedTrades.slice(0, 20), // Show first 20
           },
           200,
           corsHeaders(env, req)
