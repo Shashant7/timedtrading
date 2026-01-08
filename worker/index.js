@@ -878,6 +878,10 @@ async function processTradeSimulation(
         const entryPriceDiffers =
           Math.abs(currentEntryPrice - currentPrice) / currentPrice > 0.01; // More than 1% difference
 
+        console.log(
+          `[TRADE SIM] Checking ${ticker} ${direction} entry price correction: entry=$${currentEntryPrice.toFixed(2)}, current=$${currentPrice.toFixed(2)}, trigger=${triggerPrice ? "$" + triggerPrice.toFixed(2) : "null"}, differs=${entryPriceDiffers}, corrected=${entryPriceCorrected}`
+        );
+
         if (priceAvailable && entryPriceDiffers) {
           // Check if trade is old (backfill) - use entry time from trade
           const entryTime = existingOpenTrade.entryTime
@@ -904,36 +908,46 @@ async function processTradeSimulation(
             triggerPrice &&
             Math.abs(currentEntryPrice - triggerPrice) / triggerPrice < 0.001;
 
-          // For old trades or trades where entry matches trigger_price but differs from current price,
-          // the entry was likely set incorrectly from trigger_price instead of price
-          if (isOldTrade || isBackfill || entryMatchesTrigger) {
-            if (isBackfill && triggerPrice) {
-              // For backfills: use trigger_price only if significantly different from current price
-              const priceDiff =
-                Math.abs(triggerPrice - currentPrice) / currentPrice;
-              if (priceDiff > 0.01) {
-                // More than 1% difference - use trigger_price for backfill
-                correctedEntryPrice = triggerPrice;
-              } else {
-                // Price is close - use current price even for backfills
-                correctedEntryPrice = currentPrice;
-              }
-            } else {
-              // For real-time alerts or old trades: ALWAYS use current price
-              correctedEntryPrice = currentPrice;
-            }
+          console.log(
+            `[TRADE SIM] ${ticker} correction check: isOldTrade=${isOldTrade}, isBackfill=${isBackfill}, entryMatchesTrigger=${entryMatchesTrigger}, entryTime=${existingOpenTrade.entryTime}`
+          );
 
-            if (
-              Math.abs(correctedEntryPrice - currentEntryPrice) /
-                currentEntryPrice >
-              0.001
-            ) {
+          // For old trades: ALWAYS use current price (entry was likely wrong)
+          // For trades where entry matches trigger_price: use current price (entry was likely wrong)
+          // If entry differs significantly from current price, it's likely wrong
+          if (isOldTrade || entryMatchesTrigger || entryPriceDiffers) {
+            // For old trades or mismatched prices: ALWAYS use current price, never trigger_price
+            correctedEntryPrice = currentPrice;
+            console.log(
+              `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(
+                2
+              )} -> $${correctedEntryPrice.toFixed(2)} (reason: ${
+                isOldTrade
+                  ? "old trade"
+                  : entryMatchesTrigger
+                  ? "matches trigger_price"
+                  : "differs from current price"
+              }, using current price)`
+            );
+          } else if (isBackfill && triggerPrice) {
+            // For backfills only (not old trades): use trigger_price if significantly different
+            const priceDiff =
+              Math.abs(triggerPrice - currentPrice) / currentPrice;
+            if (priceDiff > 0.01) {
+              // More than 1% difference - use trigger_price for backfill
+              correctedEntryPrice = triggerPrice;
               console.log(
                 `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(
                   2
-                )} -> $${correctedEntryPrice.toFixed(2)} (trade is ${
-                  isOldTrade || isBackfill ? "old/backfill" : "real-time"
-                }, was likely using trigger_price incorrectly)`
+                )} -> $${correctedEntryPrice.toFixed(2)} (backfill, using trigger_price)`
+              );
+            } else {
+              // Price is close - use current price even for backfills
+              correctedEntryPrice = currentPrice;
+              console.log(
+                `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(
+                  2
+                )} -> $${correctedEntryPrice.toFixed(2)} (backfill, trigger_price close, using current price)`
               );
             }
           }
