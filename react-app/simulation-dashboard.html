@@ -1361,7 +1361,7 @@
                 <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm text-[#93a4d6]">Phase</span>
-                    <span className="text-sm font-semibold" style={{ color: phaseColor }}>{Math.round(phase * 100)}%</span>
+                    <span className="text-sm font-semibold" style={{ color: phaseColor }}>{(phase * 100).toFixed(2)}%</span>
                   </div>
                   <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
                     <div className="h-full rounded-full transition-all duration-500" style={{ width: `${phase * 100}%`, backgroundColor: phaseColor }} />
