@@ -26,6 +26,19 @@
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
       }
+      .slide-in-right {
+        animation: slideInRight 0.3s ease-out;
+      }
+      @keyframes slideInRight {
+        from {
+          transform: translateX(100%);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
     </style>
   </head>
   <body>
@@ -916,9 +929,341 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // Helper Functions for TickerDetails
+      // ─────────────────────────────────────────────────────────────
+      function phaseToColor(phase) {
+        const p = Math.max(0, Math.min(1, phase));
+        if (p < 0.2) {
+          const t = p / 0.2;
+          return `rgb(${Math.round(46 + (39 - 46) * t)}, ${Math.round(204 + (174 - 204) * t)}, ${Math.round(113 + (96 - 113) * t)})`;
+        } else if (p < 0.4) {
+          const t = (p - 0.2) / 0.2;
+          return `rgb(${Math.round(39 + (243 - 39) * t)}, ${Math.round(174 + (156 - 174) * t)}, ${Math.round(96 + (18 - 96) * t)})`;
+        } else if (p < 0.6) {
+          const t = (p - 0.4) / 0.2;
+          return `rgb(${Math.round(243 + (230 - 243) * t)}, ${Math.round(156 + (126 - 156) * t)}, ${Math.round(18 + (34 - 18) * t)})`;
+        } else if (p < 0.8) {
+          const t = (p - 0.6) / 0.2;
+          return `rgb(${Math.round(230 + (231 - 230) * t)}, ${Math.round(126 + (76 - 126) * t)}, ${Math.round(34 + (60 - 34) * t)})`;
+        } else {
+          const t = (p - 0.8) / 0.2;
+          return `rgb(${Math.round(231 + (192 - 231) * t)}, ${Math.round(76 + (57 - 76) * t)}, ${Math.round(60 + (43 - 60) * t)})`;
+        }
+      }
+
+      function isPrimeBubble(ticker) {
+        const rank = Number(ticker.rank || 0);
+        const rr = ticker.rr != null ? Number(ticker.rr) : 0;
+        const comp = ticker.completion != null ? Number(ticker.completion) : 1;
+        const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : 1;
+        const flags = ticker.flags || {};
+        const sqRel = !!flags.sq30_release;
+        const phaseZoneChange = !!flags.phase_zone_change;
+        const state = String(ticker.state || "");
+        const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+        return rank >= 75 && rr >= 1.5 && comp < 0.4 && phase < 0.6 && (aligned || sqRel || phaseZoneChange);
+      }
+
+      function completionForSize(ticker) {
+        const c = Number(ticker.completion);
+        return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
+      }
+
+      function computeDynamicRank(ticker) {
+        const baseRank = Number(ticker.rank) || 50;
+        const htf = Number(ticker.htf_score) || 0;
+        const ltf = Number(ticker.ltf_score) || 0;
+        const comp = completionForSize(ticker);
+        const phase = Number(ticker.phase_pct) || 0;
+        const rr = Number(ticker.rr) || 0;
+        const flags = ticker.flags || {};
+        const state = String(ticker.state || "");
+        const sqRel = !!flags.sq30_release;
+        const sqOn = !!flags.sq30_on;
+        const phaseZoneChange = !!flags.phase_zone_change;
+        const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+        const ent = entryType(ticker);
+        const inCorridor = ent.corridor;
+        let dynamicScore = baseRank;
+        if (inCorridor) {
+          dynamicScore += 12;
+          if (aligned) dynamicScore += 8;
+        }
+        if (sqRel && inCorridor) dynamicScore += 10;
+        if (sqOn && inCorridor && !sqRel) dynamicScore += 5;
+        if (rr >= 2.0) dynamicScore += 8;
+        else if (rr >= 1.5) dynamicScore += 5;
+        else if (rr >= 1.0) dynamicScore += 2;
+        if (phase < 0.3) dynamicScore += 6;
+        else if (phase < 0.5) dynamicScore += 3;
+        else if (phase > 0.7) dynamicScore -= 5;
+        if (comp < 0.3) dynamicScore += 5;
+        else if (comp > 0.8) dynamicScore -= 8;
+        const htfStrength = Math.min(8, Math.abs(htf) * 0.15);
+        const ltfStrength = Math.min(6, Math.abs(ltf) * 0.12);
+        dynamicScore += htfStrength + ltfStrength;
+        if (phaseZoneChange) dynamicScore += 4;
+        return Math.max(0, Math.min(100, Math.round(dynamicScore)));
+      }
+
+      function getActionDescription(ticker) {
+        const state = String(ticker.state || "");
+        const phase = Number(ticker.phase_pct) || 0;
+        const comp = completionForSize(ticker);
+        const flags = ticker.flags || {};
+        const ent = entryType(ticker);
+        const rank = Number(ticker.rank || 0);
+        const rr = Number(ticker.rr || 0);
+        const momentumElite = !!flags.momentum_elite;
+        const isAligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+        const isPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+        const isPrime = isPrimeBubble(ticker);
+        const inCorridor = ent.corridor;
+        const sqRelease = !!flags.sq30_release;
+        const sqOn = !!flags.sq30_on;
+        if (comp > 0.8) {
+          return { action: "Prepare for Exit / Trim Position", description: `Position has reached ${(comp * 100).toFixed(0)}% completion. Consider taking profits or trimming 50-75% of position.`, color: "text-yellow-400", bg: "bg-yellow-500/20" };
+        }
+        if (phase > 0.7) {
+          return { action: "Wait / Trim Existing Position", description: `Phase oscillator at ${(phase * 100).toFixed(0)}% indicates late-cycle conditions. Wait for pullback or trim existing positions.`, color: "text-orange-400", bg: "bg-orange-500/20" };
+        }
+        if (momentumElite && isPrime && inCorridor && rank >= 75 && rr >= 1.5) {
+          return { action: "Initiate Position - High Conviction", description: `Momentum Elite stock showing Prime setup with exceptional alignment. High-probability setup with strong fundamentals.`, color: "text-green-400", bg: "bg-green-500/20" };
+        }
+        if (sqRelease && inCorridor && isAligned) {
+          return { action: "Initiate Position - Squeeze Release", description: `Squeeze release detected with timeframe alignment in entry corridor. Enter on pullback or break.`, color: "text-green-400", bg: "bg-green-500/20" };
+        }
+        if (inCorridor && isAligned && comp < 0.5 && phase < 0.6) {
+          return { action: "Consider Entry - Favorable Setup", description: `Setup is in entry corridor with both timeframes aligned. Early phase and low completion suggest room to run.`, color: "text-blue-400", bg: "bg-blue-500/20" };
+        }
+        return { action: "Wait - Setup Not Optimal", description: `Setup not yet optimal for entry. Wait for better conditions or confirmation signals.`, color: "text-[#93a4d6]", bg: "bg-[#26325f]" };
+      }
+
+      function getDirection(ticker) {
+        const state = String(ticker.state || "");
+        if (state.includes("BULL")) return { text: "LONG", color: "text-green-400", bg: "bg-green-500/20" };
+        if (state.includes("BEAR")) return { text: "SHORT", color: "text-red-400", bg: "bg-red-500/20" };
+        return { text: "—", color: "text-[#93a4d6]", bg: "bg-[#26325f]" };
+      }
+
+      function getQuadrantFromState(state) {
+        if (state === "HTF_BULL_LTF_PULLBACK") return { q: 1, name: "Q1", label: "Bull Setup", color: "blue" };
+        if (state === "HTF_BULL_LTF_BULL") return { q: 2, name: "Q2", label: "Bull Momentum", color: "green" };
+        if (state === "HTF_BEAR_LTF_BEAR") return { q: 3, name: "Q3", label: "Bear Momentum", color: "red" };
+        if (state === "HTF_BEAR_LTF_PULLBACK") return { q: 4, name: "Q4", label: "Bear Setup", color: "orange" };
+        return null;
+      }
+
+      function detectPatterns(trail, flags) {
+        if (!trail || trail.length < 2) return [];
+        const patterns = [];
+        const states = trail.map(p => p.state).filter(Boolean);
+        for (let i = 1; i < states.length; i++) {
+          if (states[i-1] === "HTF_BULL_LTF_PULLBACK" && states[i] === "HTF_BULL_LTF_BULL") {
+            patterns.push({ type: "IDEAL_ENTRY", description: "Clean Q1→Q2 transition (Bull Entry)", quadrant: "Q1→Q2", confidence: "HIGH" });
+          }
+          if (states[i-1] === "HTF_BEAR_LTF_PULLBACK" && states[i] === "HTF_BEAR_LTF_BEAR") {
+            patterns.push({ type: "IDEAL_ENTRY", description: "Clean Q4→Q3 transition (Bear Entry)", quadrant: "Q4→Q3", confidence: "HIGH" });
+          }
+        }
+        return patterns;
+      }
+
+      function QuadrantProgression({ ticker, flags }) {
+        const [trail, setTrail] = useState([]);
+        const [loading, setLoading] = useState(false);
+        const [hasLoaded, setHasLoaded] = useState(false);
+        useEffect(() => {
+          if (!hasLoaded && ticker && ticker.ticker) {
+            setLoading(true);
+            const timeoutId = setTimeout(async () => {
+              try {
+                const res = await fetch(`${API_BASE}/timed/trail?ticker=${encodeURIComponent(ticker.ticker)}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.ok && Array.isArray(data.trail)) {
+                    setTrail(data.trail);
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to load trail:", e);
+              } finally {
+                setLoading(false);
+                setHasLoaded(true);
+              }
+            }, 300);
+            return () => clearTimeout(timeoutId);
+          }
+        }, [ticker?.ticker, hasLoaded]);
+        const patterns = detectPatterns(trail, flags || {});
+        const currentQuad = getQuadrantFromState(ticker.state);
+        const quadHistory = trail.map(p => getQuadrantFromState(p.state)).filter(Boolean);
+        return (
+          <div className="mb-4 p-4 bg-[#0f1630] rounded-lg border border-[#26325f]">
+            <div className="text-sm font-bold mb-3 text-[#93a4d6]">Quadrant Progression</div>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[1, 2, 4, 3].map(q => {
+                const quad = q === 1 ? { q: 1, name: "Q1", label: "Bull Setup", color: "blue" } :
+                             q === 2 ? { q: 2, name: "Q2", label: "Bull Momentum", color: "green" } :
+                             q === 4 ? { q: 4, name: "Q4", label: "Bear Setup", color: "orange" } :
+                             { q: 3, name: "Q3", label: "Bear Momentum", color: "red" };
+                const isActive = currentQuad?.q === quad.q;
+                const hasHistory = quadHistory.some(qh => qh && qh.q === quad.q);
+                return (
+                  <div key={q} className={`p-3 rounded-lg border-2 ${
+                    isActive ? `border-${quad.color}-400 bg-${quad.color}-500/20` :
+                    hasHistory ? `border-${quad.color}-500/50 bg-${quad.color}-500/10` :
+                    "border-[#26325f] bg-[#0a0f1f]"
+                  }`}>
+                    <div className={`text-xs font-bold text-${quad.color}-400`}>{quad.name}: {quad.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {patterns.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-[#26325f]">
+                <div className="text-xs font-bold text-yellow-400 mb-2">🎯 Detected Patterns</div>
+                {patterns.map((pattern, idx) => (
+                  <div key={idx} className="p-2 rounded border bg-yellow-500/20 border-yellow-400/50 mb-2">
+                    <div className="text-xs font-bold text-white">{pattern.description}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      function TickerDetails({ ticker, onClose, allLoadedData = null }) {
+        if (!ticker) return null;
+        const prime = isPrimeBubble(ticker);
+        const ent = entryType(ticker);
+        const flags = ticker.flags || {};
+        const phase = Number(ticker.phase_pct) || 0;
+        const phaseColor = phaseToColor(phase);
+        const actionInfo = getActionDescription(ticker);
+        const allLoadedTickersArray = (() => {
+          if (allLoadedData && typeof allLoadedData === 'object') {
+            if (Array.isArray(allLoadedData)) return allLoadedData;
+            return Object.values(allLoadedData).filter(t => t && typeof t === 'object' && t.ticker);
+          }
+          return [];
+        })();
+        const baseScore = Number(ticker.rank) || 0;
+        const dynamicRank = computeDynamicRank(ticker);
+        const allTickersWithRank = allLoadedTickersArray.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
+        const sortedByDynamic = [...allTickersWithRank].sort((a, b) => b.dynamicRank - a.dynamicRank);
+        const rankPosition = sortedByDynamic.findIndex(t => String(t.ticker || "").toUpperCase() === String(ticker.ticker || "").toUpperCase()) + 1;
+        const totalTickers = allLoadedTickersArray.length;
+        return (
+          <div className="w-full h-full flex flex-col">
+            <div className="bg-[#121a33] border-2 border-[#26325f] rounded-xl w-full h-full flex flex-col slide-in-right shadow-2xl">
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold">{ticker.ticker}</h3>
+                  <button onClick={onClose} className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]">✕</button>
+                </div>
+                {flags.momentum_elite && (
+                  <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 border-2 border-purple-400 rounded-lg">
+                    <div className="text-center font-bold text-purple-300 mb-2">🚀 MOMENTUM ELITE 🚀</div>
+                  </div>
+                )}
+                {prime && (
+                  <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500">⭐ PRIME SETUP ⭐</div>
+                )}
+                {(() => {
+                  const dir = getDirection(ticker);
+                  return (
+                    <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                      <div className="text-sm text-[#93a4d6] mb-2">Bias / Direction</div>
+                      <div className={`inline-block px-4 py-2 rounded-lg font-bold text-lg ${dir.bg} ${dir.color}`}>{dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text}</div>
+                    </div>
+                  );
+                })()}
+                <div className={`mb-4 p-4 rounded-lg border ${actionInfo.bg} border-current/30`}>
+                  <div className={`text-lg font-bold mb-2 ${actionInfo.color}`}>{actionInfo.action}</div>
+                  <div className="text-sm text-[#93a4d6]">{actionInfo.description}</div>
+                </div>
+                <QuadrantProgression ticker={ticker} flags={flags} />
+                <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-[#93a4d6]">Phase</span>
+                    <span className="text-sm font-semibold" style={{ color: phaseColor }}>{Math.round(phase * 100)}%</span>
+                  </div>
+                  <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${phase * 100}%`, backgroundColor: phaseColor }} />
+                  </div>
+                </div>
+                <div className="space-y-2.5 text-sm">
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Base Score</span>
+                    <span className="font-semibold text-blue-400">{baseScore}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Rank</span>
+                    <span className="font-semibold">{rankPosition > 0 ? `#${rankPosition} of ${totalTickers}` : "—"}</span>
+                  </div>
+                  {dynamicRank !== baseScore && (
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Dynamic Score</span>
+                      <span className="font-semibold text-green-400">{dynamicRank}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">RR</span>
+                    <span className="font-semibold">{ticker.rr ? Number(ticker.rr).toFixed(2) : "—"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">State</span>
+                    <span className="font-semibold">{ticker.state || "—"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Completion</span>
+                    <span className="font-semibold">{Math.round(completionForSize(ticker) * 100)}%</span>
+                  </div>
+                  {ent.corridor && (
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Corridor</span>
+                      <span className="px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-semibold">{ent.side}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Current Price</span>
+                    <span className="font-semibold text-lg">{ticker.price ? `$${Number(ticker.price).toFixed(2)}` : "—"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">TP (Primary)</span>
+                    <span className="font-semibold">{ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">SL</span>
+                    <span className="font-semibold">{ticker.sl ? Number(ticker.sl).toFixed(2) : "—"}</span>
+                  </div>
+                </div>
+                {(flags.sq30_on || flags.sq30_release || flags.phase_dot || flags.phase_zone_change) && (
+                  <div className="mt-4 pt-4">
+                    <div className="text-xs text-[#93a4d6] mb-2">Flags:</div>
+                    <div className="flex flex-wrap gap-2">
+                      {flags.sq30_on && <span className="px-2 py-1 rounded bg-yellow-500/20 text-yellow-400 text-xs">🧨 Squeeze ON</span>}
+                      {flags.sq30_release && <span className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-400 text-xs">⚡ Squeeze Release</span>}
+                      {flags.phase_dot && <span className="px-2 py-1 rounded bg-purple-500/20 text-purple-400 text-xs">Phase Dot</span>}
+                      {flags.phase_zone_change && <span className="px-2 py-1 rounded bg-blue-500/20 text-blue-400 text-xs">Zone Change</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex-shrink-0 p-6 pt-4 border-t border-[#26325f] bg-[#121a33]">
+                <a href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker.ticker)}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-all hover:scale-105 font-semibold">📊 Open in TradingView</a>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // TickerDetailsLoader - for showing ticker details
       // ─────────────────────────────────────────────────────────────
-      const TickerDetailsLoader = ({ tickerSymbol, onClose }) => {
+      const TickerDetailsLoader = ({ tickerSymbol, onClose, allLoadedData = null }) => {
         const [tickerData, setTickerData] = useState(null);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
@@ -933,7 +1278,7 @@
               if (!json.ok || !json.data) {
                 throw new Error(json.error || 'Ticker not found');
               }
-              setTickerData(json.data);
+              setTickerData(json.data || json.latestData);
             } catch (err) {
               console.error('Failed to fetch ticker:', err);
               setError(err.message);
@@ -946,12 +1291,10 @@
         
         if (loading) {
           return (
-            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-              <div className="w-[450px] bg-[#0f1630] border border-[#26325f] rounded-xl p-6">
-                <div className="text-center">
-                  <div className="loading-spinner mx-auto mb-4"></div>
-                  <div className="text-[#93a4d6]">Loading {tickerSymbol}...</div>
-                </div>
+            <div className="w-full h-full flex items-center justify-center bg-[#0f1630]">
+              <div className="text-center">
+                <div className="loading-spinner mx-auto mb-4"></div>
+                <div className="text-[#93a4d6]">Loading {tickerSymbol}...</div>
               </div>
             </div>
           );
@@ -959,66 +1302,17 @@
         
         if (error || !tickerData) {
           return (
-            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-              <div className="w-[450px] bg-[#0f1630] border border-red-500 rounded-xl p-6">
-                <div className="text-center">
-                  <div className="text-red-400 mb-2">Failed to load {tickerSymbol}</div>
-                  <div className="text-[#93a4d6] text-sm mb-4">{error || 'No data available'}</div>
-                  <button
-                    onClick={onClose}
-                    className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
-                  >
-                    Close
-                  </button>
-                </div>
+            <div className="w-full h-full flex items-center justify-center bg-[#0f1630]">
+              <div className="text-center">
+                <div className="text-red-400 mb-2">Failed to load {tickerSymbol}</div>
+                <div className="text-[#93a4d6] text-sm mb-4">{error || 'No data available'}</div>
+                <button onClick={onClose} className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white">Close</button>
               </div>
             </div>
           );
         }
         
-        // Simple detail view - redirect to main dashboard with ticker selected
-        return (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={onClose}>
-            <div className="w-[90%] max-w-4xl bg-[#0f1630] border border-[#26325f] rounded-xl p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">{tickerSymbol}</h2>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
-                >
-                  Close
-                </button>
-              </div>
-              <div className="text-center py-8">
-                <p className="text-[#93a4d6] mb-4">View full details on the Dashboard</p>
-                <a
-                  href={`index-react.html?ticker=${encodeURIComponent(tickerSymbol)}`}
-                  className="px-6 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg text-white font-semibold inline-block"
-                >
-                  Open in Dashboard
-                </a>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                <div className="bg-[#121a33] p-3 rounded">
-                  <div className="text-xs text-[#93a4d6]">Price</div>
-                  <div className="text-lg font-bold">${Number(tickerData.price || 0).toFixed(2)}</div>
-                </div>
-                <div className="bg-[#121a33] p-3 rounded">
-                  <div className="text-xs text-[#93a4d6]">Rank</div>
-                  <div className="text-lg font-bold">{tickerData.rank || 'N/A'}</div>
-                </div>
-                <div className="bg-[#121a33] p-3 rounded">
-                  <div className="text-xs text-[#93a4d6]">RR</div>
-                  <div className="text-lg font-bold">{formatRR(tickerData.rr)}</div>
-                </div>
-                <div className="bg-[#121a33] p-3 rounded">
-                  <div className="text-xs text-[#93a4d6]">State</div>
-                  <div className="text-lg font-bold text-xs">{tickerData.state || 'N/A'}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
+        return <TickerDetails ticker={tickerData} onClose={onClose} allLoadedData={allLoadedData} />;
       };
 
       // ─────────────────────────────────────────────────────────────
@@ -1325,68 +1619,74 @@
                 <AnalyticsPanel analytics={analytics} />
               </div>
 
-              {/* Trades Table */}
-              <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-bold">Simulated Trades</h2>
-                  <div className="flex gap-2 text-sm">
-                    <span className="px-3 py-1 rounded bg-[#0f1630]">
-                      Open: {openTrades.length}
-                    </span>
-                    <span className="px-3 py-1 rounded bg-[#0f1630]">
-                      Closed: {closedTrades.length}
-                    </span>
+              {/* Trades Table with Right Rail Detail View */}
+              <div className="flex gap-4 items-start relative">
+                {/* Table Container - Left Side */}
+                <div className={`flex-1 bg-[#121a33] border border-[#26325f] rounded-xl p-4 transition-all ${selectedTicker ? 'mr-[470px]' : ''}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-bold">Simulated Trades</h2>
+                    <div className="flex gap-2 text-sm">
+                      <span className="px-3 py-1 rounded bg-[#0f1630]">
+                        Open: {openTrades.length}
+                      </span>
+                      <span className="px-3 py-1 rounded bg-[#0f1630]">
+                        Closed: {closedTrades.length}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto -mx-4 px-4">
+                    <table className="w-full min-w-full">
+                      <thead>
+                        <tr className="border-b border-[#26325f] text-left">
+                          <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Direction</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Current</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Entry Time</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Qty</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Market Value</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Trimmed</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">SL</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">TP</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">RR</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">P&L %</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Status</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Version</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredTrades.length === 0 ? (
+                          <tr>
+                            <td colSpan="16" className="p-8 text-center text-[#93a4d6]">
+                              {selectedVersion === "all" 
+                                ? "No trades yet. Trades will be automatically created when alerts trigger."
+                                : `No trades found for version ${selectedVersion}.`}
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredTrades.map((trade) => (
+                            <TradeRow key={trade.id} trade={trade} onTickerClick={setSelectedTicker} />
+                          ))
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-                <div className="overflow-x-auto -mx-4 px-4">
-                  <table className="w-full min-w-full">
-                    <thead>
-                      <tr className="border-b border-[#26325f] text-left">
-                        <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Direction</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Current</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Entry Time</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Qty</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Market Value</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Trimmed</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">SL</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">TP</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">RR</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">P&L %</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Status</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Version</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredTrades.length === 0 ? (
-                        <tr>
-                          <td colSpan="16" className="p-8 text-center text-[#93a4d6]">
-                            {selectedVersion === "all" 
-                              ? "No trades yet. Trades will be automatically created when alerts trigger."
-                              : `No trades found for version ${selectedVersion}.`}
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredTrades.map((trade) => (
-                          <TradeRow key={trade.id} trade={trade} onTickerClick={setSelectedTicker} />
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+
+                {/* Right Rail - Detail View (slides in from right) */}
+                {selectedTicker && (
+                  <div className="absolute right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl">
+                    <TickerDetailsLoader 
+                      tickerSymbol={selectedTicker} 
+                      onClose={() => setSelectedTicker(null)}
+                      allLoadedData={data}
+                    />
+                  </div>
+                )}
               </div>
             </div>
-            
-            {/* Ticker Details Overlay */}
-            {selectedTicker && (
-              <TickerDetailsLoader 
-                tickerSymbol={selectedTicker} 
-                onClose={() => setSelectedTicker(null)} 
-              />
-            )}
           </div>
         );
       }

@@ -682,15 +682,15 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
             (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM")
         );
 
-        // Additional check: prevent multiple trades for same ticker/direction within 1 hour
-        // This catches cases where multiple alerts come in rapidly
-        const oneHourAgo = now - 60 * 60 * 1000; // 1 hour
+        // Additional check: prevent multiple trades for same ticker/direction within 24 hours
+        // This catches cases where multiple alerts come in over time but shouldn't create multiple positions
+        const oneDayAgo = now - 24 * 60 * 60 * 1000; // 24 hours
         const recentTrade = allTrades.find(
           (t) =>
             t.ticker === ticker &&
             t.direction === direction &&
             t.entryTime &&
-            new Date(t.entryTime).getTime() > oneHourAgo
+            new Date(t.entryTime).getTime() > oneDayAgo
         );
 
         if (!recentlyClosedTrade && !anyOpenTrade && !recentTrade) {
@@ -753,7 +753,7 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
             );
           } else if (recentTrade) {
             console.log(
-              `[TRADE SIM] ⚠️ ${ticker} ${direction}: recent trade exists within 1 hour, skipping`
+              `[TRADE SIM] ⚠️ ${ticker} ${direction}: recent trade exists within 24 hours, skipping`
             );
           } else {
             console.log(
@@ -4720,7 +4720,7 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
     // Debug Endpoints
     // ─────────────────────────────────────────────────────────────
 
-    // GET /timed/debug/trades - Get all trades with details
+    // GET /timed/debug/trades?ticker=RIOT - Get all trades with details, optionally filtered by ticker
     if (url.pathname === "/timed/debug/trades" && req.method === "GET") {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
@@ -4729,27 +4729,38 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
         const tradesKey = "timed:trades:all";
         const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
 
-        const openTrades = allTrades.filter(
+        // Optional ticker filter
+        const tickerFilter = url.searchParams.get("ticker");
+        let filteredTrades = allTrades;
+        if (tickerFilter) {
+          const tickerUpper = String(tickerFilter).toUpperCase();
+          filteredTrades = allTrades.filter(
+            (t) => String(t.ticker || "").toUpperCase() === tickerUpper
+          );
+        }
+
+        const openTrades = filteredTrades.filter(
           (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
         );
-        const closedTrades = allTrades.filter(
+        const closedTrades = filteredTrades.filter(
           (t) => t.status === "WIN" || t.status === "LOSS"
         );
 
         return sendJSON(
           {
             ok: true,
-            total: allTrades.length,
+            ticker: tickerFilter || null,
+            total: filteredTrades.length,
             open: openTrades.length,
             closed: closedTrades.length,
-            trades: allTrades,
+            trades: filteredTrades,
             summary: {
-              byVersion: allTrades.reduce((acc, t) => {
+              byVersion: filteredTrades.reduce((acc, t) => {
                 const v = t.scriptVersion || "unknown";
                 acc[v] = (acc[v] || 0) + 1;
                 return acc;
               }, {}),
-              byStatus: allTrades.reduce((acc, t) => {
+              byStatus: filteredTrades.reduce((acc, t) => {
                 const s = t.status || "OPEN";
                 acc[s] = (acc[s] || 0) + 1;
                 return acc;
@@ -4845,6 +4856,131 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
         200,
         corsHeaders(env, req)
       );
+    }
+
+    // POST /timed/debug/cleanup-duplicates?key=...&ticker=RIOT - Remove duplicate trades for a ticker
+    if (
+      url.pathname === "/timed/debug/cleanup-duplicates" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const tickerFilter = url.searchParams.get("ticker");
+
+        if (!tickerFilter) {
+          return sendJSON(
+            { ok: false, error: "ticker parameter required" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickerUpper = String(tickerFilter).toUpperCase();
+        const tickerTrades = allTrades.filter(
+          (t) => String(t.ticker || "").toUpperCase() === tickerUpper
+        );
+
+        if (tickerTrades.length === 0) {
+          return sendJSON(
+            {
+              ok: true,
+              message: `No trades found for ${tickerUpper}`,
+              removed: 0,
+              kept: 0,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        }
+
+        // Group by direction and find duplicates
+        const byDirection = {};
+        tickerTrades.forEach((trade) => {
+          const dir = trade.direction || "UNKNOWN";
+          if (!byDirection[dir]) {
+            byDirection[dir] = [];
+          }
+          byDirection[dir].push(trade);
+        });
+
+        const tradesToKeep = [];
+        const tradesToRemove = [];
+
+        Object.keys(byDirection).forEach((direction) => {
+          const dirTrades = byDirection[direction];
+
+          // Keep the most recent open trade, or if all closed, keep the most recent one
+          const openTrades = dirTrades.filter(
+            (t) =>
+              t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+          );
+
+          if (openTrades.length > 0) {
+            // Keep the most recent open trade
+            const sortedOpen = openTrades.sort((a, b) => {
+              const timeA = new Date(a.entryTime || 0).getTime();
+              const timeB = new Date(b.entryTime || 0).getTime();
+              return timeB - timeA;
+            });
+            tradesToKeep.push(sortedOpen[0]);
+            tradesToRemove.push(...sortedOpen.slice(1));
+            tradesToRemove.push(
+              ...dirTrades.filter((t) => !openTrades.includes(t))
+            );
+          } else {
+            // All closed - keep the most recent one
+            const sortedClosed = dirTrades.sort((a, b) => {
+              const timeA = new Date(a.entryTime || 0).getTime();
+              const timeB = new Date(b.entryTime || 0).getTime();
+              return timeB - timeA;
+            });
+            tradesToKeep.push(sortedClosed[0]);
+            tradesToRemove.push(...sortedClosed.slice(1));
+          }
+        });
+
+        // Remove duplicates from allTrades
+        const tradeIdsToRemove = new Set(tradesToRemove.map((t) => t.id));
+        const cleanedTrades = allTrades.filter(
+          (t) => !tradeIdsToRemove.has(t.id)
+        );
+
+        await kvPutJSON(KV, tradesKey, cleanedTrades);
+
+        return sendJSON(
+          {
+            ok: true,
+            ticker: tickerUpper,
+            total: tickerTrades.length,
+            kept: tradesToKeep.length,
+            removed: tradesToRemove.length,
+            keptTrades: tradesToKeep.map((t) => ({
+              id: t.id,
+              entryTime: t.entryTime,
+              entryPrice: t.entryPrice,
+              status: t.status,
+            })),
+            removedTrades: tradesToRemove.map((t) => ({
+              id: t.id,
+              entryTime: t.entryTime,
+              entryPrice: t.entryPrice,
+              status: t.status,
+            })),
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
     }
 
     // POST /timed/debug/simulate-trades?key=... - Manually simulate trades for all tickers
