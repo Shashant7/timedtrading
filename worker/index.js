@@ -563,6 +563,500 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
   };
 }
 
+// Pattern Recognition: Analyze winning patterns from trade history
+function analyzeWinningPatterns(tradeHistory, currentTickers) {
+  if (!tradeHistory || tradeHistory.length === 0) {
+    return { summary: "No trade history available for pattern analysis" };
+  }
+
+  const wins = tradeHistory.filter((t) => t.status === "WIN");
+  const losses = tradeHistory.filter((t) => t.status === "LOSS");
+  const winRate = wins.length / tradeHistory.length;
+
+  // Analyze by rank ranges
+  const rankPatterns = {};
+  tradeHistory.forEach((t) => {
+    const rank = Math.floor((t.rank || 0) / 10) * 10; // Group by 10s
+    const key = `Rank ${rank}-${rank + 9}`;
+    if (!rankPatterns[key]) {
+      rankPatterns[key] = { wins: 0, losses: 0, totalPnl: 0 };
+    }
+    if (t.status === "WIN") rankPatterns[key].wins++;
+    if (t.status === "LOSS") rankPatterns[key].losses++;
+    rankPatterns[key].totalPnl += t.pnl || 0;
+  });
+
+  // Analyze by RR ranges
+  const rrPatterns = {};
+  tradeHistory.forEach((t) => {
+    const rr = t.rr || 0;
+    let range = "Unknown";
+    if (rr >= 2.0) range = "RR ≥ 2.0";
+    else if (rr >= 1.5) range = "RR 1.5-2.0";
+    else if (rr >= 1.0) range = "RR 1.0-1.5";
+    else if (rr > 0) range = "RR < 1.0";
+
+    if (!rrPatterns[range]) {
+      rrPatterns[range] = { wins: 0, losses: 0, totalPnl: 0 };
+    }
+    if (t.status === "WIN") rrPatterns[range].wins++;
+    if (t.status === "LOSS") rrPatterns[range].losses++;
+    rrPatterns[range].totalPnl += t.pnl || 0;
+  });
+
+  // Find best performing patterns
+  const bestRankPattern = Object.entries(rankPatterns)
+    .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+    .sort((a, b) => {
+      const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+      const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+      return bRate - aRate;
+    })[0];
+
+  const bestRRPattern = Object.entries(rrPatterns)
+    .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+    .sort((a, b) => {
+      const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+      const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+      return bRate - aRate;
+    })[0];
+
+  // Match current tickers to winning patterns
+  const matchingSetups = currentTickers.filter((t) => {
+    if (!bestRankPattern || !bestRRPattern) return false;
+    const rankRange = bestRankPattern[0];
+    const rrRange = bestRRPattern[0];
+    const tickerRank = Math.floor((t.rank || 0) / 10) * 10;
+    const rankMatch = rankRange.includes(`Rank ${tickerRank}`);
+    const rrMatch =
+      (rrRange === "RR ≥ 2.0" && t.rr >= 2.0) ||
+      (rrRange === "RR 1.5-2.0" && t.rr >= 1.5 && t.rr < 2.0) ||
+      (rrRange === "RR 1.0-1.5" && t.rr >= 1.0 && t.rr < 1.5);
+    return rankMatch && rrMatch;
+  });
+
+  return {
+    summary: `Analyzed ${tradeHistory.length} trades. Win rate: ${(winRate * 100).toFixed(1)}%. Best pattern: ${bestRankPattern?.[0] || "N/A"} with ${bestRRPattern?.[0] || "N/A"} RR. ${matchingSetups.length} current setups match winning patterns.`,
+    bestRankPattern: bestRankPattern?.[0] || null,
+    bestRRPattern: bestRRPattern?.[0] || null,
+    matchingSetups: matchingSetups.slice(0, 5).map((t) => t.ticker),
+    winRate: winRate,
+  };
+}
+
+// Proactive Alert Generation: Detect conditions requiring attention
+function generateProactiveAlerts(allTickers, allTrades) {
+  const alerts = [];
+  const now = Date.now();
+
+  // Get open trades
+  const openTrades = allTrades.filter(
+    (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM"
+  );
+
+  // Alert 1: Positions approaching TP (within 2% of TP)
+  openTrades.forEach((trade) => {
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
+    const tp = Number(trade.tp);
+    const sl = Number(trade.sl);
+    const direction = trade.direction || "LONG";
+
+    if (tp && currentPrice && sl) {
+      let distanceToTP = 0;
+      let pctToTP = 0;
+
+      if (direction === "LONG") {
+        distanceToTP = tp - currentPrice;
+        const totalDistance = tp - trade.entryPrice;
+        pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
+      } else {
+        distanceToTP = currentPrice - tp;
+        const totalDistance = trade.entryPrice - tp;
+        pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
+      }
+
+      if (pctToTP > 0 && pctToTP <= 5) {
+        alerts.push({
+          type: "TP_APPROACHING",
+          priority: "high",
+          ticker: trade.ticker,
+          message: `${trade.ticker} is within ${pctToTP.toFixed(1)}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Consider trimming 50% at TP.`,
+          currentPrice,
+          tp,
+          pctToTP,
+        });
+      }
+    }
+  });
+
+  // Alert 2: Positions approaching SL (within 2% of SL)
+  openTrades.forEach((trade) => {
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
+    const sl = Number(trade.sl);
+    const direction = trade.direction || "LONG";
+
+    if (sl && currentPrice) {
+      let distanceToSL = 0;
+      let pctToSL = 0;
+
+      if (direction === "LONG") {
+        distanceToSL = currentPrice - sl;
+        const totalDistance = trade.entryPrice - sl;
+        pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
+      } else {
+        distanceToSL = sl - currentPrice;
+        const totalDistance = sl - trade.entryPrice;
+        pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
+      }
+
+      if (pctToSL > 0 && pctToSL <= 5) {
+        alerts.push({
+          type: "SL_APPROACHING",
+          priority: "high",
+          ticker: trade.ticker,
+          message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(1)}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Monitor closely.`,
+          currentPrice,
+          sl,
+          pctToSL,
+        });
+      }
+    }
+  });
+
+  // Alert 3: High completion positions (should trim/exit)
+  allTickers.forEach((ticker) => {
+    const matchingTrade = openTrades.find((t) => t.ticker === ticker.ticker);
+    if (matchingTrade && ticker.completion > 0.8) {
+      alerts.push({
+        type: "HIGH_COMPLETION",
+        priority: "medium",
+        ticker: ticker.ticker,
+        message: `${ticker.ticker} has reached ${(ticker.completion * 100).toFixed(0)}% completion. Consider trimming 50-75% to lock in profits.`,
+        completion: ticker.completion,
+      });
+    }
+  });
+
+  // Alert 4: Late phase positions (risk of reversal)
+  allTickers.forEach((ticker) => {
+    const matchingTrade = openTrades.find((t) => t.ticker === ticker.ticker);
+    if (matchingTrade && ticker.phase_pct > 0.75) {
+      alerts.push({
+        type: "LATE_PHASE",
+        priority: "medium",
+        ticker: ticker.ticker,
+        message: `${ticker.ticker} is in late phase (${(ticker.phase_pct * 100).toFixed(0)}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
+        phasePct: ticker.phase_pct,
+      });
+    }
+  });
+
+  // Alert 5: New prime setups emerging
+  const newPrimeSetups = allTickers.filter(
+    (t) =>
+      t.rank >= 75 &&
+      t.rr >= 1.5 &&
+      t.completion < 0.4 &&
+      t.phase_pct < 0.6 &&
+      !openTrades.find((ot) => ot.ticker === t.ticker)
+  );
+
+  if (newPrimeSetups.length > 0) {
+    alerts.push({
+      type: "NEW_OPPORTUNITY",
+      priority: "high",
+      ticker: "MULTIPLE",
+      message: `🎯 ${newPrimeSetups.length} new prime setups detected: ${newPrimeSetups
+        .slice(0, 5)
+        .map((t) => t.ticker)
+        .join(", ")}. Consider monitoring for entry.`,
+      setups: newPrimeSetups.slice(0, 5).map((t) => ({
+        ticker: t.ticker,
+        rank: t.rank,
+        rr: t.rr,
+      })),
+    });
+  }
+
+  // Alert 6: Momentum Elite opportunities
+  const momentumEliteSetups = allTickers.filter(
+    (t) =>
+      t.flags?.momentum_elite &&
+      t.rank >= 70 &&
+      !openTrades.find((ot) => ot.ticker === t.ticker)
+  );
+
+  if (momentumEliteSetups.length > 0) {
+    alerts.push({
+      type: "MOMENTUM_ELITE",
+      priority: "high",
+      ticker: "MULTIPLE",
+      message: `🚀 ${momentumEliteSetups.length} Momentum Elite setups available: ${momentumEliteSetups
+        .slice(0, 5)
+        .map((t) => t.ticker)
+        .join(", ")}. High-quality opportunities.`,
+      setups: momentumEliteSetups.slice(0, 5).map((t) => ({
+        ticker: t.ticker,
+        rank: t.rank,
+        rr: t.rr,
+      })),
+    });
+  }
+
+  // Sort by priority (high first) and return
+  return alerts.sort((a, b) => {
+    const priorityOrder = { high: 3, medium: 2, low: 1 };
+    return priorityOrder[b.priority] - priorityOrder[a.priority];
+  });
+}
+
+// Pattern Recognition: Analyze winning patterns from trade history
+function analyzeWinningPatterns(tradeHistory, currentTickers) {
+  if (!tradeHistory || tradeHistory.length === 0) {
+    return { summary: "No trade history available for pattern analysis" };
+  }
+
+  const wins = tradeHistory.filter((t) => t.status === "WIN");
+  const losses = tradeHistory.filter((t) => t.status === "LOSS");
+  const winRate = wins.length / tradeHistory.length;
+
+  // Analyze by rank ranges
+  const rankPatterns = {};
+  tradeHistory.forEach((t) => {
+    const rank = Math.floor((t.rank || 0) / 10) * 10; // Group by 10s
+    const key = `Rank ${rank}-${rank + 9}`;
+    if (!rankPatterns[key]) {
+      rankPatterns[key] = { wins: 0, losses: 0, totalPnl: 0 };
+    }
+    if (t.status === "WIN") rankPatterns[key].wins++;
+    if (t.status === "LOSS") rankPatterns[key].losses++;
+    rankPatterns[key].totalPnl += t.pnl || 0;
+  });
+
+  // Analyze by RR ranges
+  const rrPatterns = {};
+  tradeHistory.forEach((t) => {
+    const rr = t.rr || 0;
+    let range = "Unknown";
+    if (rr >= 2.0) range = "RR ≥ 2.0";
+    else if (rr >= 1.5) range = "RR 1.5-2.0";
+    else if (rr >= 1.0) range = "RR 1.0-1.5";
+    else if (rr > 0) range = "RR < 1.0";
+
+    if (!rrPatterns[range]) {
+      rrPatterns[range] = { wins: 0, losses: 0, totalPnl: 0 };
+    }
+    if (t.status === "WIN") rrPatterns[range].wins++;
+    if (t.status === "LOSS") rrPatterns[range].losses++;
+    rrPatterns[range].totalPnl += t.pnl || 0;
+  });
+
+  // Find best performing patterns
+  const bestRankPattern = Object.entries(rankPatterns)
+    .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+    .sort((a, b) => {
+      const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+      const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+      return bRate - aRate;
+    })[0];
+
+  const bestRRPattern = Object.entries(rrPatterns)
+    .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+    .sort((a, b) => {
+      const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+      const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+      return bRate - aRate;
+    })[0];
+
+  // Match current tickers to winning patterns
+  const matchingSetups = currentTickers.filter((t) => {
+    if (!bestRankPattern || !bestRRPattern) return false;
+    const rankRange = bestRankPattern[0];
+    const tickerRank = Math.floor((t.rank || 0) / 10) * 10;
+    const rankMatch = rankRange.includes(`Rank ${tickerRank}`);
+    const rr = t.rr || 0;
+    const rrRange = bestRRPattern[0];
+    const rrMatch =
+      (rrRange === "RR ≥ 2.0" && rr >= 2.0) ||
+      (rrRange === "RR 1.5-2.0" && rr >= 1.5 && rr < 2.0) ||
+      (rrRange === "RR 1.0-1.5" && rr >= 1.0 && rr < 1.5);
+    return rankMatch && rrMatch;
+  });
+
+  return {
+    summary: `Analyzed ${tradeHistory.length} trades. Win rate: ${(winRate * 100).toFixed(1)}%. Best pattern: ${bestRankPattern?.[0] || "N/A"} with ${bestRRPattern?.[0] || "N/A"} RR. ${matchingSetups.length} current setups match winning patterns.`,
+    bestRankPattern: bestRankPattern?.[0] || null,
+    bestRRPattern: bestRRPattern?.[0] || null,
+    matchingSetups: matchingSetups.slice(0, 5).map((t) => t.ticker),
+    winRate: winRate,
+  };
+}
+
+// Proactive Alert Generation: Detect conditions requiring attention
+function generateProactiveAlerts(allTickers, allTrades) {
+  const alerts = [];
+
+  // Get open trades
+  const openTrades = allTrades.filter(
+    (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM"
+  );
+
+  // Alert 1: Positions approaching TP (within 5% of TP)
+  openTrades.forEach((trade) => {
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
+    const tp = Number(trade.tp);
+    const sl = Number(trade.sl);
+    const direction = trade.direction || "LONG";
+
+    if (tp && currentPrice && sl) {
+      let distanceToTP = 0;
+      let pctToTP = 0;
+
+      if (direction === "LONG") {
+        distanceToTP = tp - currentPrice;
+        const totalDistance = tp - trade.entryPrice;
+        pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
+      } else {
+        distanceToTP = currentPrice - tp;
+        const totalDistance = trade.entryPrice - tp;
+        pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
+      }
+
+      if (pctToTP > 0 && pctToTP <= 5) {
+        alerts.push({
+          type: "TP_APPROACHING",
+          priority: "high",
+          ticker: trade.ticker,
+          message: `${trade.ticker} is within ${pctToTP.toFixed(1)}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Consider trimming 50% at TP.`,
+          currentPrice,
+          tp,
+          pctToTP,
+        });
+      }
+    }
+  });
+
+  // Alert 2: Positions approaching SL (within 5% of SL)
+  openTrades.forEach((trade) => {
+    const currentPrice = Number(trade.currentPrice || trade.entryPrice);
+    const sl = Number(trade.sl);
+    const direction = trade.direction || "LONG";
+
+    if (sl && currentPrice) {
+      let distanceToSL = 0;
+      let pctToSL = 0;
+
+      if (direction === "LONG") {
+        distanceToSL = currentPrice - sl;
+        const totalDistance = trade.entryPrice - sl;
+        pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
+      } else {
+        distanceToSL = sl - currentPrice;
+        const totalDistance = sl - trade.entryPrice;
+        pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
+      }
+
+      if (pctToSL > 0 && pctToSL <= 5) {
+        alerts.push({
+          type: "SL_APPROACHING",
+          priority: "high",
+          ticker: trade.ticker,
+          message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(1)}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(2)}. Monitor closely.`,
+          currentPrice,
+          sl,
+          pctToSL,
+        });
+      }
+    }
+  });
+
+  // Alert 3: High completion positions (should trim/exit)
+  allTickers.forEach((ticker) => {
+    const matchingTrade = openTrades.find((t) => t.ticker === ticker.ticker);
+    if (matchingTrade && ticker.completion > 0.8) {
+      alerts.push({
+        type: "HIGH_COMPLETION",
+        priority: "medium",
+        ticker: ticker.ticker,
+        message: `${ticker.ticker} has reached ${(ticker.completion * 100).toFixed(0)}% completion. Consider trimming 50-75% to lock in profits.`,
+        completion: ticker.completion,
+      });
+    }
+  });
+
+  // Alert 4: Late phase positions (risk of reversal)
+  allTickers.forEach((ticker) => {
+    const matchingTrade = openTrades.find((t) => t.ticker === ticker.ticker);
+    if (matchingTrade && ticker.phase_pct > 0.75) {
+      alerts.push({
+        type: "LATE_PHASE",
+        priority: "medium",
+        ticker: ticker.ticker,
+        message: `${ticker.ticker} is in late phase (${(ticker.phase_pct * 100).toFixed(0)}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
+        phasePct: ticker.phase_pct,
+      });
+    }
+  });
+
+  // Alert 5: New prime setups emerging
+  const newPrimeSetups = allTickers.filter(
+    (t) =>
+      t.rank >= 75 &&
+      t.rr >= 1.5 &&
+      t.completion < 0.4 &&
+      t.phase_pct < 0.6 &&
+      !openTrades.find((ot) => ot.ticker === t.ticker)
+  );
+
+  if (newPrimeSetups.length > 0) {
+    alerts.push({
+      type: "NEW_OPPORTUNITY",
+      priority: "high",
+      ticker: "MULTIPLE",
+      message: `🎯 ${newPrimeSetups.length} new prime setups detected: ${newPrimeSetups
+        .slice(0, 5)
+        .map((t) => t.ticker)
+        .join(", ")}. Consider monitoring for entry.`,
+      setups: newPrimeSetups.slice(0, 5).map((t) => ({
+        ticker: t.ticker,
+        rank: t.rank,
+        rr: t.rr,
+      })),
+    });
+  }
+
+  // Alert 6: Momentum Elite opportunities
+  const momentumEliteSetups = allTickers.filter(
+    (t) =>
+      t.flags?.momentum_elite &&
+      t.rank >= 70 &&
+      !openTrades.find((ot) => ot.ticker === t.ticker)
+  );
+
+  if (momentumEliteSetups.length > 0) {
+    alerts.push({
+      type: "MOMENTUM_ELITE",
+      priority: "high",
+      ticker: "MULTIPLE",
+      message: `🚀 ${momentumEliteSetups.length} Momentum Elite setups available: ${momentumEliteSetups
+        .slice(0, 5)
+        .map((t) => t.ticker)
+        .join(", ")}. High-quality opportunities.`,
+      setups: momentumEliteSetups.slice(0, 5).map((t) => ({
+        ticker: t.ticker,
+        rank: t.rank,
+        rr: t.rr,
+      })),
+    });
+  }
+
+  // Sort by priority (high first) and return
+  return alerts.sort((a, b) => {
+    const priorityOrder = { high: 3, medium: 2, low: 1 };
+    return priorityOrder[b.priority] - priorityOrder[a.priority];
+  });
+}
+
 // Process trade simulation for a ticker (called on ingest)
 async function processTradeSimulation(KV, ticker, tickerData, prevData) {
   try {
@@ -4507,7 +5001,7 @@ Based on today's data:
         const allTradesForHistory = (await kvGetJSON(KV, tradesKey)) || [];
         const tradeHistory = allTradesForHistory
           .filter((t) => t.status === "WIN" || t.status === "LOSS")
-          .slice(-30)
+          .slice(-50) // Increased to 50 for better pattern recognition
           .map((t) => ({
             ticker: String(t.ticker || ""),
             direction: String(t.direction || ""),
@@ -4516,7 +5010,15 @@ Based on today's data:
             rank: Number(t.rank) || 0,
             rr: Number(t.rr) || 0,
             entryTime: String(t.entryTime || ""),
+            state: String(t.state || ""),
+            flags: t.flags || {},
           }));
+        
+        // Pattern Recognition: Analyze winning patterns
+        const winningPatterns = analyzeWinningPatterns(tradeHistory, allTickers);
+        
+        // Proactive Alerts: Detect conditions that need attention
+        const proactiveAlerts = generateProactiveAlerts(allTickers, allTradesForHistory);
 
         // Analyze for proactive alerts
         const primeSetups = allTickers.filter(
@@ -4623,15 +5125,28 @@ ${
     : "No trade history available"
 }
 
+### Pattern Recognition Insights:
+${winningPatterns.summary || "Analyzing patterns..."}
+
+### Proactive Alerts (${proactiveAlerts.length}):
+${
+  proactiveAlerts.length > 0
+    ? proactiveAlerts
+        .slice(0, 10)
+        .map((a) => `- **${a.type}**: ${a.message}`)
+        .join("\n")
+    : "No alerts at this time"
+}
+
 ## MONITORING RESPONSE FORMAT
 Provide a structured analysis with:
 
-1. **🎯 Opportunities** (Prime setups worth watching)
-2. **⚠️ Warnings** (High-risk positions, consider trimming/exiting)
-3. **📊 Market Insights** (Overall market conditions, patterns)
-4. **💡 Recommendations** (Actionable next steps)
+1. **🎯 Opportunities** (Prime setups worth watching, pattern matches)
+2. **⚠️ Warnings** (High-risk positions, approaching TP/SL, consider trimming/exiting)
+3. **📊 Market Insights** (Overall market conditions, patterns, pattern recognition findings)
+4. **💡 Recommendations** (Actionable next steps based on alerts and patterns)
 
-Be concise but thorough. Focus on actionable insights, not just data.`;
+**IMPORTANT**: Reference the proactive alerts above and pattern recognition insights. Prioritize alerts marked as "high" priority. Be concise but thorough. Focus on actionable insights, not just data.`;
 
         // Call OpenAI API
         const controller = new AbortController();
@@ -5059,24 +5574,30 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
       try {
         const tradesKey = "timed:trades:all";
         const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        
+
         const beforeCount = allTrades.length;
-        
+
         // Group trades by ticker+direction, keep most recent
         const tradeMap = new Map();
         const duplicates = [];
-        
-        allTrades.forEach(trade => {
-          const key = `${String(trade.ticker || "").toUpperCase()}_${trade.direction || "UNKNOWN"}`;
+
+        allTrades.forEach((trade) => {
+          const key = `${String(trade.ticker || "").toUpperCase()}_${
+            trade.direction || "UNKNOWN"
+          }`;
           const existing = tradeMap.get(key);
-          
+
           if (!existing) {
             tradeMap.set(key, trade);
           } else {
             // Compare entry times to keep the most recent
-            const existingTime = existing.entryTime ? new Date(existing.entryTime).getTime() : 0;
-            const currentTime = trade.entryTime ? new Date(trade.entryTime).getTime() : 0;
-            
+            const existingTime = existing.entryTime
+              ? new Date(existing.entryTime).getTime()
+              : 0;
+            const currentTime = trade.entryTime
+              ? new Date(trade.entryTime).getTime()
+              : 0;
+
             if (currentTime > existingTime) {
               duplicates.push(existing);
               tradeMap.set(key, trade);
@@ -5085,10 +5606,10 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
             }
           }
         });
-        
+
         const cleanedTrades = Array.from(tradeMap.values());
         const removedCount = beforeCount - cleanedTrades.length;
-        
+
         if (removedCount === 0) {
           return sendJSON(
             {
@@ -5102,13 +5623,13 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
             corsHeaders(env, req)
           );
         }
-        
+
         // Save cleaned trades
         await kvPutJSON(KV, tradesKey, cleanedTrades);
-        
+
         // Group duplicates by ticker for summary
         const duplicatesByTicker = {};
-        duplicates.forEach(d => {
+        duplicates.forEach((d) => {
           const ticker = String(d.ticker || "UNKNOWN").toUpperCase();
           if (!duplicatesByTicker[ticker]) {
             duplicatesByTicker[ticker] = [];
@@ -5120,7 +5641,7 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
             status: d.status,
           });
         });
-        
+
         return sendJSON(
           {
             ok: true,
@@ -5129,7 +5650,7 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
             afterCount: cleanedTrades.length,
             removed: removedCount,
             duplicatesByTicker,
-            summary: Object.keys(duplicatesByTicker).map(ticker => ({
+            summary: Object.keys(duplicatesByTicker).map((ticker) => ({
               ticker,
               count: duplicatesByTicker[ticker].length,
             })),

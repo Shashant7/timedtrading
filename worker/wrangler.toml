@@ -39,4 +39,6 @@ cron = "0 17 * * 1-5"   # 12:00 PM ET (17:00 UTC) on weekdays - AI Market Update
 cron = "30 20 * * 1-5"  # 3:30 PM ET (20:30 UTC) on weekdays - AI Market Update
 [[triggers.crons]]
 cron = "*/5 * * * *"    # Every 5 minutes - Update open trades
+[[triggers.crons]]
+cron = "*/15 * * * 1-5" # Every 15 minutes during market hours (weekdays) - Proactive Alerts & Pattern Recognition
 
