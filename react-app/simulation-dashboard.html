@@ -415,18 +415,33 @@
       // ─────────────────────────────────────────────────────────────
       function useTradeAnalytics(trades) {
         return useMemo(() => {
-          // Closed trades: fully closed positions (WIN or LOSS)
-          const closed = trades.filter((t) => t.status === "WIN" || t.status === "LOSS");
+          // Helper to check if trade has remaining shares (not fully closed)
+          const hasRemainingShares = (t) => {
+            const shares = t.shares || Math.floor(TRADE_SIZE / (t.entryPrice || 1));
+            const trimmedPct = t.trimmedPct || 0;
+            const remainingShares = shares - Math.floor(shares * trimmedPct);
+            return remainingShares > 0;
+          };
+
           // Trimmed trades: positions that have been partially trimmed (check trimmedPct > 0 OR status TP_HIT_TRIM)
+          // AND still have remaining shares (not fully closed)
           const trimmed = trades.filter((t) => {
             const trimmedPct = t.trimmedPct || 0;
-            return trimmedPct > 0 || t.status === "TP_HIT_TRIM";
+            const isTrimmed = trimmedPct > 0 || t.status === "TP_HIT_TRIM";
+            return isTrimmed && hasRemainingShares(t);
           });
+          
+          // Closed trades: fully closed positions (WIN or LOSS) with NO remaining shares
+          const closed = trades.filter((t) => {
+            const isWinOrLoss = t.status === "WIN" || t.status === "LOSS";
+            return isWinOrLoss && !hasRemainingShares(t);
+          });
+          
           // Open trades: currently open positions that haven't been trimmed yet
           const open = trades.filter((t) => {
             const trimmedPct = t.trimmedPct || 0;
             const isTrimmed = trimmedPct > 0 || t.status === "TP_HIT_TRIM";
-            const isClosed = t.status === "WIN" || t.status === "LOSS";
+            const isClosed = (t.status === "WIN" || t.status === "LOSS") && !hasRemainingShares(t);
             return (t.status === "OPEN" || !t.status) && !isTrimmed && !isClosed;
           });
 
