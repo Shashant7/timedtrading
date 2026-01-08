@@ -620,8 +620,8 @@
             });
           }
 
-          // Profit factor recommendations
-          if (profitFactor < 1.0 && totalTrades >= 10) {
+          // Profit factor recommendations - only show if we have enough closed trades to analyze
+          if (profitFactor < 1.0 && closedTrades >= 10) {
             recommendations.push({
               type: "risk",
               priority: "high",
@@ -629,8 +629,8 @@
             });
           }
 
-          // Win rate recommendations
-          if (winRate < 40 && totalTrades >= 10) {
+          // Win rate recommendations - only show if we have enough closed trades to analyze
+          if (winRate < 40 && closedTrades >= 10) {
             recommendations.push({
               type: "filter",
               priority: "high",
