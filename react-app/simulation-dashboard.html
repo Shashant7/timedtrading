@@ -290,13 +290,14 @@
 
       function getDirection(ticker) {
         const state = String(ticker.state || "");
-        if (state.includes("BULL")) return "LONG";
-        if (state.includes("BEAR")) return "SHORT";
-        return null;
+        if (state.includes("BULL")) return { text: "LONG", color: "text-green-400", bg: "bg-green-500/20" };
+        if (state.includes("BEAR")) return { text: "SHORT", color: "text-red-400", bg: "bg-red-500/20" };
+        return { text: null, color: "text-[#93a4d6]", bg: "bg-[#26325f]" };
       }
 
       function calculateTrade(ticker, entryPrice, existingTrade = null) {
-        const direction = getDirection(ticker);
+        const directionObj = getDirection(ticker);
+        const direction = directionObj.text;
         if (!direction) return null;
 
         const sl = Number(ticker.sl);
@@ -1037,13 +1038,6 @@
           return { action: "Consider Entry - Favorable Setup", description: `Setup is in entry corridor with both timeframes aligned. Early phase and low completion suggest room to run.`, color: "text-blue-400", bg: "bg-blue-500/20" };
         }
         return { action: "Wait - Setup Not Optimal", description: `Setup not yet optimal for entry. Wait for better conditions or confirmation signals.`, color: "text-[#93a4d6]", bg: "bg-[#26325f]" };
-      }
-
-      function getDirection(ticker) {
-        const state = String(ticker.state || "");
-        if (state.includes("BULL")) return { text: "LONG", color: "text-green-400", bg: "bg-green-500/20" };
-        if (state.includes("BEAR")) return { text: "SHORT", color: "text-red-400", bg: "bg-red-500/20" };
-        return { text: "—", color: "text-[#93a4d6]", bg: "bg-[#26325f]" };
       }
 
       function getQuadrantFromState(state) {
