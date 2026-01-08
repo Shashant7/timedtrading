@@ -767,33 +767,59 @@
         );
       }
 
-      // Trade Detail Right Rail Component (replaces modal)
-      function TradeDetailRightRail({ trade, onClose }) {
-        if (!trade) return null;
+      // ─────────────────────────────────────────────────────────────
+      // Unified Ticker Detail Right Rail Component
+      // Reusable component that shows comprehensive ticker information
+      // and optionally trade history if a trade is associated
+      // ─────────────────────────────────────────────────────────────
+      function TickerDetailRightRail({ ticker, trade = null, onClose, allLoadedData = null }) {
+        if (!ticker) return null;
 
-        const shares = trade.shares || Math.floor(TRADE_SIZE / (trade.entryPrice || 1));
-        const currentPrice = trade.currentPrice || trade.entryPrice;
-        const trimmedPct = trade.trimmedPct || 0;
-        const trimmedShares = Math.floor(shares * trimmedPct);
-        const remainingShares = shares - trimmedShares;
-        const entryDate = new Date(trade.entryTime);
-        const formattedDate = entryDate.toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: 'numeric', 
-          year: 'numeric' 
-        });
-        const formattedTime = entryDate.toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          hour12: true 
-        });
+        // Helper to get ticker data - prefer trade's ticker data if available, otherwise use ticker prop
+        const tickerData = trade && trade.tickerData ? trade.tickerData : ticker;
+        const tickerSymbol = tickerData.ticker || ticker.ticker || (trade ? trade.ticker : null);
+        
+        if (!tickerSymbol) return null;
+
+        const prime = isPrimeBubble(tickerData);
+        const ent = entryType(tickerData);
+        const flags = tickerData.flags || {};
+        const phase = Number(tickerData.phase_pct) || 0;
+        const phaseColor = phaseToColor(phase);
+        const actionInfo = getActionDescription(tickerData);
+
+        // Convert allLoadedData to array for ranking calculations
+        const allLoadedTickersArray = (() => {
+          if (allLoadedData && typeof allLoadedData === "object") {
+            if (Array.isArray(allLoadedData)) return allLoadedData;
+            return Object.values(allLoadedData).filter(
+              (t) => t && typeof t === "object" && t.ticker
+            );
+          }
+          return [];
+        })();
+
+        const baseScore = Number(tickerData.rank) || 0;
+        const dynamicRank = computeDynamicRank(tickerData);
+        const allTickersWithRank = allLoadedTickersArray.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
+        const sortedByDynamic = [...allTickersWithRank].sort((a, b) => b.dynamicRank - a.dynamicRank);
+        const rankPosition = sortedByDynamic.findIndex(t => String(t.ticker || "").toUpperCase() === String(tickerSymbol).toUpperCase()) + 1;
+        const totalTickers = allLoadedTickersArray.length;
+        const isInTop40 = rankPosition > 0 && rankPosition <= 40;
+
+        // Trade-specific calculations
+        const shares = trade ? (trade.shares || Math.floor(TRADE_SIZE / (trade.entryPrice || 1))) : null;
+        const currentPrice = trade ? (trade.currentPrice || trade.entryPrice) : (tickerData.price || tickerData.currentPrice);
+        const trimmedPct = trade ? (trade.trimmedPct || 0) : 0;
+        const trimmedShares = trade ? Math.floor(shares * trimmedPct) : 0;
+        const remainingShares = trade ? (shares - trimmedShares) : null;
 
         return (
           <div className="w-full h-full flex flex-col bg-[#0f1630]">
             {/* Scrollable Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold">{trade.ticker} {trade.direction}</h3>
+                <h3 className="text-xl font-bold">{tickerSymbol}{trade ? ` ${trade.direction}` : ''}</h3>
                 <button
                   onClick={onClose}
                   className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
@@ -802,78 +828,231 @@
                 </button>
               </div>
 
-              {/* Trade Summary */}
-              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4 mb-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
-                    <div className="font-semibold text-white text-lg">${trade.entryPrice?.toFixed(2) || "—"}</div>
-                    <div className="text-[#6b7a9f] text-[10px] mt-1">{formattedDate} {formattedTime}</div>
-                  </div>
-                  <div>
-                    <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
-                    <div className="font-semibold text-yellow-400 text-lg">${currentPrice?.toFixed(2) || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-[#93a4d6] text-xs mb-1">P&L</div>
-                    <div className={`font-semibold text-lg ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      ${trade.pnl?.toFixed(2) || "0.00"}
+              {/* Trade Summary - Only show if trade exists */}
+              {trade && (
+                <>
+                  <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4 mb-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
+                        <div className="font-semibold text-white text-lg">${trade.entryPrice?.toFixed(2) || "—"}</div>
+                        {trade.entryTime && (
+                          <div className="text-[#6b7a9f] text-[10px] mt-1">
+                            {new Date(trade.entryTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{' '}
+                            {new Date(trade.entryTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
+                        <div className="font-semibold text-yellow-400 text-lg">${currentPrice?.toFixed(2) || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-[#93a4d6] text-xs mb-1">P&L</div>
+                        <div className={`font-semibold text-lg ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          ${trade.pnl?.toFixed(2) || "0.00"}
+                        </div>
+                        <div className={`text-xs ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {trade.pnlPct?.toFixed(2) || "0.00"}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[#93a4d6] text-xs mb-1">Status</div>
+                        <div className={`font-semibold text-lg ${
+                          trade.status === "WIN" ? "text-green-400" :
+                          trade.status === "LOSS" ? "text-red-400" :
+                          trade.status === "TP_HIT_TRIM" ? "text-blue-400" :
+                          "text-yellow-400"
+                        }`}>
+                          {trade.status || "OPEN"}
+                        </div>
+                      </div>
                     </div>
-                    <div className={`text-xs ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      {trade.pnlPct?.toFixed(2) || "0.00"}%
+                  </div>
+
+                  {/* Trade Details */}
+                  <div className="space-y-2.5 text-sm mb-4">
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Shares</span>
+                      <span className="font-semibold text-white">
+                        {shares} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares} remaining)</span>}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Stop Loss</span>
+                      <span className="font-semibold text-red-400">${trade.sl?.toFixed(2) || "—"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Take Profit</span>
+                      <span className="font-semibold text-green-400">${trade.tp?.toFixed(2) || "—"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Risk/Reward</span>
+                      <span className="font-semibold text-white">{trade.rr?.toFixed(2) || "—"}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Score</span>
+                      <span className="font-semibold text-blue-400">{trade.rank || baseScore || "—"}</span>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-[#93a4d6] text-xs mb-1">Status</div>
-                    <div className={`font-semibold text-lg ${
-                      trade.status === "WIN" ? "text-green-400" :
-                      trade.status === "LOSS" ? "text-red-400" :
-                      trade.status === "TP_HIT_TRIM" ? "text-blue-400" :
-                      "text-yellow-400"
-                    }`}>
-                      {trade.status || "OPEN"}
+
+                  {/* Trade History Timeline */}
+                  {trade.history && trade.history.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-[#26325f]">
+                      <h3 className="text-lg font-bold mb-3">📊 Trade Journey</h3>
+                      <TradeHistory history={trade.history} />
                     </div>
-                  </div>
+                  )}
+                </>
+              )}
+
+              {/* Ticker Details Section */}
+              {flags.momentum_elite && (
+                <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 border-2 border-purple-400 rounded-lg">
+                  <div className="text-center font-bold text-purple-300 mb-2">🚀 MOMENTUM ELITE 🚀</div>
                 </div>
+              )}
+
+              {prime && (
+                <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500">
+                  ⭐ PRIME SETUP ⭐
+                </div>
+              )}
+
+              {/* Bias/Direction */}
+              {(() => {
+                const dir = getDirection(tickerData);
+                return (
+                  <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                    <div className="text-sm text-[#93a4d6] mb-2">Bias / Direction</div>
+                    <div className={`inline-block px-4 py-2 rounded-lg font-bold text-lg ${dir.bg} ${dir.color}`}>
+                      {dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Action Description */}
+              <div className={`mb-4 p-4 rounded-lg border ${actionInfo.bg} border-current/30`}>
+                <div className={`text-lg font-bold mb-2 ${actionInfo.color}`}>{actionInfo.action}</div>
+                <div className="text-sm text-[#93a4d6]">{actionInfo.description}</div>
               </div>
 
-              {/* Trade Details */}
-              <div className="space-y-2.5 text-sm mb-4">
-                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                  <span className="text-[#93a4d6]">Shares</span>
-                  <span className="font-semibold text-white">
-                    {shares} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares} remaining)</span>}
+              {/* Quadrant Progression */}
+              <QuadrantProgression ticker={tickerData} flags={flags} />
+
+              {/* Phase indicator */}
+              <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-[#93a4d6]">Phase</span>
+                  <span className="text-sm font-semibold" style={{ color: phaseColor }}>
+                    {(phase * 100).toFixed(2)}%
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                  <span className="text-[#93a4d6]">Stop Loss</span>
-                  <span className="font-semibold text-red-400">${trade.sl?.toFixed(2) || "—"}</span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                  <span className="text-[#93a4d6]">Take Profit</span>
-                  <span className="font-semibold text-green-400">${trade.tp?.toFixed(2) || "—"}</span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                  <span className="text-[#93a4d6]">Risk/Reward</span>
-                  <span className="font-semibold text-white">{trade.rr?.toFixed(2) || "—"}</span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                  <span className="text-[#93a4d6]">Score</span>
-                  <span className="font-semibold text-blue-400">{trade.rank || "—"}</span>
+                <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${phase * 100}%`, backgroundColor: phaseColor }} />
                 </div>
               </div>
 
-              {/* Trade History Timeline */}
-              <div className="mt-4 pt-4 border-t border-[#26325f]">
-                <h3 className="text-lg font-bold mb-3">📊 Trade Journey</h3>
-                <TradeHistory history={trade.history || []} />
+              {/* Score and Ranking */}
+              <div className="space-y-2.5 text-sm mb-4">
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Score</span>
+                  <span className="font-semibold text-blue-400 text-lg">{baseScore}</span>
+                </div>
+                {totalTickers > 0 && (
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Rank</span>
+                    <span className="font-semibold">
+                      {rankPosition > 0 ? `#${rankPosition} of ${totalTickers}` : "—"}
+                    </span>
+                  </div>
+                )}
+                {dynamicRank !== baseScore && (
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Dynamic Score</span>
+                    <span className="font-semibold text-green-400">{dynamicRank}</span>
+                  </div>
+                )}
+                {isInTop40 && (
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Top 40 Position</span>
+                    <span className="font-semibold text-yellow-400">#{rankPosition} of 40</span>
+                  </div>
+                )}
+
+                {/* Score Breakdown */}
+                {(() => {
+                  const breakdown = calculateScoreBreakdown(tickerData);
+                  const breakdownComponents = [
+                    { label: "Base Score", value: breakdown.base, color: "text-blue-400" },
+                    breakdown.aligned > 0 ? { label: "Aligned State", value: `+${breakdown.aligned}`, color: "text-green-400" } : null,
+                    breakdown.setup > 0 ? { label: "Setup State", value: `+${breakdown.setup}`, color: "text-green-400" } : null,
+                    breakdown.htf > 0 ? { label: "HTF Score", value: `+${breakdown.htf.toFixed(2)}`, color: "text-cyan-400" } : null,
+                    breakdown.ltf > 0 ? { label: "LTF Score", value: `+${breakdown.ltf.toFixed(2)}`, color: "text-cyan-400" } : null,
+                    breakdown.completion > 0 ? { label: "Completion Bonus", value: `+${breakdown.completion}`, color: "text-yellow-400" } : null,
+                    breakdown.phase !== 0 ? {
+                      label: "Phase",
+                      value: breakdown.phase > 0 ? `+${breakdown.phase.toFixed(2)}` : breakdown.phase.toFixed(2),
+                      color: breakdown.phase > 0 ? "text-green-400" : "text-red-400"
+                    } : null,
+                    breakdown.squeezeRelease > 0 ? { label: "Squeeze Release", value: `+${breakdown.squeezeRelease}`, color: "text-purple-400" } : null,
+                    breakdown.squeezeOn > 0 ? { label: "Squeeze On", value: `+${breakdown.squeezeOn}`, color: "text-yellow-400" } : null,
+                    breakdown.phaseZoneChange > 0 ? { label: "Phase Zone Change", value: `+${breakdown.phaseZoneChange}`, color: "text-blue-400" } : null,
+                    breakdown.rr > 0 ? { label: "Risk/Reward", value: `+${breakdown.rr}`, color: "text-green-400" } : null,
+                    breakdown.momentumElite > 0 ? { label: "Momentum Elite", value: `+${breakdown.momentumElite}`, color: "text-purple-400" } : null,
+                  ].filter(Boolean);
+
+                  return breakdownComponents.length > 0 ? (
+                    <div className="border-t border-[#26325f] my-3 pt-3">
+                      <div className="text-xs text-[#93a4d6] mb-3 font-semibold">Score Breakdown</div>
+                      <div className="space-y-1.5">
+                        {breakdownComponents.map((comp, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-xs">
+                            <span className="text-[#93a4d6]">{comp.label}</span>
+                            <span className={`font-semibold ${comp.color}`}>{comp.value}</span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[#26325f]">
+                          <span className="text-[#93a4d6] font-semibold">Total Score</span>
+                          <span className="text-blue-400 font-bold text-base">{Math.round(breakdown.total)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">RR</span>
+                  <span className="font-semibold">{tickerData.rr ? Number(tickerData.rr).toFixed(2) : "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">State</span>
+                  <span className="font-semibold">{tickerData.state || "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">HTF Score</span>
+                  <span className="font-semibold">{tickerData.htf_score != null ? Number(tickerData.htf_score).toFixed(2) : "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">LTF Score</span>
+                  <span className="font-semibold">{tickerData.ltf_score != null ? Number(tickerData.ltf_score).toFixed(2) : "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Completion</span>
+                  <span className="font-semibold">{tickerData.completion != null ? `${(Number(tickerData.completion) * 100).toFixed(2)}%` : "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Price</span>
+                  <span className="font-semibold">${tickerData.price ? Number(tickerData.price).toFixed(2) : "—"}</span>
+                </div>
               </div>
             </div>
 
             {/* Fixed Footer */}
             <div className="flex-shrink-0 p-6 pt-4 border-t border-[#26325f] bg-[#121a33]">
               <a
-                href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(trade.ticker)}`}
+                href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-all hover:scale-105 font-semibold"
@@ -1696,9 +1875,9 @@
       }
 
       // ─────────────────────────────────────────────────────────────
-      // TickerDetailsLoader - for showing ticker details
+      // TickerDetailsLoader - Loads ticker data and passes to unified component
       // ─────────────────────────────────────────────────────────────
-      const TickerDetailsLoader = ({ tickerSymbol, onClose, allLoadedData = null }) => {
+      const TickerDetailsLoader = ({ tickerSymbol, trade = null, onClose, allLoadedData = null }) => {
         const [tickerData, setTickerData] = useState(null);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
@@ -1747,7 +1926,7 @@
           );
         }
         
-        return <TickerDetails ticker={tickerData} onClose={onClose} allLoadedData={allLoadedData} />;
+        return <TickerDetailRightRail ticker={tickerData} trade={trade} onClose={onClose} allLoadedData={allLoadedData} />;
       };
 
       // ─────────────────────────────────────────────────────────────
@@ -2246,8 +2425,9 @@
                                 setSelectedTrade(null); // Clear trade selection when selecting ticker
                               }}
                               onTradeClick={(trade) => {
+                                // When clicking a trade, show both ticker and trade
+                                setSelectedTicker(trade.ticker);
                                 setSelectedTrade(trade);
-                                setSelectedTicker(null); // Clear ticker selection when selecting trade
                               }}
                             />
                           ))
@@ -2258,19 +2438,15 @@
                 </div>
 
                 {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
-                {selectedTrade && (
-                  <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
-                    <TradeDetailRightRail 
-                      trade={selectedTrade} 
-                      onClose={() => setSelectedTrade(null)}
-                    />
-                  </div>
-                )}
-                {selectedTicker && !selectedTrade && (
+                {(selectedTicker || selectedTrade) && (
                   <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
                     <TickerDetailsLoader 
-                      tickerSymbol={selectedTicker} 
-                      onClose={() => setSelectedTicker(null)}
+                      tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
+                      trade={selectedTrade}
+                      onClose={() => {
+                        setSelectedTrade(null);
+                        setSelectedTicker(null);
+                      }}
                       allLoadedData={data}
                     />
                   </div>
