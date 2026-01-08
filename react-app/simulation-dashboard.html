@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Timed Trading - Simulation Dashboard</title>
+    <title>Timed Trading - Trade Tracker</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -581,7 +581,7 @@
         }
       }
 
-      function TradeRow({ trade }) {
+      function TradeRow({ trade, onTickerClick }) {
         const pnlColor = trade.pnl >= 0 ? "text-green-400" : "text-red-400";
         const statusColor =
           trade.status === "WIN"
@@ -603,8 +603,15 @@
         const trimmedValue = trimmedShares > 0 ? trimmedShares * (trade.tp || currentPrice) : 0; // Use TP price when trimmed
         const currentMarketValue = remainingShares * currentPrice;
 
+        const entryDate = new Date(trade.entryTime);
+        const formattedDate = entryDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const formattedTime = entryDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
         return (
-          <tr className="border-b border-[#26325f] hover:bg-[#1a2550]">
+          <tr 
+            className="border-b border-[#26325f] hover:bg-[#1a2550] cursor-pointer transition-colors"
+            onClick={() => onTickerClick && onTickerClick(trade.ticker)}
+          >
             <td className="p-2 text-sm">{trade.ticker}</td>
             <td className="p-2 text-sm">
               <span
@@ -619,6 +626,10 @@
             </td>
             <td className="p-2 text-sm">${trade.entryPrice.toFixed(2)}</td>
             <td className="p-2 text-sm">${currentPrice.toFixed(2)}</td>
+            <td className="p-2 text-xs text-[#93a4d6]">
+              <div className="font-semibold text-white">{formattedDate}</div>
+              <div className="text-[#6b7a9f]">{formattedTime}</div>
+            </td>
             <td className="p-2 text-sm font-mono">
               <div className="text-xs text-[#93a4d6]">Total: {shares}</div>
               {trimmedShares > 0 && (
@@ -658,9 +669,6 @@
             </td>
             <td className="p-2 text-xs text-[#93a4d6] font-mono">
               {trade.scriptVersion || "unknown"}
-            </td>
-            <td className="p-2 text-xs text-[#93a4d6]">
-              {new Date(trade.entryTime).toLocaleString()}
             </td>
           </tr>
         );
@@ -908,6 +916,112 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // TickerDetailsLoader - for showing ticker details
+      // ─────────────────────────────────────────────────────────────
+      const TickerDetailsLoader = ({ tickerSymbol, onClose }) => {
+        const [tickerData, setTickerData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        
+        useEffect(() => {
+          const fetchTicker = async () => {
+            try {
+              setLoading(true);
+              const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok || !json.latestData) {
+                throw new Error(json.error || 'Ticker not found');
+              }
+              setTickerData(json.latestData);
+            } catch (err) {
+              console.error('Failed to fetch ticker:', err);
+              setError(err.message);
+            } finally {
+              setLoading(false);
+            }
+          };
+          fetchTicker();
+        }, [tickerSymbol]);
+        
+        if (loading) {
+          return (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+              <div className="w-[450px] bg-[#0f1630] border border-[#26325f] rounded-xl p-6">
+                <div className="text-center">
+                  <div className="loading-spinner mx-auto mb-4"></div>
+                  <div className="text-[#93a4d6]">Loading {tickerSymbol}...</div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        
+        if (error || !tickerData) {
+          return (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+              <div className="w-[450px] bg-[#0f1630] border border-red-500 rounded-xl p-6">
+                <div className="text-center">
+                  <div className="text-red-400 mb-2">Failed to load {tickerSymbol}</div>
+                  <div className="text-[#93a4d6] text-sm mb-4">{error || 'No data available'}</div>
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+        
+        // Simple detail view - redirect to main dashboard with ticker selected
+        return (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="w-[90%] max-w-4xl bg-[#0f1630] border border-[#26325f] rounded-xl p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">{tickerSymbol}</h2>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="text-center py-8">
+                <p className="text-[#93a4d6] mb-4">View full details on the Dashboard</p>
+                <a
+                  href={`index-react.html?ticker=${encodeURIComponent(tickerSymbol)}`}
+                  className="px-6 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg text-white font-semibold inline-block"
+                >
+                  Open in Dashboard
+                </a>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                <div className="bg-[#121a33] p-3 rounded">
+                  <div className="text-xs text-[#93a4d6]">Price</div>
+                  <div className="text-lg font-bold">${Number(tickerData.price || 0).toFixed(2)}</div>
+                </div>
+                <div className="bg-[#121a33] p-3 rounded">
+                  <div className="text-xs text-[#93a4d6]">Rank</div>
+                  <div className="text-lg font-bold">{tickerData.rank || 'N/A'}</div>
+                </div>
+                <div className="bg-[#121a33] p-3 rounded">
+                  <div className="text-xs text-[#93a4d6]">RR</div>
+                  <div className="text-lg font-bold">{formatRR(tickerData.rr)}</div>
+                </div>
+                <div className="bg-[#121a33] p-3 rounded">
+                  <div className="text-xs text-[#93a4d6]">State</div>
+                  <div className="text-lg font-bold text-xs">{tickerData.state || 'N/A'}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // ─────────────────────────────────────────────────────────────
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
@@ -921,6 +1035,9 @@
         const [dailySummary, setDailySummary] = useState(null);
         const [summaryLoading, setSummaryLoading] = useState(false);
         const [showSummary, setShowSummary] = useState(false);
+        
+        // Selected ticker for detail view
+        const [selectedTicker, setSelectedTicker] = useState(null);
         
         // Get unique versions from trades (for dropdown)
         const availableVersions = useMemo(() => {
@@ -977,7 +1094,7 @@
 
         return (
           <div className="min-h-screen p-4">
-            <div className="max-w-7xl mx-auto">
+            <div className="w-full mx-auto px-2">
               {/* Navigation */}
               <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                 <div className="flex items-center gap-3 flex-wrap">
@@ -986,13 +1103,13 @@
                     href="index-react.html"
                     className="px-3 py-1.5 rounded bg-[#0f1630] border border-[#26325f] text-sm hover:bg-[#1a2550] transition-colors"
                   >
-                    React Dashboard
+                    Dashboard
                   </a>
                   <a
                     href="simulation-dashboard.html"
                     className="px-3 py-1.5 rounded bg-blue-500/20 border border-blue-500 text-sm text-blue-400 font-semibold"
                   >
-                    Simulation Dashboard
+                    Trade Tracker
                   </a>
                 </div>
               </nav>
@@ -1028,7 +1145,7 @@
               <header className="mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <h1 className="text-3xl font-bold">
-                    Timed Trading — Simulation Dashboard
+                    Timed Trading — Trade Tracker
                   </h1>
                   <div className="flex items-center gap-4">
                     {(loading || tradesLoading) && <div className="loading-spinner"></div>}
@@ -1221,14 +1338,15 @@
                     </span>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
+                <div className="overflow-x-auto -mx-4 px-4">
+                  <table className="w-full min-w-full">
                     <thead>
                       <tr className="border-b border-[#26325f] text-left">
                         <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Direction</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Current</th>
+                        <th className="p-2 text-xs text-[#93a4d6]">Entry Time</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Qty</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Market Value</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Trimmed</th>
@@ -1240,7 +1358,6 @@
                         <th className="p-2 text-xs text-[#93a4d6]">P&L %</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Status</th>
                         <th className="p-2 text-xs text-[#93a4d6]">Version</th>
-                        <th className="p-2 text-xs text-[#93a4d6]">Entry Time</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1254,7 +1371,7 @@
                         </tr>
                       ) : (
                         filteredTrades.map((trade) => (
-                          <TradeRow key={trade.id} trade={trade} />
+                          <TradeRow key={trade.id} trade={trade} onTickerClick={setSelectedTicker} />
                         ))
                       )}
                     </tbody>
@@ -1262,6 +1379,14 @@
                 </div>
               </div>
             </div>
+            
+            {/* Ticker Details Overlay */}
+            {selectedTicker && (
+              <TickerDetailsLoader 
+                tickerSymbol={selectedTicker} 
+                onClose={() => setSelectedTicker(null)} 
+              />
+            )}
           </div>
         );
       }

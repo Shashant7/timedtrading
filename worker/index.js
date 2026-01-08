@@ -686,12 +686,22 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
           const tradeCalc = calculateTradePnl(tickerData, entryPrice);
 
           if (tradeCalc) {
+            // Use alert timestamp (trigger_ts preferred, fallback to ts, then current time)
+            let entryTime;
+            if (tickerData.trigger_ts != null) {
+              entryTime = new Date(Number(tickerData.trigger_ts)).toISOString();
+            } else if (tickerData.ts != null) {
+              entryTime = new Date(Number(tickerData.ts)).toISOString();
+            } else {
+              entryTime = new Date().toISOString(); // Fallback to current time
+            }
+
             const trade = {
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
               ticker,
               direction,
               entryPrice,
-              entryTime: new Date().toISOString(),
+              entryTime: entryTime,
               sl: Number(tickerData.sl),
               tp: Number(tickerData.tp),
               rr: entryRR || Number(tickerData.rr) || 0, // Use entry RR
@@ -3151,7 +3161,45 @@ export default {
       }
       const versionFilter = url.searchParams.get("version");
       const tradesKey = "timed:trades:all";
-      const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+      let allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+      // Correct any trades with incorrect WIN/LOSS status based on P&L
+      let corrected = false;
+      for (let i = 0; i < allTrades.length; i++) {
+        const trade = allTrades[i];
+        if (
+          (trade.status === "WIN" || trade.status === "LOSS") &&
+          trade.pnl !== undefined &&
+          trade.pnl !== null
+        ) {
+          // Check if status matches P&L
+          if (trade.status === "WIN" && trade.pnl < 0) {
+            console.log(
+              `[TRADE CORRECTION] Correcting ${trade.ticker} ${
+                trade.direction
+              }: WIN with negative P&L (${trade.pnl.toFixed(2)}) -> LOSS`
+            );
+            allTrades[i] = { ...trade, status: "LOSS" };
+            corrected = true;
+          } else if (trade.status === "LOSS" && trade.pnl > 0) {
+            console.log(
+              `[TRADE CORRECTION] Correcting ${trade.ticker} ${
+                trade.direction
+              }: LOSS with positive P&L (${trade.pnl.toFixed(2)}) -> WIN`
+            );
+            allTrades[i] = { ...trade, status: "WIN" };
+            corrected = true;
+          }
+        }
+      }
+
+      // Save corrected trades back to KV if any corrections were made
+      if (corrected) {
+        await kvPutJSON(KV, tradesKey, allTrades);
+        console.log(
+          `[TRADE CORRECTION] Saved ${allTrades.length} trades with corrections`
+        );
+      }
 
       let filteredTrades = allTrades;
       if (versionFilter && versionFilter !== "all") {
@@ -3175,6 +3223,7 @@ export default {
           version: versionFilter || "all",
           versions: versions,
           trades: filteredTrades,
+          corrected: corrected, // Indicate if corrections were made
         },
         200,
         corsHeaders(env, req)
