@@ -6404,10 +6404,25 @@ Provide 3-5 actionable next steps:
         for (const trade of allTrades) {
           let updated = false;
           const updatedTrade = { ...trade };
+          let triggerTimestamp = trade.triggerTimestamp;
+
+          // If trade doesn't have triggerTimestamp, try to get it from ticker's latest data
+          if (!triggerTimestamp && trade.ticker) {
+            try {
+              const tickerData = await kvGetJSON(KV, `timed:latest:${trade.ticker}`);
+              if (tickerData && tickerData.trigger_ts) {
+                triggerTimestamp = new Date(Number(tickerData.trigger_ts)).toISOString();
+                // Store it in the trade for future reference
+                updatedTrade.triggerTimestamp = triggerTimestamp;
+              }
+            } catch (err) {
+              // Ignore errors - ticker data might not exist
+            }
+          }
 
           // Check if trade has triggerTimestamp that's significantly older than entryTime
-          if (trade.triggerTimestamp && trade.entryTime) {
-            const triggerTime = new Date(trade.triggerTimestamp).getTime();
+          if (triggerTimestamp && trade.entryTime) {
+            const triggerTime = new Date(triggerTimestamp).getTime();
             const entryTime = new Date(trade.entryTime).getTime();
 
             // Detect backfill: triggerTimestamp is more than 1 hour old AND older than entryTime
@@ -6416,7 +6431,7 @@ Provide 3-5 actionable next steps:
 
             if (isBackfill && triggerTime < entryTime) {
               // This is a backfill - use triggerTimestamp for entryTime
-              updatedTrade.entryTime = trade.triggerTimestamp;
+              updatedTrade.entryTime = triggerTimestamp;
               updated = true;
             }
           }
