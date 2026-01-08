@@ -6427,7 +6427,8 @@ Provide 3-5 actionable next steps:
           // Method 2: Search trail data for when entry price was actually touched (last 3 days)
           if (!bestMatchTimestamp && trade.ticker && trade.entryPrice) {
             try {
-              const trail = (await kvGetJSON(KV, `timed:trail:${trade.ticker}`)) || [];
+              const trail =
+                (await kvGetJSON(KV, `timed:trail:${trade.ticker}`)) || [];
               const entryPrice = Number(trade.entryPrice);
               const priceTolerance = entryPrice * 0.005; // 0.5% tolerance
 
@@ -6473,7 +6474,9 @@ Provide 3-5 actionable next steps:
 
                 // Use closest match if it's within 2% of entry price
                 if (closestPoint && closestDiff <= entryPrice * 0.02) {
-                  bestMatchTimestamp = new Date(Number(closestPoint.ts)).toISOString();
+                  bestMatchTimestamp = new Date(
+                    Number(closestPoint.ts)
+                  ).toISOString();
                   bestMatchPrice = Number(closestPoint.price);
                   matchMethod = "trail_closest_match";
                 }
@@ -6494,10 +6497,13 @@ Provide 3-5 actionable next steps:
                 const triggerTime = Number(tickerData.trigger_ts);
                 // Only use if it's from last 3 days and older than current entryTime
                 if (triggerTime >= threeDaysAgo) {
-                  const entryTime = trade.entryTime ? new Date(trade.entryTime).getTime() : now;
+                  const entryTime = trade.entryTime
+                    ? new Date(trade.entryTime).getTime()
+                    : now;
                   if (triggerTime < entryTime) {
                     bestMatchTimestamp = new Date(triggerTime).toISOString();
-                    bestMatchPrice = tickerData.trigger_price || trade.entryPrice;
+                    bestMatchPrice =
+                      tickerData.trigger_price || trade.entryPrice;
                     matchMethod = "ticker_trigger_ts";
                     // Store it in the trade for future reference
                     updatedTrade.triggerTimestamp = bestMatchTimestamp;
@@ -6515,12 +6521,20 @@ Provide 3-5 actionable next steps:
             const newEntryTime = new Date(bestMatchTimestamp).getTime();
 
             // Only update if new time is significantly different (more than 5 minutes) and older
-            if (Math.abs(newEntryTime - currentEntryTime) > 5 * 60 * 1000 && newEntryTime < currentEntryTime) {
+            if (
+              Math.abs(newEntryTime - currentEntryTime) > 5 * 60 * 1000 &&
+              newEntryTime < currentEntryTime
+            ) {
               updatedTrade.entryTime = bestMatchTimestamp;
               updated = true;
 
               // Also update entry price if we found a better match from trail
-              if (bestMatchPrice && matchMethod.includes("trail") && Math.abs(bestMatchPrice - trade.entryPrice) > trade.entryPrice * 0.01) {
+              if (
+                bestMatchPrice &&
+                matchMethod.includes("trail") &&
+                Math.abs(bestMatchPrice - trade.entryPrice) >
+                  trade.entryPrice * 0.01
+              ) {
                 updatedTrade.entryPrice = bestMatchPrice;
               }
             }
@@ -6575,6 +6589,41 @@ Provide 3-5 actionable next steps:
             fixed,
             totalTrades: allTrades.length,
             fixedTrades: fixedTrades.slice(0, 50), // Show first 50
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
+    // POST /timed/debug/clear-all-trades?key=... - Clear all trades and start fresh
+    if (
+      url.pathname === "/timed/debug/clear-all-trades" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const tradeCount = allTrades.length;
+
+        // Clear all trades
+        await KV.delete(tradesKey);
+
+        return sendJSON(
+          {
+            ok: true,
+            message: "All trades cleared successfully",
+            clearedCount: tradeCount,
+            note: "New trades will be created automatically as TradingView alerts come in",
           },
           200,
           corsHeaders(env, req)
