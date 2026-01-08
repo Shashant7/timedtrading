@@ -51,7 +51,8 @@
       // Constants
       // ─────────────────────────────────────────────────────────────
       const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
-      const API_KEY = "AwesomeSauce"; // TODO: Move to environment variable or secure storage
+      // API_KEY removed for security - write operations disabled for public access
+      // To enable trade management, implement proper authentication
       const TRADE_SIZE = 1000; // $1000 per trade
       const FUTURES_TICKERS = new Set(["ES", "NQ", "YM", "RTY", "CL", "GC", "SI", "HG", "NG"]);
 
@@ -143,27 +144,10 @@
           fetchTrades();
         }, [fetchTrades]);
 
-        // Save trade to Worker
+        // Save trade to Worker - DISABLED for public access (security)
         const saveTrade = useCallback(async (trade) => {
-          try {
-            const res = await fetch(`${API_BASE}/timed/trades?key=${API_KEY}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(trade),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            if (json.ok) {
-              // Refresh trades list
-              await fetchTrades();
-              return json.trade;
-            }
-            throw new Error(json.error || "Failed to save trade");
-          } catch (err) {
-            console.error("Save trade error:", err);
-            throw err;
-          }
-        }, [fetchTrades]);
+          throw new Error("Trade management is disabled for public access. This is a read-only dashboard.");
+        }, []);
 
         const addTrade = useCallback(async (trade) => {
           await saveTrade(trade);
@@ -180,20 +164,8 @@
         }, [trades, saveTrade]);
 
         const clearTrades = useCallback(async () => {
-          if (confirm("Clear all simulated trades? This cannot be undone.")) {
-            // Delete all trades one by one (Worker doesn't have bulk delete)
-            for (const trade of trades) {
-              try {
-                await fetch(`${API_BASE}/timed/trades/${trade.id}?key=${API_KEY}`, {
-                  method: "DELETE",
-                });
-              } catch (err) {
-                console.error("Error deleting trade:", trade.id, err);
-              }
-            }
-            await fetchTrades();
-          }
-        }, [trades, fetchTrades]);
+          alert("Trade management is disabled for public access. This is a read-only dashboard.");
+        }, []);
 
         return { trades, loading, error, addTrade, updateTrade, clearTrades, refetch: fetchTrades };
       }
