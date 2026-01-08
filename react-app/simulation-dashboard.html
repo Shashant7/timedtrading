@@ -767,45 +767,65 @@
         );
       }
 
-      // Trade Detail Modal Component
-      function TradeDetailModal({ trade, onClose }) {
+      // Trade Detail Right Rail Component (replaces modal)
+      function TradeDetailRightRail({ trade, onClose }) {
         if (!trade) return null;
 
+        const shares = trade.shares || Math.floor(TRADE_SIZE / (trade.entryPrice || 1));
+        const currentPrice = trade.currentPrice || trade.entryPrice;
+        const trimmedPct = trade.trimmedPct || 0;
+        const trimmedShares = Math.floor(shares * trimmedPct);
+        const remainingShares = shares - trimmedShares;
+        const entryDate = new Date(trade.entryTime);
+        const formattedDate = entryDate.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric', 
+          year: 'numeric' 
+        });
+        const formattedTime = entryDate.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: true 
+        });
+
         return (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-            <div className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full h-full flex flex-col bg-[#0f1630]">
+            {/* Scrollable Content Area */}
+            <div className="flex-1 overflow-y-auto p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold">
-                  Trade History: {trade.ticker} {trade.direction}
-                </h2>
+                <h3 className="text-xl font-bold">{trade.ticker} {trade.direction}</h3>
                 <button
                   onClick={onClose}
-                  className="text-[#93a4d6] hover:text-white text-2xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f] transition-colors"
+                  className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
                 >
                   ✕
                 </button>
               </div>
 
               {/* Trade Summary */}
-              <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4 mb-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4 mb-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <div className="text-[#93a4d6] text-xs">Entry Price</div>
-                    <div className="font-semibold text-white">${trade.entryPrice?.toFixed(2) || "—"}</div>
+                    <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
+                    <div className="font-semibold text-white text-lg">${trade.entryPrice?.toFixed(2) || "—"}</div>
+                    <div className="text-[#6b7a9f] text-[10px] mt-1">{formattedDate} {formattedTime}</div>
                   </div>
                   <div>
-                    <div className="text-[#93a4d6] text-xs">Current Price</div>
-                    <div className="font-semibold text-yellow-400">${(trade.currentPrice || trade.entryPrice)?.toFixed(2) || "—"}</div>
+                    <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
+                    <div className="font-semibold text-yellow-400 text-lg">${currentPrice?.toFixed(2) || "—"}</div>
                   </div>
                   <div>
-                    <div className="text-[#93a4d6] text-xs">P&L</div>
-                    <div className={`font-semibold ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      ${trade.pnl?.toFixed(2) || "0.00"} ({trade.pnlPct?.toFixed(2) || "0.00"}%)
+                    <div className="text-[#93a4d6] text-xs mb-1">P&L</div>
+                    <div className={`font-semibold text-lg ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      ${trade.pnl?.toFixed(2) || "0.00"}
+                    </div>
+                    <div className={`text-xs ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {trade.pnlPct?.toFixed(2) || "0.00"}%
                     </div>
                   </div>
                   <div>
-                    <div className="text-[#93a4d6] text-xs">Status</div>
-                    <div className={`font-semibold ${
+                    <div className="text-[#93a4d6] text-xs mb-1">Status</div>
+                    <div className={`font-semibold text-lg ${
                       trade.status === "WIN" ? "text-green-400" :
                       trade.status === "LOSS" ? "text-red-400" :
                       trade.status === "TP_HIT_TRIM" ? "text-blue-400" :
@@ -817,11 +837,49 @@
                 </div>
               </div>
 
+              {/* Trade Details */}
+              <div className="space-y-2.5 text-sm mb-4">
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Shares</span>
+                  <span className="font-semibold text-white">
+                    {shares} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares} remaining)</span>}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Stop Loss</span>
+                  <span className="font-semibold text-red-400">${trade.sl?.toFixed(2) || "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Take Profit</span>
+                  <span className="font-semibold text-green-400">${trade.tp?.toFixed(2) || "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Risk/Reward</span>
+                  <span className="font-semibold text-white">{trade.rr?.toFixed(2) || "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Score</span>
+                  <span className="font-semibold text-blue-400">{trade.rank || "—"}</span>
+                </div>
+              </div>
+
               {/* Trade History Timeline */}
-              <div>
+              <div className="mt-4 pt-4 border-t border-[#26325f]">
                 <h3 className="text-lg font-bold mb-3">📊 Trade Journey</h3>
                 <TradeHistory history={trade.history || []} />
               </div>
+            </div>
+
+            {/* Fixed Footer */}
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-[#26325f] bg-[#121a33]">
+              <a
+                href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(trade.ticker)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-all hover:scale-105 font-semibold"
+              >
+                📊 Open in TradingView
+              </a>
             </div>
           </div>
         );
@@ -2183,8 +2241,14 @@
                             <TradeRow 
                               key={trade.id} 
                               trade={trade} 
-                              onTickerClick={setSelectedTicker}
-                              onTradeClick={setSelectedTrade}
+                              onTickerClick={(ticker) => {
+                                setSelectedTicker(ticker);
+                                setSelectedTrade(null); // Clear trade selection when selecting ticker
+                              }}
+                              onTradeClick={(trade) => {
+                                setSelectedTrade(trade);
+                                setSelectedTicker(null); // Clear ticker selection when selecting trade
+                              }}
                             />
                           ))
                         )}
@@ -2194,7 +2258,15 @@
                 </div>
 
                 {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
-                {selectedTicker && (
+                {selectedTrade && (
+                  <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
+                    <TradeDetailRightRail 
+                      trade={selectedTrade} 
+                      onClose={() => setSelectedTrade(null)}
+                    />
+                  </div>
+                )}
+                {selectedTicker && !selectedTrade && (
                   <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
                     <TickerDetailsLoader 
                       tickerSymbol={selectedTicker} 
@@ -2204,11 +2276,6 @@
                   </div>
                 )}
               </div>
-
-              {/* Trade History Modal - Rendered outside table */}
-              {selectedTrade && (
-                <TradeDetailModal trade={selectedTrade} onClose={() => setSelectedTrade(null)} />
-              )}
             </div>
           </div>
         );
