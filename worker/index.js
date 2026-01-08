@@ -5841,6 +5841,72 @@ Provide a structured analysis with:
       console.error("[TRADE UPDATE CRON ERROR]", error);
     }
 
+    // Proactive Alerts & Pattern Recognition (every 15 minutes during market hours)
+    // This runs more frequently to catch time-sensitive conditions
+    const isProactiveAlertTime = minute % 15 === 0; // Every 15 minutes
+    
+    if (isProactiveAlertTime) {
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const openTrades = allTrades.filter(
+          (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM"
+        );
+
+        // Fetch current ticker data for alert generation
+        const allKeys = await KV.list({ prefix: "timed:latest:" });
+        const tickerDataPromises = allKeys.keys.slice(0, 50).map(async (key) => {
+          try {
+            const data = await kvGetJSON(KV, key.name);
+            if (data) {
+              const ticker = key.name.replace("timed:latest:", "");
+              return {
+                ticker,
+                rank: Number(data.rank) || 0,
+                rr: Number(data.rr) || 0,
+                price: Number(data.price) || 0,
+                completion: Number(data.completion) || 0,
+                phase_pct: Number(data.phase_pct) || 0,
+                flags: data.flags || {},
+              };
+            }
+            return null;
+          } catch (err) {
+            return null;
+          }
+        });
+
+        const allTickers = (await Promise.all(tickerDataPromises))
+          .filter(Boolean);
+
+        // Generate proactive alerts
+        const proactiveAlerts = generateProactiveAlerts(allTickers, allTrades);
+
+        // Store high-priority alerts in KV for retrieval
+        if (proactiveAlerts.filter((a) => a.priority === "high").length > 0) {
+          const alertsKey = `timed:ai:alerts:${now.toISOString().split("T")[0]}`;
+          const existingAlerts = (await kvGetJSON(KV, alertsKey)) || [];
+          const newHighPriorityAlerts = proactiveAlerts
+            .filter((a) => a.priority === "high")
+            .map((a) => ({
+              ...a,
+              timestamp: now.toISOString(),
+            }));
+
+          // Merge and keep only last 50 alerts
+          const updatedAlerts = [...newHighPriorityAlerts, ...existingAlerts]
+            .slice(0, 50);
+          await kvPutJSON(KV, alertsKey, updatedAlerts);
+
+          console.log(
+            `[PROACTIVE ALERTS] Generated ${proactiveAlerts.length} alerts, ${newHighPriorityAlerts.length} high-priority`
+          );
+        }
+      } catch (error) {
+        console.error("[PROACTIVE ALERTS ERROR]", error);
+      }
+    }
+
     // AI Updates (only at specific times: 9:45 AM, noon, 3:30 PM ET)
     const isAITime =
       (hour === 14 && minute === 45) || // 9:45 AM ET
