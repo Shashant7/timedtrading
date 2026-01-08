@@ -4983,6 +4983,74 @@ Be concise but thorough. Focus on actionable insights, not just data.`;
       }
     }
 
+    // POST /timed/debug/purge-ticker?key=...&ticker=RIOT - Delete ALL trades for a specific ticker
+    if (
+      url.pathname === "/timed/debug/purge-ticker" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const tickerFilter = url.searchParams.get("ticker");
+        
+        if (!tickerFilter) {
+          return sendJSON(
+            { ok: false, error: "ticker parameter required" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickerUpper = String(tickerFilter).toUpperCase();
+        const beforeCount = allTrades.length;
+        
+        // Filter out all trades for this ticker
+        const filteredTrades = allTrades.filter(
+          (t) => String(t.ticker || "").toUpperCase() !== tickerUpper
+        );
+        
+        const removedCount = beforeCount - filteredTrades.length;
+
+        if (removedCount === 0) {
+          return sendJSON(
+            {
+              ok: true,
+              message: `No trades found for ${tickerUpper}`,
+              removed: 0,
+              remaining: beforeCount,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        }
+
+        // Save the cleaned trades
+        await kvPutJSON(KV, tradesKey, filteredTrades);
+
+        return sendJSON(
+          {
+            ok: true,
+            ticker: tickerUpper,
+            removed: removedCount,
+            remaining: filteredTrades.length,
+            beforeCount: beforeCount,
+            message: `Successfully purged all ${removedCount} trades for ${tickerUpper}`,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
     // POST /timed/debug/simulate-trades?key=... - Manually simulate trades for all tickers
     if (
       url.pathname === "/timed/debug/simulate-trades" &&
