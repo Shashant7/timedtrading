@@ -2694,13 +2694,14 @@
         })();
 
         return (
-          <div className="w-full h-full">
+          <div className="w-full h-full min-h-[900px] flex flex-col">
             {/* Detail Card - slides in from right, positioned in hero layout */}
             <div 
-              className="bg-[#121a33] border-2 border-[#26325f] rounded-xl p-6 w-full h-full overflow-y-auto slide-in-right shadow-2xl"
+              className="bg-[#121a33] border-2 border-[#26325f] rounded-xl w-full h-full flex flex-col slide-in-right shadow-2xl"
               onClick={(e) => e.stopPropagation()}
-              style={{ minHeight: '900px' }}
             >
+              {/* Scrollable Content Area */}
+              <div className="flex-1 overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold">{ticker.ticker}</h3>
               <button
@@ -2988,7 +2989,7 @@
                   </div>
                 </div>
               )}
-              <div className="flex justify-between items-center py-1">
+              <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                 <span className="text-[#93a4d6]">SL</span>
                 <span className="font-semibold">{ticker.sl ? Number(ticker.sl).toFixed(2) : "—"}</span>
               </div>
@@ -2996,7 +2997,7 @@
 
             {/* Flags */}
             {(flags.sq30_on || flags.sq30_release || flags.phase_dot || flags.phase_zone_change) && (
-              <div className="mt-4 pt-4 border-t border-[#26325f]">
+              <div className="mt-4 pt-4">
                 <div className="text-xs text-[#93a4d6] mb-2">Flags:</div>
                 <div className="flex flex-wrap gap-2">
                   {flags.sq30_on && (
@@ -3023,16 +3024,19 @@
               </div>
             )}
 
-            <div className="mt-4 pt-4 border-t border-[#26325f]">
-              <a
-                href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker.ticker)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-all hover:scale-105 font-semibold"
-              >
-                📊 Open in TradingView
-              </a>
-            </div>
+              </div>
+              
+              {/* Fixed Footer - Open in TradingView button */}
+              <div className="flex-shrink-0 p-6 pt-4 border-t border-[#26325f] bg-[#121a33]">
+                <a
+                  href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker.ticker)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full text-center px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-all hover:scale-105 font-semibold"
+                >
+                  📊 Open in TradingView
+                </a>
+              </div>
             </div>
           </div>
         );

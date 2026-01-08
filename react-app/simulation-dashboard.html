@@ -930,10 +930,10 @@
               const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSymbol)}`);
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const json = await res.json();
-              if (!json.ok || !json.latestData) {
+              if (!json.ok || !json.data) {
                 throw new Error(json.error || 'Ticker not found');
               }
-              setTickerData(json.latestData);
+              setTickerData(json.data);
             } catch (err) {
               console.error('Failed to fetch ticker:', err);
               setError(err.message);

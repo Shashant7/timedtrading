@@ -682,10 +682,26 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
             (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM")
         );
 
-        if (!recentlyClosedTrade && !anyOpenTrade) {
+        // Additional check: prevent multiple trades for same ticker/direction within 1 hour
+        // This catches cases where multiple alerts come in rapidly
+        const oneHourAgo = now - 60 * 60 * 1000; // 1 hour
+        const recentTrade = allTrades.find(
+          (t) =>
+            t.ticker === ticker &&
+            t.direction === direction &&
+            t.entryTime &&
+            new Date(t.entryTime).getTime() > oneHourAgo
+        );
+
+        if (!recentlyClosedTrade && !anyOpenTrade && !recentTrade) {
           const tradeCalc = calculateTradePnl(tickerData, entryPrice);
 
           if (tradeCalc) {
+            console.log(
+              `[TRADE SIM] ✅ Creating new trade ${ticker} ${direction} - Entry: $${entryPrice.toFixed(
+                2
+              )}, RR: ${entryRR?.toFixed(2) || "N/A"}`
+            );
             // Use alert timestamp (trigger_ts preferred, fallback to ts, then current time)
             let entryTime;
             if (tickerData.trigger_ts != null) {
@@ -734,6 +750,10 @@ async function processTradeSimulation(KV, ticker, tickerData, prevData) {
           if (anyOpenTrade) {
             console.log(
               `[TRADE SIM] ⚠️ ${ticker} ${direction}: open trade already exists, skipping`
+            );
+          } else if (recentTrade) {
+            console.log(
+              `[TRADE SIM] ⚠️ ${ticker} ${direction}: recent trade exists within 1 hour, skipping`
             );
           } else {
             console.log(
@@ -2011,8 +2031,17 @@ export default {
       if (data) {
         // Always recompute RR to ensure it uses the latest max TP from tp_levels
         data.rr = computeRR(data);
+        return sendJSON(
+          { ok: true, ticker, latestData: data, data },
+          200,
+          corsHeaders(env, req)
+        );
       }
-      return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
+      return sendJSON(
+        { ok: false, error: "ticker_not_found", ticker },
+        404,
+        corsHeaders(env, req)
+      );
     }
 
     // GET /timed/tickers
