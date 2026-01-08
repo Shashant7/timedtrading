@@ -1416,28 +1416,63 @@ function computeRank(d) {
   const setup =
     state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
 
-  let score = 50;
+  // ADJUSTED SCORING: More discriminating, lower base
+  let score = 30; // Reduced from 50 to make scoring more selective
 
-  if (aligned) score += 15;
-  if (setup) score += 5;
+  // State bonuses (reduced)
+  if (aligned) score += 12; // Reduced from 15
+  if (setup) score += 4; // Reduced from 5
 
-  if (Number.isFinite(htf)) score += Math.min(10, Math.abs(htf) * 0.4);
-  if (Number.isFinite(ltf)) score += Math.min(10, Math.abs(ltf) * 0.3);
+  // HTF/LTF contributions (more selective - require stronger signals)
+  if (Number.isFinite(htf)) {
+    const htfAbs = Math.abs(htf);
+    // Only give full credit for strong HTF signals (>= 25)
+    if (htfAbs >= 25) score += Math.min(10, htfAbs * 0.4);
+    else if (htfAbs >= 15) score += Math.min(7, htfAbs * 0.35); // Reduced for moderate signals
+    else score += Math.min(4, htfAbs * 0.25); // Minimal for weak signals
+  }
+  
+  if (Number.isFinite(ltf)) {
+    const ltfAbs = Math.abs(ltf);
+    // Only give full credit for strong LTF signals (>= 20)
+    if (ltfAbs >= 20) score += Math.min(10, ltfAbs * 0.3);
+    else if (ltfAbs >= 12) score += Math.min(6, ltfAbs * 0.25); // Reduced for moderate signals
+    else score += Math.min(3, ltfAbs * 0.2); // Minimal for weak signals
+  }
 
-  if (Number.isFinite(comp)) score += (1 - Math.min(1, comp)) * 20;
+  // Completion bonus (reduced and more selective)
+  if (Number.isFinite(comp)) {
+    // Early completion gets more points, but cap reduced
+    if (comp <= 0.2) score += 15; // Excellent (0-20% completion)
+    else if (comp <= 0.4) score += 10; // Good (20-40% completion)
+    else if (comp <= 0.6) score += 5; // Moderate (40-60% completion)
+    // No bonus for completion > 60%
+  }
 
-  if (Number.isFinite(phase)) score -= Math.max(0, phase - 0.6) * 25;
+  // Phase penalty (starts earlier, more aggressive)
+  if (Number.isFinite(phase)) {
+    if (phase > 0.5) score -= Math.max(0, (phase - 0.5) * 30); // Penalty starts at 50% instead of 60%
+    // Early phase (< 50%) gets small bonus
+    if (phase <= 0.3) score += 3; // Early phase bonus
+  }
 
-  if (sqRel) score += 15;
-  else if (sqOn) score += 6;
+  // Squeeze bonuses (reduced)
+  if (sqRel) score += 12; // Reduced from 15
+  else if (sqOn) score += 4; // Reduced from 6
 
-  // Bonus for phase zone change (regime shift)
-  if (phaseZoneChange) score += 3;
+  // Phase zone change bonus (reduced)
+  if (phaseZoneChange) score += 2; // Reduced from 3
 
-  if (Number.isFinite(rr)) score += Math.min(10, rr * 2);
+  // RR contribution (more selective - requires better RR)
+  if (Number.isFinite(rr)) {
+    if (rr >= 2.0) score += 10; // Excellent RR (2.0+)
+    else if (rr >= 1.5) score += 7; // Good RR (1.5-2.0)
+    else if (rr >= 1.2) score += 4; // Acceptable RR (1.2-1.5)
+    // No bonus for RR < 1.2
+  }
 
-  // Momentum Elite boost (significant boost for high-quality momentum stocks)
-  if (momentumElite) score += 20;
+  // Momentum Elite boost (reduced but still significant)
+  if (momentumElite) score += 15; // Reduced from 20
 
   score = Math.max(0, Math.min(100, score));
   return Math.round(score);
@@ -5450,7 +5485,10 @@ Provide 3-5 actionable next steps:
     }
 
     // GET /timed/debug/score-analysis - Analyze score distribution
-    if (url.pathname === "/timed/debug/score-analysis" && req.method === "GET") {
+    if (
+      url.pathname === "/timed/debug/score-analysis" &&
+      req.method === "GET"
+    ) {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
 
@@ -5587,7 +5625,9 @@ Provide 3-5 actionable next steps:
         });
 
         // Overall stats
-        const ranks = allData.map((d) => Number(d.rank) || 0).filter((r) => r > 0);
+        const ranks = allData
+          .map((d) => Number(d.rank) || 0)
+          .filter((r) => r > 0);
         const avgRank =
           ranks.length > 0
             ? ranks.reduce((a, b) => a + b, 0) / ranks.length
