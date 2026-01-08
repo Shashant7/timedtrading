@@ -1381,10 +1381,36 @@
           return Array.from(versionSet).sort().reverse(); // Most recent first
         }, [trades]);
         
-        // Filter trades by version (client-side)
+        // Filter trades by version (client-side), remove duplicates, and sort alphabetically
         const filteredTrades = useMemo(() => {
-          if (selectedVersion === "all") return trades;
-          return trades.filter(t => (t.scriptVersion || "unknown") === selectedVersion);
+          let filtered = selectedVersion === "all" ? trades : trades.filter(t => (t.scriptVersion || "unknown") === selectedVersion);
+          
+          // Remove duplicates: keep the most recent trade for each ticker+direction combination
+          const tradeMap = new Map();
+          filtered.forEach(trade => {
+            const key = `${trade.ticker}_${trade.direction}`;
+            const existing = tradeMap.get(key);
+            if (!existing) {
+              tradeMap.set(key, trade);
+            } else {
+              // Keep the most recent one (by entryTime)
+              const existingTime = new Date(existing.entryTime || 0).getTime();
+              const currentTime = new Date(trade.entryTime || 0).getTime();
+              if (currentTime > existingTime) {
+                tradeMap.set(key, trade);
+              }
+            }
+          });
+          
+          // Convert back to array and sort alphabetically by ticker
+          filtered = Array.from(tradeMap.values());
+          filtered.sort((a, b) => {
+            const tickerA = String(a.ticker || "").toUpperCase();
+            const tickerB = String(b.ticker || "").toUpperCase();
+            return tickerA.localeCompare(tickerB);
+          });
+          
+          return filtered;
         }, [trades, selectedVersion]);
         
         const analytics = useTradeAnalytics(filteredTrades);
