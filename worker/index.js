@@ -1428,15 +1428,17 @@ function computeRank(d) {
     const htfAbs = Math.abs(htf);
     // Only give full credit for strong HTF signals (>= 25)
     if (htfAbs >= 25) score += Math.min(10, htfAbs * 0.4);
-    else if (htfAbs >= 15) score += Math.min(7, htfAbs * 0.35); // Reduced for moderate signals
+    else if (htfAbs >= 15)
+      score += Math.min(7, htfAbs * 0.35); // Reduced for moderate signals
     else score += Math.min(4, htfAbs * 0.25); // Minimal for weak signals
   }
-  
+
   if (Number.isFinite(ltf)) {
     const ltfAbs = Math.abs(ltf);
     // Only give full credit for strong LTF signals (>= 20)
     if (ltfAbs >= 20) score += Math.min(10, ltfAbs * 0.3);
-    else if (ltfAbs >= 12) score += Math.min(6, ltfAbs * 0.25); // Reduced for moderate signals
+    else if (ltfAbs >= 12)
+      score += Math.min(6, ltfAbs * 0.25); // Reduced for moderate signals
     else score += Math.min(3, ltfAbs * 0.2); // Minimal for weak signals
   }
 
@@ -6025,6 +6027,66 @@ Provide 3-5 actionable next steps:
               ticker,
               count: duplicatesByTicker[ticker].length,
             })),
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
+    // POST /timed/debug/recalculate-ranks?key=... - Recalculate ranks for all tickers using new formula
+    if (
+      url.pathname === "/timed/debug/recalculate-ranks" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const results = {
+          processed: 0,
+          updated: 0,
+          errors: [],
+        };
+
+        // Process all tickers
+        for (const ticker of tickerIndex) {
+          try {
+            const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            if (!data) {
+              results.errors.push({ ticker, error: "No data found" });
+              continue;
+            }
+
+            // Recalculate rank using new formula
+            const newRank = computeRank(data);
+            const oldRank = Number(data.rank) || 0;
+
+            // Only update if rank changed
+            if (newRank !== oldRank) {
+              data.rank = newRank;
+              await kvPutJSON(KV, `timed:latest:${ticker}`, data);
+              results.updated++;
+            }
+
+            results.processed++;
+          } catch (err) {
+            results.errors.push({ ticker, error: err.message });
+          }
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            message: `Recalculated ranks for ${results.processed} tickers`,
+            results,
           },
           200,
           corsHeaders(env, req)
