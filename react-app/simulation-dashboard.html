@@ -454,8 +454,51 @@
           const losses = closed.filter((t) => t.status === "LOSS").length;
           const winRate = closedTrades > 0 ? (wins / closedTrades) * 100 : 0;
 
-          const totalPnl = closed.reduce((sum, t) => sum + (t.pnl || 0), 0);
-          const openPnl = open.reduce((sum, t) => sum + (t.pnl || 0), 0);
+          // Calculate Closed P&L: includes fully closed trades + realized P&L from trimmed positions
+          const closedPnl = closed.reduce((sum, t) => sum + (t.pnl || 0), 0);
+          
+          // Calculate realized P&L from trimmed positions
+          const trimmedRealizedPnl = trimmed.reduce((sum, t) => {
+            const shares = t.shares || Math.floor(TRADE_SIZE / (t.entryPrice || 1));
+            const trimmedPct = t.trimmedPct || 0;
+            const trimmedShares = Math.floor(shares * trimmedPct);
+            const entryPrice = t.entryPrice || 0;
+            const tp = t.tp || entryPrice; // Use TP price where trimmed occurred
+            
+            if (trimmedShares > 0 && entryPrice > 0) {
+              const direction = t.direction || "LONG";
+              if (direction === "LONG") {
+                // LONG: profit = (TP - Entry) * trimmed shares
+                return sum + ((tp - entryPrice) * trimmedShares);
+              } else {
+                // SHORT: profit = (Entry - TP) * trimmed shares
+                return sum + ((entryPrice - tp) * trimmedShares);
+              }
+            }
+            return sum;
+          }, 0);
+          
+          // Total Closed P&L = fully closed + trimmed realized
+          const totalPnl = closedPnl + trimmedRealizedPnl;
+          
+          // Open P&L: unrealized P&L from open positions (including remaining shares in trimmed positions)
+          const openPnl = [...open, ...trimmed].reduce((sum, t) => {
+            const shares = t.shares || Math.floor(TRADE_SIZE / (t.entryPrice || 1));
+            const trimmedPct = t.trimmedPct || 0;
+            const remainingShares = shares - Math.floor(shares * trimmedPct);
+            const entryPrice = t.entryPrice || 0;
+            const currentPrice = t.currentPrice || entryPrice;
+            
+            if (remainingShares > 0 && entryPrice > 0) {
+              const direction = t.direction || "LONG";
+              if (direction === "LONG") {
+                return sum + ((currentPrice - entryPrice) * remainingShares);
+              } else {
+                return sum + ((entryPrice - currentPrice) * remainingShares);
+              }
+            }
+            return sum;
+          }, 0);
 
           // Calculate average win/loss
           const winningTrades = closed.filter((t) => t.status === "WIN");
