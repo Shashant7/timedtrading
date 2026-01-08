@@ -959,9 +959,22 @@ async function processTradeSimulation(
       }
     } else {
       // Check if we should create a new trade
-      // Calculate RR at entry price (trigger_price) for trade creation, not current price
+      // Use current market price as entry price (price field from TradingView)
+      // trigger_price is historical and may not reflect actual entry price
       const entryPrice =
-        Number(tickerData.trigger_price) || Number(tickerData.price);
+        Number(tickerData.price) || Number(tickerData.trigger_price);
+      const priceSource = tickerData.price ? "price" : "trigger_price";
+      console.log(
+        `[TRADE SIM] ${ticker} entry price: $${entryPrice.toFixed(
+          2
+        )} (from ${priceSource}), current price: $${Number(
+          tickerData.price
+        ).toFixed(2)}, trigger_price: ${
+          tickerData.trigger_price
+            ? "$" + Number(tickerData.trigger_price).toFixed(2)
+            : "null"
+        }`
+      );
       const entryRR = calculateRRAtEntry(tickerData, entryPrice);
 
       // Create a temporary tickerData with entry RR for checking conditions
@@ -995,7 +1008,8 @@ async function processTradeSimulation(
             now - new Date(t.entryTime).getTime() < recentCloseWindow
         );
 
-        // Also check for ANY existing open trade (more strict duplicate prevention)
+        // Check for existing open trade
+        // Allow new position if entry price is significantly different (>5%) - enables scaling in
         const anyOpenTrade = allTrades.find(
           (t) =>
             t.ticker === ticker &&
@@ -1003,18 +1017,86 @@ async function processTradeSimulation(
             (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM")
         );
 
-        // Additional check: prevent multiple trades for same ticker/direction within 24 hours
+        // If open trade exists, check if entry price is significantly different
+        let shouldBlockOpenTrade = false;
+        if (anyOpenTrade && anyOpenTrade.entryPrice) {
+          const existingEntryPrice = Number(anyOpenTrade.entryPrice);
+          const priceDiffPct =
+            Math.abs(entryPrice - existingEntryPrice) / existingEntryPrice;
+          // Block only if entry prices are within 5% of each other (too similar to be scaling in)
+          shouldBlockOpenTrade = priceDiffPct < 0.05; // 5% threshold
+
+          if (shouldBlockOpenTrade) {
+            console.log(
+              `[TRADE SIM] ⚠️ ${ticker} ${direction}: Open trade exists with similar entry price (${existingEntryPrice.toFixed(
+                2
+              )} vs ${entryPrice.toFixed(2)}, diff: ${(
+                priceDiffPct * 100
+              ).toFixed(2)}%)`
+            );
+          } else {
+            console.log(
+              `[TRADE SIM] ℹ️ ${ticker} ${direction}: Open trade exists but entry price differs significantly (${existingEntryPrice.toFixed(
+                2
+              )} vs ${entryPrice.toFixed(2)}, diff: ${(
+                priceDiffPct * 100
+              ).toFixed(2)}%) - allowing scaling in`
+            );
+          }
+        } else if (anyOpenTrade) {
+          // Open trade exists but no entry price - block to be safe
+          shouldBlockOpenTrade = true;
+        }
+
+        // Additional check: prevent multiple trades for same ticker/direction within 1 hour
         // This catches cases where multiple alerts come in over time but shouldn't create multiple positions
-        const oneDayAgo = now - 24 * 60 * 60 * 1000; // 24 hours
+        const oneHourAgo = now - 60 * 60 * 1000; // 1 hour (reduced from 24 hours)
         const recentTrade = allTrades.find(
           (t) =>
             t.ticker === ticker &&
             t.direction === direction &&
             t.entryTime &&
-            new Date(t.entryTime).getTime() > oneDayAgo
+            new Date(t.entryTime).getTime() > oneHourAgo
         );
 
-        if (!recentlyClosedTrade && !anyOpenTrade && !recentTrade) {
+        // Also check for trades with very similar entry price (within 0.5% to catch duplicates)
+        // This prevents duplicate alerts even if timestamps differ slightly
+        const priceThreshold = entryPrice * 0.005; // 0.5% of entry price
+        const similarPriceTrade = allTrades.find(
+          (t) =>
+            t.ticker === ticker &&
+            t.direction === direction &&
+            t.entryPrice &&
+            Math.abs(Number(t.entryPrice) - entryPrice) < priceThreshold
+        );
+
+        // Log why trade was rejected if applicable
+        if (recentlyClosedTrade) {
+          console.log(
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - recently closed trade (within 5 min)`
+          );
+        } else if (shouldBlockOpenTrade) {
+          console.log(
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - open trade already exists with similar entry price`
+          );
+        } else if (recentTrade) {
+          console.log(
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - recent trade exists (within 1 hour)`
+          );
+        } else if (similarPriceTrade) {
+          console.log(
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - duplicate trade with similar entry price (${Number(
+              similarPriceTrade.entryPrice
+            ).toFixed(2)} vs ${entryPrice.toFixed(2)})`
+          );
+        }
+
+        if (
+          !recentlyClosedTrade &&
+          !shouldBlockOpenTrade &&
+          !recentTrade &&
+          !similarPriceTrade
+        ) {
           const tradeCalc = calculateTradePnl(tickerData, entryPrice);
 
           if (tradeCalc) {
@@ -1080,20 +1162,6 @@ async function processTradeSimulation(
           } else {
             console.log(
               `[TRADE SIM] ⚠️ ${ticker} ${direction}: tradeCalc returned null`
-            );
-          }
-        } else {
-          if (anyOpenTrade) {
-            console.log(
-              `[TRADE SIM] ⚠️ ${ticker} ${direction}: open trade already exists, skipping`
-            );
-          } else if (recentTrade) {
-            console.log(
-              `[TRADE SIM] ⚠️ ${ticker} ${direction}: recent trade exists within 24 hours, skipping`
-            );
-          } else {
-            console.log(
-              `[TRADE SIM] ⚠️ ${ticker} ${direction}: recently closed trade exists, skipping`
             );
           }
         }
