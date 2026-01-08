@@ -861,11 +861,74 @@ async function processTradeSimulation(
     );
 
     if (existingOpenTrade) {
+      // Check if entry price needs correction (was incorrectly set from trigger_price)
+      let correctedEntryPrice = existingOpenTrade.entryPrice;
+      const entryPriceCorrected = existingOpenTrade.entryPriceCorrected || false;
+      
+      if (!entryPriceCorrected && tickerData.price && tickerData.trigger_price) {
+        const currentEntryPrice = Number(existingOpenTrade.entryPrice);
+        const triggerPrice = Number(tickerData.trigger_price);
+        const currentPrice = Number(tickerData.price);
+        
+        // Check if entry price matches trigger_price (within 0.1% tolerance)
+        const entryMatchesTrigger = Math.abs(currentEntryPrice - triggerPrice) / triggerPrice < 0.001;
+        
+        // Check if price is available and different from entry price
+        const priceAvailable = currentPrice > 0;
+        const priceDiffers = Math.abs(currentEntryPrice - currentPrice) / currentPrice > 0.01; // More than 1% difference
+        
+        if (entryMatchesTrigger && priceAvailable && priceDiffers) {
+          // Entry price was likely set incorrectly from trigger_price
+          // Use the same logic as new trades: prefer price for real-time, trigger_price only for backfills
+          const triggerTimestamp =
+            tickerData.trigger_ts != null
+              ? new Date(Number(tickerData.trigger_ts)).toISOString()
+              : tickerData.ts != null
+              ? new Date(Number(tickerData.ts)).toISOString()
+              : null;
+          const now = Date.now();
+          const triggerTime = triggerTimestamp
+            ? new Date(triggerTimestamp).getTime()
+            : null;
+          const isBackfill = triggerTime && now - triggerTime > 60 * 60 * 1000; // More than 1 hour old
+          
+          if (isBackfill) {
+            // For backfills: use trigger_price only if significantly different from current price
+            const priceDiff = Math.abs(triggerPrice - currentPrice) / currentPrice;
+            if (priceDiff > 0.01) {
+              // More than 1% difference - keep trigger_price for backfill
+              correctedEntryPrice = triggerPrice;
+            } else {
+              // Price is close - use current price even for backfills
+              correctedEntryPrice = currentPrice;
+            }
+          } else {
+            // Real-time alert: ALWAYS use current price
+            correctedEntryPrice = currentPrice;
+          }
+          
+          if (Math.abs(correctedEntryPrice - currentEntryPrice) / currentEntryPrice > 0.001) {
+            console.log(
+              `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(2)} -> $${correctedEntryPrice.toFixed(2)} (was using trigger_price incorrectly)`
+            );
+          }
+        }
+      }
+      
+      // Recalculate shares if entry price was corrected (to maintain $1000 position size)
+      let correctedShares = existingOpenTrade.shares;
+      if (correctedEntryPrice !== existingOpenTrade.entryPrice && !entryPriceCorrected) {
+        correctedShares = TRADE_SIZE / correctedEntryPrice;
+        console.log(
+          `[TRADE SIM] 🔧 Recalculating ${ticker} ${direction} shares: ${existingOpenTrade.shares?.toFixed(4)} -> ${correctedShares.toFixed(4)} (due to entry price correction)`
+        );
+      }
+      
       // Update existing trade
       const tradeCalc = calculateTradePnl(
         tickerData,
-        existingOpenTrade.entryPrice,
-        existingOpenTrade
+        correctedEntryPrice,
+        { ...existingOpenTrade, shares: correctedShares }
       );
       if (tradeCalc) {
         // Ensure status matches actual P&L (fix for trades marked WIN with negative P&L)
@@ -907,6 +970,18 @@ async function processTradeSimulation(
             )}`,
           },
         ];
+        
+        // Add history entry if entry price was corrected
+        if (correctedEntryPrice !== existingOpenTrade.entryPrice && !entryPriceCorrected) {
+          history.push({
+            type: "ENTRY_CORRECTION",
+            timestamp: new Date().toISOString(),
+            price: correctedEntryPrice,
+            shares: correctedShares,
+            value: correctedEntryPrice * correctedShares,
+            note: `Entry price corrected from $${existingOpenTrade.entryPrice.toFixed(2)} to $${correctedEntryPrice.toFixed(2)} (was incorrectly using trigger_price)`,
+          });
+        }
 
         const currentPrice = Number(tickerData.price || 0);
         const oldStatus = existingOpenTrade.status || "OPEN";
@@ -949,6 +1024,9 @@ async function processTradeSimulation(
         const updatedTrade = {
           ...existingOpenTrade,
           ...tradeCalc,
+          entryPrice: correctedEntryPrice, // Use corrected entry price if it was corrected
+          shares: correctedShares, // Use corrected shares if entry price was corrected
+          entryPriceCorrected: correctedEntryPrice !== existingOpenTrade.entryPrice || entryPriceCorrected, // Mark as corrected
           status: newStatus,
           trimmedPct: tradeCalc.trimmedPct || existingOpenTrade.trimmedPct || 0,
           lastUpdate: new Date().toISOString(),
