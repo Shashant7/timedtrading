@@ -1637,58 +1637,165 @@
                     </div>
 
                     {/* AI Summary */}
-                    <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4 mb-4">
-                      <h3 className="text-lg font-bold mb-3">🤖 AI Analysis & Recommendations</h3>
-                      <div className="text-sm text-[#e7ecff] whitespace-pre-wrap leading-relaxed space-y-3">
-                        {dailySummary.summary.split('\n\n').map((paragraph, pIdx) => {
-                          // Skip empty paragraphs
-                          if (!paragraph.trim()) return null;
-                          
-                          // Check if this is a header (starts with ### or ##)
-                          const isHeader = paragraph.trim().match(/^###?\s+(.+)$/);
-                          if (isHeader) {
-                            const level = paragraph.trim().startsWith('###') ? 3 : 2;
-                            return React.createElement(
-                              level === 2 ? 'h2' : 'h3',
-                              {
-                                key: pIdx,
-                                className: level === 2 
-                                  ? 'text-lg font-bold mt-4 mb-2 text-white border-b border-[#26325f] pb-2'
-                                  : 'text-base font-semibold mt-3 mb-2 text-white'
-                              },
-                              isHeader[1]
-                            );
-                          }
-                          
-                          // Regular paragraph
-                          return React.createElement('div', {
-                            key: pIdx,
-                            className: 'mb-3'
-                          }, paragraph.split('\n').map((line, lIdx) => {
-                            if (!line.trim()) return React.createElement('br', { key: lIdx });
+                    <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-6 mb-4">
+                      <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
+                        <span className="text-2xl">🤖</span>
+                        <span>AI Analysis & Recommendations</span>
+                      </h3>
+                      <div className="text-sm text-[#e7ecff] leading-relaxed">
+                        {(() => {
+                          // Enhanced markdown renderer
+                          const renderMarkdown = (text) => {
+                            const parts = [];
+                            let currentIndex = 0;
                             
-                            // Format markdown-like content
-                            let formatted = line;
+                            // Split by double newlines for paragraphs
+                            const paragraphs = text.split(/\n\n+/);
+                            
+                            return paragraphs.map((paragraph, pIdx) => {
+                              if (!paragraph.trim()) return null;
+                              
+                              // Headers (## or ###)
+                              const headerMatch = paragraph.trim().match(/^(#{2,3})\s+(.+)$/m);
+                              if (headerMatch) {
+                                const level = headerMatch[1].length;
+                                const content = headerMatch[2];
+                                return React.createElement(
+                                  level === 2 ? 'h2' : 'h3',
+                                  {
+                                    key: pIdx,
+                                    className: level === 2
+                                      ? 'text-lg font-bold mt-6 mb-3 text-white border-b border-[#26325f] pb-2 first:mt-0'
+                                      : 'text-base font-semibold mt-4 mb-2 text-white'
+                                  },
+                                  content
+                                );
+                              }
+                              
+                              // Lists (bulleted or numbered)
+                              if (paragraph.trim().match(/^[-*•]\s+/m) || paragraph.trim().match(/^\d+\.\s+/m)) {
+                                const listItems = paragraph.split('\n').filter(l => l.trim());
+                                const isOrdered = listItems[0]?.trim().match(/^\d+\./);
+                                
+                                return React.createElement(
+                                  isOrdered ? 'ol' : 'ul',
+                                  {
+                                    key: pIdx,
+                                    className: 'list-none space-y-2 my-3 ml-4'
+                                  },
+                                  listItems.map((item, iIdx) => {
+                                    const cleanItem = item.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '');
+                                    return React.createElement('li', {
+                                      key: iIdx,
+                                      className: 'flex items-start gap-2'
+                                    }, [
+                                      React.createElement('span', {
+                                        key: 'bullet',
+                                        className: 'text-blue-400 mt-1.5 flex-shrink-0'
+                                      }, isOrdered ? `${iIdx + 1}.` : '•'),
+                                      React.createElement('span', {
+                                        key: 'content',
+                                        className: 'flex-1',
+                                        dangerouslySetInnerHTML: {
+                                          __html: formatInlineMarkdown(cleanItem)
+                                        }
+                                      })
+                                    ]);
+                                  })
+                                );
+                              }
+                              
+                              // Regular paragraph
+                              return React.createElement('div', {
+                                key: pIdx,
+                                className: 'mb-4 last:mb-0'
+                              }, paragraph.split('\n').map((line, lIdx) => {
+                                if (!line.trim()) {
+                                  return React.createElement('br', { key: lIdx });
+                                }
+                                
+                                // Check for special formatting patterns
+                                const isBoldLine = line.match(/^\*\*(.+)\*\*$/);
+                                if (isBoldLine) {
+                                  return React.createElement('p', {
+                                    key: lIdx,
+                                    className: 'font-semibold text-white mb-2'
+                                  }, isBoldLine[1]);
+                                }
+                                
+                                // Check for emoji-prefixed lines (opportunities, warnings, etc.)
+                                const emojiMatch = line.match(/^([🎯⚠️📊💡🚀]+)\s+(.+)$/);
+                                if (emojiMatch) {
+                                  const emoji = emojiMatch[1];
+                                  const content = emojiMatch[2];
+                                  const bgColor = emoji.includes('🎯') ? 'bg-blue-500/10 border-blue-500/30' :
+                                                  emoji.includes('⚠️') ? 'bg-yellow-500/10 border-yellow-500/30' :
+                                                  emoji.includes('📊') ? 'bg-purple-500/10 border-purple-500/30' :
+                                                  emoji.includes('💡') ? 'bg-green-500/10 border-green-500/30' :
+                                                  'bg-[#26325f]/50 border-[#26325f]';
+                                  
+                                  return React.createElement('div', {
+                                    key: lIdx,
+                                    className: `flex items-start gap-3 p-3 rounded-lg border ${bgColor} mb-2`
+                                  }, [
+                                    React.createElement('span', {
+                                      key: 'emoji',
+                                      className: 'text-xl flex-shrink-0'
+                                    }, emoji),
+                                    React.createElement('div', {
+                                      key: 'content',
+                                      className: 'flex-1',
+                                      dangerouslySetInnerHTML: {
+                                        __html: formatInlineMarkdown(content)
+                                      }
+                                    })
+                                  ]);
+                                }
+                                
+                                return React.createElement('p', {
+                                  key: lIdx,
+                                  className: 'mb-2 leading-relaxed',
+                                  dangerouslySetInnerHTML: {
+                                    __html: formatInlineMarkdown(line) || '&nbsp;'
+                                  }
+                                });
+                              }));
+                            });
+                          };
+                          
+                          // Format inline markdown (bold, code, links, etc.)
+                          const formatInlineMarkdown = (text) => {
+                            let formatted = text;
+                            
+                            // Bold (**text**)
                             formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>');
-                            formatted = formatted.replace(/`(.+?)`/g, '<code class="bg-[#26325f] px-1.5 py-0.5 rounded text-xs font-mono text-blue-300">$1</code>');
+                            
+                            // Inline code (`code`)
+                            formatted = formatted.replace(/`([^`]+)`/g, '<code class="bg-[#26325f] px-1.5 py-0.5 rounded text-xs font-mono text-blue-300">$1</code>');
+                            
+                            // Links [text](url) - not common in AI responses but good to have
+                            formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-400 hover:text-blue-300 underline" target="_blank" rel="noopener noreferrer">$1</a>');
+                            
+                            // Ticker symbols (uppercase 2-5 letter codes)
+                            formatted = formatted.replace(/\b([A-Z]{2,5})\b/g, '<span class="font-semibold text-blue-300">$1</span>');
+                            
+                            // Numbers with $ (prices)
+                            formatted = formatted.replace(/\$(\d+\.?\d*)/g, '<span class="text-green-400 font-medium">$$1</span>');
+                            
+                            // Percentages
+                            formatted = formatted.replace(/(\d+\.?\d*)%/g, '<span class="text-yellow-400 font-medium">$1%</span>');
+                            
+                            // RR ratios (X:1 or 1:X)
+                            formatted = formatted.replace(/(\d+\.?\d*):1/g, '<span class="text-purple-400 font-medium">$1:1</span>');
+                            
+                            // Table separators (|)
                             formatted = formatted.replace(/\|/g, '<span class="text-[#6b7a9f] mx-1">|</span>');
                             
-                            // Check if it's a list item
-                            if (line.trim().startsWith('- ')) {
-                              return React.createElement('div', {
-                                key: lIdx,
-                                className: 'ml-4 mb-1',
-                                dangerouslySetInnerHTML: { __html: formatted }
-                              });
-                            }
-                            
-                            return React.createElement('p', {
-                              key: lIdx,
-                              className: 'mb-1',
-                              dangerouslySetInnerHTML: { __html: formatted || '&nbsp;' }
-                            });
-                          }));
-                        })}
+                            return formatted;
+                          };
+                          
+                          return renderMarkdown(dailySummary.summary);
+                        })()}
                       </div>
                     </div>
 
