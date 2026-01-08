@@ -2534,7 +2534,7 @@ const SECTOR_RATINGS = {
   Financials: { rating: "overweight", boost: 5 },
   "Real Estate": { rating: "underweight", boost: -3 },
   "Consumer Staples": { rating: "underweight", boost: -3 },
-  "Health Care": { rating: "neutral", boost: 0 },
+  "Health Care": { rating: "overweight", boost: 5 },
   Utilities: { rating: "overweight", boost: 5 },
 };
 
