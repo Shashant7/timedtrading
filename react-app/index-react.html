@@ -2886,7 +2886,7 @@
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-[#93a4d6]">Phase</span>
                 <span className="text-sm font-semibold" style={{ color: phaseColor }}>
-                  {Math.round(phase * 100)}%
+                  {(phase * 100).toFixed(2)}%
                   {ticker.phase_zone && ` (${ticker.phase_zone})`}
                 </span>
               </div>
