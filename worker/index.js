@@ -884,8 +884,7 @@ async function processTradeSimulation(
             ? new Date(existingOpenTrade.entryTime).getTime()
             : null;
           const now = Date.now();
-          const isOldTrade =
-            entryTime && now - entryTime > 60 * 60 * 1000; // More than 1 hour old
+          const isOldTrade = entryTime && now - entryTime > 60 * 60 * 1000; // More than 1 hour old
 
           // Also check trigger timestamp if available
           const triggerTimestamp =
@@ -932,9 +931,9 @@ async function processTradeSimulation(
               console.log(
                 `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(
                   2
-                )} -> $${correctedEntryPrice.toFixed(
-                  2
-                )} (trade is ${isOldTrade || isBackfill ? "old/backfill" : "real-time"}, was likely using trigger_price incorrectly)`
+                )} -> $${correctedEntryPrice.toFixed(2)} (trade is ${
+                  isOldTrade || isBackfill ? "old/backfill" : "real-time"
+                }, was likely using trigger_price incorrectly)`
               );
             }
           }
@@ -6879,61 +6878,15 @@ Provide 3-5 actionable next steps:
               `timed:latest:${trade.ticker}`
             );
             if (latestData) {
-              const tradeCalc = calculateTradePnl(
+              // Use processTradeSimulation to ensure entry price correction logic runs
+              const prevLatest = null; // No previous data for scheduled updates
+              await processTradeSimulation(
+                KV,
+                trade.ticker,
                 latestData,
-                trade.entryPrice,
-                trade
+                prevLatest,
+                env
               );
-              if (tradeCalc) {
-                // Ensure status matches actual P&L (fix for trades marked WIN with negative P&L)
-                let newStatus =
-                  tradeCalc.status === "TP_HIT_TRIM"
-                    ? "TP_HIT_TRIM"
-                    : tradeCalc.status;
-                if (
-                  (newStatus === "WIN" || newStatus === "LOSS") &&
-                  tradeCalc.pnl !== undefined
-                ) {
-                  // Double-check: WIN must have positive P&L, LOSS must have negative P&L
-                  if (newStatus === "WIN" && tradeCalc.pnl < 0) {
-                    console.log(
-                      `[TRADE UPDATE CRON] ⚠️ Correcting ${trade.ticker} ${
-                        trade.direction
-                      }: WIN with negative P&L (${tradeCalc.pnl.toFixed(
-                        2
-                      )}) -> LOSS`
-                    );
-                    newStatus = "LOSS";
-                  } else if (newStatus === "LOSS" && tradeCalc.pnl > 0) {
-                    console.log(
-                      `[TRADE UPDATE CRON] ⚠️ Correcting ${trade.ticker} ${
-                        trade.direction
-                      }: LOSS with positive P&L (${tradeCalc.pnl.toFixed(
-                        2
-                      )}) -> WIN`
-                    );
-                    newStatus = "WIN";
-                  }
-                }
-                const updatedTrade = {
-                  ...trade,
-                  ...tradeCalc,
-                  status: newStatus,
-                  trimmedPct: tradeCalc.trimmedPct || trade.trimmedPct || 0,
-                  lastUpdate: new Date().toISOString(),
-                  sl: Number(latestData.sl) || trade.sl,
-                  tp: Number(latestData.tp) || trade.tp,
-                  rr: Number(latestData.rr) || trade.rr,
-                  rank: Number(latestData.rank) || trade.rank,
-                };
-
-                const tradeIndex = allTrades.findIndex(
-                  (t) => t.id === trade.id
-                );
-                if (tradeIndex >= 0) {
-                  allTrades[tradeIndex] = updatedTrade;
-                }
-              }
             }
           } catch (err) {
             console.error(
@@ -6943,13 +6896,15 @@ Provide 3-5 actionable next steps:
           }
         }
 
-        // Save updated trades
-        allTrades.sort((a, b) => {
+        // Re-read trades to get latest state (processTradeSimulation saves them)
+        const finalTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        // Sort and save (in case processTradeSimulation doesn't sort)
+        finalTrades.sort((a, b) => {
           const timeA = new Date(a.entryTime || 0).getTime();
           const timeB = new Date(b.entryTime || 0).getTime();
           return timeB - timeA;
         });
-        await kvPutJSON(KV, tradesKey, allTrades);
+        await kvPutJSON(KV, tradesKey, finalTrades);
         console.log(`[TRADE UPDATE CRON] Updated ${openTrades.length} trades`);
       }
     } catch (error) {
