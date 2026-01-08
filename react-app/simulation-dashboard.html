@@ -417,10 +417,18 @@
         return useMemo(() => {
           // Closed trades: fully closed positions (WIN or LOSS)
           const closed = trades.filter((t) => t.status === "WIN" || t.status === "LOSS");
+          // Trimmed trades: positions that have been partially trimmed (check trimmedPct > 0 OR status TP_HIT_TRIM)
+          const trimmed = trades.filter((t) => {
+            const trimmedPct = t.trimmedPct || 0;
+            return trimmedPct > 0 || t.status === "TP_HIT_TRIM";
+          });
           // Open trades: currently open positions that haven't been trimmed yet
-          const open = trades.filter((t) => t.status === "OPEN" || (!t.status && t.status !== "TP_HIT_TRIM" && t.status !== "WIN" && t.status !== "LOSS"));
-          // Trimmed trades: open positions that have been partially trimmed (TP_HIT_TRIM)
-          const trimmed = trades.filter((t) => t.status === "TP_HIT_TRIM");
+          const open = trades.filter((t) => {
+            const trimmedPct = t.trimmedPct || 0;
+            const isTrimmed = trimmedPct > 0 || t.status === "TP_HIT_TRIM";
+            const isClosed = t.status === "WIN" || t.status === "LOSS";
+            return (t.status === "OPEN" || !t.status) && !isTrimmed && !isClosed;
+          });
 
           const openTrades = open.length;
           const trimmedTrades = trimmed.length;
@@ -1694,9 +1702,9 @@
                   </div>
                 </div>
 
-                {/* Right Rail - Detail View (slides in from right) */}
+                {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
                 {selectedTicker && (
-                  <div className="absolute right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl">
+                  <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
                     <TickerDetailsLoader 
                       tickerSymbol={selectedTicker} 
                       onClose={() => setSelectedTicker(null)}
