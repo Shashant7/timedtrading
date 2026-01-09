@@ -3007,18 +3007,31 @@
 
         const fetchActivity = React.useCallback(async () => {
           try {
+            setLoading(true);
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased timeout to 10s
 
             const res = await fetch(
               "https://timed-trading-ingest.shashant.workers.dev/timed/activity?limit=50",
-              { signal: controller.signal }
+              { 
+                signal: controller.signal,
+                cache: 'no-store', // Prevent caching issues on hard refresh
+                headers: {
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  'Pragma': 'no-cache',
+                  'Expires': '0'
+                }
+              }
             );
             clearTimeout(timeoutId);
 
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            }
+
             const data = await res.json();
 
-            if (res.ok && data.ok && Array.isArray(data.events)) {
+            if (data.ok && Array.isArray(data.events)) {
               setEvents(data.events);
               setError(null); // Clear any previous errors
             } else {
@@ -3043,7 +3056,7 @@
               }
 
               // Still set events if it's an empty array (no error, just no data)
-              if (res.ok && Array.isArray(data.events)) {
+              if (Array.isArray(data.events)) {
                 setEvents(data.events);
               }
             }
@@ -3051,17 +3064,31 @@
             if (err.name !== "AbortError") {
               console.error("Activity feed fetch error:", err);
               setError("Failed to load activity feed");
+              // Retry after a short delay on first load failure
+              if (events.length === 0) {
+                setTimeout(() => {
+                  fetchActivity();
+                }, 2000);
+              }
             }
           } finally {
             setLoading(false);
           }
         }, []);
 
-        // Initial fetch and periodic refresh
+        // Initial fetch and periodic refresh - ensure it runs on mount
         React.useEffect(() => {
+          // Use a small delay to ensure component is fully mounted
+          const initialTimeout = setTimeout(() => {
           fetchActivity();
+          }, 100);
+          
           const interval = setInterval(fetchActivity, 5 * 60 * 1000); // Refresh every 5 minutes to align with data updates
-          return () => clearInterval(interval);
+          
+          return () => {
+            clearTimeout(initialTimeout);
+            clearInterval(interval);
+          };
         }, [fetchActivity]);
 
         // Auto-scroll to top when new events arrive
@@ -4589,20 +4616,17 @@
             {/* Sectors Row */}
             {sectors.length > 0 && (
               <div className="flex gap-2 flex-wrap items-center">
-                <span className="text-sm text-[#93a4d6] font-semibold mr-2">Sectors:</span>
+                <span className="text-xs text-[#93a4d6] font-semibold mr-1">Sectors:</span>
                 {sectors.map((sectorData) => {
                   const sectorName = sectorData.sector || sectorData.name;
                   const rating = sectorData.rating || "neutral";
                   const emoji =
                     rating === "overweight"
-                      ? "📈"
+                      ? "💪"
                       : rating === "underweight"
-                      ? "📉"
-                      : "➡️";
+                      ? "👎"
+                      : "😒";
                   const isActive = filters.sector === sectorName;
-                  // Make emoji more prominent with larger size and better styling
-                  const emojiSize = rating === "overweight" ? "text-lg" : rating === "underweight" ? "text-lg" : "text-base";
-                  const emojiColor = rating === "overweight" ? "text-green-400" : rating === "underweight" ? "text-red-400" : "text-yellow-400";
                   return (
                     <button
                       key={sectorName}
@@ -4621,15 +4645,14 @@
                           });
                         }
                       }}
-                      className={`px-3 py-2 rounded-lg border text-sm font-semibold transition-all flex items-center gap-1.5 ${
+                      className={`px-2 py-1 rounded-lg border text-xs font-semibold transition-all ${
                         isActive
                           ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
                           : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0] text-[#93a4d6]"
                       }`}
                       title={`${sectorName} - ${rating.charAt(0).toUpperCase() + rating.slice(1)}`}
                     >
-                      <span className={`${emojiSize} ${emojiColor} leading-none`}>{emoji}</span>
-                      <span>{sectorName}</span>
+                      {emoji} {sectorName}
                     </button>
                   );
                 })}
