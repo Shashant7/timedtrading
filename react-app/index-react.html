@@ -2351,19 +2351,27 @@
 
               {/* Tooltip */}
               {tooltip && (() => {
-                // Calculate rank position out of all tickers
+                // Calculate rank position using worker's rank field (stored at worker level)
+                // This matches the ranking system used throughout the platform
                 let rankPosition = null;
                 let totalTickers = 0;
                 if (allData && typeof allData === 'object') {
-                  const allTickersArray = Object.values(allData);
+                  const allTickersArray = Object.values(allData).filter(
+                    (t) => t && typeof t === 'object' && t.ticker && (t.rank !== undefined && t.rank !== null)
+                  );
                   totalTickers = allTickersArray.length;
-                  // Sort by rank (descending) to find position
+                  // Sort by worker's rank field (descending) - this is the rank stored at worker level
                   const sortedByRank = [...allTickersArray].sort((a, b) => {
                     const rankA = Number(a.rank) || 0;
                     const rankB = Number(b.rank) || 0;
-                    return rankB - rankA; // Descending order
+                    // Descending order: higher rank score = better position
+                    if (rankB !== rankA) {
+                      return rankB - rankA;
+                    }
+                    // If ranks are equal, use ticker name for consistent ordering
+                    return String(a.ticker || "").localeCompare(String(b.ticker || ""));
                   });
-                  // Find position (1-indexed)
+                  // Find position (1-indexed) - this matches Top 40 calculation logic
                   const index = sortedByRank.findIndex(
                     (t) => String(t.ticker || "").toUpperCase() === String(tooltip.ticker || "").toUpperCase()
                   );
