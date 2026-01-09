@@ -1345,6 +1345,66 @@
           ? remainingShares * currentPrice * pointValue
           : remainingShares * currentPrice;
 
+        // Recalculate P&L using correct futures logic (override stored value)
+        let recalculatedPnl = 0;
+        let recalculatedPnlPct = 0;
+        const trimmedPct = trade.trimmedPct || 0;
+        const priceDiff = currentPrice - trade.entryPrice;
+        
+        if (trade.direction === "LONG") {
+          const hitTP = currentPrice >= trade.tp;
+          const hitSL = currentPrice <= trade.sl;
+          
+          if (hitTP) {
+            if (trimmedPct === 0) {
+              // First TP hit - trim 50%
+              const tpDiff = trade.tp - trade.entryPrice;
+              recalculatedPnl = tpDiff * shares * pointValue * 0.5;
+              recalculatedPnlPct = ((trade.tp - trade.entryPrice) / trade.entryPrice) * 100;
+            } else {
+              // Already trimmed - full exit at TP
+              const tpDiff = trade.tp - trade.entryPrice;
+              recalculatedPnl = tpDiff * shares * pointValue;
+              recalculatedPnlPct = ((trade.tp - trade.entryPrice) / trade.entryPrice) * 100;
+            }
+          } else if (hitSL) {
+            const slDiff = trade.sl - trade.entryPrice;
+            recalculatedPnl = slDiff * shares * pointValue;
+            recalculatedPnlPct = ((trade.sl - trade.entryPrice) / trade.entryPrice) * 100;
+          } else {
+            // Still open - calculate current P&L
+            recalculatedPnl = priceDiff * shares * pointValue;
+            recalculatedPnlPct = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
+          }
+        } else {
+          // SHORT
+          const hitTP = currentPrice <= trade.tp;
+          const hitSL = currentPrice >= trade.sl;
+          
+          if (hitTP) {
+            if (trimmedPct === 0) {
+              // First TP hit - trim 50%
+              const tpDiff = trade.entryPrice - trade.tp;
+              recalculatedPnl = tpDiff * shares * pointValue * 0.5;
+              recalculatedPnlPct = ((trade.entryPrice - trade.tp) / trade.entryPrice) * 100;
+            } else {
+              // Already trimmed - full exit at TP
+              const tpDiff = trade.entryPrice - trade.tp;
+              recalculatedPnl = tpDiff * shares * pointValue;
+              recalculatedPnlPct = ((trade.entryPrice - trade.tp) / trade.entryPrice) * 100;
+            }
+          } else if (hitSL) {
+            const slDiff = trade.entryPrice - trade.sl;
+            recalculatedPnl = slDiff * shares * pointValue;
+            recalculatedPnlPct = ((trade.entryPrice - trade.sl) / trade.entryPrice) * 100;
+          } else {
+            // Still open - calculate current P&L
+            const shortPriceDiff = trade.entryPrice - currentPrice;
+            recalculatedPnl = shortPriceDiff * shares * pointValue;
+            recalculatedPnlPct = ((trade.entryPrice - currentPrice) / trade.entryPrice) * 100;
+          }
+        }
+
         // Parse entryTime - now uses current time when trade was created (not trigger_ts)
         const entryDate = new Date(trade.entryTime);
         const formattedDate = entryDate.toLocaleDateString('en-US', { 
@@ -1421,11 +1481,11 @@
             <td className="p-2 text-sm">${trade.tp.toFixed(2)}</td>
             <td className="p-2 text-sm">{formatRR(trade.rr)}</td>
             <td className="p-2 text-sm">{trade.rank}</td>
-            <td className={`p-2 text-sm font-semibold ${pnlColor}`}>
-              ${trade.pnl.toFixed(2)}
+            <td className={`p-2 text-sm font-semibold ${recalculatedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+              ${recalculatedPnl.toFixed(2)}
             </td>
-            <td className={`p-2 text-sm font-semibold ${pnlColor}`}>
-              {trade.pnlPct.toFixed(2)}%
+            <td className={`p-2 text-sm font-semibold ${recalculatedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+              {recalculatedPnlPct.toFixed(2)}%
             </td>
             <td className={`p-2 text-sm font-semibold ${statusColor}`}>
               {trade.status === "TP_HIT_TRIM" 
