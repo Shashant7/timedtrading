@@ -1125,15 +1125,16 @@ if sizeAllTp > 0
                                 break
                     
                     // Check 4H levels
-                    for j = 0 to size4H - 1
-                        if j < size4H
-                            level4H = array.get(levels4H, j)
-                            if not na(level4H) and math.abs(val - level4H) < syminfo.mintick * 2
-                                mult = f_get_mult(j)
-                                multiplier := mult
-                                source := f_fmt(mult * 100, 1) + "% ATR 4H"
-                                tf := "240"
-                                break
+                    if size4H > 0
+                        for j = 0 to size4H - 1
+                            if j < size4H
+                                level4H = array.get(levels4H, j)
+                                if not na(level4H) and math.abs(val - level4H) < syminfo.mintick * 2
+                                    mult = f_get_mult(j)
+                                    multiplier := mult
+                                    source := f_fmt(mult * 100, 1) + "% ATR 4H"
+                                    tf := "240"
+                                    break
                 
                 // Build TP level JSON string
                 tpLevelJson = f_tp_level_str(val, label, source, type, multiplier, tf, confidence)
@@ -1184,6 +1185,97 @@ pctChange6Months = not na(price6MonthsAgo) and price6MonthsAgo > 0 and currentPr
 sectorName = na(syminfo.sector) ? "" : syminfo.sector
 industryName = na(syminfo.industry) ? "" : syminfo.industry
 
+//─────────────────────────────────────────────────────────────────────────────
+// TD Sequential (DeMark Sequential) - Reversal/Exhaustion Indicator
+//─────────────────────────────────────────────────────────────────────────────
+// TD Sequential helps identify potential reversal/exhaustion points
+// Preparation Phase: Counts consecutive closes below/above comparison period (default 9)
+// Lead-up Phase: After preparation completes, counts consecutive closes below/above low/high comparison (default 13)
+// TD 9: Preparation phase reaches 9 = potential reversal signal
+// TD 13: Lead-up phase reaches 13 = stronger reversal signal
+
+// Settings (using standard DeMark defaults)
+tdPrepLen = 9        // Preparation phase length
+tdPrepComp = 4       // Comparison period for preparation (close[4])
+tdLeadupLen = 13    // Lead-up phase length
+tdLeadupComp = 2    // Comparison period for lead-up (low[2] or high[2])
+
+// Preparation Phase (TD Count)
+// Bullish: Count consecutive closes below close[comparison]
+// Bearish: Count consecutive closes above close[comparison]
+var int bullishPrepCount = 0
+var int bearishPrepCount = 0
+
+bullishPrepCount := close < close[tdPrepComp] ? bullishPrepCount + 1 : 0
+bearishPrepCount := close > close[tdPrepComp] ? bearishPrepCount + 1 : 0
+
+// Preparation phase completion signals
+bullishPrepComplete = bullishPrepCount == tdPrepLen
+bearishPrepComplete = bearishPrepCount == tdPrepLen
+
+// Lead-up Phase (TD Sequential)
+// Bullish: After bullish prep completes, count consecutive closes below low[comparison]
+// Bearish: After bearish prep completes, count consecutive closes above high[comparison]
+var int bullishLeadupCount = 0
+var int bearishLeadupCount = 0
+
+// Reset lead-up on opposite preparation completion (cancellation)
+if bearishPrepComplete
+    bullishLeadupCount := 0
+if bullishPrepComplete
+    bearishLeadupCount := 0
+
+// Increment lead-up counts
+if bullishPrepComplete and close < low[tdLeadupComp]
+    bullishLeadupCount := bullishLeadupCount + 1
+else if bullishLeadupCount > 0 and close < low[tdLeadupComp]
+    bullishLeadupCount := bullishLeadupCount + 1
+else if bullishLeadupCount > 0 and close >= low[tdLeadupComp]
+    bullishLeadupCount := 0  // Reset if condition breaks
+
+if bearishPrepComplete and close > high[tdLeadupComp]
+    bearishLeadupCount := bearishLeadupCount + 1
+else if bearishLeadupCount > 0 and close > high[tdLeadupComp]
+    bearishLeadupCount := bearishLeadupCount + 1
+else if bearishLeadupCount > 0 and close <= high[tdLeadupComp]
+    bearishLeadupCount := 0  // Reset if condition breaks
+
+// TD Sequential signals
+// TD 9: Preparation phase complete (potential reversal)
+td9Bullish = bullishPrepComplete
+td9Bearish = bearishPrepComplete
+
+// TD 13: Lead-up phase complete (stronger reversal signal)
+td13Bullish = bullishLeadupCount == tdLeadupLen
+td13Bearish = bearishLeadupCount == tdLeadupLen
+
+// TD Sequential state summary
+// For LONG trades: Bearish TD 9/13 = exit signal (exhaustion/reversal down)
+// For SHORT trades: Bullish TD 9/13 = exit signal (exhaustion/reversal up)
+tdSeqExitLong = td9Bearish or td13Bearish
+tdSeqExitShort = td9Bullish or td13Bullish
+
+// TD Sequential boost/penalty for scoring
+// If TD count favors our direction, boost score
+// If TD count opposes our direction, penalize score
+tdSeqBoost = 0.0
+if htfBull
+    // For LONG bias: Bullish TD 9/13 = boost, Bearish TD 9/13 = penalty
+    tdSeqBoost := td9Bullish ? 5.0 : td13Bullish ? 8.0 : td9Bearish ? -5.0 : td13Bearish ? -8.0 : 0.0
+    // Also boost if bullish prep count is high (6-8) or leadup is building (6-12)
+    if bullishPrepCount >= 6 and bullishPrepCount < tdPrepLen
+        tdSeqBoost := tdSeqBoost + 2.0
+    if bullishLeadupCount >= 6 and bullishLeadupCount < tdLeadupLen
+        tdSeqBoost := tdSeqBoost + 3.0
+else
+    // For SHORT bias: Bearish TD 9/13 = boost, Bullish TD 9/13 = penalty
+    tdSeqBoost := td9Bearish ? 5.0 : td13Bearish ? 8.0 : td9Bullish ? -5.0 : td13Bullish ? -8.0 : 0.0
+    // Also boost if bearish prep count is high (6-8) or leadup is building (6-12)
+    if bearishPrepCount >= 6 and bearishPrepCount < tdPrepLen
+        tdSeqBoost := tdSeqBoost + 2.0
+    if bearishLeadupCount >= 6 and bearishLeadupCount < tdLeadupLen
+        tdSeqBoost := tdSeqBoost + 3.0
+
 // Fundamental data variables (will be na - can be populated by worker if needed)
 var float epsBasic = na
 var float epsDiluted = na
@@ -1205,7 +1297,7 @@ pegStr = not na(pegRatio) ? ("\"peg_ratio\":" + f_fmt(pegRatio, 2) + ",") : ""
 marketCapStr = not na(marketCap) ? ("\"market_cap\":" + f_fmt(marketCap, 0) + ",") : ""
 
 // Build JSON
-json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
+json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"td_sequential\":{" +        "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," +        "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," +        "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," +        "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," +        "\"td9_bullish\":" + (td9Bullish ? "true":"false") + "," +        "\"td9_bearish\":" + (td9Bearish ? "true":"false") + "," +        "\"td13_bullish\":" + (td13Bullish ? "true":"false") + "," +        "\"td13_bearish\":" + (td13Bearish ? "true":"false") + "," +        "\"exit_long\":" + (tdSeqExitLong ? "true":"false") + "," +        "\"exit_short\":" + (tdSeqExitShort ? "true":"false") + "," +        "\"boost\":" + f_fmt(tdSeqBoost, 2) +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
 
 // Send
 if shouldSend
@@ -1223,10 +1315,10 @@ if debugHeartbeat and barstate.isconfirmed
 //─────────────────────────────────────────────────────────────────────────────
 // Visual sanity
 //─────────────────────────────────────────────────────────────────────────────
-plot(ltfScore, "LTF Score (X)", linewidth=2)
+plot(ltfScore, "LTF Score (X)", color=color.black, linewidth=2)
 plot(htfScore, "HTF Score (Y)", linewidth=2)
-hline(0, "Zero", linestyle=hline.style_dotted)
+hline(0, "Zero", color=color.red, linestyle=hline.style_dotted, linewidth=3)
 
-plotchar(sq30_rel, title="30m Squeeze Release", char="⚡", location=location.top)
-plotchar(phaseDot, title="Daily Phase Dot/Zone Change", char="•", location=location.bottom)
+plotchar(sq30_rel, title="30m Squeeze Release", char="🚀", location=location.top)
+plotchar(phaseDot, title="Daily Phase Dot/Zone Change", char="⚫️", location=location.bottom)
 

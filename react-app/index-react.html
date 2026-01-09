@@ -4084,6 +4084,39 @@
                     <span className="text-[#93a4d6]">Price</span>
                     <span className="font-semibold">${ticker.price ? Number(ticker.price).toFixed(2) : "—"}</span>
                   </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Stop Loss (SL)</span>
+                    <span className="font-semibold text-red-400">{ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Target Price (TP)</span>
+                    <span className="font-semibold text-green-400">{ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}</span>
+                  </div>
+                  {(() => {
+                    const tpLevels = ticker.tp_levels || [];
+                    if (Array.isArray(tpLevels) && tpLevels.length > 0) {
+                      // Extract prices from tp_levels (handle both object and number formats)
+                      const tpPrices = tpLevels
+                        .map((tpItem) => {
+                          if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
+                            return Number(tpItem.price);
+                          }
+                          return typeof tpItem === "number" ? tpItem : Number(tpItem);
+                        })
+                        .filter((p) => Number.isFinite(p) && p > 0);
+                      
+                      if (tpPrices.length > 0) {
+                        const maxTP = Math.max(...tpPrices);
+                        return (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">Max TP</span>
+                            <span className="font-semibold text-green-400">${maxTP.toFixed(2)}</span>
+                          </div>
+                        );
+                      }
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 {/* Fundamental & Valuation Metrics */}
