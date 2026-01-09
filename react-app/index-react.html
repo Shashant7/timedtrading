@@ -1541,7 +1541,12 @@
           if (effectiveFilters.sector) {
             // Get sector from ticker data or lookup from mapping
             const tickerSector = d.sector || d.fundamentals?.sector || getTickerSector(ticker) || "";
-            if (tickerSector !== effectiveFilters.sector) continue;
+            // Normalize both for case-insensitive comparison
+            const normalizedTickerSector = String(tickerSector).trim();
+            const normalizedFilterSector = String(effectiveFilters.sector).trim();
+            if (normalizedTickerSector.toLowerCase() !== normalizedFilterSector.toLowerCase()) {
+              continue;
+            }
           }
 
           // TD9 Setup filter - only show tickers with TD9 signals
