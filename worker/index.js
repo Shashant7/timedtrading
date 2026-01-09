@@ -3472,7 +3472,8 @@ function createTD9EntryEmbed(
   tp,
   rr,
   rank,
-  tdSeq
+  tdSeq,
+  tickerData = null
 ) {
   const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
   const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
@@ -3484,62 +3485,76 @@ function createTD9EntryEmbed(
   const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
   const signalDirection = direction === "LONG" ? "Bullish" : "Bearish";
 
+  // Natural language interpretation
+  const actionText = `**Consider entering ${direction} position** because:`;
+  let reasons = [];
+  
+  if (signalType === "TD13") {
+    reasons.push(`🔢 **TD13 ${signalDirection} signal** - Strong DeMark reversal pattern, lead-up phase complete`);
+  } else {
+    reasons.push(`🔢 **TD9 ${signalDirection} signal** - DeMark reversal pattern, preparation phase complete`);
+  }
+  
+  reasons.push(`📈 **Price exhaustion** - Trend showing signs of reversal`);
+  
+  if (rr >= 1.5) {
+    reasons.push(`💰 **Good Risk/Reward (${rr.toFixed(2)}:1)** - Favorable reward relative to risk`);
+  }
+  
+  if (rank >= 70) {
+    reasons.push(`⭐ **High-ranked setup (Rank: ${rank})** - Strong opportunity`);
+  }
+
+  const fields = [
+    {
+      name: "📊 Action & Reasoning",
+      value: `${actionText}\n\n${reasons.join("\n")}`,
+      inline: false,
+    },
+    {
+      name: "💰 Entry Details",
+      value: `**Current Price:** $${price.toFixed(2)}\n**Stop Loss:** $${sl.toFixed(2)}\n**Take Profit:** $${tp.toFixed(2)}`,
+      inline: false,
+    },
+    {
+      name: "⭐ Quality Metrics",
+      value: `**Risk/Reward:** ${rr.toFixed(2)}:1\n**Rank:** ${rank || "N/A"}`,
+      inline: true,
+    },
+    {
+      name: "🔢 TD Sequential Signals",
+      value: `**TD9 Bullish:** ${td9Bullish ? "✅" : "❌"}\n**TD9 Bearish:** ${td9Bearish ? "✅" : "❌"}\n**TD13 Bullish:** ${td13Bullish ? "✅" : "❌"}\n**TD13 Bearish:** ${td13Bearish ? "✅" : "❌"}`,
+      inline: true,
+    },
+  ];
+
+  // Add counts if available
+  if (tdSeq.bullish_prep_count !== undefined || tdSeq.bearish_prep_count !== undefined) {
+    fields.push({
+      name: "📊 TD Counts",
+      value: `**Bullish Prep:** ${tdSeq.bullish_prep_count || 0}/9\n**Bearish Prep:** ${tdSeq.bearish_prep_count || 0}/9\n**Bullish Leadup:** ${tdSeq.bullish_leadup_count || 0}/13\n**Bearish Leadup:** ${tdSeq.bearish_leadup_count || 0}/13`,
+      inline: false,
+    });
+  }
+
+  // Add additional context from tickerData if available
+  if (tickerData) {
+    const htfScore = Number(tickerData.htf_score || 0);
+    const ltfScore = Number(tickerData.ltf_score || 0);
+    const state = tickerData.state || "";
+    
+    fields.push({
+      name: "📈 Current Scores",
+      value: `**HTF:** ${htfScore.toFixed(2)}\n**LTF:** ${ltfScore.toFixed(2)}\n**State:** ${state}`,
+      inline: true,
+    });
+  }
+
   return {
     title: `🔢 TD Sequential ${signalType} Entry Signal: ${ticker} ${direction}`,
-    description: `${signalType} ${signalDirection} setup detected - Potential reversal entry`,
+    description: `${actionText} ${signalType} ${signalDirection} reversal pattern detected`,
     color: direction === "LONG" ? 0x00ff00 : 0xff0000,
-    fields: [
-      {
-        name: "Signal Type",
-        value: `${signalType} ${signalDirection}`,
-        inline: false,
-      },
-      {
-        name: "Current Price",
-        value: `$${price.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Stop Loss",
-        value: `$${sl.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Take Profit",
-        value: `$${tp.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Risk/Reward",
-        value: `${rr.toFixed(2)}:1`,
-        inline: true,
-      },
-      {
-        name: "Rank",
-        value: `${rank || "N/A"}`,
-        inline: true,
-      },
-      {
-        name: "TD9 Bullish",
-        value: td9Bullish ? "✅" : "❌",
-        inline: true,
-      },
-      {
-        name: "TD9 Bearish",
-        value: td9Bearish ? "✅" : "❌",
-        inline: true,
-      },
-      {
-        name: "TD13 Bullish",
-        value: td13Bullish ? "✅" : "❌",
-        inline: true,
-      },
-      {
-        name: "TD13 Bearish",
-        value: td13Bearish ? "✅" : "❌",
-        inline: true,
-      },
-    ],
+    fields: fields,
     timestamp: new Date().toISOString(),
     footer: {
       text: "TD Sequential Entry Signal",
@@ -5297,7 +5312,8 @@ export default {
                 payload.tp,
                 payload.rr,
                 payload.rank,
-                tdSeq
+                tdSeq,
+                payload // Pass full payload as tickerData
               );
               await notifyDiscord(env, td9Embed).catch(() => {});
 
