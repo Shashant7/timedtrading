@@ -5320,7 +5320,7 @@ export default {
           return sendJSON(
             { ok: false, error: "ticker parameter required" },
             400,
-            corsHeaders(env, req)
+            cors
           );
         }
 
@@ -5338,7 +5338,7 @@ export default {
               inIndex: alreadyInIndex,
             },
             404,
-            corsHeaders(env, req)
+            cors
           );
         }
 
@@ -5361,7 +5361,7 @@ export default {
               indexSize: updatedIndex.length,
             },
             200,
-            corsHeaders(env, req)
+            cors
           );
         } else {
           return sendJSON(
@@ -5374,14 +5374,14 @@ export default {
               indexSize: inIndex.length,
             },
             200,
-            corsHeaders(env, req)
+            cors
           );
         }
       } catch (err) {
         return sendJSON(
           { ok: false, error: err.message },
           500,
-          corsHeaders(env, req)
+          cors
         );
       }
     }
