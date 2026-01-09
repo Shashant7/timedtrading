@@ -3888,6 +3888,218 @@
                     <span className="font-semibold">${ticker.price ? Number(ticker.price).toFixed(2) : "—"}</span>
                   </div>
                 </div>
+
+                {/* Fundamental & Valuation Metrics */}
+                {ticker.fundamentals && (() => {
+                  const fund = ticker.fundamentals;
+                  const hasValuationData = fund.pe_ratio !== null || fund.peg_ratio !== null || fund.eps_growth_rate !== null;
+                  
+                  if (!hasValuationData) return null;
+
+                  const valuationSignal = fund.valuation_signal || "fair";
+                  const signalColor = valuationSignal === "undervalued" ? "text-green-400" : 
+                                     valuationSignal === "overvalued" ? "text-red-400" : "text-yellow-400";
+                  const signalBg = valuationSignal === "undervalued" ? "bg-green-500/20 border-green-500/50" : 
+                                  valuationSignal === "overvalued" ? "bg-red-500/20 border-red-500/50" : 
+                                  "bg-yellow-500/20 border-yellow-500/50";
+
+                  return (
+                    <div className="mt-6 pt-6 border-t-2 border-[#26325f]">
+                      <div className="text-sm font-bold text-[#93a4d6] mb-4">📊 Fundamental & Valuation</div>
+                      
+                      {/* Valuation Signal Badge */}
+                      {fund.valuation_signal && (
+                        <div className={`mb-4 p-3 rounded-lg border-2 ${signalBg}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-[#93a4d6]">Valuation Signal</span>
+                            <span className={`font-bold text-sm ${signalColor}`}>
+                              {fund.valuation_signal.toUpperCase()}
+                            </span>
+                          </div>
+                          {fund.valuation_confidence && (
+                            <div className="text-xs text-[#93a4d6] mt-1">
+                              Confidence: <span className="font-semibold">{fund.valuation_confidence}</span>
+                            </div>
+                          )}
+                          {fund.valuation_reasons && fund.valuation_reasons.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-current/30">
+                              <div className="text-[10px] text-[#93a4d6] mb-1">Reasons:</div>
+                              {fund.valuation_reasons.map((reason, idx) => (
+                                <div key={idx} className="text-[10px] text-[#93a4d6]/80 mb-0.5">• {reason}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Basic Metrics */}
+                      <div className="space-y-2 text-sm mb-4">
+                        {fund.pe_ratio !== null && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">P/E Ratio</span>
+                            <span className="font-semibold">{Number(fund.pe_ratio).toFixed(2)}</span>
+                          </div>
+                        )}
+                        {fund.peg_ratio !== null && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">PEG Ratio</span>
+                            <span className={`font-semibold ${
+                              fund.peg_ratio < 0.8 ? "text-green-400" : 
+                              fund.peg_ratio < 1.0 ? "text-yellow-400" : 
+                              fund.peg_ratio > 1.5 ? "text-red-400" : "text-[#93a4d6]"
+                            }`}>
+                              {Number(fund.peg_ratio).toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                        {fund.eps !== null && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">EPS (TTM)</span>
+                            <span className="font-semibold">${Number(fund.eps).toFixed(2)}</span>
+                          </div>
+                        )}
+                        {fund.eps_growth_rate !== null && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">EPS Growth (Annual)</span>
+                            <span className={`font-semibold ${
+                              fund.eps_growth_rate > 20 ? "text-green-400" : 
+                              fund.eps_growth_rate > 10 ? "text-yellow-400" : 
+                              fund.eps_growth_rate > 0 ? "text-[#93a4d6]" : "text-red-400"
+                            }`}>
+                              {Number(fund.eps_growth_rate).toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
+                        {fund.market_cap !== null && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">Market Cap</span>
+                            <span className="font-semibold">
+                              {fund.market_cap >= 1e12 ? `$${(fund.market_cap / 1e12).toFixed(2)}T` :
+                               fund.market_cap >= 1e9 ? `$${(fund.market_cap / 1e9).toFixed(2)}B` :
+                               fund.market_cap >= 1e6 ? `$${(fund.market_cap / 1e6).toFixed(2)}M` :
+                               `$${fund.market_cap.toLocaleString()}`}
+                            </span>
+                          </div>
+                        )}
+                        {fund.industry && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">Industry</span>
+                            <span className="font-semibold text-xs">{fund.industry}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Fair Value */}
+                      {fund.fair_value_price !== null && fund.fair_value_price > 0 && (
+                        <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                          <div className="text-xs text-[#93a4d6] mb-2">Fair Value</div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-[#93a4d6]">Fair Value Price</span>
+                            <span className="font-bold text-lg text-blue-400">
+                              ${Number(fund.fair_value_price).toFixed(2)}
+                            </span>
+                          </div>
+                          {fund.premium_discount_pct !== null && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-[#93a4d6]">Premium/Discount</span>
+                              <span className={`font-semibold ${
+                                fund.premium_discount_pct < -10 ? "text-green-400" : 
+                                fund.premium_discount_pct < 0 ? "text-yellow-400" : 
+                                fund.premium_discount_pct > 10 ? "text-red-400" : "text-[#93a4d6]"
+                              }`}>
+                                {fund.premium_discount_pct > 0 ? "+" : ""}{Number(fund.premium_discount_pct).toFixed(1)}%
+                              </span>
+                            </div>
+                          )}
+                          {fund.fair_value_pe && fund.fair_value_pe.preferred && (
+                            <div className="mt-2 pt-2 border-t border-[#26325f] text-xs text-[#93a4d6]">
+                              Fair P/E: <span className="font-semibold">{Number(fund.fair_value_pe.preferred).toFixed(2)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Historical P/E Percentiles */}
+                      {fund.pe_percentiles && (
+                        <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                          <div className="text-xs text-[#93a4d6] mb-2">Historical P/E Percentiles</div>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {fund.pe_percentiles.p10 !== null && (
+                              <div className="flex justify-between">
+                                <span className="text-[#93a4d6]">10th:</span>
+                                <span className="font-semibold">{Number(fund.pe_percentiles.p10).toFixed(1)}</span>
+                              </div>
+                            )}
+                            {fund.pe_percentiles.p25 !== null && (
+                              <div className="flex justify-between">
+                                <span className="text-[#93a4d6]">25th:</span>
+                                <span className="font-semibold">{Number(fund.pe_percentiles.p25).toFixed(1)}</span>
+                              </div>
+                            )}
+                            {fund.pe_percentiles.p50 !== null && (
+                              <div className="flex justify-between">
+                                <span className="text-[#93a4d6]">50th (Median):</span>
+                                <span className="font-semibold text-blue-400">{Number(fund.pe_percentiles.p50).toFixed(1)}</span>
+                              </div>
+                            )}
+                            {fund.pe_percentiles.p75 !== null && (
+                              <div className="flex justify-between">
+                                <span className="text-[#93a4d6]">75th:</span>
+                                <span className="font-semibold">{Number(fund.pe_percentiles.p75).toFixed(1)}</span>
+                              </div>
+                            )}
+                            {fund.pe_percentiles.p90 !== null && (
+                              <div className="flex justify-between">
+                                <span className="text-[#93a4d6]">90th:</span>
+                                <span className="font-semibold">{Number(fund.pe_percentiles.p90).toFixed(1)}</span>
+                              </div>
+                            )}
+                            {fund.pe_percentiles.avg !== null && (
+                              <div className="flex justify-between col-span-2 pt-1 border-t border-[#26325f]">
+                                <span className="text-[#93a4d6]">Average:</span>
+                                <span className="font-semibold">{Number(fund.pe_percentiles.avg).toFixed(1)}</span>
+                              </div>
+                            )}
+                          </div>
+                          {fund.pe_percentile_position && (
+                            <div className="mt-2 pt-2 border-t border-[#26325f] text-xs">
+                              <span className="text-[#93a4d6]">Current Position: </span>
+                              <span className={`font-semibold ${
+                                fund.pe_percentile_position.includes("Bottom") ? "text-green-400" : 
+                                fund.pe_percentile_position.includes("Top") ? "text-red-400" : "text-[#93a4d6]"
+                              }`}>
+                                {fund.pe_percentile_position}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Valuation Boost in Rank */}
+                      {ticker.rank_components && ticker.rank_components.valuation_boost !== undefined && ticker.rank_components.valuation_boost !== 0 && (
+                        <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                          <div className="text-xs text-[#93a4d6] mb-1">Rank Components</div>
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-[#93a4d6]">Base Rank</span>
+                            <span className="font-semibold">{ticker.rank_components.base_rank || baseScore}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs mt-1">
+                            <span className="text-[#93a4d6]">Valuation Boost</span>
+                            <span className={`font-semibold ${
+                              ticker.rank_components.valuation_boost > 0 ? "text-green-400" : "text-red-400"
+                            }`}>
+                              {ticker.rank_components.valuation_boost > 0 ? "+" : ""}{ticker.rank_components.valuation_boost}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[#26325f]">
+                            <span className="text-[#93a4d6] font-semibold">Final Rank</span>
+                            <span className="font-bold text-blue-400">{baseScore}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Fixed Footer */}
@@ -5432,7 +5644,7 @@
                         <div className="text-[9px] text-[#93a4d6] mb-2">
                           Dynamic rankings
                         </div>
-                        <div className="max-h-[600px] overflow-y-auto space-y-1">
+                        <div className="space-y-1">
                           {tickers
                             .map((t) => ({
                               ...t,
@@ -5501,7 +5713,7 @@
                             <div className="text-[9px] text-[#93a4d6] mb-2">
                               Best long setups
                             </div>
-                            <div className="max-h-[600px] overflow-y-auto space-y-1">
+                            <div className="space-y-1">
                               {longTickers.map((ticker) => (
                                 <SetupCard
                                   key={ticker.ticker}
@@ -5546,7 +5758,7 @@
                             <div className="text-[9px] text-[#93a4d6] mb-2">
                               Best short setups
                             </div>
-                            <div className="max-h-[600px] overflow-y-auto space-y-1">
+                            <div className="space-y-1">
                               {shortTickers.map((ticker) => (
                                 <SetupCard
                                   key={ticker.ticker}
@@ -5588,7 +5800,7 @@
                             <div className="text-[9px] text-[#93a4d6] mb-2">
                               High-quality setups
                             </div>
-                            <div className="max-h-[600px] overflow-y-auto space-y-1">
+                            <div className="space-y-1">
                               {primeTickers.map((ticker) => (
                                 <SetupCard
                                   key={ticker.ticker}
@@ -5630,7 +5842,7 @@
                             <div className="text-[9px] text-[#93a4d6] mb-2">
                               Entry-ready setups
                             </div>
-                            <div className="max-h-[600px] overflow-y-auto space-y-1">
+                            <div className="space-y-1">
                               {corridorTickers.map((ticker) => (
                                 <SetupCard
                                   key={ticker.ticker}
