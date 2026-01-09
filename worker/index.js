@@ -407,9 +407,9 @@ const FUTURES_SPECS = {
   "MNQ1!": { pointValue: 2, name: "Micro E-mini Nasdaq-100" },
   "YM1!": { pointValue: 5, name: "E-mini Dow" },
   "RTY1!": { pointValue: 50, name: "E-mini Russell 2000" },
-  "ES": { pointValue: 50, name: "E-mini S&P 500" },
-  "NQ": { pointValue: 20, name: "E-mini Nasdaq-100" },
-  "YM": { pointValue: 5, name: "E-mini Dow" },
+  ES: { pointValue: 50, name: "E-mini S&P 500" },
+  NQ: { pointValue: 20, name: "E-mini Nasdaq-100" },
+  YM: { pointValue: 5, name: "E-mini Dow" },
 };
 
 const FUTURES_TICKERS = new Set([
@@ -872,12 +872,12 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
 
   const ticker = String(tickerData.ticker || "").toUpperCase();
   const isFutures = FUTURES_SPECS[ticker] || ticker.endsWith("1!");
-  
+
   // For futures: trade 1 contract, calculate P&L based on point value
   // For stocks: calculate shares based on dollar amount
   let shares;
   let pointValue = 1; // Default for stocks (price per share)
-  
+
   if (isFutures && FUTURES_SPECS[ticker]) {
     // Futures: always trade 1 contract
     shares = 1;
@@ -1375,13 +1375,16 @@ async function processTradeSimulation(
         }
       }
 
-      // Recalculate shares if entry price was corrected (to maintain $1000 position size)
+      // Recalculate shares if entry price was corrected (to maintain $1000 position size for stocks, 1 contract for futures)
       let correctedShares = existingOpenTrade.shares;
       if (
         correctedEntryPrice !== existingOpenTrade.entryPrice &&
         !entryPriceCorrected
       ) {
-        correctedShares = TRADE_SIZE / correctedEntryPrice;
+        // Calculate shares based on asset type (futures vs stocks)
+        const tickerUpper = String(ticker || "").toUpperCase();
+        const isFutures = FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
+        correctedShares = isFutures && FUTURES_SPECS[tickerUpper] ? 1 : TRADE_SIZE / correctedEntryPrice;
         console.log(
           `[TRADE SIM] 🔧 Recalculating ${ticker} ${direction} shares: ${existingOpenTrade.shares?.toFixed(
             4
@@ -1811,7 +1814,10 @@ async function processTradeSimulation(
             // Calculate new average entry price and total shares
             const existingShares = anyOpenTrade.shares || 0;
             const existingValue = existingEntryPrice * existingShares;
-            const newShares = TRADE_SIZE / entryPrice; // Allow fractional shares for high-priced tickers
+            // Calculate shares based on asset type (futures vs stocks)
+            const tickerUpper = String(ticker || "").toUpperCase();
+            const isFutures = FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
+            const newShares = isFutures && FUTURES_SPECS[tickerUpper] ? 1 : TRADE_SIZE / entryPrice;
             const newValue = entryPrice * newShares;
             const totalShares = existingShares + newShares;
             const totalValue = existingValue + newValue;
