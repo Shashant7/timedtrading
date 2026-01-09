@@ -737,7 +737,7 @@
           "XLU",
           "XLV",
         ]),
-        Futures: new Set(["ES1!", "NQ1!", "BTC1!", "ETHUSD", "ETHA"]),
+        Futures: new Set(["ES1!", "NQ1!", "BTC1!", "ETHUSD", "ETHA", "VIX"]),
       };
 
       const GROUP_LABELS = {
@@ -1291,12 +1291,28 @@
           // Skip tickers that don't have scores (can't render without position data)
           // These will appear once they receive data from TradingView
           if (d.htf_score === undefined && d.ltf_score === undefined) {
-            console.log(`[FILTER] ${ticker} skipped: missing htf_score and ltf_score`, {
-              hasHtf: d.htf_score !== undefined,
-              hasLtf: d.ltf_score !== undefined,
-              scriptVersion: d.script_version,
-              hasPrice: d.price !== undefined
-            });
+            // Enhanced logging for specific tickers we're looking for
+            if (ticker === "BMNR" || ticker === "VIX" || ticker === "BTCUSD") {
+              console.log(`[FILTER] ${ticker} skipped: missing htf_score and ltf_score`, {
+                ticker,
+                hasHtf: d.htf_score !== undefined,
+                hasLtf: d.ltf_score !== undefined,
+                scriptVersion: d.script_version,
+                hasPrice: d.price !== undefined,
+                hasState: d.state !== undefined,
+                hasSl: d.sl !== undefined,
+                hasTp: d.tp !== undefined,
+                allKeys: Object.keys(d),
+                data: d
+              });
+            } else {
+              console.log(`[FILTER] ${ticker} skipped: missing htf_score and ltf_score`, {
+                hasHtf: d.htf_score !== undefined,
+                hasLtf: d.ltf_score !== undefined,
+                scriptVersion: d.script_version,
+                hasPrice: d.price !== undefined
+              });
+            }
             continue;
           }
 
