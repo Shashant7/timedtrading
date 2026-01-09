@@ -813,11 +813,18 @@
         const totalTickers = allLoadedTickersArray.length;
         const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
+        // Determine if this is a futures contract
+        const isFuturesDetail = FUTURES_SPECS[tickerSymbol] || tickerSymbol.endsWith("1!");
+        const pointValueDetail = isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? FUTURES_SPECS[tickerSymbol].pointValue : 1;
+        
         // Trade-specific calculations
-        const shares = trade ? (trade.shares || TRADE_SIZE / (trade.entryPrice || 1)) : null; // Allow fractional shares
+        // For futures: shares = contracts (always 1), for stocks: calculate from TRADE_SIZE
+        const shares = trade 
+          ? (trade.shares || (isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? 1 : TRADE_SIZE / (trade.entryPrice || 1)))
+          : null;
         const currentPrice = trade ? (trade.currentPrice || trade.entryPrice) : (tickerData.price || tickerData.currentPrice);
         const trimmedPct = trade ? (trade.trimmedPct || 0) : 0;
-        const trimmedShares = trade ? (shares * trimmedPct) : 0; // Allow fractional shares
+        const trimmedShares = trade ? (shares * trimmedPct) : 0;
         const remainingShares = trade ? (shares - trimmedShares) : null;
 
         return (
