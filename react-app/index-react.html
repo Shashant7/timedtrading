@@ -436,7 +436,7 @@
           return () => clearInterval(interval);
         }, [fetchData]);
 
-        return { data, loading, error, lastUpdate, refetch: fetchData };
+        return { data, loading, error, lastUpdate, versionInfo, refetch: fetchData };
       }
 
       function useDebounce(value, delay) {
@@ -5394,7 +5394,7 @@
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
-        const { data, loading, error, lastUpdate, refetch } = useTickerData();
+        const { data, loading, error, lastUpdate, versionInfo, refetch } = useTickerData();
         const { trades } = useTrades();
         const [filters, setFilters] = useState({
           search: "",
