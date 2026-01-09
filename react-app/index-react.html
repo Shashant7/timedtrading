@@ -351,16 +351,28 @@
                 totalTickersInIndex: allTickers.length
               });
 
+              // Normalize ticker keys: BRK.B -> BRK-B
+              const normalizedData = {};
+              Object.keys(tickerData).forEach((key) => {
+                const normalizedKey = normTicker(key);
+                normalizedData[normalizedKey] = tickerData[key];
+                // If we normalized, ensure ticker field matches
+                if (normalizedKey !== key && normalizedData[normalizedKey]) {
+                  normalizedData[normalizedKey].ticker = normalizedKey;
+                }
+              });
+
               // Merge: ensure all tickers from index are present, even if no recent data
               // This maintains the full 133 ticker baseline
-              const mergedData = { ...tickerData };
+              const mergedData = { ...normalizedData };
               allTickers.forEach((ticker) => {
-                if (!mergedData[ticker]) {
+                const normalizedTicker = normTicker(ticker);
+                if (!mergedData[normalizedTicker]) {
                   // Add placeholder for tickers without recent data
                   // They'll appear on the chart with their last known position (if available)
                   // or won't render until data comes in
-                  mergedData[ticker] = {
-                    ticker: ticker,
+                  mergedData[normalizedTicker] = {
+                    ticker: normalizedTicker,
                     // Note: Without data, these tickers won't render bubbles
                     // but they'll be available when data arrives
                   };
@@ -763,11 +775,13 @@
       ];
 
       function normTicker(t) {
-        const s = String(t || "")
+        let s = String(t || "")
           .trim()
           .toUpperCase();
-        // BRK-B is correct (US market), don't normalize to BRK.B (London market)
-        // Keep BRK-B as-is for proper US market tracking
+        // Normalize BRK.B to BRK-B (TradingView sends BRK.B, but we use BRK-B for US market)
+        if (s === "BRK.B" || s === "BRK-B") {
+          s = "BRK-B";
+        }
         return s;
       }
 
