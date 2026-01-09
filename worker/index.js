@@ -184,33 +184,36 @@ async function checkRateLimit(
 async function ensureTickerIndex(KV, ticker) {
   try {
     const key = "timed:tickers";
-    
+
     // Use retry logic to handle race conditions
     let retries = 3;
     let success = false;
-    
+
     while (retries > 0 && !success) {
       const cur = (await kvGetJSON(KV, key)) || [];
-      
+
       // Debug: Always log for BMNR/BABA
       if (ticker === "BMNR" || ticker === "BABA") {
-        console.log(`[TICKER INDEX] ensureTickerIndex called for ${ticker} (retries: ${retries}):`, {
-          alreadyInIndex: cur.includes(ticker),
-          currentIndexSize: cur.length,
-          indexSample: cur.slice(0, 10)
-        });
+        console.log(
+          `[TICKER INDEX] ensureTickerIndex called for ${ticker} (retries: ${retries}):`,
+          {
+            alreadyInIndex: cur.includes(ticker),
+            currentIndexSize: cur.length,
+            indexSample: cur.slice(0, 10),
+          }
+        );
       }
-      
+
       if (!cur.includes(ticker)) {
         cur.push(ticker);
         cur.sort();
         await kvPutJSON(KV, key, cur);
-        
+
         // Verify it was added (with small delay to ensure KV consistency)
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
         const verify = (await kvGetJSON(KV, key)) || [];
         const wasAdded = verify.includes(ticker);
-        
+
         if (wasAdded) {
           console.log(
             `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}, Verified: ${wasAdded}`
@@ -219,21 +222,30 @@ async function ensureTickerIndex(KV, ticker) {
         } else {
           // Retry if verification failed (possible race condition)
           console.warn(
-            `[TICKER INDEX] ${ticker} verification failed, retrying... (retries left: ${retries - 1})`
+            `[TICKER INDEX] ${ticker} verification failed, retrying... (retries left: ${
+              retries - 1
+            })`
           );
           retries--;
           if (retries > 0) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 100));
           }
         }
-        
-        if (!wasAdded && retries === 0 && (ticker === "BMNR" || ticker === "BABA")) {
-          console.error(`[TICKER INDEX ERROR] ${ticker} was NOT added to index after ${3} retries!`, {
-            beforeAdd: cur.length,
-            afterAdd: verify.length,
-            tickerInVerify: verify.includes(ticker),
-            verifySample: verify.slice(0, 10)
-          });
+
+        if (
+          !wasAdded &&
+          retries === 0 &&
+          (ticker === "BMNR" || ticker === "BABA")
+        ) {
+          console.error(
+            `[TICKER INDEX ERROR] ${ticker} was NOT added to index after ${3} retries!`,
+            {
+              beforeAdd: cur.length,
+              afterAdd: verify.length,
+              tickerInVerify: verify.includes(ticker),
+              verifySample: verify.slice(0, 10),
+            }
+          );
         }
       } else {
         // Already in index - success
@@ -249,7 +261,7 @@ async function ensureTickerIndex(KV, ticker) {
     console.error(`[TICKER INDEX ERROR] Failed to ensure ${ticker} in index:`, {
       error: String(err),
       message: err.message,
-      stack: err.stack
+      stack: err.stack,
     });
     // Don't throw - we don't want index failures to break ingestion
   }
@@ -5071,6 +5083,81 @@ export default {
         200,
         corsHeaders(env, req)
       );
+    }
+
+    // POST /timed/debug/fix-index?key=...&ticker=BMNR - Manually add ticker to index if data exists
+    if (url.pathname === "/timed/debug/fix-index" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker) {
+          return sendJSON(
+            { ok: false, error: "ticker parameter required" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        // Check if data exists in KV
+        const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        const inIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const alreadyInIndex = inIndex.includes(ticker);
+
+        if (!data) {
+          return sendJSON(
+            {
+              ok: false,
+              error: "ticker data not found in KV",
+              ticker,
+              inIndex: alreadyInIndex,
+            },
+            404,
+            corsHeaders(env, req)
+          );
+        }
+
+        // Add to index if not already there
+        if (!alreadyInIndex) {
+          await ensureTickerIndex(KV, ticker);
+          const updatedIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const nowInIndex = updatedIndex.includes(ticker);
+
+          return sendJSON(
+            {
+              ok: true,
+              message: `Ticker ${ticker} ${nowInIndex ? "added to" : "failed to add to"} index`,
+              ticker,
+              hadData: true,
+              wasInIndex: false,
+              nowInIndex,
+              indexSize: updatedIndex.length,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } else {
+          return sendJSON(
+            {
+              ok: true,
+              message: `Ticker ${ticker} already in index`,
+              ticker,
+              hadData: true,
+              inIndex: true,
+              indexSize: inIndex.length,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        }
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
     }
 
     // POST /timed/watchlist/add?key=... - Add tickers to watchlist
