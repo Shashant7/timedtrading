@@ -4167,14 +4167,14 @@
                             </span>
                           </div>
                         )}
-                        {fund.market_cap !== null && (
+                        {fund.market_cap !== null && fund.market_cap !== undefined && typeof fund.market_cap === 'number' && !isNaN(fund.market_cap) && (
                           <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                             <span className="text-[#93a4d6]">Market Cap</span>
                             <span className="font-semibold">
                               {fund.market_cap >= 1e12 ? `$${(fund.market_cap / 1e12).toFixed(2)}T` :
                                fund.market_cap >= 1e9 ? `$${(fund.market_cap / 1e9).toFixed(2)}B` :
                                fund.market_cap >= 1e6 ? `$${(fund.market_cap / 1e6).toFixed(2)}M` :
-                               `$${fund.market_cap.toLocaleString()}`}
+                               `$${Number(fund.market_cap).toLocaleString()}`}
                             </span>
                           </div>
                         )}
