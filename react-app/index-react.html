@@ -2754,6 +2754,7 @@
         const [events, setEvents] = useState([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
+        const [searchQuery, setSearchQuery] = useState("");
         const feedRef = React.useRef(null);
 
         // Helper to get latest ticker data and merge with event
@@ -2881,6 +2882,10 @@
               return "🎯";
             case "momentum_elite":
               return "🚀";
+            case "td9_exit":
+              return "🔢";
+            case "td9_entry":
+              return "🔢";
             default:
               return "📊";
           }
@@ -2898,6 +2903,10 @@
               return "text-purple-400";
             case "momentum_elite":
               return "text-pink-400";
+            case "td9_exit":
+              return "text-orange-400";
+            case "td9_entry":
+              return "text-cyan-400";
             default:
               return "text-gray-400";
           }
@@ -2917,10 +2926,32 @@
               return `${event.ticker} aligned ${event.side || ""}`;
             case "momentum_elite":
               return `${event.ticker} Momentum Elite`;
+            case "td9_exit":
+              return `${event.ticker} TD9 Exit ${event.direction || ""}`;
+            case "td9_entry":
+              return `${event.ticker} TD9 Entry ${event.direction || ""}`;
             default:
               return `${event.ticker} event`;
           }
         };
+
+        // Filter events by search query
+        const filteredEvents = useMemo(() => {
+          if (!searchQuery.trim()) return events;
+          const query = searchQuery.toLowerCase();
+          return events.filter((event) => {
+            const ticker = (event.ticker || "").toLowerCase();
+            const type = (event.type || "").toLowerCase();
+            const direction = (event.direction || "").toLowerCase();
+            const side = (event.side || "").toLowerCase();
+            return (
+              ticker.includes(query) ||
+              type.includes(query) ||
+              direction.includes(query) ||
+              side.includes(query)
+            );
+          });
+        }, [events, searchQuery]);
 
         return (
           <div className="w-80 bg-[#0f1630] border border-[#26325f] rounded-xl p-4 flex flex-col">
