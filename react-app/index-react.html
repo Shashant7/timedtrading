@@ -276,10 +276,11 @@
       // Hooks
       // ─────────────────────────────────────────────────────────────
       function useTickerData() {
-        const [data, setData] = useState({});
-        const [loading, setLoading] = useState(true);
-        const [error, setError] = useState(null);
-        const [lastUpdate, setLastUpdate] = useState(null);
+      const [data, setData] = useState({});
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [lastUpdate, setLastUpdate] = useState(null);
+      const [versionInfo, setVersionInfo] = useState(null);
 
         const fetchData = useCallback(async () => {
           try {
@@ -320,6 +321,35 @@
                   ? tickersJson.tickers
                   : [];
 
+              // Log version information for debugging
+              const dataVersion = dataJson.dataVersion || "unknown";
+              const versionsSeen = dataJson.versionsSeen || [];
+              const versionFiltered = dataJson.versionFiltered || 0;
+              const versionBreakdown = dataJson.versionBreakdown || {};
+              const acceptedVersions = dataJson.acceptedVersions || [];
+              const currentDataVersion = dataJson.currentDataVersion || "unknown";
+              
+              // Store version info for UI display
+              setVersionInfo({
+                storedVersion: dataVersion,
+                versionsSeen: versionsSeen,
+                versionFiltered: versionFiltered,
+                versionBreakdown: versionBreakdown,
+                acceptedVersions: acceptedVersions,
+                currentDataVersion: currentDataVersion
+              });
+              
+              console.log(`[UI] Data Version Info:`, {
+                storedVersion: dataVersion,
+                currentDataVersion: currentDataVersion,
+                versionsSeen: versionsSeen,
+                acceptedVersions: acceptedVersions,
+                versionFiltered: versionFiltered,
+                versionBreakdown: versionBreakdown,
+                tickersReturned: Object.keys(tickerData).length,
+                totalTickersInIndex: allTickers.length
+              });
+
               // Merge: ensure all tickers from index are present, even if no recent data
               // This maintains the full 133 ticker baseline
               const mergedData = { ...tickerData };
@@ -350,9 +380,27 @@
               console.log(
                 `[UI] Loaded ${tickersWithData.length} tickers with data, ${allTickers.length} total in index`
               );
-              console.log(
-                `[UI] Version: 2.4.0 - RR calculation uses fused SL levels, Activity Feed matches Bubble Chart`
-              );
+              
+              if (versionFiltered > 0) {
+                console.warn(
+                  `[UI] ⚠️ ${versionFiltered} tickers filtered out due to version mismatch.`,
+                  {
+                    storedVersion: dataVersion,
+                    currentDataVersion: currentDataVersion,
+                    versionsSeen: versionsSeen,
+                    acceptedVersions: acceptedVersions,
+                    versionBreakdown: versionBreakdown
+                  }
+                );
+              }
+              
+              // Log sample tickers to see what we're getting
+              const sampleTickers = Object.keys(tickerData).slice(0, 5);
+              console.log(`[UI] Sample tickers:`, sampleTickers.map(t => ({
+                ticker: t,
+                version: tickerData[t]?.script_version || "unknown",
+                hasScores: !!(tickerData[t]?.htf_score !== undefined && tickerData[t]?.ltf_score !== undefined)
+              })));
             } else {
               setError(
                 `API Error: ${dataJson.error || "Failed to fetch data"}`
@@ -5497,7 +5545,7 @@
                   </div>
 
                   {/* Quick Stats */}
-                  <div className="flex gap-4 text-sm items-center">
+                  <div className="flex gap-4 text-sm items-center flex-wrap">
                     <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
                       <span className="text-[#93a4d6]">Tickers: </span>
                       <span className="font-bold text-white">
@@ -5510,6 +5558,24 @@
                         {primeTickers.length}
                       </span>
                     </div>
+                    {versionInfo && (
+                      <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
+                        <span className="text-[#93a4d6]">Version: </span>
+                        <span className="font-bold text-blue-400">
+                          {versionInfo.currentDataVersion || versionInfo.storedVersion}
+                        </span>
+                        {versionInfo.versionsSeen && versionInfo.versionsSeen.length > 0 && (
+                          <span className="text-[#93a4d6] ml-2 text-xs">
+                            ({versionInfo.versionsSeen.join(", ")})
+                          </span>
+                        )}
+                        {versionInfo.versionFiltered > 0 && (
+                          <span className="text-yellow-400 ml-2 text-xs">
+                            ({versionInfo.versionFiltered} filtered)
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {tickers.length > 0 && (
                       <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
                         <span className="text-[#93a4d6]">In Corridor: </span>

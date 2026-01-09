@@ -2347,7 +2347,6 @@ const SECTOR_MAP = {
   MCD: "Consumer Discretionary",
   SBUX: "Consumer Discretionary",
   LOW: "Consumer Discretionary",
-  NFLX: "Consumer Discretionary",
   BKNG: "Consumer Discretionary",
   CMG: "Consumer Discretionary",
   ABNB: "Consumer Discretionary",
@@ -2542,6 +2541,35 @@ function getSector(ticker) {
   return SECTOR_MAP[ticker?.toUpperCase()] || null;
 }
 
+// Load sector mappings from KV (called on startup)
+async function loadSectorMappingsFromKV(KV) {
+  try {
+    // Get all tickers from watchlist
+    const tickersList = await KV.get("timed:tickers", "json");
+    if (!tickersList || !Array.isArray(tickersList)) return;
+
+    let loadedCount = 0;
+    for (const ticker of tickersList) {
+      const tickerUpper = String(ticker).toUpperCase();
+      const sectorKey = `timed:sector_map:${tickerUpper}`;
+      const sector = await KV.get(sectorKey, "text");
+
+      if (sector && sector.trim() !== "") {
+        SECTOR_MAP[tickerUpper] = sector.trim();
+        loadedCount++;
+      }
+    }
+
+    if (loadedCount > 0) {
+      console.log(
+        `[SECTOR LOAD] Loaded ${loadedCount} sector mappings from KV`
+      );
+    }
+  } catch (err) {
+    console.error(`[SECTOR LOAD] Error loading sector mappings:`, err);
+  }
+}
+
 function getSectorRating(sector) {
   return SECTOR_RATINGS[sector] || { rating: "neutral", boost: 0 };
 }
@@ -2556,6 +2584,231 @@ function getAllSectors() {
   return Object.keys(SECTOR_RATINGS);
 }
 
+// ─────────────────────────────────────────────────────────────
+// Historical P/E Percentile Calculation
+// ─────────────────────────────────────────────────────────────
+
+// Calculate percentile from sorted array
+function calculatePercentile(sortedArray, percentile) {
+  if (!sortedArray || sortedArray.length === 0) return null;
+  const index = Math.floor((percentile / 100) * sortedArray.length);
+  return sortedArray[Math.min(index, sortedArray.length - 1)];
+}
+
+// Calculate all percentiles from P/E history
+function calculatePEPercentiles(peHistory) {
+  if (!peHistory || peHistory.length < 10) return null; // Need at least 10 data points
+
+  const sorted = [...peHistory].sort((a, b) => a - b);
+
+  return {
+    p10: calculatePercentile(sorted, 10),
+    p25: calculatePercentile(sorted, 25),
+    p50: calculatePercentile(sorted, 50), // Median
+    p75: calculatePercentile(sorted, 75),
+    p90: calculatePercentile(sorted, 90),
+    avg: peHistory.reduce((a, b) => a + b, 0) / peHistory.length,
+    count: peHistory.length,
+  };
+}
+
+// Determine percentile position
+function getPercentilePosition(currentPE, percentiles) {
+  if (!currentPE || !percentiles) return null;
+
+  if (currentPE < percentiles.p25) return "Bottom 25%";
+  if (currentPE < percentiles.p50) return "Below Median";
+  if (currentPE < percentiles.p75) return "Above Median";
+  return "Top 25%";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fair Value Calculation
+// ─────────────────────────────────────────────────────────────
+
+// Calculate fair value P/E using multiple methods
+function calculateFairValuePE(peHistory, epsGrowthRate, targetPEG = 1.0) {
+  const methods = {};
+
+  // Method 1: Historical Average
+  if (peHistory && peHistory.length > 0) {
+    methods.historical_avg =
+      peHistory.reduce((a, b) => a + b, 0) / peHistory.length;
+  }
+
+  // Method 2: Historical Median
+  if (peHistory && peHistory.length > 0) {
+    const sorted = [...peHistory].sort((a, b) => a - b);
+    methods.historical_median = sorted[Math.floor(sorted.length / 2)];
+  }
+
+  // Method 3: Growth-Adjusted (PEG-based)
+  if (epsGrowthRate && epsGrowthRate > 0) {
+    const growthBasedPE = epsGrowthRate * targetPEG;
+    // Cap at reasonable levels (min: historical avg if available, max: 40x)
+    const minPE = methods.historical_avg || 15;
+    const maxPE = 40;
+    methods.growth_adjusted = Math.max(minPE, Math.min(growthBasedPE, maxPE));
+  }
+
+  // Preferred method: Use growth-adjusted if available, otherwise historical median, fallback to avg
+  methods.preferred =
+    methods.growth_adjusted ||
+    methods.historical_median ||
+    methods.historical_avg;
+
+  return methods;
+}
+
+// Calculate fair value price
+function calculateFairValuePrice(eps, fairValuePE) {
+  if (!eps || !fairValuePE || eps <= 0) return null;
+  return eps * fairValuePE;
+}
+
+// Calculate premium/discount percentage
+function calculatePremiumDiscount(currentPrice, fairValuePrice) {
+  if (!currentPrice || !fairValuePrice || fairValuePrice <= 0) return null;
+  return ((currentPrice - fairValuePrice) / fairValuePrice) * 100;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Valuation Signals
+// ─────────────────────────────────────────────────────────────
+
+// Determine valuation signal based on multiple factors
+function calculateValuationSignal(
+  currentPE,
+  fairValuePE,
+  pegRatio,
+  premiumDiscount,
+  percentiles
+) {
+  // Default thresholds
+  const UNDERVALUED_THRESHOLD = -15; // 15% below fair value
+  const OVERVALUED_THRESHOLD = 15; // 15% above fair value
+  const PEG_UNDERVALUED = 0.8;
+  const PEG_OVERVALUED = 1.5;
+
+  let signals = {
+    signal: "fair", // undervalued, fair, overvalued
+    is_undervalued: false,
+    is_overvalued: false,
+    confidence: "medium", // low, medium, high
+    reasons: [],
+  };
+
+  // Factor 1: Premium/Discount to Fair Value
+  if (premiumDiscount !== null) {
+    if (premiumDiscount < UNDERVALUED_THRESHOLD) {
+      signals.is_undervalued = true;
+      signals.reasons.push(
+        `Price ${Math.abs(premiumDiscount).toFixed(1)}% below fair value`
+      );
+    } else if (premiumDiscount > OVERVALUED_THRESHOLD) {
+      signals.is_overvalued = true;
+      signals.reasons.push(
+        `Price ${premiumDiscount.toFixed(1)}% above fair value`
+      );
+    }
+  }
+
+  // Factor 2: PEG Ratio
+  if (pegRatio !== null) {
+    if (pegRatio < PEG_UNDERVALUED) {
+      signals.is_undervalued = true;
+      signals.reasons.push(
+        `PEG ratio ${pegRatio.toFixed(2)} suggests undervalued growth`
+      );
+    } else if (pegRatio > PEG_OVERVALUED) {
+      signals.is_overvalued = true;
+      signals.reasons.push(
+        `PEG ratio ${pegRatio.toFixed(2)} suggests overvalued`
+      );
+    }
+  }
+
+  // Factor 3: Historical P/E Percentile
+  if (currentPE && percentiles) {
+    if (currentPE < percentiles.p25) {
+      signals.is_undervalued = true;
+      signals.reasons.push(`P/E in bottom 25% historically`);
+    } else if (currentPE > percentiles.p75) {
+      signals.is_overvalued = true;
+      signals.reasons.push(`P/E in top 25% historically`);
+    }
+  }
+
+  // Determine final signal
+  if (signals.is_undervalued && !signals.is_overvalued) {
+    signals.signal = "undervalued";
+    signals.confidence = signals.reasons.length >= 2 ? "high" : "medium";
+  } else if (signals.is_overvalued && !signals.is_undervalued) {
+    signals.signal = "overvalued";
+    signals.confidence = signals.reasons.length >= 2 ? "high" : "medium";
+  } else {
+    signals.signal = "fair";
+    signals.confidence = "medium";
+  }
+
+  return signals;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Valuation Boost/Penalty for Ranking
+// ─────────────────────────────────────────────────────────────
+
+// Calculate valuation boost/penalty to add to rank
+function calculateValuationBoost(fundamentals) {
+  if (!fundamentals) return 0;
+
+  let boost = 0;
+
+  // Factor 1: Valuation Signal (primary factor)
+  if (fundamentals.is_undervalued) {
+    if (fundamentals.valuation_confidence === "high") {
+      boost += 5; // Strong undervaluation signal
+    } else {
+      boost += 3; // Moderate undervaluation signal
+    }
+  } else if (fundamentals.is_overvalued) {
+    if (fundamentals.valuation_confidence === "high") {
+      boost -= 5; // Strong overvaluation signal
+    } else {
+      boost -= 3; // Moderate overvaluation signal
+    }
+  }
+
+  // Factor 2: PEG Ratio (secondary factor for growth stocks)
+  if (fundamentals.peg_ratio !== null && fundamentals.peg_ratio > 0) {
+    if (fundamentals.peg_ratio < 0.8) {
+      boost += 2; // Excellent PEG (undervalued growth)
+    } else if (fundamentals.peg_ratio < 1.0) {
+      boost += 1; // Good PEG (fairly valued growth)
+    } else if (fundamentals.peg_ratio > 1.5) {
+      boost -= 1; // Poor PEG (overvalued)
+    } else if (fundamentals.peg_ratio > 2.0) {
+      boost -= 3; // Very poor PEG (highly overvalued)
+    }
+  }
+
+  // Factor 3: Premium/Discount to Fair Value (tertiary factor)
+  if (fundamentals.premium_discount_pct !== null) {
+    if (fundamentals.premium_discount_pct < -20) {
+      boost += 2; // Significantly below fair value
+    } else if (fundamentals.premium_discount_pct < -10) {
+      boost += 1; // Moderately below fair value
+    } else if (fundamentals.premium_discount_pct > 20) {
+      boost -= 2; // Significantly above fair value
+    } else if (fundamentals.premium_discount_pct > 10) {
+      boost -= 1; // Moderately above fair value
+    }
+  }
+
+  // Cap the boost/penalty to reasonable bounds
+  return Math.max(-8, Math.min(8, boost));
+}
+
 // Rank tickers within a sector by technical score + sector boost
 async function rankTickersInSector(KV, sector, limit = 10) {
   const sectorTickers = getTickersInSector(sector);
@@ -2568,7 +2821,16 @@ async function rankTickersInSector(KV, sector, limit = 10) {
     const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
     if (data) {
       const baseRank = Number(data.rank) || 0;
-      const boostedRank = baseRank + sectorRating.boost;
+      const sectorBoost = sectorRating.boost;
+
+      // Get valuation boost from fundamentals
+      const fundamentals =
+        data.fundamentals ||
+        (await kvGetJSON(KV, `timed:fundamentals:${ticker}`));
+      const valuationBoost = calculateValuationBoost(fundamentals);
+
+      // Calculate total boosted rank: base + sector + valuation
+      const boostedRank = baseRank + sectorBoost + valuationBoost;
 
       tickerData.push({
         ticker,
@@ -2577,6 +2839,7 @@ async function rankTickersInSector(KV, sector, limit = 10) {
         sector,
         sectorRating: sectorRating.rating,
         sectorBoost: sectorRating.boost,
+        valuationBoost: valuationBoost,
         ...data,
       });
     }
@@ -2588,9 +2851,19 @@ async function rankTickersInSector(KV, sector, limit = 10) {
   return tickerData.slice(0, limit);
 }
 
+// Module-level variable for lazy initialization (persists across requests in same isolate)
+let sectorMappingsLoaded = false;
+
 export default {
   async fetch(req, env) {
     const KV = env.KV_TIMED;
+
+    // Load sector mappings from KV on first request (lazy initialization)
+    if (!sectorMappingsLoaded) {
+      await loadSectorMappingsFromKV(KV);
+      sectorMappingsLoaded = true;
+    }
+
     const url = new URL(req.url);
 
     if (req.method === "OPTIONS") {
@@ -2846,6 +3119,219 @@ export default {
         }
 
         payload.rank = computeRank(payload);
+
+        // Auto-populate sector from TradingView data if provided
+        if (
+          payload.sector &&
+          typeof payload.sector === "string" &&
+          payload.sector.trim() !== ""
+        ) {
+          const tickerUpper = String(payload.ticker || ticker).toUpperCase();
+          const sectorFromTV = payload.sector.trim();
+
+          // Only update if not already mapped or if different
+          const currentSector = getSector(tickerUpper);
+          if (!currentSector || currentSector !== sectorFromTV) {
+            // Auto-populate SECTOR_MAP (in-memory, will persist in KV)
+            SECTOR_MAP[tickerUpper] = sectorFromTV;
+            console.log(
+              `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorFromTV}${
+                currentSector ? ` (was: ${currentSector})` : " (new)"
+              }`
+            );
+
+            // Store sector mapping in KV for persistence
+            const sectorMapKey = `timed:sector_map:${tickerUpper}`;
+            await kvPutText(KV, sectorMapKey, sectorFromTV);
+          }
+        }
+
+        // Store sector and industry in payload (even if no fundamental data)
+        // These are safe fields that work for all asset types
+        if (payload.sector && typeof payload.sector === "string") {
+          payload.sector = payload.sector.trim();
+        }
+        if (payload.industry && typeof payload.industry === "string") {
+          payload.industry = payload.industry.trim();
+        }
+
+        // Store fundamental data if provided
+        if (
+          payload.pe_ratio !== undefined ||
+          payload.eps !== undefined ||
+          payload.market_cap !== undefined ||
+          payload.eps_growth_rate !== undefined ||
+          payload.peg_ratio !== undefined
+        ) {
+          const currentPE = payload.pe_ratio ? Number(payload.pe_ratio) : null;
+          const eps = payload.eps ? Number(payload.eps) : null;
+          const epsGrowthRate = payload.eps_growth_rate
+            ? Number(payload.eps_growth_rate)
+            : null;
+          const pegRatio = payload.peg_ratio ? Number(payload.peg_ratio) : null;
+          const currentPrice = Number(payload.price) || null;
+
+          // ─────────────────────────────────────────────────────────────
+          // Historical P/E Percentiles
+          // ─────────────────────────────────────────────────────────────
+          let peHistory = [];
+          let percentiles = null;
+          let percentilePosition = null;
+
+          if (currentPE && currentPE > 0 && currentPE < 1000) {
+            // Load existing P/E history
+            const peHistoryKey = `timed:pe_history:${ticker}`;
+            const existingHistory = await kvGetJSON(KV, peHistoryKey);
+
+            if (existingHistory && Array.isArray(existingHistory)) {
+              peHistory = existingHistory;
+            }
+
+            // Add current P/E to history
+            peHistory.push(currentPE);
+
+            // Keep last ~1260 data points (approximately 5 years of daily data)
+            const maxHistoryLength = 1260;
+            if (peHistory.length > maxHistoryLength) {
+              peHistory = peHistory.slice(-maxHistoryLength);
+            }
+
+            // Save updated history
+            await kvPutJSON(KV, peHistoryKey, peHistory);
+
+            // Calculate percentiles
+            percentiles = calculatePEPercentiles(peHistory);
+            if (percentiles) {
+              percentilePosition = getPercentilePosition(
+                currentPE,
+                percentiles
+              );
+            }
+          }
+
+          // ─────────────────────────────────────────────────────────────
+          // Fair Value Calculation
+          // ─────────────────────────────────────────────────────────────
+          const fairValuePE = calculateFairValuePE(peHistory, epsGrowthRate);
+          const fairValuePrice = calculateFairValuePrice(
+            eps,
+            fairValuePE?.preferred
+          );
+          const premiumDiscount = calculatePremiumDiscount(
+            currentPrice,
+            fairValuePrice
+          );
+
+          // ─────────────────────────────────────────────────────────────
+          // Valuation Signals
+          // ─────────────────────────────────────────────────────────────
+          const valuationSignals = calculateValuationSignal(
+            currentPE,
+            fairValuePE?.preferred,
+            pegRatio,
+            premiumDiscount,
+            percentiles
+          );
+
+          // ─────────────────────────────────────────────────────────────
+          // Build Fundamentals Object
+          // ─────────────────────────────────────────────────────────────
+          payload.fundamentals = {
+            // Basic metrics
+            pe_ratio: currentPE,
+            eps: eps,
+            eps_growth_rate: epsGrowthRate,
+            peg_ratio: pegRatio,
+            market_cap: payload.market_cap ? Number(payload.market_cap) : null,
+            industry: payload.industry || null,
+
+            // Historical P/E Percentiles
+            pe_percentiles: percentiles
+              ? {
+                  p10: percentiles.p10,
+                  p25: percentiles.p25,
+                  p50: percentiles.p50,
+                  p75: percentiles.p75,
+                  p90: percentiles.p90,
+                  avg: percentiles.avg,
+                  count: percentiles.count,
+                }
+              : null,
+            pe_percentile_position: percentilePosition,
+
+            // Fair Value
+            fair_value_pe: fairValuePE
+              ? {
+                  historical_avg: fairValuePE.historical_avg || null,
+                  historical_median: fairValuePE.historical_median || null,
+                  growth_adjusted: fairValuePE.growth_adjusted || null,
+                  preferred: fairValuePE.preferred || null,
+                }
+              : null,
+            fair_value_price: fairValuePrice,
+            premium_discount_pct: premiumDiscount,
+
+            // Valuation Signals
+            valuation_signal: valuationSignals.signal,
+            is_undervalued: valuationSignals.is_undervalued,
+            is_overvalued: valuationSignals.is_overvalued,
+            valuation_confidence: valuationSignals.confidence,
+            valuation_reasons: valuationSignals.reasons,
+          };
+
+          // Store fundamentals in KV for persistence
+          const fundamentalsKey = `timed:fundamentals:${ticker}`;
+          await kvPutJSON(KV, fundamentalsKey, payload.fundamentals);
+
+          // Apply valuation boost to rank (if fundamentals available)
+          if (payload.fundamentals) {
+            const valuationBoost = calculateValuationBoost(
+              payload.fundamentals
+            );
+            if (valuationBoost !== 0) {
+              const baseRank = payload.rank || 0;
+              payload.rank = Math.max(
+                0,
+                Math.min(100, baseRank + valuationBoost)
+              );
+
+              // Store valuation boost for debugging/display
+              if (!payload.rank_components) payload.rank_components = {};
+              payload.rank_components.valuation_boost = valuationBoost;
+              payload.rank_components.base_rank = baseRank;
+
+              console.log(
+                `[RANK] ${ticker}: Base=${baseRank}, Valuation Boost=${valuationBoost}, Final=${payload.rank}`
+              );
+            }
+          }
+        } else {
+          // No fundamental data provided, but still store sector/industry if available
+          // Create minimal fundamentals object for UI compatibility
+          if (payload.sector || payload.industry) {
+            payload.fundamentals = {
+              pe_ratio: null,
+              eps: null,
+              eps_growth_rate: null,
+              peg_ratio: null,
+              market_cap: null,
+              industry: payload.industry
+                ? String(payload.industry).trim()
+                : null,
+              sector: payload.sector ? String(payload.sector).trim() : null,
+              pe_percentiles: null,
+              pe_percentile_position: null,
+              fair_value_pe: null,
+              fair_value_price: null,
+              premium_discount_pct: null,
+              valuation_signal: "fair",
+              is_undervalued: false,
+              is_overvalued: false,
+              valuation_confidence: "low",
+              valuation_reasons: [],
+            };
+          }
+        }
 
         // Detect state transition into aligned (enter Q2/Q3)
         const prevKey = `timed:prevstate:${ticker}`;
@@ -3430,20 +3916,60 @@ export default {
         }))
       );
       const results = await Promise.all(dataPromises);
+
+      // Find all versions in the data
+      const versionsSeen = new Set();
+      for (const { value } of results) {
+        if (value && value.script_version) {
+          versionsSeen.add(value.script_version);
+        }
+      }
+
+      // Accept ANY version that exists in the data, plus "unknown" for legacy data
+      // This prevents filtering out data during version transitions
+      const acceptedVersions = new Set([
+        storedVersion,
+        CURRENT_DATA_VERSION,
+        "unknown", // Legacy data without script_version
+        ...Array.from(versionsSeen), // All versions seen in current data
+      ]);
+
       const data = {};
       let versionFilteredCount = 0;
+      const versionBreakdown = {}; // Track which versions are being filtered
+
       for (const { ticker, value } of results) {
         if (value) {
-          // Only return data matching the current version (filter out old version data)
+          // Accept data if its version is in the accepted set
+          // This allows all versions present in the data to be shown
           const tickerVersion = value.script_version || "unknown";
-          if (tickerVersion === storedVersion) {
+
+          if (acceptedVersions.has(tickerVersion)) {
             // Always recompute RR to ensure it uses the latest max TP from tp_levels
             value.rr = computeRR(value);
             data[ticker] = value;
           } else {
             versionFilteredCount++;
+            // Track which versions are being filtered
+            if (!versionBreakdown[tickerVersion]) {
+              versionBreakdown[tickerVersion] = 0;
+            }
+            versionBreakdown[tickerVersion]++;
+            console.log(
+              `[FILTER] Ticker ${ticker} filtered: version=${tickerVersion}, accepted=${Array.from(
+                acceptedVersions
+              ).join(", ")}`
+            );
           }
         }
+      }
+
+      // Log summary if any data was filtered
+      if (versionFilteredCount > 0) {
+        console.log(
+          `[FILTER] Filtered ${versionFilteredCount} tickers by version. Breakdown:`,
+          versionBreakdown
+        );
       }
       return sendJSON(
         {
@@ -3451,7 +3977,11 @@ export default {
           count: Object.keys(data).length,
           totalIndex: tickers.length,
           versionFiltered: versionFilteredCount,
+          versionBreakdown: versionBreakdown,
           dataVersion: storedVersion,
+          versionsSeen: Array.from(versionsSeen),
+          acceptedVersions: Array.from(acceptedVersions),
+          currentDataVersion: CURRENT_DATA_VERSION,
           data,
         },
         200,
