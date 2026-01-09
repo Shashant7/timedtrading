@@ -3079,7 +3079,11 @@ export default {
           // Store version-specific snapshot for historical access
           const snapshotVersion = payload.script_version || "unknown";
           if (snapshotVersion !== "unknown") {
-            await kvPutJSON(KV, `timed:snapshot:${ticker}:${snapshotVersion}`, payload);
+            await kvPutJSON(
+              KV,
+              `timed:snapshot:${ticker}:${snapshotVersion}`,
+              payload
+            );
             // Also store timestamp of when this version was last seen
             await kvPutText(
               KV,
@@ -3515,7 +3519,11 @@ export default {
         // Store version-specific snapshot for historical access
         const snapshotVersion = payload.script_version || "unknown";
         if (snapshotVersion !== "unknown") {
-          await kvPutJSON(KV, `timed:snapshot:${ticker}:${snapshotVersion}`, payload);
+          await kvPutJSON(
+            KV,
+            `timed:snapshot:${ticker}:${snapshotVersion}`,
+            payload
+          );
           // Also store timestamp of when this version was last seen
           await kvPutText(
             KV,
@@ -4002,7 +4010,7 @@ export default {
           // Accept ALL data - don't filter by version unless explicitly requested
           // This ensures all historical data is accessible
           const tickerVersion = value.script_version || "unknown";
-          
+
           // Only filter if a specific version was requested AND it doesn't match
           if (useVersionSnapshots && tickerVersion !== requestedVersion) {
             versionFilteredCount++;
@@ -4650,6 +4658,64 @@ export default {
           purged: result.purged,
           tickerCount: result.tickerCount,
           version: CURRENT_DATA_VERSION,
+        },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
+    // POST /timed/rebuild-index?key=... (Rebuild ticker index from watchlist)
+    if (url.pathname === "/timed/rebuild-index" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      // Known ticker list from watchlists (Q1 2026 + Sectors)
+      // This should match your TradingView watchlists
+      const knownTickers = [
+        "TSLA", "STX", "AU", "CCJ", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL",
+        "AMZN", "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "ULTA", "SHOP", "CSX",
+        "PWR", "HOOD", "SPGI", "APP", "PANW", "RDDT", "TT", "GLXY", "ETHA", "META",
+        "NVDA", "AMD", "ANET", "GS", "TJX", "SOFI", "PNC", "PLTR", "NFLX", "MSTR",
+        "MSFT", "MNST", "LRCX", "KLAC", "JPM", "GOOGL", "GE", "EXPE", "ETN", "EMR",
+        "DE", "CRWD", "COST", "CDNS", "CAT", "BK", "AXP", "AXON", "AVGO", "AAPL",
+        "RKLB", "LITE", "SN", "ALB", "RGLD", "MTZ", "ON", "ALLY", "DY", "EWBC",
+        "PATH", "WFRD", "WAL", "IESC", "ENS", "TWLO", "MLI", "KTOS", "MDB", "TLN",
+        "EME", "AWI", "IBP", "DCI", "WTS", "FIX", "UTHR", "NBIS", "SGI", "AYI",
+        "RIOT", "NXT", "SANM", "BWXT", "PEGA", "JOBY", "IONQ", "ITT", "STRL", "QLYS",
+        "MP", "HIMS", "IOT", "BE", "NEU", "AVAV", "PSTG", "RBLX", "CSCO", "BA",
+        "NKE", "PI", "APLD", "MU",
+        // ETFs
+        "XLK", "XLF", "XLY", "XLP", "XLC", "XLB", "XLE", "XLU", "XLV",
+        // Futures & Crypto
+        "ES", "NQ", "BTC", "ETH", "BTCUSD", "ETHUSD",
+        // Futures contracts
+        "ES1!", "NQ1!", "MES1!", "MNQ1!", "YM1!", "RTY1!",
+      ].map(t => t.toUpperCase()).filter((v, i, a) => a.indexOf(v) === i); // Deduplicate
+
+      const currentIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+      const addedTickers = [];
+      const existingTickers = new Set(currentIndex);
+
+      for (const ticker of knownTickers) {
+        if (!existingTickers.has(ticker)) {
+          currentIndex.push(ticker);
+          addedTickers.push(ticker);
+        }
+      }
+
+      // Sort and save
+      currentIndex.sort();
+      await kvPutJSON(KV, "timed:tickers", currentIndex);
+
+      return sendJSON(
+        {
+          ok: true,
+          message: `Index rebuilt. Added ${addedTickers.length} tickers.`,
+          beforeCount: currentIndex.length - addedTickers.length,
+          afterCount: currentIndex.length,
+          addedTickers: addedTickers.slice(0, 20), // Show first 20
+          totalAdded: addedTickers.length,
+          note: "Index will continue to grow as TradingView sends alerts for these tickers.",
         },
         200,
         corsHeaders(env, req)
