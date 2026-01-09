@@ -514,6 +514,43 @@
         return { trades, loading, error, refetch: fetchTrades };
       }
 
+      // Hook to fetch sector ratings
+      function useSectors() {
+        const [sectors, setSectors] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+
+        const fetchSectors = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const res = await fetch(`${API_BASE}/timed/sectors`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok && Array.isArray(json.sectors)) {
+              setSectors(json.sectors);
+            } else {
+              setSectors([]);
+            }
+          } catch (err) {
+            setError(err.message);
+            console.error("Failed to fetch sectors:", err);
+            setSectors([]);
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchSectors();
+          // Refresh sectors every 5 minutes
+          const interval = setInterval(fetchSectors, 300000);
+          return () => clearInterval(interval);
+        }, [fetchSectors]);
+
+        return { sectors, loading, error, refetch: fetchSectors };
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Groups (matching original)
       // ─────────────────────────────────────────────────────────────
