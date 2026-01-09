@@ -280,7 +280,8 @@
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [lastUpdate, setLastUpdate] = useState(null);
-      const [versionInfo, setVersionInfo] = useState(null);
+        const [versionInfo, setVersionInfo] = useState(null);
+        const [tickersWithoutScores, setTickersWithoutScores] = useState([]);
 
         const fetchData = useCallback(async () => {
           try {
@@ -464,7 +465,7 @@
           return () => clearInterval(interval);
         }, [fetchData]);
 
-        return { data, loading, error, lastUpdate, versionInfo, refetch: fetchData };
+        return { data, loading, error, lastUpdate, versionInfo, tickersWithoutScores, refetch: fetchData };
       }
 
       function useDebounce(value, delay) {
