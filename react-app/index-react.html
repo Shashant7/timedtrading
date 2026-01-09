@@ -7612,7 +7612,6 @@
                         <div className="space-y-1">
                           {[...tickersWithRanks]
                             .sort((a, b) => b.dynamicRank - a.dynamicRank)
-                            .slice(0, 40)
                             .map((ticker, idx) => (
                               <div
                                 key={ticker.ticker}
@@ -7649,6 +7648,81 @@
                             ))}
                         </div>
                       </div>
+
+                      {/* In Corridor */}
+                      {(() => {
+                        const corridorTickers = tickersWithRanks
+                          .filter((t) => entryType(t).corridor)
+                          .sort((a, b) => b.dynamicRank - a.dynamicRank)
+                          .slice(0, 15);
+
+                        if (corridorTickers.length === 0) return null;
+
+                        return (
+                          <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-3">
+                            <h2 className="text-sm font-bold mb-1">
+                              🎯 In Corridor
+                            </h2>
+                            <div className="text-[9px] text-[#93a4d6] mb-2">
+                              Entry-ready setups
+                            </div>
+                            <div className="space-y-1">
+                              {corridorTickers.map((ticker) => (
+                                <SetupCard
+                                  key={ticker.ticker}
+                                  ticker={{
+                                    ...ticker,
+                                    rank: ticker.dynamicRank,
+                                  }}
+                                  isSelected={
+                                    selectedTicker === ticker.ticker
+                                  }
+                                  onClick={() =>
+                                    handleTickerSelect(ticker.ticker)
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Prime Setups */}
+                      {(() => {
+                        const primeTickersSorted = primeTickers
+                          .sort((a, b) => b.dynamicRank - a.dynamicRank)
+                          .slice(0, 15);
+
+                        if (primeTickersSorted.length === 0) return null;
+
+                        return (
+                          <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-3">
+                            <h2 className="text-sm font-bold mb-1">
+                              ⭐ Prime Setups
+                            </h2>
+                            <div className="text-[9px] text-[#93a4d6] mb-2">
+                              High-quality setups
+                            </div>
+                            <div className="space-y-1">
+                              {primeTickersSorted.map((ticker) => (
+                                <SetupCard
+                                  key={ticker.ticker}
+                                  ticker={{
+                                    ...ticker,
+                                    rank: ticker.dynamicRank,
+                                  }}
+                                  isSelected={
+                                    selectedTicker === ticker.ticker
+                                  }
+                                  onClick={() =>
+                                    handleTickerSelect(ticker.ticker)
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Top Long */}
                       {(() => {
@@ -7713,81 +7787,6 @@
                             </div>
                             <div className="space-y-1">
                               {shortTickers.map((ticker) => (
-                                <SetupCard
-                                  key={ticker.ticker}
-                                  ticker={{
-                                    ...ticker,
-                                    rank: ticker.dynamicRank,
-                                  }}
-                                  isSelected={
-                                    selectedTicker === ticker.ticker
-                                  }
-                                  onClick={() =>
-                                    handleTickerSelect(ticker.ticker)
-                                  }
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Prime Setups */}
-                      {(() => {
-                        const primeTickersSorted = primeTickers
-                          .sort((a, b) => b.dynamicRank - a.dynamicRank)
-                          .slice(0, 15);
-
-                        if (primeTickersSorted.length === 0) return null;
-
-                        return (
-                          <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-3">
-                            <h2 className="text-sm font-bold mb-1">
-                              ⭐ Prime Setups
-                            </h2>
-                            <div className="text-[9px] text-[#93a4d6] mb-2">
-                              High-quality setups
-                            </div>
-                            <div className="space-y-1">
-                              {primeTickersSorted.map((ticker) => (
-                                <SetupCard
-                                  key={ticker.ticker}
-                                  ticker={{
-                                    ...ticker,
-                                    rank: ticker.dynamicRank,
-                                  }}
-                                  isSelected={
-                                    selectedTicker === ticker.ticker
-                                  }
-                                  onClick={() =>
-                                    handleTickerSelect(ticker.ticker)
-                                  }
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* In Corridor */}
-                      {(() => {
-                        const corridorTickers = tickersWithRanks
-                          .filter((t) => entryType(t).corridor)
-                          .sort((a, b) => b.dynamicRank - a.dynamicRank)
-                          .slice(0, 15);
-
-                        if (corridorTickers.length === 0) return null;
-
-                        return (
-                          <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-3">
-                            <h2 className="text-sm font-bold mb-1">
-                              🎯 In Corridor
-                            </h2>
-                            <div className="text-[9px] text-[#93a4d6] mb-2">
-                              Entry-ready setups
-                            </div>
-                            <div className="space-y-1">
-                              {corridorTickers.map((ticker) => (
                                 <SetupCard
                                   key={ticker.ticker}
                                   ticker={{
