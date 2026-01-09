@@ -6223,7 +6223,6 @@
                         );
                       }) + 1;
                     const totalTickers = allTickersWithRank.length;
-                    const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
                     return (
                       <>
@@ -6241,16 +6240,6 @@
                               : "—"}
                           </span>
                         </div>
-                        {isInTop40 && (
-                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                            <span className="text-[#93a4d6]">
-                              Top 40 Position
-                            </span>
-                            <span className="font-semibold text-yellow-400">
-                              #{rankPosition} of 40
-                            </span>
-                          </div>
-                        )}
                       </>
                     );
                   })()}
