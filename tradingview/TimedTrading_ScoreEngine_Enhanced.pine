@@ -1,5 +1,5 @@
 //@version=6
-indicator("TimedTrading_ScoreEngine_v2.1.0_Enhanced", overlay=false, max_labels_count=50)
+indicator("TimedTrading", overlay=false, max_labels_count=50)
 
 // Script version for data model versioning
 SCRIPT_VERSION = "2.5.0"
@@ -82,6 +82,7 @@ groupAlerts = "Alerts (Baseline + Meaningful change)"
 scoreDelta = input.float(3.0, "Min |Δscore| to resend (0=always send)", group=groupAlerts, minval=0, step=0.5)
 minMinutesBetweenSends = input.int(5, "Min minutes between sends (0=no throttle)", group=groupAlerts, minval=0)
 forceBaseline = input.bool(false, "FORCE: Send baseline every bar (temporary)", group=groupAlerts)
+
 // Note: TradingView Watchlist Alerts have a platform limitation - equity alerts may not fire during extended hours
 // (pre-market 4am-9am ET, after-hours 4pm-8pm ET) even if bars are forming. This is a TradingView limitation, not a script issue.
 // 24-hour markets (futures ES/NQ, crypto BTC/ETH) will continue to fire during extended hours.
@@ -1172,8 +1173,39 @@ pctChangeMonth = not na(priceMonthAgo) and priceMonthAgo > 0 and currentPrice > 
 pctChange3Months = not na(price3MonthsAgo) and price3MonthsAgo > 0 and currentPrice > 0 ? ((currentPrice - price3MonthsAgo) / price3MonthsAgo) : na
 pctChange6Months = not na(price6MonthsAgo) and price6MonthsAgo > 0 and currentPrice > 0 ? ((currentPrice - price6MonthsAgo) / price6MonthsAgo) : na
 
+//─────────────────────────────────────────────────────────────────────────────
+// Sector & Fundamental Data (from TradingView)
+//─────────────────────────────────────────────────────────────────────────────
+// NOTE: request.financial() calls have been removed to avoid parse-time symbol resolution
+// errors for futures/crypto/forex. Sector and industry are safe and work for all asset types.
+// Fundamental data (EPS, P/E, PEG, Market Cap) can be provided by the worker if needed.
+
+// Get sector and industry from TradingView (safe for all asset types)
+sectorName = na(syminfo.sector) ? "" : syminfo.sector
+industryName = na(syminfo.industry) ? "" : syminfo.industry
+
+// Fundamental data variables (will be na - can be populated by worker if needed)
+var float epsBasic = na
+var float epsDiluted = na
+var float epsReported = na
+var float epsQuarterly = na
+var float marketCap = na
+var float epsRaw = na
+var float peRatio = na
+var float epsGrowthRate = na
+var float pegRatio = na
+
+// Build sector/fundamental JSON strings
+sectorStr = sectorName != "" ? ("\"sector\":\"" + sectorName + "\",") : ""
+industryStr = industryName != "" ? ("\"industry\":\"" + industryName + "\",") : ""
+epsStr = not na(epsRaw) ? ("\"eps\":" + f_fmt(epsRaw, 2) + ",") : ""
+peStr = not na(peRatio) ? ("\"pe_ratio\":" + f_fmt(peRatio, 2) + ",") : ""
+epsGrowthStr = not na(epsGrowthRate) ? ("\"eps_growth_rate\":" + f_fmt(epsGrowthRate, 2) + ",") : ""
+pegStr = not na(pegRatio) ? ("\"peg_ratio\":" + f_fmt(pegRatio, 2) + ",") : ""
+marketCapStr = not na(marketCap) ? ("\"market_cap\":" + f_fmt(marketCap, 0) + ",") : ""
+
 // Build JSON
-json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
+json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
 
 // Send
 if shouldSend

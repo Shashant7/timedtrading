@@ -163,11 +163,8 @@
           await saveTrade(updatedTrade);
         }, [trades, saveTrade]);
 
-        const clearTrades = useCallback(async () => {
-          alert("Trade management is disabled for public access. This is a read-only dashboard.");
-        }, []);
 
-        return { trades, loading, error, addTrade, updateTrade, clearTrades, refetch: fetchTrades };
+        return { trades, loading, error, addTrade, updateTrade, refetch: fetchTrades };
       }
 
       // ─────────────────────────────────────────────────────────────
@@ -2118,7 +2115,7 @@
       // ─────────────────────────────────────────────────────────────
       function App() {
         const { data, loading, error, lastUpdate, refetch } = useTickerData();
-        const { trades, loading: tradesLoading, error: tradesError, addTrade, updateTrade, clearTrades, refetch: refetchTrades } = useSimulatedTrades();
+        const { trades, loading: tradesLoading, error: tradesError, addTrade, updateTrade, refetch: refetchTrades } = useSimulatedTrades();
         
         // Version filter state
         const [selectedVersion, setSelectedVersion] = useState("all");
@@ -2282,12 +2279,6 @@
                       className="px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-colors text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {summaryLoading ? "Loading..." : "📊 Daily Summary"}
-                    </button>
-                    <button
-                      onClick={clearTrades}
-                      className="px-4 py-2 bg-red-500/20 border border-red-500 rounded-lg hover:bg-red-500/30 transition-colors text-red-400"
-                    >
-                      Clear Trades
                     </button>
                     {lastUpdate && (
                       <span className="text-sm text-[#93a4d6]">

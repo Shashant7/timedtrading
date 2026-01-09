@@ -4597,6 +4597,46 @@ export default {
       );
     }
 
+    // POST /timed/purge-trades-by-version?key=...&version=2.6.0 (Purge trades by version)
+    if (url.pathname === "/timed/purge-trades-by-version" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      const targetVersion = url.searchParams.get("version");
+      if (!targetVersion) {
+        return sendJSON(
+          { ok: false, error: "version parameter required" },
+          400,
+          corsHeaders(env, req)
+        );
+      }
+
+      const tradesKey = "timed:trades:all";
+      const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+      
+      const beforeCount = allTrades.length;
+      const filteredTrades = allTrades.filter(trade => {
+        const tradeVersion = trade.scriptVersion || trade.script_version || "unknown";
+        return tradeVersion !== targetVersion;
+      });
+      const purgedCount = beforeCount - filteredTrades.length;
+
+      await kvPutJSON(KV, tradesKey, filteredTrades);
+
+      return sendJSON(
+        {
+          ok: true,
+          message: `Purged ${purgedCount} trades with version ${targetVersion}`,
+          beforeCount,
+          afterCount: filteredTrades.length,
+          purgedCount,
+          targetVersion,
+        },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
     // POST /timed/cleanup-tickers?key=... (Remove unapproved tickers, keep only approved list, normalize Gold/Silver)
     // POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
     if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
