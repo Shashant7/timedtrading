@@ -754,6 +754,7 @@
         "GRNJ",
         "GRNY",
         "Social",
+        "No Group",
       ];
 
       function normTicker(t) {
@@ -769,15 +770,21 @@
         const out = [];
         for (const [g, set] of Object.entries(GROUPS))
           if (set.has(T)) out.push(g);
+        // If ticker is not in any group, add it to "No Group"
+        if (out.length === 0) {
+          out.push("No Group");
+        }
         return out;
       }
 
-      // Check if ticker is in any group
+      // Check if ticker is in any group (including "No Group")
       function isTickerInGroups(t) {
         const T = normTicker(t);
+        // Check if ticker is in any actual group
         for (const [g, set] of Object.entries(GROUPS))
           if (set.has(T)) return true;
-        return false;
+        // If not in any group, it's in "No Group" - return true
+        return true;
       }
 
       // ─────────────────────────────────────────────────────────────
@@ -1266,17 +1273,18 @@
             .toUpperCase();
           if (!ticker) continue;
 
-          // Only show tickers that are in at least one group OR are S&P Sectors or Futures
-          // S&P Sectors and Futures should always be visible
+          // Show all tickers - they will be in a group (including "No Group" if unmapped)
+          // S&P Sectors and Futures are always visible, and unmapped tickers go to "No Group"
           const isSPSector =
             GROUPS.SP_Sectors && GROUPS.SP_Sectors.has(normTicker(ticker));
           const isFuture =
             GROUPS.Futures && GROUPS.Futures.has(normTicker(ticker));
-          const inGroups = isTickerInGroups(ticker);
+          const inGroups = isTickerInGroups(ticker); // Always returns true now (includes "No Group")
           
-          // Debug: Log tickers being filtered out
-          if (!isSPSector && !isFuture && !inGroups) {
-            console.log(`[FILTER] ${ticker} skipped: not in any group`);
+          // All tickers should be shown (either in a group or in "No Group")
+          // This check is now redundant but kept for clarity
+          if (!inGroups) {
+            console.log(`[FILTER] ${ticker} skipped: unexpected - should be in a group`);
             continue;
           }
 
@@ -3207,6 +3215,11 @@
             label: "Futures",
             filter: { group: "Futures" },
             icon: "⚡",
+          },
+          {
+            label: "No Group",
+            filter: { group: "No Group" },
+            icon: "📋",
           },
         ];
 
