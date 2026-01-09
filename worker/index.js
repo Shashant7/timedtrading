@@ -414,17 +414,17 @@ function getTradeDirection(state) {
 function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
   const isLong = direction === "LONG";
   const price = Number(tpLevel.price || tpLevel);
-  
+
   // Base score from confidence (0.60-0.85, normalize to 0-1)
   const confidence = Number(tpLevel.confidence || 0.75);
-  let score = (confidence - 0.60) / (0.85 - 0.60); // Normalize to 0-1
-  
+  let score = (confidence - 0.6) / (0.85 - 0.6); // Normalize to 0-1
+
   // Timeframe priority: Weekly > Daily > 4H
   const tf = String(tpLevel.timeframe || "D").toUpperCase();
   if (tf === "W") score += 0.3;
   else if (tf === "D") score += 0.2;
   else if (tf === "240" || tf === "4H") score += 0.1;
-  
+
   // Type priority: STRUCTURE > ATR_FIB > LIQUIDITY > FVG > GAP
   const type = String(tpLevel.type || "ATR_FIB").toUpperCase();
   if (type === "STRUCTURE") score += 0.25;
@@ -434,11 +434,10 @@ function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
     if (mult === 0.618 || mult === 1.0 || mult === 1.618) score += 0.2;
     else if (mult === 0.382 || mult === 0.786 || mult === 1.236) score += 0.15;
     else score += 0.1;
-  }
-  else if (type === "LIQUIDITY") score += 0.15;
+  } else if (type === "LIQUIDITY") score += 0.15;
   else if (type === "FVG") score += 0.1;
   else if (type === "GAP") score += 0.05;
-  
+
   // Distance from entry (sweet spot: 2-5% for swing trades, prefer not too close or too far)
   const distancePct = Math.abs(price - entryPrice) / entryPrice;
   if (distancePct >= 0.02 && distancePct <= 0.05) {
@@ -450,30 +449,30 @@ function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
   } else if (distancePct > 0.15) {
     score -= 0.1; // Too far - slight penalty
   }
-  
+
   // Clustering penalty: if many TPs are very close, prefer ones that stand out
   const clusteringThreshold = entryPrice * 0.005; // 0.5% clustering threshold
   const nearbyTPs = allTPs.filter((tp) => {
     const tpPrice = Number(tp.price || tp);
     return Math.abs(tpPrice - price) < clusteringThreshold;
   }).length;
-  
+
   if (nearbyTPs > 3) {
     score -= 0.15; // Heavy clustering penalty
   } else if (nearbyTPs > 1) {
     score -= 0.05; // Light clustering penalty
   }
-  
+
   return score;
 }
 
 // Helper: Get intelligent TP (best single or weighted blend)
 function getIntelligentTP(tickerData, entryPrice, direction) {
   const isLong = direction === "LONG";
-  
+
   // Get TP from tickerData
   let tp = Number(tickerData.tp);
-  
+
   // Extract all TP levels with metadata
   let tpLevels = [];
   if (
@@ -506,7 +505,7 @@ function getIntelligentTP(tickerData, entryPrice, direction) {
       })
       .filter((item) => Number.isFinite(item.price) && item.price > 0);
   }
-  
+
   // Add primary TP if valid
   if (Number.isFinite(tp) && tp > 0) {
     tpLevels.push({
@@ -519,52 +518,68 @@ function getIntelligentTP(tickerData, entryPrice, direction) {
       label: "TP",
     });
   }
-  
+
   // Filter by direction
   const validTPs = tpLevels.filter((item) => {
     if (isLong) return item.price > entryPrice;
     return item.price < entryPrice;
   });
-  
+
   if (validTPs.length === 0) {
     // Fallback to original logic
     return getValidTP(tickerData, entryPrice, direction);
   }
-  
+
   // Score all valid TPs
   const scoredTPs = validTPs.map((tpItem) => ({
     ...tpItem,
     score: scoreTPLevel(tpItem, entryPrice, direction, validTPs),
   }));
-  
+
   // Sort by score (descending)
   scoredTPs.sort((a, b) => b.score - a.score);
-  
+
   // Strategy: Use weighted blend of top 3 TPs if they're reasonably close, otherwise use best single
   const topTP = scoredTPs[0];
   const top3TPs = scoredTPs.slice(0, 3);
-  
+
   // Check if top 3 are clustered (within 2% of each other)
-  const priceRange = Math.max(...top3TPs.map((t) => t.price)) - Math.min(...top3TPs.map((t) => t.price));
-  const avgPrice = top3TPs.reduce((sum, t) => sum + t.price, 0) / top3TPs.length;
+  const priceRange =
+    Math.max(...top3TPs.map((t) => t.price)) -
+    Math.min(...top3TPs.map((t) => t.price));
+  const avgPrice =
+    top3TPs.reduce((sum, t) => sum + t.price, 0) / top3TPs.length;
   const clusteringPct = priceRange / avgPrice;
-  
+
   if (top3TPs.length >= 3 && clusteringPct < 0.02 && top3TPs[0].score > 0.5) {
     // Use weighted blend of top 3 (weighted by score)
     const totalScore = top3TPs.reduce((sum, t) => sum + t.score, 0);
-    const blendedPrice = top3TPs.reduce((sum, t) => sum + (t.price * t.score), 0) / totalScore;
-    
+    const blendedPrice =
+      top3TPs.reduce((sum, t) => sum + t.price * t.score, 0) / totalScore;
+
     console.log(
-      `[TP INTELLIGENT] ${tickerData.ticker || "UNKNOWN"} ${direction}: Using blended TP $${blendedPrice.toFixed(2)} from top 3 (scores: ${top3TPs.map((t) => t.score.toFixed(2)).join(", ")})`
+      `[TP INTELLIGENT] ${
+        tickerData.ticker || "UNKNOWN"
+      } ${direction}: Using blended TP $${blendedPrice.toFixed(
+        2
+      )} from top 3 (scores: ${top3TPs
+        .map((t) => t.score.toFixed(2))
+        .join(", ")})`
     );
-    
+
     return blendedPrice;
   } else {
     // Use best single TP
     console.log(
-      `[TP INTELLIGENT] ${tickerData.ticker || "UNKNOWN"} ${direction}: Using best TP $${topTP.price.toFixed(2)} (score: ${topTP.score.toFixed(2)}, ${topTP.source}, ${topTP.timeframe})`
+      `[TP INTELLIGENT] ${
+        tickerData.ticker || "UNKNOWN"
+      } ${direction}: Using best TP $${topTP.price.toFixed(
+        2
+      )} (score: ${topTP.score.toFixed(2)}, ${topTP.source}, ${
+        topTP.timeframe
+      })`
     );
-    
+
     return topTP.price;
   }
 }
@@ -1296,6 +1311,23 @@ async function processTradeSimulation(
           currentPrice,
           trimmedPct: existingOpenTrade.trimmedPct || 0,
         };
+
+        // Add activity feed event for TD9 exit
+        await appendActivity(KV, {
+          ticker,
+          type: "td9_exit",
+          direction,
+          side: direction === "LONG" ? "bearish" : "bullish",
+          entryPrice: correctedEntryPrice,
+          exitPrice: currentPrice,
+          pnl,
+          pnlPct,
+          status: tdSeqStatus,
+          td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+          td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+          td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+          td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+        });
       } else {
         // Normal TP/SL calculation
         tradeCalc = calculateTradePnl(tickerData, correctedEntryPrice, {
@@ -1468,6 +1500,21 @@ async function processTradeSimulation(
                 updatedTrade.rr || existingOpenTrade.rr || 0
               );
               await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade updates
+
+              // If this was a TD9 exit, send additional TD9 alert
+              if (shouldExitFromTDSeq) {
+                const tdSeq = tickerData.td_sequential || {};
+                const td9Embed = createTD9ExitEmbed(
+                  ticker,
+                  direction,
+                  existingOpenTrade.entryPrice,
+                  currentPrice,
+                  pnl,
+                  pnlPct,
+                  tdSeq
+                );
+                await notifyDiscord(env, td9Embed).catch(() => {});
+              }
             }
           }
         }
@@ -2613,6 +2660,165 @@ function createTradeClosedEmbed(
     timestamp: new Date().toISOString(),
     footer: {
       text: "Timed Trading Simulator",
+    },
+  };
+}
+
+// Helper: Create Discord embed for TD9 exit signal
+function createTD9ExitEmbed(
+  ticker,
+  direction,
+  entryPrice,
+  exitPrice,
+  pnl,
+  pnlPct,
+  tdSeq
+) {
+  const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+  const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+  const td13Bullish = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+  const td13Bearish = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+  
+  const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
+  const signalDirection = td9Bearish || td13Bearish ? "Bearish" : "Bullish";
+  const oppositeDirection = direction === "LONG" ? "SHORT" : "LONG";
+  
+  return {
+    title: `🔢 TD Sequential ${signalType} Exit: ${ticker} ${direction}`,
+    description: `${signalType} ${signalDirection} reversal detected - Consider ${oppositeDirection} entry`,
+    color: 0xffaa00, // Orange
+    fields: [
+      {
+        name: "Exit Reason",
+        value: `TD Sequential ${signalType} ${signalDirection} Exhaustion`,
+        inline: false,
+      },
+      {
+        name: "Entry Price",
+        value: `$${entryPrice.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Exit Price",
+        value: `$${exitPrice.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "P&L",
+        value: `$${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+        inline: true,
+      },
+      {
+        name: "TD9 Bullish",
+        value: td9Bullish ? "✅" : "❌",
+        inline: true,
+      },
+      {
+        name: "TD9 Bearish",
+        value: td9Bearish ? "✅" : "❌",
+        inline: true,
+      },
+      {
+        name: "TD13 Bullish",
+        value: td13Bullish ? "✅" : "❌",
+        inline: true,
+      },
+      {
+        name: "TD13 Bearish",
+        value: td13Bearish ? "✅" : "❌",
+        inline: true,
+      },
+      {
+        name: "Potential Entry",
+        value: `Consider ${oppositeDirection} setup if conditions align`,
+        inline: false,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: "TD Sequential Exhaustion Signal",
+    },
+  };
+}
+
+// Helper: Create Discord embed for TD9 entry signal
+function createTD9EntryEmbed(
+  ticker,
+  direction,
+  price,
+  sl,
+  tp,
+  rr,
+  rank,
+  tdSeq
+) {
+  const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+  const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+  const td13Bullish = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+  const td13Bearish = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+  
+  const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
+  const signalDirection = direction === "LONG" ? "Bullish" : "Bearish";
+  
+  return {
+    title: `🔢 TD Sequential ${signalType} Entry Signal: ${ticker} ${direction}`,
+    description: `${signalType} ${signalDirection} setup detected - Potential reversal entry`,
+    color: direction === "LONG" ? 0x00ff00 : 0xff0000,
+    fields: [
+      {
+        name: "Signal Type",
+        value: `${signalType} ${signalDirection}`,
+        inline: false,
+      },
+      {
+        name: "Current Price",
+        value: `$${price.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Stop Loss",
+        value: `$${sl.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Take Profit",
+        value: `$${tp.toFixed(2)}`,
+        inline: true,
+      },
+      {
+        name: "Risk/Reward",
+        value: `${rr.toFixed(2)}:1`,
+        inline: true,
+      },
+      {
+        name: "Rank",
+        value: `${rank || "N/A"}`,
+        inline: true,
+      },
+      {
+        name: "TD9 Bullish",
+        value: td9Bullish ? "✅" : "❌",
+        inline: true,
+      },
+      {
+        name: "TD9 Bearish",
+        value: td9Bearish ? "✅" : "❌",
+        inline: true,
+      },
+      {
+        name: "TD13 Bullish",
+        value: td13Bullish ? "✅" : "❌",
+        inline: true,
+      },
+      {
+        name: "TD13 Bearish",
+        value: td13Bearish ? "✅" : "❌",
+        inline: true,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: "TD Sequential Entry Signal",
     },
   };
 }
@@ -4161,6 +4367,67 @@ export default {
             reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
           if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
           console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
+        }
+
+        // Check for TD9 entry signals (potential reversal setups)
+        const tdSeq = payload.td_sequential || {};
+        const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+        const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+        const td13Bullish = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+        const td13Bearish = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+        
+        // TD9 entry signal: TD9/TD13 bullish suggests LONG, TD9/TD13 bearish suggests SHORT
+        const hasTD9Signal = td9Bullish || td9Bearish || td13Bullish || td13Bearish;
+        if (hasTD9Signal) {
+          const suggestedDirection = (td9Bullish || td13Bullish) ? "LONG" : "SHORT";
+          const signalType = (td13Bullish || td13Bearish) ? "TD13" : "TD9";
+          
+          // Check if TD9 signal aligns with corridor direction (potential entry)
+          const td9AlignsWithCorridor = 
+            (suggestedDirection === "LONG" && side === "LONG") ||
+            (suggestedDirection === "SHORT" && side === "SHORT");
+          
+          // Only alert if TD9 signal aligns with corridor and has reasonable RR
+          if (td9AlignsWithCorridor && payload.rr >= 1.2) {
+            const td9AlertKey = `timed:td9_alerted:${ticker}:${signalType}:${suggestedDirection}`;
+            const alreadyTD9Alerted = await KV.get(td9AlertKey);
+            
+            if (!alreadyTD9Alerted) {
+              await kvPutText(KV, td9AlertKey, "1", 24 * 60 * 60); // 24h dedup
+              
+              // Add activity feed event
+              await appendActivity(KV, {
+                ticker,
+                type: "td9_entry",
+                direction: suggestedDirection,
+                signalType,
+                price: payload.price,
+                sl: payload.sl,
+                tp: payload.tp,
+                rr: payload.rr,
+                rank: payload.rank,
+                td9_bullish: td9Bullish,
+                td9_bearish: td9Bearish,
+                td13_bullish: td13Bullish,
+                td13_bearish: td13Bearish,
+              });
+              
+              // Send Discord alert
+              const td9Embed = createTD9EntryEmbed(
+                ticker,
+                suggestedDirection,
+                payload.price,
+                payload.sl,
+                payload.tp,
+                payload.rr,
+                payload.rank,
+                tdSeq
+              );
+              await notifyDiscord(env, td9Embed).catch(() => {});
+              
+              console.log(`[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`);
+            }
+          }
         }
 
         // Get final ticker count
