@@ -439,10 +439,10 @@
             return isTrimmed && hasRemainingShares(t);
           });
           
-          // Closed trades: fully closed positions (WIN or LOSS) with NO remaining shares
+          // Closed trades: positions with WIN or LOSS status (regardless of remaining shares)
+          // Note: If status is WIN/LOSS, the trade is considered closed for analytics purposes
           const closed = trades.filter((t) => {
-            const isWinOrLoss = t.status === "WIN" || t.status === "LOSS";
-            return isWinOrLoss && !hasRemainingShares(t);
+            return t.status === "WIN" || t.status === "LOSS";
           });
           
           // Open trades: currently open positions that haven't been trimmed yet
