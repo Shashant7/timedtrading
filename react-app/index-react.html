@@ -377,9 +377,31 @@
                   d && d.htf_score !== undefined && d.ltf_score !== undefined
                 );
               });
+              // Log detailed breakdown
+              const tickersByVersion = {};
+              const tickersWithoutScores = [];
+              Object.keys(mergedData).forEach((t) => {
+                const d = mergedData[t];
+                if (d) {
+                  const version = d.script_version || "unknown";
+                  if (!tickersByVersion[version]) {
+                    tickersByVersion[version] = [];
+                  }
+                  tickersByVersion[version].push(t);
+                  
+                  if (d.htf_score === undefined && d.ltf_score === undefined) {
+                    tickersWithoutScores.push({ ticker: t, version: version, hasPrice: !!d.price });
+                  }
+                }
+              });
+              
               console.log(
-                `[UI] Loaded ${tickersWithData.length} tickers with data, ${allTickers.length} total in index`
+                `[UI] Loaded ${tickersWithData.length} tickers with scores, ${allTickers.length} total in index`
               );
+              console.log(`[UI] Tickers by version:`, tickersByVersion);
+              if (tickersWithoutScores.length > 0) {
+                console.warn(`[UI] ⚠️ ${tickersWithoutScores.length} tickers without scores:`, tickersWithoutScores.slice(0, 10));
+              }
               
               if (versionFiltered > 0) {
                 console.warn(
@@ -395,11 +417,13 @@
               }
               
               // Log sample tickers to see what we're getting
-              const sampleTickers = Object.keys(tickerData).slice(0, 5);
+              const sampleTickers = Object.keys(tickerData).slice(0, 10);
               console.log(`[UI] Sample tickers:`, sampleTickers.map(t => ({
                 ticker: t,
                 version: tickerData[t]?.script_version || "unknown",
-                hasScores: !!(tickerData[t]?.htf_score !== undefined && tickerData[t]?.ltf_score !== undefined)
+                hasScores: !!(tickerData[t]?.htf_score !== undefined && tickerData[t]?.ltf_score !== undefined),
+                htf_score: tickerData[t]?.htf_score,
+                ltf_score: tickerData[t]?.ltf_score
               })));
             } else {
               setError(
@@ -1211,11 +1235,25 @@
             GROUPS.SP_Sectors && GROUPS.SP_Sectors.has(normTicker(ticker));
           const isFuture =
             GROUPS.Futures && GROUPS.Futures.has(normTicker(ticker));
-          if (!isSPSector && !isFuture && !isTickerInGroups(ticker)) continue;
+          const inGroups = isTickerInGroups(ticker);
+          
+          // Debug: Log tickers being filtered out
+          if (!isSPSector && !isFuture && !inGroups) {
+            console.log(`[FILTER] ${ticker} skipped: not in any group`);
+            continue;
+          }
 
           // Skip tickers that don't have scores (can't render without position data)
           // These will appear once they receive data from TradingView
-          if (d.htf_score === undefined && d.ltf_score === undefined) continue;
+          if (d.htf_score === undefined && d.ltf_score === undefined) {
+            console.log(`[FILTER] ${ticker} skipped: missing htf_score and ltf_score`, {
+              hasHtf: d.htf_score !== undefined,
+              hasLtf: d.ltf_score !== undefined,
+              scriptVersion: d.script_version,
+              hasPrice: d.price !== undefined
+            });
+            continue;
+          }
 
           // Multi-ticker search
           if (multiTickerList && multiTickerList.length > 0) {
