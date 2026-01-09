@@ -2405,6 +2405,17 @@
                   );
                   if (index >= 0) {
                     rankPosition = index + 1;
+                    // Debug: Log XLK rank calculation if it's the hovered ticker
+                    if (tooltipTickerUpper === 'XLK') {
+                      const xlkData = sortedByRank[index];
+                      console.log('[HOVER OVERLAY] XLK rank calculation:', {
+                        rankPosition,
+                        totalTickers,
+                        xlkRank: xlkData?.rank,
+                        top5Ranks: sortedByRank.slice(0, 5).map(t => ({ ticker: t.ticker, rank: t.rank })),
+                        xlkIndex: index
+                      });
+                    }
                   }
                 }
                 return (
