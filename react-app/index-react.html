@@ -1565,9 +1565,11 @@
                   x={x}
                   y={labelY}
                   textAnchor="middle"
-                  fontSize={prime ? "14" : "12"}
+                  fontSize={waitingForData ? "10" : prime ? "14" : "12"}
                   fill={
-                    prime
+                    waitingForData
+                      ? "#93a4d6"
+                      : prime
                       ? "#2ecc71"
                       : flags.sq30_release
                       ? "#00ffff"
@@ -1586,7 +1588,7 @@
                   y={labelY - (emoji ? 14 : 8)}
                   textAnchor="middle"
                   fontSize="10"
-                  fill="#e7ecff"
+                  fill={waitingForData ? "#93a4d6" : "#e7ecff"}
                   fontWeight="600"
                   style={{
                     textShadow: "0 0 4px rgba(0,0,0,0.9)",
