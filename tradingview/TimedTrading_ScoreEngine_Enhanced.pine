@@ -205,6 +205,47 @@ f_1h_ema_cloud() =>
 [oneHEMAUpper, oneHEMALower, oneHPrice, oneHEMAPosition] = request.security(syminfo.tickerid, "60", f_1h_ema_cloud(), barmerge.gaps_off, barmerge.lookahead_off)
 
 //─────────────────────────────────────────────────────────────────────────────
+// RSI Divergence Detection
+//─────────────────────────────────────────────────────────────────────────────
+// RSI Divergence: Compare price peaks/troughs with RSI peaks/troughs
+// Bullish Divergence: Price makes lower low, RSI makes higher low (bullish signal)
+// Bearish Divergence: Price makes higher high, RSI makes lower high (bearish signal)
+
+f_detect_rsi_divergence(lookback = 20) =>
+    rsi = ta.rsi(close, 14)
+    
+    // Find recent price peaks and troughs
+    priceHigh = ta.highest(high, lookback)
+    priceLow = ta.lowest(low, lookback)
+    
+    // Find recent RSI peaks and troughs
+    rsiHigh = ta.highest(rsi, lookback)
+    rsiLow = ta.lowest(rsi, lookback)
+    
+    // Compare current vs previous peaks/troughs
+    prevPriceHigh = ta.highest(high[lookback], lookback)
+    prevPriceLow = ta.lowest(low[lookback], lookback)
+    prevRsiHigh = ta.highest(rsi[lookback], lookback)
+    prevRsiLow = ta.lowest(rsi[lookback], lookback)
+    
+    // Bullish Divergence: Price lower low, RSI higher low
+    bullishDiv = (priceLow < prevPriceLow) and (rsiLow > prevRsiLow) and (rsiLow < 40)
+    
+    // Bearish Divergence: Price higher high, RSI lower high
+    bearishDiv = (priceHigh > prevPriceHigh) and (rsiHigh < prevRsiHigh) and (rsiHigh > 60)
+    
+    // Determine divergence type
+    divergenceType = bullishDiv ? "bullish" : bearishDiv ? "bearish" : "none"
+    divergenceStrength = bullishDiv ? (prevRsiLow - rsiLow) : bearishDiv ? (rsiHigh - prevRsiHigh) : 0.0
+    
+    [divergenceType, divergenceStrength, rsi]
+
+[rsiDivType, rsiDivStrength, currentRSI] = f_detect_rsi_divergence(20)
+
+// RSI Level classification
+rsiLevel = currentRSI >= 70 ? "overbought" : currentRSI <= 30 ? "oversold" : currentRSI >= 50 ? "bullish" : "bearish"
+
+//─────────────────────────────────────────────────────────────────────────────
 // Enhanced bundle: includes volume and RSI
 //─────────────────────────────────────────────────────────────────────────────
 f_tf_bundle() =>
@@ -401,10 +442,17 @@ f_ltf_from_bundle(px, sqOn, mom, momStd, ggUpCross, ggDnCross, ggDist, e21, e48,
 
     // RSI MEAN REVERSION COMPONENT
     meanRev = rsi > 70 ? -4.0 : (rsi < 30 ? 4.0 : 0.0)
+    
+    // RSI DIVERGENCE BOOST (use global divergence detection)
+    rsiDivBoost = 0.0
+    if rsiDivType == "bullish"
+        rsiDivBoost := 3.0 + (rsiDivStrength * 0.1)  // Boost for bullish divergence
+    else if rsiDivType == "bearish"
+        rsiDivBoost := -3.0 - (rsiDivStrength * 0.1)  // Penalty for bearish divergence
 
     guard = (sqOn ? -3.0 : 0.0) + (comp ? -2.0 : 0.0)
 
-    clamp(trigger + align + stSupport + meanRev + guard, -50, 50)
+    clamp(trigger + align + stSupport + meanRev + rsiDivBoost + guard, -50, 50)
 
 // HTF scores
 htfWScore  = f_htf_from_bundle(cW, e200W, stDW, e5W, e8W, e13W, e21W, e48W, compW, phW, eFastW, eSlowW, volRW, atrRW)
@@ -1343,8 +1391,11 @@ dailyEMAStr = not na(dailyEMAUpper) and not na(dailyEMALower) ? ("\"daily_ema_cl
 fourHEMAStr = not na(fourHEMAUpper) and not na(fourHEMALower) ? ("\"fourh_ema_cloud\":{" + "\"upper\":" + f_fmt(fourHEMAUpper, 2) + "," + "\"lower\":" + f_fmt(fourHEMALower, 2) + "," + "\"price\":" + f_fmt(fourHPrice, 2) + "," + "\"position\":\"" + fourHEMAPosition + "\"" + "},") : ""
 oneHEMAStr = not na(oneHEMAUpper) and not na(oneHEMALower) ? ("\"oneh_ema_cloud\":{" + "\"upper\":" + f_fmt(oneHEMAUpper, 2) + "," + "\"lower\":" + f_fmt(oneHEMALower, 2) + "," + "\"price\":" + f_fmt(oneHPrice, 2) + "," + "\"position\":\"" + oneHEMAPosition + "\"" + "},") : ""
 
+// Build RSI JSON string
+rsiStr = not na(currentRSI) ? ("\"rsi\":{" + "\"value\":" + f_fmt(currentRSI, 2) + "," + "\"level\":\"" + rsiLevel + "\"," + "\"divergence\":{" + "\"type\":\"" + rsiDivType + "\"," + "\"strength\":" + f_fmt(rsiDivStrength, 2) + "}" + "},") : ""
+
 // Build JSON
-json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      dailyEMAStr + fourHEMAStr + oneHEMAStr +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"td_sequential\":{" +        "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," +        "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," +        "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," +        "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," +        "\"td9_bullish\":" + (td9Bullish ? "true":"false") + "," +        "\"td9_bearish\":" + (td9Bearish ? "true":"false") + "," +        "\"td13_bullish\":" + (td13Bullish ? "true":"false") + "," +        "\"td13_bearish\":" + (td13Bearish ? "true":"false") + "," +        "\"exit_long\":" + (tdSeqExitLong ? "true":"false") + "," +        "\"exit_short\":" + (tdSeqExitShort ? "true":"false") + "," +        "\"boost\":" + f_fmt(tdSeqBoost, 2) +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
+json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      dailyEMAStr + fourHEMAStr + oneHEMAStr + rsiStr +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"td_sequential\":{" +        "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," +        "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," +        "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," +        "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," +        "\"td9_bullish\":" + (td9Bullish ? "true":"false") + "," +        "\"td9_bearish\":" + (td9Bearish ? "true":"false") + "," +        "\"td13_bullish\":" + (td13Bullish ? "true":"false") + "," +        "\"td13_bearish\":" + (td13Bearish ? "true":"false") + "," +        "\"exit_long\":" + (tdSeqExitLong ? "true":"false") + "," +        "\"exit_short\":" + (tdSeqExitShort ? "true":"false") + "," +        "\"boost\":" + f_fmt(tdSeqBoost, 2) +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
 
 // Send
 if shouldSend
