@@ -1315,16 +1315,35 @@
             ? "text-blue-400"
             : "text-yellow-400";
 
+        // Determine if this is a futures contract
+        const tickerSymbol = String(trade.ticker || "").toUpperCase();
+        const isFutures = FUTURES_SPECS[tickerSymbol] || tickerSymbol.endsWith("1!");
+        const pointValue = isFutures && FUTURES_SPECS[tickerSymbol] ? FUTURES_SPECS[tickerSymbol].pointValue : 1;
+        
         // Calculate position values
-        const shares = trade.shares || TRADE_SIZE / (trade.entryPrice || 1); // Allow fractional shares for high-priced tickers
+        // For futures: shares = contracts (always 1), for stocks: calculate from TRADE_SIZE
+        const shares = trade.shares || (isFutures && FUTURES_SPECS[tickerSymbol] ? 1 : TRADE_SIZE / (trade.entryPrice || 1));
         const currentPrice = trade.currentPrice || trade.entryPrice;
-        const marketValue = shares * currentPrice;
-        const entryValue = shares * trade.entryPrice;
+        
+        // For futures: value calculation is different (contracts * point value * price)
+        // For stocks: shares * price
+        const marketValue = isFutures && FUTURES_SPECS[tickerSymbol] 
+          ? shares * currentPrice * pointValue 
+          : shares * currentPrice;
+        const entryValue = isFutures && FUTURES_SPECS[tickerSymbol]
+          ? shares * trade.entryPrice * pointValue
+          : shares * trade.entryPrice;
         const trimmedPct = trade.trimmedPct || 0;
-        const trimmedShares = shares * trimmedPct; // Allow fractional shares
+        const trimmedShares = shares * trimmedPct;
         const remainingShares = shares - trimmedShares;
-        const trimmedValue = trimmedShares > 0 ? trimmedShares * (trade.tp || currentPrice) : 0; // Use TP price when trimmed
-        const currentMarketValue = remainingShares * currentPrice;
+        const trimmedValue = trimmedShares > 0 
+          ? (isFutures && FUTURES_SPECS[tickerSymbol]
+              ? trimmedShares * (trade.tp || currentPrice) * pointValue
+              : trimmedShares * (trade.tp || currentPrice))
+          : 0;
+        const currentMarketValue = isFutures && FUTURES_SPECS[tickerSymbol]
+          ? remainingShares * currentPrice * pointValue
+          : remainingShares * currentPrice;
 
         // Parse entryTime - now uses current time when trade was created (not trigger_ts)
         const entryDate = new Date(trade.entryTime);
