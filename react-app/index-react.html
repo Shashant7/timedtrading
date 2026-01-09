@@ -1392,6 +1392,14 @@
             if (tickerSector !== effectiveFilters.sector) continue;
           }
 
+          // TD9 Setup filter - only show tickers with TD9 signals
+          if (effectiveFilters.td9Setup === "any") {
+            const tdSeq = d.td_sequential || {};
+            const hasTD9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+            const hasTD9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+            if (!hasTD9Bullish && !hasTD9Bearish) continue;
+          }
+
           out.push({ ticker, ...d });
         }
 
