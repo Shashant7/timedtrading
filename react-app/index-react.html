@@ -2350,7 +2350,28 @@
               </svg>
 
               {/* Tooltip */}
-              {tooltip && (
+              {tooltip && (() => {
+                // Calculate rank position out of all tickers
+                let rankPosition = null;
+                let totalTickers = 0;
+                if (allData && typeof allData === 'object') {
+                  const allTickersArray = Object.values(allData);
+                  totalTickers = allTickersArray.length;
+                  // Sort by rank (descending) to find position
+                  const sortedByRank = [...allTickersArray].sort((a, b) => {
+                    const rankA = Number(a.rank) || 0;
+                    const rankB = Number(b.rank) || 0;
+                    return rankB - rankA; // Descending order
+                  });
+                  // Find position (1-indexed)
+                  const index = sortedByRank.findIndex(
+                    (t) => String(t.ticker || "").toUpperCase() === String(tooltip.ticker || "").toUpperCase()
+                  );
+                  if (index >= 0) {
+                    rankPosition = index + 1;
+                  }
+                }
+                return (
                 <div
                   className="absolute bg-[#121a33] border-2 border-[#26325f] rounded-lg p-3 text-sm pointer-events-none z-10 shadow-xl fade-in"
                   style={{
@@ -2374,6 +2395,14 @@
                         {tooltip.rank || "—"}
                       </span>
                     </div>
+                      {rankPosition !== null && totalTickers > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-[#93a4d6]">Rank</span>
+                          <span className="font-semibold">
+                            {rankPosition} / {totalTickers}
+                          </span>
+                        </div>
+                      )}
                     <div className="flex justify-between">
                       <span className="text-[#93a4d6]">RR</span>
                       <span className="font-semibold">
