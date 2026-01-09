@@ -6456,8 +6456,18 @@
           });
         }, []);
 
+        const handleWelcomeClose = () => {
+          setShowWelcome(false);
+          localStorage.setItem("timedTrading_welcomeSeen", "true");
+        };
+
         return (
           <>
+            {/* Welcome Modal */}
+            {showWelcome && (
+              <WelcomeModal onClose={handleWelcomeClose} />
+            )}
+
             <div className="min-h-screen p-4">
               <div className="w-full mx-auto">
                 {/* Navigation */}
