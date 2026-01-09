@@ -13,6 +13,7 @@
 // GET  /timed/sectors/:sector/tickers?limit=10 - Get top tickers in sector
 // GET  /timed/sectors/recommendations?limit=10&totalLimit=50 - Get top tickers across overweight sectors
 // POST /timed/watchlist/add?key=... - Add tickers to watchlist
+// POST /timed/cleanup-no-scores?key=... - Remove tickers without score data from index
 // GET  /timed/health
 // GET  /timed/version
 // POST /timed/purge?key=... (manual purge)
