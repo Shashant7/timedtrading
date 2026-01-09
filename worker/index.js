@@ -195,14 +195,14 @@ async function checkRateLimit(
 
 async function ensureTickerIndex(KV, ticker) {
   try {
-  const key = "timed:tickers";
+    const key = "timed:tickers";
 
     // Use retry logic to handle race conditions
     let retries = 3;
     let success = false;
 
     while (retries > 0 && !success) {
-  const cur = (await kvGetJSON(KV, key)) || [];
+      const cur = (await kvGetJSON(KV, key)) || [];
 
       // Debug: Always log for BMNR/BABA/ETHT
       if (ticker === "BMNR" || ticker === "BABA" || ticker === "ETHT") {
@@ -216,10 +216,10 @@ async function ensureTickerIndex(KV, ticker) {
         );
       }
 
-  if (!cur.includes(ticker)) {
-    cur.push(ticker);
-    cur.sort();
-    await kvPutJSON(KV, key, cur);
+      if (!cur.includes(ticker)) {
+        cur.push(ticker);
+        cur.sort();
+        await kvPutJSON(KV, key, cur);
 
         // Verify it was added (with small delay to ensure KV consistency)
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -227,7 +227,7 @@ async function ensureTickerIndex(KV, ticker) {
         const wasAdded = verify.includes(ticker);
 
         if (wasAdded) {
-    console.log(
+          console.log(
             `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}, Verified: ${wasAdded}`
           );
           success = true;
@@ -809,7 +809,7 @@ function calculateRRAtEntry(tickerData, entryPrice) {
         const validTPs = tpPrices.filter((p) => p < entryPrice);
         maxTP = validTPs.length > 0 ? Math.min(...validTPs) : tp;
       } else {
-      maxTP = Math.max(...tpPrices);
+        maxTP = Math.max(...tpPrices);
       }
     }
   }
@@ -1643,32 +1643,32 @@ async function processTradeSimulation(
         if (isBackfill && triggerPrice && triggerPrice > 0) {
           const priceDiff =
             Math.abs(triggerPrice - currentPrice) / currentPrice;
-        if (priceDiff > 0.01) {
-          // More than 1% difference - use trigger_price for backfill
-          entryPrice = triggerPrice;
+          if (priceDiff > 0.01) {
+            // More than 1% difference - use trigger_price for backfill
+            entryPrice = triggerPrice;
             priceSource = "trigger_price (backfill)";
-          console.log(
-            `[TRADE SIM] Using trigger_price $${triggerPrice.toFixed(
-              2
-            )} for backfill (current: $${currentPrice.toFixed(2)})`
-          );
-        } else {
-          // Price is close - use current price even for backfills (more accurate)
-          console.log(
-            `[TRADE SIM] Using current price $${currentPrice.toFixed(
-              2
-            )} (trigger_price $${triggerPrice.toFixed(
-              2
-            )} is close, not using for backfill)`
-          );
-        }
+            console.log(
+              `[TRADE SIM] Using trigger_price $${triggerPrice.toFixed(
+                2
+              )} for backfill (current: $${currentPrice.toFixed(2)})`
+            );
+          } else {
+            // Price is close - use current price even for backfills (more accurate)
+            console.log(
+              `[TRADE SIM] Using current price $${currentPrice.toFixed(
+                2
+              )} (trigger_price $${triggerPrice.toFixed(
+                2
+              )} is close, not using for backfill)`
+            );
+          }
         } else {
           // Real-time alert: ALWAYS use current market price
-        console.log(
-          `[TRADE SIM] Real-time alert: using current price $${entryPrice.toFixed(
-            2
-          )} (not trigger_price)`
-        );
+          console.log(
+            `[TRADE SIM] Real-time alert: using current price $${entryPrice.toFixed(
+              2
+            )} (not trigger_price)`
+          );
         }
       } else if (triggerPrice && triggerPrice > 0) {
         // Fallback: only use trigger_price if price is not available
@@ -4836,7 +4836,7 @@ export default {
 
             data[ticker] = value;
           }
-          } else {
+        } else {
           // Log tickers in index but without data
           if (ticker === "BMNR" || ticker === "BABA") {
             console.log(
@@ -5310,7 +5310,7 @@ export default {
     if (url.pathname === "/timed/debug/fix-index" && req.method === "POST") {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
-      
+
       // Allow requests without origin for debug endpoints (curl, direct API calls)
       const cors = corsHeaders(env, req, true);
 
@@ -5378,11 +5378,7 @@ export default {
           );
         }
       } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          cors
-        );
+        return sendJSON({ ok: false, error: err.message }, 500, cors);
       }
     }
 
