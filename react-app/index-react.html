@@ -640,7 +640,9 @@
           'WEC': 'Utilities', 'ES': 'Utilities', 'PEG': 'Utilities', 'ETR': 'Utilities',
           'FE': 'Utilities', 'AEE': 'Utilities',
         };
-        return SECTOR_MAP[T] || null;
+        const sector = SECTOR_MAP[T] || null;
+        // Return empty string instead of null for easier filtering
+        return sector || "";
       }
 
       // ─────────────────────────────────────────────────────────────
