@@ -4220,12 +4220,14 @@ export default {
         const prevLatest = await kvGetJSON(KV, `timed:latest:${ticker}`);
 
         if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] Previous data retrieved, about to store latest`);
+          console.log(
+            `[ETHT DEBUG] Previous data retrieved, about to store latest`
+          );
         }
 
         // Store latest (do this BEFORE alert so UI has it)
         await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-        
+
         if (ticker === "ETHT") {
           console.log(`[ETHT DEBUG] Successfully stored latest data`);
         }
@@ -4251,6 +4253,13 @@ export default {
             now
           ).toISOString()}`
         );
+
+        // CRITICAL: Ensure ticker is in index IMMEDIATELY after storage
+        // This ensures ticker appears on dashboard even if request is canceled later
+        await ensureTickerIndex(KV, ticker);
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] Indexing completed`);
+        }
 
         // Process trade simulation (create/update trades automatically)
         await processTradeSimulation(KV, ticker, payload, prevLatest, env);
