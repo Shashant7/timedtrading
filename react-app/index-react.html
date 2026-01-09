@@ -4167,17 +4167,33 @@
                             </span>
                           </div>
                         )}
-                        {fund.market_cap !== null && fund.market_cap !== undefined && typeof fund.market_cap === 'number' && !isNaN(fund.market_cap) && (
-                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                            <span className="text-[#93a4d6]">Market Cap</span>
-                            <span className="font-semibold">
-                              {fund.market_cap >= 1e12 ? `$${(fund.market_cap / 1e12).toFixed(2)}T` :
-                               fund.market_cap >= 1e9 ? `$${(fund.market_cap / 1e9).toFixed(2)}B` :
-                               fund.market_cap >= 1e6 ? `$${(fund.market_cap / 1e6).toFixed(2)}M` :
-                               `$${Number(fund.market_cap).toLocaleString()}`}
-                            </span>
-                          </div>
-                        )}
+                        {(() => {
+                          const marketCap = fund.market_cap;
+                          const isValid = marketCap !== null && 
+                                         marketCap !== undefined && 
+                                         marketCap !== "" &&
+                                         (typeof marketCap === 'number' || typeof marketCap === 'string') &&
+                                         !isNaN(Number(marketCap)) &&
+                                         Number(marketCap) > 0;
+                          if (!isValid) return null;
+                          const numCap = Number(marketCap);
+                          let formatted;
+                          if (numCap >= 1e12) {
+                            formatted = `$${(numCap / 1e12).toFixed(2)}T`;
+                          } else if (numCap >= 1e9) {
+                            formatted = `$${(numCap / 1e9).toFixed(2)}B`;
+                          } else if (numCap >= 1e6) {
+                            formatted = `$${(numCap / 1e6).toFixed(2)}M`;
+                          } else {
+                            formatted = `$${numCap.toLocaleString()}`;
+                          }
+                          return (
+                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                              <span className="text-[#93a4d6]">Market Cap</span>
+                              <span className="font-semibold">{formatted}</span>
+                            </div>
+                          );
+                        })()}
                         {fund.industry && (
                           <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                             <span className="text-[#93a4d6]">Industry</span>
