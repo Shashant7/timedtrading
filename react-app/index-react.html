@@ -5241,11 +5241,13 @@
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Stop Loss (SL)</span>
                     <span className="font-semibold text-red-400">{ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}</span>
-                </div>
+                  </div>
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Target Price (TP)</span>
                     <span className="font-semibold text-green-400">{ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}</span>
                   </div>
+                  
+                  {/* TP Levels Array - Always show if available */}
                   {(() => {
                     const tpLevels = ticker.tp_levels || [];
                     if (Array.isArray(tpLevels) && tpLevels.length > 0) {
@@ -5253,21 +5255,74 @@
                       const tpPrices = tpLevels
                         .map((tpItem) => {
                           if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
-                            return Number(tpItem.price);
+                            return {
+                              price: Number(tpItem.price),
+                              source: tpItem.source || "ATR Level",
+                              type: tpItem.type || "ATR_FIB",
+                              timeframe: tpItem.timeframe || "D",
+                              label: tpItem.label || "TP",
+                            };
                           }
-                          return typeof tpItem === "number" ? tpItem : Number(tpItem);
+                          return {
+                            price: typeof tpItem === "number" ? Number(tpItem) : Number(tpItem),
+                            source: "ATR Level",
+                            type: "ATR_FIB",
+                            timeframe: "D",
+                            label: "TP",
+                          };
                         })
-                        .filter((p) => Number.isFinite(p) && p > 0);
+                        .filter((p) => Number.isFinite(p.price) && p.price > 0);
                       
                       if (tpPrices.length > 0) {
-                        const maxTP = Math.max(...tpPrices);
+                        // Sort by price (ascending for LONG, descending for SHORT)
+                        const direction = ticker.state?.includes("BULL") ? "LONG" : ticker.state?.includes("BEAR") ? "SHORT" : null;
+                        const isLong = direction === "LONG";
+                        tpPrices.sort((a, b) => isLong ? a.price - b.price : b.price - a.price);
+                        
+                        const maxTP = Math.max(...tpPrices.map(tp => tp.price));
+                        const minTP = Math.min(...tpPrices.map(tp => tp.price));
+                        
                         return (
-                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                            <span className="text-[#93a4d6]">Max TP</span>
-                            <span className="font-semibold text-green-400">${maxTP.toFixed(2)}</span>
-                          </div>
+                          <>
+                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                              <span className="text-[#93a4d6]">Max TP</span>
+                              <span className="font-semibold text-green-400">${maxTP.toFixed(2)}</span>
+                            </div>
+                            <div className="py-2 border-b border-[#26325f]/50">
+                              <div className="text-xs text-[#93a4d6] mb-2">TP Levels ({tpPrices.length})</div>
+                              <div className="space-y-1 max-h-32 overflow-y-auto">
+                                {tpPrices.map((tpItem, idx) => {
+                                  const tf = tpItem.timeframe || "D";
+                                  const tfLabel = tf === "W" ? "W" : tf === "D" ? "D" : tf === "240" || tf === "4H" ? "4H" : tf;
+                                  return (
+                                    <div key={idx} className="flex justify-between items-center text-xs bg-[#0f1630] rounded px-2 py-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-green-400 font-semibold">${tpItem.price.toFixed(2)}</span>
+                                        <span className="text-[#93a4d6] text-[10px]">
+                                          {tpItem.source !== "ATR Level" ? tpItem.source : ""}
+                                          {tpItem.timeframe ? ` (${tfLabel})` : ""}
+                                        </span>
+                                      </div>
+                                      <span className="text-[#93a4d6] text-[10px]">
+                                        {tpItem.type !== "ATR_FIB" ? tpItem.type : ""}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </>
                         );
                       }
+                    }
+                    // Show Max TP even if only primary TP exists
+                    if (ticker.tp && Number(ticker.tp) > 0) {
+                      return (
+                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                          <span className="text-[#93a4d6]">Max TP</span>
+                          <span className="font-semibold text-green-400">${Number(ticker.tp).toFixed(2)}</span>
+                        </div>
+                      );
                     }
                     return null;
                   })()}
