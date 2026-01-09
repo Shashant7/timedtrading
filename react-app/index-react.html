@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Timed Trading — React Dashboard</title>
+    <title>Timed Trading</title>
 
     <!-- React & ReactDOM via CDN -->
     <script
@@ -4086,9 +4086,19 @@
                     <button
                       key={sectorName}
                       onClick={() => {
-                        onFilterChange({
-                          sector: isActive ? null : sectorName,
-                        });
+                        if (isActive) {
+                          // Toggle off - set to undefined to properly clear
+                          const newFilters = { ...filters };
+                          delete newFilters.sector;
+                          newFilters.sector = undefined;
+                          onFilterChange(newFilters);
+                        } else {
+                          // Toggle on - set sector filter
+                          onFilterChange({
+                            ...filters,
+                            sector: sectorName,
+                          });
+                        }
                       }}
                       className={`px-2 py-1 rounded-lg border text-xs font-semibold transition-all ${
                         isActive
