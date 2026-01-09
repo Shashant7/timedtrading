@@ -1348,6 +1348,13 @@
             if (!tickersWithTrades.has(normTicker(ticker))) continue;
           }
 
+          // Sector filter - only show tickers in the selected sector
+          if (effectiveFilters.sector) {
+            // Check both top-level sector and fundamentals.sector
+            const tickerSector = d.sector || d.fundamentals?.sector || "";
+            if (tickerSector !== effectiveFilters.sector) continue;
+          }
+
           out.push({ ticker, ...d });
         }
 
@@ -5434,6 +5441,7 @@
       function App() {
         const { data, loading, error, lastUpdate, versionInfo, refetch } = useTickerData();
         const { trades } = useTrades();
+        const { sectors } = useSectors();
         const [filters, setFilters] = useState({
           search: "",
           quadrants: [
@@ -5446,6 +5454,7 @@
           minRR: 0,
           maxCompletion: 1.01,
           group: "ALL",
+          sector: null, // Filter by sector name
         });
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [selectedTrail, setSelectedTrail] = useState(null);
@@ -5502,9 +5511,17 @@
           return applyFilters(data, effectiveFilters, trades);
         }, [data, effectiveFilters, trades]);
 
+        // Compute dynamic ranks once for all tickers to ensure consistency
+        const tickersWithRanks = useMemo(() => {
+          return tickers.map((t) => ({
+            ...t,
+            dynamicRank: computeDynamicRank(t),
+          }));
+        }, [tickers]);
+
         const primeTickers = useMemo(
-          () => tickers.filter(isPrimeBubble),
-          [tickers]
+          () => tickersWithRanks.filter(isPrimeBubble),
+          [tickersWithRanks]
         );
 
         const handleFilterChange = useCallback((newFilters) => {
@@ -5738,6 +5755,47 @@
                       </div>
                     )}
 
+                    {/* S&P Sectors Filter Panel */}
+                    <div className="mb-4">
+                      <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                        <h2 className="text-sm font-bold mb-3 text-[#e7ecff]">
+                          📊 S&P Sectors
+                        </h2>
+                        <div className="flex flex-wrap gap-2">
+                          {sectors.map((sectorData) => {
+                            const sectorName = sectorData.sector || sectorData.name;
+                            const rating = sectorData.rating || "neutral";
+                            const emoji =
+                              rating === "overweight"
+                                ? "📈"
+                                : rating === "underweight"
+                                ? "📉"
+                                : "➡️";
+                            const isActive = filters.sector === sectorName;
+                            return (
+                              <button
+                                key={sectorName}
+                                onClick={() => {
+                                  setFilters((prev) => ({
+                                    ...prev,
+                                    sector:
+                                      isActive ? null : sectorName,
+                                  }));
+                                }}
+                                className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-all ${
+                                  isActive
+                                    ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
+                                    : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0] text-[#93a4d6]"
+                                }`}
+                              >
+                                {emoji} {sectorName}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Lists - All five side by side in columns */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                       {/* Top 40 Dynamic Ranking - Narrower column */}
@@ -5749,11 +5807,7 @@
                           Dynamic rankings
                         </div>
                         <div className="space-y-1">
-                          {tickers
-                            .map((t) => ({
-                              ...t,
-                              dynamicRank: computeDynamicRank(t),
-                            }))
+                          {[...tickersWithRanks]
                             .sort((a, b) => b.dynamicRank - a.dynamicRank)
                             .slice(0, 40)
                             .map((ticker, idx) => (
@@ -5795,15 +5849,11 @@
 
                       {/* Top Long */}
                       {(() => {
-                        const longTickers = tickers
+                        const longTickers = tickersWithRanks
                           .filter((t) => {
                             const dir = getDirection(t);
                             return dir.text === "LONG";
                           })
-                          .map((t) => ({
-                            ...t,
-                            dynamicRank: computeDynamicRank(t),
-                          }))
                           .sort((a, b) => b.dynamicRank - a.dynamicRank)
                           .slice(0, 25);
 
@@ -5840,15 +5890,11 @@
 
                       {/* Top Short */}
                       {(() => {
-                        const shortTickers = tickers
+                        const shortTickers = tickersWithRanks
                           .filter((t) => {
                             const dir = getDirection(t);
                             return dir.text === "SHORT";
                           })
-                          .map((t) => ({
-                            ...t,
-                            dynamicRank: computeDynamicRank(t),
-                          }))
                           .sort((a, b) => b.dynamicRank - a.dynamicRank)
                           .slice(0, 25);
 
@@ -5885,16 +5931,11 @@
 
                       {/* Prime Setups */}
                       {(() => {
-                        const primeTickers = tickers
-                          .filter((t) => isPrimeBubble(t))
-                          .map((t) => ({
-                            ...t,
-                            dynamicRank: computeDynamicRank(t),
-                          }))
+                        const primeTickersSorted = primeTickers
                           .sort((a, b) => b.dynamicRank - a.dynamicRank)
                           .slice(0, 15);
 
-                        if (primeTickers.length === 0) return null;
+                        if (primeTickersSorted.length === 0) return null;
 
                         return (
                           <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-3">
@@ -5905,7 +5946,7 @@
                               High-quality setups
                             </div>
                             <div className="space-y-1">
-                              {primeTickers.map((ticker) => (
+                              {primeTickersSorted.map((ticker) => (
                                 <SetupCard
                                   key={ticker.ticker}
                                   ticker={{
@@ -5927,12 +5968,8 @@
 
                       {/* In Corridor */}
                       {(() => {
-                        const corridorTickers = tickers
+                        const corridorTickers = tickersWithRanks
                           .filter((t) => entryType(t).corridor)
-                          .map((t) => ({
-                            ...t,
-                            dynamicRank: computeDynamicRank(t),
-                          }))
                           .sort((a, b) => b.dynamicRank - a.dynamicRank)
                           .slice(0, 15);
 
