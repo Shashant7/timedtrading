@@ -1199,8 +1199,8 @@
           };
         }
 
-        // Top 40 filter
-        if (queryLower.match(/\btop\s*40\b|\btop40\b/)) {
+        // Ranked filter (all tickers sorted by rank)
+        if (queryLower.match(/\btop\s*40\b|\btop40\b|\branked\b|\ball\s+ranked\b/)) {
           conditions.top40 = true;
         }
 
@@ -1589,39 +1589,37 @@
           out.push({ ticker, ...d });
         }
 
-        // Apply Top 40 filter if active (using worker's rank field)
-        // IMPORTANT: Top 40 should be calculated from ALL tickers, not filtered subset
-        // This ensures Top 40 is always the top 40 of the entire universe
+        // Apply Ranked filter if active (using worker's rank field)
+        // Shows ALL tickers sorted by rank (1 to whatever), not just top 40
         if (effectiveFilters.top40 === true) {
           // Get ALL tickers from dataObj (not filtered 'out' array)
-          // Use same filtering logic as detail card for consistency
           const allTickersWithRank = Object.values(dataObj)
             .filter(
               (t) => t && typeof t === "object" && t.ticker && (t.rank !== undefined && t.rank !== null)
             );
           
-          // Sort by worker's rank field (descending) - same ranking system used everywhere
-          // Use same sorting logic as detail card for consistency
+          // Sort by worker's rank field (descending) - pure rank sorting, no alphabetical tiebreaker
           allTickersWithRank.sort((a, b) => {
             const rankA = Number(a.rank) || 0;
             const rankB = Number(b.rank) || 0;
             // Descending order: higher rank score = better position
-            if (rankB !== rankA) {
-              return rankB - rankA;
-            }
-            // If ranks are equal, use ticker name for consistent ordering
-            return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+            return rankB - rankA;
           });
           
-          // Get top 40 ticker symbols (normalize to uppercase for comparison)
-          const top40Tickers = new Set(
-            allTickersWithRank.slice(0, 40).map((t) => String(t.ticker || "").trim().toUpperCase())
+          // Get all ticker symbols sorted by rank (normalize to uppercase for comparison)
+          const rankedTickers = new Set(
+            allTickersWithRank.map((t) => String(t.ticker || "").trim().toUpperCase())
           );
           
-          // Filter 'out' to only include tickers that are in Top 40
+          // Filter 'out' to only include tickers that have ranks, maintaining rank order
           return out.filter((t) => {
             const tickerUpper = String(t.ticker || "").trim().toUpperCase();
-            return top40Tickers.has(tickerUpper);
+            return rankedTickers.has(tickerUpper);
+          }).sort((a, b) => {
+            // Re-sort filtered results by rank to maintain order
+            const rankA = Number(a.rank) || 0;
+            const rankB = Number(b.rank) || 0;
+            return rankB - rankA;
           });
         }
 
@@ -2387,16 +2385,12 @@
                     (t) => t && typeof t === 'object' && t.ticker && (t.rank !== undefined && t.rank !== null)
                   );
                   totalTickers = allTickersArray.length;
-                  // Sort by worker's rank field (descending) - same logic as detail card and Top 40 filter
+                  // Sort by worker's rank field (descending) - pure rank sorting, no alphabetical tiebreaker
                   const sortedByRank = [...allTickersArray].sort((a, b) => {
                     const rankA = Number(a.rank) || 0;
                     const rankB = Number(b.rank) || 0;
                     // Descending order: higher rank score = better position
-                    if (rankB !== rankA) {
-                      return rankB - rankA;
-                    }
-                    // If ranks are equal, use ticker name for consistent ordering
-                    return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+                    return rankB - rankA;
                   });
                   // Find position (1-indexed) - use trim() for consistency with detail card and Top 40 filter
                   const tooltipTickerUpper = String(tooltip.ticker || "").trim().toUpperCase();
@@ -4435,9 +4429,9 @@
             icon: "🔻",
           },
           {
-            label: "Top 40",
+            label: "Ranked",
             filter: { top40: true },
-            icon: "🏆",
+            icon: "📊",
           },
           {
             label: "Top Long Setup",
@@ -5120,20 +5114,15 @@
 
         const baseScore = Number(ticker.rank) || 0;
         // Calculate rank position using worker's rank field (stored at worker level)
-        // Use same sorting logic as Top 40 filter for consistency
+        // Pure rank sorting - no alphabetical tiebreaker
         const sortedByRank = [...allTickersWithRank].sort((a, b) => {
           const rankA = Number(a.rank) || 0;
           const rankB = Number(b.rank) || 0;
           // Descending order: higher rank score = better position
-          if (rankB !== rankA) {
-            return rankB - rankA;
-          }
-          // If ranks are equal, use ticker name for consistent ordering
-          return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+          return rankB - rankA;
         });
         const rankPosition = sortedByRank.findIndex(t => String(t.ticker || "").trim().toUpperCase() === String(tickerSymbol).trim().toUpperCase()) + 1;
         const totalTickers = allTickersWithRank.length;
-        const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
         return (
           <div className="w-full h-full flex flex-col">
@@ -5282,12 +5271,6 @@
                       <span className="font-semibold">
                         {rankPosition > 0 ? `#${rankPosition} of ${totalTickers}` : "—"}
                       </span>
-                    </div>
-                  )}
-                  {isInTop40 && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Top 40 Position</span>
-                      <span className="font-semibold text-yellow-400">#{rankPosition} of 40</span>
                     </div>
                   )}
 
@@ -7629,13 +7612,13 @@
 
                     {/* Lists - All five side by side in columns */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                      {/* Top 40 Dynamic Ranking - Narrower column */}
+                      {/* Ranked List - All tickers sorted by rank */}
                       <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-3">
                         <h2 className="text-sm font-bold mb-1">
-                          🏆 Top 40
+                          📊 Ranked
                         </h2>
                         <div className="text-[9px] text-[#93a4d6] mb-2">
-                          Dynamic rankings
+                          All tickers sorted by rank
                         </div>
                         <div className="space-y-1">
                           {[...tickersWithRanks]
