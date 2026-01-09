@@ -1558,8 +1558,11 @@
 
           // Sector filter - only show tickers in the selected sector
           if (effectiveFilters.sector) {
-            // Get sector from ticker data or lookup from mapping
-            const tickerSector = d.sector || d.fundamentals?.sector || getTickerSector(ticker) || "";
+            // PRIORITIZE SECTOR_MAP lookup over TradingView sector data
+            // TradingView uses industry classifications (e.g., "Electronic Technology", "Retail Trade")
+            // but we use GICS sectors (e.g., "Information Technology", "Consumer Discretionary")
+            // So we always check SECTOR_MAP first, then fall back to TradingView data
+            const tickerSector = getTickerSector(ticker) || d.sector || d.fundamentals?.sector || "";
             // Normalize both for case-insensitive comparison
             const normalizedTickerSector = String(tickerSector).trim();
             const normalizedFilterSector = String(effectiveFilters.sector).trim();
@@ -1567,7 +1570,7 @@
             
             // Debug logging for first few tickers when sector filter is active
             if (out.length < 3 && normalizedTickerSector) {
-              console.log(`[SECTOR FILTER] ${ticker}: tickerSector="${normalizedTickerSector}", filterSector="${normalizedFilterSector}", matches=${matches}`);
+              console.log(`[SECTOR FILTER] ${ticker}: tickerSector="${normalizedTickerSector}", filterSector="${normalizedFilterSector}", matches=${matches}, fromMap=${!!getTickerSector(ticker)}`);
             }
             
             if (!matches) {
@@ -5252,7 +5255,7 @@
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Stop Loss (SL)</span>
                     <span className="font-semibold text-red-400">{ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}</span>
-                  </div>
+                </div>
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Target Price (TP)</span>
                     <span className="font-semibold text-green-400">{ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}</span>
