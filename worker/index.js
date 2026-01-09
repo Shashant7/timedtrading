@@ -1383,8 +1383,12 @@ async function processTradeSimulation(
       ) {
         // Calculate shares based on asset type (futures vs stocks)
         const tickerUpper = String(ticker || "").toUpperCase();
-        const isFutures = FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
-        correctedShares = isFutures && FUTURES_SPECS[tickerUpper] ? 1 : TRADE_SIZE / correctedEntryPrice;
+        const isFutures =
+          FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
+        correctedShares =
+          isFutures && FUTURES_SPECS[tickerUpper]
+            ? 1
+            : TRADE_SIZE / correctedEntryPrice;
         console.log(
           `[TRADE SIM] 🔧 Recalculating ${ticker} ${direction} shares: ${existingOpenTrade.shares?.toFixed(
             4
@@ -1677,41 +1681,16 @@ async function processTradeSimulation(
       let priceSource;
 
       // ALWAYS use current price if available and valid (> 0)
+      // For new trades, we want the entry price to reflect the CURRENT market price,
+      // not a historical trigger_price, so traders see accurate entry levels
       if (currentPrice && currentPrice > 0) {
         entryPrice = currentPrice;
-        priceSource = "price";
-
-        // For backfills: only consider trigger_price if it's significantly different
-        if (isBackfill && triggerPrice && triggerPrice > 0) {
-          const priceDiff =
-            Math.abs(triggerPrice - currentPrice) / currentPrice;
-          if (priceDiff > 0.01) {
-            // More than 1% difference - use trigger_price for backfill
-            entryPrice = triggerPrice;
-            priceSource = "trigger_price (backfill)";
-            console.log(
-              `[TRADE SIM] Using trigger_price $${triggerPrice.toFixed(
-                2
-              )} for backfill (current: $${currentPrice.toFixed(2)})`
-            );
-          } else {
-            // Price is close - use current price even for backfills (more accurate)
-            console.log(
-              `[TRADE SIM] Using current price $${currentPrice.toFixed(
-                2
-              )} (trigger_price $${triggerPrice.toFixed(
-                2
-              )} is close, not using for backfill)`
-            );
-          }
-        } else {
-          // Real-time alert: ALWAYS use current market price
-          console.log(
-            `[TRADE SIM] Real-time alert: using current price $${entryPrice.toFixed(
-              2
-            )} (not trigger_price)`
-          );
-        }
+        priceSource = isBackfill ? "price (backfill, using current)" : "price";
+        console.log(
+          `[TRADE SIM] Using current price $${currentPrice.toFixed(
+            2
+          )} as entry price${isBackfill ? " (backfill detected, but using current price for accuracy)" : " (real-time)"}`
+        );
       } else if (triggerPrice && triggerPrice > 0) {
         // Fallback: only use trigger_price if price is not available
         entryPrice = triggerPrice;
@@ -1816,8 +1795,12 @@ async function processTradeSimulation(
             const existingValue = existingEntryPrice * existingShares;
             // Calculate shares based on asset type (futures vs stocks)
             const tickerUpper = String(ticker || "").toUpperCase();
-            const isFutures = FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
-            const newShares = isFutures && FUTURES_SPECS[tickerUpper] ? 1 : TRADE_SIZE / entryPrice;
+            const isFutures =
+              FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
+            const newShares =
+              isFutures && FUTURES_SPECS[tickerUpper]
+                ? 1
+                : TRADE_SIZE / entryPrice;
             const newValue = entryPrice * newShares;
             const totalShares = existingShares + newShares;
             const totalValue = existingValue + newValue;
