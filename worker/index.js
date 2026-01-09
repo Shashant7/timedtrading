@@ -1107,10 +1107,25 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
         }
       }
 
-      // Check if we should hold winners (price above 4H 8 EMA equivalent)
-      // Since TradingView doesn't send 4H EMA, use price momentum and profit threshold
-      // Hold if: price is significantly above entry (>2%) and we haven't trimmed everything
-      const shouldHold = priceDiffPct > 2.0 && trimmedPct < 1.0;
+      // Check if we should hold winners (price above 4H 8-13 EMA cloud)
+      // Use 4H EMA cloud position if available, otherwise fallback to price momentum
+      let shouldHold = false;
+      const fourHEMACloud = tickerData.fourh_ema_cloud;
+      
+      if (fourHEMACloud && fourHEMACloud.position) {
+        // Use 4H EMA cloud position for hold decision
+        if (isLong) {
+          // For LONG: hold if price is above the 4H EMA cloud
+          shouldHold = fourHEMACloud.position === "above" && trimmedPct < 1.0;
+        } else {
+          // For SHORT: hold if price is below the 4H EMA cloud
+          shouldHold = fourHEMACloud.position === "below" && trimmedPct < 1.0;
+        }
+      } else {
+        // Fallback: use price momentum and profit threshold
+        // Hold if: price is significantly above entry (>2%) and we haven't trimmed everything
+        shouldHold = priceDiffPct > 2.0 && trimmedPct < 1.0;
+      }
 
       if (shouldHold) {
         // Hold remaining position - calculate unrealized P&L
