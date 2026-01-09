@@ -634,15 +634,15 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     .filter((item) => {
       const price = Number(item.price);
       if (!Number.isFinite(price) || price <= 0) return false;
-      
+
       // Direction check
       const directionValid = isLong ? price > entryPrice : price < entryPrice;
       if (!directionValid) return false;
-      
+
       // Distance check - filter out TPs too close to entry
       const distancePct = Math.abs(price - entryPrice) / entryPrice;
       if (distancePct < minDistancePct) return false;
-      
+
       return true;
     })
     .sort((a, b) => {
@@ -683,7 +683,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   scoredTPs.sort((a, b) => {
     const tfA = String(a.timeframe || "D").toUpperCase();
     const tfB = String(b.timeframe || "D").toUpperCase();
-    
+
     // HTF priority: W > D > 4H > others
     const htfPriority = (tf) => {
       if (tf === "W") return 3;
@@ -691,15 +691,15 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
       if (tf === "240" || tf === "4H") return 1;
       return 0;
     };
-    
+
     const priorityA = htfPriority(tfA);
     const priorityB = htfPriority(tfB);
-    
+
     // If same HTF priority, sort by score
     if (priorityA === priorityB) {
       return b.score - a.score;
     }
-    
+
     // Higher HTF priority first
     return priorityB - priorityA;
   });
@@ -715,7 +715,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     const tf = String(tp.timeframe || "D").toUpperCase();
     return tf === "W" || tf === "D";
   });
-  
+
   // Second pass: If we don't have enough HTF TPs, add lower timeframe TPs
   const allTPsToConsider = htfTPs.length >= 3 ? htfTPs : scoredTPs;
 
@@ -4076,7 +4076,7 @@ const SECTOR_RATINGS = {
   Financials: { rating: "overweight", boost: 5 },
   "Real Estate": { rating: "underweight", boost: -3 },
   "Consumer Staples": { rating: "underweight", boost: -3 },
-  "Health Care": { rating: "overweight", boost: 5 },
+  Healthcare: { rating: "overweight", boost: 5 }, // Fixed: "Health Care" -> "Healthcare" to match SECTOR_MAP
   Utilities: { rating: "overweight", boost: 5 },
 };
 
