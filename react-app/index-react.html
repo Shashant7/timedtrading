@@ -1594,13 +1594,14 @@
         // This ensures Top 40 is always the top 40 of the entire universe
         if (effectiveFilters.top40 === true) {
           // Get ALL tickers from dataObj (not filtered 'out' array)
+          // Use same filtering logic as detail card for consistency
           const allTickersWithRank = Object.values(dataObj)
             .filter(
               (t) => t && typeof t === "object" && t.ticker && (t.rank !== undefined && t.rank !== null)
-            )
-            .map((t) => ({ ticker: String(t.ticker || "").trim().toUpperCase(), ...t }));
+            );
           
           // Sort by worker's rank field (descending) - same ranking system used everywhere
+          // Use same sorting logic as detail card for consistency
           allTickersWithRank.sort((a, b) => {
             const rankA = Number(a.rank) || 0;
             const rankB = Number(b.rank) || 0;
@@ -1612,14 +1613,14 @@
             return String(a.ticker || "").localeCompare(String(b.ticker || ""));
           });
           
-          // Get top 40 ticker symbols
+          // Get top 40 ticker symbols (normalize to uppercase for comparison)
           const top40Tickers = new Set(
-            allTickersWithRank.slice(0, 40).map((t) => String(t.ticker || "").toUpperCase())
+            allTickersWithRank.slice(0, 40).map((t) => String(t.ticker || "").trim().toUpperCase())
           );
           
           // Filter 'out' to only include tickers that are in Top 40
           return out.filter((t) => {
-            const tickerUpper = String(t.ticker || "").toUpperCase();
+            const tickerUpper = String(t.ticker || "").trim().toUpperCase();
             return top40Tickers.has(tickerUpper);
           });
         }
