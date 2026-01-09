@@ -467,20 +467,25 @@
           
           // Calculate realized P&L from trimmed positions
           const trimmedRealizedPnl = trimmed.reduce((sum, t) => {
-            const shares = t.shares || TRADE_SIZE / (t.entryPrice || 1); // Allow fractional shares
+            const tickerSym = String(t.ticker || "").toUpperCase();
+            const isFut = FUTURES_SPECS[tickerSym] || tickerSym.endsWith("1!");
+            const pointVal = isFut && FUTURES_SPECS[tickerSym] ? FUTURES_SPECS[tickerSym].pointValue : 1;
+            const shares = t.shares || (isFut && FUTURES_SPECS[tickerSym] ? 1 : TRADE_SIZE / (t.entryPrice || 1));
             const trimmedPct = t.trimmedPct || 0;
-            const trimmedShares = shares * trimmedPct; // Allow fractional shares
+            const trimmedShares = shares * trimmedPct;
             const entryPrice = t.entryPrice || 0;
             const tp = t.tp || entryPrice; // Use TP price where trimmed occurred
             
             if (trimmedShares > 0 && entryPrice > 0) {
               const direction = t.direction || "LONG";
               if (direction === "LONG") {
-                // LONG: profit = (TP - Entry) * trimmed shares
-                return sum + ((tp - entryPrice) * trimmedShares);
+                // LONG: profit = (TP - Entry) * trimmed shares * point value
+                const priceDiff = tp - entryPrice;
+                return sum + (priceDiff * trimmedShares * pointVal);
               } else {
-                // SHORT: profit = (Entry - TP) * trimmed shares
-                return sum + ((entryPrice - tp) * trimmedShares);
+                // SHORT: profit = (Entry - TP) * trimmed shares * point value
+                const priceDiff = entryPrice - tp;
+                return sum + (priceDiff * trimmedShares * pointVal);
               }
             }
             return sum;
@@ -888,9 +893,17 @@
                   {/* Trade Details */}
                   <div className="space-y-2.5 text-sm mb-4">
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Shares</span>
+                      <span className="text-[#93a4d6]">{isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? "Contracts" : "Shares"} {trimmedShares > 0 ? "(remaining)" : ""}</span>
                       <span className="font-semibold text-white">
-                        {shares} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares} remaining)</span>}
+                        {isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? (
+                          <>
+                            {shares?.toFixed(0)} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares?.toFixed(2)} remaining)</span>}
+                          </>
+                        ) : (
+                          <>
+                            {shares?.toFixed(4)} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares?.toFixed(4)} remaining)</span>}
+                          </>
+                        )}
                       </span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
