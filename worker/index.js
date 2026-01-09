@@ -3075,6 +3075,15 @@ export default {
           payload.ingest_time = new Date(now).toISOString();
 
           await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+          
+          // Store version-specific snapshot for historical access
+          const version = payload.script_version || "unknown";
+          if (version !== "unknown") {
+            await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
+            // Also store timestamp of when this version was last seen
+            await kvPutText(KV, `timed:version:${ticker}:${version}:last_seen`, String(payload.ts || Date.now()));
+          }
+          
           await ensureTickerIndex(KV, ticker);
           console.log(
             `[INGEST DEDUPED BUT STORED] ${ticker} - updated latest data and ensured in index`
@@ -3528,6 +3537,14 @@ export default {
           20
         ); // Increased to 20 points for better history
 
+        // Store version-specific snapshot for historical access
+        const version = payload.script_version || "unknown";
+        if (version !== "unknown") {
+          await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
+          // Also store timestamp of when this version was last seen
+          await kvPutText(KV, `timed:version:${ticker}:${version}:last_seen`, String(payload.ts || Date.now()));
+        }
+        
         await ensureTickerIndex(KV, ticker);
         await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
 
@@ -3890,7 +3907,7 @@ export default {
       );
     }
 
-    // GET /timed/all
+    // GET /timed/all?version=2.5.0 (optional version parameter)
     if (url.pathname === "/timed/all" && req.method === "GET") {
       // Rate limiting
       const ip = req.headers.get("CF-Connecting-IP") || "unknown";
@@ -3907,14 +3924,31 @@ export default {
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
       const storedVersion =
         (await getStoredVersion(KV)) || CURRENT_DATA_VERSION;
+      
+      // Check if version parameter is provided
+      const requestedVersion = url.searchParams.get("version");
+      const useVersionSnapshots = requestedVersion && requestedVersion !== "latest";
 
       // Use Promise.all for parallel KV reads instead of sequential
-      const dataPromises = tickers.map((t) =>
-        kvGetJSON(KV, `timed:latest:${t}`).then((value) => ({
-          ticker: t,
-          value,
-        }))
-      );
+      const dataPromises = tickers.map(async (t) => {
+        let value;
+        if (useVersionSnapshots) {
+          // Try to get version-specific snapshot first
+          value = await kvGetJSON(KV, `timed:snapshot:${t}:${requestedVersion}`);
+          // If no snapshot found, fall back to latest
+          if (!value) {
+            value = await kvGetJSON(KV, `timed:latest:${t}`);
+            // Only include if version matches
+            if (value && value.script_version !== requestedVersion) {
+              value = null; // Don't include mismatched versions
+            }
+          }
+        } else {
+          // Default: get latest data
+          value = await kvGetJSON(KV, `timed:latest:${t}`);
+        }
+        return { ticker: t, value };
+      });
       const results = await Promise.all(dataPromises);
 
       // Find all versions in the data
@@ -3979,6 +4013,7 @@ export default {
           versionFiltered: versionFilteredCount,
           versionBreakdown: versionBreakdown,
           dataVersion: storedVersion,
+          requestedVersion: requestedVersion || "latest",
           versionsSeen: Array.from(versionsSeen),
           acceptedVersions: Array.from(acceptedVersions),
           currentDataVersion: CURRENT_DATA_VERSION,
@@ -4598,7 +4633,10 @@ export default {
     }
 
     // POST /timed/purge-trades-by-version?key=...&version=2.6.0 (Purge trades by version)
-    if (url.pathname === "/timed/purge-trades-by-version" && req.method === "POST") {
+    if (
+      url.pathname === "/timed/purge-trades-by-version" &&
+      req.method === "POST"
+    ) {
       const authFail = requireKeyOr401(req, env);
       if (authFail) return authFail;
 
@@ -4613,10 +4651,11 @@ export default {
 
       const tradesKey = "timed:trades:all";
       const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-      
+
       const beforeCount = allTrades.length;
-      const filteredTrades = allTrades.filter(trade => {
-        const tradeVersion = trade.scriptVersion || trade.script_version || "unknown";
+      const filteredTrades = allTrades.filter((trade) => {
+        const tradeVersion =
+          trade.scriptVersion || trade.script_version || "unknown";
         return tradeVersion !== targetVersion;
       });
       const purgedCount = beforeCount - filteredTrades.length;
