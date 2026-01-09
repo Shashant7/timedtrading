@@ -3075,15 +3075,19 @@ export default {
           payload.ingest_time = new Date(now).toISOString();
 
           await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-          
+
           // Store version-specific snapshot for historical access
           const version = payload.script_version || "unknown";
           if (version !== "unknown") {
             await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
             // Also store timestamp of when this version was last seen
-            await kvPutText(KV, `timed:version:${ticker}:${version}:last_seen`, String(payload.ts || Date.now()));
+            await kvPutText(
+              KV,
+              `timed:version:${ticker}:${version}:last_seen`,
+              String(payload.ts || Date.now())
+            );
           }
-          
+
           await ensureTickerIndex(KV, ticker);
           console.log(
             `[INGEST DEDUPED BUT STORED] ${ticker} - updated latest data and ensured in index`
@@ -3507,6 +3511,15 @@ export default {
 
         // Store latest (do this BEFORE alert so UI has it)
         await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+        
+        // Store version-specific snapshot for historical access
+        const version = payload.script_version || "unknown";
+        if (version !== "unknown") {
+          await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
+          // Also store timestamp of when this version was last seen
+          await kvPutText(KV, `timed:version:${ticker}:${version}:last_seen`, String(payload.ts || Date.now()));
+        }
+        
         console.log(
           `[INGEST STORED] ${ticker} - latest data saved at ${new Date(
             now
@@ -3542,9 +3555,13 @@ export default {
         if (version !== "unknown") {
           await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
           // Also store timestamp of when this version was last seen
-          await kvPutText(KV, `timed:version:${ticker}:${version}:last_seen`, String(payload.ts || Date.now()));
+          await kvPutText(
+            KV,
+            `timed:version:${ticker}:${version}:last_seen`,
+            String(payload.ts || Date.now())
+          );
         }
-        
+
         await ensureTickerIndex(KV, ticker);
         await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
 
@@ -3924,17 +3941,21 @@ export default {
       const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
       const storedVersion =
         (await getStoredVersion(KV)) || CURRENT_DATA_VERSION;
-      
+
       // Check if version parameter is provided
       const requestedVersion = url.searchParams.get("version");
-      const useVersionSnapshots = requestedVersion && requestedVersion !== "latest";
+      const useVersionSnapshots =
+        requestedVersion && requestedVersion !== "latest";
 
       // Use Promise.all for parallel KV reads instead of sequential
       const dataPromises = tickers.map(async (t) => {
         let value;
         if (useVersionSnapshots) {
           // Try to get version-specific snapshot first
-          value = await kvGetJSON(KV, `timed:snapshot:${t}:${requestedVersion}`);
+          value = await kvGetJSON(
+            KV,
+            `timed:snapshot:${t}:${requestedVersion}`
+          );
           // If no snapshot found, fall back to latest
           if (!value) {
             value = await kvGetJSON(KV, `timed:latest:${t}`);
