@@ -5085,6 +5085,76 @@ export default {
       );
     }
 
+    // POST /timed/debug/cleanup-duplicates?key=... - Remove duplicate/empty tickers from index
+    if (url.pathname === "/timed/debug/cleanup-duplicates" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const duplicatesToRemove = [
+          "BTC",      // Duplicate of BTCUSD (BTCUSD has data)
+          "ES",       // Duplicate of ES1! (ES1! has data)
+          "ETH",      // Duplicate of ETHUSD (ETHUSD has data)
+          "NQ",       // Duplicate of NQ1! (NQ1! has data)
+          "MES1!",    // Not sending data
+          "MNQ1!",    // Not sending data
+          "RTY1!",    // Not sending data
+          "YM1!",     // Not sending data
+        ];
+
+        const removed = [];
+        const notFound = [];
+        const hasData = [];
+
+        for (const ticker of duplicatesToRemove) {
+          if (!tickers.includes(ticker)) {
+            notFound.push(ticker);
+            continue;
+          }
+
+          // Check if ticker has data
+          const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          if (data && (data.htf_score !== undefined || data.ltf_score !== undefined)) {
+            hasData.push(ticker);
+            continue; // Don't remove if it has data
+          }
+
+          // Remove from index
+          const updatedTickers = tickers.filter((t) => t !== ticker);
+          await kvPutJSON(KV, "timed:tickers", updatedTickers);
+          removed.push(ticker);
+          
+          // Also delete the data if it exists (even without scores)
+          await KV.delete(`timed:latest:${ticker}`);
+          await KV.delete(`timed:trail:${ticker}`);
+        }
+
+        const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+
+        return sendJSON(
+          {
+            ok: true,
+            message: "Cleanup completed",
+            removed,
+            notFound,
+            hasData,
+            beforeCount: tickers.length,
+            afterCount: finalTickers.length,
+            removedCount: removed.length,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        return sendJSON(
+          { ok: false, error: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
     // POST /timed/debug/fix-index?key=...&ticker=BMNR - Manually add ticker to index if data exists
     if (url.pathname === "/timed/debug/fix-index" && req.method === "POST") {
       const authFail = requireKeyOr401(req, env);
@@ -5127,7 +5197,9 @@ export default {
           return sendJSON(
             {
               ok: true,
-              message: `Ticker ${ticker} ${nowInIndex ? "added to" : "failed to add to"} index`,
+              message: `Ticker ${ticker} ${
+                nowInIndex ? "added to" : "failed to add to"
+              } index`,
               ticker,
               hadData: true,
               wasInIndex: false,

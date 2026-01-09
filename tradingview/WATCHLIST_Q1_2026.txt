@@ -178,10 +178,8 @@ XLB
 XLE
 XLU
 XLV
-ES
-NQ
-BTC
-ETH
-Gold
-Silver
+ES1!
+NQ1!
+BTCUSD
+ETHUSD
 

@@ -766,7 +766,8 @@
         const s = String(t || "")
           .trim()
           .toUpperCase();
-        if (s === "BRK-B") return "BRK.B";
+        // BRK-B is correct (US market), don't normalize to BRK.B (London market)
+        // Keep BRK-B as-is for proper US market tracking
         return s;
       }
 
