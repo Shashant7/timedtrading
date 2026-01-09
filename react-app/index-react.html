@@ -1286,21 +1286,8 @@
             GROUPS.Futures && GROUPS.Futures.has(normTicker(ticker));
           const inGroups = isTickerInGroups(ticker); // Always returns true now (includes "No Group")
           
-          // Debug logging for specific tickers
-          if (ticker === "BMNR" || ticker === "VIX" || ticker === "BTCUSD") {
-            console.log(`[FILTER DEBUG] ${ticker}:`, {
-              ticker,
-              isSPSector,
-              isFuture,
-              inGroups,
-              groups: groupsForTicker(ticker),
-              hasData: !!d,
-              hasHtf: d.htf_score !== undefined,
-              hasLtf: d.ltf_score !== undefined,
-              hasPrice: d.price !== undefined,
-              dataKeys: d ? Object.keys(d) : []
-            });
-          }
+          // Debug logging for specific tickers (only log once per ticker, not on every filter pass)
+          // Removed verbose logging - tickers are now showing properly
           
           // All tickers should be shown (either in a group or in "No Group")
           // This check is now redundant but kept for clarity
