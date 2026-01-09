@@ -1308,32 +1308,15 @@
             continue;
           }
 
-          // Skip tickers that don't have scores (can't render without position data)
-          // These will appear once they receive data from TradingView
-          if (d.htf_score === undefined && d.ltf_score === undefined) {
-            // Enhanced logging for specific tickers we're looking for
-            if (ticker === "BMNR" || ticker === "VIX" || ticker === "BTCUSD") {
-              console.log(`[FILTER] ${ticker} skipped: missing htf_score and ltf_score`, {
-                ticker,
-                hasHtf: d.htf_score !== undefined,
-                hasLtf: d.ltf_score !== undefined,
-                scriptVersion: d.script_version,
-                hasPrice: d.price !== undefined,
-                hasState: d.state !== undefined,
-                hasSl: d.sl !== undefined,
-                hasTp: d.tp !== undefined,
-                allKeys: Object.keys(d),
-                data: d
-              });
-            } else {
-              console.log(`[FILTER] ${ticker} skipped: missing htf_score and ltf_score`, {
-                hasHtf: d.htf_score !== undefined,
-                hasLtf: d.ltf_score !== undefined,
-                scriptVersion: d.script_version,
-                hasPrice: d.price !== undefined
-              });
-            }
-            continue;
+          // Include tickers even if they don't have scores yet - they'll show at center (0,0) with default values
+          // This allows bubbles to appear immediately when tickers are added to watchlist
+          // They'll update once TradingView sends data (within 5 minutes)
+          const hasScores = d.htf_score !== undefined || d.ltf_score !== undefined;
+          if (!hasScores) {
+            // Provide default values so bubble can render
+            d.htf_score = d.htf_score !== undefined ? d.htf_score : 0;
+            d.ltf_score = d.ltf_score !== undefined ? d.ltf_score : 0;
+            d.waitingForData = true; // Flag to indicate waiting for TradingView data
           }
 
           // Multi-ticker search
@@ -1608,6 +1591,7 @@
           const comp = Number(ticker.completion) || 0;
           const phasePct = Number(ticker.phase_pct) || 0;
           const rr = Number(ticker.rr) || 0;
+          const waitingForData = ticker.waitingForData === true;
 
           // Bubble size based on RR, adjusted for completion (lower completion = larger size)
           // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
@@ -1615,22 +1599,34 @@
           const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
           const baseSize = 8;
           const rrMultiplier = 6; // Scale factor for RR
-          const size = baseSize + cappedRR * rrMultiplier * completionPenalty;
+          // Smaller size for tickers waiting for data
+          const size = waitingForData 
+            ? baseSize * 0.7 
+            : baseSize + cappedRR * rrMultiplier * completionPenalty;
 
           const prime = isPrimeBubble(ticker);
           const flags = ticker.flags || {};
 
           // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
-          const color = phaseCompletionToColor(phasePct);
-          const opacity = isHovered ? 1 : prime ? 0.9 : 0.7;
-          const borderWidth = prime
+          // Use gray for tickers waiting for data
+          const color = waitingForData 
+            ? "#6b7a9f" 
+            : phaseCompletionToColor(phasePct);
+          const opacity = waitingForData 
+            ? 0.4 
+            : isHovered ? 1 : prime ? 0.9 : 0.7;
+          const borderWidth = waitingForData
+            ? 2
+            : prime
             ? 3
             : flags.sq30_release
             ? 2
             : flags.sq30_on
             ? 2
             : 1;
-          const borderColor = prime
+          const borderColor = waitingForData
+            ? "#93a4d6"
+            : prime
             ? "#2ecc71"
             : flags.sq30_release
             ? "#00ffff"
