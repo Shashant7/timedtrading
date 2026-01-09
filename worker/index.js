@@ -410,10 +410,95 @@ function getTradeDirection(state) {
   return null;
 }
 
+// Helper: Get valid TP based on direction and entry price
+function getValidTP(tickerData, entryPrice, direction) {
+  const isLong = direction === "LONG";
+  
+  // Get TP from tickerData
+  let tp = Number(tickerData.tp);
+  
+  // If tp_levels exists, extract all valid TP prices
+  let tpPrices = [];
+  if (
+    tickerData.tp_levels &&
+    Array.isArray(tickerData.tp_levels) &&
+    tickerData.tp_levels.length > 0
+  ) {
+    tpPrices = tickerData.tp_levels
+      .map((tpItem) => {
+        if (
+          typeof tpItem === "object" &&
+          tpItem !== null &&
+          tpItem.price != null
+        ) {
+          return Number(tpItem.price);
+        }
+        return typeof tpItem === "number" ? Number(tpItem) : null;
+      })
+      .filter((p) => Number.isFinite(p) && p > 0);
+  }
+  
+  // Add the primary TP if it's valid
+  if (Number.isFinite(tp) && tp > 0) {
+    tpPrices.push(tp);
+  }
+  
+  // Remove duplicates and sort
+  tpPrices = [...new Set(tpPrices)].sort((a, b) => a - b);
+  
+  // Find first valid TP based on direction
+  if (isLong) {
+    // For LONG: TP must be above entry price
+    const validTPs = tpPrices.filter((p) => p > entryPrice);
+    if (validTPs.length > 0) {
+      return validTPs[0]; // Return first (lowest) valid TP above entry
+    }
+    // If no valid TP found, check if primary TP is valid
+    if (Number.isFinite(tp) && tp > entryPrice) {
+      return tp;
+    }
+    // Fallback: use highest TP from levels (might still be invalid, but better than nothing)
+    if (tpPrices.length > 0) {
+      console.warn(
+        `[TP VALIDATION] ⚠️ ${tickerData.ticker || "UNKNOWN"} LONG: No TP above entry $${entryPrice.toFixed(2)}. Using highest TP: $${Math.max(...tpPrices).toFixed(2)}`
+      );
+      return Math.max(...tpPrices);
+    }
+  } else {
+    // For SHORT: TP must be below entry price
+    const validTPs = tpPrices.filter((p) => p < entryPrice);
+    if (validTPs.length > 0) {
+      return validTPs[validTPs.length - 1]; // Return last (highest) valid TP below entry
+    }
+    // If no valid TP found, check if primary TP is valid
+    if (Number.isFinite(tp) && tp < entryPrice) {
+      return tp;
+    }
+    // Fallback: use lowest TP from levels
+    if (tpPrices.length > 0) {
+      console.warn(
+        `[TP VALIDATION] ⚠️ ${tickerData.ticker || "UNKNOWN"} SHORT: No TP below entry $${entryPrice.toFixed(2)}. Using lowest TP: $${Math.min(...tpPrices).toFixed(2)}`
+      );
+      return Math.min(...tpPrices);
+    }
+  }
+  
+  // Last resort: return primary TP even if invalid
+  if (Number.isFinite(tp) && tp > 0) {
+    console.warn(
+      `[TP VALIDATION] ⚠️ ${tickerData.ticker || "UNKNOWN"} ${direction}: Using invalid TP $${tp.toFixed(2)} (entry: $${entryPrice.toFixed(2)})`
+    );
+    return tp;
+  }
+  
+  return null;
+}
+
 // Calculate RR at entry price (for trade creation) instead of current price
 function calculateRRAtEntry(tickerData, entryPrice) {
+  const direction = getTradeDirection(tickerData.state);
+  const tp = getValidTP(tickerData, entryPrice, direction);
   const sl = Number(tickerData.sl);
-  const tp = Number(tickerData.tp);
 
   if (
     !Number.isFinite(entryPrice) ||
@@ -423,7 +508,7 @@ function calculateRRAtEntry(tickerData, entryPrice) {
     return null;
   }
 
-  // Use MAX TP from tp_levels if available
+  // Use MAX TP from tp_levels if available (for RR calculation, use max valid TP)
   let maxTP = tp;
   if (
     tickerData.tp_levels &&
@@ -441,10 +526,19 @@ function calculateRRAtEntry(tickerData, entryPrice) {
         }
         return typeof tpItem === "number" ? Number(tpItem) : null;
       })
-      .filter((p) => Number.isFinite(p));
+      .filter((p) => Number.isFinite(p) && p > 0);
 
     if (tpPrices.length > 0) {
-      maxTP = Math.max(...tpPrices);
+      // For LONG: use max TP above entry; for SHORT: use min TP below entry
+      if (direction === "LONG") {
+        const validTPs = tpPrices.filter((p) => p > entryPrice);
+        maxTP = validTPs.length > 0 ? Math.max(...validTPs) : tp;
+      } else if (direction === "SHORT") {
+        const validTPs = tpPrices.filter((p) => p < entryPrice);
+        maxTP = validTPs.length > 0 ? Math.min(...validTPs) : tp;
+      } else {
+        maxTP = Math.max(...tpPrices);
+      }
     }
   }
 
@@ -475,7 +569,10 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
   if (!direction) return null;
 
   const sl = Number(tickerData.sl);
-  const tp = Number(tickerData.tp);
+  // Use validated TP from existing trade if available, otherwise get valid TP
+  const tp = existingTrade && existingTrade.tp 
+    ? Number(existingTrade.tp) 
+    : getValidTP(tickerData, entryPrice, direction);
   const currentPrice = Number(tickerData.price);
 
   if (
@@ -980,11 +1077,61 @@ async function processTradeSimulation(
         );
       }
 
-      // Update existing trade
-      const tradeCalc = calculateTradePnl(tickerData, correctedEntryPrice, {
-        ...existingOpenTrade,
-        shares: correctedShares,
-      });
+      // Check TD Sequential exit signals BEFORE calculating P&L
+      // TD Sequential can signal exhaustion/reversal even if TP/SL haven't been hit
+      const tdSeq = tickerData.td_sequential || {};
+      const tdSeqExitLong =
+        tdSeq.exit_long === true || tdSeq.exit_long === "true";
+      const tdSeqExitShort =
+        tdSeq.exit_short === true || tdSeq.exit_short === "true";
+
+      // Check if TD Sequential signals an exit for this trade direction
+      const shouldExitFromTDSeq =
+        (direction === "LONG" && tdSeqExitLong) ||
+        (direction === "SHORT" && tdSeqExitShort);
+
+      let tradeCalc;
+      if (shouldExitFromTDSeq) {
+        console.log(
+          `[TRADE SIM] 🚨 TD Sequential exit signal for ${ticker} ${direction}: ` +
+            `TD9/TD13 ${
+              direction === "LONG" ? "bearish" : "bullish"
+            } reversal detected`
+        );
+
+        // Force exit at current price (TD Sequential exhaustion signal)
+        const currentPrice = Number(tickerData.price || 0);
+        const shares = correctedShares || existingOpenTrade.shares || 0;
+        let pnl = 0;
+        let pnlPct = 0;
+
+        if (direction === "LONG") {
+          pnl = (currentPrice - correctedEntryPrice) * shares;
+          pnlPct =
+            ((currentPrice - correctedEntryPrice) / correctedEntryPrice) * 100;
+        } else {
+          pnl = (correctedEntryPrice - currentPrice) * shares;
+          pnlPct =
+            ((correctedEntryPrice - currentPrice) / correctedEntryPrice) * 100;
+        }
+
+        const tdSeqStatus = pnl >= 0 ? "WIN" : "LOSS";
+        tradeCalc = {
+          shares,
+          pnl,
+          pnlPct,
+          status: tdSeqStatus,
+          currentPrice,
+          trimmedPct: existingOpenTrade.trimmedPct || 0,
+        };
+      } else {
+        // Normal TP/SL calculation
+        tradeCalc = calculateTradePnl(tickerData, correctedEntryPrice, {
+          ...existingOpenTrade,
+          shares: correctedShares,
+        });
+      }
+
       if (tradeCalc) {
         // Ensure status matches actual P&L (fix for trades marked WIN with negative P&L)
         let newStatus =
@@ -1490,6 +1637,15 @@ async function processTradeSimulation(
                 ? triggerTimestamp
                 : new Date().toISOString();
 
+            // Get valid TP based on direction
+            const validTP = getValidTP(tickerData, entryPrice, direction);
+            if (!validTP) {
+              console.error(
+                `[TRADE SIM] ❌ ${ticker} ${direction}: Cannot create trade - no valid TP found`
+              );
+              return; // Exit early if no valid TP
+            }
+
             const trade = {
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
               ticker,
@@ -1498,7 +1654,7 @@ async function processTradeSimulation(
               entryTime: entryTime, // When trade was actually created
               triggerTimestamp: triggerTimestamp, // When signal was generated (for reference)
               sl: Number(tickerData.sl),
-              tp: Number(tickerData.tp),
+              tp: validTP, // Use validated TP
               rr: entryRR || Number(tickerData.rr) || 0, // Use entry RR
               rank: Number(tickerData.rank) || 0,
               state: tickerData.state,
@@ -1545,7 +1701,7 @@ async function processTradeSimulation(
                 direction,
                 entryPrice,
                 Number(tickerData.sl),
-                Number(tickerData.tp),
+                validTP, // Use validated TP
                 entryRR || 0,
                 trade.rank || 0,
                 tickerData.state || "N/A"
@@ -1936,6 +2092,13 @@ function computeRank(d) {
 
   // Momentum Elite boost (reduced but still significant)
   if (momentumElite) score += 15; // Reduced from 20
+
+  // TD Sequential boost/penalty (from Pine Script calculation)
+  const tdSeq = d.td_sequential || {};
+  const tdSeqBoost = Number(tdSeq.boost) || 0;
+  if (Number.isFinite(tdSeqBoost) && tdSeqBoost !== 0) {
+    score += tdSeqBoost;
+  }
 
   score = Math.max(0, Math.min(100, score));
   return Math.round(score);
