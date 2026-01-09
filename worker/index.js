@@ -3886,29 +3886,48 @@ export default {
 
         payload.rank = computeRank(payload);
 
-        // Auto-populate sector from TradingView data if provided
+        // Auto-populate sector: first from TradingView data if provided, otherwise from SECTOR_MAP
+        const tickerUpper = String(payload.ticker || ticker).toUpperCase();
+        let sectorToUse = null;
+        
         if (
           payload.sector &&
           typeof payload.sector === "string" &&
           payload.sector.trim() !== ""
         ) {
-          const tickerUpper = String(payload.ticker || ticker).toUpperCase();
-          const sectorFromTV = payload.sector.trim();
+          // Use sector from TradingView if provided
+          sectorToUse = payload.sector.trim();
+        } else {
+          // Fallback to SECTOR_MAP lookup if TradingView didn't provide sector
+          sectorToUse = getSector(tickerUpper);
+        }
+        
+        // Set sector at top level if we have one
+        if (sectorToUse) {
+          payload.sector = sectorToUse;
+          
+          // If sector came from TradingView and differs from SECTOR_MAP, update the map
+          if (
+            payload.sector &&
+            typeof payload.sector === "string" &&
+            payload.sector.trim() !== ""
+          ) {
+            const sectorFromTV = payload.sector.trim();
+            const currentSector = getSector(tickerUpper);
+            
+            if (!currentSector || currentSector !== sectorFromTV) {
+              // Auto-populate SECTOR_MAP (in-memory, will persist in KV)
+              SECTOR_MAP[tickerUpper] = sectorFromTV;
+              console.log(
+                `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorFromTV}${
+                  currentSector ? ` (was: ${currentSector})` : " (new)"
+                }`
+              );
 
-          // Only update if not already mapped or if different
-          const currentSector = getSector(tickerUpper);
-          if (!currentSector || currentSector !== sectorFromTV) {
-            // Auto-populate SECTOR_MAP (in-memory, will persist in KV)
-            SECTOR_MAP[tickerUpper] = sectorFromTV;
-            console.log(
-              `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorFromTV}${
-                currentSector ? ` (was: ${currentSector})` : " (new)"
-              }`
-            );
-
-            // Store sector mapping in KV for persistence
-            const sectorMapKey = `timed:sector_map:${tickerUpper}`;
-            await kvPutText(KV, sectorMapKey, sectorFromTV);
+              // Store sector mapping in KV for persistence
+              const sectorMapKey = `timed:sector_map:${tickerUpper}`;
+              await kvPutText(KV, sectorMapKey, sectorFromTV);
+            }
           }
         }
 
@@ -9033,14 +9052,17 @@ Provide 3-5 actionable next steps:
 
         for (let i = 0; i < allTrades.length; i++) {
           const trade = allTrades[i];
-          
+
           // Only fix OPEN trades (closed trades should keep their original entry price)
           if (trade.status !== "OPEN" && trade.status !== "TP_HIT_TRIM") {
             continue;
           }
 
           // Get latest ticker data
-          const tickerData = await kvGetJSON(KV, `timed:latest:${trade.ticker}`);
+          const tickerData = await kvGetJSON(
+            KV,
+            `timed:latest:${trade.ticker}`
+          );
           if (!tickerData || !tickerData.price) {
             console.log(
               `[FIX ENTRY PRICES] Skipping ${trade.ticker} - no current price data`
@@ -9050,7 +9072,7 @@ Provide 3-5 actionable next steps:
 
           const currentPrice = Number(tickerData.price);
           const entryPrice = Number(trade.entryPrice);
-          
+
           if (!Number.isFinite(currentPrice) || !Number.isFinite(entryPrice)) {
             continue;
           }
@@ -9081,7 +9103,7 @@ Provide 3-5 actionable next steps:
           if (entryMatchesTrigger || isOldTrade || priceDiffPct > 0.05) {
             // Fix entry price to current price
             const correctedEntryPrice = currentPrice;
-            
+
             // Recalculate shares based on new entry price
             const tickerUpper = String(trade.ticker || "").toUpperCase();
             const isFutures =
@@ -9092,8 +9114,12 @@ Provide 3-5 actionable next steps:
                 : TRADE_SIZE / correctedEntryPrice;
 
             // Recalculate P&L with corrected entry price
-            const tradeCalc = calculateTradePnl(tickerData, correctedEntryPrice, trade);
-            
+            const tradeCalc = calculateTradePnl(
+              tickerData,
+              correctedEntryPrice,
+              trade
+            );
+
             if (!tradeCalc) {
               console.log(
                 `[FIX ENTRY PRICES] Skipping ${trade.ticker} - cannot recalculate P&L`
@@ -9138,11 +9164,13 @@ Provide 3-5 actionable next steps:
             });
 
             console.log(
-              `[FIX ENTRY PRICES] Fixed ${trade.ticker} ${trade.direction}: $${entryPrice.toFixed(
+              `[FIX ENTRY PRICES] Fixed ${trade.ticker} ${
+                trade.direction
+              }: $${entryPrice.toFixed(2)} -> $${correctedEntryPrice.toFixed(
                 2
-              )} -> $${correctedEntryPrice.toFixed(2)} (P&L: $${(
-                trade.pnl || 0
-              ).toFixed(2)} -> $${tradeCalc.pnl.toFixed(2)})`
+              )} (P&L: $${(trade.pnl || 0).toFixed(
+                2
+              )} -> $${tradeCalc.pnl.toFixed(2)})`
             );
           }
         }
