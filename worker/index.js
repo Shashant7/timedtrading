@@ -4103,108 +4103,118 @@ export default {
         }
 
         // Track corridor entry
-        if (inCorridor && prevInCorridor !== "true") {
-          await appendActivity(KV, {
-            type: "corridor_entry",
-            ticker: ticker,
-            side: side,
-            price: payload.price,
-            state: payload.state,
-            rank: payload.rank,
-            sl: payload.sl,
-            tp: payload.tp,
-            tp_levels: payload.tp_levels,
-            rr: payload.rr,
-            phase_pct: payload.phase_pct,
-            completion: payload.completion,
-          });
-          await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
-        } else if (!inCorridor && prevInCorridor === "true") {
-          await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
-        }
+        // Wrap activity tracking in try-catch to prevent errors from breaking ingestion
+        try {
+          if (inCorridor && prevInCorridor !== "true") {
+            await appendActivity(KV, {
+              type: "corridor_entry",
+              ticker: ticker,
+              side: side,
+              price: payload.price,
+              state: payload.state,
+              rank: payload.rank,
+              sl: payload.sl,
+              tp: payload.tp,
+              tp_levels: payload.tp_levels,
+              rr: payload.rr,
+              phase_pct: payload.phase_pct,
+              completion: payload.completion,
+            });
+            await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
+          } else if (!inCorridor && prevInCorridor === "true") {
+            await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
+          }
 
-        // Track squeeze start
-        if (flags.sq30_on && prevSqueezeOn !== "true") {
-          await appendActivity(KV, {
-            type: "squeeze_start",
-            ticker: ticker,
-            price: payload.price,
-            state: payload.state,
-            rank: payload.rank,
-            sl: payload.sl,
-            tp: payload.tp,
-            tp_levels: payload.tp_levels,
-            rr: payload.rr,
-            phase_pct: payload.phase_pct,
-            completion: payload.completion,
-          });
-          await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
-        } else if (!flags.sq30_on && prevSqueezeOn === "true") {
-          await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
-        }
+          // Track squeeze start
+          if (flags.sq30_on && prevSqueezeOn !== "true") {
+            await appendActivity(KV, {
+              type: "squeeze_start",
+              ticker: ticker,
+              price: payload.price,
+              state: payload.state,
+              rank: payload.rank,
+              sl: payload.sl,
+              tp: payload.tp,
+              tp_levels: payload.tp_levels,
+              rr: payload.rr,
+              phase_pct: payload.phase_pct,
+              completion: payload.completion,
+            });
+            await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
+          } else if (!flags.sq30_on && prevSqueezeOn === "true") {
+            await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
+          }
 
-        // Track squeeze release
-        if (sqRel && prevSqueezeRel !== "true") {
-          await appendActivity(KV, {
-            type: "squeeze_release",
-            ticker: ticker,
-            side:
-              side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
-            price: payload.price,
-            state: payload.state,
-            rank: payload.rank,
-            trigger_dir: payload.trigger_dir,
-            sl: payload.sl,
-            tp: payload.tp,
-            tp_levels: payload.tp_levels,
-            rr: payload.rr,
-            phase_pct: payload.phase_pct,
-            completion: payload.completion,
-          });
-          await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
-        } else if (!sqRel && prevSqueezeRel === "true") {
-          await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
-        }
+          // Track squeeze release
+          if (sqRel && prevSqueezeRel !== "true") {
+            await appendActivity(KV, {
+              type: "squeeze_release",
+              ticker: ticker,
+              side:
+                side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
+              price: payload.price,
+              state: payload.state,
+              rank: payload.rank,
+              trigger_dir: payload.trigger_dir,
+              sl: payload.sl,
+              tp: payload.tp,
+              tp_levels: payload.tp_levels,
+              rr: payload.rr,
+              phase_pct: payload.phase_pct,
+              completion: payload.completion,
+            });
+            await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
+          } else if (!sqRel && prevSqueezeRel === "true") {
+            await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
+          }
 
-        // Track state change to aligned
-        if (enteredAligned) {
-          await appendActivity(KV, {
-            type: "state_aligned",
-            ticker: ticker,
-            side: alignedLong ? "LONG" : "SHORT",
-            price: payload.price,
-            state: payload.state,
-            rank: payload.rank,
-            sl: payload.sl,
-            tp: payload.tp,
-            tp_levels: payload.tp_levels,
-            rr: payload.rr,
-            phase_pct: payload.phase_pct,
-            completion: payload.completion,
-          });
-        }
+          // Track state change to aligned
+          if (enteredAligned) {
+            await appendActivity(KV, {
+              type: "state_aligned",
+              ticker: ticker,
+              side: alignedLong ? "LONG" : "SHORT",
+              price: payload.price,
+              state: payload.state,
+              rank: payload.rank,
+              sl: payload.sl,
+              tp: payload.tp,
+              tp_levels: payload.tp_levels,
+              rr: payload.rr,
+              phase_pct: payload.phase_pct,
+              completion: payload.completion,
+            });
+          }
 
-        // Track Momentum Elite status change
-        const currentMomentumElite = !!(
-          payload.flags && payload.flags.momentum_elite
-        );
-        if (currentMomentumElite && prevMomentumElite !== "true") {
-          await appendActivity(KV, {
-            type: "momentum_elite",
-            ticker: ticker,
-            price: payload.price,
-            state: payload.state,
-            rank: payload.rank,
-            sl: payload.sl,
-            tp: payload.tp,
-            tp_levels: payload.tp_levels,
-            rr: payload.rr,
-            phase_pct: payload.phase_pct,
-            completion: payload.completion,
+          // Track Momentum Elite status change
+          const currentMomentumElite = !!(
+            payload.flags && payload.flags.momentum_elite
+          );
+          if (currentMomentumElite && prevMomentumElite !== "true") {
+            await appendActivity(KV, {
+              type: "momentum_elite",
+              ticker: ticker,
+              price: payload.price,
+              state: payload.state,
+              rank: payload.rank,
+              sl: payload.sl,
+              tp: payload.tp,
+              tp_levels: payload.tp_levels,
+              rr: payload.rr,
+              phase_pct: payload.phase_pct,
+              completion: payload.completion,
+            });
+            await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
+          } else if (!currentMomentumElite && prevMomentumElite === "true") {
+            await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
+          }
+        } catch (activityErr) {
+          console.error(`[ACTIVITY ERROR] Failed to track activity for ${ticker}:`, {
+            error: String(activityErr),
+            message: activityErr.message,
+            stack: activityErr.stack,
           });
-          await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
-        } else if (!currentMomentumElite && prevMomentumElite === "true") {
-          await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
+          // Don't throw - continue with ingestion even if activity tracking fails
         }
 
         // Add ingestion timestamp to payload for per-ticker tracking
@@ -4262,28 +4272,48 @@ export default {
         }
 
         // Process trade simulation (create/update trades automatically)
-        await processTradeSimulation(KV, ticker, payload, prevLatest, env);
+        // Wrap in try-catch to prevent trade simulation errors from breaking ingestion
+        try {
+          await processTradeSimulation(KV, ticker, payload, prevLatest, env);
+        } catch (tradeErr) {
+          console.error(`[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`, {
+            error: String(tradeErr),
+            message: tradeErr.message,
+            stack: tradeErr.stack,
+          });
+          // Don't throw - continue with ingestion even if trade simulation fails
+        }
 
         // Trail (light)
-        await appendTrail(
-          KV,
-          ticker,
-          {
-            ts: payload.ts,
-            price: payload.price, // Add price to trail for momentum calculations
-            htf_score: payload.htf_score,
-            ltf_score: payload.ltf_score,
-            completion: payload.completion,
-            phase_pct: payload.phase_pct,
-            state: payload.state,
-            rank: payload.rank,
-            flags: payload.flags || {},
-            momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
-            trigger_reason: payload.trigger_reason,
-            trigger_dir: payload.trigger_dir,
-          },
-          20
-        ); // Increased to 20 points for better history
+        // Wrap in try-catch to prevent trail errors from breaking ingestion
+        try {
+          await appendTrail(
+            KV,
+            ticker,
+            {
+              ts: payload.ts,
+              price: payload.price, // Add price to trail for momentum calculations
+              htf_score: payload.htf_score,
+              ltf_score: payload.ltf_score,
+              completion: payload.completion,
+              phase_pct: payload.phase_pct,
+              state: payload.state,
+              rank: payload.rank,
+              flags: payload.flags || {},
+              momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
+              trigger_reason: payload.trigger_reason,
+              trigger_dir: payload.trigger_dir,
+            },
+            20
+          ); // Increased to 20 points for better history
+        } catch (trailErr) {
+          console.error(`[TRAIL ERROR] Failed to append trail for ${ticker}:`, {
+            error: String(trailErr),
+            message: trailErr.message,
+            stack: trailErr.stack,
+          });
+          // Don't throw - continue with ingestion even if trail fails
+        }
 
         // Store version-specific snapshot for historical access
         const version = payload.script_version || "unknown";
