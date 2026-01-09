@@ -3115,7 +3115,7 @@
         );
       }
 
-      function QuickFilters({ filters, onFilterChange }) {
+      function QuickFilters({ filters, onFilterChange, sectors = [] }) {
         // Groups (seed list) - one row
         const groupPresets = [
           {
@@ -3437,6 +3437,41 @@
                 🔄 Reset Filters
               </button>
             </div>
+            {/* Sectors Row */}
+            {sectors.length > 0 && (
+              <div className="flex gap-2 flex-wrap items-center">
+                <span className="text-xs text-[#93a4d6] font-semibold mr-1">Sectors:</span>
+                {sectors.map((sectorData) => {
+                  const sectorName = sectorData.sector || sectorData.name;
+                  const rating = sectorData.rating || "neutral";
+                  const emoji =
+                    rating === "overweight"
+                      ? "📈"
+                      : rating === "underweight"
+                      ? "📉"
+                      : "➡️";
+                  const isActive = filters.sector === sectorName;
+                  return (
+                    <button
+                      key={sectorName}
+                      onClick={() => {
+                        onFilterChange({
+                          sector: isActive ? null : sectorName,
+                        });
+                      }}
+                      className={`px-2 py-1 rounded-lg border text-xs font-semibold transition-all ${
+                        isActive
+                          ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
+                          : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0] text-[#93a4d6]"
+                      }`}
+                      title={`${sectorName} - ${rating}`}
+                    >
+                      {emoji} {sectorName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       }
@@ -3790,7 +3825,7 @@
       // Reusable component that shows comprehensive ticker information
       // and optionally trade history if a trade is associated
       // ─────────────────────────────────────────────────────────────
-      function TickerDetailRightRail({ ticker, trade = null, onClose, allLoadedData = null }) {
+      function TickerDetailRightRail({ ticker, trade = null, onClose, allLoadedData = null, sectors = [] }) {
         if (!ticker) return null;
 
         const tickerSymbol = ticker.ticker;
@@ -3888,6 +3923,38 @@
                     ⭐ PRIME SETUP ⭐
                   </div>
                 )}
+
+                {/* Sector and Rating */}
+                {(() => {
+                  const tickerSector = ticker.sector || ticker.fundamentals?.sector;
+                  if (tickerSector && sectors.length > 0) {
+                    const sectorInfo = sectors.find(s => (s.sector || s.name) === tickerSector);
+                    const rating = sectorInfo?.rating || "neutral";
+                    const emoji =
+                      rating === "overweight"
+                        ? "📈"
+                        : rating === "underweight"
+                        ? "📉"
+                        : "➡️";
+                    return (
+                      <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                        <div className="text-sm text-[#93a4d6] mb-2">Sector</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{emoji}</span>
+                          <span className="font-semibold text-white">{tickerSector}</span>
+                          <span className={`text-xs px-2 py-1 rounded ${
+                            rating === "overweight" ? "bg-green-500/20 text-green-400" :
+                            rating === "underweight" ? "bg-red-500/20 text-red-400" :
+                            "bg-[#26325f] text-[#93a4d6]"
+                          }`}>
+                            {rating.charAt(0).toUpperCase() + rating.slice(1)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Bias/Direction */}
                 {(() => {
@@ -5375,6 +5442,7 @@
             trade={null}
             onClose={onClose}
             allLoadedData={allLoadedData}
+            sectors={sectors}
           />
         );
       };
@@ -5382,7 +5450,7 @@
       // ─────────────────────────────────────────────────────────────
       // OverlayPortal - must be defined before App
       // ─────────────────────────────────────────────────────────────
-      const OverlayPortal = ({ selectedTicker, tickers, data, onClose }) => {
+      const OverlayPortal = ({ selectedTicker, tickers, data, onClose, sectors = [] }) => {
         if (!selectedTicker) return null;
 
         try {
@@ -5712,6 +5780,7 @@
                     <QuickFilters
                       filters={filters}
                       onFilterChange={handleFilterChange}
+                      sectors={sectors}
                     />
                   </div>
                 </header>
@@ -5788,50 +5857,10 @@
                           tickers={tickers}
                           data={data}
                           onClose={() => handleTickerSelect(null)}
+                          sectors={sectors}
                         />
                       </div>
                     )}
-
-                    {/* S&P Sectors Filter Panel */}
-                    <div className="mb-4">
-                      <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                        <h2 className="text-sm font-bold mb-3 text-[#e7ecff]">
-                          📊 S&P Sectors
-                        </h2>
-                        <div className="flex flex-wrap gap-2">
-                          {sectors.map((sectorData) => {
-                            const sectorName = sectorData.sector || sectorData.name;
-                            const rating = sectorData.rating || "neutral";
-                            const emoji =
-                              rating === "overweight"
-                                ? "📈"
-                                : rating === "underweight"
-                                ? "📉"
-                                : "➡️";
-                            const isActive = filters.sector === sectorName;
-                            return (
-                              <button
-                                key={sectorName}
-                                onClick={() => {
-                                  setFilters((prev) => ({
-                                    ...prev,
-                                    sector:
-                                      isActive ? null : sectorName,
-                                  }));
-                                }}
-                                className={`px-3 py-2 rounded-lg border text-xs font-semibold transition-all ${
-                                  isActive
-                                    ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
-                                    : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] hover:border-[#3a4aa0] text-[#93a4d6]"
-                                }`}
-                              >
-                                {emoji} {sectorName}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
 
                     {/* Lists - All five side by side in columns */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
