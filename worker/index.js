@@ -3077,13 +3077,13 @@ export default {
           await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
 
           // Store version-specific snapshot for historical access
-          const version = payload.script_version || "unknown";
-          if (version !== "unknown") {
-            await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
+          const snapshotVersion = payload.script_version || "unknown";
+          if (snapshotVersion !== "unknown") {
+            await kvPutJSON(KV, `timed:snapshot:${ticker}:${snapshotVersion}`, payload);
             // Also store timestamp of when this version was last seen
             await kvPutText(
               KV,
-              `timed:version:${ticker}:${version}:last_seen`,
+              `timed:version:${ticker}:${snapshotVersion}:last_seen`,
               String(payload.ts || Date.now())
             );
           }
@@ -3511,15 +3511,19 @@ export default {
 
         // Store latest (do this BEFORE alert so UI has it)
         await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-        
+
         // Store version-specific snapshot for historical access
-        const version = payload.script_version || "unknown";
-        if (version !== "unknown") {
-          await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
+        const snapshotVersion = payload.script_version || "unknown";
+        if (snapshotVersion !== "unknown") {
+          await kvPutJSON(KV, `timed:snapshot:${ticker}:${snapshotVersion}`, payload);
           // Also store timestamp of when this version was last seen
-          await kvPutText(KV, `timed:version:${ticker}:${version}:last_seen`, String(payload.ts || Date.now()));
+          await kvPutText(
+            KV,
+            `timed:version:${ticker}:${snapshotVersion}:last_seen`,
+            String(payload.ts || Date.now())
+          );
         }
-        
+
         console.log(
           `[INGEST STORED] ${ticker} - latest data saved at ${new Date(
             now
@@ -3995,15 +3999,12 @@ export default {
 
       for (const { ticker, value } of results) {
         if (value) {
-          // Accept data if its version is in the accepted set
-          // This allows all versions present in the data to be shown
+          // Accept ALL data - don't filter by version unless explicitly requested
+          // This ensures all historical data is accessible
           const tickerVersion = value.script_version || "unknown";
-
-          if (acceptedVersions.has(tickerVersion)) {
-            // Always recompute RR to ensure it uses the latest max TP from tp_levels
-            value.rr = computeRR(value);
-            data[ticker] = value;
-          } else {
+          
+          // Only filter if a specific version was requested AND it doesn't match
+          if (useVersionSnapshots && tickerVersion !== requestedVersion) {
             versionFilteredCount++;
             // Track which versions are being filtered
             if (!versionBreakdown[tickerVersion]) {
@@ -4011,10 +4012,12 @@ export default {
             }
             versionBreakdown[tickerVersion]++;
             console.log(
-              `[FILTER] Ticker ${ticker} filtered: version=${tickerVersion}, accepted=${Array.from(
-                acceptedVersions
-              ).join(", ")}`
+              `[FILTER] Ticker ${ticker} filtered: version=${tickerVersion}, requested=${requestedVersion}`
             );
+          } else {
+            // Always recompute RR to ensure it uses the latest max TP from tp_levels
+            value.rr = computeRR(value);
+            data[ticker] = value;
           }
         }
       }
