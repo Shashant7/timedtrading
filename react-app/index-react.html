@@ -1589,13 +1589,22 @@
           out.push({ ticker, ...d });
         }
 
-        // Apply Top 40 filter if active (after computing dynamic ranks)
+        // Apply Top 40 filter if active (using worker's rank field)
         if (effectiveFilters.top40 === true) {
-          const withRanks = out.map((t) => ({
-            ...t,
-            dynamicRank: computeDynamicRank(t),
-          }));
-          withRanks.sort((a, b) => b.dynamicRank - a.dynamicRank);
+          const withRanks = out.filter(
+            (t) => t && (t.rank !== undefined && t.rank !== null)
+          );
+          // Sort by worker's rank field (descending) - same ranking system used everywhere
+          withRanks.sort((a, b) => {
+            const rankA = Number(a.rank) || 0;
+            const rankB = Number(b.rank) || 0;
+            // Descending order: higher rank score = better position
+            if (rankB !== rankA) {
+              return rankB - rankA;
+            }
+            // If ranks are equal, use ticker name for consistent ordering
+            return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+          });
           return withRanks.slice(0, 40);
         }
 
@@ -5074,11 +5083,23 @@
         })();
 
         const baseScore = Number(ticker.rank) || 0;
-        const dynamicRank = computeDynamicRank(ticker);
-        const allTickersWithRank = allLoadedTickersArray.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
-        const sortedByDynamic = [...allTickersWithRank].sort((a, b) => b.dynamicRank - a.dynamicRank);
-        const rankPosition = sortedByDynamic.findIndex(t => String(t.ticker || "").toUpperCase() === String(tickerSymbol).toUpperCase()) + 1;
-        const totalTickers = allLoadedTickersArray.length;
+        // Calculate rank position using worker's rank field (stored at worker level)
+        // This ensures consistency across all rank displays
+        const allTickersWithRank = allLoadedTickersArray.filter(
+          (t) => t && typeof t === "object" && t.ticker && (t.rank !== undefined && t.rank !== null)
+        );
+        const sortedByRank = [...allTickersWithRank].sort((a, b) => {
+          const rankA = Number(a.rank) || 0;
+          const rankB = Number(b.rank) || 0;
+          // Descending order: higher rank score = better position
+          if (rankB !== rankA) {
+            return rankB - rankA;
+          }
+          // If ranks are equal, use ticker name for consistent ordering
+          return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+        });
+        const rankPosition = sortedByRank.findIndex(t => String(t.ticker || "").toUpperCase() === String(tickerSymbol).toUpperCase()) + 1;
+        const totalTickers = allTickersWithRank.length;
         const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
         return (
@@ -5228,12 +5249,6 @@
                       <span className="font-semibold">
                         {rankPosition > 0 ? `#${rankPosition} of ${totalTickers}` : "—"}
                       </span>
-                    </div>
-                  )}
-                  {dynamicRank !== baseScore && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Dynamic Score</span>
-                      <span className="font-semibold text-green-400">{dynamicRank}</span>
                     </div>
                   )}
                   {isInTop40 && (
@@ -6168,23 +6183,30 @@
                 <div className="space-y-2.5 text-sm">
                   {(() => {
                     const baseScore = Number(ticker.rank) || 0; // Base Score from worker
-                    const dynamicRank = computeDynamicRank(ticker);
-                    // Use allLoadedTickersArray (ALL loaded tickers) for absolute ranking, not filtered list
-                    const allTickersWithRank = allLoadedTickersArray.map(
-                      (t) => ({ ...t, dynamicRank: computeDynamicRank(t) })
+                    // Calculate rank position using worker's rank field (stored at worker level)
+                    // This ensures consistency across all rank displays
+                    const allTickersWithRank = allLoadedTickersArray.filter(
+                      (t) => t && typeof t === "object" && t.ticker && (t.rank !== undefined && t.rank !== null)
                     );
-                    const sortedByDynamic = [...allTickersWithRank].sort(
-                      (a, b) => b.dynamicRank - a.dynamicRank
-                    );
+                    const sortedByRank = [...allTickersWithRank].sort((a, b) => {
+                      const rankA = Number(a.rank) || 0;
+                      const rankB = Number(b.rank) || 0;
+                      // Descending order: higher rank score = better position
+                      if (rankB !== rankA) {
+                        return rankB - rankA;
+                      }
+                      // If ranks are equal, use ticker name for consistent ordering
+                      return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+                    });
                     const rankPosition =
-                      sortedByDynamic.findIndex((t) => {
+                      sortedByRank.findIndex((t) => {
                         if (!t || !t.ticker) return false;
                         return (
                           String(t.ticker).toUpperCase() ===
                           String(ticker.ticker).toUpperCase()
                         );
                       }) + 1;
-                    const totalTickers = allLoadedTickersArray.length;
+                    const totalTickers = allTickersWithRank.length;
                     const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
                     return (
@@ -6203,16 +6225,6 @@
                               : "—"}
                           </span>
                         </div>
-                        {dynamicRank !== baseScore && (
-                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                            <span className="text-[#93a4d6]">
-                              Dynamic Score
-                            </span>
-                            <span className="font-semibold text-green-400">
-                              {dynamicRank}
-                            </span>
-                          </div>
-                        )}
                         {isInTop40 && (
                           <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                             <span className="text-[#93a4d6]">
