@@ -3375,6 +3375,8 @@
               delete newFilters.top40;
             } else if (preset.filter.hasTrades) {
               delete newFilters.hasTrades;
+            } else if (preset.filter.td9Setup) {
+              delete newFilters.td9Setup;
             }
 
             onFilterChange(newFilters);
