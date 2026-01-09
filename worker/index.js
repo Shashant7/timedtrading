@@ -3805,11 +3805,20 @@ export default {
         if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
 
         // Calculate Momentum Elite (worker-based with caching)
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] About to compute Momentum Elite`);
+        }
         const momentumEliteData = await computeMomentumElite(
           KV,
           ticker,
           payload
         );
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] Momentum Elite computed:`, {
+            momentum_elite: momentumEliteData?.momentum_elite,
+            hasCriteria: !!momentumEliteData?.criteria,
+          });
+        }
         if (momentumEliteData && momentumEliteData.momentum_elite) {
           // Update flags with Momentum Elite status
           if (!payload.flags) payload.flags = {};
@@ -4078,6 +4087,9 @@ export default {
             (sqRel && side)); // Squeeze release in corridor is a valid trigger even if not fully aligned
 
         // Activity feed tracking - detect events
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] About to load activity tracking state`);
+        }
         const prevCorridorKey = `timed:prevcorridor:${ticker}`;
         const prevInCorridor = await KV.get(prevCorridorKey);
         const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
@@ -4086,6 +4098,9 @@ export default {
         const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
         const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
         const prevMomentumElite = await KV.get(prevMomentumEliteKey);
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] Activity tracking state loaded`);
+        }
 
         // Track corridor entry
         if (inCorridor && prevInCorridor !== "true") {
@@ -4197,11 +4212,23 @@ export default {
         payload.ingest_ts = now; // Timestamp when this data was ingested
         payload.ingest_time = new Date(now).toISOString(); // Human-readable format
 
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] About to get previous data and store`);
+        }
+
         // Get previous data BEFORE storing new data (for trade simulation comparison)
         const prevLatest = await kvGetJSON(KV, `timed:latest:${ticker}`);
 
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] Previous data retrieved, about to store latest`);
+        }
+
         // Store latest (do this BEFORE alert so UI has it)
         await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+        
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] Successfully stored latest data`);
+        }
 
         // Store version-specific snapshot for historical access
         const snapshotVersion = payload.script_version || "unknown";
