@@ -1323,10 +1323,14 @@ async function processTradeSimulation(
           pnl,
           pnlPct,
           status: tdSeqStatus,
-          td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
-          td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
-          td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
-          td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+          td9_bullish:
+            tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+          td9_bearish:
+            tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+          td13_bullish:
+            tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+          td13_bearish:
+            tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
         });
       } else {
         // Normal TP/SL calculation
@@ -2676,13 +2680,15 @@ function createTD9ExitEmbed(
 ) {
   const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
   const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
-  const td13Bullish = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
-  const td13Bearish = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
-  
+  const td13Bullish =
+    tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+  const td13Bearish =
+    tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+
   const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
   const signalDirection = td9Bearish || td13Bearish ? "Bearish" : "Bullish";
   const oppositeDirection = direction === "LONG" ? "SHORT" : "LONG";
-  
+
   return {
     title: `🔢 TD Sequential ${signalType} Exit: ${ticker} ${direction}`,
     description: `${signalType} ${signalDirection} reversal detected - Consider ${oppositeDirection} entry`,
@@ -2705,7 +2711,9 @@ function createTD9ExitEmbed(
       },
       {
         name: "P&L",
-        value: `$${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+        value: `$${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(
+          2
+        )}%)`,
         inline: true,
       },
       {
@@ -2754,12 +2762,14 @@ function createTD9EntryEmbed(
 ) {
   const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
   const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
-  const td13Bullish = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
-  const td13Bearish = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
-  
+  const td13Bullish =
+    tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+  const td13Bearish =
+    tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+
   const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
   const signalDirection = direction === "LONG" ? "Bullish" : "Bearish";
-  
+
   return {
     title: `🔢 TD Sequential ${signalType} Entry Signal: ${ticker} ${direction}`,
     description: `${signalType} ${signalDirection} setup detected - Potential reversal entry`,
@@ -4371,30 +4381,36 @@ export default {
 
         // Check for TD9 entry signals (potential reversal setups)
         const tdSeq = payload.td_sequential || {};
-        const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
-        const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
-        const td13Bullish = tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
-        const td13Bearish = tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
-        
+        const td9Bullish =
+          tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+        const td9Bearish =
+          tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+        const td13Bullish =
+          tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+        const td13Bearish =
+          tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+
         // TD9 entry signal: TD9/TD13 bullish suggests LONG, TD9/TD13 bearish suggests SHORT
-        const hasTD9Signal = td9Bullish || td9Bearish || td13Bullish || td13Bearish;
+        const hasTD9Signal =
+          td9Bullish || td9Bearish || td13Bullish || td13Bearish;
         if (hasTD9Signal) {
-          const suggestedDirection = (td9Bullish || td13Bullish) ? "LONG" : "SHORT";
-          const signalType = (td13Bullish || td13Bearish) ? "TD13" : "TD9";
-          
+          const suggestedDirection =
+            td9Bullish || td13Bullish ? "LONG" : "SHORT";
+          const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
+
           // Check if TD9 signal aligns with corridor direction (potential entry)
-          const td9AlignsWithCorridor = 
+          const td9AlignsWithCorridor =
             (suggestedDirection === "LONG" && side === "LONG") ||
             (suggestedDirection === "SHORT" && side === "SHORT");
-          
+
           // Only alert if TD9 signal aligns with corridor and has reasonable RR
           if (td9AlignsWithCorridor && payload.rr >= 1.2) {
             const td9AlertKey = `timed:td9_alerted:${ticker}:${signalType}:${suggestedDirection}`;
             const alreadyTD9Alerted = await KV.get(td9AlertKey);
-            
+
             if (!alreadyTD9Alerted) {
               await kvPutText(KV, td9AlertKey, "1", 24 * 60 * 60); // 24h dedup
-              
+
               // Add activity feed event
               await appendActivity(KV, {
                 ticker,
@@ -4411,7 +4427,7 @@ export default {
                 td13_bullish: td13Bullish,
                 td13_bearish: td13Bearish,
               });
-              
+
               // Send Discord alert
               const td9Embed = createTD9EntryEmbed(
                 ticker,
@@ -4424,8 +4440,10 @@ export default {
                 tdSeq
               );
               await notifyDiscord(env, td9Embed).catch(() => {});
-              
-              console.log(`[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`);
+
+              console.log(
+                `[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`
+              );
             }
           }
         }
@@ -5274,6 +5292,46 @@ export default {
           purged: result.purged,
           tickerCount: result.tickerCount,
           version: CURRENT_DATA_VERSION,
+        },
+        200,
+        corsHeaders(env, req)
+      );
+    }
+
+    // POST /timed/cleanup-no-scores?key=... (Remove tickers without score data from index)
+    if (url.pathname === "/timed/cleanup-no-scores" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      const tickersToKeep = [];
+      const tickersRemoved = [];
+
+      for (const ticker of tickers) {
+        const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        const hasScores =
+          data &&
+          (data.htf_score !== undefined || data.ltf_score !== undefined);
+        
+        if (hasScores) {
+          tickersToKeep.push(ticker);
+        } else {
+          tickersRemoved.push(ticker);
+          // Also clean up the latest data entry if it exists but has no scores
+          await KV.delete(`timed:latest:${ticker}`);
+        }
+      }
+
+      await kvPutJSON(KV, "timed:tickers", tickersToKeep);
+
+      return sendJSON(
+        {
+          ok: true,
+          message: `Cleaned up ${tickersRemoved.length} tickers without scores`,
+          removed: tickersRemoved,
+          kept: tickersToKeep.length,
+          totalBefore: tickers.length,
+          totalAfter: tickersToKeep.length,
         },
         200,
         corsHeaders(env, req)
