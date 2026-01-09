@@ -398,6 +398,20 @@ function pct01(x) {
 // ─────────────────────────────────────────────────────────────
 
 const TRADE_SIZE = 1000; // $1000 per trade
+
+// Futures contract specifications (point value per contract)
+const FUTURES_SPECS = {
+  "ES1!": { pointValue: 50, name: "E-mini S&P 500" },
+  "NQ1!": { pointValue: 20, name: "E-mini Nasdaq-100" },
+  "MES1!": { pointValue: 5, name: "Micro E-mini S&P 500" },
+  "MNQ1!": { pointValue: 2, name: "Micro E-mini Nasdaq-100" },
+  "YM1!": { pointValue: 5, name: "E-mini Dow" },
+  "RTY1!": { pointValue: 50, name: "E-mini Russell 2000" },
+  "ES": { pointValue: 50, name: "E-mini S&P 500" },
+  "NQ": { pointValue: 20, name: "E-mini Nasdaq-100" },
+  "YM": { pointValue: 5, name: "E-mini Dow" },
+};
+
 const FUTURES_TICKERS = new Set([
   "ES",
   "NQ",
@@ -856,11 +870,32 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     return null;
   }
 
-  const shares = TRADE_SIZE / entryPrice; // Allow fractional shares for high-priced tickers
+  const ticker = String(tickerData.ticker || "").toUpperCase();
+  const isFutures = FUTURES_SPECS[ticker] || ticker.endsWith("1!");
+  
+  // For futures: trade 1 contract, calculate P&L based on point value
+  // For stocks: calculate shares based on dollar amount
+  let shares;
+  let pointValue = 1; // Default for stocks (price per share)
+  
+  if (isFutures && FUTURES_SPECS[ticker]) {
+    // Futures: always trade 1 contract
+    shares = 1;
+    pointValue = FUTURES_SPECS[ticker].pointValue;
+  } else {
+    // Stocks: calculate shares from dollar amount
+    shares = TRADE_SIZE / entryPrice;
+  }
+
   let pnl = 0;
   let pnlPct = 0;
   let status = "OPEN";
   const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;
+
+  // Calculate price differences (in points for futures, dollars for stocks)
+  const priceDiff = currentPrice - entryPrice;
+  const tpDiff = tp - entryPrice;
+  const slDiff = sl - entryPrice;
 
   if (direction === "LONG") {
     const hitTP = currentPrice >= tp;
@@ -869,7 +904,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     if (hitTP) {
       if (trimmedPct === 0) {
         // First TP hit - trim 50%
-        const trimPnl = (tp - entryPrice) * shares * 0.5;
+        const trimPnl = tpDiff * shares * pointValue * 0.5;
         const trimPnlPct = ((tp - entryPrice) / entryPrice) * 100;
         return {
           shares,
@@ -881,19 +916,19 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
         };
       } else {
         // Already trimmed - full exit at TP
-        pnl = (tp - entryPrice) * shares;
+        pnl = tpDiff * shares * pointValue;
         pnlPct = ((tp - entryPrice) / entryPrice) * 100;
         // CRITICAL: Status must be based on actual P&L, not just TP hit
         // If entry price was worse than TP (slippage, bad fill), P&L can be negative
         status = pnl >= 0 ? "WIN" : "LOSS";
       }
     } else if (hitSL) {
-      pnl = (sl - entryPrice) * shares;
+      pnl = slDiff * shares * pointValue;
       pnlPct = ((sl - entryPrice) / entryPrice) * 100;
       // SL hit is always a loss
       status = "LOSS";
     } else {
-      pnl = (currentPrice - entryPrice) * shares;
+      pnl = priceDiff * shares * pointValue;
       pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
       status = "OPEN";
     }
@@ -904,25 +939,29 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
 
     if (hitTP) {
       if (trimmedPct === 0) {
+        const shortTpDiff = entryPrice - tp;
         return {
           shares,
-          pnl: (entryPrice - tp) * shares * 0.5,
+          pnl: shortTpDiff * shares * pointValue * 0.5,
           pnlPct: ((entryPrice - tp) / entryPrice) * 100,
           status: "TP_HIT_TRIM",
           currentPrice,
           trimmedPct: 0.5,
         };
       } else {
-        pnl = (entryPrice - tp) * shares;
+        const shortTpDiff = entryPrice - tp;
+        pnl = shortTpDiff * shares * pointValue;
         pnlPct = ((entryPrice - tp) / entryPrice) * 100;
         status = pnl >= 0 ? "WIN" : "LOSS";
       }
     } else if (hitSL) {
-      pnl = (entryPrice - sl) * shares;
+      const shortSlDiff = entryPrice - sl;
+      pnl = shortSlDiff * shares * pointValue;
       pnlPct = ((entryPrice - sl) / entryPrice) * 100;
       status = "LOSS";
     } else {
-      pnl = (entryPrice - currentPrice) * shares;
+      const shortPriceDiff = entryPrice - currentPrice;
+      pnl = shortPriceDiff * shares * pointValue;
       pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
       status = "OPEN";
     }
@@ -4206,14 +4245,22 @@ export default {
             });
             await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
           } else if (!currentMomentumElite && prevMomentumElite === "true") {
-            await kvPutText(KV, prevMomentumEliteKey, "false", 7 * 24 * 60 * 60);
+            await kvPutText(
+              KV,
+              prevMomentumEliteKey,
+              "false",
+              7 * 24 * 60 * 60
+            );
           }
         } catch (activityErr) {
-          console.error(`[ACTIVITY ERROR] Failed to track activity for ${ticker}:`, {
-            error: String(activityErr),
-            message: activityErr.message,
-            stack: activityErr.stack,
-          });
+          console.error(
+            `[ACTIVITY ERROR] Failed to track activity for ${ticker}:`,
+            {
+              error: String(activityErr),
+              message: activityErr.message,
+              stack: activityErr.stack,
+            }
+          );
           // Don't throw - continue with ingestion even if activity tracking fails
         }
 
@@ -4276,11 +4323,14 @@ export default {
         try {
           await processTradeSimulation(KV, ticker, payload, prevLatest, env);
         } catch (tradeErr) {
-          console.error(`[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`, {
-            error: String(tradeErr),
-            message: tradeErr.message,
-            stack: tradeErr.stack,
-          });
+          console.error(
+            `[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`,
+            {
+              error: String(tradeErr),
+              message: tradeErr.message,
+              stack: tradeErr.stack,
+            }
+          );
           // Don't throw - continue with ingestion even if trade simulation fails
         }
 
