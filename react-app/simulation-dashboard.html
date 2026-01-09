@@ -56,6 +56,19 @@
       const TRADE_SIZE = 1000; // $1000 per trade
       const FUTURES_TICKERS = new Set(["ES", "NQ", "YM", "RTY", "CL", "GC", "SI", "HG", "NG"]);
 
+      // Futures contract specifications (point value per contract) - matches worker
+      const FUTURES_SPECS = {
+        "ES1!": { pointValue: 50, name: "E-mini S&P 500" },
+        "NQ1!": { pointValue: 20, name: "E-mini Nasdaq-100" },
+        "MES1!": { pointValue: 5, name: "Micro E-mini S&P 500" },
+        "MNQ1!": { pointValue: 2, name: "Micro E-mini Nasdaq-100" },
+        "YM1!": { pointValue: 5, name: "E-mini Dow" },
+        "RTY1!": { pointValue: 50, name: "E-mini Russell 2000" },
+        "ES": { pointValue: 50, name: "E-mini S&P 500" },
+        "NQ": { pointValue: 20, name: "E-mini Nasdaq-100" },
+        "YM": { pointValue: 5, name: "E-mini Dow" },
+      };
+
       // ─────────────────────────────────────────────────────────────
       // Hooks
       // ─────────────────────────────────────────────────────────────
@@ -277,8 +290,23 @@
           return null;
         }
 
-        // Calculate shares (assuming $1000 position size) - allow fractional shares for high-priced tickers
-        const shares = TRADE_SIZE / entryPrice;
+        // Determine if this is a futures contract
+        const tickerSymbol = String(ticker.ticker || "").toUpperCase();
+        const isFutures = FUTURES_SPECS[tickerSymbol] || tickerSymbol.endsWith("1!");
+        
+        // For futures: trade 1 contract, calculate P&L based on point value
+        // For stocks: calculate shares based on dollar amount
+        let shares;
+        let pointValue = 1; // Default for stocks (price per share)
+        
+        if (isFutures && FUTURES_SPECS[tickerSymbol]) {
+          // Futures: always trade 1 contract
+          shares = 1;
+          pointValue = FUTURES_SPECS[tickerSymbol].pointValue;
+        } else {
+          // Stocks: calculate shares from dollar amount
+          shares = TRADE_SIZE / entryPrice;
+        }
 
         // Calculate P&L based on current price
         let pnl = 0;
@@ -289,6 +317,11 @@
         const trimmedPct = existingTrade ? (existingTrade.trimmedPct || 0) : 0;
         const remainingShares = shares * (1 - trimmedPct);
         
+        // Calculate price differences (in points for futures, dollars for stocks)
+        const priceDiff = currentPrice - entryPrice;
+        const tpDiff = tp - entryPrice;
+        const slDiff = sl - entryPrice;
+        
         if (direction === "LONG") {
           // Check if hit TP or SL first
           const hitTP = currentPrice >= tp;
@@ -297,7 +330,7 @@
           if (hitTP) {
             // If not already trimmed, trim 50% at first TP hit
             if (trimmedPct === 0) {
-              const trimPnl = (tp - entryPrice) * shares * 0.5;
+              const trimPnl = tpDiff * shares * pointValue * 0.5;
               const trimPnlPct = ((tp - entryPrice) / entryPrice) * 100;
               // Return special status for trimming
               return {
@@ -310,18 +343,18 @@
               };
             } else {
               // Already trimmed, full exit at TP
-              pnl = (tp - entryPrice) * shares;
+              pnl = tpDiff * shares * pointValue;
               pnlPct = ((tp - entryPrice) / entryPrice) * 100;
               // Status based on actual P&L, not just TP hit
               status = pnl >= 0 ? "WIN" : "LOSS";
             }
           } else if (hitSL) {
-            pnl = (sl - entryPrice) * shares;
+            pnl = slDiff * shares * pointValue;
             pnlPct = ((sl - entryPrice) / entryPrice) * 100;
             status = "LOSS";
           } else {
             // Still open - calculate current P&L
-            pnl = (currentPrice - entryPrice) * shares;
+            pnl = priceDiff * shares * pointValue;
             pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
             status = "OPEN";
           }
@@ -334,7 +367,8 @@
           if (hitTP) {
             // If not already trimmed, trim 50% at first TP hit
             if (trimmedPct === 0) {
-              const trimPnl = (entryPrice - tp) * shares * 0.5;
+              const shortTpDiff = entryPrice - tp;
+              const trimPnl = shortTpDiff * shares * pointValue * 0.5;
               const trimPnlPct = ((entryPrice - tp) / entryPrice) * 100;
               // Return special status for trimming
               return {
@@ -347,18 +381,21 @@
               };
             } else {
               // Already trimmed, full exit at TP
-              pnl = (entryPrice - tp) * shares;
+              const shortTpDiff = entryPrice - tp;
+              pnl = shortTpDiff * shares * pointValue;
               pnlPct = ((entryPrice - tp) / entryPrice) * 100;
               // Status based on actual P&L, not just TP hit
               status = pnl >= 0 ? "WIN" : "LOSS";
             }
           } else if (hitSL) {
-            pnl = (entryPrice - sl) * shares;
+            const shortSlDiff = entryPrice - sl;
+            pnl = shortSlDiff * shares * pointValue;
             pnlPct = ((entryPrice - sl) / entryPrice) * 100;
             status = "LOSS";
           } else {
             // Still open - calculate current P&L
-            pnl = (entryPrice - currentPrice) * shares;
+            const shortPriceDiff = entryPrice - currentPrice;
+            pnl = shortPriceDiff * shares * pointValue;
             pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
             status = "OPEN";
           }
@@ -1307,9 +1344,20 @@
               <div className="text-[#6b7a9f]">{formattedTime}</div>
             </td>
             <td className="p-2 text-sm font-mono">
-              <div className="text-xs text-[#93a4d6]">Total: {shares}</div>
-              {trimmedShares > 0 && (
-                <div className="text-xs text-blue-400">Remaining: {remainingShares}</div>
+              {isFutures && FUTURES_SPECS[tickerSymbol] ? (
+                <>
+                  <div className="text-xs text-[#93a4d6]">Total: {shares.toFixed(0)} contract{shares !== 1 ? 's' : ''}</div>
+                  {trimmedShares > 0 && (
+                    <div className="text-xs text-blue-400">Remaining: {remainingShares.toFixed(2)} contract{remainingShares !== 1 ? 's' : ''}</div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="text-xs text-[#93a4d6]">Total: {shares.toFixed(4)}</div>
+                  {trimmedShares > 0 && (
+                    <div className="text-xs text-blue-400">Remaining: {remainingShares.toFixed(4)}</div>
+                  )}
+                </>
               )}
             </td>
             <td className="p-2 text-sm">
