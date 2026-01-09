@@ -2382,11 +2382,12 @@
                 let rankPosition = null;
                 let totalTickers = 0;
                 if (allData && typeof allData === 'object') {
+                  // Use same filtering logic as detail card and Top 40 filter for consistency
                   const allTickersArray = Object.values(allData).filter(
                     (t) => t && typeof t === 'object' && t.ticker && (t.rank !== undefined && t.rank !== null)
                   );
                   totalTickers = allTickersArray.length;
-                  // Sort by worker's rank field (descending) - this is the rank stored at worker level
+                  // Sort by worker's rank field (descending) - same logic as detail card and Top 40 filter
                   const sortedByRank = [...allTickersArray].sort((a, b) => {
                     const rankA = Number(a.rank) || 0;
                     const rankB = Number(b.rank) || 0;
@@ -2397,9 +2398,10 @@
                     // If ranks are equal, use ticker name for consistent ordering
                     return String(a.ticker || "").localeCompare(String(b.ticker || ""));
                   });
-                  // Find position (1-indexed) - this matches Top 40 calculation logic
+                  // Find position (1-indexed) - use trim() for consistency with detail card and Top 40 filter
+                  const tooltipTickerUpper = String(tooltip.ticker || "").trim().toUpperCase();
                   const index = sortedByRank.findIndex(
-                    (t) => String(t.ticker || "").toUpperCase() === String(tooltip.ticker || "").toUpperCase()
+                    (t) => String(t.ticker || "").trim().toUpperCase() === tooltipTickerUpper
                   );
                   if (index >= 0) {
                     rankPosition = index + 1;
