@@ -214,7 +214,8 @@ f_1h_ema_cloud() =>
 f_detect_rsi_divergence(lookback = 20) =>
     rsi = ta.rsi(close, 14)
     
-    // Find recent price peaks and troughs
+    // Find recent price peaks and troughs (more precise detection)
+    // Look for local peaks/troughs within the lookback period
     priceHigh = ta.highest(high, lookback)
     priceLow = ta.lowest(low, lookback)
     
@@ -222,21 +223,27 @@ f_detect_rsi_divergence(lookback = 20) =>
     rsiHigh = ta.highest(rsi, lookback)
     rsiLow = ta.lowest(rsi, lookback)
     
-    // Compare current vs previous peaks/troughs
+    // Find previous period peaks/troughs (for comparison)
     prevPriceHigh = ta.highest(high[lookback], lookback)
     prevPriceLow = ta.lowest(low[lookback], lookback)
     prevRsiHigh = ta.highest(rsi[lookback], lookback)
     prevRsiLow = ta.lowest(rsi[lookback], lookback)
     
-    // Bullish Divergence: Price lower low, RSI higher low
-    bullishDiv = (priceLow < prevPriceLow) and (rsiLow > prevRsiLow) and (rsiLow < 40)
+    // Bullish Divergence: Price makes lower low, RSI makes higher low
+    // Conditions: Current price low < previous price low AND current RSI low > previous RSI low
+    // Also check that RSI is not in overbought territory (should be < 50 for bullish divergence)
+    bullishDiv = (priceLow < prevPriceLow) and (rsiLow > prevRsiLow) and (rsiLow < 50) and (priceLow == low)
     
-    // Bearish Divergence: Price higher high, RSI lower high
-    bearishDiv = (priceHigh > prevPriceHigh) and (rsiHigh < prevRsiHigh) and (rsiHigh > 60)
+    // Bearish Divergence: Price makes higher high, RSI makes lower high
+    // Conditions: Current price high > previous price high AND current RSI high < previous RSI high
+    // Also check that RSI is not in oversold territory (should be > 50 for bearish divergence)
+    bearishDiv = (priceHigh > prevPriceHigh) and (rsiHigh < prevRsiHigh) and (rsiHigh > 50) and (priceHigh == high)
     
     // Determine divergence type
     divergenceType = bullishDiv ? "bullish" : bearishDiv ? "bearish" : "none"
-    divergenceStrength = bullishDiv ? (prevRsiLow - rsiLow) : bearishDiv ? (rsiHigh - prevRsiHigh) : 0.0
+    
+    // Calculate divergence strength (difference in RSI levels)
+    divergenceStrength = bullishDiv ? math.max(0, rsiLow - prevRsiLow) : bearishDiv ? math.max(0, prevRsiHigh - rsiHigh) : 0.0
     
     [divergenceType, divergenceStrength, rsi]
 
