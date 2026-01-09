@@ -184,43 +184,65 @@ async function checkRateLimit(
 async function ensureTickerIndex(KV, ticker) {
   try {
     const key = "timed:tickers";
-    const cur = (await kvGetJSON(KV, key)) || [];
     
-    // Debug: Always log for BMNR/BABA
-    if (ticker === "BMNR" || ticker === "BABA") {
-      console.log(`[TICKER INDEX] ensureTickerIndex called for ${ticker}:`, {
-        alreadyInIndex: cur.includes(ticker),
-        currentIndexSize: cur.length,
-        indexSample: cur.slice(0, 10)
-      });
-    }
+    // Use retry logic to handle race conditions
+    let retries = 3;
+    let success = false;
     
-    if (!cur.includes(ticker)) {
-      cur.push(ticker);
-      cur.sort();
-      await kvPutJSON(KV, key, cur);
+    while (retries > 0 && !success) {
+      const cur = (await kvGetJSON(KV, key)) || [];
       
-      // Verify it was added
-      const verify = (await kvGetJSON(KV, key)) || [];
-      const wasAdded = verify.includes(ticker);
-      
-      console.log(
-        `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}, Verified: ${wasAdded}`
-      );
-      
-      if (!wasAdded && (ticker === "BMNR" || ticker === "BABA")) {
-        console.error(`[TICKER INDEX ERROR] ${ticker} was NOT added to index despite push!`, {
-          beforeAdd: cur.length,
-          afterAdd: verify.length,
-          tickerInVerify: verify.includes(ticker)
+      // Debug: Always log for BMNR/BABA
+      if (ticker === "BMNR" || ticker === "BABA") {
+        console.log(`[TICKER INDEX] ensureTickerIndex called for ${ticker} (retries: ${retries}):`, {
+          alreadyInIndex: cur.includes(ticker),
+          currentIndexSize: cur.length,
+          indexSample: cur.slice(0, 10)
         });
       }
-    } else {
-      // Debug: Log when ticker is already in index (for BMNR/BABA debugging)
-      if (ticker === "BMNR" || ticker === "BABA") {
-        console.log(
-          `[TICKER INDEX DEBUG] ${ticker} already in index (count: ${cur.length})`
-        );
+      
+      if (!cur.includes(ticker)) {
+        cur.push(ticker);
+        cur.sort();
+        await kvPutJSON(KV, key, cur);
+        
+        // Verify it was added (with small delay to ensure KV consistency)
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const verify = (await kvGetJSON(KV, key)) || [];
+        const wasAdded = verify.includes(ticker);
+        
+        if (wasAdded) {
+          console.log(
+            `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}, Verified: ${wasAdded}`
+          );
+          success = true;
+        } else {
+          // Retry if verification failed (possible race condition)
+          console.warn(
+            `[TICKER INDEX] ${ticker} verification failed, retrying... (retries left: ${retries - 1})`
+          );
+          retries--;
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
+        if (!wasAdded && retries === 0 && (ticker === "BMNR" || ticker === "BABA")) {
+          console.error(`[TICKER INDEX ERROR] ${ticker} was NOT added to index after ${3} retries!`, {
+            beforeAdd: cur.length,
+            afterAdd: verify.length,
+            tickerInVerify: verify.includes(ticker),
+            verifySample: verify.slice(0, 10)
+          });
+        }
+      } else {
+        // Already in index - success
+        if (ticker === "BMNR" || ticker === "BABA") {
+          console.log(
+            `[TICKER INDEX DEBUG] ${ticker} already in index (count: ${cur.length})`
+          );
+        }
+        success = true;
       }
     }
   } catch (err) {
