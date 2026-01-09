@@ -1346,9 +1346,9 @@
           : remainingShares * currentPrice;
 
         // Recalculate P&L using correct futures logic (override stored value)
+        // Note: trimmedPct is already declared above (line 1336)
         let recalculatedPnl = 0;
         let recalculatedPnlPct = 0;
-        const trimmedPct = trade.trimmedPct || 0;
         const priceDiff = currentPrice - trade.entryPrice;
         
         if (trade.direction === "LONG") {
