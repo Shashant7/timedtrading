@@ -1318,7 +1318,9 @@
             if (effectiveFilters.group === "ANY") {
               if (gs.length === 0) continue;
             } else if (effectiveFilters.group === "UNGROUPED") {
-              if (gs.length > 0) continue;
+              // UNGROUPED means only in "No Group" (not in any actual group)
+              const actualGroups = gs.filter(g => g !== "No Group");
+              if (actualGroups.length > 0) continue;
             } else {
               if (!gs.includes(effectiveFilters.group)) continue;
             }
