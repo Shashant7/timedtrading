@@ -5127,6 +5127,81 @@ export default {
       );
     }
 
+    // POST /timed/debug/migrate-brk?key=... - Migrate BRK.B to BRK-B
+    if (url.pathname === "/timed/debug/migrate-brk" && req.method === "POST") {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
+        const newData = await kvGetJSON(KV, `timed:latest:BRK-B`);
+        
+        if (!oldData && !newData) {
+          return sendJSON(
+            { ok: false, error: "No BRK data found" },
+            404,
+            corsHeaders(env, req)
+          );
+        }
+
+        // Use newer data if both exist
+        const dataToUse = oldData && newData && newData.ts > oldData.ts ? newData : (oldData || newData);
+        const migrated = !!oldData && oldData !== dataToUse;
+
+        await kvPutJSON(KV, `timed:latest:BRK-B`, dataToUse);
+        
+        // Migrate trail data
+        const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
+        const newTrail = await kvGetJSON(KV, `timed:trail:BRK-B`);
+        if (oldTrail || newTrail) {
+          await kvPutJSON(KV, `timed:trail:BRK-B`, oldTrail || newTrail);
+        }
+        
+        // Ensure BRK-B is in index
+        await ensureTickerIndex(KV, "BRK-B");
+        
+        // Remove BRK.B from index if it exists
+        let tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        if (tickers.includes("BRK.B")) {
+          tickers = tickers.filter((t) => t !== "BRK.B");
+          await kvPutJSON(KV, "timed:tickers", tickers);
+        }
+        
+        // Delete old BRK.B data if we migrated
+        if (migrated) {
+          await KV.delete(`timed:latest:BRK.B`);
+          await KV.delete(`timed:trail:BRK.B`);
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            message: "BRK migration completed",
+            hadOldData: !!oldData,
+            hadNewData: !!newData,
+            migrated,
+            finalTicker: "BRK-B",
+            ts: dataToUse?.ts,
+            htf_score: dataToUse?.htf_score,
+            ltf_score: dataToUse?.ltf_score,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      } catch (err) {
+        console.error(`[MIGRATE BRK ERROR]`, {
+          error: String(err),
+          message: err.message,
+          stack: err.stack,
+        });
+        return sendJSON(
+          { ok: false, error: "internal_error", message: err.message },
+          500,
+          corsHeaders(env, req)
+        );
+      }
+    }
+
     // POST /timed/debug/cleanup-duplicates?key=... - Remove duplicate/empty tickers from index
     if (
       url.pathname === "/timed/debug/cleanup-duplicates" &&
