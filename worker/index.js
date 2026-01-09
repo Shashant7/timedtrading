@@ -4627,6 +4627,20 @@ export default {
       const versionBreakdown = {}; // Track which versions are being filtered
 
       for (const { ticker, value } of results) {
+        // Debug specific tickers that aren't showing
+        if (ticker === "BMNR" || ticker === "BABA") {
+          console.log(`[ALL ENDPOINT DEBUG] ${ticker}:`, {
+            inIndex: tickers.includes(ticker),
+            hasValue: !!value,
+            valueKeys: value ? Object.keys(value) : [],
+            htf_score: value?.htf_score,
+            ltf_score: value?.ltf_score,
+            script_version: value?.script_version,
+            price: value?.price,
+            state: value?.state
+          });
+        }
+        
         if (value) {
           // Accept ALL data - don't filter by version unless explicitly requested
           // This ensures all historical data is accessible
@@ -4661,6 +4675,11 @@ export default {
             }
 
             data[ticker] = value;
+          }
+        } else {
+          // Log tickers in index but without data
+          if (ticker === "BMNR" || ticker === "BABA") {
+            console.log(`[ALL ENDPOINT DEBUG] ${ticker}: In index but no data found in KV`);
           }
         }
       }
@@ -5313,7 +5332,7 @@ export default {
         const hasScores =
           data &&
           (data.htf_score !== undefined || data.ltf_score !== undefined);
-        
+
         if (hasScores) {
           tickersToKeep.push(ticker);
         } else {
