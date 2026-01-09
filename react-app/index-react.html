@@ -4087,11 +4087,11 @@
                       key={sectorName}
                       onClick={() => {
                         if (isActive) {
-                          // Toggle off - set to undefined to properly clear
-                          const newFilters = { ...filters };
-                          delete newFilters.sector;
-                          newFilters.sector = undefined;
-                          onFilterChange(newFilters);
+                          // Toggle off - clear sector filter
+                          onFilterChange({
+                            ...filters,
+                            sector: undefined,
+                          });
                         } else {
                           // Toggle on - set sector filter
                           onFilterChange({
