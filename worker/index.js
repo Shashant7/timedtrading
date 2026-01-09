@@ -4739,49 +4739,41 @@ export default {
 
         payload.rank = computeRank(payload);
 
-        // Auto-populate sector: first from TradingView data if provided, otherwise from SECTOR_MAP
+        // Auto-populate sector: PRIORITIZE SECTOR_MAP over TradingView data
+        // TradingView uses industry classifications (e.g., "Electronic Technology", "Retail Trade")
+        // but we use GICS sectors (e.g., "Information Technology", "Consumer Discretionary")
+        // So we always check SECTOR_MAP first, then fall back to TradingView data for unmapped tickers
         const tickerUpper = String(payload.ticker || ticker).toUpperCase();
         let sectorToUse = null;
 
-        if (
-          payload.sector &&
-          typeof payload.sector === "string" &&
-          payload.sector.trim() !== ""
-        ) {
-          // Use sector from TradingView if provided
-          sectorToUse = payload.sector.trim();
-        } else {
-          // Fallback to SECTOR_MAP lookup if TradingView didn't provide sector
-          sectorToUse = getSector(tickerUpper);
-        }
+        // First, check our SECTOR_MAP (GICS sectors)
+        sectorToUse = getSector(tickerUpper);
 
-        // Set sector at top level if we have one
-        if (sectorToUse) {
-          payload.sector = sectorToUse;
-
-          // If sector came from TradingView and differs from SECTOR_MAP, update the map
+        // If not in SECTOR_MAP, use TradingView's sector (for new/unmapped tickers)
+        if (!sectorToUse) {
           if (
             payload.sector &&
             typeof payload.sector === "string" &&
             payload.sector.trim() !== ""
           ) {
-            const sectorFromTV = payload.sector.trim();
-            const currentSector = getSector(tickerUpper);
-
-            if (!currentSector || currentSector !== sectorFromTV) {
-              // Auto-populate SECTOR_MAP (in-memory, will persist in KV)
-              SECTOR_MAP[tickerUpper] = sectorFromTV;
-              console.log(
-                `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorFromTV}${
-                  currentSector ? ` (was: ${currentSector})` : " (new)"
-                }`
-              );
-
-              // Store sector mapping in KV for persistence
-              const sectorMapKey = `timed:sector_map:${tickerUpper}`;
-              await kvPutText(KV, sectorMapKey, sectorFromTV);
-            }
+            sectorToUse = payload.sector.trim();
+            // Store TradingView sector in KV for reference (but don't override SECTOR_MAP)
+            const sectorMapKey = `timed:sector_map:${tickerUpper}`;
+            await kvPutText(KV, sectorMapKey, sectorToUse);
+            console.log(
+              `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorToUse} (from TradingView, not in SECTOR_MAP)`
+            );
           }
+        } else {
+          // Ticker is in SECTOR_MAP - use our GICS sector classification
+          console.log(
+            `[SECTOR] ${tickerUpper} → ${sectorToUse} (from SECTOR_MAP, ignoring TradingView sector: ${payload.sector || "none"})`
+          );
+        }
+
+        // Set sector at top level if we have one
+        if (sectorToUse) {
+          payload.sector = sectorToUse;
         }
 
         // Store sector and industry in payload (even if no fundamental data)
