@@ -1022,9 +1022,9 @@ meaningful = stateChanged or scoreMoved or sq30_rel
 // After that, periodic updates will maintain data even if nothing changes
 sessionOK = f_is_allowed_session()
 firstBaseline = not sentBaseline
-// Always send if periodic update is due (ensures all watchlist tickers maintain current data)
-// This ensures every ticker in the watchlist gets regular updates even if nothing changes
-shouldSend = barstate.isconfirmed and throttleOK and (firstBaseline or sessionOK) and (forceBaseline or firstBaseline or meaningful or (periodicUpdateMinutes > 0 and periodicUpdateDue))
+// ALWAYS SEND: User wants alerts for every ticker regardless of delta changes
+// This ensures every ticker in the watchlist sends data on every bar close
+shouldSend = barstate.isconfirmed and throttleOK and (firstBaseline or sessionOK)
 
 // Reasons
 reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H/1H)"
