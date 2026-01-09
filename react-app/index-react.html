@@ -1464,6 +1464,7 @@
           const comp = Number(ticker.completion) || 0;
           const phasePct = Number(ticker.phase_pct) || 0;
           const rr = Number(ticker.rr) || 0;
+          const waitingForData = ticker.waitingForData === true;
 
           // Bubble size based on RR, adjusted for completion (lower completion = larger size)
           // RR is the opportunity, but we want to reduce size as completion increases
@@ -1475,23 +1476,35 @@
           const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
           const baseSize = 4; // Reduced from 8
           const rrMultiplier = 2; // Reduced from 6 - much smaller bubbles
-          const size = baseSize + cappedRR * rrMultiplier * completionPenalty;
+          // Smaller size for tickers waiting for data
+          const size = waitingForData 
+            ? baseSize * 0.7 
+            : baseSize + cappedRR * rrMultiplier * completionPenalty;
 
           const prime = isPrimeBubble(ticker);
           const flags = ticker.flags || {};
           const ent = entryType(ticker);
 
           // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
-          const color = phaseCompletionToColor(phasePct);
-          const opacity = isHovered ? 1 : prime ? 0.9 : 0.7;
-          const borderWidth = prime
+          // Use gray for tickers waiting for data
+          const color = waitingForData 
+            ? "#6b7a9f" 
+            : phaseCompletionToColor(phasePct);
+          const opacity = waitingForData 
+            ? 0.4 
+            : isHovered ? 1 : prime ? 0.9 : 0.7;
+          const borderWidth = waitingForData
+            ? 2
+            : prime
             ? 3
             : flags.sq30_release
             ? 2
             : flags.sq30_on
             ? 2
             : 1;
-          const borderColor = prime
+          const borderColor = waitingForData
+            ? "#93a4d6"
+            : prime
             ? "#2ecc71"
             : flags.sq30_release
             ? "#00ffff"
@@ -1506,7 +1519,9 @@
 
           // Determine emoji and label position
           const hasSqueeze = flags.sq30_release || flags.sq30_on;
-          const emoji = prime
+          const emoji = waitingForData
+            ? "⏳"
+            : prime
             ? "⭐"
             : flags.sq30_release
             ? "⚡"
