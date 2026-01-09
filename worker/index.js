@@ -191,6 +191,13 @@ async function ensureTickerIndex(KV, ticker) {
     console.log(
       `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}`
     );
+  } else {
+    // Debug: Log when ticker is already in index (for BMNR/BABA debugging)
+    if (ticker === "BMNR" || ticker === "BABA") {
+      console.log(
+        `[TICKER INDEX DEBUG] ${ticker} already in index (count: ${cur.length})`
+      );
+    }
   }
 }
 
@@ -4637,10 +4644,10 @@ export default {
             ltf_score: value?.ltf_score,
             script_version: value?.script_version,
             price: value?.price,
-            state: value?.state
+            state: value?.state,
           });
         }
-        
+
         if (value) {
           // Accept ALL data - don't filter by version unless explicitly requested
           // This ensures all historical data is accessible
@@ -4679,7 +4686,9 @@ export default {
         } else {
           // Log tickers in index but without data
           if (ticker === "BMNR" || ticker === "BABA") {
-            console.log(`[ALL ENDPOINT DEBUG] ${ticker}: In index but no data found in KV`);
+            console.log(
+              `[ALL ENDPOINT DEBUG] ${ticker}: In index but no data found in KV`
+            );
           }
         }
       }
