@@ -2032,7 +2032,9 @@ async function processTradeSimulation(
             );
 
             // Send Discord notification for new trade entry
-            if (env) {
+            // Only send alert if this is a real-time trade (not a backfill)
+            // Backfills can have misleading entry prices and confuse traders
+            if (env && !isBackfill) {
               const embed = createTradeEntryEmbed(
                 ticker,
                 direction,
@@ -2041,9 +2043,15 @@ async function processTradeSimulation(
                 validTP, // Use validated TP
                 entryRR || 0,
                 trade.rank || 0,
-                tickerData.state || "N/A"
+                tickerData.state || "N/A",
+                Number(tickerData.price), // Current price for comparison
+                isBackfill
               );
               await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade creation
+            } else if (env && isBackfill) {
+              console.log(
+                `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - backfill trade (entry: $${entryPrice.toFixed(2)}, current: $${Number(tickerData.price).toFixed(2)})`
+              );
             }
           } else {
             console.log(
@@ -2629,16 +2637,25 @@ function createTradeEntryEmbed(
   tp,
   rr,
   rank,
-  state
+  state,
+  currentPrice = null,
+  isBackfill = false
 ) {
   const color = direction === "LONG" ? 0x00ff00 : 0xff0000; // Green for LONG, Red for SHORT
+  
+  // If current price differs significantly from entry, show both
+  let entryPriceDisplay = `$${entryPrice.toFixed(2)}`;
+  if (currentPrice && Math.abs(currentPrice - entryPrice) / entryPrice > 0.01) {
+    entryPriceDisplay += ` (current: $${currentPrice.toFixed(2)})`;
+  }
+  
   return {
-    title: `🎯 Trade Entered: ${ticker} ${direction}`,
+    title: `🎯 Trade Entered: ${ticker} ${direction}${isBackfill ? " (from backfill)" : ""}`,
     color: color,
     fields: [
       {
         name: "Entry Price",
-        value: `$${entryPrice.toFixed(2)}`,
+        value: entryPriceDisplay,
         inline: true,
       },
       {
