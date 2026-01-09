@@ -5089,11 +5089,17 @@
         const actionInfo = getActionDescription(ticker);
 
         // Convert allLoadedData to array for ranking calculations
-        const allLoadedTickersArray = (() => {
+        // Use same logic as Top 40 filter for consistency
+        const allTickersWithRank = (() => {
           if (allLoadedData && typeof allLoadedData === "object") {
-            if (Array.isArray(allLoadedData)) return allLoadedData;
+            if (Array.isArray(allLoadedData)) {
+              return allLoadedData.filter(
+                (t) => t && typeof t === "object" && t.ticker && (t.rank !== undefined && t.rank !== null)
+              );
+            }
+            // Object format: { "GOOGL": {...}, "MSFT": {...} }
             return Object.values(allLoadedData).filter(
-              (t) => t && typeof t === "object" && t.ticker
+              (t) => t && typeof t === "object" && t.ticker && (t.rank !== undefined && t.rank !== null)
             );
           }
           return [];
@@ -5101,10 +5107,7 @@
 
         const baseScore = Number(ticker.rank) || 0;
         // Calculate rank position using worker's rank field (stored at worker level)
-        // This ensures consistency across all rank displays
-        const allTickersWithRank = allLoadedTickersArray.filter(
-          (t) => t && typeof t === "object" && t.ticker && (t.rank !== undefined && t.rank !== null)
-        );
+        // Use same sorting logic as Top 40 filter for consistency
         const sortedByRank = [...allTickersWithRank].sort((a, b) => {
           const rankA = Number(a.rank) || 0;
           const rankB = Number(b.rank) || 0;
@@ -5115,7 +5118,7 @@
           // If ranks are equal, use ticker name for consistent ordering
           return String(a.ticker || "").localeCompare(String(b.ticker || ""));
         });
-        const rankPosition = sortedByRank.findIndex(t => String(t.ticker || "").toUpperCase() === String(tickerSymbol).toUpperCase()) + 1;
+        const rankPosition = sortedByRank.findIndex(t => String(t.ticker || "").trim().toUpperCase() === String(tickerSymbol).trim().toUpperCase()) + 1;
         const totalTickers = allTickersWithRank.length;
         const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
