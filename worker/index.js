@@ -4582,6 +4582,18 @@ export default {
       const storedVersion =
         (await getStoredVersion(KV)) || CURRENT_DATA_VERSION;
 
+      // Debug: Check if BMNR is in the ticker index
+      if (tickers.includes("BMNR") || tickers.includes("BABA")) {
+        console.log(`[ALL ENDPOINT] BMNR/BABA in index:`, {
+          BMNR: tickers.includes("BMNR"),
+          BABA: tickers.includes("BABA"),
+          totalTickers: tickers.length,
+          indexSample: tickers.slice(0, 10)
+        });
+      } else {
+        console.log(`[ALL ENDPOINT] BMNR/BABA NOT in index. Total tickers: ${tickers.length}`);
+      }
+
       // Check if version parameter is provided
       const requestedVersion = url.searchParams.get("version");
       const useVersionSnapshots =
@@ -4607,6 +4619,17 @@ export default {
         } else {
           // Default: get latest data
           value = await kvGetJSON(KV, `timed:latest:${t}`);
+          
+          // Debug: Check if BMNR data exists in KV
+          if (t === "BMNR" || t === "BABA") {
+            console.log(`[ALL ENDPOINT] Fetched ${t} from KV:`, {
+              hasValue: !!value,
+              valueKeys: value ? Object.keys(value) : [],
+              htf_score: value?.htf_score,
+              ltf_score: value?.ltf_score,
+              script_version: value?.script_version
+            });
+          }
         }
         return { ticker: t, value };
       });
