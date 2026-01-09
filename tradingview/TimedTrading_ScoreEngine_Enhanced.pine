@@ -163,6 +163,48 @@ PC4H  = fourHClose
 ATR4H = fourHATR
 
 //─────────────────────────────────────────────────────────────────────────────
+// EMA Cloud Calculations (for holding winners logic)
+//─────────────────────────────────────────────────────────────────────────────
+// Daily: 5-8 EMA Cloud
+f_daily_ema_cloud() =>
+    ema5 = ta.ema(close, 5)
+    ema8 = ta.ema(close, 8)
+    upperEMA = math.max(ema5, ema8)
+    lowerEMA = math.min(ema5, ema8)
+    currentPrice = close
+    // Determine position: "above", "below", or "within"
+    position = currentPrice > upperEMA ? "above" : currentPrice < lowerEMA ? "below" : "within"
+    [upperEMA, lowerEMA, currentPrice, position]
+
+[dailyEMAUpper, dailyEMALower, dailyPrice, dailyEMAPosition] = request.security(syminfo.tickerid, "D", f_daily_ema_cloud(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// 4H: 8-13 EMA Cloud
+f_4h_ema_cloud() =>
+    ema8 = ta.ema(close, 8)
+    ema13 = ta.ema(close, 13)
+    upperEMA = math.max(ema8, ema13)
+    lowerEMA = math.min(ema8, ema13)
+    currentPrice = close
+    // Determine position: "above", "below", or "within"
+    position = currentPrice > upperEMA ? "above" : currentPrice < lowerEMA ? "below" : "within"
+    [upperEMA, lowerEMA, currentPrice, position]
+
+[fourHEMAUpper, fourHEMALower, fourHPrice, fourHEMAPosition] = request.security(syminfo.tickerid, "240", f_4h_ema_cloud(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// 1H: 13-21 EMA Cloud
+f_1h_ema_cloud() =>
+    ema13 = ta.ema(close, 13)
+    ema21 = ta.ema(close, 21)
+    upperEMA = math.max(ema13, ema21)
+    lowerEMA = math.min(ema13, ema21)
+    currentPrice = close
+    // Determine position: "above", "below", or "within"
+    position = currentPrice > upperEMA ? "above" : currentPrice < lowerEMA ? "below" : "within"
+    [upperEMA, lowerEMA, currentPrice, position]
+
+[oneHEMAUpper, oneHEMALower, oneHPrice, oneHEMAPosition] = request.security(syminfo.tickerid, "60", f_1h_ema_cloud(), barmerge.gaps_off, barmerge.lookahead_off)
+
+//─────────────────────────────────────────────────────────────────────────────
 // Enhanced bundle: includes volume and RSI
 //─────────────────────────────────────────────────────────────────────────────
 f_tf_bundle() =>
@@ -1297,7 +1339,7 @@ pegStr = not na(pegRatio) ? ("\"peg_ratio\":" + f_fmt(pegRatio, 2) + ",") : ""
 marketCapStr = not na(marketCap) ? ("\"market_cap\":" + f_fmt(marketCap, 0) + ",") : ""
 
 // Build JSON
-json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"td_sequential\":{" +        "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," +        "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," +        "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," +        "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," +        "\"td9_bullish\":" + (td9Bullish ? "true":"false") + "," +        "\"td9_bearish\":" + (td9Bearish ? "true":"false") + "," +        "\"td13_bullish\":" + (td13Bullish ? "true":"false") + "," +        "\"td13_bearish\":" + (td13Bearish ? "true":"false") + "," +        "\"exit_long\":" + (tdSeqExitLong ? "true":"false") + "," +        "\"exit_short\":" + (tdSeqExitShort ? "true":"false") + "," +        "\"boost\":" + f_fmt(tdSeqBoost, 2) +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
+json =    "{" +      "\"script_version\":\"" + SCRIPT_VERSION + "\"," +      "\"ts\":" + str.tostring(time) + "," +      "\"ticker\":\"" + syminfo.ticker + "\"," +      sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr +      "\"tf_hint\":\"" + timeframe.period + "\"," +      "\"htf_score\":" + f_fmt(htfScore,2) + "," +      "\"ltf_score\":" + f_fmt(ltfScore,2) + "," +      "\"completion\":" + f_fmt(completion,2) + "," +      "\"phase_pct\":" + f_fmt(phasePct,2) + "," +      "\"phase_zone\":\"" + (usePhaseZones ? phaseZoneD : "") + "\"," +      "\"state\":\"" + state + "\"," +      "\"price\":" + f_fmt(price_now,2) + "," +      "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," +      "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice,2)) + "," +      "\"trigger_reason\":\"" + triggerReason + "\"," +      "\"trigger_dir\":\"" + triggerDirStr + "\"," +      "\"sl\":" + (na(sl) ? "null" : f_fmt(sl,2)) + "," +      "\"tp\":" + (na(tp) ? "null" : f_fmt(tp,2)) + "," +      "\"tp_levels\":" + tpArrayStr + "," +      "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays,2)) + "," +      "\"rr\":" + (na(rr) ? "null" : f_fmt(rr,2)) + "," +      "\"momentum_pct\":{" +        "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," +        "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," +        "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," +        "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) +      "}," +      dailyEMAStr + fourHEMAStr + oneHEMAStr +      "\"flags\":{" +        "\"sq30_on\":" + (sq30 ? "true":"false") + "," +        "\"sq30_release\":" + (sq30_rel ? "true":"false") + "," +        "\"phase_dot\":" + (phaseDot ? "true":"false") + "," +        "\"phase_zone_change\":" + (phaseZoneChange ? "true":"false") + "," +        "\"momentum_elite\":" + (momentumElite ? "true":"false") +      "}," +      "\"td_sequential\":{" +        "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," +        "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," +        "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," +        "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," +        "\"td9_bullish\":" + (td9Bullish ? "true":"false") + "," +        "\"td9_bearish\":" + (td9Bearish ? "true":"false") + "," +        "\"td13_bullish\":" + (td13Bullish ? "true":"false") + "," +        "\"td13_bearish\":" + (td13Bearish ? "true":"false") + "," +        "\"exit_long\":" + (tdSeqExitLong ? "true":"false") + "," +        "\"exit_short\":" + (tdSeqExitShort ? "true":"false") + "," +        "\"boost\":" + f_fmt(tdSeqBoost, 2) +      "}," +      "\"reasons\":[" +        "\"" + reason1 + "\"," +        "\"" + reason2 + "\"," +        "\"" + reason3 + "\"," +        "\"" + reason4 + "\"" +      "]" +    "}"
 
 // Send
 if shouldSend
