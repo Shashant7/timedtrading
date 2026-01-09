@@ -195,14 +195,14 @@ async function checkRateLimit(
 
 async function ensureTickerIndex(KV, ticker) {
   try {
-    const key = "timed:tickers";
+  const key = "timed:tickers";
 
     // Use retry logic to handle race conditions
     let retries = 3;
     let success = false;
 
     while (retries > 0 && !success) {
-      const cur = (await kvGetJSON(KV, key)) || [];
+  const cur = (await kvGetJSON(KV, key)) || [];
 
       // Debug: Always log for BMNR/BABA/ETHT
       if (ticker === "BMNR" || ticker === "BABA" || ticker === "ETHT") {
@@ -216,10 +216,10 @@ async function ensureTickerIndex(KV, ticker) {
         );
       }
 
-      if (!cur.includes(ticker)) {
-        cur.push(ticker);
-        cur.sort();
-        await kvPutJSON(KV, key, cur);
+  if (!cur.includes(ticker)) {
+    cur.push(ticker);
+    cur.sort();
+    await kvPutJSON(KV, key, cur);
 
         // Verify it was added (with small delay to ensure KV consistency)
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -227,7 +227,7 @@ async function ensureTickerIndex(KV, ticker) {
         const wasAdded = verify.includes(ticker);
 
         if (wasAdded) {
-          console.log(
+    console.log(
             `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}, Verified: ${wasAdded}`
           );
           success = true;
@@ -566,12 +566,19 @@ function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
   return score;
 }
 
-// Helper: Get intelligent TP (best single or weighted blend)
-function getIntelligentTP(tickerData, entryPrice, direction) {
+// Helper: Build intelligent TP array with progressive trim levels (25%, 50%, 75%)
+// This creates a systematic TP array that allows holding winners longer
+function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   const isLong = direction === "LONG";
+  const sl = Number(tickerData.sl);
+  
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(sl)) {
+    return [];
+  }
 
-  // Get TP from tickerData
-  let tp = Number(tickerData.tp);
+  // Calculate risk (distance from entry to SL)
+  const risk = Math.abs(entryPrice - sl);
+  if (risk <= 0) return [];
 
   // Extract all TP levels with metadata
   let tpLevels = [];
@@ -607,9 +614,10 @@ function getIntelligentTP(tickerData, entryPrice, direction) {
   }
 
   // Add primary TP if valid
-  if (Number.isFinite(tp) && tp > 0) {
+  const primaryTP = Number(tickerData.tp);
+  if (Number.isFinite(primaryTP) && primaryTP > 0) {
     tpLevels.push({
-      price: tp,
+      price: primaryTP,
       source: "Primary TP",
       type: "ATR_FIB",
       timeframe: "D",
@@ -619,15 +627,37 @@ function getIntelligentTP(tickerData, entryPrice, direction) {
     });
   }
 
-  // Filter by direction
-  const validTPs = tpLevels.filter((item) => {
-    if (isLong) return item.price > entryPrice;
-    return item.price < entryPrice;
-  });
+  // Filter by direction and ensure they're beyond entry
+  const validTPs = tpLevels
+    .filter((item) => {
+      if (isLong) return item.price > entryPrice;
+      return item.price < entryPrice;
+    })
+    .sort((a, b) => {
+      // Sort by distance from entry (closest first for LONG, furthest first for SHORT)
+      const distA = Math.abs(a.price - entryPrice);
+      const distB = Math.abs(b.price - entryPrice);
+      return isLong ? distA - distB : distB - distA;
+    });
 
   if (validTPs.length === 0) {
-    // Fallback to original logic
-    return getValidTP(tickerData, entryPrice, direction);
+    // Fallback: create basic TP array from primary TP
+    if (Number.isFinite(primaryTP) && primaryTP > 0) {
+      const tp1 = primaryTP;
+      const tp2 = isLong 
+        ? entryPrice + (tp1 - entryPrice) * 1.5 
+        : entryPrice - (entryPrice - tp1) * 1.5;
+      const tp3 = isLong 
+        ? entryPrice + (tp1 - entryPrice) * 2.0 
+        : entryPrice - (entryPrice - tp1) * 2.0;
+      
+      return [
+        { price: tp1, trimPct: 0.25, label: "TP1 (25%)" },
+        { price: tp2, trimPct: 0.50, label: "TP2 (50%)" },
+        { price: tp3, trimPct: 0.75, label: "TP3 (75%)" },
+      ];
+    }
+    return [];
   }
 
   // Score all valid TPs
@@ -639,49 +669,98 @@ function getIntelligentTP(tickerData, entryPrice, direction) {
   // Sort by score (descending)
   scoredTPs.sort((a, b) => b.score - a.score);
 
-  // Strategy: Use weighted blend of top 3 TPs if they're reasonably close, otherwise use best single
-  const topTP = scoredTPs[0];
-  const top3TPs = scoredTPs.slice(0, 3);
+  // Build intelligent TP array with progressive trim levels
+  // Strategy: Select 3-4 TPs that are well-spaced and represent good trim points
+  const selectedTPs = [];
+  const minDistancePct = 0.02; // Minimum 2% distance between TPs
+  const maxTPs = 4; // Maximum 4 TP levels
 
-  // Check if top 3 are clustered (within 2% of each other)
-  const priceRange =
-    Math.max(...top3TPs.map((t) => t.price)) -
-    Math.min(...top3TPs.map((t) => t.price));
-  const avgPrice =
-    top3TPs.reduce((sum, t) => sum + t.price, 0) / top3TPs.length;
-  const clusteringPct = priceRange / avgPrice;
+  for (const tp of scoredTPs) {
+    if (selectedTPs.length >= maxTPs) break;
 
-  if (top3TPs.length >= 3 && clusteringPct < 0.02 && top3TPs[0].score > 0.5) {
-    // Use weighted blend of top 3 (weighted by score)
-    const totalScore = top3TPs.reduce((sum, t) => sum + t.score, 0);
-    const blendedPrice =
-      top3TPs.reduce((sum, t) => sum + t.price * t.score, 0) / totalScore;
+    // Check if this TP is far enough from already selected TPs
+    const tooClose = selectedTPs.some((selected) => {
+      const distancePct = Math.abs(tp.price - selected.price) / entryPrice;
+      return distancePct < minDistancePct;
+    });
 
-    console.log(
-      `[TP INTELLIGENT] ${
-        tickerData.ticker || "UNKNOWN"
-      } ${direction}: Using blended TP $${blendedPrice.toFixed(
-        2
-      )} from top 3 (scores: ${top3TPs
-        .map((t) => t.score.toFixed(2))
-        .join(", ")})`
-    );
-
-    return blendedPrice;
-  } else {
-    // Use best single TP
-    console.log(
-      `[TP INTELLIGENT] ${
-        tickerData.ticker || "UNKNOWN"
-      } ${direction}: Using best TP $${topTP.price.toFixed(
-        2
-      )} (score: ${topTP.score.toFixed(2)}, ${topTP.source}, ${
-        topTP.timeframe
-      })`
-    );
-
-    return topTP.price;
+    if (!tooClose) {
+      selectedTPs.push(tp);
+    }
   }
+
+  // If we don't have enough TPs, fill gaps intelligently
+  if (selectedTPs.length < 3) {
+    // Use top scored TPs and create intermediate levels
+    const topTP = scoredTPs[0];
+    if (topTP) {
+      const baseDistance = Math.abs(topTP.price - entryPrice);
+      
+      // Create TP1 (closest, 25% trim)
+      const tp1 = isLong
+        ? entryPrice + baseDistance * 0.5
+        : entryPrice - baseDistance * 0.5;
+      
+      // TP2 (middle, 50% trim) - use top scored TP
+      const tp2 = topTP.price;
+      
+      // TP3 (farthest, 75% trim)
+      const tp3 = isLong
+        ? entryPrice + baseDistance * 1.5
+        : entryPrice - baseDistance * 1.5;
+
+      return [
+        { price: tp1, trimPct: 0.25, label: "TP1 (25%)", source: topTP.source, timeframe: topTP.timeframe },
+        { price: tp2, trimPct: 0.50, label: "TP2 (50%)", source: topTP.source, timeframe: topTP.timeframe },
+        { price: tp3, trimPct: 0.75, label: "TP3 (75%)", source: topTP.source, timeframe: topTP.timeframe },
+      ];
+    }
+  }
+
+  // Assign trim percentages to selected TPs
+  // Closest TP = 25%, Middle = 50%, Farthest = 75%
+  const sortedByDistance = [...selectedTPs].sort((a, b) => {
+    const distA = Math.abs(a.price - entryPrice);
+    const distB = Math.abs(b.price - entryPrice);
+    return distA - distB;
+  });
+
+  const trimLevels = [0.25, 0.50, 0.75];
+  const tpArray = sortedByDistance.slice(0, 3).map((tp, idx) => ({
+    price: tp.price,
+    trimPct: trimLevels[idx] || 0.75,
+    label: `TP${idx + 1} (${Math.round(trimLevels[idx] * 100)}%)`,
+    source: tp.source,
+    timeframe: tp.timeframe,
+    confidence: tp.confidence,
+  }));
+
+  // If we have a 4th TP, add it as final exit (100%)
+  if (sortedByDistance.length > 3) {
+    const finalTP = sortedByDistance[3];
+    tpArray.push({
+      price: finalTP.price,
+      trimPct: 1.0,
+      label: "TP4 (100%)",
+      source: finalTP.source,
+      timeframe: finalTP.timeframe,
+      confidence: finalTP.confidence,
+    });
+  }
+
+  return tpArray;
+}
+
+// Helper: Get intelligent TP (best single or weighted blend) - for backward compatibility
+function getIntelligentTP(tickerData, entryPrice, direction) {
+  // Build TP array and return the first TP (25% trim level) as the primary TP
+  const tpArray = buildIntelligentTPArray(tickerData, entryPrice, direction);
+  if (tpArray.length > 0) {
+    return tpArray[0].price;
+  }
+  
+  // Fallback to original logic
+  return getValidTP(tickerData, entryPrice, direction);
 }
 
 // Helper: Get valid TP based on direction and entry price (fallback)
@@ -780,52 +859,27 @@ function getValidTP(tickerData, entryPrice, direction) {
   return null;
 }
 
-// Calculate RR at entry price (for trade creation) instead of current price
+// Calculate RR at entry price (for trade creation) using intelligent TP array
 function calculateRRAtEntry(tickerData, entryPrice) {
   const direction = getTradeDirection(tickerData.state);
-  const tp = getIntelligentTP(tickerData, entryPrice, direction);
   const sl = Number(tickerData.sl);
 
-  if (
-    !Number.isFinite(entryPrice) ||
-    !Number.isFinite(sl) ||
-    !Number.isFinite(tp)
-  ) {
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(sl)) {
     return null;
   }
 
-  // Use MAX TP from tp_levels if available (for RR calculation, use max valid TP)
-  let maxTP = tp;
-  if (
-    tickerData.tp_levels &&
-    Array.isArray(tickerData.tp_levels) &&
-    tickerData.tp_levels.length > 0
-  ) {
-    const tpPrices = tickerData.tp_levels
-      .map((tpItem) => {
-        if (
-          typeof tpItem === "object" &&
-          tpItem !== null &&
-          tpItem.price != null
-        ) {
-          return Number(tpItem.price);
-        }
-        return typeof tpItem === "number" ? Number(tpItem) : null;
-      })
-      .filter((p) => Number.isFinite(p) && p > 0);
-
-    if (tpPrices.length > 0) {
-      // For LONG: use max TP above entry; for SHORT: use min TP below entry
-      if (direction === "LONG") {
-        const validTPs = tpPrices.filter((p) => p > entryPrice);
-        maxTP = validTPs.length > 0 ? Math.max(...validTPs) : tp;
-      } else if (direction === "SHORT") {
-        const validTPs = tpPrices.filter((p) => p < entryPrice);
-        maxTP = validTPs.length > 0 ? Math.min(...validTPs) : tp;
-      } else {
-        maxTP = Math.max(...tpPrices);
-      }
-    }
+  // Build intelligent TP array and use max TP for RR calculation
+  const tpArray = buildIntelligentTPArray(tickerData, entryPrice, direction);
+  
+  let maxTP = null;
+  if (tpArray.length > 0) {
+    // Use the highest TP from the array (farthest target)
+    maxTP = Math.max(...tpArray.map(tp => tp.price));
+  } else {
+    // Fallback to single TP
+    const tp = getIntelligentTP(tickerData, entryPrice, direction);
+    if (!Number.isFinite(tp)) return null;
+    maxTP = tp;
   }
 
   const state = String(tickerData.state || "");
@@ -836,10 +890,10 @@ function calculateRRAtEntry(tickerData, entryPrice) {
 
   if (isLong) {
     risk = entryPrice - sl; // Risk from entry to SL
-    gain = maxTP - entryPrice; // Gain from entry to TP
+    gain = maxTP - entryPrice; // Gain from entry to max TP
   } else if (isShort) {
     risk = sl - entryPrice; // Risk from entry to SL
-    gain = entryPrice - maxTP; // Gain from entry to TP
+    gain = entryPrice - maxTP; // Gain from entry to max TP
   } else {
     risk = Math.abs(entryPrice - sl);
     gain = Math.abs(maxTP - entryPrice);
@@ -849,24 +903,15 @@ function calculateRRAtEntry(tickerData, entryPrice) {
   return gain / risk;
 }
 
-// Calculate trade P&L and status
+// Calculate trade P&L and status with progressive TP trimming (25%, 50%, 75%)
 function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
   const direction = getTradeDirection(tickerData.state);
   if (!direction) return null;
 
   const sl = Number(tickerData.sl);
-  // Use validated TP from existing trade if available, otherwise get intelligent TP
-  const tp =
-    existingTrade && existingTrade.tp
-      ? Number(existingTrade.tp)
-      : getIntelligentTP(tickerData, entryPrice, direction);
   const currentPrice = Number(tickerData.price);
 
-  if (
-    !Number.isFinite(sl) ||
-    !Number.isFinite(tp) ||
-    !Number.isFinite(currentPrice)
-  ) {
+  if (!Number.isFinite(sl) || !Number.isFinite(currentPrice)) {
     return null;
   }
 
@@ -887,84 +932,211 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     shares = TRADE_SIZE / entryPrice;
   }
 
+  // Get or build intelligent TP array
+  let tpArray = existingTrade?.tpArray || [];
+  if (tpArray.length === 0) {
+    // Build TP array if not stored in trade
+    tpArray = buildIntelligentTPArray(tickerData, entryPrice, direction);
+  }
+
+  // Fallback to single TP if array is empty
+  const fallbackTP = existingTrade?.tp || getIntelligentTP(tickerData, entryPrice, direction);
+  if (tpArray.length === 0 && Number.isFinite(fallbackTP)) {
+    tpArray = [{ price: fallbackTP, trimPct: 0.5, label: "TP (50%)" }];
+  }
+
+  const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;
+  const isLong = direction === "LONG";
+
+  // Check which TP levels have been hit (sorted by trim percentage)
+  const hitTPLevels = [];
+  for (const tpLevel of tpArray) {
+    const tpPrice = Number(tpLevel.price);
+    if (!Number.isFinite(tpPrice)) continue;
+
+    const hit = isLong ? currentPrice >= tpPrice : currentPrice <= tpPrice;
+    if (hit) {
+      hitTPLevels.push({
+        ...tpLevel,
+        price: tpPrice,
+      });
+    }
+  }
+
+  // Sort hit TPs by trim percentage (ascending)
+  hitTPLevels.sort((a, b) => (a.trimPct || 0) - (b.trimPct || 0));
+
+  // Check SL hit
+  const hitSL = isLong ? currentPrice <= sl : currentPrice >= sl;
+
   let pnl = 0;
   let pnlPct = 0;
   let status = "OPEN";
-  const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;
+  let newTrimmedPct = trimmedPct;
+  let realizedPnl = 0; // P&L from trimmed portions
 
-  // Calculate price differences (in points for futures, dollars for stocks)
-  const priceDiff = currentPrice - entryPrice;
-  const tpDiff = tp - entryPrice;
-  const slDiff = sl - entryPrice;
-
-  if (direction === "LONG") {
-    const hitTP = currentPrice >= tp;
-    const hitSL = currentPrice <= sl;
-
-    if (hitTP) {
-      if (trimmedPct === 0) {
-        // First TP hit - trim 50%
-        const trimPnl = tpDiff * shares * pointValue * 0.5;
-        const trimPnlPct = ((tp - entryPrice) / entryPrice) * 100;
+  if (hitSL) {
+    // Stop Loss hit - close entire remaining position
+    const slDiff = isLong ? sl - entryPrice : entryPrice - sl;
+    
+    // Calculate realized P&L from any previous trims
+    for (const tpLevel of hitTPLevels) {
+      const levelTrimPct = tpLevel.trimPct || 0;
+      if (levelTrimPct <= trimmedPct) {
+        const tpDiff = isLong ? tpLevel.price - entryPrice : entryPrice - tpLevel.price;
+        // Only count the portion that was actually trimmed
+        const alreadyCountedPct = Math.min(levelTrimPct, trimmedPct);
+        realizedPnl += tpDiff * shares * pointValue * alreadyCountedPct;
+      }
+    }
+    
+    // Final P&L = realized from trims + remaining position at SL
+    const remainingPct = 1 - trimmedPct;
+    const remainingPnl = slDiff * shares * pointValue * remainingPct;
+    pnl = realizedPnl + remainingPnl;
+    pnlPct = ((sl - entryPrice) / entryPrice) * 100;
+    status = "LOSS";
+  } else if (hitTPLevels.length > 0) {
+    // One or more TP levels hit - determine next trim action
+    // Find the highest TP level hit that we haven't trimmed yet
+    let nextTrimTP = null;
+    for (const tpLevel of hitTPLevels) {
+      const levelTrimPct = tpLevel.trimPct || 0;
+      if (levelTrimPct > trimmedPct) {
+        nextTrimTP = tpLevel;
+        break; // Take the first (lowest) untrimmed TP
+      }
+    }
+    
+    if (nextTrimTP) {
+      // Need to trim at this TP level
+      const targetTrimPct = nextTrimTP.trimPct || 0.5;
+      const trimAmount = targetTrimPct - trimmedPct;
+      const tpDiff = isLong 
+        ? nextTrimTP.price - entryPrice 
+        : entryPrice - nextTrimTP.price;
+      
+      // Calculate realized P&L from all previous trims (including intermediate levels)
+      for (const tpLevel of hitTPLevels) {
+        const levelTrimPct = tpLevel.trimPct || 0;
+        if (levelTrimPct < targetTrimPct && levelTrimPct > trimmedPct) {
+          // Intermediate TP hit - calculate P&L for the portion between previous trim and this level
+          const levelTpDiff = isLong 
+            ? tpLevel.price - entryPrice 
+            : entryPrice - tpLevel.price;
+          const intermediateTrimAmount = levelTrimPct - trimmedPct;
+          realizedPnl += levelTpDiff * shares * pointValue * intermediateTrimAmount;
+        }
+      }
+      
+      // Calculate P&L from this trim
+      const trimPnl = tpDiff * shares * pointValue * trimAmount;
+      const trimPnlPct = ((nextTrimTP.price - entryPrice) / entryPrice) * 100;
+      
+      // If we've trimmed 100%, close the trade
+      if (targetTrimPct >= 1.0) {
+        // Full exit - calculate total P&L
+        const totalRealizedPnl = realizedPnl + trimPnl;
         return {
           shares,
-          pnl: trimPnl,
+          pnl: totalRealizedPnl,
+          pnlPct: trimPnlPct,
+          status: totalRealizedPnl >= 0 ? "WIN" : "LOSS",
+          currentPrice,
+          trimmedPct: 1.0,
+          tpArray,
+        };
+      }
+      
+      // Partial trim - return with new trimmed percentage
+      return {
+        shares,
+        pnl: realizedPnl + trimPnl,
           pnlPct: trimPnlPct,
           status: "TP_HIT_TRIM",
           currentPrice,
-          trimmedPct: 0.5,
+        trimmedPct: targetTrimPct,
+        tpArray, // Store TP array for next check
         };
       } else {
-        // Already trimmed - full exit at TP
-        pnl = tpDiff * shares * pointValue;
-        pnlPct = ((tp - entryPrice) / entryPrice) * 100;
-        // CRITICAL: Status must be based on actual P&L, not just TP hit
-        // If entry price was worse than TP (slippage, bad fill), P&L can be negative
-        status = pnl >= 0 ? "WIN" : "LOSS";
+      // Already trimmed at all hit TP levels - check if we should hold winners
+      // Calculate current price vs entry
+      const priceDiff = isLong ? currentPrice - entryPrice : entryPrice - currentPrice;
+      const priceDiffPct = (priceDiff / entryPrice) * 100;
+      
+      // Calculate realized P&L from all trims
+      for (const tpLevel of hitTPLevels) {
+        const levelTrimPct = tpLevel.trimPct || 0;
+        if (levelTrimPct <= trimmedPct) {
+          const levelTpDiff = isLong 
+            ? tpLevel.price - entryPrice 
+            : entryPrice - tpLevel.price;
+          // Count the portion that was actually trimmed
+          const trimmedAtThisLevel = Math.min(levelTrimPct, trimmedPct);
+          const prevTrimmedPct = hitTPLevels
+            .filter(tp => (tp.trimPct || 0) < levelTrimPct)
+            .reduce((sum, tp) => Math.max(sum, tp.trimPct || 0), 0);
+          const trimAmount = trimmedAtThisLevel - prevTrimmedPct;
+          if (trimAmount > 0) {
+            realizedPnl += levelTpDiff * shares * pointValue * trimAmount;
+          }
+        }
       }
-    } else if (hitSL) {
-      pnl = slDiff * shares * pointValue;
-      pnlPct = ((sl - entryPrice) / entryPrice) * 100;
-      // SL hit is always a loss
-      status = "LOSS";
-    } else {
-      pnl = priceDiff * shares * pointValue;
-      pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-      status = "OPEN";
-    }
-  } else {
-    // SHORT
-    const hitTP = currentPrice <= tp;
-    const hitSL = currentPrice >= sl;
-
-    if (hitTP) {
-      if (trimmedPct === 0) {
-        const shortTpDiff = entryPrice - tp;
+      
+      // Check if we should hold winners (price above 4H 8 EMA equivalent)
+      // Since TradingView doesn't send 4H EMA, use price momentum and profit threshold
+      // Hold if: price is significantly above entry (>2%) and we haven't trimmed everything
+      const shouldHold = priceDiffPct > 2.0 && trimmedPct < 1.0;
+      
+      if (shouldHold) {
+        // Hold remaining position - calculate unrealized P&L
+        const remainingPct = 1 - trimmedPct;
+        const unrealizedPnl = priceDiff * shares * pointValue * remainingPct;
+        
         return {
           shares,
-          pnl: shortTpDiff * shares * pointValue * 0.5,
-          pnlPct: ((entryPrice - tp) / entryPrice) * 100,
-          status: "TP_HIT_TRIM",
+          pnl: realizedPnl + unrealizedPnl,
+          pnlPct: priceDiffPct,
+          status: "OPEN", // Still holding
           currentPrice,
-          trimmedPct: 0.5,
+          trimmedPct,
+          tpArray,
         };
-      } else {
-        const shortTpDiff = entryPrice - tp;
-        pnl = shortTpDiff * shares * pointValue;
-        pnlPct = ((entryPrice - tp) / entryPrice) * 100;
-        status = pnl >= 0 ? "WIN" : "LOSS";
       }
-    } else if (hitSL) {
-      const shortSlDiff = entryPrice - sl;
-      pnl = shortSlDiff * shares * pointValue;
-      pnlPct = ((entryPrice - sl) / entryPrice) * 100;
-      status = "LOSS";
-    } else {
-      const shortPriceDiff = entryPrice - currentPrice;
-      pnl = shortPriceDiff * shares * pointValue;
-      pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
-      status = "OPEN";
+      
+      // Not holding - calculate current P&L
+      const remainingPct = 1 - trimmedPct;
+      const currentPnl = priceDiff * shares * pointValue * remainingPct;
+      
+      return {
+        shares,
+        pnl: realizedPnl + currentPnl,
+        pnlPct: priceDiffPct,
+        status: "OPEN",
+        currentPrice,
+        trimmedPct,
+        tpArray,
+      };
     }
+    } else {
+    // No TP hit yet - calculate unrealized P&L
+    const priceDiff = isLong ? currentPrice - entryPrice : entryPrice - currentPrice;
+    const remainingPct = 1 - trimmedPct;
+    pnl = priceDiff * shares * pointValue * remainingPct;
+    pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+    
+    // Add realized P&L from any previous trims (shouldn't happen if no TP hit, but handle edge case)
+    if (trimmedPct > 0 && hitTPLevels.length > 0) {
+      // Estimate realized P&L based on highest TP hit
+      const highestTP = hitTPLevels[hitTPLevels.length - 1];
+      const tpDiff = isLong 
+        ? highestTP.price - entryPrice 
+        : entryPrice - highestTP.price;
+      realizedPnl = tpDiff * shares * pointValue * trimmedPct;
+      pnl += realizedPnl;
+    }
+    
+      status = "OPEN";
   }
 
   return {
@@ -973,6 +1145,8 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     pnlPct,
     status,
     currentPrice,
+    trimmedPct: newTrimmedPct,
+    tpArray,
   };
 }
 
@@ -1684,11 +1858,11 @@ async function processTradeSimulation(
       // For new trades, we want the entry price to reflect the CURRENT market price,
       // not a historical trigger_price, so traders see accurate entry levels
       if (currentPrice && currentPrice > 0) {
-        entryPrice = currentPrice;
+          entryPrice = currentPrice;
         priceSource = isBackfill ? "price (backfill, using current)" : "price";
-        console.log(
-          `[TRADE SIM] Using current price $${currentPrice.toFixed(
-            2
+          console.log(
+            `[TRADE SIM] Using current price $${currentPrice.toFixed(
+              2
           )} as entry price${
             isBackfill
               ? " (backfill detected, but using current price for accuracy)"
@@ -1978,14 +2152,26 @@ async function processTradeSimulation(
                 ? triggerTimestamp
                 : new Date().toISOString();
 
-            // Get intelligent TP based on direction
-            const validTP = getIntelligentTP(tickerData, entryPrice, direction);
-            if (!validTP) {
+            // Build intelligent TP array with progressive trim levels (25%, 50%, 75%)
+            const tpArray = buildIntelligentTPArray(tickerData, entryPrice, direction);
+            if (tpArray.length === 0) {
               console.error(
-                `[TRADE SIM] ❌ ${ticker} ${direction}: Cannot create trade - no valid TP found`
+                `[TRADE SIM] ❌ ${ticker} ${direction}: Cannot create trade - no valid TP array found`
               );
-              return; // Exit early if no valid TP
+              return; // Exit early if no valid TP array
             }
+
+            // Use first TP (25% trim level) as primary TP for backward compatibility
+            const validTP = tpArray[0].price;
+            
+            // Calculate RR using max TP from array
+            const maxTP = Math.max(...tpArray.map(tp => tp.price));
+            const sl = Number(tickerData.sl);
+            const risk = Math.abs(entryPrice - sl);
+            const gain = direction === "LONG" 
+              ? maxTP - entryPrice 
+              : entryPrice - maxTP;
+            const calculatedRR = risk > 0 && gain > 0 ? gain / risk : null;
 
             const trade = {
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
@@ -1995,12 +2181,14 @@ async function processTradeSimulation(
               entryTime: entryTime, // When trade was actually created
               triggerTimestamp: triggerTimestamp, // When signal was generated (for reference)
               sl: Number(tickerData.sl),
-              tp: validTP, // Use validated TP
-              rr: entryRR || Number(tickerData.rr) || 0, // Use entry RR
+              tp: validTP, // Primary TP (first level, 25% trim)
+              tpArray: tpArray, // Store full TP array for progressive trimming
+              rr: calculatedRR || entryRR || Number(tickerData.rr) || 0, // Use calculated RR from max TP
               rank: Number(tickerData.rank) || 0,
               state: tickerData.state,
               flags: tickerData.flags || {},
               scriptVersion: tickerData.script_version || "unknown",
+              trimmedPct: 0, // Start with 0% trimmed
               // Trade history/audit trail
               history: [
                 {
@@ -3889,7 +4077,7 @@ export default {
         // Auto-populate sector: first from TradingView data if provided, otherwise from SECTOR_MAP
         const tickerUpper = String(payload.ticker || ticker).toUpperCase();
         let sectorToUse = null;
-        
+
         if (
           payload.sector &&
           typeof payload.sector === "string" &&
@@ -3901,11 +4089,11 @@ export default {
           // Fallback to SECTOR_MAP lookup if TradingView didn't provide sector
           sectorToUse = getSector(tickerUpper);
         }
-        
+
         // Set sector at top level if we have one
         if (sectorToUse) {
           payload.sector = sectorToUse;
-          
+
           // If sector came from TradingView and differs from SECTOR_MAP, update the map
           if (
             payload.sector &&
@@ -3914,7 +4102,7 @@ export default {
           ) {
             const sectorFromTV = payload.sector.trim();
             const currentSector = getSector(tickerUpper);
-            
+
             if (!currentSector || currentSector !== sectorFromTV) {
               // Auto-populate SECTOR_MAP (in-memory, will persist in KV)
               SECTOR_MAP[tickerUpper] = sectorFromTV;
@@ -4177,107 +4365,107 @@ export default {
         // Track corridor entry
         // Wrap activity tracking in try-catch to prevent errors from breaking ingestion
         try {
-          if (inCorridor && prevInCorridor !== "true") {
-            await appendActivity(KV, {
-              type: "corridor_entry",
-              ticker: ticker,
-              side: side,
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
-            });
-            await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
-          } else if (!inCorridor && prevInCorridor === "true") {
-            await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
-          }
+        if (inCorridor && prevInCorridor !== "true") {
+          await appendActivity(KV, {
+            type: "corridor_entry",
+            ticker: ticker,
+            side: side,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
+        } else if (!inCorridor && prevInCorridor === "true") {
+          await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
+        }
 
-          // Track squeeze start
-          if (flags.sq30_on && prevSqueezeOn !== "true") {
-            await appendActivity(KV, {
-              type: "squeeze_start",
-              ticker: ticker,
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
-            });
-            await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
-          } else if (!flags.sq30_on && prevSqueezeOn === "true") {
-            await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
-          }
+        // Track squeeze start
+        if (flags.sq30_on && prevSqueezeOn !== "true") {
+          await appendActivity(KV, {
+            type: "squeeze_start",
+            ticker: ticker,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
+        } else if (!flags.sq30_on && prevSqueezeOn === "true") {
+          await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
+        }
 
-          // Track squeeze release
-          if (sqRel && prevSqueezeRel !== "true") {
-            await appendActivity(KV, {
-              type: "squeeze_release",
-              ticker: ticker,
-              side:
-                side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              trigger_dir: payload.trigger_dir,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
-            });
-            await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
-          } else if (!sqRel && prevSqueezeRel === "true") {
-            await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
-          }
+        // Track squeeze release
+        if (sqRel && prevSqueezeRel !== "true") {
+          await appendActivity(KV, {
+            type: "squeeze_release",
+            ticker: ticker,
+            side:
+              side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            trigger_dir: payload.trigger_dir,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
+        } else if (!sqRel && prevSqueezeRel === "true") {
+          await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
+        }
 
-          // Track state change to aligned
-          if (enteredAligned) {
-            await appendActivity(KV, {
-              type: "state_aligned",
-              ticker: ticker,
-              side: alignedLong ? "LONG" : "SHORT",
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
-            });
-          }
+        // Track state change to aligned
+        if (enteredAligned) {
+          await appendActivity(KV, {
+            type: "state_aligned",
+            ticker: ticker,
+            side: alignedLong ? "LONG" : "SHORT",
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+        }
 
-          // Track Momentum Elite status change
-          const currentMomentumElite = !!(
-            payload.flags && payload.flags.momentum_elite
-          );
-          if (currentMomentumElite && prevMomentumElite !== "true") {
-            await appendActivity(KV, {
-              type: "momentum_elite",
-              ticker: ticker,
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
-            });
-            await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
-          } else if (!currentMomentumElite && prevMomentumElite === "true") {
+        // Track Momentum Elite status change
+        const currentMomentumElite = !!(
+          payload.flags && payload.flags.momentum_elite
+        );
+        if (currentMomentumElite && prevMomentumElite !== "true") {
+          await appendActivity(KV, {
+            type: "momentum_elite",
+            ticker: ticker,
+            price: payload.price,
+            state: payload.state,
+            rank: payload.rank,
+            sl: payload.sl,
+            tp: payload.tp,
+            tp_levels: payload.tp_levels,
+            rr: payload.rr,
+            phase_pct: payload.phase_pct,
+            completion: payload.completion,
+          });
+          await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
+        } else if (!currentMomentumElite && prevMomentumElite === "true") {
             await kvPutText(
               KV,
               prevMomentumEliteKey,
@@ -4354,7 +4542,7 @@ export default {
         // Process trade simulation (create/update trades automatically)
         // Wrap in try-catch to prevent trade simulation errors from breaking ingestion
         try {
-          await processTradeSimulation(KV, ticker, payload, prevLatest, env);
+        await processTradeSimulation(KV, ticker, payload, prevLatest, env);
         } catch (tradeErr) {
           console.error(
             `[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`,
@@ -4370,25 +4558,25 @@ export default {
         // Trail (light)
         // Wrap in try-catch to prevent trail errors from breaking ingestion
         try {
-          await appendTrail(
-            KV,
-            ticker,
-            {
-              ts: payload.ts,
-              price: payload.price, // Add price to trail for momentum calculations
-              htf_score: payload.htf_score,
-              ltf_score: payload.ltf_score,
-              completion: payload.completion,
-              phase_pct: payload.phase_pct,
-              state: payload.state,
-              rank: payload.rank,
-              flags: payload.flags || {},
-              momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
-              trigger_reason: payload.trigger_reason,
-              trigger_dir: payload.trigger_dir,
-            },
-            20
-          ); // Increased to 20 points for better history
+        await appendTrail(
+          KV,
+          ticker,
+          {
+            ts: payload.ts,
+            price: payload.price, // Add price to trail for momentum calculations
+            htf_score: payload.htf_score,
+            ltf_score: payload.ltf_score,
+            completion: payload.completion,
+            phase_pct: payload.phase_pct,
+            state: payload.state,
+            rank: payload.rank,
+            flags: payload.flags || {},
+            momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
+            trigger_reason: payload.trigger_reason,
+            trigger_dir: payload.trigger_dir,
+          },
+          20
+        ); // Increased to 20 points for better history
         } catch (trailErr) {
           console.error(`[TRAIL ERROR] Failed to append trail for ${ticker}:`, {
             error: String(trailErr),
@@ -4985,7 +5173,7 @@ export default {
 
             data[ticker] = value;
           }
-        } else {
+          } else {
           // Log tickers in index but without data
           if (ticker === "BMNR" || ticker === "BABA") {
             console.log(
