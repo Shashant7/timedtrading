@@ -410,13 +410,172 @@ function getTradeDirection(state) {
   return null;
 }
 
-// Helper: Get valid TP based on direction and entry price
-function getValidTP(tickerData, entryPrice, direction) {
+// Helper: Score TP level for intelligent selection
+function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
+  const isLong = direction === "LONG";
+  const price = Number(tpLevel.price || tpLevel);
+  
+  // Base score from confidence (0.60-0.85, normalize to 0-1)
+  const confidence = Number(tpLevel.confidence || 0.75);
+  let score = (confidence - 0.60) / (0.85 - 0.60); // Normalize to 0-1
+  
+  // Timeframe priority: Weekly > Daily > 4H
+  const tf = String(tpLevel.timeframe || "D").toUpperCase();
+  if (tf === "W") score += 0.3;
+  else if (tf === "D") score += 0.2;
+  else if (tf === "240" || tf === "4H") score += 0.1;
+  
+  // Type priority: STRUCTURE > ATR_FIB > LIQUIDITY > FVG > GAP
+  const type = String(tpLevel.type || "ATR_FIB").toUpperCase();
+  if (type === "STRUCTURE") score += 0.25;
+  else if (type === "ATR_FIB") {
+    // Boost key Fibonacci levels (61.8%, 100%, 161.8%)
+    const mult = Number(tpLevel.multiplier || 0);
+    if (mult === 0.618 || mult === 1.0 || mult === 1.618) score += 0.2;
+    else if (mult === 0.382 || mult === 0.786 || mult === 1.236) score += 0.15;
+    else score += 0.1;
+  }
+  else if (type === "LIQUIDITY") score += 0.15;
+  else if (type === "FVG") score += 0.1;
+  else if (type === "GAP") score += 0.05;
+  
+  // Distance from entry (sweet spot: 2-5% for swing trades, prefer not too close or too far)
+  const distancePct = Math.abs(price - entryPrice) / entryPrice;
+  if (distancePct >= 0.02 && distancePct <= 0.05) {
+    score += 0.2; // Sweet spot
+  } else if (distancePct >= 0.01 && distancePct <= 0.08) {
+    score += 0.1; // Acceptable range
+  } else if (distancePct < 0.01) {
+    score -= 0.2; // Too close - penalize
+  } else if (distancePct > 0.15) {
+    score -= 0.1; // Too far - slight penalty
+  }
+  
+  // Clustering penalty: if many TPs are very close, prefer ones that stand out
+  const clusteringThreshold = entryPrice * 0.005; // 0.5% clustering threshold
+  const nearbyTPs = allTPs.filter((tp) => {
+    const tpPrice = Number(tp.price || tp);
+    return Math.abs(tpPrice - price) < clusteringThreshold;
+  }).length;
+  
+  if (nearbyTPs > 3) {
+    score -= 0.15; // Heavy clustering penalty
+  } else if (nearbyTPs > 1) {
+    score -= 0.05; // Light clustering penalty
+  }
+  
+  return score;
+}
+
+// Helper: Get intelligent TP (best single or weighted blend)
+function getIntelligentTP(tickerData, entryPrice, direction) {
   const isLong = direction === "LONG";
   
   // Get TP from tickerData
   let tp = Number(tickerData.tp);
   
+  // Extract all TP levels with metadata
+  let tpLevels = [];
+  if (
+    tickerData.tp_levels &&
+    Array.isArray(tickerData.tp_levels) &&
+    tickerData.tp_levels.length > 0
+  ) {
+    tpLevels = tickerData.tp_levels
+      .map((tpItem) => {
+        if (typeof tpItem === "object" && tpItem !== null) {
+          return {
+            price: Number(tpItem.price),
+            source: tpItem.source || "ATR Level",
+            type: tpItem.type || "ATR_FIB",
+            timeframe: tpItem.timeframe || "D",
+            confidence: Number(tpItem.confidence || 0.75),
+            multiplier: tpItem.multiplier ? Number(tpItem.multiplier) : null,
+            label: tpItem.label || "TP",
+          };
+        }
+        return {
+          price: Number(tpItem),
+          source: "ATR Level",
+          type: "ATR_FIB",
+          timeframe: "D",
+          confidence: 0.75,
+          multiplier: null,
+          label: "TP",
+        };
+      })
+      .filter((item) => Number.isFinite(item.price) && item.price > 0);
+  }
+  
+  // Add primary TP if valid
+  if (Number.isFinite(tp) && tp > 0) {
+    tpLevels.push({
+      price: tp,
+      source: "Primary TP",
+      type: "ATR_FIB",
+      timeframe: "D",
+      confidence: 0.75,
+      multiplier: null,
+      label: "TP",
+    });
+  }
+  
+  // Filter by direction
+  const validTPs = tpLevels.filter((item) => {
+    if (isLong) return item.price > entryPrice;
+    return item.price < entryPrice;
+  });
+  
+  if (validTPs.length === 0) {
+    // Fallback to original logic
+    return getValidTP(tickerData, entryPrice, direction);
+  }
+  
+  // Score all valid TPs
+  const scoredTPs = validTPs.map((tpItem) => ({
+    ...tpItem,
+    score: scoreTPLevel(tpItem, entryPrice, direction, validTPs),
+  }));
+  
+  // Sort by score (descending)
+  scoredTPs.sort((a, b) => b.score - a.score);
+  
+  // Strategy: Use weighted blend of top 3 TPs if they're reasonably close, otherwise use best single
+  const topTP = scoredTPs[0];
+  const top3TPs = scoredTPs.slice(0, 3);
+  
+  // Check if top 3 are clustered (within 2% of each other)
+  const priceRange = Math.max(...top3TPs.map((t) => t.price)) - Math.min(...top3TPs.map((t) => t.price));
+  const avgPrice = top3TPs.reduce((sum, t) => sum + t.price, 0) / top3TPs.length;
+  const clusteringPct = priceRange / avgPrice;
+  
+  if (top3TPs.length >= 3 && clusteringPct < 0.02 && top3TPs[0].score > 0.5) {
+    // Use weighted blend of top 3 (weighted by score)
+    const totalScore = top3TPs.reduce((sum, t) => sum + t.score, 0);
+    const blendedPrice = top3TPs.reduce((sum, t) => sum + (t.price * t.score), 0) / totalScore;
+    
+    console.log(
+      `[TP INTELLIGENT] ${tickerData.ticker || "UNKNOWN"} ${direction}: Using blended TP $${blendedPrice.toFixed(2)} from top 3 (scores: ${top3TPs.map((t) => t.score.toFixed(2)).join(", ")})`
+    );
+    
+    return blendedPrice;
+  } else {
+    // Use best single TP
+    console.log(
+      `[TP INTELLIGENT] ${tickerData.ticker || "UNKNOWN"} ${direction}: Using best TP $${topTP.price.toFixed(2)} (score: ${topTP.score.toFixed(2)}, ${topTP.source}, ${topTP.timeframe})`
+    );
+    
+    return topTP.price;
+  }
+}
+
+// Helper: Get valid TP based on direction and entry price (fallback)
+function getValidTP(tickerData, entryPrice, direction) {
+  const isLong = direction === "LONG";
+
+  // Get TP from tickerData
+  let tp = Number(tickerData.tp);
+
   // If tp_levels exists, extract all valid TP prices
   let tpPrices = [];
   if (
@@ -437,15 +596,15 @@ function getValidTP(tickerData, entryPrice, direction) {
       })
       .filter((p) => Number.isFinite(p) && p > 0);
   }
-  
+
   // Add the primary TP if it's valid
   if (Number.isFinite(tp) && tp > 0) {
     tpPrices.push(tp);
   }
-  
+
   // Remove duplicates and sort
   tpPrices = [...new Set(tpPrices)].sort((a, b) => a - b);
-  
+
   // Find first valid TP based on direction
   if (isLong) {
     // For LONG: TP must be above entry price
@@ -460,7 +619,11 @@ function getValidTP(tickerData, entryPrice, direction) {
     // Fallback: use highest TP from levels (might still be invalid, but better than nothing)
     if (tpPrices.length > 0) {
       console.warn(
-        `[TP VALIDATION] ⚠️ ${tickerData.ticker || "UNKNOWN"} LONG: No TP above entry $${entryPrice.toFixed(2)}. Using highest TP: $${Math.max(...tpPrices).toFixed(2)}`
+        `[TP VALIDATION] ⚠️ ${
+          tickerData.ticker || "UNKNOWN"
+        } LONG: No TP above entry $${entryPrice.toFixed(
+          2
+        )}. Using highest TP: $${Math.max(...tpPrices).toFixed(2)}`
       );
       return Math.max(...tpPrices);
     }
@@ -477,27 +640,35 @@ function getValidTP(tickerData, entryPrice, direction) {
     // Fallback: use lowest TP from levels
     if (tpPrices.length > 0) {
       console.warn(
-        `[TP VALIDATION] ⚠️ ${tickerData.ticker || "UNKNOWN"} SHORT: No TP below entry $${entryPrice.toFixed(2)}. Using lowest TP: $${Math.min(...tpPrices).toFixed(2)}`
+        `[TP VALIDATION] ⚠️ ${
+          tickerData.ticker || "UNKNOWN"
+        } SHORT: No TP below entry $${entryPrice.toFixed(
+          2
+        )}. Using lowest TP: $${Math.min(...tpPrices).toFixed(2)}`
       );
       return Math.min(...tpPrices);
     }
   }
-  
+
   // Last resort: return primary TP even if invalid
   if (Number.isFinite(tp) && tp > 0) {
     console.warn(
-      `[TP VALIDATION] ⚠️ ${tickerData.ticker || "UNKNOWN"} ${direction}: Using invalid TP $${tp.toFixed(2)} (entry: $${entryPrice.toFixed(2)})`
+      `[TP VALIDATION] ⚠️ ${
+        tickerData.ticker || "UNKNOWN"
+      } ${direction}: Using invalid TP $${tp.toFixed(
+        2
+      )} (entry: $${entryPrice.toFixed(2)})`
     );
     return tp;
   }
-  
+
   return null;
 }
 
 // Calculate RR at entry price (for trade creation) instead of current price
 function calculateRRAtEntry(tickerData, entryPrice) {
   const direction = getTradeDirection(tickerData.state);
-  const tp = getValidTP(tickerData, entryPrice, direction);
+  const tp = getIntelligentTP(tickerData, entryPrice, direction);
   const sl = Number(tickerData.sl);
 
   if (
@@ -569,10 +740,11 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
   if (!direction) return null;
 
   const sl = Number(tickerData.sl);
-  // Use validated TP from existing trade if available, otherwise get valid TP
-  const tp = existingTrade && existingTrade.tp 
-    ? Number(existingTrade.tp) 
-    : getValidTP(tickerData, entryPrice, direction);
+  // Use validated TP from existing trade if available, otherwise get intelligent TP
+  const tp =
+    existingTrade && existingTrade.tp
+      ? Number(existingTrade.tp)
+      : getIntelligentTP(tickerData, entryPrice, direction);
   const currentPrice = Number(tickerData.price);
 
   if (
@@ -1637,8 +1809,8 @@ async function processTradeSimulation(
                 ? triggerTimestamp
                 : new Date().toISOString();
 
-            // Get valid TP based on direction
-            const validTP = getValidTP(tickerData, entryPrice, direction);
+            // Get intelligent TP based on direction
+            const validTP = getIntelligentTP(tickerData, entryPrice, direction);
             if (!validTP) {
               console.error(
                 `[TRADE SIM] ❌ ${ticker} ${direction}: Cannot create trade - no valid TP found`
