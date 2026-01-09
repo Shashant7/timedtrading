@@ -5845,10 +5845,9 @@
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
-        const { data, loading, error, lastUpdate, versionInfo, refetch } = useTickerData();
+        const { data, loading, error, lastUpdate, versionInfo, tickersWithoutScores, refetch } = useTickerData();
         const { trades } = useTrades();
         const { sectors } = useSectors();
-        const [tickersWithoutScores, setTickersWithoutScores] = useState([]);
         const [filters, setFilters] = useState({
           search: "",
           quadrants: [
