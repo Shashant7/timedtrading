@@ -1689,7 +1689,11 @@ async function processTradeSimulation(
         console.log(
           `[TRADE SIM] Using current price $${currentPrice.toFixed(
             2
-          )} as entry price${isBackfill ? " (backfill detected, but using current price for accuracy)" : " (real-time)"}`
+          )} as entry price${
+            isBackfill
+              ? " (backfill detected, but using current price for accuracy)"
+              : " (real-time)"
+          }`
         );
       } else if (triggerPrice && triggerPrice > 0) {
         // Fallback: only use trigger_price if price is not available
@@ -2050,7 +2054,9 @@ async function processTradeSimulation(
               await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade creation
             } else if (env && isBackfill) {
               console.log(
-                `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - backfill trade (entry: $${entryPrice.toFixed(2)}, current: $${Number(tickerData.price).toFixed(2)})`
+                `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - backfill trade (entry: $${entryPrice.toFixed(
+                  2
+                )}, current: $${Number(tickerData.price).toFixed(2)})`
               );
             }
           } else {
@@ -2642,15 +2648,17 @@ function createTradeEntryEmbed(
   isBackfill = false
 ) {
   const color = direction === "LONG" ? 0x00ff00 : 0xff0000; // Green for LONG, Red for SHORT
-  
+
   // If current price differs significantly from entry, show both
   let entryPriceDisplay = `$${entryPrice.toFixed(2)}`;
   if (currentPrice && Math.abs(currentPrice - entryPrice) / entryPrice > 0.01) {
     entryPriceDisplay += ` (current: $${currentPrice.toFixed(2)})`;
   }
-  
+
   return {
-    title: `🎯 Trade Entered: ${ticker} ${direction}${isBackfill ? " (from backfill)" : ""}`,
+    title: `🎯 Trade Entered: ${ticker} ${direction}${
+      isBackfill ? " (from backfill)" : ""
+    }`,
     color: color,
     fields: [
       {
@@ -9005,6 +9013,167 @@ Provide 3-5 actionable next steps:
           { ok: false, error: err.message },
           500,
           corsHeaders(env, req)
+        );
+      }
+    }
+
+    // POST /timed/debug/fix-entry-prices?key=... - Fix entry prices for trades that used trigger_price instead of current price
+    if (
+      url.pathname === "/timed/debug/fix-entry-prices" &&
+      req.method === "POST"
+    ) {
+      const authFail = requireKeyOr401(req, env);
+      if (authFail) return authFail;
+
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        let fixed = 0;
+        const fixedTrades = [];
+
+        for (let i = 0; i < allTrades.length; i++) {
+          const trade = allTrades[i];
+          
+          // Only fix OPEN trades (closed trades should keep their original entry price)
+          if (trade.status !== "OPEN" && trade.status !== "TP_HIT_TRIM") {
+            continue;
+          }
+
+          // Get latest ticker data
+          const tickerData = await kvGetJSON(KV, `timed:latest:${trade.ticker}`);
+          if (!tickerData || !tickerData.price) {
+            console.log(
+              `[FIX ENTRY PRICES] Skipping ${trade.ticker} - no current price data`
+            );
+            continue;
+          }
+
+          const currentPrice = Number(tickerData.price);
+          const entryPrice = Number(trade.entryPrice);
+          
+          if (!Number.isFinite(currentPrice) || !Number.isFinite(entryPrice)) {
+            continue;
+          }
+
+          // Check if entry price differs significantly from current price (>1%)
+          const priceDiffPct = Math.abs(currentPrice - entryPrice) / entryPrice;
+          if (priceDiffPct <= 0.01) {
+            // Entry price is close to current price - likely correct
+            continue;
+          }
+
+          // Check if this looks like it was created from trigger_price
+          // (entry price matches trigger_price or is significantly different from current)
+          const triggerPrice = tickerData.trigger_price
+            ? Number(tickerData.trigger_price)
+            : null;
+          const entryMatchesTrigger =
+            triggerPrice &&
+            Math.abs(entryPrice - triggerPrice) / triggerPrice < 0.001;
+
+          // Also check if trade is old (more than 1 hour)
+          const entryTime = trade.entryTime
+            ? new Date(trade.entryTime).getTime()
+            : null;
+          const now = Date.now();
+          const isOldTrade = entryTime && now - entryTime > 60 * 60 * 1000;
+
+          if (entryMatchesTrigger || isOldTrade || priceDiffPct > 0.05) {
+            // Fix entry price to current price
+            const correctedEntryPrice = currentPrice;
+            
+            // Recalculate shares based on new entry price
+            const tickerUpper = String(trade.ticker || "").toUpperCase();
+            const isFutures =
+              FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
+            const correctedShares =
+              isFutures && FUTURES_SPECS[tickerUpper]
+                ? 1
+                : TRADE_SIZE / correctedEntryPrice;
+
+            // Recalculate P&L with corrected entry price
+            const tradeCalc = calculateTradePnl(tickerData, correctedEntryPrice, trade);
+            
+            if (!tradeCalc) {
+              console.log(
+                `[FIX ENTRY PRICES] Skipping ${trade.ticker} - cannot recalculate P&L`
+              );
+              continue;
+            }
+
+            // Update trade
+            const updatedTrade = {
+              ...trade,
+              entryPrice: correctedEntryPrice,
+              shares: correctedShares,
+              entryPriceCorrected: true,
+              ...tradeCalc,
+              history: [
+                ...(trade.history || []),
+                {
+                  type: "ENTRY_PRICE_CORRECTION",
+                  timestamp: new Date().toISOString(),
+                  price: correctedEntryPrice,
+                  shares: correctedShares,
+                  value: correctedEntryPrice * correctedShares,
+                  note: `Entry price corrected from $${entryPrice.toFixed(
+                    2
+                  )} to $${correctedEntryPrice.toFixed(
+                    2
+                  )} (was using trigger_price or outdated price)`,
+                },
+              ],
+              lastUpdate: new Date().toISOString(),
+            };
+
+            allTrades[i] = updatedTrade;
+            fixed++;
+            fixedTrades.push({
+              ticker: trade.ticker,
+              direction: trade.direction,
+              oldEntryPrice: entryPrice.toFixed(2),
+              newEntryPrice: correctedEntryPrice.toFixed(2),
+              oldPnl: trade.pnl?.toFixed(2) || "0.00",
+              newPnl: tradeCalc.pnl?.toFixed(2) || "0.00",
+            });
+
+            console.log(
+              `[FIX ENTRY PRICES] Fixed ${trade.ticker} ${trade.direction}: $${entryPrice.toFixed(
+                2
+              )} -> $${correctedEntryPrice.toFixed(2)} (P&L: $${(
+                trade.pnl || 0
+              ).toFixed(2)} -> $${tradeCalc.pnl.toFixed(2)})`
+            );
+          }
+        }
+
+        if (fixed > 0) {
+          await kvPutJSON(KV, tradesKey, allTrades);
+          console.log(
+            `[FIX ENTRY PRICES] Fixed ${fixed} trades with incorrect entry prices`
+          );
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            message: `Fixed ${fixed} trades with incorrect entry prices`,
+            fixed,
+            fixedTrades,
+          },
+          200,
+          corsHeaders(env, req, true)
+        );
+      } catch (err) {
+        console.error(`[FIX ENTRY PRICES ERROR]`, {
+          error: String(err),
+          message: err.message,
+          stack: err.stack,
+        });
+        return sendJSON(
+          { ok: false, error: "internal_error", message: err.message },
+          500,
+          corsHeaders(env, req, true)
         );
       }
     }
