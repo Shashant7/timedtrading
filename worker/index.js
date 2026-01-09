@@ -200,8 +200,8 @@ async function ensureTickerIndex(KV, ticker) {
     while (retries > 0 && !success) {
       const cur = (await kvGetJSON(KV, key)) || [];
 
-      // Debug: Always log for BMNR/BABA
-      if (ticker === "BMNR" || ticker === "BABA") {
+      // Debug: Always log for BMNR/BABA/ETHT
+      if (ticker === "BMNR" || ticker === "BABA" || ticker === "ETHT") {
         console.log(
           `[TICKER INDEX] ensureTickerIndex called for ${ticker} (retries: ${retries}):`,
           {
@@ -243,7 +243,7 @@ async function ensureTickerIndex(KV, ticker) {
         if (
           !wasAdded &&
           retries === 0 &&
-          (ticker === "BMNR" || ticker === "BABA")
+          (ticker === "BMNR" || ticker === "BABA" || ticker === "ETHT")
         ) {
           console.error(
             `[TICKER INDEX ERROR] ${ticker} was NOT added to index after ${3} retries!`,
@@ -257,7 +257,7 @@ async function ensureTickerIndex(KV, ticker) {
         }
       } else {
         // Already in index - success
-        if (ticker === "BMNR" || ticker === "BABA") {
+        if (ticker === "BMNR" || ticker === "BABA" || ticker === "ETHT") {
           console.log(
             `[TICKER INDEX DEBUG] ${ticker} already in index (count: ${cur.length})`
           );
@@ -3581,15 +3581,27 @@ export default {
         // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
         // Check BEFORE normalization to catch BRK.B from TradingView
         const rawTicker = body?.ticker;
-        if (rawTicker === "BRK.B" || rawTicker === "BRK-B" || ticker === "BRK-B") {
+        if (
+          rawTicker === "BRK.B" ||
+          rawTicker === "BRK-B" ||
+          ticker === "BRK-B"
+        ) {
           // Check if old BRK.B data exists and migrate it
           const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
           const newData = await kvGetJSON(KV, `timed:latest:BRK-B`);
-          
-          if (oldData && (!newData || (oldData.ts && newData.ts && oldData.ts > newData.ts))) {
-            console.log(`[MIGRATE BRK] Migrating BRK.B data to BRK-B (old ts: ${oldData.ts}, new ts: ${newData?.ts || 'none'})`);
+
+          if (
+            oldData &&
+            (!newData || (oldData.ts && newData.ts && oldData.ts > newData.ts))
+          ) {
+            console.log(
+              `[MIGRATE BRK] Migrating BRK.B data to BRK-B (old ts: ${
+                oldData.ts
+              }, new ts: ${newData?.ts || "none"})`
+            );
             // Copy data to BRK-B (use newer data if both exist)
-            const dataToUse = newData && newData.ts > oldData.ts ? newData : oldData;
+            const dataToUse =
+              newData && newData.ts > oldData.ts ? newData : oldData;
             await kvPutJSON(KV, `timed:latest:BRK-B`, dataToUse);
             // Copy trail if exists
             const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
@@ -3605,9 +3617,13 @@ export default {
             if (dataToUse === oldData) {
               await KV.delete(`timed:latest:BRK.B`);
               await KV.delete(`timed:trail:BRK.B`);
-              console.log(`[MIGRATE BRK] Migration complete: BRK.B → BRK-B (deleted old BRK.B)`);
+              console.log(
+                `[MIGRATE BRK] Migration complete: BRK.B → BRK-B (deleted old BRK.B)`
+              );
             } else {
-              console.log(`[MIGRATE BRK] BRK-B already has newer data, keeping both`);
+              console.log(
+                `[MIGRATE BRK] BRK-B already has newer data, keeping both`
+              );
             }
           }
         }
@@ -5135,7 +5151,7 @@ export default {
       try {
         const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
         const newData = await kvGetJSON(KV, `timed:latest:BRK-B`);
-        
+
         if (!oldData && !newData) {
           return sendJSON(
             { ok: false, error: "No BRK data found" },
@@ -5145,28 +5161,31 @@ export default {
         }
 
         // Use newer data if both exist
-        const dataToUse = oldData && newData && newData.ts > oldData.ts ? newData : (oldData || newData);
+        const dataToUse =
+          oldData && newData && newData.ts > oldData.ts
+            ? newData
+            : oldData || newData;
         const migrated = !!oldData && oldData !== dataToUse;
 
         await kvPutJSON(KV, `timed:latest:BRK-B`, dataToUse);
-        
+
         // Migrate trail data
         const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
         const newTrail = await kvGetJSON(KV, `timed:trail:BRK-B`);
         if (oldTrail || newTrail) {
           await kvPutJSON(KV, `timed:trail:BRK-B`, oldTrail || newTrail);
         }
-        
+
         // Ensure BRK-B is in index
         await ensureTickerIndex(KV, "BRK-B");
-        
+
         // Remove BRK.B from index if it exists
         let tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         if (tickers.includes("BRK.B")) {
           tickers = tickers.filter((t) => t !== "BRK.B");
           await kvPutJSON(KV, "timed:tickers", tickers);
         }
-        
+
         // Delete old BRK.B data if we migrated
         if (migrated) {
           await KV.delete(`timed:latest:BRK.B`);
