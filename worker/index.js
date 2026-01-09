@@ -1111,7 +1111,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
       // Use 4H EMA cloud position if available, otherwise fallback to price momentum
       let shouldHold = false;
       const fourHEMACloud = tickerData.fourh_ema_cloud;
-      
+
       if (fourHEMACloud && fourHEMACloud.position) {
         // Use 4H EMA cloud position for hold decision
         if (isLong) {
@@ -1830,7 +1830,10 @@ async function processTradeSimulation(
                 currentPrice,
                 Number(tickerData.tp || updatedTrade.tp),
                 pnl,
-                pnlPct
+                pnlPct,
+                updatedTrade.trimmedPct || 0.5,
+                tickerData,
+                updatedTrade
               );
               await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade updates
             } else if (
@@ -1848,7 +1851,9 @@ async function processTradeSimulation(
                 pnl,
                 pnlPct,
                 updatedTrade.rank || existingOpenTrade.rank || 0,
-                updatedTrade.rr || existingOpenTrade.rr || 0
+                updatedTrade.rr || existingOpenTrade.rr || 0,
+                tickerData,
+                updatedTrade
               );
               await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade updates
 
@@ -1862,7 +1867,8 @@ async function processTradeSimulation(
                   currentPrice,
                   pnl,
                   pnlPct,
-                  tdSeq
+                  tdSeq,
+                  tickerData
                 );
                 await notifyDiscord(env, td9Embed).catch(() => {});
               }
@@ -2281,7 +2287,8 @@ async function processTradeSimulation(
                 trade.rank || 0,
                 tickerData.state || "N/A",
                 Number(tickerData.price), // Current price for comparison
-                isBackfill
+                isBackfill,
+                tickerData // Pass full ticker data for comprehensive embed
               );
               await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade creation
             } else if (env && isBackfill) {
@@ -2878,6 +2885,168 @@ async function notifyDiscord(env, embed) {
   }
 }
 
+// Helper: Generate natural language interpretation for trade actions
+function generateTradeActionInterpretation(action, tickerData, trade = null, trimPct = null) {
+  const ticker = tickerData.ticker || "UNKNOWN";
+  const direction = trade?.direction || (tickerData.state?.includes("BULL") ? "LONG" : tickerData.state?.includes("BEAR") ? "SHORT" : null);
+  const state = tickerData.state || "";
+  const flags = tickerData.flags || {};
+  const htfScore = Number(tickerData.htf_score || 0);
+  const ltfScore = Number(tickerData.ltf_score || 0);
+  const completion = Number(tickerData.completion || 0);
+  const phase = Number(tickerData.phase_pct || 0);
+  const rr = Number(tickerData.rr || trade?.rr || 0);
+  const rank = Number(tickerData.rank || trade?.rank || 0);
+  const sqRel = !!flags.sq30_release;
+  const sqOn = !!flags.sq30_on;
+  const momentumElite = !!flags.momentum_elite;
+  const tdSeq = tickerData.td_sequential || {};
+  const rsi = tickerData.rsi || {};
+  const fourHEMACloud = tickerData.fourh_ema_cloud || {};
+  
+  let reasons = [];
+  let actionText = "";
+  
+  if (action === "ENTRY") {
+    actionText = `**Entering a ${direction} position** because:`;
+    
+    // State-based reasons
+    if (state === "HTF_BULL_LTF_BULL") {
+      reasons.push("✅ **HTF and LTF are both bullish** - Strong alignment in favor of upward movement");
+    } else if (state === "HTF_BEAR_LTF_BEAR") {
+      reasons.push("✅ **HTF and LTF are both bearish** - Strong alignment in favor of downward movement");
+    } else if (state === "HTF_BULL_LTF_PULLBACK") {
+      reasons.push("✅ **HTF bullish with LTF pullback** - Prime setup for long entry on pullback");
+    } else if (state === "HTF_BEAR_LTF_PULLBACK") {
+      reasons.push("✅ **HTF bearish with LTF pullback** - Prime setup for short entry on pullback");
+    }
+    
+    // Score-based reasons
+    if (htfScore >= 25) {
+      reasons.push(`📈 **Strong HTF score (${htfScore.toFixed(1)})** - High timeframe momentum is very favorable`);
+    } else if (htfScore >= 15) {
+      reasons.push(`📈 **Good HTF score (${htfScore.toFixed(1)})** - High timeframe momentum is favorable`);
+    }
+    
+    if (ltfScore >= 20) {
+      reasons.push(`📊 **Strong LTF score (${ltfScore.toFixed(1)})** - Low timeframe momentum is very favorable`);
+    } else if (ltfScore >= 12) {
+      reasons.push(`📊 **Good LTF score (${ltfScore.toFixed(1)})** - Low timeframe momentum is favorable`);
+    }
+    
+    // Squeeze reasons
+    if (sqRel) {
+      reasons.push("🚀 **Squeeze release detected** - Momentum breakout from compression, strong directional move expected");
+    } else if (sqOn) {
+      reasons.push("💥 **In squeeze** - Building energy for potential explosive move");
+    }
+    
+    // Completion reasons
+    if (completion <= 0.2) {
+      reasons.push(`🎯 **Early in move (${(completion * 100).toFixed(0)}% complete)** - Plenty of room to run`);
+    } else if (completion <= 0.4) {
+      reasons.push(`🎯 **Good entry timing (${(completion * 100).toFixed(0)}% complete)** - Still early in the move`);
+    }
+    
+    // Phase reasons
+    if (phase <= 0.3) {
+      reasons.push(`⚡ **Early phase (${(phase * 100).toFixed(0)}%)** - Strong momentum building`);
+    }
+    
+    // RR reasons
+    if (rr >= 2.0) {
+      reasons.push(`💰 **Excellent Risk/Reward (${rr.toFixed(2)}:1)** - High potential reward relative to risk`);
+    } else if (rr >= 1.5) {
+      reasons.push(`💰 **Good Risk/Reward (${rr.toFixed(2)}:1)** - Favorable reward relative to risk`);
+    }
+    
+    // Rank reasons
+    if (rank >= 80) {
+      reasons.push(`⭐ **Top-ranked setup (Rank: ${rank})** - One of the best opportunities in the watchlist`);
+    } else if (rank >= 70) {
+      reasons.push(`⭐ **High-ranked setup (Rank: ${rank})** - Strong opportunity`);
+    }
+    
+    // Momentum Elite
+    if (momentumElite) {
+      reasons.push("🚀 **Momentum Elite** - High-quality momentum stock with strong fundamentals");
+    }
+    
+    // TD Sequential
+    if (tdSeq.td9_bullish && direction === "LONG") {
+      reasons.push("🔢 **TD9 Bullish signal** - DeMark exhaustion pattern suggests upward reversal");
+    } else if (tdSeq.td9_bearish && direction === "SHORT") {
+      reasons.push("🔢 **TD9 Bearish signal** - DeMark exhaustion pattern suggests downward reversal");
+    }
+    
+    // RSI Divergence
+    if (rsi.divergence?.type === "bullish" && direction === "LONG") {
+      reasons.push("📊 **RSI Bullish Divergence** - Price making lower lows while RSI makes higher lows, suggesting upward reversal");
+    } else if (rsi.divergence?.type === "bearish" && direction === "SHORT") {
+      reasons.push("📊 **RSI Bearish Divergence** - Price making higher highs while RSI makes lower highs, suggesting downward reversal");
+    }
+    
+    // EMA Cloud position
+    if (fourHEMACloud.position === "above" && direction === "LONG") {
+      reasons.push("☁️ **Price above 4H EMA cloud** - Strong trend continuation signal");
+    } else if (fourHEMACloud.position === "below" && direction === "SHORT") {
+      reasons.push("☁️ **Price below 4H EMA cloud** - Strong trend continuation signal");
+    }
+    
+  } else if (action === "TRIM") {
+    const trimPercent = Math.round((trimPct || 0.5) * 100);
+    actionText = `**Trimming ${trimPercent}%** because:`;
+    
+    reasons.push(`🎯 **Take Profit level hit** - Price reached TP target, locking in ${trimPercent}% of profits`);
+    
+    if (trimPct === 0.25) {
+      reasons.push("📈 **First trim (25%)** - Securing initial profits while letting the rest run");
+    } else if (trimPct === 0.5) {
+      reasons.push("📈 **Second trim (50%)** - Locking in half the position, remaining 50% continues to run");
+    } else if (trimPct === 0.75) {
+      reasons.push("📈 **Third trim (75%)** - Securing most profits, trailing stop on remaining 25%");
+    }
+    
+    // EMA Cloud position for hold decision
+    if (fourHEMACloud.position === "above" && direction === "LONG") {
+      reasons.push("☁️ **Price still above 4H EMA cloud** - Trend intact, holding remaining position");
+    } else if (fourHEMACloud.position === "below" && direction === "SHORT") {
+      reasons.push("☁️ **Price still below 4H EMA cloud** - Trend intact, holding remaining position");
+    }
+    
+  } else if (action === "CLOSE") {
+    const status = trade?.status || "CLOSED";
+    actionText = `**Closing position** because:`;
+    
+    if (status === "WIN") {
+      reasons.push("✅ **Take Profit fully achieved** - All TP levels hit, trade completed successfully");
+    } else if (status === "LOSS") {
+      reasons.push("❌ **Stop Loss hit** - Price moved against position, risk management triggered");
+    } else if (tdSeq.exit_long || tdSeq.exit_short) {
+      reasons.push("🔢 **TD Sequential exit signal** - DeMark exhaustion pattern suggests trend reversal");
+    }
+    
+    // Final P&L context
+    const pnl = trade?.pnl || 0;
+    const pnlPct = trade?.pnlPct || 0;
+    if (pnl > 0) {
+      reasons.push(`💰 **Final P&L: +$${Math.abs(pnl).toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)** - Trade profitable`);
+    } else {
+      reasons.push(`💰 **Final P&L: -$${Math.abs(pnl).toFixed(2)} (${pnlPct.toFixed(2)}%)** - Trade closed at loss`);
+    }
+  }
+  
+  // If no reasons found, add generic ones
+  if (reasons.length === 0) {
+    reasons.push("📊 **System signal detected** - Automated trade management triggered");
+  }
+  
+  return {
+    action: actionText,
+    reasons: reasons.join("\n"),
+  };
+}
+
 // Helper: Create Discord embed for trade entry
 function createTradeEntryEmbed(
   ticker,
@@ -2889,7 +3058,8 @@ function createTradeEntryEmbed(
   rank,
   state,
   currentPrice = null,
-  isBackfill = false
+  isBackfill = false,
+  tickerData = null
 ) {
   const color = direction === "LONG" ? 0x00ff00 : 0xff0000; // Green for LONG, Red for SHORT
 
@@ -2899,43 +3069,157 @@ function createTradeEntryEmbed(
     entryPriceDisplay += ` (current: $${currentPrice.toFixed(2)})`;
   }
 
+  // Generate natural language interpretation
+  const interpretation = tickerData 
+    ? generateTradeActionInterpretation("ENTRY", tickerData, { direction, rank, rr })
+    : null;
+
+  // Build comprehensive fields
+  const fields = [
+    {
+      name: "📊 Action & Reasoning",
+      value: interpretation ? `${interpretation.action}\n\n${interpretation.reasons}` : "Entering position based on system signals",
+      inline: false,
+    },
+    {
+      name: "💰 Entry Details",
+      value: `**Entry:** ${entryPriceDisplay}\n**Stop Loss:** $${sl.toFixed(2)}\n**Take Profit:** $${tp.toFixed(2)}`,
+      inline: false,
+    },
+  ];
+
+  // Add TP array if available
+  if (tickerData?.tp_levels && Array.isArray(tickerData.tp_levels) && tickerData.tp_levels.length > 0) {
+    const tpPrices = tickerData.tp_levels
+      .map((tpItem) => {
+        if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
+          return Number(tpItem.price);
+        }
+        return typeof tpItem === "number" ? Number(tpItem) : null;
+      })
+      .filter((p) => Number.isFinite(p) && p > 0);
+    
+    if (tpPrices.length > 0) {
+      const maxTP = Math.max(...tpPrices);
+      fields.push({
+        name: "🎯 TP Levels",
+        value: `**Primary TP:** $${tp.toFixed(2)}\n**Max TP:** $${maxTP.toFixed(2)}\n**Total Levels:** ${tpPrices.length}`,
+        inline: false,
+      });
+    }
+  }
+
+  // Add scores and metrics
+  if (tickerData) {
+    const htfScore = Number(tickerData.htf_score || 0);
+    const ltfScore = Number(tickerData.ltf_score || 0);
+    const completion = Number(tickerData.completion || 0);
+    const phase = Number(tickerData.phase_pct || 0);
+    
+    fields.push({
+      name: "📈 Scores & Metrics",
+      value: `**HTF Score:** ${htfScore.toFixed(2)}\n**LTF Score:** ${ltfScore.toFixed(2)}\n**Completion:** ${(completion * 100).toFixed(1)}%\n**Phase:** ${(phase * 100).toFixed(1)}%`,
+      inline: true,
+    });
+  }
+
+  fields.push({
+    name: "⭐ Quality Metrics",
+    value: `**Rank:** ${rank}\n**Risk/Reward:** ${rr.toFixed(2)}:1\n**State:** ${state || "N/A"}`,
+    inline: true,
+  });
+
+  // Add flags and signals
+  if (tickerData?.flags) {
+    const flags = tickerData.flags;
+    const flagItems = [];
+    if (flags.sq30_release) flagItems.push("🚀 Squeeze Release");
+    if (flags.sq30_on && !flags.sq30_release) flagItems.push("💥 In Squeeze");
+    if (flags.momentum_elite) flagItems.push("⭐ Momentum Elite");
+    if (flags.phase_dot) flagItems.push("⚫ Phase Dot");
+    if (flags.phase_zone_change) flagItems.push("🔄 Phase Zone Change");
+    
+    if (flagItems.length > 0) {
+      fields.push({
+        name: "🚩 Active Signals",
+        value: flagItems.join("\n"),
+        inline: false,
+      });
+    }
+  }
+
+  // Add TD Sequential if available
+  if (tickerData?.td_sequential) {
+    const tdSeq = tickerData.td_sequential;
+    const tdItems = [];
+    if (tdSeq.td9_bullish) tdItems.push("🔢 TD9 Bullish");
+    if (tdSeq.td9_bearish) tdItems.push("🔢 TD9 Bearish");
+    if (tdSeq.td13_bullish) tdItems.push("🔢 TD13 Bullish");
+    if (tdSeq.td13_bearish) tdItems.push("🔢 TD13 Bearish");
+    
+    if (tdItems.length > 0) {
+      fields.push({
+        name: "🔢 TD Sequential",
+        value: tdItems.join("\n") + (tdSeq.boost ? `\n**Boost:** ${Number(tdSeq.boost).toFixed(1)}` : ""),
+        inline: false,
+      });
+    }
+  }
+
+  // Add RSI if available
+  if (tickerData?.rsi) {
+    const rsi = tickerData.rsi;
+    const rsiValue = Number(rsi.value || 0);
+    const rsiLevel = rsi.level || "neutral";
+    const divergence = rsi.divergence || {};
+    
+    let rsiText = `**RSI:** ${rsiValue.toFixed(2)} (${rsiLevel})`;
+    if (divergence.type && divergence.type !== "none") {
+      rsiText += `\n**Divergence:** ${divergence.type === "bullish" ? "🔼 Bullish" : "🔽 Bearish"}`;
+      if (divergence.strength) {
+        rsiText += ` (Strength: ${Number(divergence.strength).toFixed(2)})`;
+      }
+    }
+    
+    fields.push({
+      name: "📊 RSI",
+      value: rsiText,
+      inline: false,
+    });
+  }
+
+  // Add EMA Cloud positions if available
+  if (tickerData?.daily_ema_cloud || tickerData?.fourh_ema_cloud || tickerData?.oneh_ema_cloud) {
+    const cloudItems = [];
+    if (tickerData.daily_ema_cloud) {
+      const daily = tickerData.daily_ema_cloud;
+      cloudItems.push(`**Daily (5-8 EMA):** ${daily.position.toUpperCase()}`);
+    }
+    if (tickerData.fourh_ema_cloud) {
+      const fourH = tickerData.fourh_ema_cloud;
+      cloudItems.push(`**4H (8-13 EMA):** ${fourH.position.toUpperCase()}`);
+    }
+    if (tickerData.oneh_ema_cloud) {
+      const oneH = tickerData.oneh_ema_cloud;
+      cloudItems.push(`**1H (13-21 EMA):** ${oneH.position.toUpperCase()}`);
+    }
+    
+    if (cloudItems.length > 0) {
+      fields.push({
+        name: "☁️ EMA Cloud Positions",
+        value: cloudItems.join("\n"),
+        inline: false,
+      });
+    }
+  }
+
   return {
     title: `🎯 Trade Entered: ${ticker} ${direction}${
       isBackfill ? " (from backfill)" : ""
     }`,
+    description: interpretation ? interpretation.action : `New ${direction} position opened`,
     color: color,
-    fields: [
-      {
-        name: "Entry Price",
-        value: entryPriceDisplay,
-        inline: true,
-      },
-      {
-        name: "Stop Loss",
-        value: `$${sl.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Take Profit",
-        value: `$${tp.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Risk/Reward",
-        value: `${rr.toFixed(2)}:1`,
-        inline: true,
-      },
-      {
-        name: "Rank",
-        value: `${rank}`,
-        inline: true,
-      },
-      {
-        name: "State",
-        value: state || "N/A",
-        inline: true,
-      },
-    ],
+    fields: fields,
     timestamp: new Date().toISOString(),
     footer: {
       text: "Timed Trading Simulator",
@@ -2951,43 +3235,63 @@ function createTradeTrimmedEmbed(
   currentPrice,
   tp,
   pnl,
-  pnlPct
+  pnlPct,
+  trimmedPct = 0.5,
+  tickerData = null,
+  trade = null
 ) {
+  const remainingPct = 1 - trimmedPct;
+  const trimPercent = Math.round(trimmedPct * 100);
+  
+  // Generate natural language interpretation
+  const interpretation = tickerData 
+    ? generateTradeActionInterpretation("TRIM", tickerData, trade, trimmedPct)
+    : null;
+
+  const fields = [
+    {
+      name: "📊 Action & Reasoning",
+      value: interpretation ? `${interpretation.action}\n\n${interpretation.reasons}` : `Trimming ${trimPercent}% of position at TP level`,
+      inline: false,
+    },
+    {
+      name: "💰 Position Details",
+      value: `**Entry:** $${entryPrice.toFixed(2)}\n**Current:** $${currentPrice.toFixed(2)}\n**TP Hit:** $${tp.toFixed(2)}`,
+      inline: false,
+    },
+    {
+      name: "💵 Realized P&L",
+      value: `**Amount:** $${pnl.toFixed(2)}\n**Percentage:** ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%\n**Trimmed:** ${trimPercent}%`,
+      inline: true,
+    },
+    {
+      name: "📈 Position Status",
+      value: `**Remaining:** ${Math.round(remainingPct * 100)}%\n**Status:** Holding remaining position`,
+      inline: true,
+    },
+  ];
+
+  // Add EMA Cloud position if available (for hold decision context)
+  if (tickerData?.fourh_ema_cloud) {
+    const fourH = tickerData.fourh_ema_cloud;
+    const holdReason = fourH.position === "above" && direction === "LONG" 
+      ? "Price above 4H EMA cloud - trend intact"
+      : fourH.position === "below" && direction === "SHORT"
+      ? "Price below 4H EMA cloud - trend intact"
+      : "Monitoring trend continuation";
+    
+    fields.push({
+      name: "☁️ Trend Analysis",
+      value: `**4H EMA Cloud:** ${fourH.position.toUpperCase()}\n**Hold Reason:** ${holdReason}`,
+      inline: false,
+    });
+  }
+
   return {
-    title: `✂️ Trade Trimmed: ${ticker} ${direction}`,
+    title: `✂️ Trade Trimmed: ${ticker} ${direction} - ${trimPercent}%`,
+    description: interpretation ? interpretation.action : `Position trimmed by ${trimPercent}%`,
     color: 0xffaa00, // Orange
-    fields: [
-      {
-        name: "Entry Price",
-        value: `$${entryPrice.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Current Price",
-        value: `$${currentPrice.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "TP Hit",
-        value: `$${tp.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Realized P&L",
-        value: `$${pnl.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "P&L %",
-        value: `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`,
-        inline: true,
-      },
-      {
-        name: "Status",
-        value: "50% trimmed, 50% remaining",
-        inline: true,
-      },
-    ],
+    fields: fields,
     timestamp: new Date().toISOString(),
     footer: {
       text: "Timed Trading Simulator",
@@ -3005,45 +3309,64 @@ function createTradeClosedEmbed(
   pnl,
   pnlPct,
   rank,
-  rr
+  rr,
+  tickerData = null,
+  trade = null
 ) {
   const color = status === "WIN" ? 0x00ff00 : 0xff0000; // Green for WIN, Red for LOSS
   const emoji = status === "WIN" ? "✅" : "❌";
+  
+  // Generate natural language interpretation
+  const interpretation = tickerData && trade
+    ? generateTradeActionInterpretation("CLOSE", tickerData, trade)
+    : null;
+
+  const fields = [
+    {
+      name: "📊 Action & Reasoning",
+      value: interpretation ? `${interpretation.action}\n\n${interpretation.reasons}` : `Trade closed - ${status}`,
+      inline: false,
+    },
+    {
+      name: "💰 Trade Summary",
+      value: `**Entry:** $${entryPrice.toFixed(2)}\n**Exit:** $${exitPrice.toFixed(2)}\n**Final P&L:** $${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+      inline: false,
+    },
+  ];
+
+  // Add exit reason if TD Sequential exit
+  if (tickerData?.td_sequential) {
+    const tdSeq = tickerData.td_sequential;
+    if (tdSeq.exit_long || tdSeq.exit_short) {
+      fields.push({
+        name: "🔢 Exit Signal",
+        value: `**TD Sequential Exhaustion** - DeMark pattern suggests trend reversal`,
+        inline: false,
+      });
+    }
+  }
+
+  // Add performance metrics
+  fields.push({
+    name: "⭐ Performance Metrics",
+    value: `**Rank:** ${rank || "N/A"}\n**Risk/Reward:** ${rr ? rr.toFixed(2) + ":1" : "N/A"}\n**Result:** ${status}`,
+    inline: true,
+  });
+
+  // Add final stats
+  const priceChange = exitPrice - entryPrice;
+  const priceChangePct = ((exitPrice - entryPrice) / entryPrice) * 100;
+  fields.push({
+    name: "📈 Price Movement",
+    value: `**Change:** ${priceChange >= 0 ? "+" : ""}$${priceChange.toFixed(2)}\n**Change %:** ${priceChangePct >= 0 ? "+" : ""}${priceChangePct.toFixed(2)}%`,
+    inline: true,
+  });
+
   return {
     title: `${emoji} Trade Closed: ${ticker} ${direction} - ${status}`,
+    description: interpretation ? interpretation.action : `Trade closed with ${status} result`,
     color: color,
-    fields: [
-      {
-        name: "Entry Price",
-        value: `$${entryPrice.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Exit Price",
-        value: `$${exitPrice.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Final P&L",
-        value: `$${pnl.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "P&L %",
-        value: `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`,
-        inline: true,
-      },
-      {
-        name: "Rank",
-        value: `${rank || "N/A"}`,
-        inline: true,
-      },
-      {
-        name: "RR",
-        value: `${rr.toFixed(2)}:1`,
-        inline: true,
-      },
-    ],
+    fields: fields,
     timestamp: new Date().toISOString(),
     footer: {
       text: "Timed Trading Simulator",
@@ -3059,7 +3382,8 @@ function createTD9ExitEmbed(
   exitPrice,
   pnl,
   pnlPct,
-  tdSeq
+  tdSeq,
+  tickerData = null
 ) {
   const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
   const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
@@ -3072,59 +3396,66 @@ function createTD9ExitEmbed(
   const signalDirection = td9Bearish || td13Bearish ? "Bearish" : "Bullish";
   const oppositeDirection = direction === "LONG" ? "SHORT" : "LONG";
 
+  // Natural language interpretation
+  const actionText = `**Closing ${direction} position** because:`;
+  let reasons = [];
+  
+  if (signalType === "TD13") {
+    reasons.push(`🔢 **TD13 ${signalDirection} exhaustion** - Strong DeMark reversal signal, lead-up phase complete`);
+  } else {
+    reasons.push(`🔢 **TD9 ${signalDirection} exhaustion** - DeMark reversal signal, preparation phase complete`);
+  }
+  
+  reasons.push(`📉 **Price exhaustion detected** - Trend showing signs of reversal`);
+  reasons.push(`⚠️ **Risk management** - Exiting to protect profits and avoid reversal`);
+  
+  if (oppositeDirection) {
+    reasons.push(`🔄 **Consider ${oppositeDirection} entry** - If conditions align, opposite direction may present opportunity`);
+  }
+
+  const fields = [
+    {
+      name: "📊 Action & Reasoning",
+      value: `${actionText}\n\n${reasons.join("\n")}`,
+      inline: false,
+    },
+    {
+      name: "💰 Trade Summary",
+      value: `**Entry:** $${entryPrice.toFixed(2)}\n**Exit:** $${exitPrice.toFixed(2)}\n**P&L:** $${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+      inline: false,
+    },
+    {
+      name: "🔢 TD Sequential Signals",
+      value: `**TD9 Bullish:** ${td9Bullish ? "✅" : "❌"}\n**TD9 Bearish:** ${td9Bearish ? "✅" : "❌"}\n**TD13 Bullish:** ${td13Bullish ? "✅" : "❌"}\n**TD13 Bearish:** ${td13Bearish ? "✅" : "❌"}`,
+      inline: true,
+    },
+  ];
+
+  // Add counts if available
+  if (tdSeq.bullish_prep_count !== undefined || tdSeq.bearish_prep_count !== undefined) {
+    fields.push({
+      name: "📊 TD Counts",
+      value: `**Bullish Prep:** ${tdSeq.bullish_prep_count || 0}/9\n**Bearish Prep:** ${tdSeq.bearish_prep_count || 0}/9\n**Bullish Leadup:** ${tdSeq.bullish_leadup_count || 0}/13\n**Bearish Leadup:** ${tdSeq.bearish_leadup_count || 0}/13`,
+      inline: true,
+    });
+  }
+
+  // Add additional context from tickerData if available
+  if (tickerData) {
+    const htfScore = Number(tickerData.htf_score || 0);
+    const ltfScore = Number(tickerData.ltf_score || 0);
+    fields.push({
+      name: "📈 Current Scores",
+      value: `**HTF:** ${htfScore.toFixed(2)}\n**LTF:** ${ltfScore.toFixed(2)}`,
+      inline: true,
+    });
+  }
+
   return {
     title: `🔢 TD Sequential ${signalType} Exit: ${ticker} ${direction}`,
-    description: `${signalType} ${signalDirection} reversal detected - Consider ${oppositeDirection} entry`,
+    description: `${actionText} ${signalType} ${signalDirection} exhaustion detected`,
     color: 0xffaa00, // Orange
-    fields: [
-      {
-        name: "Exit Reason",
-        value: `TD Sequential ${signalType} ${signalDirection} Exhaustion`,
-        inline: false,
-      },
-      {
-        name: "Entry Price",
-        value: `$${entryPrice.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "Exit Price",
-        value: `$${exitPrice.toFixed(2)}`,
-        inline: true,
-      },
-      {
-        name: "P&L",
-        value: `$${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(
-          2
-        )}%)`,
-        inline: true,
-      },
-      {
-        name: "TD9 Bullish",
-        value: td9Bullish ? "✅" : "❌",
-        inline: true,
-      },
-      {
-        name: "TD9 Bearish",
-        value: td9Bearish ? "✅" : "❌",
-        inline: true,
-      },
-      {
-        name: "TD13 Bullish",
-        value: td13Bullish ? "✅" : "❌",
-        inline: true,
-      },
-      {
-        name: "TD13 Bearish",
-        value: td13Bearish ? "✅" : "❌",
-        inline: true,
-      },
-      {
-        name: "Potential Entry",
-        value: `Consider ${oppositeDirection} setup if conditions align`,
-        inline: false,
-      },
-    ],
+    fields: fields,
     timestamp: new Date().toISOString(),
     footer: {
       text: "TD Sequential Exhaustion Signal",
