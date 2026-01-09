@@ -1270,6 +1270,22 @@
           }
         }
 
+        // Debug: Check if BMNR/BABA are in the data object at all
+        if (dataObj["BMNR"] || dataObj["BABA"]) {
+          console.log(`[DATA CHECK] BMNR/BABA found in dataObj:`, {
+            BMNR: !!dataObj["BMNR"],
+            BABA: !!dataObj["BABA"],
+            BMNR_keys: dataObj["BMNR"] ? Object.keys(dataObj["BMNR"]) : [],
+            BABA_keys: dataObj["BABA"] ? Object.keys(dataObj["BABA"]) : [],
+            BMNR_htf: dataObj["BMNR"]?.htf_score,
+            BMNR_ltf: dataObj["BMNR"]?.ltf_score,
+            BABA_htf: dataObj["BABA"]?.htf_score,
+            BABA_ltf: dataObj["BABA"]?.ltf_score,
+          });
+        } else {
+          console.log(`[DATA CHECK] BMNR/BABA NOT found in dataObj. Total tickers: ${Object.keys(dataObj).length}`);
+        }
+
         for (const [tickerRaw, d] of Object.entries(dataObj)) {
           // Skip completely empty entries, but allow entries with just ticker name
           if (!d || typeof d !== "object") continue;
@@ -1278,6 +1294,19 @@
             .toUpperCase();
           if (!ticker) continue;
 
+          // Debug BMNR/BABA at the very start of the loop
+          if (ticker === "BMNR" || ticker === "BABA") {
+            console.log(`[FILTER START] ${ticker}:`, {
+              tickerRaw,
+              hasData: !!d,
+              dataKeys: d ? Object.keys(d) : [],
+              htf_score: d?.htf_score,
+              ltf_score: d?.ltf_score,
+              state: d?.state,
+              price: d?.price,
+            });
+          }
+
           // Show all tickers - they will be in a group (including "No Group" if unmapped)
           // S&P Sectors and Futures are always visible, and unmapped tickers go to "No Group"
           const isSPSector =
@@ -1285,9 +1314,6 @@
           const isFuture =
             GROUPS.Futures && GROUPS.Futures.has(normTicker(ticker));
           const inGroups = isTickerInGroups(ticker); // Always returns true now (includes "No Group")
-          
-          // Debug logging for specific tickers (only log once per ticker, not on every filter pass)
-          // Removed verbose logging - tickers are now showing properly
           
           // All tickers should be shown (either in a group or in "No Group")
           // This check is now redundant but kept for clarity
@@ -1307,9 +1333,9 @@
             d.waitingForData = true; // Flag to indicate waiting for TradingView data
           }
           
-          // Debug BMNR specifically
-          if (ticker === "BMNR") {
-            console.log(`[BMNR DEBUG] Found BMNR in data:`, {
+          // Debug BMNR/BABA after score check
+          if (ticker === "BMNR" || ticker === "BABA") {
+            console.log(`[BMNR DEBUG] After score check:`, {
               ticker,
               hasScores,
               htf_score: d.htf_score,
@@ -1318,7 +1344,6 @@
               price: d.price,
               groups: groupsForTicker(normTicker(ticker)),
               inGroups,
-              filters: effectiveFilters
             });
           }
 
