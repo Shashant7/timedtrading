@@ -3005,7 +3005,7 @@
           [tickerData]
         );
 
-        const fetchActivity = React.useCallback(async () => {
+        const fetchActivity = React.useCallback(async (isRetry = false) => {
           try {
             setLoading(true);
             const controller = new AbortController();
@@ -3064,10 +3064,10 @@
             if (err.name !== "AbortError") {
               console.error("Activity feed fetch error:", err);
               setError("Failed to load activity feed");
-              // Retry after a short delay on first load failure
-              if (events.length === 0) {
+              // Retry after a short delay on first load failure (only once)
+              if (!isRetry) {
                 setTimeout(() => {
-                  fetchActivity();
+                  fetchActivity(true);
                 }, 2000);
               }
             }
