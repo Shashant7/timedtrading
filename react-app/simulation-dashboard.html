@@ -2260,9 +2260,449 @@
       };
 
       // ─────────────────────────────────────────────────────────────
+      // Welcome Modal Component - Dashboard Guide (Trading Concepts)
+      // ─────────────────────────────────────────────────────────────
+      function DashboardWelcomeModal({ onClose }) {
+        const [currentStep, setCurrentStep] = useState(0);
+        
+        const steps = [
+          {
+            title: "Welcome to Timed Trading! 🎯",
+            content: (
+              <div className="space-y-4">
+                <p className="text-lg text-[#e7ecff]">
+                  This dashboard helps you find high-quality trading setups by combining multiple timeframes and technical indicators.
+                </p>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">🎓 How to Use This Guide</h3>
+                  <p className="text-sm text-[#93a4d6]">
+                    Click "Next" to learn about each concept, or use the navigation dots to jump to any section. 
+                    You can always reopen this guide from the navigation bar.
+                  </p>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">✨ Quick Start</h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                    <li>Look for bubbles in the <strong className="text-white">green zones</strong> (Q1 & Q2) for LONG setups</li>
+                    <li>Look for bubbles in the <strong className="text-white">red zones</strong> (Q3 & Q4) for SHORT setups</li>
+                    <li>Click on any bubble to see detailed information</li>
+                    <li>Use filters to narrow down the best opportunities</li>
+                  </ol>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Understanding the Quadrants 📊",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  The chart is divided into <strong>4 quadrants</strong> based on two scores:
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                    <h3 className="text-green-400 font-semibold mb-2">HTF Score (Y-axis)</h3>
+                    <p className="text-sm text-[#93a4d6]">
+                      <strong className="text-white">Higher Timeframe</strong> - Shows the overall trend direction.
+                      <br />• Positive = Bullish trend
+                      <br />• Negative = Bearish trend
+                    </p>
+                  </div>
+                  <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                    <h3 className="text-blue-400 font-semibold mb-2">LTF Score (X-axis)</h3>
+                    <p className="text-sm text-[#93a4d6]">
+                      <strong className="text-white">Lower Timeframe</strong> - Shows entry timing.
+                      <br />• Positive = Momentum/Continuation
+                      <br />• Negative = Pullback/Setup
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <h3 className="text-yellow-400 font-semibold mb-3">The 4 Quadrants:</h3>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
+                      <div className="font-bold text-green-400 mb-1">Q1: Long Setup 📈</div>
+                      <div className="text-[#93a4d6]">HTF Bull + LTF Pullback</div>
+                      <div className="text-xs text-[#93a4d6] mt-1">Best entry zone for LONG trades</div>
+                    </div>
+                    <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
+                      <div className="font-bold text-green-400 mb-1">Q2: Long Momentum 🚀</div>
+                      <div className="text-[#93a4d6]">HTF Bull + LTF Bull</div>
+                      <div className="text-xs text-[#93a4d6] mt-1">Strong momentum, already moving</div>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
+                      <div className="font-bold text-red-400 mb-1">Q3: Short Momentum 📉</div>
+                      <div className="text-[#93a4d6]">HTF Bear + LTF Bear</div>
+                      <div className="text-xs text-[#93a4d6] mt-1">Strong momentum, already moving</div>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
+                      <div className="font-bold text-red-400 mb-1">Q4: Short Setup 🔻</div>
+                      <div className="text-[#93a4d6]">HTF Bear + LTF Pullback</div>
+                      <div className="text-xs text-[#93a4d6] mt-1">Best entry zone for SHORT trades</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Prime Setups ⭐",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  <strong className="text-yellow-400">Prime Setups</strong> are the highest-quality opportunities. 
+                  They have a ⭐ icon and appear with a green glow.
+                </p>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">Prime Setup Criteria:</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li><strong className="text-white">Rank ≥ 75</strong> - High overall quality score</li>
+                    <li><strong className="text-white">Risk/Reward ≥ 1.5</strong> - Good profit potential vs risk</li>
+                    <li><strong className="text-white">Completion ≤ 40%</strong> - Still early in the move</li>
+                    <li><strong className="text-white">In Corridor</strong> - Valid entry zone</li>
+                  </ul>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">💡 How to Find Prime Setups:</h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                    <li>Click the <strong className="text-white">"Prime Only"</strong> filter button</li>
+                    <li>Look for bubbles with ⭐ icons and green borders</li>
+                    <li>Click on a bubble to see detailed entry/exit levels</li>
+                    <li>Check the Risk/Reward ratio - higher is better!</li>
+                  </ol>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Tip:</strong> Prime setups are rare but offer the best risk/reward. 
+                    Focus on Q1 (Long Setup) and Q4 (Short Setup) quadrants for the best entries.
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "In Corridor 🎯",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  The <strong className="text-cyan-400">Corridor</strong> is a specific zone where entries are considered valid and safe.
+                </p>
+                <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
+                  <h3 className="text-cyan-400 font-semibold mb-2">What is a Corridor?</h3>
+                  <p className="text-sm text-[#93a4d6] mb-3">
+                    A corridor is a narrow band on the chart where price action is optimal for entry. 
+                    Think of it as a "sweet spot" where the setup is most likely to succeed.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
+                      <div className="font-bold text-green-400 mb-1">Long Corridor 📈</div>
+                      <div className="text-xs text-[#93a4d6]">
+                        HTF Score &gt; 0<br />
+                        LTF Score: -8 to +12
+                      </div>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
+                      <div className="font-bold text-red-400 mb-1">Short Corridor 📉</div>
+                      <div className="text-xs text-[#93a4d6]">
+                        HTF Score &lt; 0<br />
+                        LTF Score: -12 to +8
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">🎯 How to Use Corridor Filter:</h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                    <li>Click the <strong className="text-white">"In Corridor"</strong> filter button</li>
+                    <li>This shows only tickers in valid entry zones</li>
+                    <li>These are the safest setups to trade</li>
+                    <li>Combine with "Prime Only" for the best opportunities</li>
+                  </ol>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Why Corridors Matter:</strong> Tickers outside corridors may be too early, 
+                    too late, or in unfavorable conditions. Corridor entries have the highest probability of success.
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "TD Sequential (TD9) 🔢",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  <strong className="text-purple-400">TD Sequential</strong> is a powerful indicator that identifies potential reversal points.
+                </p>
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-4">
+                  <h3 className="text-purple-400 font-semibold mb-2">What is TD9?</h3>
+                  <p className="text-sm text-[#93a4d6] mb-3">
+                    TD Sequential counts consecutive bars in one direction. When it reaches <strong className="text-white">9</strong>, 
+                    it signals potential exhaustion and reversal.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
+                      <div className="font-bold text-green-400 mb-1">TD9 Bullish 📈</div>
+                      <div className="text-xs text-[#93a4d6]">
+                        Signals potential <strong>bottom</strong> and upward reversal
+                        <br /><br />
+                        <strong>Action:</strong> Look for LONG entries
+                      </div>
+                    </div>
+                    <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
+                      <div className="font-bold text-red-400 mb-1">TD9 Bearish 📉</div>
+                      <div className="text-xs text-[#93a4d6]">
+                        Signals potential <strong>top</strong> and downward reversal
+                        <br /><br />
+                        <strong>Action:</strong> Look for SHORT entries or exit LONGs
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">🔢 How to Use TD9 Filter:</h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                    <li>Click the <strong className="text-white">"TD9 Setup"</strong> filter button</li>
+                    <li>This shows only tickers with active TD9 signals</li>
+                    <li>TD9 signals are strongest when combined with other factors:
+                      <ul className="list-disc list-inside ml-4 mt-1">
+                        <li>In the correct quadrant (Q1 for bullish, Q4 for bearish)</li>
+                        <li>In corridor</li>
+                        <li>With good Risk/Reward</li>
+                      </ul>
+                    </li>
+                  </ol>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Pro Tip:</strong> TD9 signals are most powerful at extremes. 
+                    If you see a TD9 signal in Q1 (Long Setup) or Q4 (Short Setup), it's a strong confirmation of a reversal setup.
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Squeeze Indicators 🧨⚡",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  The <strong className="text-yellow-400">Squeeze</strong> indicator shows when volatility is building up, 
+                  like a spring being compressed before release.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                    <h3 className="text-yellow-400 font-semibold mb-2 flex items-center gap-2">
+                      🧨 In Squeeze
+                    </h3>
+                    <p className="text-sm text-[#93a4d6] mb-3">
+                      Volatility is <strong className="text-white">compressed</strong> - price is consolidating.
+                    </p>
+                    <div className="text-xs text-[#93a4d6] space-y-1">
+                      <div><strong className="text-white">What it means:</strong> Energy is building up</div>
+                      <div><strong className="text-white">Action:</strong> Watch closely - a big move is coming</div>
+                      <div><strong className="text-white">When to enter:</strong> Wait for squeeze release</div>
+                    </div>
+                  </div>
+                  <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
+                    <h3 className="text-cyan-400 font-semibold mb-2 flex items-center gap-2">
+                      ⚡ Squeeze Release
+                    </h3>
+                    <p className="text-sm text-[#93a4d6] mb-3">
+                      Volatility has <strong className="text-white">exploded</strong> - price is breaking out.
+                    </p>
+                    <div className="text-xs text-[#93a4d6] space-y-1">
+                      <div><strong className="text-white">What it means:</strong> The spring has released!</div>
+                      <div><strong className="text-white">Action:</strong> Strong momentum signal</div>
+                      <div><strong className="text-white">When to enter:</strong> Enter on pullback or breakout</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">🎯 How to Use Squeeze Filters:</h3>
+                  <div className="text-sm text-[#93a4d6] space-y-2">
+                    <div>
+                      <strong className="text-white">"In Squeeze" Filter:</strong> Shows tickers where volatility is building. 
+                      These are good to watch but wait for release before entering.
+                    </div>
+                    <div>
+                      <strong className="text-white">"Squeeze Release" Filter:</strong> Shows tickers where the squeeze has fired. 
+                      These often have strong momentum - combine with Prime filter for best results.
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">💡 Best Practices:</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li><strong className="text-white">Squeeze Release + Prime Setup</strong> = Very strong signal</li>
+                    <li><strong className="text-white">Squeeze Release + In Corridor</strong> = High probability entry</li>
+                    <li><strong className="text-white">In Squeeze</strong> = Prepare but don't enter yet</li>
+                    <li>Look for squeeze release in the direction of the HTF trend</li>
+                  </ul>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Putting It All Together 🎓",
+            content: (
+              <div className="space-y-4">
+                <p className="text-lg text-[#e7ecff]">
+                  Now that you understand the concepts, here's a <strong className="text-yellow-400">step-by-step workflow</strong> to find great setups:
+                </p>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-3">📋 Your Trading Workflow:</h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-3">
+                    <li>
+                      <strong className="text-white">Step 1: Choose Your Direction</strong>
+                      <br />
+                      <span className="text-xs ml-4">• For LONG trades: Focus on Q1 (Long Setup) quadrant</span>
+                      <br />
+                      <span className="text-xs ml-4">• For SHORT trades: Focus on Q4 (Short Setup) quadrant</span>
+                    </li>
+                    <li>
+                      <strong className="text-white">Step 2: Apply Quality Filters</strong>
+                      <br />
+                      <span className="text-xs ml-4">• Click "Prime Only" to see only high-quality setups</span>
+                      <br />
+                      <span className="text-xs ml-4">• Click "In Corridor" to ensure valid entry zones</span>
+                    </li>
+                    <li>
+                      <strong className="text-white">Step 3: Look for Confirmation Signals</strong>
+                      <br />
+                      <span className="text-xs ml-4">• TD9 Setup: Strong reversal signal</span>
+                      <br />
+                      <span className="text-xs ml-4">• Squeeze Release ⚡: Strong momentum</span>
+                      <br />
+                      <span className="text-xs ml-4">• Momentum Elite 🚀: Best fundamentals</span>
+                    </li>
+                    <li>
+                      <strong className="text-white">Step 4: Analyze the Setup</strong>
+                      <br />
+                      <span className="text-xs ml-4">• Click on a bubble to see details</span>
+                      <br />
+                      <span className="text-xs ml-4">• Check Risk/Reward ratio (aim for ≥ 1.5)</span>
+                      <br />
+                      <span className="text-xs ml-4">• Verify entry price, stop loss, and take profit levels</span>
+                    </li>
+                    <li>
+                      <strong className="text-white">Step 5: Execute Your Trade</strong>
+                      <br />
+                      <span className="text-xs ml-4">• Enter at the suggested entry price</span>
+                      <br />
+                      <span className="text-xs ml-4">• Set stop loss at the SL level</span>
+                      <br />
+                      <span className="text-xs ml-4">• Target the TP levels (consider trimming at first TP)</span>
+                    </li>
+                  </ol>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">⭐ The Perfect Setup Checklist:</h3>
+                  <div className="text-sm text-[#93a4d6] space-y-1">
+                    <div>✅ In the correct quadrant (Q1 for LONG, Q4 for SHORT)</div>
+                    <div>✅ Prime Setup (⭐ icon)</div>
+                    <div>✅ In Corridor</div>
+                    <div>✅ Risk/Reward ≥ 1.5</div>
+                    <div>✅ Completion ≤ 40% (still early)</div>
+                    <div>✅ TD9 signal OR Squeeze Release (bonus confirmation)</div>
+                  </div>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Remember:</strong> Not every setup will have all these factors. 
+                    Use your judgment and risk management. Start with paper trading if you're new!
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+        ];
+
+        const nextStep = () => {
+          if (currentStep < steps.length - 1) {
+            setCurrentStep(currentStep + 1);
+          }
+        };
+
+        const prevStep = () => {
+          if (currentStep > 0) {
+            setCurrentStep(currentStep - 1);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0b1020] border-2 border-[#26325f] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+              <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[#26325f] p-6 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-1">{steps[currentStep].title}</h2>
+                  <div className="flex gap-1">
+                    {steps.map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-2 w-2 rounded-full transition-all ${
+                          i === currentStep
+                            ? "bg-blue-400 w-8"
+                            : i < currentStep
+                            ? "bg-green-400"
+                            : "bg-[#26325f]"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="text-[#93a4d6] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f] transition-colors"
+                  title="Close Welcome Guide"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6">
+                {steps[currentStep].content}
+              </div>
+              <div className="border-t border-[#26325f] p-4 flex items-center justify-between bg-[#0f1630]">
+                <button
+                  onClick={prevStep}
+                  disabled={currentStep === 0}
+                  className={`px-4 py-2 rounded-lg border transition-all ${
+                    currentStep === 0
+                      ? "border-[#26325f] text-[#93a4d6] opacity-50 cursor-not-allowed"
+                      : "border-[#26325f] bg-[#1a2550] hover:bg-[#26325f] text-white"
+                  }`}
+                >
+                  ← Previous
+                </button>
+                <div className="text-sm text-[#93a4d6]">
+                  Step {currentStep + 1} of {steps.length}
+                </div>
+                {currentStep < steps.length - 1 ? (
+                  <button
+                    onClick={nextStep}
+                    className="px-6 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold transition-all"
+                  >
+                    Next →
+                  </button>
+                ) : (
+                  <button
+                    onClick={onClose}
+                    className="px-6 py-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold transition-all"
+                  >
+                    Start Trading! 🚀
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // Welcome Modal Component - Simulated Trades Guide
       // ─────────────────────────────────────────────────────────────
-      function WelcomeModal({ onClose }) {
+      function TrackerWelcomeModal({ onClose }) {
         const [currentStep, setCurrentStep] = useState(0);
         
         const steps = [
@@ -2678,13 +3118,18 @@
         const { trades, loading: tradesLoading, error: tradesError, addTrade, updateTrade, refetch: refetchTrades } = useSimulatedTrades();
         
         // Welcome Guide state
-        const [showWelcome, setShowWelcome] = useState(() => {
+        const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(false);
+        const [showWelcomeTracker, setShowWelcomeTracker] = useState(() => {
           const hasSeenWelcome = localStorage.getItem("timedTrading_welcomeSeen");
           return !hasSeenWelcome;
         });
         
-        const handleWelcomeClose = () => {
-          setShowWelcome(false);
+        const handleWelcomeDashboardClose = () => {
+          setShowWelcomeDashboard(false);
+        };
+        
+        const handleWelcomeTrackerClose = () => {
+          setShowWelcomeTracker(false);
           localStorage.setItem("timedTrading_welcomeSeen", "true");
         };
         
@@ -2783,9 +3228,12 @@
 
         return (
           <>
-            {/* Welcome Modal */}
-            {showWelcome && (
-              <WelcomeModal onClose={handleWelcomeClose} />
+            {/* Welcome Modals */}
+            {showWelcomeDashboard && (
+              <DashboardWelcomeModal onClose={handleWelcomeDashboardClose} />
+            )}
+            {showWelcomeTracker && (
+              <TrackerWelcomeModal onClose={handleWelcomeTrackerClose} />
             )}
             
             <div className="min-h-screen p-4">
@@ -2807,11 +3255,18 @@
                     Trade Tracker
                   </a>
                   <button
-                    onClick={() => setShowWelcome(true)}
+                    onClick={() => setShowWelcomeDashboard(true)}
                     className="px-3 py-1.5 rounded bg-purple-500/20 border border-purple-500 text-sm text-purple-400 font-semibold hover:bg-purple-500/30 transition-colors"
-                    title="Show Welcome Guide"
+                    title="Show Dashboard Guide (Trading Concepts)"
                   >
-                    📚 Welcome Guide
+                    📚 Dashboard Guide
+                  </button>
+                  <button
+                    onClick={() => setShowWelcomeTracker(true)}
+                    className="px-3 py-1.5 rounded bg-blue-500/20 border border-blue-500 text-sm text-blue-400 font-semibold hover:bg-blue-500/30 transition-colors"
+                    title="Show Trade Tracker Guide (Simulated Trades)"
+                  >
+                    📊 Trade Tracker Guide
                   </button>
                 </div>
               </nav>

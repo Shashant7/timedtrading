@@ -3347,8 +3347,8 @@
         );
       }
 
-      // Welcome Modal Component
-      function WelcomeModal({ onClose }) {
+      // Welcome Modal Component - Dashboard Guide (Trading Concepts)
+      function DashboardWelcomeModal({ onClose }) {
         const [currentStep, setCurrentStep] = useState(0);
         
         const steps = [
@@ -3782,6 +3782,415 @@
                     className="px-6 py-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold transition-all"
                   >
                     Start Trading! 🚀
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Welcome Modal Component - Trade Tracker Guide (Simulated Trades)
+      function TrackerWelcomeModal({ onClose }) {
+        const [currentStep, setCurrentStep] = useState(0);
+        
+        const steps = [
+          {
+            title: "Welcome to Trade Tracker! 📊",
+            content: (
+              <div className="space-y-4">
+                <p className="text-lg text-[#e7ecff]">
+                  The Trade Tracker automatically simulates trades based on alerts from the main dashboard, 
+                  helping you learn which setups work best.
+                </p>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">🎯 How It Works:</h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                    <li>When an alert fires from TradingView, a simulated trade is automatically created</li>
+                    <li>Each trade uses a <strong className="text-white">$1,000 position size</strong></li>
+                    <li>Trades are tracked in real-time with live P&L updates</li>
+                    <li>When price hits Stop Loss or Take Profit, the trade closes automatically</li>
+                  </ol>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">✨ What You'll Learn:</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li>Which setups have the best win rate</li>
+                    <li>How different Risk/Reward ratios perform</li>
+                    <li>Which model versions work best</li>
+                    <li>Performance by rank, sector, and other factors</li>
+                  </ul>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Note:</strong> These are simulated trades for learning purposes only. 
+                    Always do your own research before making real trades!
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Understanding Trade Statuses 🏷️",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  Each trade has a <strong>status</strong> that tells you its current state:
+                </p>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                    <div className="font-bold text-green-400 mb-2 flex items-center gap-2">
+                      <span>🟢 OPEN</span>
+                    </div>
+                    <p className="text-sm text-[#93a4d6]">
+                      Trade is active and being tracked. P&L updates in real-time as price moves.
+                      The trade will close when it hits Stop Loss or Take Profit.
+                    </p>
+                  </div>
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                    <div className="font-bold text-blue-400 mb-2 flex items-center gap-2">
+                      <span>🔵 TP_HIT_TRIM</span>
+                    </div>
+                    <p className="text-sm text-[#93a4d6]">
+                      First Take Profit level was hit! The system automatically trimmed (sold) part of the position 
+                      to lock in profits. The remaining position stays open to target higher TP levels.
+                    </p>
+                  </div>
+                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                    <div className="font-bold text-green-400 mb-2 flex items-center gap-2">
+                      <span>✅ WIN</span>
+                    </div>
+                    <p className="text-sm text-[#93a4d6]">
+                      Trade closed profitably! Either hit a Take Profit level or was manually closed in profit.
+                      Check the trade history to see the exit details.
+                    </p>
+                  </div>
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                    <div className="font-bold text-red-400 mb-2 flex items-center gap-2">
+                      <span>❌ LOSS</span>
+                    </div>
+                    <p className="text-sm text-[#93a4d6]">
+                      Trade hit Stop Loss and closed at a loss. This is normal - not every trade wins!
+                      Review what went wrong to improve future setups.
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Tip:</strong> Click on any trade row to see detailed information 
+                    including entry price, stop loss, take profit levels, and full trade history.
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Reading the Trade Table 📋",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  The trade table shows all your simulated trades. Here's what each column means:
+                </p>
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <div className="space-y-3 text-sm">
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">Ticker</span>
+                      <span className="text-[#93a4d6]">The stock or futures contract symbol</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">Direction</span>
+                      <span className="text-[#93a4d6]">LONG (buy) or SHORT (sell)</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">Entry Price</span>
+                      <span className="text-[#93a4d6]">Price when the trade was opened</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">Current Price</span>
+                      <span className="text-[#93a4d6]">Live market price (updates every 30 seconds)</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">P&L</span>
+                      <span className="text-[#93a4d6]">
+                        Profit or Loss in dollars. <span className="text-green-400">Green = profit</span>, 
+                        <span className="text-red-400"> red = loss</span>
+                      </span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">P&L %</span>
+                      <span className="text-[#93a4d6]">Profit or Loss as a percentage</span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">Shares/Contracts</span>
+                      <span className="text-[#93a4d6]">
+                        For stocks: number of shares (based on $1,000 position). 
+                        For futures: number of contracts (usually 1)
+                      </span>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="font-bold text-white min-w-[120px]">Status</span>
+                      <span className="text-[#93a4d6]">Current trade status (OPEN, WIN, LOSS, etc.)</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">💡 Pro Tips:</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li>Click any trade row to see detailed information and trade history</li>
+                    <li>Use the version filter to compare different model versions</li>
+                    <li>Open trades show live P&L that updates automatically</li>
+                    <li>Closed trades show final P&L and exit reason</li>
+                  </ul>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "How P&L is Calculated 💰",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  Understanding how profit and loss is calculated helps you interpret the results:
+                </p>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">📈 For Stocks:</h3>
+                  <div className="text-sm text-[#93a4d6] space-y-2">
+                    <div>
+                      <strong className="text-white">Position Size:</strong> $1,000 per trade
+                    </div>
+                    <div>
+                      <strong className="text-white">Shares:</strong> $1,000 ÷ Entry Price
+                    </div>
+                    <div>
+                      <strong className="text-white">P&L (LONG):</strong> (Current Price - Entry Price) × Shares
+                    </div>
+                    <div>
+                      <strong className="text-white">P&L (SHORT):</strong> (Entry Price - Current Price) × Shares
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">📊 For Futures:</h3>
+                  <div className="text-sm text-[#93a4d6] space-y-2">
+                    <div>
+                      <strong className="text-white">Contracts:</strong> Usually 1 contract per trade
+                    </div>
+                    <div>
+                      <strong className="text-white">Point Value:</strong> Each futures contract has a point value:
+                      <ul className="list-disc list-inside ml-4 mt-1">
+                        <li>NQ1! (Nasdaq): $20 per point</li>
+                        <li>ES1! (S&P 500): $50 per point</li>
+                        <li>Other futures vary</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <strong className="text-white">P&L:</strong> (Price Change) × Contracts × Point Value
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <h3 className="text-yellow-400 font-semibold mb-2">🎯 Example:</h3>
+                  <div className="text-sm text-[#93a4d6] space-y-1">
+                    <div><strong className="text-white">Stock Trade:</strong> AAPL at $150 entry, $155 current</div>
+                    <div className="ml-4">Shares: $1,000 ÷ $150 = 6.67 shares</div>
+                    <div className="ml-4">P&L: ($155 - $150) × 6.67 = <span className="text-green-400">+$33.35</span></div>
+                    <div className="mt-2"><strong className="text-white">Futures Trade:</strong> NQ1! at 15,000 entry, 15,100 current</div>
+                    <div className="ml-4">Price Change: 15,100 - 15,000 = 100 points</div>
+                    <div className="ml-4">P&L: 100 × 1 × $20 = <span className="text-green-400">+$2,000</span></div>
+                  </div>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Tracking & Analytics 📊",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  The Trade Tracker provides powerful analytics to help you learn:
+                </p>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">📈 Performance Metrics:</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li><strong className="text-white">Win Rate:</strong> Percentage of winning trades</li>
+                    <li><strong className="text-white">Total P&L:</strong> Sum of all profits and losses</li>
+                    <li><strong className="text-white">Average Win/Loss:</strong> Average profit per win vs loss</li>
+                    <li><strong className="text-white">Best/Worst Trade:</strong> Your biggest winners and losers</li>
+                  </ul>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">🔍 Filter by Version:</h3>
+                  <p className="text-sm text-[#93a4d6] mb-2">
+                    Use the "Model Version" dropdown to compare performance across different versions of the trading model.
+                    This helps you see which improvements work best.
+                  </p>
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-white">Tip:</strong> Newer versions often include improvements, 
+                    but older versions may have proven track records.
+                  </p>
+                </div>
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-4">
+                  <h3 className="text-purple-400 font-semibold mb-2">📊 Daily Summary:</h3>
+                  <p className="text-sm text-[#93a4d6]">
+                    Click "View Daily Summary" to see performance breakdowns by:
+                  </p>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1 mt-2">
+                    <li>Rank ranges (which ranked setups perform best)</li>
+                    <li>Risk/Reward ratios (which RR ratios win more)</li>
+                    <li>Quadrants (which chart zones are most profitable)</li>
+                    <li>Overall statistics and insights</li>
+                  </ul>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Remember:</strong> The goal is to learn which setups work best. 
+                    Review your wins and losses regularly to improve your trading strategy!
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Putting It All Together 🎓",
+            content: (
+              <div className="space-y-4">
+                <p className="text-lg text-[#e7ecff]">
+                  Here's your <strong className="text-yellow-400">workflow</strong> for using the Trade Tracker:
+                </p>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-3">📋 Daily Workflow:</h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-3">
+                    <li>
+                      <strong className="text-white">Monitor Open Trades</strong>
+                      <br />
+                      <span className="text-xs ml-4">• Check the "Open Trades" section regularly</span>
+                      <br />
+                      <span className="text-xs ml-4">• Watch P&L update in real-time</span>
+                      <br />
+                      <span className="text-xs ml-4">• Click trades to see detailed information</span>
+                    </li>
+                    <li>
+                      <strong className="text-white">Review Closed Trades</strong>
+                      <br />
+                      <span className="text-xs ml-4">• Check "Closed Trades" to see final results</span>
+                      <br />
+                      <span className="text-xs ml-4">• Review trade history to understand what happened</span>
+                      <br />
+                      <span className="text-xs ml-4">• Learn from both wins and losses</span>
+                    </li>
+                    <li>
+                      <strong className="text-white">Analyze Performance</strong>
+                      <br />
+                      <span className="text-xs ml-4">• Use the version filter to compare models</span>
+                      <br />
+                      <span className="text-xs ml-4">• Check daily summary for insights</span>
+                      <br />
+                      <span className="text-xs ml-4">• Look for patterns in winning vs losing trades</span>
+                    </li>
+                    <li>
+                      <strong className="text-white">Improve Your Strategy</strong>
+                      <br />
+                      <span className="text-xs ml-4">• Focus on setups with high win rates</span>
+                      <br />
+                      <span className="text-xs ml-4">• Avoid setups that consistently lose</span>
+                      <br />
+                      <span className="text-xs ml-4">• Adjust filters on the main dashboard based on results</span>
+                    </li>
+                  </ol>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">⭐ Key Takeaways:</h3>
+                  <div className="text-sm text-[#93a4d6] space-y-1">
+                    <div>✅ Trades are created automatically from alerts</div>
+                    <div>✅ Each trade uses $1,000 position size</div>
+                    <div>✅ P&L updates in real-time for open trades</div>
+                    <div>✅ Trades close automatically at SL or TP</div>
+                    <div>✅ Use analytics to learn which setups work best</div>
+                  </div>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Ready to start tracking?</strong> The Trade Tracker refreshes every 30 seconds 
+                    to show the latest trades and updates. Click "Start Tracking!" to begin!
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+        ];
+
+        const nextStep = () => {
+          if (currentStep < steps.length - 1) {
+            setCurrentStep(currentStep + 1);
+          }
+        };
+
+        const prevStep = () => {
+          if (currentStep > 0) {
+            setCurrentStep(currentStep - 1);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0b1020] border-2 border-[#26325f] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+              <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[#26325f] p-6 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-1">{steps[currentStep].title}</h2>
+                  <div className="flex gap-1">
+                    {steps.map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-2 w-2 rounded-full transition-all ${
+                          i === currentStep
+                            ? "bg-blue-400 w-8"
+                            : i < currentStep
+                            ? "bg-green-400"
+                            : "bg-[#26325f]"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="text-[#93a4d6] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f] transition-colors"
+                  title="Close Welcome Guide"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6">
+                {steps[currentStep].content}
+              </div>
+              <div className="border-t border-[#26325f] p-4 flex items-center justify-between bg-[#0f1630]">
+                <button
+                  onClick={prevStep}
+                  disabled={currentStep === 0}
+                  className={`px-4 py-2 rounded-lg border transition-all ${
+                    currentStep === 0
+                      ? "border-[#26325f] text-[#93a4d6] opacity-50 cursor-not-allowed"
+                      : "border-[#26325f] bg-[#1a2550] hover:bg-[#26325f] text-white"
+                  }`}
+                >
+                  ← Previous
+                </button>
+                <div className="text-sm text-[#93a4d6]">
+                  Step {currentStep + 1} of {steps.length}
+                </div>
+                {currentStep < steps.length - 1 ? (
+                  <button
+                    onClick={nextStep}
+                    className="px-6 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold transition-all"
+                  >
+                    Next →
+                  </button>
+                ) : (
+                  <button
+                    onClick={onClose}
+                    className="px-6 py-2 rounded-lg bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-semibold transition-all"
+                  >
+                    Start Tracking! 🚀
                   </button>
                 )}
               </div>
@@ -6455,11 +6864,13 @@
         const [selectedTrail, setSelectedTrail] = useState(null);
         const [hoveredTicker, setHoveredTicker] = useState(null);
         const [chatOpen, setChatOpen] = useState(false);
-        const [showWelcome, setShowWelcome] = useState(() => {
-          // Check if user has seen welcome page before
+        const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(() => {
+          // Check if user has seen dashboard welcome page before
           const hasSeenWelcome = localStorage.getItem("timedTrading_welcomeSeen");
           return !hasSeenWelcome;
         });
+        
+        const [showWelcomeTracker, setShowWelcomeTracker] = useState(false);
 
         // Fetch trail data when ticker is selected
         useEffect(() => {
@@ -6541,16 +6952,23 @@
           });
         }, []);
 
-        const handleWelcomeClose = () => {
-          setShowWelcome(false);
+        const handleWelcomeDashboardClose = () => {
+          setShowWelcomeDashboard(false);
           localStorage.setItem("timedTrading_welcomeSeen", "true");
+        };
+        
+        const handleWelcomeTrackerClose = () => {
+          setShowWelcomeTracker(false);
         };
 
         return (
           <>
-            {/* Welcome Modal */}
-            {showWelcome && (
-              <WelcomeModal onClose={handleWelcomeClose} />
+            {/* Welcome Modals */}
+            {showWelcomeDashboard && (
+              <DashboardWelcomeModal onClose={handleWelcomeDashboardClose} />
+            )}
+            {showWelcomeTracker && (
+              <TrackerWelcomeModal onClose={handleWelcomeTrackerClose} />
             )}
 
             <div className="min-h-screen p-4">
@@ -6572,11 +6990,18 @@
                       Simulation Dashboard
                     </a>
                     <button
-                      onClick={() => setShowWelcome(true)}
+                      onClick={() => setShowWelcomeDashboard(true)}
                       className="px-3 py-1.5 rounded bg-purple-500/20 border border-purple-500 text-sm text-purple-400 font-semibold hover:bg-purple-500/30 transition-colors"
-                      title="Show Welcome Guide"
+                      title="Show Dashboard Guide (Trading Concepts)"
                     >
-                      📚 Welcome Guide
+                      📚 Dashboard Guide
+                    </button>
+                    <button
+                      onClick={() => setShowWelcomeTracker(true)}
+                      className="px-3 py-1.5 rounded bg-blue-500/20 border border-blue-500 text-sm text-blue-400 font-semibold hover:bg-blue-500/30 transition-colors"
+                      title="Show Trade Tracker Guide (Simulated Trades)"
+                    >
+                      📊 Trade Tracker Guide
                     </button>
                   </div>
                 </nav>
