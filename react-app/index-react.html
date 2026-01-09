@@ -3222,6 +3222,11 @@
             filter: { hasTrades: true },
             icon: "💼",
           },
+          {
+            label: "TD9 Setup",
+            filter: { td9Setup: "any" },
+            icon: "🔢",
+          },
         ];
 
         const isActive = (preset) => {
@@ -3283,6 +3288,10 @@
           // Check if Trades filter matches
           if (preset.filter.hasTrades) {
             return filters.hasTrades === true;
+          }
+          // Check if TD9 Setup filter matches
+          if (preset.filter.td9Setup) {
+            return filters.td9Setup === "any";
           }
           return false;
         };
@@ -5733,6 +5742,7 @@
           maxCompletion: 1.01,
           group: "ALL",
           sector: null, // Filter by sector name
+          td9Setup: null, // Filter by TD9 setup: "bullish", "bearish", or null for all
         });
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [selectedTrail, setSelectedTrail] = useState(null);
