@@ -114,10 +114,18 @@ function ackJSON(env, obj, fallbackStatus = 200, req = null) {
   return sendJSON(obj, always200 ? 200 : fallbackStatus, corsHeaders(env, req));
 }
 
-const normTicker = (t) =>
-  String(t || "")
+const normTicker = (t) => {
+  let normalized = String(t || "")
     .trim()
     .toUpperCase();
+  
+  // Normalize BRK.B to BRK-B (TradingView uses BRK.B, but we standardize on BRK-B for US market)
+  if (normalized === "BRK.B" || normalized === "BRK-B") {
+    normalized = "BRK-B";
+  }
+  
+  return normalized;
+};
 const isNum = (x) => Number.isFinite(Number(x));
 
 async function kvGetJSON(KV, key) {
@@ -3570,6 +3578,28 @@ export default {
         const ticker = v.ticker;
         const payload = v.payload;
 
+        // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
+        if (ticker === "BRK-B" && body?.ticker && (body.ticker === "BRK.B" || body.ticker === "BRK-B")) {
+          // Check if old BRK.B data exists and migrate it
+          const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
+          if (oldData && !(await kvGetJSON(KV, `timed:latest:BRK-B`))) {
+            console.log(`[MIGRATE BRK] Migrating BRK.B data to BRK-B`);
+            // Copy data to BRK-B
+            await kvPutJSON(KV, `timed:latest:BRK-B`, oldData);
+            // Copy trail if exists
+            const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
+            if (oldTrail) {
+              await kvPutJSON(KV, `timed:trail:BRK-B`, oldTrail);
+            }
+            // Ensure BRK-B is in index (should already be, but double-check)
+            await ensureTickerIndex(KV, "BRK-B");
+            // Delete old BRK.B data
+            await KV.delete(`timed:latest:BRK.B`);
+            await KV.delete(`timed:trail:BRK.B`);
+            console.log(`[MIGRATE BRK] Migration complete: BRK.B → BRK-B`);
+          }
+        }
+
         // Log ingestion for debugging
         console.log(`[INGEST] ${ticker}:`, {
           ts: payload.ts,
@@ -5128,7 +5158,7 @@ export default {
 
           // Remove from index
           removed.push(ticker);
-          
+
           // Also delete the data if it exists (even without scores)
           await KV.delete(`timed:latest:${ticker}`);
           await KV.delete(`timed:trail:${ticker}`);
