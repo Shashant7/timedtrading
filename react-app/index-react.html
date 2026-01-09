@@ -1306,6 +1306,21 @@
             d.ltf_score = d.ltf_score !== undefined ? d.ltf_score : 0;
             d.waitingForData = true; // Flag to indicate waiting for TradingView data
           }
+          
+          // Debug BMNR specifically
+          if (ticker === "BMNR") {
+            console.log(`[BMNR DEBUG] Found BMNR in data:`, {
+              ticker,
+              hasScores,
+              htf_score: d.htf_score,
+              ltf_score: d.ltf_score,
+              state: d.state,
+              price: d.price,
+              groups: groupsForTicker(normTicker(ticker)),
+              inGroups,
+              filters: effectiveFilters
+            });
+          }
 
           // Multi-ticker search
           if (multiTickerList && multiTickerList.length > 0) {
