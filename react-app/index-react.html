@@ -5139,6 +5139,77 @@
                   </button>
                 </div>
 
+                {/* Last Ingest Data Timestamp */}
+                {(() => {
+                  const ingestTime = ticker.ingest_time || ticker.ingest_ts;
+                  if (ingestTime) {
+                    let displayTime;
+                    let displayDate;
+                    try {
+                      // Handle both ISO string and timestamp formats
+                      const timeValue = typeof ingestTime === 'string' 
+                        ? new Date(ingestTime) 
+                        : new Date(Number(ingestTime));
+                      
+                      if (isNaN(timeValue.getTime())) {
+                        return null; // Invalid date
+                      }
+                      
+                      displayDate = timeValue.toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        year: 'numeric' 
+                      });
+                      displayTime = timeValue.toLocaleTimeString('en-US', { 
+                        hour: 'numeric', 
+                        minute: '2-digit',
+                        hour12: true 
+                      });
+                      
+                      // Calculate age
+                      const ageMs = Date.now() - timeValue.getTime();
+                      const ageMinutes = Math.floor(ageMs / 60000);
+                      const ageHours = Math.floor(ageMinutes / 60);
+                      const ageDays = Math.floor(ageHours / 24);
+                      
+                      let ageText;
+                      let ageColor = "text-green-400";
+                      if (ageMinutes < 5) {
+                        ageText = `${ageMinutes}m ago`;
+                        ageColor = "text-green-400";
+                      } else if (ageMinutes < 60) {
+                        ageText = `${ageMinutes}m ago`;
+                        ageColor = "text-yellow-400";
+                      } else if (ageHours < 24) {
+                        ageText = `${ageHours}h ago`;
+                        ageColor = ageHours < 2 ? "text-yellow-400" : "text-orange-400";
+                      } else {
+                        ageText = `${ageDays}d ago`;
+                        ageColor = "text-red-400";
+                      }
+                      
+                      return (
+                        <div className="mb-4 p-2 bg-[#0f1630] border border-[#26325f] rounded-lg">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[#93a4d6]">Last Ingest Data:</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-semibold">
+                                {displayDate} {displayTime}
+                              </span>
+                              <span className={`font-bold ${ageColor}`}>
+                                ({ageText})
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    } catch (e) {
+                      return null;
+                    }
+                  }
+                  return null;
+                })()}
+
                 {flags.momentum_elite && (
                   <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 border-2 border-purple-400 rounded-lg momentum-elite-glow">
                     <div className="text-center font-bold text-purple-300 mb-2">🚀 MOMENTUM ELITE 🚀</div>
