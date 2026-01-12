@@ -7935,6 +7935,18 @@
         const { data, loading, error, lastUpdate, versionInfo, tickersWithoutScores, refetch } = useTickerData();
         const { trades } = useTrades();
         const { sectors } = useSectors();
+        const [tradeDateRange, setTradeDateRange] = useState({
+          startDate: (() => {
+            const today = new Date();
+            const startDate = new Date(today);
+            startDate.setDate(today.getDate() - 7);
+            return startDate.toISOString().split('T')[0];
+          })(),
+          endDate: (() => {
+            const today = new Date();
+            return today.toISOString().split('T')[0];
+          })(),
+        });
         const [filters, setFilters] = useState({
           search: "",
           quadrants: [
