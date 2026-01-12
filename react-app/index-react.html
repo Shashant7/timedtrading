@@ -5779,7 +5779,8 @@
 
                 {/* Last Ingest Data Timestamp */}
                 {(() => {
-                  const ingestTime = ticker.ingest_time || ticker.ingest_ts;
+                  // Prioritize ingest_ts (when data was ingested) over ingest_time (ISO string)
+                  const ingestTime = ticker.ingest_ts || ticker.ingest_time;
                   if (ingestTime) {
                     let displayTime;
                     let displayDate;
