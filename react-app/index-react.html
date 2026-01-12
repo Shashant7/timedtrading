@@ -4648,29 +4648,55 @@
       }
 
       // Time Travel Slider Component
-      function TimeTravelSlider({ tickers, data, onTimeChange }) {
+      function TimeTravelSlider({ tickers, allTickers, data, onTimeChange }) {
         const [isActive, setIsActive] = useState(false);
         const [selectedTimestamp, setSelectedTimestamp] = useState(null);
         const [trailData, setTrailData] = useState({});
         const [loadingTrails, setLoadingTrails] = useState(false);
         
-        // Get available timestamps from current tickers
+        // Round timestamp to nearest 5 minutes
+        const roundTo5Minutes = (ts) => {
+          const date = new Date(ts);
+          const minutes = date.getMinutes();
+          const roundedMinutes = Math.floor(minutes / 5) * 5;
+          date.setMinutes(roundedMinutes);
+          date.setSeconds(0);
+          date.setMilliseconds(0);
+          return date.getTime();
+        };
+        
+        // Get available timestamps from ALL tickers (not just filtered) for stable range
+        // This prevents the slider from jumping around when search filters change
         const availableTimestamps = useMemo(() => {
           const timestamps = new Set();
-          tickers.forEach(t => {
-            if (t.ts) timestamps.add(Number(t.ts));
+          const sourceTickers = allTickers && typeof allTickers === 'object' 
+            ? (Array.isArray(allTickers) ? allTickers : Object.values(allTickers))
+            : tickers;
+          
+          sourceTickers.forEach(t => {
+            if (!t || typeof t !== 'object') return;
+            if (t.ts) {
+              const rounded = roundTo5Minutes(Number(t.ts));
+              timestamps.add(rounded);
+            }
             if (t.ingest_ts) {
               const ts = typeof t.ingest_ts === 'string' ? new Date(t.ingest_ts).getTime() : Number(t.ingest_ts);
-              if (ts) timestamps.add(ts);
+              if (ts) {
+                const rounded = roundTo5Minutes(ts);
+                timestamps.add(rounded);
+              }
             }
           });
           return Array.from(timestamps).sort((a, b) => a - b);
-        }, [tickers]);
+        }, [allTickers, tickers]);
         
-        const minTimestamp = availableTimestamps.length > 0 ? availableTimestamps[0] : Date.now() - 7 * 24 * 60 * 60 * 1000;
-        const maxTimestamp = availableTimestamps.length > 0 ? availableTimestamps[availableTimestamps.length - 1] : Date.now();
+        const minTimestamp = availableTimestamps.length > 0 ? availableTimestamps[0] : roundTo5Minutes(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const maxTimestamp = availableTimestamps.length > 0 ? availableTimestamps[availableTimestamps.length - 1] : roundTo5Minutes(Date.now());
         
         // Fetch trail data and filter by timestamp
+        // Use a ref to track if we're currently fetching to prevent race conditions
+        const fetchingRef = React.useRef(false);
+        
         useEffect(() => {
           if (!isActive) {
             onTimeChange(null);
@@ -4682,7 +4708,13 @@
             return;
           }
           
+          // Prevent concurrent fetches
+          if (fetchingRef.current) {
+            return;
+          }
+          
           const fetchTrails = async () => {
+            fetchingRef.current = true;
             setLoadingTrails(true);
             try {
               const trails = {};
@@ -4715,18 +4747,26 @@
               setTrailData(trails);
               
               if (selectedTimestamp) {
+                // Round selected timestamp to 5 minutes for consistency
+                const roundedTimestamp = roundTo5Minutes(selectedTimestamp);
+                
                 const filtered = tickers.map(ticker => {
                   const trail = trails[ticker.ticker] || [];
                   const validPoints = trail.filter(point => {
                     const pointTs = point.ts || (point.timestamp ? new Date(point.timestamp).getTime() : null);
-                    return pointTs && pointTs <= selectedTimestamp;
+                    if (!pointTs) return false;
+                    // Round point timestamp to 5 minutes for comparison
+                    const roundedPointTs = roundTo5Minutes(pointTs);
+                    return roundedPointTs <= roundedTimestamp;
                   });
                   
                   if (validPoints.length > 0) {
                     const closestPoint = validPoints.reduce((closest, point) => {
                       const pointTs = point.ts || (point.timestamp ? new Date(point.timestamp).getTime() : null);
-                      const closestTs = closest?.ts || (closest?.timestamp ? new Date(closest.timestamp).getTime() : null);
-                      return Math.abs(pointTs - selectedTimestamp) < Math.abs(closestTs - selectedTimestamp) ? point : closest;
+                      const roundedPointTs = roundTo5Minutes(pointTs);
+                      const closestTs = closest?.ts ? roundTo5Minutes(closest.ts) : null;
+                      if (!closestTs) return point;
+                      return Math.abs(roundedPointTs - roundedTimestamp) < Math.abs(closestTs - roundedTimestamp) ? point : closest;
                     });
                     
                     return {
@@ -4755,6 +4795,7 @@
               onTimeChange(tickers);
             } finally {
               setLoadingTrails(false);
+              fetchingRef.current = false;
             }
           };
           
@@ -4763,7 +4804,9 @@
         
         const handleTimestampChange = (e) => {
           const ts = Number(e.target.value);
-          setSelectedTimestamp(ts);
+          // Round to nearest 5 minutes
+          const rounded = roundTo5Minutes(ts);
+          setSelectedTimestamp(rounded);
         };
         
         const formatTimestamp = (ts) => {
@@ -4778,7 +4821,7 @@
           });
         };
         
-        const currentValue = selectedTimestamp || maxTimestamp;
+        const currentValue = selectedTimestamp ? roundTo5Minutes(selectedTimestamp) : roundTo5Minutes(maxTimestamp);
         const progress = maxTimestamp > minTimestamp ? ((currentValue - minTimestamp) / (maxTimestamp - minTimestamp)) * 100 : 100;
         
         return (
@@ -4795,7 +4838,8 @@
                         setSelectedTimestamp(null);
                         onTimeChange(null);
                       } else {
-                        setSelectedTimestamp(maxTimestamp);
+                        // Round to 5 minutes when activating
+                        setSelectedTimestamp(roundTo5Minutes(maxTimestamp));
                       }
                     }}
                     className="w-4 h-4"
@@ -4816,6 +4860,7 @@
                   type="range"
                   min={minTimestamp}
                   max={maxTimestamp}
+                  step={5 * 60 * 1000}
                   value={currentValue}
                   onChange={handleTimestampChange}
                   className="w-full h-2 bg-[#0f1630] rounded-lg appearance-none cursor-pointer slider-thumb"
@@ -8181,6 +8226,7 @@
                       >
                         <TimeTravelSlider
                           tickers={applyFilters(data, effectiveFilters, trades)}
+                          allTickers={data}
                           data={data}
                           onTimeChange={setTimeTravelTickers}
                         />
