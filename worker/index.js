@@ -5126,7 +5126,9 @@ export default {
         // 2. OR in corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
         // 3. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
         const shouldConsiderAlert =
-          (enteredCorridor && corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
+          (enteredCorridor &&
+            corridorAlignedOK &&
+            (enteredAligned || trigOk || sqRel)) ||
           (inCorridor &&
             ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
               (sqRel && side))); // Squeeze release in corridor is a valid trigger even if not fully aligned
@@ -5145,7 +5147,7 @@ export default {
         try {
           const enteredCorridor = inCorridor && prevInCorridor !== "true";
           const exitedCorridor = !inCorridor && prevInCorridor === "true";
-          
+
           if (enteredCorridor) {
             await appendActivity(KV, {
               type: "corridor_entry",
@@ -5527,6 +5529,20 @@ export default {
 
         // Trade simulation already processed above (before alert logic)
 
+        // Check Discord configuration before evaluating conditions
+        const discordEnable = env.DISCORD_ENABLE || "false";
+        const discordWebhook = env.DISCORD_WEBHOOK_URL;
+        const discordConfigured = discordEnable === "true" && !!discordWebhook;
+        
+        if (!discordConfigured && (inCorridor || enteredCorridor)) {
+          console.log(`[DISCORD CONFIG] ${ticker}: Discord not configured`, {
+            DISCORD_ENABLE: discordEnable,
+            hasWebhook: !!discordWebhook,
+            inCorridor,
+            enteredCorridor,
+          });
+        }
+
         if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
           // Dedup alert by trigger_ts if present (best), else ts
           const keyTs =
@@ -5544,6 +5560,9 @@ export default {
               keyTs,
               side,
               rank: payload.rank,
+              discordConfigured,
+              DISCORD_ENABLE: discordEnable,
+              hasWebhook: !!discordWebhook,
             });
 
             const why =
@@ -5647,6 +5666,27 @@ export default {
               url: tv, // Make the title clickable to open TradingView
             };
             await notifyDiscord(env, opportunityEmbed);
+            
+            // Log Discord alert to activity feed
+            await appendActivity(KV, {
+              ticker,
+              type: "discord_alert",
+              direction: side,
+              action: "entry",
+              rank: payload.rank,
+              rr: payload.rr,
+              price: payload.price,
+              trigger_price: payload.trigger_price,
+              sl: payload.sl,
+              tp: payload.tp,
+              state: payload.state,
+              htf_score: payload.htf_score,
+              ltf_score: payload.ltf_score,
+              completion: payload.completion,
+              phase_pct: payload.phase_pct,
+              why: why,
+              momentum_elite: momentumElite,
+            });
           } else {
             console.log(`[DISCORD ALERT] Skipped ${ticker} - already alerted`, {
               akey,
