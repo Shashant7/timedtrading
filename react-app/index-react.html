@@ -2933,8 +2933,8 @@
               <div className="flex items-center gap-1.5">
                 {ticker.price && (
                   <div className="text-right">
-                    <span className="text-xs font-semibold text-white">
-                      ${Number(ticker.price).toFixed(2)}
+                  <span className="text-xs font-semibold text-white">
+                    ${Number(ticker.price).toFixed(2)}
                     </span>
                     {(() => {
                       // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
@@ -2967,7 +2967,7 @@
                                 {isStale && (
                                   <span className="ml-0.5" title={`Data is ${ageHours > 0 ? `${ageHours}h ` : ''}${ageMinutes % 60}m old`}>
                                     ⚠️
-                                  </span>
+                  </span>
                                 )}
                               </div>
                             );
@@ -3680,13 +3680,13 @@
                             {getEventIcon(event.type)}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <span
-                              className={`font-semibold ${getEventColor(
-                                event.type
+                          <span
+                            className={`font-semibold ${getEventColor(
+                              event.type
                               )} truncate block`}
-                            >
-                              {getEventLabel(event)}
-                            </span>
+                          >
+                            {getEventLabel(event)}
+                          </span>
                             {eventData.price && (
                               <div className="text-[10px] text-white mt-0.5">
                                 ${Number(eventData.price).toFixed(2)}
@@ -4736,6 +4736,11 @@
         // Use a ref to track if we're currently fetching to prevent race conditions
         const fetchingRef = React.useRef(false);
         
+        // Memoize ticker symbols to prevent unnecessary re-fetches
+        const tickerSymbols = useMemo(() => {
+          return tickers.map(t => t.ticker).sort().join(',');
+        }, [tickers]);
+        
         useEffect(() => {
           if (!isActive) {
             onTimeChange(null);
@@ -4757,9 +4762,9 @@
             setLoadingTrails(true);
             try {
               const trails = {};
-              const tickerSymbols = tickers.map(t => t.ticker);
+              const tickerSymbolsArray = tickers.map(t => t.ticker);
               
-              const trailPromises = tickerSymbols.map(async (ticker) => {
+              const trailPromises = tickerSymbolsArray.map(async (ticker) => {
                 try {
                   const res = await fetch(
                     `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker)}`
@@ -4839,7 +4844,7 @@
           };
           
           fetchTrails();
-        }, [isActive, selectedTimestamp, tickers, onTimeChange]);
+        }, [isActive, selectedTimestamp, tickerSymbols, onTimeChange]); // Use tickerSymbols instead of tickers
         
         const handleTimestampChange = (e) => {
           const ts = Number(e.target.value);
@@ -5722,7 +5727,7 @@
               <div className="flex-1 overflow-y-auto p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-xl font-bold">{tickerSymbol}</h3>
+                  <h3 className="text-xl font-bold">{tickerSymbol}</h3>
                     {ticker.price && (
                       <div className="text-sm text-white mt-1">
                         ${Number(ticker.price).toFixed(2)}
@@ -7998,7 +8003,7 @@
         const effectiveFilters = { ...filters, search: debouncedSearch };
 
         const [timeTravelTickers, setTimeTravelTickers] = useState(null);
-        
+
         const tickers = useMemo(() => {
           // If time travel is active, use time travel tickers, otherwise use filtered tickers
           if (timeTravelTickers !== null) {
@@ -8353,7 +8358,7 @@
                         }`}
                       >
                         <TimeTravelSlider
-                          tickers={applyFilters(data, effectiveFilters, trades)}
+                          tickers={useMemo(() => applyFilters(data, effectiveFilters, trades), [data, effectiveFilters, trades])}
                           allTickers={data}
                           data={data}
                           onTimeChange={setTimeTravelTickers}
