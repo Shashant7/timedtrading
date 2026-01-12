@@ -296,10 +296,14 @@ Examples:
       if (logs.split('\n').length > 20) {
         console.log(`\n... (showing first 20 of ${logs.split('\n').length} lines)`);
       }
+    } else if (method === 'api') {
+      console.error('❌ Direct API method requires Cloudflare API token');
+      console.error('   Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN');
+      console.error('   Or use --method wrangler (recommended)');
+      process.exit(1);
     } else {
-      console.error('❌ API method not yet fully implemented');
-      console.error('   Please use --method wrangler or install wrangler CLI');
-      console.error('   npm install -g wrangler');
+      console.error(`❌ Unknown method: ${method}`);
+      console.error('   Use --method wrangler or --method api');
       process.exit(1);
     }
 
