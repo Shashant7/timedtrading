@@ -8132,75 +8132,44 @@
                   </div>
                   
                   {/* Bubble Chart Legend */}
-                  <div className="mt-3 p-3 bg-[#0f1630] border border-[#26325f] rounded-lg text-xs">
-                    <div className="font-semibold text-white mb-2">📊 Bubble Chart Legend</div>
-                    <div className="grid grid-cols-2 gap-4">
+                  <div className="mt-3 inline-block p-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-xs">
+                    <div className="font-semibold text-white mb-1.5 text-[11px]">📊 Legend</div>
+                    <div className="flex gap-4">
                       {/* Colors */}
                       <div>
-                        <div className="text-[#93a4d6] font-semibold mb-1.5">Colors (Phase %):</div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 rounded-full border border-white" style={{ backgroundColor: phaseCompletionToColor(0.1), opacity: 0.7 }}></div>
-                            <span className="text-[#93a4d6]">Green: 0-30% (Early)</span>
+                        <div className="text-[#93a4d6] font-semibold mb-1 text-[10px]">Colors:</div>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-full border border-white" style={{ backgroundColor: phaseCompletionToColor(0.1), opacity: 0.7 }}></div>
+                            <span className="text-[#93a4d6] text-[10px]">Green: 0-30%</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 rounded-full border border-white" style={{ backgroundColor: phaseCompletionToColor(0.45), opacity: 0.7 }}></div>
-                            <span className="text-[#93a4d6]">Yellow: 30-60% (Mid)</span>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-full border border-white" style={{ backgroundColor: phaseCompletionToColor(0.45), opacity: 0.7 }}></div>
+                            <span className="text-[#93a4d6] text-[10px]">Yellow: 30-60%</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 rounded-full border border-white" style={{ backgroundColor: phaseCompletionToColor(0.8), opacity: 0.7 }}></div>
-                            <span className="text-[#93a4d6]">Red: 60-100% (Late)</span>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-3 h-3 rounded-full border border-white" style={{ backgroundColor: phaseCompletionToColor(0.8), opacity: 0.7 }}></div>
+                            <span className="text-[#93a4d6] text-[10px]">Red: 60-100%</span>
                           </div>
                         </div>
                       </div>
                       
                       {/* Sizes */}
                       <div>
-                        <div className="text-[#93a4d6] font-semibold mb-1.5">Sizes (RR × Completion):</div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full border border-white bg-[#93a4d6]" style={{ opacity: 0.7 }}></div>
-                            <span className="text-[#93a4d6]">Small: Low RR or High Completion</span>
+                        <div className="text-[#93a4d6] font-semibold mb-1 text-[10px]">Sizes:</div>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2.5 h-2.5 rounded-full border border-white bg-[#93a4d6]" style={{ opacity: 0.7 }}></div>
+                            <span className="text-[#93a4d6] text-[10px]">Small</span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-4 h-4 rounded-full border border-white bg-[#93a4d6]" style={{ opacity: 0.7 }}></div>
+                            <span className="text-[#93a4d6] text-[10px]">Medium</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
                             <div className="w-5 h-5 rounded-full border border-white bg-[#93a4d6]" style={{ opacity: 0.7 }}></div>
-                            <span className="text-[#93a4d6]">Medium: Moderate RR & Completion</span>
+                            <span className="text-[#93a4d6] text-[10px]">Large</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full border border-white bg-[#93a4d6]" style={{ opacity: 0.7 }}></div>
-                            <span className="text-[#93a4d6]">Large: High RR & Low Completion</span>
-                          </div>
-                          <div className="mt-2 pt-2 border-t border-[#26325f]">
-                            <div className="text-[#93a4d6] text-[10px]">
-                              Size = Base + (RR × 2) × (1 - Completion)
-                            </div>
-                            <div className="text-[#93a4d6] text-[10px] mt-1">
-                              Larger bubbles = Better opportunity
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Special Indicators */}
-                    <div className="mt-3 pt-3 border-t border-[#26325f]">
-                      <div className="text-[#93a4d6] font-semibold mb-1.5">Special Indicators:</div>
-                      <div className="flex flex-wrap gap-3 text-[#93a4d6]">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-green-400">⭐</span>
-                          <span>Prime Setup</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-cyan-400">⚡</span>
-                          <span>Squeeze Release</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-yellow-400">🧨</span>
-                          <span>In Squeeze</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[#93a4d6]">⏳</span>
-                          <span>Waiting for Data</span>
                         </div>
                       </div>
                     </div>
