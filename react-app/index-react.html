@@ -95,6 +95,26 @@
         color: var(--text);
       }
 
+      .slider-thumb::-webkit-slider-thumb {
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #00ffff;
+        cursor: pointer;
+        box-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
+      }
+      
+      .slider-thumb::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #00ffff;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
+      }
+
       .loading-spinner {
         border: 2px solid var(--line);
         border-top: 2px solid var(--text);
@@ -262,6 +282,7 @@
           CartesianGrid: Recharts.CartesianGrid,
           Tooltip: Recharts.Tooltip,
           ResponsiveContainer: Recharts.ResponsiveContainer,
+          ReferenceLine: Recharts.ReferenceLine,
         };
       }
 
@@ -1930,6 +1951,7 @@
         const [tooltip, setTooltip] = useState(null);
         const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
         const [showLabels, setShowLabels] = useState(true);
+        const [crosshairPos, setCrosshairPos] = useState(null); // { x, y, ltfValue, htfValue }
         const containerRef = React.useRef(null);
         const [dimensions, setDimensions] = React.useState({
           width: 1600,
@@ -1973,10 +1995,41 @@
 
           const handleMouseMove = (e) => {
             const rect = e.currentTarget.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
             setTooltipPos({
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
+              x: mouseX,
+              y: mouseY,
             });
+            
+            // Calculate crosshair position and values
+            // Convert mouse position to chart coordinates
+            const chartX = mouseX - offsetX;
+            const chartY = mouseY - offsetY;
+            
+            // Check if mouse is within plot area
+            if (chartX >= 0 && chartX <= plotWidth && chartY >= 0 && chartY <= plotHeight) {
+              // Convert to LTF/HTF scores
+              const ltfValue = (chartX / scaleX) - 50; // -50 to 50 range
+              const htfValue = 50 - (chartY / scaleY); // Inverted: top is +50, bottom is -50
+              
+              setCrosshairPos({
+                x: mouseX,
+                y: mouseY,
+                ltfValue: ltfValue,
+                htfValue: htfValue,
+                chartX: chartX,
+                chartY: chartY,
+              });
+            } else {
+              setCrosshairPos(null);
+            }
+          };
+          
+          const handleMouseLeave = () => {
+            setTooltip(null);
+            setCrosshairPos(null);
           };
 
           return (
@@ -1999,7 +2052,7 @@
                 viewBox={`0 0 ${chartWidth} ${chartHeight}`}
                 preserveAspectRatio="xMidYMid meet"
                 onMouseMove={handleMouseMove}
-                onMouseLeave={() => setTooltip(null)}
+                onMouseLeave={handleMouseLeave}
                 className="w-full h-full"
               >
                 {/* Grid with better styling */}
@@ -2214,6 +2267,91 @@
                   height={plotHeight / 2}
                   fill="rgba(231,76,60,0.1)"
                 />
+                
+                {/* Crosshair - Vertical line */}
+                {crosshairPos && crosshairPos.chartX >= 0 && crosshairPos.chartX <= plotWidth && (
+                  <line
+                    x1={offsetX + crosshairPos.chartX}
+                    y1={offsetY}
+                    x2={offsetX + crosshairPos.chartX}
+                    y2={offsetY + plotHeight}
+                    stroke="#00ffff"
+                    strokeWidth="1"
+                    strokeDasharray="4 4"
+                    opacity="0.7"
+                    pointerEvents="none"
+                  />
+                )}
+                
+                {/* Crosshair - Horizontal line */}
+                {crosshairPos && crosshairPos.chartY >= 0 && crosshairPos.chartY <= plotHeight && (
+                  <line
+                    x1={offsetX}
+                    y1={offsetY + crosshairPos.chartY}
+                    x2={offsetX + plotWidth}
+                    y2={offsetY + crosshairPos.chartY}
+                    stroke="#00ffff"
+                    strokeWidth="1"
+                    strokeDasharray="4 4"
+                    opacity="0.7"
+                    pointerEvents="none"
+                  />
+                )}
+                
+                {/* Crosshair value labels */}
+                {crosshairPos && crosshairPos.chartX >= 0 && crosshairPos.chartX <= plotWidth && (
+                  <g>
+                    {/* LTF value at bottom */}
+                    <rect
+                      x={offsetX + crosshairPos.chartX - 25}
+                      y={offsetY + plotHeight + 5}
+                      width="50"
+                      height="18"
+                      fill="#0b1020"
+                      stroke="#00ffff"
+                      strokeWidth="1"
+                      opacity="0.9"
+                      rx="2"
+                    />
+                    <text
+                      x={offsetX + crosshairPos.chartX}
+                      y={offsetY + plotHeight + 17}
+                      fill="#00ffff"
+                      textAnchor="middle"
+                      fontSize="11"
+                      fontWeight="600"
+                    >
+                      {crosshairPos.ltfValue.toFixed(1)}
+                    </text>
+                  </g>
+                )}
+                
+                {crosshairPos && crosshairPos.chartY >= 0 && crosshairPos.chartY <= plotHeight && (
+                  <g>
+                    {/* HTF value on left */}
+                    <rect
+                      x={offsetX - 45}
+                      y={offsetY + crosshairPos.chartY - 9}
+                      width="40"
+                      height="18"
+                      fill="#0b1020"
+                      stroke="#00ffff"
+                      strokeWidth="1"
+                      opacity="0.9"
+                      rx="2"
+                    />
+                    <text
+                      x={offsetX - 25}
+                      y={offsetY + crosshairPos.chartY + 4}
+                      fill="#00ffff"
+                      textAnchor="middle"
+                      fontSize="11"
+                      fontWeight="600"
+                    >
+                      {crosshairPos.htfValue.toFixed(1)}
+                    </text>
+                  </g>
+                )}
 
                 {/* Bubbles - Show only selected ticker with trail if selected, otherwise show all */}
                 {selectedTicker && selectedTrail ? (
@@ -2491,7 +2629,11 @@
           CartesianGrid,
           Tooltip,
           ResponsiveContainer,
+          ReferenceLine,
         } = RechartsComponents;
+
+        const [rechartsCrosshair, setRechartsCrosshair] = useState(null);
+        const chartContainerRef = React.useRef(null);
 
         const data = useMemo(
           () =>
@@ -2503,11 +2645,52 @@
           [tickers]
         );
 
+        const handleRechartsMouseMove = (e) => {
+          if (e && e.activeCoordinate && e.chartX !== undefined && e.chartY !== undefined) {
+            // Calculate values from chart coordinates
+            // Domain is [-50, 50] for both axes
+            // activeCoordinate gives us pixel position, we need to convert to data values
+            const chart = e.chart;
+            if (chart && chartContainerRef.current) {
+              const rect = chartContainerRef.current.getBoundingClientRect();
+              const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+              const plotWidth = rect.width - margin.left - margin.right;
+              const plotHeight = rect.height - margin.top - margin.bottom;
+              
+              // Convert pixel coordinates to data values
+              const ltfValue = ((e.chartX - margin.left) / plotWidth) * 100 - 50;
+              const htfValue = 50 - ((e.chartY - margin.top) / plotHeight) * 100;
+              
+              setRechartsCrosshair({
+                x: e.chartX,
+                y: e.chartY,
+                ltfValue: ltfValue,
+                htfValue: htfValue,
+              });
+            } else if (e.activePayload && e.activePayload[0]) {
+              // Fallback: use payload data if available
+              const payload = e.activePayload[0].payload;
+              setRechartsCrosshair({
+                x: e.activeCoordinate.x,
+                y: e.activeCoordinate.y,
+                ltfValue: payload.x,
+                htfValue: payload.y,
+              });
+            }
+          }
+        };
+
+        const handleRechartsMouseLeave = () => {
+          setRechartsCrosshair(null);
+        };
+
         return (
-          <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-4">
+          <div ref={chartContainerRef} className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] p-4 relative">
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart
                 margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
+                onMouseMove={handleRechartsMouseMove}
+                onMouseLeave={handleRechartsMouseLeave}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#26325f" />
                 <XAxis
@@ -2524,6 +2707,26 @@
                   domain={[-50, 50]}
                   stroke="#93a4d6"
                 />
+                {/* Crosshair - Vertical line */}
+                {rechartsCrosshair && rechartsCrosshair.ltfValue !== null && (
+                  <ReferenceLine
+                    x={rechartsCrosshair.ltfValue}
+                    stroke="#00ffff"
+                    strokeWidth={1}
+                    strokeDasharray="4 4"
+                    opacity={0.7}
+                  />
+                )}
+                {/* Crosshair - Horizontal line */}
+                {rechartsCrosshair && rechartsCrosshair.htfValue !== null && (
+                  <ReferenceLine
+                    y={rechartsCrosshair.htfValue}
+                    stroke="#00ffff"
+                    strokeWidth={1}
+                    strokeDasharray="4 4"
+                    opacity={0.7}
+                  />
+                )}
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.[0]) return null;
@@ -2554,6 +2757,36 @@
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
+            
+            {/* Crosshair value labels for Recharts */}
+            {rechartsCrosshair && (
+              <>
+                {rechartsCrosshair.ltfValue !== null && (
+                  <div
+                    className="absolute bg-[#0b1020] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20"
+                    style={{
+                      left: `${rechartsCrosshair.x + 20}px`,
+                      bottom: '20px',
+                      transform: 'translateX(-50%)',
+                    }}
+                  >
+                    LTF: {rechartsCrosshair.ltfValue.toFixed(1)}
+                  </div>
+                )}
+                {rechartsCrosshair.htfValue !== null && (
+                  <div
+                    className="absolute bg-[#0b1020] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20"
+                    style={{
+                      left: '20px',
+                      top: `${rechartsCrosshair.y + 20}px`,
+                      transform: 'translateY(-50%)',
+                    }}
+                  >
+                    HTF: {rechartsCrosshair.htfValue.toFixed(1)}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         );
       }
@@ -4327,6 +4560,197 @@
                 )}
               </div>
             </div>
+          </div>
+        );
+      }
+
+      // Time Travel Slider Component
+      function TimeTravelSlider({ tickers, data, onTimeChange }) {
+        const [isActive, setIsActive] = useState(false);
+        const [selectedTimestamp, setSelectedTimestamp] = useState(null);
+        const [trailData, setTrailData] = useState({});
+        const [loadingTrails, setLoadingTrails] = useState(false);
+        
+        // Get available timestamps from current tickers
+        const availableTimestamps = useMemo(() => {
+          const timestamps = new Set();
+          tickers.forEach(t => {
+            if (t.ts) timestamps.add(Number(t.ts));
+            if (t.ingest_ts) {
+              const ts = typeof t.ingest_ts === 'string' ? new Date(t.ingest_ts).getTime() : Number(t.ingest_ts);
+              if (ts) timestamps.add(ts);
+            }
+          });
+          return Array.from(timestamps).sort((a, b) => a - b);
+        }, [tickers]);
+        
+        const minTimestamp = availableTimestamps.length > 0 ? availableTimestamps[0] : Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const maxTimestamp = availableTimestamps.length > 0 ? availableTimestamps[availableTimestamps.length - 1] : Date.now();
+        
+        // Fetch trail data and filter by timestamp
+        useEffect(() => {
+          if (!isActive) {
+            onTimeChange(null);
+            return;
+          }
+          
+          if (tickers.length === 0) {
+            onTimeChange([]);
+            return;
+          }
+          
+          const fetchTrails = async () => {
+            setLoadingTrails(true);
+            try {
+              const trails = {};
+              const tickerSymbols = tickers.map(t => t.ticker);
+              
+              const trailPromises = tickerSymbols.map(async (ticker) => {
+                try {
+                  const res = await fetch(
+                    `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker)}`
+                  );
+                  if (res.ok) {
+                    const json = await res.json();
+                    if (json.ok && json.trail && Array.isArray(json.trail)) {
+                      return { ticker, trail: json.trail };
+                    }
+                  }
+                  return { ticker, trail: [] };
+                } catch (err) {
+                  return { ticker, trail: [] };
+                }
+              });
+              
+              const results = await Promise.all(trailPromises);
+              results.forEach(({ ticker, trail }) => {
+                if (trail.length > 0) {
+                  trails[ticker] = trail;
+                }
+              });
+              
+              setTrailData(trails);
+              
+              if (selectedTimestamp) {
+                const filtered = tickers.map(ticker => {
+                  const trail = trails[ticker.ticker] || [];
+                  const validPoints = trail.filter(point => {
+                    const pointTs = point.ts || (point.timestamp ? new Date(point.timestamp).getTime() : null);
+                    return pointTs && pointTs <= selectedTimestamp;
+                  });
+                  
+                  if (validPoints.length > 0) {
+                    const closestPoint = validPoints.reduce((closest, point) => {
+                      const pointTs = point.ts || (point.timestamp ? new Date(point.timestamp).getTime() : null);
+                      const closestTs = closest?.ts || (closest?.timestamp ? new Date(closest.timestamp).getTime() : null);
+                      return Math.abs(pointTs - selectedTimestamp) < Math.abs(closestTs - selectedTimestamp) ? point : closest;
+                    });
+                    
+                    return {
+                      ...ticker,
+                      htf_score: closestPoint.htf_score !== undefined ? closestPoint.htf_score : ticker.htf_score,
+                      ltf_score: closestPoint.ltf_score !== undefined ? closestPoint.ltf_score : ticker.ltf_score,
+                      price: closestPoint.price !== undefined ? closestPoint.price : ticker.price,
+                      state: closestPoint.state || ticker.state,
+                      rank: closestPoint.rank !== undefined ? closestPoint.rank : ticker.rank,
+                      rr: closestPoint.rr !== undefined ? closestPoint.rr : ticker.rr,
+                      completion: closestPoint.completion !== undefined ? closestPoint.completion : ticker.completion,
+                      phase_pct: closestPoint.phase_pct !== undefined ? closestPoint.phase_pct : ticker.phase_pct,
+                      ts: closestPoint.ts,
+                      _isTimeTravel: true,
+                    };
+                  }
+                  return null;
+                }).filter(Boolean);
+                
+                onTimeChange(filtered);
+              } else {
+                onTimeChange(tickers);
+              }
+            } catch (err) {
+              console.error('Failed to fetch trails:', err);
+              onTimeChange(tickers);
+            } finally {
+              setLoadingTrails(false);
+            }
+          };
+          
+          fetchTrails();
+        }, [isActive, selectedTimestamp, tickers, onTimeChange]);
+        
+        const handleTimestampChange = (e) => {
+          const ts = Number(e.target.value);
+          setSelectedTimestamp(ts);
+        };
+        
+        const formatTimestamp = (ts) => {
+          if (!ts) return 'Now';
+          const date = new Date(ts);
+          return date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          });
+        };
+        
+        const currentValue = selectedTimestamp || maxTimestamp;
+        const progress = maxTimestamp > minTimestamp ? ((currentValue - minTimestamp) / (maxTimestamp - minTimestamp)) * 100 : 100;
+        
+        return (
+          <div className="mb-4 bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    onChange={(e) => {
+                      setIsActive(e.target.checked);
+                      if (!e.target.checked) {
+                        setSelectedTimestamp(null);
+                        onTimeChange(null);
+                      } else {
+                        setSelectedTimestamp(maxTimestamp);
+                      }
+                    }}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm font-semibold text-white">⏱️ Time Travel</span>
+                </label>
+              </div>
+              {isActive && selectedTimestamp && (
+                <div className="text-xs text-[#00ffff] font-semibold">
+                  {formatTimestamp(selectedTimestamp)}
+                </div>
+              )}
+            </div>
+            
+            {isActive && (
+              <div className="space-y-2">
+                <input
+                  type="range"
+                  min={minTimestamp}
+                  max={maxTimestamp}
+                  value={currentValue}
+                  onChange={handleTimestampChange}
+                  className="w-full h-2 bg-[#0f1630] rounded-lg appearance-none cursor-pointer slider-thumb"
+                  style={{
+                    background: `linear-gradient(to right, #00ffff 0%, #00ffff ${progress}%, #26325f ${progress}%, #26325f 100%)`
+                  }}
+                />
+                <div className="flex justify-between text-xs text-[#93a4d6]">
+                  <span>{formatTimestamp(minTimestamp)}</span>
+                  <span>{formatTimestamp(maxTimestamp)}</span>
+                </div>
+                {loadingTrails && (
+                  <div className="text-xs text-[#93a4d6] text-center">
+                    Loading historical data...
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         );
       }
@@ -7358,9 +7782,15 @@
         const debouncedSearch = useDebounce(filters.search, 300);
         const effectiveFilters = { ...filters, search: debouncedSearch };
 
+        const [timeTravelTickers, setTimeTravelTickers] = useState(null);
+        
         const tickers = useMemo(() => {
+          // If time travel is active, use time travel tickers, otherwise use filtered tickers
+          if (timeTravelTickers !== null) {
+            return timeTravelTickers;
+          }
           return applyFilters(data, effectiveFilters, trades);
-        }, [data, effectiveFilters, trades]);
+        }, [data, effectiveFilters, trades, timeTravelTickers]);
 
         // Compute dynamic ranks once for all tickers to ensure consistency
         const tickersWithRanks = useMemo(() => {
@@ -7632,6 +8062,11 @@
                           selectedTicker ? "mr-[470px]" : ""
                         }`}
                       >
+                        <TimeTravelSlider
+                          tickers={applyFilters(data, effectiveFilters, trades)}
+                          data={data}
+                          onTimeChange={setTimeTravelTickers}
+                        />
                         <div className="h-[900px]">
                           {loading && tickers.length === 0 ? (
                             <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">

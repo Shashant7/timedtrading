@@ -1867,7 +1867,9 @@ async function processTradeSimulation(
 
             if (newStatus === "TP_HIT_TRIM" && oldStatus !== "TP_HIT_TRIM") {
               // Trade trimmed
-              console.log(`[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction}`);
+              console.log(
+                `[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction}`
+              );
               const embed = createTradeTrimmedEmbed(
                 ticker,
                 direction,
@@ -1881,7 +1883,10 @@ async function processTradeSimulation(
                 updatedTrade
               );
               await notifyDiscord(env, embed).catch((err) => {
-                console.error(`[TRADE SIM] ❌ Failed to send trim alert for ${ticker}:`, err);
+                console.error(
+                  `[TRADE SIM] ❌ Failed to send trim alert for ${ticker}:`,
+                  err
+                );
               }); // Don't let Discord errors break trade updates
             } else if (
               (newStatus === "WIN" || newStatus === "LOSS") &&
@@ -1889,7 +1894,9 @@ async function processTradeSimulation(
               oldStatus !== "LOSS"
             ) {
               // Trade closed
-              console.log(`[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`);
+              console.log(
+                `[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`
+              );
               const embed = createTradeClosedEmbed(
                 ticker,
                 direction,
@@ -1904,12 +1911,17 @@ async function processTradeSimulation(
                 updatedTrade
               );
               await notifyDiscord(env, embed).catch((err) => {
-                console.error(`[TRADE SIM] ❌ Failed to send exit alert for ${ticker}:`, err);
+                console.error(
+                  `[TRADE SIM] ❌ Failed to send exit alert for ${ticker}:`,
+                  err
+                );
               }); // Don't let Discord errors break trade updates
 
               // If this was a TD9 exit, send additional TD9 alert
               if (shouldExitFromTDSeq) {
-                console.log(`[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`);
+                console.log(
+                  `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`
+                );
                 const tdSeq = tickerData.td_sequential || {};
                 const td9Embed = createTD9ExitEmbed(
                   ticker,
@@ -1922,7 +1934,10 @@ async function processTradeSimulation(
                   tickerData
                 );
                 await notifyDiscord(env, td9Embed).catch((err) => {
-                  console.error(`[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`, err);
+                  console.error(
+                    `[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`,
+                    err
+                  );
                 });
               }
             }
@@ -2334,7 +2349,9 @@ async function processTradeSimulation(
             // Only send alert if this is a real-time trade (not a backfill)
             // Backfills can have misleading entry prices and confuse traders
             if (env && !isBackfill) {
-              console.log(`[TRADE SIM] 📢 Preparing entry alert for ${ticker} ${direction}`);
+              console.log(
+                `[TRADE SIM] 📢 Preparing entry alert for ${ticker} ${direction}`
+              );
               const embed = createTradeEntryEmbed(
                 ticker,
                 direction,
@@ -2349,7 +2366,10 @@ async function processTradeSimulation(
                 tickerData // Pass full ticker data for comprehensive embed
               );
               await notifyDiscord(env, embed).catch((err) => {
-                console.error(`[TRADE SIM] ❌ Failed to send entry alert for ${ticker}:`, err);
+                console.error(
+                  `[TRADE SIM] ❌ Failed to send entry alert for ${ticker}:`,
+                  err
+                );
               }); // Don't let Discord errors break trade creation
             } else if (env && isBackfill) {
               console.log(
@@ -2389,32 +2409,52 @@ async function processTradeSimulation(
         // Determine why inCorridor is false
         let corridorReason = "";
         if (!hFinite || !lFinite) {
-          corridorReason = `HTF/LTF scores invalid (HTF: ${hFinite ? h.toFixed(2) : "invalid"}, LTF: ${lFinite ? l.toFixed(2) : "invalid"})`;
+          corridorReason = `HTF/LTF scores invalid (HTF: ${
+            hFinite ? h.toFixed(2) : "invalid"
+          }, LTF: ${lFinite ? l.toFixed(2) : "invalid"})`;
         } else if (h > 0) {
           // LONG corridor check
           if (l < -8) {
-            corridorReason = `LTF too low for LONG corridor (LTF: ${l.toFixed(2)} < -8)`;
+            corridorReason = `LTF too low for LONG corridor (LTF: ${l.toFixed(
+              2
+            )} < -8)`;
           } else if (l > 12) {
-            corridorReason = `LTF too high for LONG corridor (LTF: ${l.toFixed(2)} > 12)`;
+            corridorReason = `LTF too high for LONG corridor (LTF: ${l.toFixed(
+              2
+            )} > 12)`;
           } else {
-            corridorReason = `Should be in LONG corridor (HTF: ${h.toFixed(2)} > 0, LTF: ${l.toFixed(2)} in [-8, 12])`;
+            corridorReason = `Should be in LONG corridor (HTF: ${h.toFixed(
+              2
+            )} > 0, LTF: ${l.toFixed(2)} in [-8, 12])`;
           }
         } else if (h < 0) {
           // SHORT corridor check
           if (l < -12) {
-            corridorReason = `LTF too low for SHORT corridor (LTF: ${l.toFixed(2)} < -12)`;
+            corridorReason = `LTF too low for SHORT corridor (LTF: ${l.toFixed(
+              2
+            )} < -12)`;
           } else if (l > 8) {
-            corridorReason = `LTF too high for SHORT corridor (LTF: ${l.toFixed(2)} > 8)`;
+            corridorReason = `LTF too high for SHORT corridor (LTF: ${l.toFixed(
+              2
+            )} > 8)`;
           } else {
-            corridorReason = `Should be in SHORT corridor (HTF: ${h.toFixed(2)} < 0, LTF: ${l.toFixed(2)} in [-12, 8])`;
+            corridorReason = `Should be in SHORT corridor (HTF: ${h.toFixed(
+              2
+            )} < 0, LTF: ${l.toFixed(2)} in [-12, 8])`;
           }
         } else {
-          corridorReason = `HTF is zero (HTF: ${h.toFixed(2)}, neither LONG nor SHORT corridor)`;
+          corridorReason = `HTF is zero (HTF: ${h.toFixed(
+            2
+          )}, neither LONG nor SHORT corridor)`;
         }
 
         // Check shouldTriggerTradeSimulation conditions
-        const shouldTrigger = shouldTriggerTradeSimulation(ticker, tickerData, prevData);
-        
+        const shouldTrigger = shouldTriggerTradeSimulation(
+          ticker,
+          tickerData,
+          prevData
+        );
+
         console.log(
           `[TRADE SIM] ❌ ${ticker} ${direction}: Conditions not met`,
           {
@@ -2436,7 +2476,9 @@ async function processTradeSimulation(
             hasTP: !!tickerData.tp,
             trigger_reason: tickerData.trigger_reason || "none",
             sq30_release: !!(tickerData.flags && tickerData.flags.sq30_release),
-            momentum_elite: !!(tickerData.flags && tickerData.flags.momentum_elite),
+            momentum_elite: !!(
+              tickerData.flags && tickerData.flags.momentum_elite
+            ),
           }
         );
       }
@@ -2966,7 +3008,9 @@ async function notifyDiscord(env, embed) {
   }
   const url = env.DISCORD_WEBHOOK_URL;
   if (!url) {
-    console.log(`[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`);
+    console.log(
+      `[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`
+    );
     return;
   }
 
@@ -2978,13 +3022,19 @@ async function notifyDiscord(env, embed) {
       body: JSON.stringify({ embeds: [embed] }),
     });
     if (!response.ok) {
-      const responseText = await response.text().catch(() => "Unable to read response");
+      const responseText = await response
+        .text()
+        .catch(() => "Unable to read response");
       console.error(
         `[DISCORD] Failed to send notification: ${response.status} ${response.statusText}`,
         { responseText: responseText.substring(0, 200) }
       );
     } else {
-      console.log(`[DISCORD] ✅ Notification sent successfully: ${embed.title || "Untitled"}`);
+      console.log(
+        `[DISCORD] ✅ Notification sent successfully: ${
+          embed.title || "Untitled"
+        }`
+      );
     }
   } catch (error) {
     console.error(`[DISCORD] Error sending notification:`, {
@@ -5054,9 +5104,17 @@ export default {
         const flags = payload.flags || {};
         const sqRel = !!flags.sq30_release;
 
+        // Activity feed tracking - detect events (load BEFORE alert logic to check for corridor entry)
+        if (ticker === "ETHT") {
+          console.log(`[ETHT DEBUG] About to load activity tracking state`);
+        }
+        const prevCorridorKey = `timed:prevcorridor:${ticker}`;
+        const prevInCorridor = await KV.get(prevCorridorKey);
+
         // Corridor-only logic (must match UI)
         const side = corridorSide(payload); // LONG/SHORT/null
         const inCorridor = !!side;
+        const enteredCorridor = inCorridor && prevInCorridor !== "true";
 
         // corridor must match alignment
         const corridorAlignedOK =
@@ -5064,19 +5122,14 @@ export default {
           (side === "SHORT" && alignedShort);
 
         // Allow alerts if:
-        // 1. In corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
-        // 2. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
+        // 1. ENTERED corridor (just entered) AND aligned AND (entered aligned OR trigger OR squeeze release)
+        // 2. OR in corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
+        // 3. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
         const shouldConsiderAlert =
-          inCorridor &&
-          ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
-            (sqRel && side)); // Squeeze release in corridor is a valid trigger even if not fully aligned
-
-        // Activity feed tracking - detect events
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] About to load activity tracking state`);
-        }
-        const prevCorridorKey = `timed:prevcorridor:${ticker}`;
-        const prevInCorridor = await KV.get(prevCorridorKey);
+          (enteredCorridor && corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
+          (inCorridor &&
+            ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
+              (sqRel && side))); // Squeeze release in corridor is a valid trigger even if not fully aligned
         const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
         const prevSqueezeOn = await KV.get(prevSqueezeKey);
         const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
@@ -5090,7 +5143,10 @@ export default {
         // Track corridor entry
         // Wrap activity tracking in try-catch to prevent errors from breaking ingestion
         try {
-          if (inCorridor && prevInCorridor !== "true") {
+          const enteredCorridor = inCorridor && prevInCorridor !== "true";
+          const exitedCorridor = !inCorridor && prevInCorridor === "true";
+          
+          if (enteredCorridor) {
             await appendActivity(KV, {
               type: "corridor_entry",
               ticker: ticker,
@@ -5106,7 +5162,7 @@ export default {
               completion: payload.completion,
             });
             await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
-          } else if (!inCorridor && prevInCorridor === "true") {
+          } else if (exitedCorridor) {
             await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
           }
 
@@ -5390,10 +5446,12 @@ export default {
         // Enhanced trigger: original conditions OR Momentum Elite in good setup
         const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-        // Debug logging for alert conditions - log all tickers in corridor
-        if (inCorridor) {
+        // Debug logging for alert conditions - log all tickers in corridor or entering corridor
+        if (inCorridor || enteredCorridor) {
           console.log(`[ALERT DEBUG] ${ticker}:`, {
             inCorridor,
+            enteredCorridor,
+            prevInCorridor,
             corridorAlignedOK,
             side,
             state: payload.state,
@@ -5437,15 +5495,34 @@ export default {
         });
 
         // Enhanced logging for alert conditions - log what's blocking alerts
-        if (inCorridor && !(enhancedTrigger && rrOk && compOk && phaseOk && rankOk)) {
+        if (
+          inCorridor &&
+          !(enhancedTrigger && rrOk && compOk && phaseOk && rankOk)
+        ) {
           const blockers = [];
           if (!enhancedTrigger) blockers.push("trigger conditions");
-          if (!rrOk) blockers.push(`RR (${payload.rr?.toFixed(2) || "null"} < ${minRR})`);
-          if (!compOk) blockers.push(`Completion (${payload.completion?.toFixed(2) || "null"} > ${maxComp})`);
-          if (!phaseOk) blockers.push(`Phase (${payload.phase_pct?.toFixed(2) || "null"} > ${maxPhase})`);
-          if (!rankOk) blockers.push(`Rank (${payload.rank || 0} < ${minRank})`);
-          
-          console.log(`[ALERT BLOCKED] ${ticker}: Alert blocked by: ${blockers.join(", ")}`);
+          if (!rrOk)
+            blockers.push(
+              `RR (${payload.rr?.toFixed(2) || "null"} < ${minRR})`
+            );
+          if (!compOk)
+            blockers.push(
+              `Completion (${
+                payload.completion?.toFixed(2) || "null"
+              } > ${maxComp})`
+            );
+          if (!phaseOk)
+            blockers.push(
+              `Phase (${payload.phase_pct?.toFixed(2) || "null"} > ${maxPhase})`
+            );
+          if (!rankOk)
+            blockers.push(`Rank (${payload.rank || 0} < ${minRank})`);
+
+          console.log(
+            `[ALERT BLOCKED] ${ticker}: Alert blocked by: ${blockers.join(
+              ", "
+            )}`
+          );
         }
 
         // Trade simulation already processed above (before alert logic)
