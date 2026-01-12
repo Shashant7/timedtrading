@@ -2568,13 +2568,21 @@
                     )}
                   </div>
                   {(() => {
-                    const ingestTime = tooltip.ingest_time || tooltip.ingest_ts || tooltip.ts;
+                    // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
+                    const ingestTime = tooltip.ingest_ts || tooltip.ingest_time || tooltip.ts;
                     if (ingestTime) {
                       try {
                         const timeValue = typeof ingestTime === 'string' 
                           ? new Date(ingestTime) 
                           : new Date(Number(ingestTime));
                         if (!isNaN(timeValue.getTime())) {
+                          const ageMs = Date.now() - timeValue.getTime();
+                          const ageMinutes = Math.floor(ageMs / 60000);
+                          const ageHours = Math.floor(ageMinutes / 60);
+                          
+                          // Warn if data is stale (older than 30 minutes)
+                          const isStale = ageMinutes > 30;
+                          
                           const displayTime = timeValue.toLocaleTimeString('en-US', { 
                             hour: 'numeric', 
                             minute: '2-digit',
@@ -2585,8 +2593,13 @@
                             day: 'numeric' 
                           });
                           return (
-                            <div className="text-[10px] text-[#93a4d6] mb-2">
+                            <div className={`text-[10px] mb-2 ${isStale ? 'text-yellow-400' : 'text-[#93a4d6]'}`}>
                               {displayDate} {displayTime}
+                              {isStale && (
+                                <span className="ml-1" title={`Data is ${ageHours > 0 ? `${ageHours}h ` : ''}${ageMinutes % 60}m old`}>
+                                  ⚠️
+                                </span>
+                              )}
                             </div>
                           );
                         }
@@ -2924,13 +2937,21 @@
                       ${Number(ticker.price).toFixed(2)}
                     </span>
                     {(() => {
-                      const ingestTime = ticker.ingest_time || ticker.ingest_ts || ticker.ts;
+                      // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
+                      const ingestTime = ticker.ingest_ts || ticker.ingest_time || ticker.ts;
                       if (ingestTime) {
                         try {
                           const timeValue = typeof ingestTime === 'string' 
                             ? new Date(ingestTime) 
                             : new Date(Number(ingestTime));
                           if (!isNaN(timeValue.getTime())) {
+                            const ageMs = Date.now() - timeValue.getTime();
+                            const ageMinutes = Math.floor(ageMs / 60000);
+                            const ageHours = Math.floor(ageMinutes / 60);
+                            
+                            // Warn if data is stale (older than 30 minutes)
+                            const isStale = ageMinutes > 30;
+                            
                             const displayTime = timeValue.toLocaleTimeString('en-US', { 
                               hour: 'numeric', 
                               minute: '2-digit',
@@ -2941,8 +2962,13 @@
                               day: 'numeric' 
                             });
                             return (
-                              <div className="text-[9px] text-[#93a4d6] mt-0.5">
+                              <div className={`text-[9px] mt-0.5 ${isStale ? 'text-yellow-400' : 'text-[#93a4d6]'}`}>
                                 {displayDate} {displayTime}
+                                {isStale && (
+                                  <span className="ml-0.5" title={`Data is ${ageHours > 0 ? `${ageHours}h ` : ''}${ageMinutes % 60}m old`}>
+                                    ⚠️
+                                  </span>
+                                )}
                               </div>
                             );
                           }
@@ -3665,13 +3691,21 @@
                               <div className="text-[10px] text-white mt-0.5">
                                 ${Number(eventData.price).toFixed(2)}
                                 {(() => {
-                                  const ingestTime = eventData.ingest_time || eventData.ingest_ts || eventData.ts || event.ts;
+                                  // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
+                                  const ingestTime = eventData.ingest_ts || eventData.ingest_time || eventData.ts || event.ts;
                                   if (ingestTime) {
                                     try {
                                       const timeValue = typeof ingestTime === 'string' 
                                         ? new Date(ingestTime) 
                                         : new Date(Number(ingestTime));
                                       if (!isNaN(timeValue.getTime())) {
+                                        const ageMs = Date.now() - timeValue.getTime();
+                                        const ageMinutes = Math.floor(ageMs / 60000);
+                                        const ageHours = Math.floor(ageMinutes / 60);
+                                        
+                                        // Warn if data is stale (older than 30 minutes)
+                                        const isStale = ageMinutes > 30;
+                                        
                                         const displayTime = timeValue.toLocaleTimeString('en-US', { 
                                           hour: 'numeric', 
                                           minute: '2-digit',
@@ -3682,8 +3716,13 @@
                                           day: 'numeric' 
                                         });
                                         return (
-                                          <span className="text-[#93a4d6] ml-1.5">
+                                          <span className={`ml-1.5 ${isStale ? 'text-yellow-400' : 'text-[#93a4d6]'}`}>
                                             {displayDate} {displayTime}
+                                            {isStale && (
+                                              <span className="ml-0.5" title={`Data is ${ageHours > 0 ? `${ageHours}h ` : ''}${ageMinutes % 60}m old`}>
+                                                ⚠️
+                                              </span>
+                                            )}
                                           </span>
                                         );
                                       }
@@ -5688,13 +5727,21 @@
                       <div className="text-sm text-white mt-1">
                         ${Number(ticker.price).toFixed(2)}
                         {(() => {
-                          const ingestTime = ticker.ingest_time || ticker.ingest_ts || ticker.ts;
+                          // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
+                          const ingestTime = ticker.ingest_ts || ticker.ingest_time || ticker.ts;
                           if (ingestTime) {
                             try {
                               const timeValue = typeof ingestTime === 'string' 
                                 ? new Date(ingestTime) 
                                 : new Date(Number(ingestTime));
                               if (!isNaN(timeValue.getTime())) {
+                                const ageMs = Date.now() - timeValue.getTime();
+                                const ageMinutes = Math.floor(ageMs / 60000);
+                                const ageHours = Math.floor(ageMinutes / 60);
+                                
+                                // Warn if data is stale (older than 30 minutes)
+                                const isStale = ageMinutes > 30;
+                                
                                 const displayTime = timeValue.toLocaleTimeString('en-US', { 
                                   hour: 'numeric', 
                                   minute: '2-digit',
@@ -5705,8 +5752,13 @@
                                   day: 'numeric' 
                                 });
                                 return (
-                                  <span className="text-xs text-[#93a4d6] ml-2">
+                                  <span className={`text-xs ml-2 ${isStale ? 'text-yellow-400' : 'text-[#93a4d6]'}`}>
                                     {displayDate} {displayTime}
+                                    {isStale && (
+                                      <span className="ml-1" title={`Data is ${ageHours > 0 ? `${ageHours}h ` : ''}${ageMinutes % 60}m old`}>
+                                        ⚠️
+                                      </span>
+                                    )}
                                   </span>
                                 );
                               }
@@ -8145,8 +8197,6 @@
                           <span>Waiting for Data</span>
                         </div>
                       </div>
-                    </div>
-                  </div>
                     </div>
                   </div>
 
