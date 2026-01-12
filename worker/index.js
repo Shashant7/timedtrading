@@ -2376,14 +2376,45 @@ async function processTradeSimulation(
         const rank = Number(tickerData.rank) || 0;
         const h = Number(tickerData.htf_score);
         const l = Number(tickerData.ltf_score);
+        const hFinite = Number.isFinite(h);
+        const lFinite = Number.isFinite(l);
         const inCorridor =
-          Number.isFinite(h) &&
-          Number.isFinite(l) &&
+          hFinite &&
+          lFinite &&
           ((h > 0 && l >= -8 && l <= 12) || (h < 0 && l >= -12 && l <= 8));
         const aligned =
           tickerData.state === "HTF_BULL_LTF_BULL" ||
           tickerData.state === "HTF_BEAR_LTF_BEAR";
 
+        // Determine why inCorridor is false
+        let corridorReason = "";
+        if (!hFinite || !lFinite) {
+          corridorReason = `HTF/LTF scores invalid (HTF: ${hFinite ? h.toFixed(2) : "invalid"}, LTF: ${lFinite ? l.toFixed(2) : "invalid"})`;
+        } else if (h > 0) {
+          // LONG corridor check
+          if (l < -8) {
+            corridorReason = `LTF too low for LONG corridor (LTF: ${l.toFixed(2)} < -8)`;
+          } else if (l > 12) {
+            corridorReason = `LTF too high for LONG corridor (LTF: ${l.toFixed(2)} > 12)`;
+          } else {
+            corridorReason = `Should be in LONG corridor (HTF: ${h.toFixed(2)} > 0, LTF: ${l.toFixed(2)} in [-8, 12])`;
+          }
+        } else if (h < 0) {
+          // SHORT corridor check
+          if (l < -12) {
+            corridorReason = `LTF too low for SHORT corridor (LTF: ${l.toFixed(2)} < -12)`;
+          } else if (l > 8) {
+            corridorReason = `LTF too high for SHORT corridor (LTF: ${l.toFixed(2)} > 8)`;
+          } else {
+            corridorReason = `Should be in SHORT corridor (HTF: ${h.toFixed(2)} < 0, LTF: ${l.toFixed(2)} in [-12, 8])`;
+          }
+        } else {
+          corridorReason = `HTF is zero (HTF: ${h.toFixed(2)}, neither LONG nor SHORT corridor)`;
+        }
+
+        // Check shouldTriggerTradeSimulation conditions
+        const shouldTrigger = shouldTriggerTradeSimulation(ticker, tickerData, prevData);
+        
         console.log(
           `[TRADE SIM] ❌ ${ticker} ${direction}: Conditions not met`,
           {
@@ -2393,8 +2424,19 @@ async function processTradeSimulation(
             phase,
             rank,
             state: tickerData.state,
+            htf_score: hFinite ? h.toFixed(2) : "invalid",
+            ltf_score: lFinite ? l.toFixed(2) : "invalid",
             inCorridor,
+            corridorReason,
             aligned,
+            shouldTrigger,
+            // Show what shouldTriggerTradeSimulation checks
+            hasPrice: !!tickerData.price,
+            hasSL: !!tickerData.sl,
+            hasTP: !!tickerData.tp,
+            trigger_reason: tickerData.trigger_reason || "none",
+            sq30_release: !!(tickerData.flags && tickerData.flags.sq30_release),
+            momentum_elite: !!(tickerData.flags && tickerData.flags.momentum_elite),
           }
         );
       }
