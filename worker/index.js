@@ -1867,6 +1867,7 @@ async function processTradeSimulation(
 
             if (newStatus === "TP_HIT_TRIM" && oldStatus !== "TP_HIT_TRIM") {
               // Trade trimmed
+              console.log(`[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction}`);
               const embed = createTradeTrimmedEmbed(
                 ticker,
                 direction,
@@ -1879,13 +1880,16 @@ async function processTradeSimulation(
                 tickerData,
                 updatedTrade
               );
-              await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade updates
+              await notifyDiscord(env, embed).catch((err) => {
+                console.error(`[TRADE SIM] ❌ Failed to send trim alert for ${ticker}:`, err);
+              }); // Don't let Discord errors break trade updates
             } else if (
               (newStatus === "WIN" || newStatus === "LOSS") &&
               oldStatus !== "WIN" &&
               oldStatus !== "LOSS"
             ) {
               // Trade closed
+              console.log(`[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`);
               const embed = createTradeClosedEmbed(
                 ticker,
                 direction,
@@ -1899,10 +1903,13 @@ async function processTradeSimulation(
                 tickerData,
                 updatedTrade
               );
-              await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade updates
+              await notifyDiscord(env, embed).catch((err) => {
+                console.error(`[TRADE SIM] ❌ Failed to send exit alert for ${ticker}:`, err);
+              }); // Don't let Discord errors break trade updates
 
               // If this was a TD9 exit, send additional TD9 alert
               if (shouldExitFromTDSeq) {
+                console.log(`[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`);
                 const tdSeq = tickerData.td_sequential || {};
                 const td9Embed = createTD9ExitEmbed(
                   ticker,
@@ -1914,9 +1921,15 @@ async function processTradeSimulation(
                   tdSeq,
                   tickerData
                 );
-                await notifyDiscord(env, td9Embed).catch(() => {});
+                await notifyDiscord(env, td9Embed).catch((err) => {
+                  console.error(`[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`, err);
+                });
               }
             }
+          } else if (!env) {
+            console.log(
+              `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} status change (${oldStatus} -> ${newStatus}) - env not available`
+            );
           }
         }
       }
@@ -2321,6 +2334,7 @@ async function processTradeSimulation(
             // Only send alert if this is a real-time trade (not a backfill)
             // Backfills can have misleading entry prices and confuse traders
             if (env && !isBackfill) {
+              console.log(`[TRADE SIM] 📢 Preparing entry alert for ${ticker} ${direction}`);
               const embed = createTradeEntryEmbed(
                 ticker,
                 direction,
@@ -2334,12 +2348,18 @@ async function processTradeSimulation(
                 isBackfill,
                 tickerData // Pass full ticker data for comprehensive embed
               );
-              await notifyDiscord(env, embed).catch(() => {}); // Don't let Discord errors break trade creation
+              await notifyDiscord(env, embed).catch((err) => {
+                console.error(`[TRADE SIM] ❌ Failed to send entry alert for ${ticker}:`, err);
+              }); // Don't let Discord errors break trade creation
             } else if (env && isBackfill) {
               console.log(
                 `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - backfill trade (entry: $${entryPrice.toFixed(
                   2
                 )}, current: $${Number(tickerData.price).toFixed(2)})`
+              );
+            } else if (!env) {
+              console.log(
+                `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - env not available`
               );
             }
           } else {
@@ -2895,15 +2915,16 @@ async function purgeOldData(KV) {
 
 // Send Discord notification with embed card styling
 async function notifyDiscord(env, embed) {
-  if ((env.DISCORD_ENABLE || "false") !== "true") {
+  const discordEnable = env.DISCORD_ENABLE || "false";
+  if (discordEnable !== "true") {
     console.log(
-      `[DISCORD] Notifications disabled (DISCORD_ENABLE=${env.DISCORD_ENABLE})`
+      `[DISCORD] Notifications disabled (DISCORD_ENABLE="${discordEnable}", expected "true")`
     );
     return;
   }
   const url = env.DISCORD_WEBHOOK_URL;
   if (!url) {
-    console.log(`[DISCORD] Webhook URL not configured`);
+    console.log(`[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`);
     return;
   }
 
@@ -2915,16 +2936,19 @@ async function notifyDiscord(env, embed) {
       body: JSON.stringify({ embeds: [embed] }),
     });
     if (!response.ok) {
+      const responseText = await response.text().catch(() => "Unable to read response");
       console.error(
-        `[DISCORD] Failed to send notification: ${response.status} ${response.statusText}`
+        `[DISCORD] Failed to send notification: ${response.status} ${response.statusText}`,
+        { responseText: responseText.substring(0, 200) }
       );
     } else {
-      console.log(`[DISCORD] Notification sent successfully`);
+      console.log(`[DISCORD] ✅ Notification sent successfully: ${embed.title || "Untitled"}`);
     }
   } catch (error) {
     console.error(`[DISCORD] Error sending notification:`, {
       error: String(error),
       message: error.message,
+      stack: error.stack,
     });
   }
 }
@@ -4767,7 +4791,9 @@ export default {
         } else {
           // Ticker is in SECTOR_MAP - use our GICS sector classification
           console.log(
-            `[SECTOR] ${tickerUpper} → ${sectorToUse} (from SECTOR_MAP, ignoring TradingView sector: ${payload.sector || "none"})`
+            `[SECTOR] ${tickerUpper} → ${sectorToUse} (from SECTOR_MAP, ignoring TradingView sector: ${
+              payload.sector || "none"
+            })`
           );
         }
 
@@ -5367,6 +5393,18 @@ export default {
           allConditionsMet:
             enhancedTrigger && rrOk && compOk && phaseOk && rankOk,
         });
+
+        // Enhanced logging for alert conditions - log what's blocking alerts
+        if (inCorridor && !(enhancedTrigger && rrOk && compOk && phaseOk && rankOk)) {
+          const blockers = [];
+          if (!enhancedTrigger) blockers.push("trigger conditions");
+          if (!rrOk) blockers.push(`RR (${payload.rr?.toFixed(2) || "null"} < ${minRR})`);
+          if (!compOk) blockers.push(`Completion (${payload.completion?.toFixed(2) || "null"} > ${maxComp})`);
+          if (!phaseOk) blockers.push(`Phase (${payload.phase_pct?.toFixed(2) || "null"} > ${maxPhase})`);
+          if (!rankOk) blockers.push(`Rank (${payload.rank || 0} < ${minRank})`);
+          
+          console.log(`[ALERT BLOCKED] ${ticker}: Alert blocked by: ${blockers.join(", ")}`);
+        }
 
         // Trade simulation already processed above (before alert logic)
 
