@@ -2561,7 +2561,39 @@
                 >
                   <div className="font-bold text-base mb-2">
                     {tooltip.ticker}
+                    {tooltip.price && (
+                      <span className="ml-2 text-sm font-normal text-white">
+                        ${Number(tooltip.price).toFixed(2)}
+                      </span>
+                    )}
                   </div>
+                  {(() => {
+                    const ingestTime = tooltip.ingest_time || tooltip.ingest_ts || tooltip.ts;
+                    if (ingestTime) {
+                      try {
+                        const timeValue = typeof ingestTime === 'string' 
+                          ? new Date(ingestTime) 
+                          : new Date(Number(ingestTime));
+                        if (!isNaN(timeValue.getTime())) {
+                          const displayTime = timeValue.toLocaleTimeString('en-US', { 
+                            hour: 'numeric', 
+                            minute: '2-digit',
+                            hour12: true 
+                          });
+                          const displayDate = timeValue.toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric' 
+                          });
+                          return (
+                            <div className="text-[10px] text-[#93a4d6] mb-2">
+                              {displayDate} {displayTime}
+                            </div>
+                          );
+                        }
+                      } catch (e) {}
+                    }
+                    return null;
+                  })()}
                   {isPrimeBubble(tooltip) && (
                     <div className="mb-2 px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-semibold text-center">
                       ⭐ PRIME SETUP
@@ -2887,9 +2919,38 @@
               </div>
               <div className="flex items-center gap-1.5">
                 {ticker.price && (
-                  <span className="text-xs font-semibold text-white">
-                    ${Number(ticker.price).toFixed(2)}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-xs font-semibold text-white">
+                      ${Number(ticker.price).toFixed(2)}
+                    </span>
+                    {(() => {
+                      const ingestTime = ticker.ingest_time || ticker.ingest_ts || ticker.ts;
+                      if (ingestTime) {
+                        try {
+                          const timeValue = typeof ingestTime === 'string' 
+                            ? new Date(ingestTime) 
+                            : new Date(Number(ingestTime));
+                          if (!isNaN(timeValue.getTime())) {
+                            const displayTime = timeValue.toLocaleTimeString('en-US', { 
+                              hour: 'numeric', 
+                              minute: '2-digit',
+                              hour12: true 
+                            });
+                            const displayDate = timeValue.toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric' 
+                            });
+                            return (
+                              <div className="text-[9px] text-[#93a4d6] mt-0.5">
+                                {displayDate} {displayTime}
+                              </div>
+                            );
+                          }
+                        } catch (e) {}
+                      }
+                      return null;
+                    })()}
+                  </div>
                 )}
                 <div
                   className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${dir.bg} ${dir.color}`}
@@ -3592,13 +3653,47 @@
                           <span className="text-base">
                             {getEventIcon(event.type)}
                           </span>
-                          <span
-                            className={`font-semibold ${getEventColor(
-                              event.type
-                            )} truncate`}
-                          >
-                            {getEventLabel(event)}
-                          </span>
+                          <div className="flex-1 min-w-0">
+                            <span
+                              className={`font-semibold ${getEventColor(
+                                event.type
+                              )} truncate block`}
+                            >
+                              {getEventLabel(event)}
+                            </span>
+                            {eventData.price && (
+                              <div className="text-[10px] text-white mt-0.5">
+                                ${Number(eventData.price).toFixed(2)}
+                                {(() => {
+                                  const ingestTime = eventData.ingest_time || eventData.ingest_ts || eventData.ts || event.ts;
+                                  if (ingestTime) {
+                                    try {
+                                      const timeValue = typeof ingestTime === 'string' 
+                                        ? new Date(ingestTime) 
+                                        : new Date(Number(ingestTime));
+                                      if (!isNaN(timeValue.getTime())) {
+                                        const displayTime = timeValue.toLocaleTimeString('en-US', { 
+                                          hour: 'numeric', 
+                                          minute: '2-digit',
+                                          hour12: true 
+                                        });
+                                        const displayDate = timeValue.toLocaleDateString('en-US', { 
+                                          month: 'short', 
+                                          day: 'numeric' 
+                                        });
+                                        return (
+                                          <span className="text-[#93a4d6] ml-1.5">
+                                            {displayDate} {displayTime}
+                                          </span>
+                                        );
+                                      }
+                                    } catch (e) {}
+                                  }
+                                  return null;
+                                })()}
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <span className="text-[#6b7a9f] text-[10px] whitespace-nowrap">
                           {formatTime(event.ts)}
@@ -5554,7 +5649,41 @@
               {/* Scrollable Content Area */}
               <div className="flex-1 overflow-y-auto p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold">{tickerSymbol}</h3>
+                  <div>
+                    <h3 className="text-xl font-bold">{tickerSymbol}</h3>
+                    {ticker.price && (
+                      <div className="text-sm text-white mt-1">
+                        ${Number(ticker.price).toFixed(2)}
+                        {(() => {
+                          const ingestTime = ticker.ingest_time || ticker.ingest_ts || ticker.ts;
+                          if (ingestTime) {
+                            try {
+                              const timeValue = typeof ingestTime === 'string' 
+                                ? new Date(ingestTime) 
+                                : new Date(Number(ingestTime));
+                              if (!isNaN(timeValue.getTime())) {
+                                const displayTime = timeValue.toLocaleTimeString('en-US', { 
+                                  hour: 'numeric', 
+                                  minute: '2-digit',
+                                  hour12: true 
+                                });
+                                const displayDate = timeValue.toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric' 
+                                });
+                                return (
+                                  <span className="text-xs text-[#93a4d6] ml-2">
+                                    {displayDate} {displayTime}
+                                  </span>
+                                );
+                              }
+                            } catch (e) {}
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={onClose}
                     className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
