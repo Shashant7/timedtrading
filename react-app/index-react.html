@@ -2176,7 +2176,7 @@
           const finalOpacity = (typeof opacity === 'number' && opacity >= 0 && opacity <= 1) 
             ? opacity 
             : 0.85;
-          const finalSize = Math.max(3, Math.min(50, bubbleSize)); // Clamp size between 3 and 50
+          const renderedSize = Math.max(3, Math.min(50, bubbleSize)); // Clamp size between 3 and 50
           const finalBorderColor = (borderColor && typeof borderColor === 'string') 
             ? borderColor 
             : "#ffffff";
@@ -2201,7 +2201,7 @@
                 <circle
                   cx={x}
                   cy={y}
-                  r={finalSize + 2}
+                  r={renderedSize + 2}
                   fill="none"
                   stroke="#2ecc71"
                   strokeWidth="1"
@@ -2211,7 +2211,7 @@
               <circle
                 cx={x}
                 cy={y}
-                r={finalSize}
+                r={renderedSize}
                 fill={finalColor}
                 fillOpacity={finalOpacity}
                 stroke={finalBorderColor}
