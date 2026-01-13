@@ -1999,8 +1999,8 @@
           // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
           const cappedRR = Math.min(validRR, 5); // Cap RR at 5 for size calculation
           const completionPenalty = 1 - validComp; // 1.0 when completion is 0, 0.0 when completion is 1
-          const baseSize = 5; // Reduced for less overlap
-          const rrMultiplier = 3; // Reduced for smaller bubbles
+          const baseSize = 4; // Further reduced for less overlap
+          const rrMultiplier = 2; // Further reduced for smaller bubbles
           // Smaller size for tickers waiting for data
           const size = waitingForData
             ? baseSize * 0.7
@@ -3864,8 +3864,8 @@
             const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0.5;
 
             const cappedRR = Math.min(validRR, 5);
-            const baseSize = 5; // Reduced for less overlap
-            const rrMultiplier = 3; // Reduced for smaller bubbles
+            const baseSize = 4; // Further reduced for less overlap
+            const rrMultiplier = 2; // Further reduced for smaller bubbles
             const size = waitingForData
               ? baseSize * 0.7
               : baseSize + cappedRR * rrMultiplier * (1 - validComp);
