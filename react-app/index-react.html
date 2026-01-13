@@ -2011,11 +2011,27 @@
           // Use gray for tickers waiting for data
           // SIMPLIFIED: Direct calculation to ensure it always works
           let color;
+          
+          // DEBUG: Log phase calculation for first few bubbles
+          if (window._svgBubbleCallCount <= 5) {
+            console.log(`[BUBBLE COLOR CALC] ${ticker.ticker}:`, {
+              waitingForData,
+              validPhasePct,
+              phasePct,
+              rawPhasePct: ticker.phase_pct,
+              hasPhasePct: 'phase_pct' in ticker,
+            });
+          }
+          
           if (waitingForData) {
             color = "#6b7a9f"; // Gray for waiting
           } else {
             // Direct color calculation based on phase percentage
-            const p = Math.max(0, Math.min(1, validPhasePct));
+            // Ensure validPhasePct is a number
+            const p = Number.isFinite(validPhasePct) 
+              ? Math.max(0, Math.min(1, validPhasePct))
+              : 0.1; // Default to 0.1 (green) if invalid
+              
             if (p < 0.3) {
               color = "#2ecc71"; // Green: under 30%
             } else if (p < 0.6) {
@@ -2027,6 +2043,7 @@
           
           // Final safety: ensure color is always valid
           if (!color || typeof color !== "string" || !color.startsWith("#")) {
+            console.warn(`[BUBBLE COLOR] Invalid color for ${ticker.ticker}, using green fallback:`, color);
             color = "#2ecc71"; // Green fallback
           }
 
@@ -2171,8 +2188,11 @@
           const labelY = y - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
 
           // FINAL SAFETY CHECK - ensure all values are valid before rendering
-          // Use the color directly (already validated above)
-          const finalColor = color; // Color is already validated to be a valid hex string
+          // CRITICAL: Double-check color is valid before using
+          const finalColor = (color && typeof color === 'string' && color.startsWith('#')) 
+            ? color 
+            : "#2ecc71"; // Force green if invalid
+            
           const finalOpacity = (typeof opacity === 'number' && opacity >= 0 && opacity <= 1) 
             ? opacity 
             : 0.85;
@@ -2187,11 +2207,13 @@
           // Log first 5 bubbles to verify styling
           if (window._svgBubbleCallCount <= 5) {
             console.log(`[BUBBLE STYLE] ${ticker.ticker}:`, {
-              color: finalColor,
+              originalColor: color,
+              finalColor: finalColor,
               size: renderedSize,
               phasePct: validPhasePct,
               opacity: finalOpacity,
               borderColor: finalBorderColor,
+              willRender: true,
             });
           }
 
@@ -2218,10 +2240,10 @@
                 cx={x}
                 cy={y}
                 r={renderedSize}
-                fill={finalColor}
-                fillOpacity={finalOpacity}
-                stroke={finalBorderColor}
-                strokeWidth={finalBorderWidth}
+                fill={finalColor || "#2ecc71"}
+                fillOpacity={finalOpacity || 0.85}
+                stroke={finalBorderColor || "#ffffff"}
+                strokeWidth={finalBorderWidth || 1.5}
               />
               {/* Emoji above bubble - #1 ranked gets special treatment */}
               {emoji && (
@@ -3258,6 +3280,20 @@
                   )}
 
                 {/* Bubbles - Show only selected ticker with trail if selected, otherwise show all */}
+                {(() => {
+                  // Debug: Log which branch we're taking
+                  if (!window._bubbleBranchLogged) {
+                    window._bubbleBranchLogged = true;
+                    console.log(`[BUBBLE BRANCH]`, {
+                      hasSelectedTicker: !!selectedTicker,
+                      hasSelectedTrail: !!selectedTrail,
+                      tickersCount: tickers ? tickers.length : 0,
+                      willShowSelected: !!(selectedTicker && selectedTrail),
+                      willShowAll: !(selectedTicker && selectedTrail),
+                    });
+                  }
+                  return null;
+                })()}
                 {selectedTicker && selectedTrail ? (
                   <>
                     {/* Trail path - comet effect */}
@@ -3395,38 +3431,44 @@
                     })()}
                   </>
                 ) : (
-                  (() => {
-                    // Debug: Log tickers array before mapping
-                    if (!window._bubbleChartTickersLogged) {
-                      window._bubbleChartTickersLogged = true;
-                      console.log(`[BUBBLE CHART] Rendering bubbles:`, {
-                        tickersCount: tickers ? tickers.length : 0,
-                        hasTickers: !!tickers,
-                        isArray: Array.isArray(tickers),
-                        firstTicker: tickers && tickers.length > 0 ? tickers[0] : null,
-                        sampleKeys: tickers && tickers.length > 0 ? Object.keys(tickers[0] || {}) : [],
-                      });
-                    }
-                    return tickers.map((ticker) => (
-                      <SVGBubble
-                        key={ticker.ticker}
-                        ticker={ticker}
-                        onClick={onBubbleClick}
-                        onHover={(t) => {
-                          onHover(t);
-                          if (t)
-                            setTooltip(tickers.find((tt) => tt.ticker === t));
-                        }}
-                        isHovered={hoveredTicker === ticker.ticker}
-                        scaleX={scaleX}
-                        scaleY={-scaleY}
-                        offsetX={offsetX + 50 * scaleX}
-                        offsetY={offsetY + plotHeight - 50 * scaleY}
-                        showLabels={showLabels}
-                        isTopRanked={topRankedTicker === ticker.ticker}
-                      />
-                    ));
-                  })()
+                  tickers && tickers.length > 0 ? (
+                    tickers.map((ticker) => {
+                      // Log first few bubbles
+                      if (!window._bubbleRenderedCount) {
+                        window._bubbleRenderedCount = 0;
+                      }
+                      window._bubbleRenderedCount++;
+                      if (window._bubbleRenderedCount <= 5) {
+                        console.log(`[BUBBLE RENDER] ${ticker.ticker}:`, {
+                          hasTicker: !!ticker,
+                          tickerKeys: ticker ? Object.keys(ticker).slice(0, 10) : [],
+                          hasPhasePct: ticker ? 'phase_pct' in ticker : false,
+                          phasePct: ticker ? ticker.phase_pct : undefined,
+                        });
+                      }
+                      return (
+                        <SVGBubble
+                          key={ticker.ticker}
+                          ticker={ticker}
+                          onClick={onBubbleClick}
+                          onHover={(t) => {
+                            onHover(t);
+                            if (t)
+                              setTooltip(tickers.find((tt) => tt.ticker === t));
+                          }}
+                          isHovered={hoveredTicker === ticker.ticker}
+                          scaleX={scaleX}
+                          scaleY={-scaleY}
+                          offsetX={offsetX + 50 * scaleX}
+                          offsetY={offsetY + plotHeight - 50 * scaleY}
+                          showLabels={showLabels}
+                          isTopRanked={topRankedTicker === ticker.ticker}
+                        />
+                      );
+                    })
+                  ) : (
+                    console.warn(`[BUBBLE CHART] No tickers to render!`, { tickers, selectedTicker, selectedTrail }) || null
+                  )
                 )}
               </svg>
 
