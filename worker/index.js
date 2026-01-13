@@ -260,6 +260,43 @@ async function checkRateLimit(
   };
 }
 
+// Fixed-window rate limiting helper (bucketed by window).
+// Unlike checkRateLimit (sliding TTL), this naturally resets every window bucket.
+async function checkRateLimitFixedWindow(
+  KV,
+  identifier,
+  endpoint,
+  limit = 100,
+  window = 3600
+) {
+  const bucket = Math.floor(Date.now() / (window * 1000));
+  const key = `ratelimit:${identifier}:${endpoint}:${bucket}`;
+  const count = await KV.get(key);
+  const current = count ? Number(count) : 0;
+
+  const resetAt = (bucket + 1) * window * 1000;
+
+  if (current >= limit) {
+    return {
+      allowed: false,
+      remaining: 0,
+      resetAt,
+      limit,
+      key,
+    };
+  }
+
+  // Ensure the key expires shortly after the bucket ends
+  await KV.put(key, String(current + 1), { expirationTtl: window + 60 });
+  return {
+    allowed: true,
+    remaining: limit - current - 1,
+    resetAt,
+    limit,
+    key,
+  };
+}
+
 async function ensureTickerIndex(KV, ticker) {
   try {
     const key = "timed:tickers";
@@ -6845,19 +6882,29 @@ export default {
         try {
           // Rate limiting
           const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-          const rateLimit = await checkRateLimit(
+          const rateLimit = await checkRateLimitFixedWindow(
             KV,
             ip,
             "/timed/trail",
-            2000, // Increased limit for trail endpoint
+            20000, // Higher limit: UI may fetch many tickers' trails
             3600
           );
 
           if (!rateLimit.allowed) {
+            const retryAfter = Math.max(
+              1,
+              Math.ceil((rateLimit.resetAt - Date.now()) / 1000)
+            );
             return sendJSON(
-              { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+              { ok: false, error: "rate_limit_exceeded", retryAfter },
               429,
-              corsHeaders(env, req)
+              {
+                ...corsHeaders(env, req),
+                "Retry-After": String(retryAfter),
+                "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": String(rateLimit.resetAt),
+              }
             );
           }
 
@@ -6891,7 +6938,12 @@ export default {
           return sendJSON(
             { ok: true, ticker, trail },
             200,
-            corsHeaders(env, req)
+            {
+              ...corsHeaders(env, req),
+              "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
+              "X-RateLimit-Remaining": String(rateLimit.remaining ?? 0),
+              "X-RateLimit-Reset": String(rateLimit.resetAt ?? Date.now()),
+            }
           );
         } catch (error) {
           console.error(`[TRAIL] Unexpected error:`, error);
@@ -8034,17 +8086,37 @@ export default {
           );
         } else if (ip && endpoint) {
           // Clear specific IP + endpoint combination
-          const key = `ratelimit:${ip}:${endpoint}`;
-          await KV.delete(key);
+          const legacyKey = `ratelimit:${ip}:${endpoint}`;
+          await KV.delete(legacyKey);
+          clearedKeys.push(legacyKey);
           cleared++;
-          clearedKeys.push(key);
+
+          // Also clear fixed-window buckets (current + previous bucket)
+          const window = 3600;
+          const bucket = Math.floor(Date.now() / (window * 1000));
+          const fixedKeyNow = `ratelimit:${ip}:${endpoint}:${bucket}`;
+          const fixedKeyPrev = `ratelimit:${ip}:${endpoint}:${bucket - 1}`;
+          await KV.delete(fixedKeyNow);
+          await KV.delete(fixedKeyPrev);
+          clearedKeys.push(fixedKeyNow, fixedKeyPrev);
+          cleared++;
         } else if (ip) {
           // Clear all rate limits for a specific IP (all endpoints)
           for (const ep of allEndpoints) {
-            const key = `ratelimit:${ip}:${ep}`;
-            await KV.delete(key);
+            const legacyKey = `ratelimit:${ip}:${ep}`;
+            await KV.delete(legacyKey);
             cleared++;
-            clearedKeys.push(key);
+            clearedKeys.push(legacyKey);
+
+            // Also clear fixed-window buckets (current + previous bucket)
+            const window = 3600;
+            const bucket = Math.floor(Date.now() / (window * 1000));
+            const fixedKeyNow = `ratelimit:${ip}:${ep}:${bucket}`;
+            const fixedKeyPrev = `ratelimit:${ip}:${ep}:${bucket - 1}`;
+            await KV.delete(fixedKeyNow);
+            await KV.delete(fixedKeyPrev);
+            cleared += 2;
+            clearedKeys.push(fixedKeyNow, fixedKeyPrev);
           }
         } else if (endpoint) {
           // Clear all rate limits for a specific endpoint (all IPs)

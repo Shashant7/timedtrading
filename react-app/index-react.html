@@ -2821,12 +2821,21 @@
       );
 
       // Hook to fetch trail data for all tickers
-      function useAllTrails(tickers) {
+      // NOTE: This is intentionally "best effort" and must not hammer the API.
+      function useAllTrails(tickers, enabled = true) {
         const [allTrails, setAllTrails] = useState({});
         const [loadingTrails, setLoadingTrails] = useState(false);
         const trailsFetchedRef = React.useRef(new Set());
+        const trailsAttemptedAtRef = React.useRef(new Map()); // ticker -> lastAttemptMs
 
         React.useEffect(() => {
+          // If disabled (e.g., a ticker is selected), do NOT continue background trail fetching.
+          // This avoids starving the selected ticker's own /trail request and prevents 429 loops.
+          if (!enabled) {
+            setLoadingTrails(false);
+            return;
+          }
+
           if (!tickers || tickers.length === 0) {
             setAllTrails({});
             return;
@@ -2835,7 +2844,15 @@
           // Only fetch trails for tickers we haven't fetched yet
           const tickersToFetch = tickers
             .map((t) => String(t?.ticker || "").toUpperCase())
-            .filter((t) => t && !trailsFetchedRef.current.has(t));
+            .filter((t) => {
+              if (!t) return false;
+              if (trailsFetchedRef.current.has(t)) return false;
+              // Cooldown for failed attempts (especially 429)
+              const lastAttempt = trailsAttemptedAtRef.current.get(t) || 0;
+              const cooldownMs = 60_000; // 60s cooldown between attempts
+              if (Date.now() - lastAttempt < cooldownMs) return false;
+              return true;
+            });
 
           if (tickersToFetch.length === 0) return;
 
@@ -2851,6 +2868,7 @@
 
           const fetchBatch = async (batch) => {
             const promises = batch.map(async (ticker) => {
+              trailsAttemptedAtRef.current.set(ticker, Date.now());
               // Retry logic with exponential backoff
               let lastError = null;
               for (let attempt = 0; attempt < 3; attempt++) {
@@ -2940,19 +2958,22 @@
               setAllTrails((prev) => {
                 const updated = { ...prev };
                 results.forEach(({ ticker, trail }) => {
-                  if (trail.length > 0) {
-                    updated[ticker] = trail;
-                    trailsFetchedRef.current.add(ticker);
-                    // Debug: Log when trails are loaded
-                    if (
-                      Object.keys(updated).length <= 10 ||
-                      ticker === "AAPL" ||
-                      ticker === "MSFT"
-                    ) {
-                      console.log(
-                        `[TRAILS] Loaded ${trail.length} points for ${ticker}`
-                      );
-                    }
+                  // IMPORTANT: Mark as fetched on ANY successful fetch attempt result (even empty)
+                  // so we don't hammer the API in a tight loop when trails are missing or rate-limited.
+                  trailsFetchedRef.current.add(ticker);
+                  updated[ticker] = Array.isArray(trail) ? trail : [];
+
+                  // Debug: Log when trails are loaded (or confirmed empty) for a small sample
+                  if (
+                    Object.keys(updated).length <= 10 ||
+                    ticker === "AAPL" ||
+                    ticker === "MSFT"
+                  ) {
+                    console.log(
+                      `[TRAILS] Loaded ${
+                        Array.isArray(trail) ? trail.length : 0
+                      } points for ${ticker}`
+                    );
                   }
                 });
                 return updated;
@@ -2965,7 +2986,7 @@
           };
 
           fetchAllBatches();
-        }, [tickers]);
+        }, [tickers, enabled]);
 
         return { allTrails, loadingTrails };
       }
@@ -3022,8 +3043,12 @@
           return tickers;
         }, [tickers, selectedTicker]);
 
-        // Fetch trail data for all tickers (use original tickers, not filtered)
-        const { allTrails, loadingTrails } = useAllTrails(tickers);
+        // Fetch trail data for all tickers ONLY when nothing is selected.
+        // When a ticker is selected, stop background fetching to avoid /trail rate limiting (429).
+        const { allTrails, loadingTrails } = useAllTrails(
+          tickers,
+          !selectedTicker
+        );
 
         // Debug: Log trail loading status
         React.useEffect(() => {
@@ -11470,44 +11495,78 @@
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-            fetch(
-              `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
+            const fetchSelectedTrail = async () => {
+              const url = `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
                 selectedTicker
-              )}`,
-              { signal: controller.signal }
-            )
-              .then((res) => res.json())
-              .then((data) => {
-                if (data.ok && Array.isArray(data.trail)) {
-                  const normalized = normalizeTrailPoints(data.trail);
-                  // One-time sample log to confirm keys look right
-                  if (!window._trailSampleLogged) {
-                    window._trailSampleLogged = true;
-                    console.log(`[TRAIL SAMPLE] ${selectedTicker}`, {
-                      first: normalized[0],
-                      rawFirst: Array.isArray(data.trail)
-                        ? data.trail[0]
-                        : null,
-                      rawKeys:
-                        data.trail && data.trail[0]
-                          ? Object.keys(data.trail[0])
-                          : [],
-                    });
+              )}`;
+
+              // A couple of light retries on 429/5xx to survive transient limits.
+              for (let attempt = 0; attempt < 2; attempt++) {
+                try {
+                  const res = await fetch(url, { signal: controller.signal });
+
+                  if (res.status === 429) {
+                    // Respect Retry-After if present (seconds)
+                    const retryAfterHeader = res.headers.get("Retry-After");
+                    const retryAfterSec = retryAfterHeader
+                      ? Math.min(60, Math.max(1, Number(retryAfterHeader)))
+                      : 5;
+                    await new Promise((r) =>
+                      setTimeout(r, retryAfterSec * 1000)
+                    );
+                    continue;
                   }
-                  setSelectedTrail(normalized);
-                } else {
+
+                  if (!res.ok) {
+                    // Retry once on 5xx; otherwise stop.
+                    if (res.status >= 500 && attempt === 0) {
+                      await new Promise((r) => setTimeout(r, 500));
+                      continue;
+                    }
+                    setSelectedTrail([]);
+                    return;
+                  }
+
+                  const data = await res.json();
+                  if (data.ok && Array.isArray(data.trail)) {
+                    const normalized = normalizeTrailPoints(data.trail);
+                    // One-time sample log to confirm keys look right
+                    if (!window._trailSampleLogged) {
+                      window._trailSampleLogged = true;
+                      console.log(`[TRAIL SAMPLE] ${selectedTicker}`, {
+                        first: normalized[0],
+                        rawFirst: Array.isArray(data.trail)
+                          ? data.trail[0]
+                          : null,
+                        rawKeys:
+                          data.trail && data.trail[0]
+                            ? Object.keys(data.trail[0])
+                            : [],
+                      });
+                    }
+                    setSelectedTrail(normalized);
+                    return;
+                  }
+
                   setSelectedTrail([]);
-                }
-              })
-              .catch((err) => {
-                if (err.name !== "AbortError") {
+                  return;
+                } catch (err) {
+                  if (err.name === "AbortError") return;
+                  if (attempt === 0) {
+                    await new Promise((r) => setTimeout(r, 300));
+                    continue;
+                  }
                   console.error("Failed to load trail:", err);
+                  setSelectedTrail([]);
+                  return;
                 }
-                setSelectedTrail([]);
-              })
-              .finally(() => {
-                clearTimeout(timeoutId);
-              });
+              }
+
+              // If we exhausted retries, keep empty
+              setSelectedTrail([]);
+            };
+
+            fetchSelectedTrail().finally(() => clearTimeout(timeoutId));
           } else {
             setSelectedTrail(null);
           }
