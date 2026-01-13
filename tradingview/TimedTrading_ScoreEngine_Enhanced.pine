@@ -1078,8 +1078,79 @@ else
         else
             sl := price_now + atrStop  // Last resort
 
+//─────────────────────────────────────────────────────────────────────────────
+// Intelligent ETA Calculation (momentum-aware, velocity-adjusted)
+//─────────────────────────────────────────────────────────────────────────────
 elapsedDays = (not na(triggerTs)) ? ((time - triggerTs) / 86400000.0) : na
-etaDays = (not na(elapsedDays) and completion > 0 and completion < 0.999) ? (elapsedDays * (1.0 / completion - 1.0)) : na
+
+// Base linear extrapolation (simple case)
+baseETA = (not na(elapsedDays) and completion > 0 and completion < 0.999) ? (elapsedDays * (1.0 / completion - 1.0)) : na
+
+// Enhanced ETA with momentum adjustment
+etaDays = na
+if not na(baseETA) and not na(elapsedDays) and completion > 0.01 and completion < 0.999
+    // Calculate recent velocity (how fast we're progressing now vs average)
+    // Use completion rate over last 25% of elapsed time to get recent velocity
+    recentCompletionWindow = math.max(1.0, elapsedDays * 0.25)  // Last 25% of time
+    avgVelocity = completion / elapsedDays  // Average velocity so far
+    recentVelocity = avgVelocity  // Default to average (will refine if we have more data)
+    
+    // Momentum adjustment based on phase velocity (30m timeframe - trigger TF)
+    // Positive phaseVelocity = momentum building, negative = fading
+    momentumFactor = 1.0
+    if not na(phVel30)
+        // Normalize phaseVelocity to reasonable range (-50 to +50 typical)
+        normalizedPhaseVel = math.max(-2.0, math.min(2.0, phVel30 / 25.0))
+        // If momentum is building (positive), we'll get there faster
+        // If momentum is fading (negative), we'll get there slower
+        momentumFactor := 1.0 - (normalizedPhaseVel * 0.3)  // Up to 30% adjustment
+    
+    // Acceleration adjustment (phaseAccel on 30m timeframe)
+    // Positive acceleration = speeding up, negative = slowing down
+    accelerationFactor = 1.0
+    if not na(phAcc30)
+        normalizedPhaseAccel = math.max(-1.0, math.min(1.0, phAcc30 / 50.0))
+        accelerationFactor := 1.0 - (normalizedPhaseAccel * 0.15)  // Up to 15% adjustment
+    
+    // RSI mean reversion adjustment (30m timeframe)
+    // High RSI (>70) or Low RSI (<30) suggests potential reversal/slowdown
+    rsiFactor = 1.0
+    if not na(rsi30) and not na(dir)
+        if rsi30 > 70
+            // Overbought - likely to slow down or reverse
+            // For longs: overbought = bad (slower), for shorts: overbought = good (faster)
+            rsiFactor := dir > 0 ? (1.0 + ((rsi30 - 70) / 30.0) * 0.2) : (1.0 - ((rsi30 - 70) / 30.0) * 0.15)
+        else if rsi30 < 30
+            // Oversold - for longs: might accelerate (faster), for shorts: might slow (slower)
+            rsiFactor := dir > 0 ? (1.0 - ((30 - rsi30) / 30.0) * 0.15) : (1.0 + ((30 - rsi30) / 30.0) * 0.15)
+    
+    // Completion-based adjustment
+    // Very low completion (<5%) = unreliable, very high (>95%) = almost there
+    completionFactor = 1.0
+    if completion < 0.05
+        // Very early stage - less reliable, be conservative
+        completionFactor := 1.2  // 20% longer estimate
+    else if completion > 0.95
+        // Almost complete - could be any moment
+        completionFactor := 0.8  // 20% shorter estimate
+    
+    // Combine all factors
+    adjustedETA = baseETA * momentumFactor * accelerationFactor * rsiFactor * completionFactor
+    
+    // Apply reasonable bounds
+    // Minimum: 0.1 days (2.4 hours)
+    // Maximum: 90 days (3 months) - reasonable upper bound for swing trades
+    minETA = 0.1
+    maxETA = 90.0
+    etaDays := math.max(minETA, math.min(maxETA, adjustedETA))
+    
+    // Additional sanity check: if completion is very low and elapsed time is short, ETA might be unreliable
+    // In this case, use a more conservative estimate
+    if completion < 0.1 and elapsedDays < 1.0
+        // Very early, use conservative estimate based on expected move and ATR
+        conservativeETA = na(expectedMove) or expectedMove <= 0 ? na : (expectedMove / (ATRw * 0.1))  // Rough estimate: 10% of ATR per day
+        if not na(conservativeETA)
+            etaDays := math.max(etaDays, math.min(conservativeETA, maxETA))
 
 minRisk = math.max(price_now * 0.005, ATRw * 0.25)
 risk = math.max(math.abs(price_now - sl), minRisk)
@@ -1119,9 +1190,10 @@ meaningful = stateChanged or scoreMoved or sq30_rel
 // After that, periodic updates will maintain data even if nothing changes
 sessionOK = f_is_allowed_session()
 firstBaseline = not sentBaseline
-// ALWAYS SEND: User wants alerts for every ticker regardless of delta changes
-// This ensures every ticker in the watchlist sends data on every bar close
-shouldSend = barstate.isconfirmed and throttleOK and (firstBaseline or sessionOK)
+// CRITICAL FIX: Include periodicUpdateDue to ensure data stays fresh even without meaningful changes
+// This ensures every ticker in the watchlist sends data every periodicUpdateMinutes (default 5 minutes)
+// Logic: First baseline bypasses session, meaningful changes respect session, periodic updates bypass session to keep data fresh
+shouldSend = barstate.isconfirmed and throttleOK and (firstBaseline or (meaningful and sessionOK) or periodicUpdateDue)
 
 // Reasons
 reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H/1H)"
