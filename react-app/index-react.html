@@ -1904,10 +1904,40 @@
           showLabels,
           isTopRanked = false,
         }) => {
-          const comp = Number(ticker.completion) || 0;
-          const phasePct = Number(ticker.phase_pct) || 0;
-          const rr = Number(ticker.rr) || 0;
+          // DEBUG: Log every bubble to see if component is being called
+          if (!window._svgBubbleCallCount) {
+            window._svgBubbleCallCount = 0;
+          }
+          window._svgBubbleCallCount++;
+          if (window._svgBubbleCallCount <= 5) {
+            console.log(
+              `[SVGBUBBLE CALLED] #${window._svgBubbleCallCount} - ${
+                ticker?.ticker || "NO TICKER"
+              }`,
+              {
+                ticker: ticker,
+                hasTicker: !!ticker,
+                tickerKeys: ticker ? Object.keys(ticker) : [],
+              }
+            );
+          }
+
+          // Ensure we have valid numeric values - check for null/undefined explicitly
+          const comp =
+            ticker.completion != null ? Number(ticker.completion) : 0;
+          const phasePct =
+            ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
+          const rr = ticker.rr != null ? Number(ticker.rr) : 0;
           const waitingForData = ticker.waitingForData === true;
+
+          // Validate values are finite numbers and clamp to valid ranges
+          const validComp = Number.isFinite(comp)
+            ? Math.max(0, Math.min(1, comp))
+            : 0;
+          const validPhasePct = Number.isFinite(phasePct)
+            ? Math.max(0, Math.min(1, phasePct))
+            : 0;
+          const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0;
 
           // Bubble size based on RR, adjusted for completion (lower completion = larger size)
           // RR is the opportunity, but we want to reduce size as completion increases
@@ -1915,8 +1945,8 @@
           // This makes high RR + low completion = largest bubbles
           // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
           // Normalized to show more tickers - reduced multiplier significantly
-          const cappedRR = Math.min(rr, 5); // Cap RR at 5 for size calculation
-          const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
+          const cappedRR = Math.min(validRR, 5); // Cap RR at 5 for size calculation
+          const completionPenalty = 1 - validComp; // 1.0 when completion is 0, 0.0 when completion is 1
           const baseSize = 4; // Reduced from 8
           const rrMultiplier = 2; // Reduced from 6 - much smaller bubbles
           // Smaller size for tickers waiting for data
@@ -1924,22 +1954,40 @@
             ? baseSize * 0.7
             : baseSize + cappedRR * rrMultiplier * completionPenalty;
 
+          // Force minimum size variation - if all sizes are the same, add variation based on ticker
+          const sizeVariation = (ticker.ticker?.charCodeAt(0) || 0) % 3; // Add small variation based on ticker name
+          const finalSize = Math.max(baseSize, size + sizeVariation * 0.5); // Add 0-1px variation, ensure minimum baseSize
+
           const prime = isPrimeBubble(ticker);
           const flags = ticker.flags || {};
           const ent = entryType(ticker);
 
           // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
           // Use gray for tickers waiting for data
-          const color = waitingForData
+          // Ensure we always have a valid color
+          let color = waitingForData
             ? "#6b7a9f"
-            : phaseCompletionToColor(phasePct);
+            : phaseCompletionToColor(validPhasePct);
+
+          // Fallback: if color is still undefined/null, use green
+          if (!color || color === "undefined" || color === "null") {
+            color = "#2ecc71"; // Green fallback
+          }
+
+          // Ensure color is a valid hex string
+          if (!color.startsWith("#")) {
+            color = "#2ecc71"; // Green fallback
+          }
+
+          // Ensure opacity is high enough to be visible (minimum 0.6)
           const opacity = waitingForData
-            ? 0.4
+            ? 0.6
             : isHovered
             ? 1
             : prime
-            ? 0.9
-            : 0.7;
+            ? 0.95
+            : 0.85; // Increased from 0.7 to 0.85 for better visibility
+
           const borderWidth = waitingForData
             ? 2
             : prime
@@ -1948,7 +1996,8 @@
             ? 2
             : flags.sq30_on
             ? 2
-            : 1;
+            : 1.5; // Increased from 1 to 1.5 for better visibility
+
           const borderColor = waitingForData
             ? "#93a4d6"
             : prime
@@ -1959,10 +2008,72 @@
             ? "#ffd700"
             : "#ffffff";
 
-          const bubbleSize = isHovered ? size * 1.2 : size;
+          const bubbleSize = isHovered ? finalSize * 1.2 : finalSize;
 
-          const x = (Number(ticker.ltf_score) || 0) * scaleX + offsetX;
-          const y = (Number(ticker.htf_score) || 0) * scaleY + offsetY;
+          // Debug logging for first few tickers to verify calculations
+          const shouldLog =
+            ticker.ticker === "AAPL" ||
+            ticker.ticker === "QQQ" ||
+            ticker.ticker === "NVDA" ||
+            ticker.ticker === "ITT" ||
+            ticker.ticker === "GOOGL" ||
+            ticker.ticker === "MSFT";
+
+          if (shouldLog) {
+            console.log(`[BUBBLE DEBUG] ${ticker.ticker}:`, {
+              size: size.toFixed(2),
+              finalSize: finalSize.toFixed(2),
+              bubbleSize: bubbleSize.toFixed(2),
+              color,
+              opacity,
+              borderColor,
+              borderWidth,
+              validRR: validRR.toFixed(2),
+              validComp: validComp.toFixed(2),
+              validPhasePct: validPhasePct.toFixed(2),
+              rawRR: rr,
+              rawComp: comp,
+              rawPhasePct: phasePct,
+              prime,
+              flags,
+              hasColor: !!color && color !== "#ffffff",
+              hasSize: size > 0,
+              tickerKeys: Object.keys(ticker).slice(0, 15),
+            });
+          }
+
+          // ALWAYS log first bubble to ensure code is running
+          if (!window._bubbleDebugLogged) {
+            window._bubbleDebugLogged = true;
+            console.log(`[BUBBLE DEBUG] FIRST BUBBLE: ${ticker.ticker}`, {
+              size: size.toFixed(2),
+              finalSize: finalSize.toFixed(2),
+              bubbleSize: bubbleSize.toFixed(2),
+              color,
+              opacity,
+              borderColor,
+              borderWidth,
+              validRR,
+              validComp,
+              validPhasePct,
+              ticker: ticker,
+            });
+          }
+
+          // Calculate position correctly:
+          // BubbleChart passes pre-adjusted offsets:
+          // - offsetX already includes +50*scaleX (centers at x=0)
+          // - offsetY already includes plotHeight - 50*scaleY (centers at y=0)
+          // - scaleY is negative for y-axis inversion
+          // So we just multiply scores by scales and add offsets
+          const ltfScore = Number(ticker.ltf_score) || 0;
+          const htfScore = Number(ticker.htf_score) || 0;
+
+          // X: LTF score * scaleX + offsetX (offsetX already centered)
+          const x = ltfScore * scaleX + offsetX;
+
+          // Y: HTF score * scaleY + offsetY (scaleY is negative, offsetY already centered)
+          const y = htfScore * scaleY + offsetY;
 
           // Determine emoji and label position
           const hasSqueeze = flags.sq30_release || flags.sq30_on;
@@ -2003,12 +2114,19 @@
               <circle
                 cx={x}
                 cy={y}
-                r={bubbleSize}
-                fill={color}
-                fillOpacity={opacity}
-                stroke={borderColor}
-                strokeWidth={borderWidth}
-                style={{ transition: "all 0.2s ease-out" }}
+                r={Math.max(2, bubbleSize)} // Ensure minimum size of 2 (was 1, too small)
+                fill={color || "#2ecc71"} // Fallback to green if undefined (was white)
+                fillOpacity={opacity || 0.85} // Fallback opacity if undefined
+                stroke={borderColor || "#ffffff"} // Fallback border color if undefined
+                strokeWidth={borderWidth || 1.5} // Fallback border width if undefined
+                style={{
+                  transition: "all 0.2s ease-out",
+                  // Force rendering - ensure no CSS overrides
+                  fill: color || "#2ecc71", // Use green as fallback
+                  stroke: borderColor || "#ffffff",
+                  fillOpacity: opacity || 0.85,
+                  strokeWidth: borderWidth || 1.5,
+                }}
               />
               {/* Emoji above bubble - #1 ranked gets special treatment */}
               {emoji && (
@@ -2231,15 +2349,45 @@
 
       const Bubble = memo(
         ({ ticker, onClick, onHover, isHovered, showLabels }) => {
-          const comp = Number(ticker.completion) || 0;
-          const phasePct = Number(ticker.phase_pct) || 0;
-          const rr = Number(ticker.rr) || 0;
+          // DEBUG: Log Recharts Bubble component calls
+          if (!window._rechartsBubbleCallCount) {
+            window._rechartsBubbleCallCount = 0;
+          }
+          window._rechartsBubbleCallCount++;
+          if (window._rechartsBubbleCallCount <= 5) {
+            console.log(
+              `[RECHARTS BUBBLE CALLED] #${window._rechartsBubbleCallCount} - ${
+                ticker?.ticker || "NO TICKER"
+              }`,
+              {
+                ticker: ticker,
+                hasTicker: !!ticker,
+                tickerKeys: ticker ? Object.keys(ticker) : [],
+              }
+            );
+          }
+
+          // Ensure we have valid numeric values - check for null/undefined explicitly
+          const comp =
+            ticker.completion != null ? Number(ticker.completion) : 0;
+          const phasePct =
+            ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
+          const rr = ticker.rr != null ? Number(ticker.rr) : 0;
           const waitingForData = ticker.waitingForData === true;
+
+          // Validate values are finite numbers and clamp to valid ranges
+          const validComp = Number.isFinite(comp)
+            ? Math.max(0, Math.min(1, comp))
+            : 0;
+          const validPhasePct = Number.isFinite(phasePct)
+            ? Math.max(0, Math.min(1, phasePct))
+            : 0;
+          const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0;
 
           // Bubble size based on RR, adjusted for completion (lower completion = larger size)
           // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
-          const cappedRR = Math.min(rr, 5); // Cap RR at 5 for size calculation
-          const completionPenalty = 1 - comp; // 1.0 when completion is 0, 0.0 when completion is 1
+          const cappedRR = Math.min(validRR, 5); // Cap RR at 5 for size calculation
+          const completionPenalty = 1 - validComp; // 1.0 when completion is 0, 0.0 when completion is 1
           const baseSize = 8;
           const rrMultiplier = 6; // Scale factor for RR
           // Smaller size for tickers waiting for data
@@ -2247,21 +2395,39 @@
             ? baseSize * 0.7
             : baseSize + cappedRR * rrMultiplier * completionPenalty;
 
+          // Force minimum size variation - if all sizes are the same, add variation based on ticker
+          const sizeVariation = (ticker.ticker?.charCodeAt(0) || 0) % 3; // Add small variation based on ticker name
+          const finalSize = Math.max(baseSize, size + sizeVariation * 0.5); // Add 0-1px variation, ensure minimum baseSize
+
           const prime = isPrimeBubble(ticker);
           const flags = ticker.flags || {};
 
           // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
           // Use gray for tickers waiting for data
-          const color = waitingForData
+          // Ensure we always have a valid color
+          let color = waitingForData
             ? "#6b7a9f"
-            : phaseCompletionToColor(phasePct);
+            : phaseCompletionToColor(validPhasePct);
+
+          // Fallback: if color is still undefined/null, use green
+          if (!color || color === "undefined" || color === "null") {
+            color = "#2ecc71"; // Green fallback
+          }
+
+          // Ensure color is a valid hex string
+          if (!color.startsWith("#")) {
+            color = "#2ecc71"; // Green fallback
+          }
+
+          // Ensure opacity is high enough to be visible (minimum 0.6)
           const opacity = waitingForData
-            ? 0.4
+            ? 0.6
             : isHovered
             ? 1
             : prime
-            ? 0.9
-            : 0.7;
+            ? 0.95
+            : 0.85; // Increased from 0.7 to 0.85 for better visibility
+
           const borderWidth = waitingForData
             ? 2
             : prime
@@ -2270,7 +2436,8 @@
             ? 2
             : flags.sq30_on
             ? 2
-            : 1;
+            : 1.5; // Increased from 1 to 1.5 for better visibility
+
           const borderColor = waitingForData
             ? "#93a4d6"
             : prime
@@ -2281,7 +2448,79 @@
             ? "#ffd700"
             : "#ffffff";
 
-          const bubbleSize = isHovered ? size * 1.2 : size;
+          // Debug logging for first few tickers to verify calculations
+          if (
+            ticker.ticker === "AAPL" ||
+            ticker.ticker === "QQQ" ||
+            ticker.ticker === "NVDA"
+          ) {
+            console.log(`[BUBBLE DEBUG] ${ticker.ticker}:`, {
+              size: size.toFixed(2),
+              bubbleSize: (isHovered ? size * 1.2 : size).toFixed(2),
+              color,
+              opacity,
+              borderColor,
+              borderWidth,
+              rr: rr.toFixed(2),
+              comp: comp.toFixed(2),
+              phasePct: phasePct.toFixed(2),
+              prime,
+              flags,
+            });
+          }
+
+          const bubbleSize = isHovered ? finalSize * 1.2 : finalSize;
+
+          // Debug logging for first few tickers
+          const shouldLog =
+            ticker.ticker === "AAPL" ||
+            ticker.ticker === "QQQ" ||
+            ticker.ticker === "NVDA" ||
+            ticker.ticker === "ITT" ||
+            ticker.ticker === "GOOGL" ||
+            ticker.ticker === "MSFT";
+
+          if (shouldLog) {
+            console.log(`[RECHARTS BUBBLE DEBUG] ${ticker.ticker}:`, {
+              size: size.toFixed(2),
+              finalSize: finalSize.toFixed(2),
+              bubbleSize: bubbleSize.toFixed(2),
+              color,
+              opacity,
+              borderColor,
+              borderWidth,
+              validRR: validRR.toFixed(2),
+              validComp: validComp.toFixed(2),
+              validPhasePct: validPhasePct.toFixed(2),
+              rawRR: rr,
+              rawComp: comp,
+              rawPhasePct: phasePct,
+              prime,
+              flags,
+            });
+          }
+
+          // ALWAYS log first bubble to ensure code is running
+          if (!window._rechartsBubbleDebugLogged) {
+            window._rechartsBubbleDebugLogged = true;
+            console.log(
+              `[RECHARTS BUBBLE DEBUG] FIRST BUBBLE: ${ticker.ticker}`,
+              {
+                size: size.toFixed(2),
+                finalSize: finalSize.toFixed(2),
+                bubbleSize: bubbleSize.toFixed(2),
+                color,
+                opacity,
+                borderColor,
+                borderWidth,
+                validRR,
+                validComp,
+                validPhasePct,
+                ticker: ticker,
+              }
+            );
+          }
+
           const x = Number(ticker.ltf_score) || 0;
           const y = Number(ticker.htf_score) || 0;
 
@@ -2318,12 +2557,19 @@
               <circle
                 cx={x}
                 cy={y}
-                r={bubbleSize}
-                fill={color}
-                fillOpacity={opacity}
-                stroke={borderColor}
-                strokeWidth={borderWidth}
-                style={{ transition: "all 0.2s ease-out" }}
+                r={Math.max(2, bubbleSize)} // Ensure minimum size of 2
+                fill={color || "#2ecc71"} // Fallback to green if undefined
+                fillOpacity={opacity || 0.85} // Fallback opacity if undefined
+                stroke={borderColor || "#ffffff"} // Fallback border color if undefined
+                strokeWidth={borderWidth || 1.5} // Fallback border width if undefined
+                style={{
+                  transition: "all 0.2s ease-out",
+                  // Force rendering - ensure no CSS overrides
+                  fill: color || "#2ecc71",
+                  stroke: borderColor || "#ffffff",
+                  fillOpacity: opacity || 0.85,
+                  strokeWidth: borderWidth || 1.5,
+                }}
               />
               {/* Emoji above bubble */}
               {emoji && (
@@ -2383,12 +2629,60 @@
         const [crosshairPos, setCrosshairPos] = useState(null); // { x, y, ltfValue, htfValue }
         const containerRef = React.useRef(null);
 
-        // Calculate #1 ranked ticker using dynamicRank (same as Ranked List)
-        // IMPORTANT: Use ALL tickers from allData, not filtered tickers, to match Ranked List
+        // Calculate #1 ranked ticker using SAME data source as Ranked List
+        // IMPORTANT: Use allTickersWithRanksForComparison (has API dynamicScore) instead of recalculating
         const topRankedTicker = React.useMemo(() => {
+          // Use allTickersWithRanksForComparison if available (same as Ranked List uses)
+          if (
+            allTickersWithRanksForComparison &&
+            allTickersWithRanksForComparison.length > 0
+          ) {
+            // Sort by dynamicRank (descending) - same as Ranked List
+            const sorted = [...allTickersWithRanksForComparison].sort(
+              (a, b) => {
+                const scoreA = Number(a.dynamicRank) || 0;
+                const scoreB = Number(b.dynamicRank) || 0;
+                // Descending order: higher score = better position
+                // NO alphabetical tie-breaker - pure score sorting
+                return scoreB - scoreA;
+              }
+            );
+
+            if (sorted.length > 0) {
+              const topTicker = sorted[0];
+              console.log(
+                "🔍 [BUBBLE CHART] Using allTickersWithRanksForComparison:",
+                {
+                  topTicker: topTicker.ticker,
+                  score: topTicker.dynamicRank,
+                  fromAPI: topTicker.dynamicScore !== undefined,
+                  totalTickers: sorted.length,
+                  top5: sorted.slice(0, 5).map((t) => ({
+                    ticker: t.ticker,
+                    score: t.dynamicRank,
+                    fromAPI: t.dynamicScore !== undefined,
+                  })),
+                }
+              );
+
+              // Verify sorting is correct - check if scores are in descending order
+              if (sorted.length > 1) {
+                const firstScore = Number(sorted[0].dynamicRank) || 0;
+                const secondScore = Number(sorted[1].dynamicRank) || 0;
+                if (firstScore < secondScore) {
+                  console.error(
+                    `[RANKING ERROR] Bubble Chart sorting failed! First score (${firstScore}) < Second score (${secondScore})`
+                  );
+                }
+              }
+
+              return topTicker.ticker;
+            }
+          }
+
+          // Fallback: Use allData if allTickersWithRanksForComparison not available
           if (!allData || typeof allData !== "object") return null;
 
-          // Get ALL tickers from allData (same as Ranked List)
           const allTickersArray = Object.values(allData).filter(
             (t) =>
               t &&
@@ -2400,73 +2694,40 @@
 
           if (allTickersArray.length === 0) return null;
 
-          // Compute dynamicRank for each ticker (same logic as Ranked List)
+          // Use API dynamicScore if available, otherwise calculate
           const tickersWithDynamicRank = allTickersArray.map((t) => ({
             ...t,
-            dynamicRank: computeDynamicRank(t),
+            dynamicRank: t.dynamicScore || computeDynamicRank(t),
           }));
 
-          // Sort by dynamicRank (descending) - same as Ranked List
+          // Sort by dynamicRank (descending)
           const sorted = [...tickersWithDynamicRank].sort((a, b) => {
             const scoreA = Number(a.dynamicRank) || 0;
             const scoreB = Number(b.dynamicRank) || 0;
-            // Descending order: higher score = better position
-            // NO alphabetical tie-breaker - pure score sorting
             return scoreB - scoreA;
           });
 
-          // Debug logging and comparison with Ranked List
+          // Debug logging
           if (sorted.length > 0) {
             const topTicker = sorted[0];
-
-            // Compare with Ranked List if available
-            let rankedListTop = null;
-            if (
-              allTickersWithRanksForComparison &&
-              allTickersWithRanksForComparison.length > 0
-            ) {
-              const rankedListSorted = [
-                ...allTickersWithRanksForComparison,
-              ].sort((a, b) => {
-                const scoreA = Number(a.dynamicRank) || 0;
-                const scoreB = Number(b.dynamicRank) || 0;
-                // NO alphabetical tie-breaker - pure score sorting
-                return scoreB - scoreA;
-              });
-              rankedListTop = rankedListSorted[0];
-            }
-
-            console.log("🔍 [BUBBLE CHART] #1 Ranked Ticker:", {
+            console.log("🔍 [BUBBLE CHART] #1 Ranked Ticker (fallback):", {
               ticker: topTicker.ticker,
               dynamicRank: topTicker.dynamicRank,
               baseRank: topTicker.rank,
+              fromAPI: topTicker.dynamicScore !== undefined,
               top5: sorted.slice(0, 5).map((t) => ({
                 ticker: t.ticker,
                 dynamicRank: t.dynamicRank,
                 baseRank: t.rank,
               })),
               totalTickers: sorted.length,
-              dataSource: "allData",
-              comparison: rankedListTop
-                ? {
-                    rankedListTop: rankedListTop.ticker,
-                    rankedListScore: rankedListTop.dynamicRank,
-                    match: topTicker.ticker === rankedListTop.ticker,
-                  }
-                : "No comparison data",
+              dataSource: "allData (fallback)",
             });
-
-            // Warn if mismatch
-            if (rankedListTop && topTicker.ticker !== rankedListTop.ticker) {
-              console.warn(
-                `[RANKING MISMATCH] Bubble Chart: ${topTicker.ticker} (${topTicker.dynamicRank}) vs Ranked List: ${rankedListTop.ticker} (${rankedListTop.dynamicRank})`
-              );
-            }
           }
 
           // Return the ticker symbol of #1 ranked ticker
           return sorted.length > 0 ? sorted[0].ticker : null;
-        }, [allData]);
+        }, [allTickersWithRanksForComparison, allData]);
         const [dimensions, setDimensions] = React.useState({
           width: 1600,
           height: 1000,
