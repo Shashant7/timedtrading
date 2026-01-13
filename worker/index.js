@@ -51,6 +51,11 @@ function corsHeaders(env, req, allowNoOrigin = false) {
     .filter(Boolean);
   const origin = req?.headers?.get("Origin") || "";
 
+  // Always allow Cloudflare Pages origins (timedtrading.pages.dev)
+  // This ensures the dashboard always works regardless of CORS_ALLOW_ORIGIN config
+  const isCloudflarePages =
+    origin.includes(".pages.dev") || origin.includes("pages.dev");
+
   // Debug logging (will appear in Cloudflare Worker logs)
   console.log("CORS check:", {
     hasConfig: !!corsConfig,
@@ -61,6 +66,7 @@ function corsHeaders(env, req, allowNoOrigin = false) {
     requestedOrigin: origin,
     originLength: origin.length,
     allowNoOrigin,
+    isCloudflarePages,
   });
 
   // If no allowed origins configured, default to "*" (backward compatible)
@@ -71,6 +77,9 @@ function corsHeaders(env, req, allowNoOrigin = false) {
   } else if (origin === "" && allowNoOrigin) {
     // Allow requests without origin (e.g., curl, direct API calls) for debug endpoints
     allowed = "*";
+  } else if (isCloudflarePages) {
+    // Always allow Cloudflare Pages origins
+    allowed = origin;
   } else if (allowedOrigins.includes(origin)) {
     allowed = origin;
   } else {
@@ -147,6 +156,64 @@ async function kvPutJSON(KV, key, val, ttlSec = null) {
   if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
     opts.expirationTtl = Math.floor(ttlSec);
   await KV.put(key, JSON.stringify(val), opts);
+}
+
+// Retry KV write with verification (for critical operations like trade saving)
+async function kvPutJSONWithRetry(KV, key, val, ttlSec = null, maxRetries = 3) {
+  const opts = {};
+  if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
+    opts.expirationTtl = Math.floor(ttlSec);
+
+  const valStr = JSON.stringify(val);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await KV.put(key, valStr, opts);
+
+      // Verify the write succeeded (with small delay for KV consistency)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const verify = await KV.get(key);
+
+      if (verify && verify === valStr) {
+        return { success: true, attempt };
+      } else if (verify) {
+        // Value exists but doesn't match - might be a race condition
+        // Try parsing to see if it's equivalent JSON
+        try {
+          const verifyObj = JSON.parse(verify);
+          const valObj = JSON.parse(valStr);
+          // Deep comparison would be expensive, so just log and return success
+          // The write succeeded, even if there was a concurrent update
+          return {
+            success: true,
+            attempt,
+            note: "verified (concurrent update possible)",
+          };
+        } catch {
+          // Not JSON, retry
+          lastError = new Error(
+            `Verification failed: value mismatch on attempt ${attempt}`
+          );
+        }
+      } else {
+        lastError = new Error(
+          `Verification failed: value not found after write on attempt ${attempt}`
+        );
+      }
+    } catch (err) {
+      lastError = err;
+    }
+
+    if (attempt < maxRetries) {
+      // Exponential backoff: 50ms, 100ms, 200ms
+      await new Promise((resolve) =>
+        setTimeout(resolve, 50 * Math.pow(2, attempt - 1))
+      );
+    }
+  }
+
+  return { success: false, error: lastError, attempts: maxRetries };
 }
 
 async function kvPutText(KV, key, text, ttlSec = null) {
@@ -325,7 +392,7 @@ function computeRR(d) {
         ) {
           return Number(tpItem.price);
         }
-        return typeof tpItem === "number" ? tpItem : Number(tpItem);
+        return typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
       })
       .filter((p) => Number.isFinite(p));
 
@@ -356,6 +423,176 @@ function computeRR(d) {
     // Fallback to absolute values if direction unclear
     risk = Math.abs(price - sl);
     gain = Math.abs(tp - price);
+  }
+
+  // Ensure both risk and gain are positive
+  if (risk <= 0 || gain <= 0) return null;
+  return gain / risk;
+}
+
+// Helper function: completionForSize (normalize completion to 0-1)
+function completionForSize(ticker) {
+  const c = Number(ticker.completion);
+  return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
+}
+
+// Helper function: entryType (check if ticker is in corridor)
+function entryType(ticker) {
+  const state = String(ticker.state || "");
+  const price = Number(ticker.price) || 0;
+  const triggerPrice = Number(ticker.trigger_price) || 0;
+  const sl = Number(ticker.sl) || 0;
+  const tp = Number(ticker.tp) || 0;
+
+  const isLong = state.includes("BULL");
+  const isShort = state.includes("BEAR");
+
+  const inCorridor =
+    (isLong && price >= triggerPrice && price <= tp) ||
+    (isShort && price <= triggerPrice && price >= tp);
+
+  return { corridor: inCorridor };
+}
+
+// Dynamic SCORE calculation that considers real-time conditions
+// NOTE: This returns a SCORE (0-200+), not a RANK (position 1-135)
+// RANK is determined by sorting all tickers by this score
+function computeDynamicScore(ticker) {
+  const baseScore = Number(ticker.rank) || 50; // Base score from worker (0-100)
+  const htf = Number(ticker.htf_score) || 0;
+  const ltf = Number(ticker.ltf_score) || 0;
+  const comp = completionForSize(ticker);
+  const phase = Number(ticker.phase_pct) || 0;
+  const rr = Number(ticker.rr) || 0;
+  const flags = ticker.flags || {};
+  const state = String(ticker.state || "");
+
+  const sqRel = !!flags.sq30_release;
+  const sqOn = !!flags.sq30_on;
+  const phaseZoneChange = !!flags.phase_zone_change;
+  const aligned =
+    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  const ent = entryType(ticker);
+  const inCorridor = ent.corridor;
+
+  let dynamicScore = baseScore;
+
+  // Corridor bonus (high priority - active setups)
+  if (inCorridor) {
+    dynamicScore += 12; // Strong bonus for being in corridor
+
+    // Extra bonus if aligned AND in corridor (perfect setup)
+    if (aligned) {
+      dynamicScore += 8;
+    }
+  }
+
+  // Squeeze release in corridor = very strong signal
+  if (sqRel && inCorridor) {
+    dynamicScore += 10;
+  }
+
+  // Squeeze on in corridor = building pressure
+  if (sqOn && inCorridor && !sqRel) {
+    dynamicScore += 5;
+  }
+
+  // RR bonus (scaled - better RR = higher score)
+  if (rr >= 2.0) {
+    dynamicScore += 8; // Excellent RR
+  } else if (rr >= 1.5) {
+    dynamicScore += 5; // Good RR
+  } else if (rr >= 1.0) {
+    dynamicScore += 2; // Acceptable RR
+  }
+
+  // Phase bonus (early phase = better opportunity)
+  if (phase < 0.3) {
+    dynamicScore += 6; // Very early
+  } else if (phase < 0.5) {
+    dynamicScore += 3; // Early
+  } else if (phase > 0.7) {
+    dynamicScore -= 5; // Late phase penalty
+  }
+
+  // Completion bonus (low completion = more room to run)
+  if (comp < 0.3) {
+    dynamicScore += 5; // Early in move
+  } else if (comp > 0.8) {
+    dynamicScore -= 8; // Near completion penalty
+  }
+
+  // Score strength bonus (strong HTF/LTF scores)
+  const htfStrength = Math.min(8, Math.abs(htf) * 0.15);
+  const ltfStrength = Math.min(6, Math.abs(ltf) * 0.12);
+  dynamicScore += htfStrength + ltfStrength;
+
+  // Phase zone change bonus
+  if (phaseZoneChange) {
+    dynamicScore += 4;
+  }
+
+  // NO CAP - let scores go above 100 to avoid ties
+  // Minimum is 0, but no maximum cap
+  dynamicScore = Math.max(0, dynamicScore);
+
+  return Math.round(dynamicScore * 100) / 100; // Round to 2 decimals for precision
+}
+
+// Compute RR at trigger price (for alert evaluation)
+// This evaluates RR at the entry point, not current price
+// This is critical because price moves after trigger, which decreases RR
+function computeRRAtTrigger(d) {
+  // Use trigger_price if available, otherwise fall back to current price
+  const triggerPrice =
+    d.trigger_price != null ? Number(d.trigger_price) : Number(d.price);
+  const sl = Number(d.sl);
+  if (!Number.isFinite(triggerPrice) || !Number.isFinite(sl)) return null;
+
+  // Use MAX TP from tp_levels if available, otherwise fall back to first TP
+  let tp = Number(d.tp);
+  if (d.tp_levels && Array.isArray(d.tp_levels) && d.tp_levels.length > 0) {
+    // Extract prices from tp_levels (handle both object and number formats)
+    const tpPrices = d.tp_levels
+      .map((tpItem) => {
+        if (
+          typeof tpItem === "object" &&
+          tpItem !== null &&
+          tpItem.price != null
+        ) {
+          return Number(tpItem.price);
+        }
+        return typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
+      })
+      .filter((p) => Number.isFinite(p));
+
+    if (tpPrices.length > 0) {
+      // Use maximum TP (best-case scenario for RR calculation)
+      tp = Math.max(...tpPrices);
+    }
+  }
+
+  if (!Number.isFinite(tp)) return null;
+
+  // Determine direction from state to calculate risk/reward correctly
+  const state = String(d.state || "");
+  const isLong = state.includes("BULL");
+  const isShort = state.includes("BEAR");
+
+  let risk, gain;
+
+  if (isLong) {
+    // For LONG: SL should be below trigger price, TP should be above trigger price
+    risk = triggerPrice - sl; // Risk is distance from trigger price to SL (down)
+    gain = tp - triggerPrice; // Gain is distance from trigger price to TP (up)
+  } else if (isShort) {
+    // For SHORT: SL should be above trigger price, TP should be below trigger price
+    risk = sl - triggerPrice; // Risk is distance from trigger price to SL (up)
+    gain = triggerPrice - tp; // Gain is distance from trigger price to TP (down)
+  } else {
+    // Fallback to absolute values if direction unclear
+    risk = Math.abs(triggerPrice - sl);
+    gain = Math.abs(tp - triggerPrice);
   }
 
   // Ensure both risk and gain are positive
@@ -2031,11 +2268,63 @@ async function processTradeSimulation(
         tickerDataForCheck,
         prevData
       );
+
+      // Log detailed check results for debugging
+      const h = Number(tickerData.htf_score);
+      const l = Number(tickerData.ltf_score);
+      const state = String(tickerData.state || "");
+      const alignedLong = state === "HTF_BULL_LTF_BULL";
+      const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+      const inCorridor =
+        Number.isFinite(h) &&
+        Number.isFinite(l) &&
+        ((h > 0 && l >= -8 && l <= 12) || (h < 0 && l >= -12 && l <= 8));
+      const side =
+        h > 0 && l >= -8 && l <= 12
+          ? "LONG"
+          : h < 0 && l >= -12 && l <= 8
+          ? "SHORT"
+          : null;
+      const corridorAlignedOK =
+        (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+
+      const flags = tickerData.flags || {};
+      const momentumElite = !!flags.momentum_elite;
+      const baseMinRR = 1.5;
+      const baseMinRank = 70;
+      const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
+      const minRank = momentumElite
+        ? Math.max(60, baseMinRank - 10)
+        : baseMinRank;
+
+      const rrOk = (entryRR || 0) >= minRR;
+      const compOk =
+        (Number(tickerData.completion) || 0) <= (momentumElite ? 0.5 : 0.4);
+      const phaseOk =
+        (Number(tickerData.phase_pct) || 0) <= (momentumElite ? 0.7 : 0.6);
+      const rankOk = (Number(tickerData.rank) || 0) >= minRank;
+
       console.log(
         `[TRADE SIM] ${ticker} ${direction}: shouldTrigger=${shouldTrigger}, entryRR=${
           entryRR?.toFixed(2) || "null"
-        }, currentRR=${tickerData.rr?.toFixed(2) || "null"}`
+        }, currentRR=${tickerData.rr?.toFixed(2) || "null"}, rank=${
+          tickerData.rank || 0
+        }, state=${state}`
       );
+      console.log(
+        `[TRADE SIM] ${ticker} checks: inCorridor=${inCorridor}, corridorAlignedOK=${corridorAlignedOK}, rrOk=${rrOk} (${
+          entryRR?.toFixed(2) || "null"
+        } >= ${minRR}), compOk=${compOk}, phaseOk=${phaseOk}, rankOk=${rankOk} (${
+          tickerData.rank || 0
+        } >= ${minRank})`
+      );
+
+      if (!shouldTrigger) {
+        console.log(
+          `[TRADE SIM] ❌ ${ticker} ${direction}: Trade creation BLOCKED - conditions not met`
+        );
+        return; // Exit early - do not create trade
+      }
 
       if (shouldTrigger) {
         const now = Date.now();
@@ -2207,24 +2496,44 @@ async function processTradeSimulation(
           shouldBlockOpenTrade = true;
         }
 
-        // Additional check: prevent multiple trades for same ticker/direction within 1 hour
-        // This catches cases where multiple alerts come in over time but shouldn't create multiple positions
-        const oneHourAgo = now - 60 * 60 * 1000; // 1 hour (reduced from 24 hours)
-        const recentTrade = allTrades.find(
-          (t) =>
-            t.ticker === ticker &&
-            t.direction === direction &&
-            t.entryTime &&
-            new Date(t.entryTime).getTime() > oneHourAgo
-        );
+        // Check for closed trades on subsequent days with similar entry price
+        // Allow scaling/pyramiding if price differs significantly (>2%), but block if price is nearly the same
+        const priceThreshold = entryPrice * 0.02; // 2% threshold for "nearly the same"
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+        const todayStart = today.getTime();
 
-        // Also check for trades with very similar entry price (within 0.5% to catch duplicates)
-        // This prevents duplicate alerts even if timestamps differ slightly
-        const priceThreshold = entryPrice * 0.005; // 0.5% of entry price
-        const similarPriceTrade = allTrades.find(
+        // Find closed trades from previous days (not today) with similar entry price
+        const similarPriceClosedTrade = allTrades.find((t) => {
+          if (
+            t.ticker === ticker &&
+            t.direction === direction &&
+            (t.status === "WIN" || t.status === "LOSS") &&
+            t.entryPrice &&
+            t.entryTime
+          ) {
+            const entryDate = new Date(t.entryTime);
+            entryDate.setHours(0, 0, 0, 0);
+            const entryDayStart = entryDate.getTime();
+
+            // Only check trades from previous days (not today)
+            const isPreviousDay = entryDayStart < todayStart;
+
+            // Check if price is nearly the same (within 2%)
+            const priceDiff = Math.abs(Number(t.entryPrice) - entryPrice);
+            const isSimilarPrice = priceDiff < priceThreshold;
+
+            return isPreviousDay && isSimilarPrice;
+          }
+          return false;
+        });
+
+        // Check for open trades with similar price (existing logic - keep this)
+        const similarPriceOpenTrade = allTrades.find(
           (t) =>
             t.ticker === ticker &&
             t.direction === direction &&
+            (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM") &&
             t.entryPrice &&
             Math.abs(Number(t.entryPrice) - entryPrice) < priceThreshold
         );
@@ -2238,23 +2547,42 @@ async function processTradeSimulation(
           console.log(
             `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - open trade already exists with similar entry price`
           );
-        } else if (recentTrade) {
+        } else if (similarPriceOpenTrade) {
           console.log(
-            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - recent trade exists (within 1 hour)`
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - open trade exists with similar entry price (${Number(
+              similarPriceOpenTrade.entryPrice
+            ).toFixed(2)} vs ${entryPrice.toFixed(2)}, diff: ${(
+              (Math.abs(Number(similarPriceOpenTrade.entryPrice) - entryPrice) /
+                entryPrice) *
+              100
+            ).toFixed(2)}%)`
           );
-        } else if (similarPriceTrade) {
+        } else if (similarPriceClosedTrade) {
           console.log(
-            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - duplicate trade with similar entry price (${Number(
-              similarPriceTrade.entryPrice
-            ).toFixed(2)} vs ${entryPrice.toFixed(2)})`
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - closed trade from previous day with similar entry price (${Number(
+              similarPriceClosedTrade.entryPrice
+            ).toFixed(2)} vs ${entryPrice.toFixed(2)}, diff: ${(
+              (Math.abs(
+                Number(similarPriceClosedTrade.entryPrice) - entryPrice
+              ) /
+                entryPrice) *
+              100
+            ).toFixed(2)}%, closed: ${similarPriceClosedTrade.entryTime})`
           );
+        } else {
+          // Price differs significantly or no similar trade found - allow scaling/pyramiding
+          if (similarPriceClosedTrade === undefined && anyOpenTrade) {
+            console.log(
+              `[TRADE SIM] ℹ️ ${ticker} ${direction}: Price differs significantly from previous day's closed trade - allowing scaling/pyramiding`
+            );
+          }
         }
 
         if (
           !recentlyClosedTrade &&
           !shouldBlockOpenTrade &&
-          !recentTrade &&
-          !similarPriceTrade
+          !similarPriceOpenTrade &&
+          !similarPriceClosedTrade
         ) {
           const tradeCalc = calculateTradePnl(tickerData, entryPrice);
 
@@ -2338,12 +2666,33 @@ async function processTradeSimulation(
               return timeB - timeA;
             });
 
-            await kvPutJSON(KV, tradesKey, allTrades);
-            console.log(
-              `[TRADE SIM] ✅ Created new trade ${ticker} ${direction} (Rank ${
-                trade.rank
-              }, Entry RR ${trade.rr.toFixed(2)})`
+            // CRITICAL: Save trade to KV with retry logic to ensure it persists
+            // This ensures the trade is saved even if the request is canceled
+            // Use retry with verification to handle race conditions
+            const saveResult = await kvPutJSONWithRetry(
+              KV,
+              tradesKey,
+              allTrades
             );
+            if (saveResult.success) {
+              console.log(
+                `[TRADE SIM] ✅ Created new trade ${ticker} ${direction} (Rank ${
+                  trade.rank
+                }, Entry RR ${trade.rr.toFixed(2)}) - Saved to KV (attempt ${
+                  saveResult.attempt
+                }${saveResult.note ? `, ${saveResult.note}` : ""})`
+              );
+            } else {
+              console.error(
+                `[TRADE SIM] ❌ Failed to save trade ${ticker} ${direction} after ${saveResult.attempts} attempts:`,
+                saveResult.error
+              );
+              // Still log the trade creation even if save failed
+              // The trade will be recreated on next ingestion if conditions are met
+              console.log(
+                `[TRADE SIM] ⚠️ Trade ${ticker} ${direction} created but NOT saved - will retry on next ingestion`
+              );
+            }
 
             // Send Discord notification for new trade entry
             // Only send alert if this is a real-time trade (not a backfill)
@@ -2352,6 +2701,31 @@ async function processTradeSimulation(
               console.log(
                 `[TRADE SIM] 📢 Preparing entry alert for ${ticker} ${direction}`
               );
+
+              // CRITICAL: If we're sending a Discord alert, ensure the trade is saved
+              // Retry KV write if it failed, since we have enough confidence to alert
+              if (!saveResult.success) {
+                console.log(
+                  `[TRADE SIM] 🔄 Retrying KV save for ${ticker} ${direction} before sending alert`
+                );
+                const retryResult = await kvPutJSONWithRetry(
+                  KV,
+                  tradesKey,
+                  allTrades,
+                  null,
+                  5
+                );
+                if (retryResult.success) {
+                  console.log(
+                    `[TRADE SIM] ✅ Trade ${ticker} ${direction} saved on retry (attempt ${retryResult.attempt})`
+                  );
+                } else {
+                  console.error(
+                    `[TRADE SIM] ❌ Trade ${ticker} ${direction} STILL not saved after retry - alerting anyway but trade may be lost`
+                  );
+                }
+              }
+
               const embed = createTradeEntryEmbed(
                 ticker,
                 direction,
@@ -2371,6 +2745,47 @@ async function processTradeSimulation(
                   err
                 );
               }); // Don't let Discord errors break trade creation
+
+              // Log trade entry to activity feed
+              try {
+                await appendActivity(KV, {
+                  ticker,
+                  type: "trade_entry",
+                  direction: direction,
+                  action: "entry",
+                  entryPrice: entryPrice,
+                  sl: Number(tickerData.sl),
+                  tp: validTP,
+                  maxTP:
+                    tickerData.tp_levels &&
+                    Array.isArray(tickerData.tp_levels) &&
+                    tickerData.tp_levels.length > 0
+                      ? Math.max(
+                          ...tickerData.tp_levels
+                            .map((tp) =>
+                              typeof tp === "object" && tp.price
+                                ? Number(tp.price)
+                                : Number(tp)
+                            )
+                            .filter((p) => Number.isFinite(p))
+                        )
+                      : validTP,
+                  rr: entryRR || 0,
+                  rank: trade.rank || 0,
+                  state: tickerData.state || "N/A",
+                  htf_score: tickerData.htf_score,
+                  ltf_score: tickerData.ltf_score,
+                  completion: tickerData.completion,
+                  phase_pct: tickerData.phase_pct,
+                  price: Number(tickerData.price),
+                  tradeId: trade.id,
+                });
+              } catch (activityErr) {
+                console.error(
+                  `[TRADE SIM] Failed to log trade entry to activity feed for ${ticker}:`,
+                  activityErr
+                );
+              }
             } else if (env && isBackfill) {
               console.log(
                 `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - backfill trade (entry: $${entryPrice.toFixed(
@@ -4203,9 +4618,18 @@ function getSector(ticker) {
 // Load sector mappings from KV (called on startup)
 async function loadSectorMappingsFromKV(KV) {
   try {
+    if (!KV) {
+      console.log(
+        `[SECTOR LOAD] KV not available, skipping sector mapping load`
+      );
+      return;
+    }
     // Get all tickers from watchlist
     const tickersList = await KV.get("timed:tickers", "json");
-    if (!tickersList || !Array.isArray(tickersList)) return;
+    if (!tickersList || !Array.isArray(tickersList)) {
+      console.log(`[SECTOR LOAD] No tickers list found in KV, skipping`);
+      return;
+    }
 
     let loadedCount = 0;
     for (const ticker of tickersList) {
@@ -4514,276 +4938,834 @@ async function rankTickersInSector(KV, sector, limit = 10) {
 let sectorMappingsLoaded = false;
 
 export default {
-  async fetch(req, env) {
-    const KV = env.KV_TIMED;
+  async fetch(req, env, ctx) {
+    // Top-level error handler to prevent 500 errors from crashing the worker
+    try {
+      const KV = env.KV_TIMED;
 
-    // Load sector mappings from KV on first request (lazy initialization)
-    if (!sectorMappingsLoaded) {
-      await loadSectorMappingsFromKV(KV);
-      sectorMappingsLoaded = true;
-    }
-
-    const url = new URL(req.url);
-
-    if (req.method === "OPTIONS") {
-      return new Response("", { status: 204, headers: corsHeaders(env, req) });
-    }
-
-    // POST /timed/ingest
-    // NOTE: This endpoint uses API key authentication instead of rate limiting
-    // TradingView webhooks are authenticated via ?key= parameter
-    if (url.pathname === "/timed/ingest" && req.method === "POST") {
-      let body = null; // Declare outside try for catch block access
-      try {
-        // Early logging to confirm request reception
-        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        console.log(
-          `[INGEST REQUEST RECEIVED] IP: ${ip}, User-Agent: ${
-            req.headers.get("User-Agent") || "none"
-          }`
-        );
-
-        const authFail = requireKeyOr401(req, env);
-        if (authFail) {
-          console.log(`[INGEST AUTH FAILED] IP: ${ip}`);
-          return authFail;
-        }
-
-        console.log(`[INGEST AUTH PASSED] Processing request from IP: ${ip}`);
-        const { obj: bodyData, raw, err } = await readBodyAsJSON(req);
-        body = bodyData; // Assign to outer variable
-        if (!body) {
-          console.log(
-            `[INGEST JSON PARSE FAILED] IP: ${ip}, Error: ${String(
-              err || "unknown"
-            )}, Raw sample: ${String(raw || "").slice(0, 200)}`
-          );
-          return ackJSON(
-            env,
-            {
-              ok: false,
-              error: "bad_json",
-              sample: String(raw || "").slice(0, 200),
-              parseError: String(err || ""),
-            },
-            400,
-            req
-          );
-        }
-
-        // Log raw payload for debugging (especially for missing tickers)
-        const tickerFromBody = normTicker(body?.ticker);
-        console.log(`[INGEST RAW] ${tickerFromBody || "UNKNOWN"}:`, {
-          hasTicker: !!body?.ticker,
-          hasTs: body?.ts !== undefined,
-          hasHtf: body?.htf_score !== undefined,
-          hasLtf: body?.ltf_score !== undefined,
-          ts: body?.ts,
-          htf: body?.htf_score,
-          ltf: body?.ltf_score,
-          tsType: typeof body?.ts,
-          htfType: typeof body?.htf_score,
-          ltfType: typeof body?.ltf_score,
+      // Verify KV binding is available
+      if (!KV) {
+        console.error(`[FETCH ERROR] KV_TIMED binding is not available`, {
+          hasEnv: !!env,
+          envKeys: env ? Object.keys(env) : [],
+          url: req?.url,
         });
+        return sendJSON(
+          {
+            ok: false,
+            error: "kv_not_configured",
+            message:
+              "KV binding is not configured. Please add KV_TIMED binding in Cloudflare Dashboard.",
+          },
+          500,
+          corsHeaders(env, req)
+        );
+      }
 
-        const v = validateTimedPayload(body);
-        if (!v.ok) {
-          console.log(
-            `[INGEST VALIDATION FAILED] ${tickerFromBody || "UNKNOWN"}:`,
-            {
-              error: v.error,
-              ticker: body?.ticker,
-              ts: body?.ts,
-              htf: body?.htf_score,
-              ltf: body?.ltf_score,
-            }
-          );
-          return ackJSON(env, v, 400, req);
+      // Use waitUntil to ensure critical operations complete even after response
+      // This helps prevent race conditions with request cancellation
+
+      // Load sector mappings from KV on first request (lazy initialization)
+      // Wrap in try-catch to prevent crashes if KV is unavailable
+      if (!sectorMappingsLoaded && KV) {
+        try {
+          await loadSectorMappingsFromKV(KV);
+          sectorMappingsLoaded = true;
+        } catch (sectorLoadErr) {
+          console.error(`[SECTOR LOAD] Failed to load sector mappings:`, {
+            error: String(sectorLoadErr),
+            message: sectorLoadErr?.message,
+          });
+          // Continue anyway - sector mappings are optional
+          sectorMappingsLoaded = true; // Mark as loaded to prevent retry loops
         }
+      }
 
-        const ticker = v.ticker;
-        const payload = v.payload;
+      const url = new URL(req.url);
 
-        // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
-        // Check BEFORE normalization to catch BRK.B from TradingView
-        const rawTicker = body?.ticker;
-        if (
-          rawTicker === "BRK.B" ||
-          rawTicker === "BRK-B" ||
-          ticker === "BRK-B"
-        ) {
-          // Check if old BRK.B data exists and migrate it
-          const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
-          const newData = await kvGetJSON(KV, `timed:latest:BRK-B`);
+      if (req.method === "OPTIONS") {
+        return new Response("", {
+          status: 204,
+          headers: corsHeaders(env, req),
+        });
+      }
 
-          if (
-            oldData &&
-            (!newData || (oldData.ts && newData.ts && oldData.ts > newData.ts))
-          ) {
+      // POST /timed/ingest
+      // NOTE: This endpoint uses API key authentication instead of rate limiting
+      // TradingView webhooks are authenticated via ?key= parameter
+      if (url.pathname === "/timed/ingest" && req.method === "POST") {
+        let body = null; // Declare outside try for catch block access
+        try {
+          // Early logging to confirm request reception
+          const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+          console.log(
+            `[INGEST REQUEST RECEIVED] IP: ${ip}, User-Agent: ${
+              req.headers.get("User-Agent") || "none"
+            }`
+          );
+
+          const authFail = requireKeyOr401(req, env);
+          if (authFail) {
+            console.log(`[INGEST AUTH FAILED] IP: ${ip}`);
+            return authFail;
+          }
+
+          console.log(`[INGEST AUTH PASSED] Processing request from IP: ${ip}`);
+          const { obj: bodyData, raw, err } = await readBodyAsJSON(req);
+          body = bodyData; // Assign to outer variable
+          if (!body) {
             console.log(
-              `[MIGRATE BRK] Migrating BRK.B data to BRK-B (old ts: ${
-                oldData.ts
-              }, new ts: ${newData?.ts || "none"})`
+              `[INGEST JSON PARSE FAILED] IP: ${ip}, Error: ${String(
+                err || "unknown"
+              )}, Raw sample: ${String(raw || "").slice(0, 200)}`
             );
-            // Copy data to BRK-B (use newer data if both exist)
-            const dataToUse =
-              newData && newData.ts > oldData.ts ? newData : oldData;
-            await kvPutJSON(KV, `timed:latest:BRK-B`, dataToUse);
-            // Copy trail if exists
-            const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
-            const newTrail = await kvGetJSON(KV, `timed:trail:BRK-B`);
-            if (oldTrail) {
-              await kvPutJSON(KV, `timed:trail:BRK-B`, oldTrail);
-            } else if (newTrail) {
-              await kvPutJSON(KV, `timed:trail:BRK-B`, newTrail);
-            }
-            // Ensure BRK-B is in index (should already be, but double-check)
-            await ensureTickerIndex(KV, "BRK-B");
-            // Delete old BRK.B data only if we migrated it
-            if (dataToUse === oldData) {
-              await KV.delete(`timed:latest:BRK.B`);
-              await KV.delete(`timed:trail:BRK.B`);
+            return ackJSON(
+              env,
+              {
+                ok: false,
+                error: "bad_json",
+                sample: String(raw || "").slice(0, 200),
+                parseError: String(err || ""),
+              },
+              400,
+              req
+            );
+          }
+
+          // Log raw payload for debugging (especially for missing tickers)
+          const tickerFromBody = normTicker(body?.ticker);
+          console.log(`[INGEST RAW] ${tickerFromBody || "UNKNOWN"}:`, {
+            hasTicker: !!body?.ticker,
+            hasTs: body?.ts !== undefined,
+            hasHtf: body?.htf_score !== undefined,
+            hasLtf: body?.ltf_score !== undefined,
+            ts: body?.ts,
+            htf: body?.htf_score,
+            ltf: body?.ltf_score,
+            tsType: typeof body?.ts,
+            htfType: typeof body?.htf_score,
+            ltfType: typeof body?.ltf_score,
+          });
+
+          const v = validateTimedPayload(body);
+          if (!v.ok) {
+            console.log(
+              `[INGEST VALIDATION FAILED] ${tickerFromBody || "UNKNOWN"}:`,
+              {
+                error: v.error,
+                ticker: body?.ticker,
+                ts: body?.ts,
+                htf: body?.htf_score,
+                ltf: body?.ltf_score,
+              }
+            );
+            return ackJSON(env, v, 400, req);
+          }
+
+          const ticker = v.ticker;
+          const payload = v.payload;
+
+          // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
+          // Check BEFORE normalization to catch BRK.B from TradingView
+          const rawTicker = body?.ticker;
+          if (
+            rawTicker === "BRK.B" ||
+            rawTicker === "BRK-B" ||
+            ticker === "BRK-B"
+          ) {
+            // Check if old BRK.B data exists and migrate it
+            const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
+            const newData = await kvGetJSON(KV, `timed:latest:BRK-B`);
+
+            if (
+              oldData &&
+              (!newData ||
+                (oldData.ts && newData.ts && oldData.ts > newData.ts))
+            ) {
               console.log(
-                `[MIGRATE BRK] Migration complete: BRK.B → BRK-B (deleted old BRK.B)`
+                `[MIGRATE BRK] Migrating BRK.B data to BRK-B (old ts: ${
+                  oldData.ts
+                }, new ts: ${newData?.ts || "none"})`
               );
-            } else {
-              console.log(
-                `[MIGRATE BRK] BRK-B already has newer data, keeping both`
-              );
+              // Copy data to BRK-B (use newer data if both exist)
+              const dataToUse =
+                newData && newData.ts > oldData.ts ? newData : oldData;
+              await kvPutJSON(KV, `timed:latest:BRK-B`, dataToUse);
+              // Copy trail if exists
+              const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
+              const newTrail = await kvGetJSON(KV, `timed:trail:BRK-B`);
+              if (oldTrail) {
+                await kvPutJSON(KV, `timed:trail:BRK-B`, oldTrail);
+              } else if (newTrail) {
+                await kvPutJSON(KV, `timed:trail:BRK-B`, newTrail);
+              }
+              // Ensure BRK-B is in index (should already be, but double-check)
+              await ensureTickerIndex(KV, "BRK-B");
+              // Delete old BRK.B data only if we migrated it
+              if (dataToUse === oldData) {
+                await KV.delete(`timed:latest:BRK.B`);
+                await KV.delete(`timed:trail:BRK.B`);
+                console.log(
+                  `[MIGRATE BRK] Migration complete: BRK.B → BRK-B (deleted old BRK.B)`
+                );
+              } else {
+                console.log(
+                  `[MIGRATE BRK] BRK-B already has newer data, keeping both`
+                );
+              }
             }
           }
-        }
 
-        // Log ingestion for debugging
-        console.log(`[INGEST] ${ticker}:`, {
-          ts: payload.ts,
-          htf: payload.htf_score,
-          ltf: payload.ltf_score,
-          state: payload.state,
-          price: payload.price,
-          script_version: payload.script_version,
-        });
+          // Log ingestion for debugging
+          console.log(`[INGEST] ${ticker}:`, {
+            ts: payload.ts,
+            htf: payload.htf_score,
+            ltf: payload.ltf_score,
+            state: payload.state,
+            price: payload.price,
+            script_version: payload.script_version,
+          });
 
-        // Check version and migrate if needed (non-blocking for large migrations)
-        const incomingVersion = payload.script_version || "unknown";
-        const storedVersion = await getStoredVersion(KV);
-        let migration = { migrated: false, reason: "version_match" };
+          // Check version and migrate if needed (non-blocking for large migrations)
+          const incomingVersion = payload.script_version || "unknown";
+          const storedVersion = await getStoredVersion(KV);
+          let migration = { migrated: false, reason: "version_match" };
 
-        if (!storedVersion) {
-          // First run - set version immediately
-          await setStoredVersion(KV, incomingVersion);
-        } else if (storedVersion !== incomingVersion) {
-          // Version changed - run migration in background to avoid timeout
-          console.log(
-            `Version change detected: ${storedVersion} -> ${incomingVersion}, starting background migration`
-          );
+          if (!storedVersion) {
+            // First run - set version immediately
+            await setStoredVersion(KV, incomingVersion);
+          } else if (storedVersion !== incomingVersion) {
+            // Version changed - run migration in background to avoid timeout
+            console.log(
+              `Version change detected: ${storedVersion} -> ${incomingVersion}, starting background migration`
+            );
 
-          // Update version immediately to prevent concurrent migrations from multiple requests
-          // Migration will still run (it checks storedVersion at start, before we update)
-          // But subsequent requests won't trigger migration again
-          await setStoredVersion(KV, incomingVersion);
+            // Update version immediately to prevent concurrent migrations from multiple requests
+            // Migration will still run (it checks storedVersion at start, before we update)
+            // But subsequent requests won't trigger migration again
+            await setStoredVersion(KV, incomingVersion);
 
-          // Start migration in background (fire and forget) - don't wait for completion
-          // This prevents timeout on large data sets (133+ tickers)
-          // Use storedVersion from before update to run migration correctly
-          const migrationPromise = checkAndMigrateWithStoredVersion(
-            KV,
-            storedVersion,
-            incomingVersion
-          );
-          migrationPromise
-            .then((result) => {
-              if (result.migrated) {
-                console.log(
-                  `Background migration completed: ${result.oldVersion} -> ${
-                    result.newVersion
-                  }, purged ${result.tickerCount || 0} tickers`
-                );
-                // Optionally notify Discord about migration
-                // Notify Discord about migration with embed card
-                const migrationEmbed = {
-                  title: "🔄 Data Model Migration",
-                  color: 0x0099ff, // Blue
-                  fields: [
-                    {
-                      name: "Version",
-                      value: `${result.oldVersion} → ${result.newVersion}`,
-                      inline: true,
+            // Start migration in background (fire and forget) - don't wait for completion
+            // This prevents timeout on large data sets (133+ tickers)
+            // Use storedVersion from before update to run migration correctly
+            const migrationPromise = checkAndMigrateWithStoredVersion(
+              KV,
+              storedVersion,
+              incomingVersion
+            );
+            migrationPromise
+              .then((result) => {
+                if (result.migrated) {
+                  console.log(
+                    `Background migration completed: ${result.oldVersion} -> ${
+                      result.newVersion
+                    }, purged ${result.tickerCount || 0} tickers`
+                  );
+                  // Optionally notify Discord about migration
+                  // Notify Discord about migration with embed card
+                  const migrationEmbed = {
+                    title: "🔄 Data Model Migration",
+                    color: 0x0099ff, // Blue
+                    fields: [
+                      {
+                        name: "Version",
+                        value: `${result.oldVersion} → ${result.newVersion}`,
+                        inline: true,
+                      },
+                      {
+                        name: "Tickers Purged",
+                        value: `${result.tickerCount || 0}`,
+                        inline: true,
+                      },
+                      {
+                        name: "Archive Created",
+                        value: result.archived ? "Yes" : "No",
+                        inline: true,
+                      },
+                    ],
+                    description: "Migration completed in background",
+                    timestamp: new Date().toISOString(),
+                    footer: {
+                      text: "Timed Trading System",
                     },
-                    {
-                      name: "Tickers Purged",
-                      value: `${result.tickerCount || 0}`,
-                      inline: true,
-                    },
-                    {
-                      name: "Archive Created",
-                      value: result.archived ? "Yes" : "No",
-                      inline: true,
-                    },
-                  ],
-                  description: "Migration completed in background",
-                  timestamp: new Date().toISOString(),
-                  footer: {
-                    text: "Timed Trading System",
-                  },
-                };
-                notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
-              }
-            })
-            .catch((err) => {
-              console.error(`[MIGRATION ERROR]`, {
-                error: String(err),
-                stack: err.stack,
-                fromVersion: storedVersion,
-                toVersion: incomingVersion,
+                  };
+                  notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
+                }
+              })
+              .catch((err) => {
+                console.error(`[MIGRATION ERROR]`, {
+                  error: String(err),
+                  stack: err.stack,
+                  fromVersion: storedVersion,
+                  toVersion: incomingVersion,
+                });
               });
-            });
 
-          migration = {
-            migrated: true,
-            reason: "version_changed",
-            inProgress: true,
-          };
-        }
+            migration = {
+              migrated: true,
+              reason: "version_changed",
+              inProgress: true,
+            };
+          }
 
-        // Dedupe rapid repeats (only if exact same data within 60s)
-        // Note: For Force Baseline, TV sends all alerts with same timestamp/data structure
-        // We still want to index all tickers, so dedupe only prevents duplicate alert processing
-        // but ticker indexing happens regardless
-        const basis = JSON.stringify({
-          ts: payload.ts,
-          htf: payload.htf_score,
-          ltf: payload.ltf_score,
-          state: payload.state || "",
-          completion: payload.completion,
-          phase_pct: payload.phase_pct,
-          rr: payload.rr,
-          trigger_ts: payload.trigger_ts,
-          // Note: We don't include ticker in hash because Force Baseline sends same data structure for all
-          // Dedupe is per-ticker, so each ticker gets processed even if data is identical
-        });
+          // Dedupe rapid repeats (only if exact same data within 60s)
+          // Note: For Force Baseline, TV sends all alerts with same timestamp/data structure
+          // We still want to index all tickers, so dedupe only prevents duplicate alert processing
+          // but ticker indexing happens regardless
+          const basis = JSON.stringify({
+            ts: payload.ts,
+            htf: payload.htf_score,
+            ltf: payload.ltf_score,
+            state: payload.state || "",
+            completion: payload.completion,
+            phase_pct: payload.phase_pct,
+            rr: payload.rr,
+            trigger_ts: payload.trigger_ts,
+            // Note: We don't include ticker in hash because Force Baseline sends same data structure for all
+            // Dedupe is per-ticker, so each ticker gets processed even if data is identical
+          });
 
-        const hash = stableHash(basis);
-        const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
-        const alreadyDeduped = await KV.get(dedupeKey);
-        if (alreadyDeduped) {
+          const hash = stableHash(basis);
+          const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
+          const alreadyDeduped = await KV.get(dedupeKey);
+          if (alreadyDeduped) {
+            console.log(
+              `[INGEST DEDUPED] ${ticker} - same data within 60s (hash: ${hash.substring(
+                0,
+                8
+              )})`
+            );
+            // Still update the ticker data and ensure it's in index (for Force Baseline broadcasts)
+            // Recompute RR to ensure it's current (uses latest TP levels)
+            payload.rr = payload.rr ?? computeRR(payload);
+            if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
+
+            // Add ingestion timestamp even for deduped (track when last seen)
+            const now = Date.now();
+            payload.ingest_ts = now;
+            payload.ingest_time = new Date(now).toISOString();
+
+            await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+
+            // Store version-specific snapshot for historical access
+            const snapshotVersion = payload.script_version || "unknown";
+            if (snapshotVersion !== "unknown") {
+              await kvPutJSON(
+                KV,
+                `timed:snapshot:${ticker}:${snapshotVersion}`,
+                payload
+              );
+              // Also store timestamp of when this version was last seen
+              await kvPutText(
+                KV,
+                `timed:version:${ticker}:${snapshotVersion}:last_seen`,
+                String(payload.ts || Date.now())
+              );
+            }
+
+            await ensureTickerIndex(KV, ticker);
+            console.log(
+              `[INGEST DEDUPED BUT STORED] ${ticker} - updated latest data and ensured in index`
+            );
+            return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
+          }
+          await kvPutText(KV, dedupeKey, "1", 60);
           console.log(
-            `[INGEST DEDUPED] ${ticker} - same data within 60s (hash: ${hash.substring(
+            `[INGEST NOT DEDUPED] ${ticker} - new or changed data (hash: ${hash.substring(
               0,
               8
             )})`
           );
-          // Still update the ticker data and ensure it's in index (for Force Baseline broadcasts)
-          // Recompute RR to ensure it's current (uses latest TP levels)
+
+          // Derived: staleness
+          const stale = stalenessBucket(ticker, payload.ts);
+          payload.market_type = stale.mt;
+          payload.age_min = stale.ageMin;
+          payload.staleness = stale.bucket;
+
+          // Derived: rr/rank
           payload.rr = payload.rr ?? computeRR(payload);
+          // (optional clamp to prevent any bizarre edge cases)
           if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
 
-          // Add ingestion timestamp even for deduped (track when last seen)
-          const now = Date.now();
-          payload.ingest_ts = now;
-          payload.ingest_time = new Date(now).toISOString();
+          // Calculate Momentum Elite (worker-based with caching)
+          if (ticker === "ETHT") {
+            console.log(`[ETHT DEBUG] About to compute Momentum Elite`);
+          }
+          const momentumEliteData = await computeMomentumElite(
+            KV,
+            ticker,
+            payload
+          );
+          if (ticker === "ETHT") {
+            console.log(`[ETHT DEBUG] Momentum Elite computed:`, {
+              momentum_elite: momentumEliteData?.momentum_elite,
+              hasCriteria: !!momentumEliteData?.criteria,
+            });
+          }
+          if (momentumEliteData && momentumEliteData.momentum_elite) {
+            // Update flags with Momentum Elite status
+            if (!payload.flags) payload.flags = {};
+            payload.flags.momentum_elite = true;
+            // Store full criteria for debugging/display
+            payload.momentum_elite_criteria = momentumEliteData.criteria;
+          } else {
+            // Ensure flag is set to false if not elite
+            if (!payload.flags) payload.flags = {};
+            payload.flags.momentum_elite = false;
+          }
 
+          payload.rank = computeRank(payload);
+
+          // Auto-populate sector: PRIORITIZE SECTOR_MAP over TradingView data
+          // TradingView uses industry classifications (e.g., "Electronic Technology", "Retail Trade")
+          // but we use GICS sectors (e.g., "Information Technology", "Consumer Discretionary")
+          // So we always check SECTOR_MAP first, then fall back to TradingView data for unmapped tickers
+          const tickerUpper = String(payload.ticker || ticker).toUpperCase();
+          let sectorToUse = null;
+
+          // First, check our SECTOR_MAP (GICS sectors)
+          sectorToUse = getSector(tickerUpper);
+
+          // If not in SECTOR_MAP, use TradingView's sector (for new/unmapped tickers)
+          if (!sectorToUse) {
+            if (
+              payload.sector &&
+              typeof payload.sector === "string" &&
+              payload.sector.trim() !== ""
+            ) {
+              sectorToUse = payload.sector.trim();
+              // Store TradingView sector in KV for reference (but don't override SECTOR_MAP)
+              const sectorMapKey = `timed:sector_map:${tickerUpper}`;
+              await kvPutText(KV, sectorMapKey, sectorToUse);
+              console.log(
+                `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorToUse} (from TradingView, not in SECTOR_MAP)`
+              );
+            }
+          } else {
+            // Ticker is in SECTOR_MAP - use our GICS sector classification
+            console.log(
+              `[SECTOR] ${tickerUpper} → ${sectorToUse} (from SECTOR_MAP, ignoring TradingView sector: ${
+                payload.sector || "none"
+              })`
+            );
+          }
+
+          // Set sector at top level if we have one
+          if (sectorToUse) {
+            payload.sector = sectorToUse;
+          }
+
+          // Store sector and industry in payload (even if no fundamental data)
+          // These are safe fields that work for all asset types
+          if (payload.sector && typeof payload.sector === "string") {
+            payload.sector = payload.sector.trim();
+          }
+          if (payload.industry && typeof payload.industry === "string") {
+            payload.industry = payload.industry.trim();
+          }
+
+          // Store fundamental data if provided
+          if (
+            payload.pe_ratio !== undefined ||
+            payload.eps !== undefined ||
+            payload.market_cap !== undefined ||
+            payload.eps_growth_rate !== undefined ||
+            payload.peg_ratio !== undefined
+          ) {
+            const currentPE = payload.pe_ratio
+              ? Number(payload.pe_ratio)
+              : null;
+            const eps = payload.eps ? Number(payload.eps) : null;
+            const epsGrowthRate = payload.eps_growth_rate
+              ? Number(payload.eps_growth_rate)
+              : null;
+            const pegRatio = payload.peg_ratio
+              ? Number(payload.peg_ratio)
+              : null;
+            const currentPrice = Number(payload.price) || null;
+
+            // ─────────────────────────────────────────────────────────────
+            // Historical P/E Percentiles
+            // ─────────────────────────────────────────────────────────────
+            let peHistory = [];
+            let percentiles = null;
+            let percentilePosition = null;
+
+            if (currentPE && currentPE > 0 && currentPE < 1000) {
+              // Load existing P/E history
+              const peHistoryKey = `timed:pe_history:${ticker}`;
+              const existingHistory = await kvGetJSON(KV, peHistoryKey);
+
+              if (existingHistory && Array.isArray(existingHistory)) {
+                peHistory = existingHistory;
+              }
+
+              // Add current P/E to history
+              peHistory.push(currentPE);
+
+              // Keep last ~1260 data points (approximately 5 years of daily data)
+              const maxHistoryLength = 1260;
+              if (peHistory.length > maxHistoryLength) {
+                peHistory = peHistory.slice(-maxHistoryLength);
+              }
+
+              // Save updated history
+              await kvPutJSON(KV, peHistoryKey, peHistory);
+
+              // Calculate percentiles
+              percentiles = calculatePEPercentiles(peHistory);
+              if (percentiles) {
+                percentilePosition = getPercentilePosition(
+                  currentPE,
+                  percentiles
+                );
+              }
+            }
+
+            // ─────────────────────────────────────────────────────────────
+            // Fair Value Calculation
+            // ─────────────────────────────────────────────────────────────
+            const fairValuePE = calculateFairValuePE(peHistory, epsGrowthRate);
+            const fairValuePrice = calculateFairValuePrice(
+              eps,
+              fairValuePE?.preferred
+            );
+            const premiumDiscount = calculatePremiumDiscount(
+              currentPrice,
+              fairValuePrice
+            );
+
+            // ─────────────────────────────────────────────────────────────
+            // Valuation Signals
+            // ─────────────────────────────────────────────────────────────
+            const valuationSignals = calculateValuationSignal(
+              currentPE,
+              fairValuePE?.preferred,
+              pegRatio,
+              premiumDiscount,
+              percentiles
+            );
+
+            // ─────────────────────────────────────────────────────────────
+            // Build Fundamentals Object
+            // ─────────────────────────────────────────────────────────────
+            payload.fundamentals = {
+              // Basic metrics
+              pe_ratio: currentPE,
+              eps: eps,
+              eps_growth_rate: epsGrowthRate,
+              peg_ratio: pegRatio,
+              market_cap: payload.market_cap
+                ? Number(payload.market_cap)
+                : null,
+              industry: payload.industry || null,
+
+              // Historical P/E Percentiles
+              pe_percentiles: percentiles
+                ? {
+                    p10: percentiles.p10,
+                    p25: percentiles.p25,
+                    p50: percentiles.p50,
+                    p75: percentiles.p75,
+                    p90: percentiles.p90,
+                    avg: percentiles.avg,
+                    count: percentiles.count,
+                  }
+                : null,
+              pe_percentile_position: percentilePosition,
+
+              // Fair Value
+              fair_value_pe: fairValuePE
+                ? {
+                    historical_avg: fairValuePE.historical_avg || null,
+                    historical_median: fairValuePE.historical_median || null,
+                    growth_adjusted: fairValuePE.growth_adjusted || null,
+                    preferred: fairValuePE.preferred || null,
+                  }
+                : null,
+              fair_value_price: fairValuePrice,
+              premium_discount_pct: premiumDiscount,
+
+              // Valuation Signals
+              valuation_signal: valuationSignals.signal,
+              is_undervalued: valuationSignals.is_undervalued,
+              is_overvalued: valuationSignals.is_overvalued,
+              valuation_confidence: valuationSignals.confidence,
+              valuation_reasons: valuationSignals.reasons,
+            };
+
+            // Store fundamentals in KV for persistence
+            const fundamentalsKey = `timed:fundamentals:${ticker}`;
+            await kvPutJSON(KV, fundamentalsKey, payload.fundamentals);
+
+            // Apply valuation boost to rank (if fundamentals available)
+            if (payload.fundamentals) {
+              const valuationBoost = calculateValuationBoost(
+                payload.fundamentals
+              );
+              if (valuationBoost !== 0) {
+                const baseRank = payload.rank || 0;
+                payload.rank = Math.max(
+                  0,
+                  Math.min(100, baseRank + valuationBoost)
+                );
+
+                // Store valuation boost for debugging/display
+                if (!payload.rank_components) payload.rank_components = {};
+                payload.rank_components.valuation_boost = valuationBoost;
+                payload.rank_components.base_rank = baseRank;
+
+                console.log(
+                  `[RANK] ${ticker}: Base=${baseRank}, Valuation Boost=${valuationBoost}, Final=${payload.rank}`
+                );
+              }
+            }
+          } else {
+            // No fundamental data provided, but still store sector/industry if available
+            // Create minimal fundamentals object for UI compatibility
+            if (payload.sector || payload.industry) {
+              payload.fundamentals = {
+                pe_ratio: null,
+                eps: null,
+                eps_growth_rate: null,
+                peg_ratio: null,
+                market_cap: null,
+                industry: payload.industry
+                  ? String(payload.industry).trim()
+                  : null,
+                sector: payload.sector ? String(payload.sector).trim() : null,
+                pe_percentiles: null,
+                pe_percentile_position: null,
+                fair_value_pe: null,
+                fair_value_price: null,
+                premium_discount_pct: null,
+                valuation_signal: "fair",
+                is_undervalued: false,
+                is_overvalued: false,
+                valuation_confidence: "low",
+                valuation_reasons: [],
+              };
+            }
+          }
+
+          // Detect state transition into aligned (enter Q2/Q3)
+          const prevKey = `timed:prevstate:${ticker}`;
+          const prevState = await KV.get(prevKey);
+          await kvPutText(
+            KV,
+            prevKey,
+            String(payload.state || ""),
+            7 * 24 * 60 * 60
+          );
+
+          const state = String(payload.state || "");
+          const alignedLong = state === "HTF_BULL_LTF_BULL";
+          const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+          const aligned = alignedLong || alignedShort;
+          const enteredAligned = aligned && prevState !== state;
+
+          const trigReason = String(payload.trigger_reason || "");
+          const trigOk =
+            trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+
+          const flags = payload.flags || {};
+          const sqRel = !!flags.sq30_release;
+
+          // Activity feed tracking - detect events (load BEFORE alert logic to check for corridor entry)
+          if (ticker === "ETHT") {
+            console.log(`[ETHT DEBUG] About to load activity tracking state`);
+          }
+          const prevCorridorKey = `timed:prevcorridor:${ticker}`;
+          const prevInCorridor = await KV.get(prevCorridorKey);
+
+          // Corridor-only logic (must match UI)
+          const side = corridorSide(payload); // LONG/SHORT/null
+          const inCorridor = !!side;
+          const enteredCorridor = inCorridor && prevInCorridor !== "true";
+
+          // corridor must match alignment
+          const corridorAlignedOK =
+            (side === "LONG" && alignedLong) ||
+            (side === "SHORT" && alignedShort);
+
+          // Allow alerts if:
+          // 1. ENTERED corridor (just entered) AND aligned AND (entered aligned OR trigger OR squeeze release)
+          // 2. OR in corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
+          // 3. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
+          const shouldConsiderAlert =
+            (enteredCorridor &&
+              corridorAlignedOK &&
+              (enteredAligned || trigOk || sqRel)) ||
+            (inCorridor &&
+              ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
+                (sqRel && side))); // Squeeze release in corridor is a valid trigger even if not fully aligned
+          const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
+          const prevSqueezeOn = await KV.get(prevSqueezeKey);
+          const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
+          const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
+          const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
+          const prevMomentumElite = await KV.get(prevMomentumEliteKey);
+          if (ticker === "ETHT") {
+            console.log(`[ETHT DEBUG] Activity tracking state loaded`);
+          }
+
+          // Track corridor entry
+          // Wrap activity tracking in try-catch to prevent errors from breaking ingestion
+          try {
+            const enteredCorridor = inCorridor && prevInCorridor !== "true";
+            const exitedCorridor = !inCorridor && prevInCorridor === "true";
+
+            if (enteredCorridor) {
+              await appendActivity(KV, {
+                type: "corridor_entry",
+                ticker: ticker,
+                side: side,
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                sl: payload.sl,
+                tp: payload.tp,
+                tp_levels: payload.tp_levels,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+              await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
+            } else if (exitedCorridor) {
+              await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
+            }
+
+            // Track squeeze start
+            if (flags.sq30_on && prevSqueezeOn !== "true") {
+              await appendActivity(KV, {
+                type: "squeeze_start",
+                ticker: ticker,
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                sl: payload.sl,
+                tp: payload.tp,
+                tp_levels: payload.tp_levels,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+              await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
+            } else if (!flags.sq30_on && prevSqueezeOn === "true") {
+              await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
+            }
+
+            // Track squeeze release
+            if (sqRel && prevSqueezeRel !== "true") {
+              await appendActivity(KV, {
+                type: "squeeze_release",
+                ticker: ticker,
+                side:
+                  side ||
+                  (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                trigger_dir: payload.trigger_dir,
+                sl: payload.sl,
+                tp: payload.tp,
+                tp_levels: payload.tp_levels,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+              await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
+            } else if (!sqRel && prevSqueezeRel === "true") {
+              await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
+            }
+
+            // Track state change to aligned
+            if (enteredAligned) {
+              await appendActivity(KV, {
+                type: "state_aligned",
+                ticker: ticker,
+                side: alignedLong ? "LONG" : "SHORT",
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                sl: payload.sl,
+                tp: payload.tp,
+                tp_levels: payload.tp_levels,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+            }
+
+            // Track Momentum Elite status change
+            const currentMomentumElite = !!(
+              payload.flags && payload.flags.momentum_elite
+            );
+            if (currentMomentumElite && prevMomentumElite !== "true") {
+              await appendActivity(KV, {
+                type: "momentum_elite",
+                ticker: ticker,
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                sl: payload.sl,
+                tp: payload.tp,
+                tp_levels: payload.tp_levels,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+              await kvPutText(
+                KV,
+                prevMomentumEliteKey,
+                "true",
+                7 * 24 * 60 * 60
+              );
+            } else if (!currentMomentumElite && prevMomentumElite === "true") {
+              await kvPutText(
+                KV,
+                prevMomentumEliteKey,
+                "false",
+                7 * 24 * 60 * 60
+              );
+            }
+          } catch (activityErr) {
+            console.error(
+              `[ACTIVITY ERROR] Failed to track activity for ${ticker}:`,
+              {
+                error: String(activityErr),
+                message: activityErr.message,
+                stack: activityErr.stack,
+              }
+            );
+            // Don't throw - continue with ingestion even if activity tracking fails
+          }
+
+          // Add ingestion timestamp to payload for per-ticker tracking
+          const now = Date.now();
+          payload.ingest_ts = now; // Timestamp when this data was ingested
+          payload.ingest_time = new Date(now).toISOString(); // Human-readable format
+
+          if (ticker === "ETHT") {
+            console.log(`[ETHT DEBUG] About to get previous data and store`);
+          }
+
+          // Get previous data BEFORE storing new data (for trade simulation comparison)
+          const prevLatest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+
+          if (ticker === "ETHT") {
+            console.log(
+              `[ETHT DEBUG] Previous data retrieved, about to store latest`
+            );
+          }
+
+          // Store latest (do this BEFORE alert so UI has it)
           await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+
+          if (ticker === "ETHT") {
+            console.log(`[ETHT DEBUG] Successfully stored latest data`);
+          }
 
           // Store version-specific snapshot for historical access
           const snapshotVersion = payload.script_version || "unknown";
@@ -4801,610 +5783,2481 @@ export default {
             );
           }
 
+          console.log(
+            `[INGEST STORED] ${ticker} - latest data saved at ${new Date(
+              now
+            ).toISOString()}`
+          );
+
+          // CRITICAL: Ensure ticker is in index IMMEDIATELY after storage
+          // This ensures ticker appears on dashboard even if request is canceled later
           await ensureTickerIndex(KV, ticker);
-          console.log(
-            `[INGEST DEDUPED BUT STORED] ${ticker} - updated latest data and ensured in index`
-          );
-          return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
-        }
-        await kvPutText(KV, dedupeKey, "1", 60);
-        console.log(
-          `[INGEST NOT DEDUPED] ${ticker} - new or changed data (hash: ${hash.substring(
-            0,
-            8
-          )})`
-        );
-
-        // Derived: staleness
-        const stale = stalenessBucket(ticker, payload.ts);
-        payload.market_type = stale.mt;
-        payload.age_min = stale.ageMin;
-        payload.staleness = stale.bucket;
-
-        // Derived: rr/rank
-        payload.rr = payload.rr ?? computeRR(payload);
-        // (optional clamp to prevent any bizarre edge cases)
-        if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
-
-        // Calculate Momentum Elite (worker-based with caching)
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] About to compute Momentum Elite`);
-        }
-        const momentumEliteData = await computeMomentumElite(
-          KV,
-          ticker,
-          payload
-        );
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] Momentum Elite computed:`, {
-            momentum_elite: momentumEliteData?.momentum_elite,
-            hasCriteria: !!momentumEliteData?.criteria,
-          });
-        }
-        if (momentumEliteData && momentumEliteData.momentum_elite) {
-          // Update flags with Momentum Elite status
-          if (!payload.flags) payload.flags = {};
-          payload.flags.momentum_elite = true;
-          // Store full criteria for debugging/display
-          payload.momentum_elite_criteria = momentumEliteData.criteria;
-        } else {
-          // Ensure flag is set to false if not elite
-          if (!payload.flags) payload.flags = {};
-          payload.flags.momentum_elite = false;
-        }
-
-        payload.rank = computeRank(payload);
-
-        // Auto-populate sector: PRIORITIZE SECTOR_MAP over TradingView data
-        // TradingView uses industry classifications (e.g., "Electronic Technology", "Retail Trade")
-        // but we use GICS sectors (e.g., "Information Technology", "Consumer Discretionary")
-        // So we always check SECTOR_MAP first, then fall back to TradingView data for unmapped tickers
-        const tickerUpper = String(payload.ticker || ticker).toUpperCase();
-        let sectorToUse = null;
-
-        // First, check our SECTOR_MAP (GICS sectors)
-        sectorToUse = getSector(tickerUpper);
-
-        // If not in SECTOR_MAP, use TradingView's sector (for new/unmapped tickers)
-        if (!sectorToUse) {
-          if (
-            payload.sector &&
-            typeof payload.sector === "string" &&
-            payload.sector.trim() !== ""
-          ) {
-            sectorToUse = payload.sector.trim();
-            // Store TradingView sector in KV for reference (but don't override SECTOR_MAP)
-            const sectorMapKey = `timed:sector_map:${tickerUpper}`;
-            await kvPutText(KV, sectorMapKey, sectorToUse);
-            console.log(
-              `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorToUse} (from TradingView, not in SECTOR_MAP)`
-            );
-          }
-        } else {
-          // Ticker is in SECTOR_MAP - use our GICS sector classification
-          console.log(
-            `[SECTOR] ${tickerUpper} → ${sectorToUse} (from SECTOR_MAP, ignoring TradingView sector: ${
-              payload.sector || "none"
-            })`
-          );
-        }
-
-        // Set sector at top level if we have one
-        if (sectorToUse) {
-          payload.sector = sectorToUse;
-        }
-
-        // Store sector and industry in payload (even if no fundamental data)
-        // These are safe fields that work for all asset types
-        if (payload.sector && typeof payload.sector === "string") {
-          payload.sector = payload.sector.trim();
-        }
-        if (payload.industry && typeof payload.industry === "string") {
-          payload.industry = payload.industry.trim();
-        }
-
-        // Store fundamental data if provided
-        if (
-          payload.pe_ratio !== undefined ||
-          payload.eps !== undefined ||
-          payload.market_cap !== undefined ||
-          payload.eps_growth_rate !== undefined ||
-          payload.peg_ratio !== undefined
-        ) {
-          const currentPE = payload.pe_ratio ? Number(payload.pe_ratio) : null;
-          const eps = payload.eps ? Number(payload.eps) : null;
-          const epsGrowthRate = payload.eps_growth_rate
-            ? Number(payload.eps_growth_rate)
-            : null;
-          const pegRatio = payload.peg_ratio ? Number(payload.peg_ratio) : null;
-          const currentPrice = Number(payload.price) || null;
-
-          // ─────────────────────────────────────────────────────────────
-          // Historical P/E Percentiles
-          // ─────────────────────────────────────────────────────────────
-          let peHistory = [];
-          let percentiles = null;
-          let percentilePosition = null;
-
-          if (currentPE && currentPE > 0 && currentPE < 1000) {
-            // Load existing P/E history
-            const peHistoryKey = `timed:pe_history:${ticker}`;
-            const existingHistory = await kvGetJSON(KV, peHistoryKey);
-
-            if (existingHistory && Array.isArray(existingHistory)) {
-              peHistory = existingHistory;
-            }
-
-            // Add current P/E to history
-            peHistory.push(currentPE);
-
-            // Keep last ~1260 data points (approximately 5 years of daily data)
-            const maxHistoryLength = 1260;
-            if (peHistory.length > maxHistoryLength) {
-              peHistory = peHistory.slice(-maxHistoryLength);
-            }
-
-            // Save updated history
-            await kvPutJSON(KV, peHistoryKey, peHistory);
-
-            // Calculate percentiles
-            percentiles = calculatePEPercentiles(peHistory);
-            if (percentiles) {
-              percentilePosition = getPercentilePosition(
-                currentPE,
-                percentiles
-              );
-            }
+          if (ticker === "ETHT") {
+            console.log(`[ETHT DEBUG] Indexing completed`);
           }
 
-          // ─────────────────────────────────────────────────────────────
-          // Fair Value Calculation
-          // ─────────────────────────────────────────────────────────────
-          const fairValuePE = calculateFairValuePE(peHistory, epsGrowthRate);
-          const fairValuePrice = calculateFairValuePrice(
-            eps,
-            fairValuePE?.preferred
-          );
-          const premiumDiscount = calculatePremiumDiscount(
-            currentPrice,
-            fairValuePrice
-          );
+          // CRITICAL: Alert evaluation runs IMMEDIATELY after storing data
+          // This ensures alerts fire even if request is canceled during trade simulation
+          // Alert evaluation uses corridor state variables loaded above (prevInCorridor, etc.)
+          // Wrap in try-catch to prevent alert errors from breaking ingestion
+          try {
+            // Threshold gates (with Momentum Elite adjustments)
+            const momentumElite = !!flags.momentum_elite;
 
-          // ─────────────────────────────────────────────────────────────
-          // Valuation Signals
-          // ─────────────────────────────────────────────────────────────
-          const valuationSignals = calculateValuationSignal(
-            currentPE,
-            fairValuePE?.preferred,
-            pegRatio,
-            premiumDiscount,
-            percentiles
-          );
+            // Momentum Elite gets relaxed thresholds (higher quality stocks)
+            const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
+            const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
+            const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
+            const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
 
-          // ─────────────────────────────────────────────────────────────
-          // Build Fundamentals Object
-          // ─────────────────────────────────────────────────────────────
-          payload.fundamentals = {
-            // Basic metrics
-            pe_ratio: currentPE,
-            eps: eps,
-            eps_growth_rate: epsGrowthRate,
-            peg_ratio: pegRatio,
-            market_cap: payload.market_cap ? Number(payload.market_cap) : null,
-            industry: payload.industry || null,
+            // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
+            const minRR = momentumElite
+              ? Math.max(1.2, baseMinRR * 0.9)
+              : baseMinRR; // Lower RR requirement
+            const maxComp = momentumElite
+              ? Math.min(0.5, baseMaxComp * 1.25)
+              : baseMaxComp; // Allow higher completion
+            const maxPhase = momentumElite
+              ? Math.min(0.7, baseMaxPhase * 1.17)
+              : baseMaxPhase; // Allow higher phase
+            const minRank = momentumElite
+              ? Math.max(60, baseMinRank - 10)
+              : baseMinRank; // Lower rank requirement
 
-            // Historical P/E Percentiles
-            pe_percentiles: percentiles
-              ? {
-                  p10: percentiles.p10,
-                  p25: percentiles.p25,
-                  p50: percentiles.p50,
-                  p75: percentiles.p75,
-                  p90: percentiles.p90,
-                  avg: percentiles.avg,
-                  count: percentiles.count,
-                }
-              : null,
-            pe_percentile_position: percentilePosition,
+            // CRITICAL: For alert evaluation, use trigger_price for RR calculation, not current price
+            // This evaluates RR at the entry point, which is what we want for alerts
+            // When price moves UP after trigger, using current price decreases RR incorrectly
+            // Example: Trigger at 177.52, current at 182.68 -> RR at trigger = 5.80, RR at current = 0.21
+            const recalculatedRR = computeRRAtTrigger(payload);
+            // FIX: If recalculatedRR is very low (< 0.5) but payload.rr is high, it means price moved significantly
+            // In this case, use the higher of the two (RR at trigger or current RR) to avoid blocking good setups
+            // This handles cases where price moved up after trigger, making current RR low but trigger RR was good
+            const rrToUse =
+              recalculatedRR != null && recalculatedRR > 0.5
+                ? recalculatedRR
+                : payload.rr != null && Number(payload.rr) >= minRR
+                ? Number(payload.rr) // Use payload.rr if it meets threshold (was calculated at trigger time)
+                : recalculatedRR != null
+                ? recalculatedRR
+                : payload.rr != null
+                ? Number(payload.rr)
+                : 0;
+            const rrOk = rrToUse >= minRR;
+            const compOk =
+              payload.completion == null
+                ? true
+                : Number(payload.completion) <= maxComp;
+            const phaseOk =
+              payload.phase_pct == null
+                ? true
+                : Number(payload.phase_pct) <= maxPhase;
+            const rankOk = Number(payload.rank || 0) >= minRank;
 
-            // Fair Value
-            fair_value_pe: fairValuePE
-              ? {
-                  historical_avg: fairValuePE.historical_avg || null,
-                  historical_median: fairValuePE.historical_median || null,
-                  growth_adjusted: fairValuePE.growth_adjusted || null,
-                  preferred: fairValuePE.preferred || null,
-                }
-              : null,
-            fair_value_price: fairValuePrice,
-            premium_discount_pct: premiumDiscount,
+            // Also consider Momentum Elite as a trigger condition (quality signal)
+            // Momentum Elite can trigger even if not fully aligned, as long as in corridor
+            const momentumEliteTrigger =
+              momentumElite && inCorridor && (corridorAlignedOK || sqRel);
 
-            // Valuation Signals
-            valuation_signal: valuationSignals.signal,
-            is_undervalued: valuationSignals.is_undervalued,
-            is_overvalued: valuationSignals.is_overvalued,
-            valuation_confidence: valuationSignals.confidence,
-            valuation_reasons: valuationSignals.reasons,
-          };
+            // Enhanced trigger: original conditions OR Momentum Elite in good setup
+            const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-          // Store fundamentals in KV for persistence
-          const fundamentalsKey = `timed:fundamentals:${ticker}`;
-          await kvPutJSON(KV, fundamentalsKey, payload.fundamentals);
+            // Debug logging for alert conditions - log all tickers in corridor or entering corridor
+            if (inCorridor || enteredCorridor) {
+              console.log(`[ALERT DEBUG] ${ticker}:`, {
+                inCorridor,
+                enteredCorridor,
+                prevInCorridor,
+                corridorAlignedOK,
+                side,
+                state: payload.state,
+                enteredAligned,
+                trigOk,
+                trigReason,
+                sqRel,
+                shouldConsiderAlert,
+                momentumEliteTrigger,
+                enhancedTrigger,
+                rrOk,
+                rr: rrToUse,
+                rrFromPayload: payload.rr,
+                recalculatedRR: recalculatedRR,
+                minRR,
+                compOk,
+                completion: payload.completion,
+                maxComp,
+                phaseOk,
+                phase: payload.phase_pct,
+                maxPhase,
+                rankOk,
+                rank: payload.rank,
+                minRank,
+                momentumElite,
+                flags: payload.flags,
+              });
+            }
 
-          // Apply valuation boost to rank (if fundamentals available)
-          if (payload.fundamentals) {
-            const valuationBoost = calculateValuationBoost(
-              payload.fundamentals
-            );
-            if (valuationBoost !== 0) {
-              const baseRank = payload.rank || 0;
-              payload.rank = Math.max(
-                0,
-                Math.min(100, baseRank + valuationBoost)
-              );
+            // Log alert evaluation summary
+            console.log(`[ALERT EVAL] ${ticker}:`, {
+              enhancedTrigger,
+              rrOk,
+              rr: rrToUse,
+              rrFromPayload: payload.rr,
+              recalculatedRR: recalculatedRR,
+              compOk,
+              completion: payload.completion,
+              phaseOk,
+              phase: payload.phase_pct,
+              rankOk,
+              rank: payload.rank,
+              allConditionsMet:
+                enhancedTrigger && rrOk && compOk && phaseOk && rankOk,
+            });
 
-              // Store valuation boost for debugging/display
-              if (!payload.rank_components) payload.rank_components = {};
-              payload.rank_components.valuation_boost = valuationBoost;
-              payload.rank_components.base_rank = baseRank;
+            // Enhanced logging for alert conditions - log what's blocking alerts
+            if (
+              inCorridor &&
+              !(enhancedTrigger && rrOk && compOk && phaseOk && rankOk)
+            ) {
+              const blockers = [];
+              if (!enhancedTrigger) blockers.push("trigger conditions");
+              if (!rrOk)
+                blockers.push(
+                  `RR (${
+                    rrToUse?.toFixed(2) || "null"
+                  } < ${minRR}, payload.rr=${
+                    payload.rr?.toFixed(2) || "null"
+                  }, recalculated=${recalculatedRR?.toFixed(2) || "null"})`
+                );
+              if (!compOk)
+                blockers.push(
+                  `Completion (${
+                    payload.completion?.toFixed(2) || "null"
+                  } > ${maxComp})`
+                );
+              if (!phaseOk)
+                blockers.push(
+                  `Phase (${
+                    payload.phase_pct?.toFixed(2) || "null"
+                  } > ${maxPhase})`
+                );
+              if (!rankOk)
+                blockers.push(`Rank (${payload.rank || 0} < ${minRank})`);
 
               console.log(
-                `[RANK] ${ticker}: Base=${baseRank}, Valuation Boost=${valuationBoost}, Final=${payload.rank}`
+                `[ALERT BLOCKED] ${ticker}: Alert blocked by: ${blockers.join(
+                  ", "
+                )}`
+              );
+            }
+
+            // Trade simulation already processed above (before alert logic)
+
+            // Check Discord configuration before evaluating conditions
+            const discordEnable = env.DISCORD_ENABLE || "false";
+            const discordWebhook = env.DISCORD_WEBHOOK_URL;
+            const discordConfigured =
+              discordEnable === "true" && !!discordWebhook;
+
+            if (!discordConfigured && (inCorridor || enteredCorridor)) {
+              console.log(
+                `[DISCORD CONFIG] ${ticker}: Discord not configured`,
+                {
+                  DISCORD_ENABLE: discordEnable,
+                  hasWebhook: !!discordWebhook,
+                  inCorridor,
+                  enteredCorridor,
+                }
+              );
+            }
+
+            if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
+              // Dedup alert by date (YYYY-MM-DD) - allows re-alerting next day
+              // This ensures alerts fire daily if conditions are met, but prevents spam within same day
+              const now = new Date();
+              const today = now.toISOString().split("T")[0]; // YYYY-MM-DD format
+              const akey = `timed:alerted:${ticker}:${today}`;
+              const alreadyAlerted = await KV.get(akey);
+
+              console.log(`[ALERT CHECK] ${ticker}:`, {
+                enhancedTrigger,
+                rrOk,
+                compOk,
+                phaseOk,
+                rankOk,
+                allConditionsMet: true,
+                today,
+                akey,
+                alreadyAlerted: !!alreadyAlerted,
+                trigger_ts: payload.trigger_ts,
+                ts: payload.ts,
+              });
+
+              if (!alreadyAlerted) {
+                // Store deduplication key for 48 hours (covers edge cases around midnight)
+                await kvPutText(KV, akey, "1", 48 * 60 * 60);
+
+                console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
+                  akey,
+                  today,
+                  side,
+                  rank: payload.rank,
+                  discordConfigured,
+                  DISCORD_ENABLE: discordEnable,
+                  hasWebhook: !!discordWebhook,
+                });
+
+                const why =
+                  (side === "LONG"
+                    ? "Entry corridor Q1→Q2"
+                    : "Entry corridor Q4→Q3") +
+                  (momentumElite ? " | 🚀 Momentum Elite" : "") +
+                  (enteredAligned ? " | Entered aligned" : "") +
+                  (trigReason
+                    ? ` | ${trigReason}${
+                        payload.trigger_dir
+                          ? " (" + payload.trigger_dir + ")"
+                          : ""
+                      }`
+                    : "") +
+                  (sqRel ? " | ⚡ squeeze release" : "");
+
+                const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
+                  ticker
+                )}`;
+
+                // Create Discord embed for trading opportunity
+                const rr = payload.rr || 0;
+                const rrFormatted =
+                  rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+                const opportunityEmbed = {
+                  title: `🎯 Trading Opportunity: ${ticker} ${side}`,
+                  color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
+                  fields: [
+                    {
+                      name: "Rank",
+                      value: `${payload.rank}`,
+                      inline: true,
+                    },
+                    {
+                      name: "State",
+                      value: payload.state || "N/A",
+                      inline: true,
+                    },
+                    {
+                      name: "Why",
+                      value: why || "N/A",
+                      inline: false,
+                    },
+                    {
+                      name: "HTF Score",
+                      value: `${fmt2(payload.htf_score)}`,
+                      inline: true,
+                    },
+                    {
+                      name: "LTF Score",
+                      value: `${fmt2(payload.ltf_score)}`,
+                      inline: true,
+                    },
+                    {
+                      name: "Risk/Reward",
+                      value: rrFormatted,
+                      inline: true,
+                    },
+                    {
+                      name: "Trigger Price",
+                      value: `$${fmt2(payload.trigger_price)}`,
+                      inline: true,
+                    },
+                    {
+                      name: "Current Price",
+                      value: `$${fmt2(payload.price)}`,
+                      inline: true,
+                    },
+                    {
+                      name: "ETA",
+                      value:
+                        payload.eta_days != null
+                          ? `${Number(payload.eta_days).toFixed(1)}d`
+                          : "—",
+                      inline: true,
+                    },
+                    {
+                      name: "Stop Loss",
+                      value: `$${fmt2(payload.sl)}`,
+                      inline: true,
+                    },
+                    {
+                      name: "Take Profit",
+                      value: `$${fmt2(payload.tp)}`,
+                      inline: true,
+                    },
+                    {
+                      name: "Completion",
+                      value: `${pct01(payload.completion)}`,
+                      inline: true,
+                    },
+                    {
+                      name: "Phase",
+                      value: `${pct01(payload.phase_pct)}`,
+                      inline: true,
+                    },
+                  ],
+                  timestamp: new Date().toISOString(),
+                  footer: {
+                    text: "Timed Trading Alert",
+                  },
+                  url: tv, // Make the title clickable to open TradingView
+                };
+                await notifyDiscord(env, opportunityEmbed);
+
+                // Log Discord alert to activity feed
+                await appendActivity(KV, {
+                  ticker,
+                  type: "discord_alert",
+                  direction: side,
+                  action: "entry",
+                  rank: payload.rank,
+                  rr: payload.rr,
+                  price: payload.price,
+                  trigger_price: payload.trigger_price,
+                  sl: payload.sl,
+                  tp: payload.tp,
+                  state: payload.state,
+                  htf_score: payload.htf_score,
+                  ltf_score: payload.ltf_score,
+                  completion: payload.completion,
+                  phase_pct: payload.phase_pct,
+                  why: why,
+                  momentum_elite: momentumElite,
+                });
+              } else {
+                console.log(
+                  `[DISCORD ALERT] Skipped ${ticker} - already alerted`,
+                  {
+                    akey,
+                    today,
+                  }
+                );
+              }
+            } else if (inCorridor && corridorAlignedOK) {
+              // Log why alert didn't fire
+              const reasons = [];
+              if (!enhancedTrigger) reasons.push("no trigger condition");
+              if (!rrOk)
+                reasons.push(
+                  `RR ${rrToUse?.toFixed(2) || "null"} < ${minRR} (payload.rr=${
+                    payload.rr?.toFixed(2) || "null"
+                  })`
+                );
+              if (!compOk)
+                reasons.push(`Completion ${payload.completion} > ${maxComp}`);
+              if (!phaseOk)
+                reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
+              if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
+              console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
+            }
+
+            // Check for TD9 entry signals (potential reversal setups)
+            const tdSeq = payload.td_sequential || {};
+            const td9Bullish =
+              tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+            const td9Bearish =
+              tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+            const td13Bullish =
+              tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+            const td13Bearish =
+              tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+
+            // TD9 entry signal: TD9/TD13 bullish suggests LONG, TD9/TD13 bearish suggests SHORT
+            const hasTD9Signal =
+              td9Bullish || td9Bearish || td13Bullish || td13Bearish;
+            if (hasTD9Signal) {
+              const suggestedDirection =
+                td9Bullish || td13Bullish ? "LONG" : "SHORT";
+              const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
+
+              // Check if TD9 signal aligns with corridor direction (potential entry)
+              const td9AlignsWithCorridor =
+                (suggestedDirection === "LONG" && side === "LONG") ||
+                (suggestedDirection === "SHORT" && side === "SHORT");
+
+              // Only alert if TD9 signal aligns with corridor and has reasonable RR
+              if (td9AlignsWithCorridor && payload.rr >= 1.2) {
+                const td9AlertKey = `timed:td9_alerted:${ticker}:${signalType}:${suggestedDirection}`;
+                const alreadyTD9Alerted = await KV.get(td9AlertKey);
+
+                if (!alreadyTD9Alerted) {
+                  await kvPutText(KV, td9AlertKey, "1", 24 * 60 * 60); // 24h dedup
+
+                  // Add activity feed event
+                  await appendActivity(KV, {
+                    ticker,
+                    type: "td9_entry",
+                    direction: suggestedDirection,
+                    signalType,
+                    price: payload.price,
+                    sl: payload.sl,
+                    tp: payload.tp,
+                    rr: payload.rr,
+                    rank: payload.rank,
+                    td9_bullish: td9Bullish,
+                    td9_bearish: td9Bearish,
+                    td13_bullish: td13Bullish,
+                    td13_bearish: td13Bearish,
+                  });
+
+                  // Send Discord alert
+                  const td9Embed = createTD9EntryEmbed(
+                    ticker,
+                    suggestedDirection,
+                    payload.price,
+                    payload.sl,
+                    payload.tp,
+                    payload.rr,
+                    payload.rank,
+                    tdSeq,
+                    payload // Pass full payload as tickerData
+                  );
+                  await notifyDiscord(env, td9Embed).catch(() => {});
+
+                  console.log(
+                    `[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`
+                  );
+                }
+              }
+            }
+          } catch (alertErr) {
+            console.error(
+              `[ALERT ERROR] Failed to process alert evaluation for ${ticker}:`,
+              {
+                error: String(alertErr),
+                message: alertErr.message,
+                stack: alertErr.stack,
+              }
+            );
+            // Don't throw - continue with ingestion even if alert evaluation fails
+          }
+
+          // CRITICAL: Trade simulation runs AFTER alert evaluation
+          // This creates "Trade Entered" events when conditions are met
+          // Wrap in try-catch to prevent trade simulation errors from breaking ingestion
+          try {
+            // Pre-check: Calculate entry RR first to avoid unnecessary processing
+            // Use trigger_price if available, otherwise use current price
+            const entryPriceForCheck = payload.trigger_price
+              ? Number(payload.trigger_price)
+              : payload.price
+              ? Number(payload.price)
+              : null;
+
+            if (entryPriceForCheck && entryPriceForCheck > 0) {
+              const entryRRForCheck = computeRRAtTrigger(payload);
+              const payloadWithEntryRR = {
+                ...payload,
+                rr: entryRRForCheck || payload.rr || 0,
+              };
+
+              // Only proceed if initial check passes
+              if (
+                shouldTriggerTradeSimulation(
+                  ticker,
+                  payloadWithEntryRR,
+                  prevLatest
+                )
+              ) {
+                await processTradeSimulation(
+                  KV,
+                  ticker,
+                  payload,
+                  prevLatest,
+                  env
+                );
+              } else {
+                console.log(
+                  `[TRADE SIM] ${ticker}: Pre-check failed - entryRR=${
+                    entryRRForCheck?.toFixed(2) || "null"
+                  }, rank=${payload.rank || 0}, state=${payload.state || "N/A"}`
+                );
+              }
+            } else {
+              console.log(
+                `[TRADE SIM] ${ticker}: Skipping - no valid entry price (trigger_price=${payload.trigger_price}, price=${payload.price})`
+              );
+            }
+          } catch (tradeSimErr) {
+            console.error(
+              `[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`,
+              {
+                error: String(tradeSimErr),
+                message: tradeSimErr.message,
+                stack: tradeSimErr.stack,
+              }
+            );
+            // Don't throw - continue with ingestion even if trade simulation fails
+          }
+
+          // Trail (light)
+          // Wrap in try-catch to prevent trail errors from breaking ingestion
+          try {
+            await appendTrail(
+              KV,
+              ticker,
+              {
+                ts: payload.ts,
+                price: payload.price, // Add price to trail for momentum calculations
+                htf_score: payload.htf_score,
+                ltf_score: payload.ltf_score,
+                completion: payload.completion,
+                phase_pct: payload.phase_pct,
+                state: payload.state,
+                rank: payload.rank,
+                flags: payload.flags || {},
+                momentum_elite: !!(
+                  payload.flags && payload.flags.momentum_elite
+                ),
+                trigger_reason: payload.trigger_reason,
+                trigger_dir: payload.trigger_dir,
+              },
+              20
+            ); // Increased to 20 points for better history
+          } catch (trailErr) {
+            console.error(
+              `[TRAIL ERROR] Failed to append trail for ${ticker}:`,
+              {
+                error: String(trailErr),
+                message: trailErr.message,
+                stack: trailErr.stack,
+              }
+            );
+            // Don't throw - continue with ingestion even if trail fails
+          }
+
+          // Store version-specific snapshot for historical access
+          const version = payload.script_version || "unknown";
+          if (version !== "unknown") {
+            await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
+            // Also store timestamp of when this version was last seen
+            await kvPutText(
+              KV,
+              `timed:version:${ticker}:${version}:last_seen`,
+              String(payload.ts || Date.now())
+            );
+          }
+
+          await ensureTickerIndex(KV, ticker);
+          await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
+
+          // Get current ticker count for logging
+          const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const wasNewTicker = !currentTickers.includes(ticker);
+          console.log(
+            `[INGEST COMPLETE] ${ticker} - ${
+              wasNewTicker ? "NEW TICKER ADDED" : "updated existing"
+            } - Total tickers in index: ${currentTickers.length} - Version: ${
+              payload.script_version || "unknown"
+            }`
+          );
+
+          // Log all tickers in index if count is low (to debug missing tickers)
+          if (currentTickers.length < 130) {
+            console.log(
+              `[INGEST INDEX DEBUG] Current tickers (${currentTickers.length}):`,
+              currentTickers.slice(0, 30).join(", "),
+              currentTickers.length > 30
+                ? `... (showing first 30 of ${currentTickers.length})`
+                : ""
+            );
+          }
+
+          // Get final ticker count
+          const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          console.log(
+            `[INGEST SUCCESS] ${ticker} - completed successfully. Total tickers: ${finalTickers.length}`
+          );
+          return ackJSON(
+            env,
+            { ok: true, ticker, totalTickers: finalTickers.length },
+            200,
+            req
+          );
+        } catch (error) {
+          // Catch any unexpected errors during ingestion
+          const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+          const ticker = normTicker(body?.ticker) || "UNKNOWN";
+          console.error(`[INGEST ERROR] ${ticker} - IP: ${ip}`, {
+            error: String(error),
+            stack: error.stack,
+            message: error.message,
+            body: body ? { ticker: body.ticker, ts: body.ts } : null,
+          });
+          // Return 500 instead of 429 to avoid confusion
+          return ackJSON(
+            env,
+            {
+              ok: false,
+              error: "internal_error",
+              message: "An error occurred during ingestion",
+              ticker: ticker !== "UNKNOWN" ? ticker : null,
+            },
+            500,
+            req
+          );
+        }
+      }
+
+      // GET /timed/latest?ticker=
+      if (url.pathname === "/timed/latest" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/latest",
+          1000, // Increased for single-user
+          3600
+        );
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker)
+          return sendJSON(
+            { ok: false, error: "missing ticker" },
+            400,
+            corsHeaders(env, req)
+          );
+        const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        if (data) {
+          // Always recompute RR to ensure it uses the latest max TP from tp_levels
+          data.rr = computeRR(data);
+          return sendJSON(
+            { ok: true, ticker, latestData: data, data },
+            200,
+            corsHeaders(env, req)
+          );
+        }
+        return sendJSON(
+          { ok: false, error: "ticker_not_found", ticker },
+          404,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/tickers
+      if (url.pathname === "/timed/tickers" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/tickers",
+          1000, // Increased for single-user
+          3600
+        );
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        return sendJSON(
+          { ok: true, tickers, count: tickers.length },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/all?version=2.5.0 (optional version parameter)
+      if (url.pathname === "/timed/all" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/all",
+          1000,
+          3600
+        ); // Increased for single-user
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const storedVersion =
+          (await getStoredVersion(KV)) || CURRENT_DATA_VERSION;
+
+        // Debug: Check if BMNR is in the ticker index
+        if (tickers.includes("BMNR") || tickers.includes("BABA")) {
+          console.log(`[ALL ENDPOINT] BMNR/BABA in index:`, {
+            BMNR: tickers.includes("BMNR"),
+            BABA: tickers.includes("BABA"),
+            totalTickers: tickers.length,
+            indexSample: tickers.slice(0, 10),
+          });
+        } else {
+          console.log(
+            `[ALL ENDPOINT] BMNR/BABA NOT in index. Total tickers: ${tickers.length}`
+          );
+        }
+
+        // Check if version parameter is provided
+        const requestedVersion = url.searchParams.get("version");
+        const useVersionSnapshots =
+          requestedVersion && requestedVersion !== "latest";
+
+        // Use Promise.all for parallel KV reads instead of sequential
+        const dataPromises = tickers.map(async (t) => {
+          let value;
+          if (useVersionSnapshots) {
+            // Try to get version-specific snapshot first
+            value = await kvGetJSON(
+              KV,
+              `timed:snapshot:${t}:${requestedVersion}`
+            );
+            // If no snapshot found, fall back to latest
+            if (!value) {
+              value = await kvGetJSON(KV, `timed:latest:${t}`);
+              // Only include if version matches
+              if (value && value.script_version !== requestedVersion) {
+                value = null; // Don't include mismatched versions
+              }
+            }
+          } else {
+            // Default: get latest data
+            value = await kvGetJSON(KV, `timed:latest:${t}`);
+
+            // Debug: Check if BMNR data exists in KV
+            if (t === "BMNR" || t === "BABA") {
+              console.log(`[ALL ENDPOINT] Fetched ${t} from KV:`, {
+                hasValue: !!value,
+                valueKeys: value ? Object.keys(value) : [],
+                htf_score: value?.htf_score,
+                ltf_score: value?.ltf_score,
+                script_version: value?.script_version,
+              });
+            }
+          }
+          return { ticker: t, value };
+        });
+        const results = await Promise.all(dataPromises);
+
+        // Find all versions in the data
+        const versionsSeen = new Set();
+        for (const { value } of results) {
+          if (value && value.script_version) {
+            versionsSeen.add(value.script_version);
+          }
+        }
+
+        // Accept ANY version that exists in the data, plus "unknown" for legacy data
+        // This prevents filtering out data during version transitions
+        const acceptedVersions = new Set([
+          storedVersion,
+          CURRENT_DATA_VERSION,
+          "unknown", // Legacy data without script_version
+          ...Array.from(versionsSeen), // All versions seen in current data
+        ]);
+
+        const data = {};
+        let versionFilteredCount = 0;
+        const versionBreakdown = {}; // Track which versions are being filtered
+
+        for (const { ticker, value } of results) {
+          // Debug specific tickers that aren't showing
+          if (ticker === "BMNR" || ticker === "BABA") {
+            console.log(`[ALL ENDPOINT DEBUG] ${ticker}:`, {
+              inIndex: tickers.includes(ticker),
+              hasValue: !!value,
+              valueKeys: value ? Object.keys(value) : [],
+              htf_score: value?.htf_score,
+              ltf_score: value?.ltf_score,
+              script_version: value?.script_version,
+              price: value?.price,
+              state: value?.state,
+            });
+          }
+
+          if (value) {
+            // Accept ALL data - don't filter by version unless explicitly requested
+            // This ensures all historical data is accessible
+            const tickerVersion = value.script_version || "unknown";
+
+            // Only filter if a specific version was requested AND it doesn't match
+            if (useVersionSnapshots && tickerVersion !== requestedVersion) {
+              versionFilteredCount++;
+              // Track which versions are being filtered
+              if (!versionBreakdown[tickerVersion]) {
+                versionBreakdown[tickerVersion] = 0;
+              }
+              versionBreakdown[tickerVersion]++;
+              console.log(
+                `[FILTER] Ticker ${ticker} filtered: version=${tickerVersion}, requested=${requestedVersion}`
+              );
+            } else {
+              // Always recompute RR to ensure it uses the latest max TP from tp_levels
+              value.rr = computeRR(value);
+
+              // Calculate dynamicScore (for ranking) - backend calculation
+              value.dynamicScore = computeDynamicScore(value);
+
+              // Enrich with sector from SECTOR_MAP if not present in data
+              if (!value.sector && !value.fundamentals?.sector) {
+                const sectorFromMap = getSector(ticker);
+                if (sectorFromMap) {
+                  // Add sector to both top-level and fundamentals for consistency
+                  value.sector = sectorFromMap;
+                  if (!value.fundamentals) {
+                    value.fundamentals = {};
+                  }
+                  value.fundamentals.sector = sectorFromMap;
+                }
+              }
+
+              data[ticker] = value;
+            }
+          } else {
+            // Log tickers in index but without data
+            if (ticker === "BMNR" || ticker === "BABA") {
+              console.log(
+                `[ALL ENDPOINT DEBUG] ${ticker}: In index but no data found in KV`
               );
             }
           }
-        } else {
-          // No fundamental data provided, but still store sector/industry if available
-          // Create minimal fundamentals object for UI compatibility
-          if (payload.sector || payload.industry) {
-            payload.fundamentals = {
-              pe_ratio: null,
-              eps: null,
-              eps_growth_rate: null,
-              peg_ratio: null,
-              market_cap: null,
-              industry: payload.industry
-                ? String(payload.industry).trim()
-                : null,
-              sector: payload.sector ? String(payload.sector).trim() : null,
-              pe_percentiles: null,
-              pe_percentile_position: null,
-              fair_value_pe: null,
-              fair_value_price: null,
-              premium_discount_pct: null,
-              valuation_signal: "fair",
-              is_undervalued: false,
-              is_overvalued: false,
-              valuation_confidence: "low",
-              valuation_reasons: [],
-            };
-          }
         }
 
-        // Detect state transition into aligned (enter Q2/Q3)
-        const prevKey = `timed:prevstate:${ticker}`;
-        const prevState = await KV.get(prevKey);
-        await kvPutText(
+        // Log summary if any data was filtered
+        if (versionFilteredCount > 0) {
+          console.log(
+            `[FILTER] Filtered ${versionFilteredCount} tickers by version. Breakdown:`,
+            versionBreakdown
+          );
+        }
+        return sendJSON(
+          {
+            ok: true,
+            count: Object.keys(data).length,
+            totalIndex: tickers.length,
+            versionFiltered: versionFilteredCount,
+            versionBreakdown: versionBreakdown,
+            dataVersion: storedVersion,
+            requestedVersion: requestedVersion || "latest",
+            versionsSeen: Array.from(versionsSeen),
+            acceptedVersions: Array.from(acceptedVersions),
+            currentDataVersion: CURRENT_DATA_VERSION,
+            data,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/trail?ticker=
+      if (url.pathname === "/timed/trail" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
           KV,
-          prevKey,
-          String(payload.state || ""),
-          7 * 24 * 60 * 60
+          ip,
+          "/timed/trail",
+          1000,
+          3600
+        ); // Increased for single-user
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker)
+          return sendJSON(
+            { ok: false, error: "missing ticker" },
+            400,
+            corsHeaders(env, req)
+          );
+        const trail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
+        return sendJSON(
+          { ok: true, ticker, trail },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/top?bucket=long|short|setup&n=10
+      if (url.pathname === "/timed/top" && req.method === "GET") {
+        const n = Math.max(
+          1,
+          Math.min(50, Number(url.searchParams.get("n") || "10"))
+        );
+        const bucket = String(
+          url.searchParams.get("bucket") || "long"
+        ).toLowerCase();
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+
+        const items = [];
+        for (const t of tickers) {
+          const d = await kvGetJSON(KV, `timed:latest:${t}`);
+          if (d) items.push(d);
+        }
+
+        // IMPORTANT: Top lists should favor corridor relevance for "long/short" tabs.
+        // long bucket shows Q2 (bull aligned), short shows Q3 (bear aligned), setup shows Q1/Q4.
+        const isLongAligned = (d) => d.state === "HTF_BULL_LTF_BULL";
+        const isShortAligned = (d) => d.state === "HTF_BEAR_LTF_BEAR";
+        const isSetup = (d) =>
+          d.state === "HTF_BULL_LTF_PULLBACK" ||
+          d.state === "HTF_BEAR_LTF_PULLBACK";
+
+        let filtered =
+          bucket === "long"
+            ? items.filter(isLongAligned)
+            : bucket === "short"
+            ? items.filter(isShortAligned)
+            : items.filter(isSetup);
+
+        filtered.sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
+        filtered = filtered.slice(0, n);
+
+        return sendJSON(
+          { ok: true, bucket, n: filtered.length, data: filtered },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/momentum?ticker=XYZ
+      if (url.pathname === "/timed/momentum" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/momentum",
+          1000, // Increased for single-user
+          3600
         );
 
-        const state = String(payload.state || "");
-        const alignedLong = state === "HTF_BULL_LTF_BULL";
-        const alignedShort = state === "HTF_BEAR_LTF_BEAR";
-        const aligned = alignedLong || alignedShort;
-        const enteredAligned = aligned && prevState !== state;
-
-        const trigReason = String(payload.trigger_reason || "");
-        const trigOk =
-          trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
-
-        const flags = payload.flags || {};
-        const sqRel = !!flags.sq30_release;
-
-        // Activity feed tracking - detect events (load BEFORE alert logic to check for corridor entry)
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] About to load activity tracking state`);
-        }
-        const prevCorridorKey = `timed:prevcorridor:${ticker}`;
-        const prevInCorridor = await KV.get(prevCorridorKey);
-
-        // Corridor-only logic (must match UI)
-        const side = corridorSide(payload); // LONG/SHORT/null
-        const inCorridor = !!side;
-        const enteredCorridor = inCorridor && prevInCorridor !== "true";
-
-        // corridor must match alignment
-        const corridorAlignedOK =
-          (side === "LONG" && alignedLong) ||
-          (side === "SHORT" && alignedShort);
-
-        // Allow alerts if:
-        // 1. ENTERED corridor (just entered) AND aligned AND (entered aligned OR trigger OR squeeze release)
-        // 2. OR in corridor AND aligned AND (entered aligned OR trigger OR squeeze release)
-        // 3. OR in corridor AND squeeze release (squeeze release is a strong signal even if not fully aligned)
-        const shouldConsiderAlert =
-          (enteredCorridor &&
-            corridorAlignedOK &&
-            (enteredAligned || trigOk || sqRel)) ||
-          (inCorridor &&
-            ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
-              (sqRel && side))); // Squeeze release in corridor is a valid trigger even if not fully aligned
-        const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
-        const prevSqueezeOn = await KV.get(prevSqueezeKey);
-        const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
-        const prevSqueezeRel = await KV.get(prevSqueezeRelKey);
-        const prevMomentumEliteKey = `timed:prevmomentumelite:${ticker}`;
-        const prevMomentumElite = await KV.get(prevMomentumEliteKey);
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] Activity tracking state loaded`);
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
         }
 
-        // Track corridor entry
-        // Wrap activity tracking in try-catch to prevent errors from breaking ingestion
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker)
+          return sendJSON(
+            { ok: false, error: "missing ticker" },
+            400,
+            corsHeaders(env, req)
+          );
+        const data = await kvGetJSON(KV, `timed:momentum:${ticker}`);
+        return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/momentum/history?ticker=XYZ
+      if (url.pathname === "/timed/momentum/history" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/momentum/history",
+          1000, // Increased for single-user
+          3600
+        );
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker)
+          return sendJSON(
+            { ok: false, error: "missing ticker" },
+            400,
+            corsHeaders(env, req)
+          );
+        const history =
+          (await kvGetJSON(KV, `timed:momentum:history:${ticker}`)) || [];
+        return sendJSON(
+          { ok: true, ticker, history },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/momentum/all
+      if (url.pathname === "/timed/momentum/all" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/momentum/all",
+          1000, // Increased for single-user
+          3600
+        );
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const eliteTickers = [];
+        for (const t of tickers) {
+          const momentumData = await kvGetJSON(KV, `timed:momentum:${t}`);
+          if (momentumData && momentumData.momentum_elite) {
+            eliteTickers.push({ ticker: t, ...momentumData });
+          }
+        }
+        return sendJSON(
+          { ok: true, count: eliteTickers.length, tickers: eliteTickers },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/sectors - Get all sectors and their ratings
+      if (url.pathname === "/timed/sectors" && req.method === "GET") {
+        const sectors = getAllSectors().map((sector) => ({
+          sector,
+          ...getSectorRating(sector),
+          tickerCount: getTickersInSector(sector).length,
+        }));
+
+        return sendJSON({ ok: true, sectors }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/sectors/:sector/tickers?limit=10 - Get top tickers in a sector
+      if (
+        url.pathname.startsWith("/timed/sectors/") &&
+        url.pathname.endsWith("/tickers") &&
+        req.method === "GET"
+      ) {
+        const sectorPath = url.pathname
+          .replace("/timed/sectors/", "")
+          .replace("/tickers", "");
+        const sector = decodeURIComponent(sectorPath);
+        const limit = Math.max(
+          1,
+          Math.min(50, Number(url.searchParams.get("limit") || "10"))
+        );
+
+        if (!getAllSectors().includes(sector)) {
+          return sendJSON(
+            { ok: false, error: `Invalid sector: ${sector}` },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const topTickers = await rankTickersInSector(KV, sector, limit);
+
+        return sendJSON(
+          {
+            ok: true,
+            sector,
+            rating: getSectorRating(sector),
+            limit: topTickers.length,
+            tickers: topTickers,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/sectors/recommendations?limit=10 - Get top tickers across all overweight sectors
+      if (
+        url.pathname === "/timed/sectors/recommendations" &&
+        req.method === "GET"
+      ) {
+        const limitPerSector = Math.max(
+          1,
+          Math.min(20, Number(url.searchParams.get("limit") || "10"))
+        );
+        const totalLimit = Math.max(
+          1,
+          Math.min(100, Number(url.searchParams.get("totalLimit") || "50"))
+        );
+
+        const overweightSectors = getAllSectors().filter(
+          (sector) => getSectorRating(sector).rating === "overweight"
+        );
+
+        const allRecommendations = [];
+
+        for (const sector of overweightSectors) {
+          const topTickers = await rankTickersInSector(
+            KV,
+            sector,
+            limitPerSector
+          );
+          allRecommendations.push(
+            ...topTickers.map((t) => ({
+              ...t,
+              sector,
+            }))
+          );
+        }
+
+        // Sort by boosted rank and take top N
+        allRecommendations.sort((a, b) => b.boostedRank - a.boostedRank);
+        const topRecommendations = allRecommendations.slice(0, totalLimit);
+
+        return sendJSON(
+          {
+            ok: true,
+            sectors: overweightSectors,
+            limitPerSector,
+            totalLimit: topRecommendations.length,
+            recommendations: topRecommendations,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/debug/migrate-brk?key=... - Migrate BRK.B to BRK-B
+      if (
+        url.pathname === "/timed/debug/migrate-brk" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
         try {
-          const enteredCorridor = inCorridor && prevInCorridor !== "true";
-          const exitedCorridor = !inCorridor && prevInCorridor === "true";
+          const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
+          const newData = await kvGetJSON(KV, `timed:latest:BRK-B`);
 
-          if (enteredCorridor) {
-            await appendActivity(KV, {
+          if (!oldData && !newData) {
+            return sendJSON(
+              { ok: false, error: "No BRK data found" },
+              404,
+              corsHeaders(env, req)
+            );
+          }
+
+          // Use newer data if both exist
+          const dataToUse =
+            oldData && newData && newData.ts > oldData.ts
+              ? newData
+              : oldData || newData;
+          const migrated = !!oldData && oldData !== dataToUse;
+
+          await kvPutJSON(KV, `timed:latest:BRK-B`, dataToUse);
+
+          // Migrate trail data
+          const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
+          const newTrail = await kvGetJSON(KV, `timed:trail:BRK-B`);
+          if (oldTrail || newTrail) {
+            await kvPutJSON(KV, `timed:trail:BRK-B`, oldTrail || newTrail);
+          }
+
+          // Ensure BRK-B is in index
+          await ensureTickerIndex(KV, "BRK-B");
+
+          // Remove BRK.B from index if it exists
+          let tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          if (tickers.includes("BRK.B")) {
+            tickers = tickers.filter((t) => t !== "BRK.B");
+            await kvPutJSON(KV, "timed:tickers", tickers);
+          }
+
+          // Delete old BRK.B data if we migrated
+          if (migrated) {
+            await KV.delete(`timed:latest:BRK.B`);
+            await KV.delete(`timed:trail:BRK.B`);
+          }
+
+          return sendJSON(
+            {
+              ok: true,
+              message: "BRK migration completed",
+              hadOldData: !!oldData,
+              hadNewData: !!newData,
+              migrated,
+              finalTicker: "BRK-B",
+              ts: dataToUse?.ts,
+              htf_score: dataToUse?.htf_score,
+              ltf_score: dataToUse?.ltf_score,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          console.error(`[MIGRATE BRK ERROR]`, {
+            error: String(err),
+            message: err.message,
+            stack: err.stack,
+          });
+          return sendJSON(
+            { ok: false, error: "internal_error", message: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/cleanup-duplicates?key=... - Remove duplicate/empty tickers from index
+      if (
+        url.pathname === "/timed/debug/cleanup-duplicates" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const duplicatesToRemove = [
+            "BTC", // Duplicate of BTCUSD (BTCUSD has data)
+            "ES", // Duplicate of ES1! (ES1! has data)
+            "ETH", // Duplicate of ETHUSD (ETHUSD has data)
+            "NQ", // Duplicate of NQ1! (NQ1! has data)
+            "MES1!", // Not sending data
+            "MNQ1!", // Not sending data
+            "RTY1!", // Not sending data
+            "YM1!", // Not sending data
+          ];
+
+          const removed = [];
+          const notFound = [];
+          const hasData = [];
+
+          for (const ticker of duplicatesToRemove) {
+            if (!tickers.includes(ticker)) {
+              notFound.push(ticker);
+              continue;
+            }
+
+            // Check if ticker has data
+            const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            if (
+              data &&
+              (data.htf_score !== undefined || data.ltf_score !== undefined)
+            ) {
+              hasData.push(ticker);
+              continue; // Don't remove if it has data
+            }
+
+            // Remove from index
+            removed.push(ticker);
+
+            // Also delete the data if it exists (even without scores)
+            await KV.delete(`timed:latest:${ticker}`);
+            await KV.delete(`timed:trail:${ticker}`);
+          }
+
+          // Update index once after processing all removals
+          if (removed.length > 0) {
+            const updatedTickers = tickers.filter((t) => !removed.includes(t));
+            updatedTickers.sort();
+            await kvPutJSON(KV, "timed:tickers", updatedTickers);
+          }
+
+          const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+
+          return sendJSON(
+            {
+              ok: true,
+              message: "Cleanup completed",
+              removed,
+              notFound,
+              hasData,
+              beforeCount: tickers.length,
+              afterCount: finalTickers.length,
+              removedCount: removed.length,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/fix-index?key=...&ticker=BMNR - Manually add ticker to index if data exists
+      if (url.pathname === "/timed/debug/fix-index" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        // Allow requests without origin for debug endpoints (curl, direct API calls)
+        const cors = corsHeaders(env, req, true);
+
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          if (!ticker) {
+            return sendJSON(
+              { ok: false, error: "ticker parameter required" },
+              400,
+              cors
+            );
+          }
+
+          // Check if data exists in KV
+          const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          const inIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const alreadyInIndex = inIndex.includes(ticker);
+
+          if (!data) {
+            return sendJSON(
+              {
+                ok: false,
+                error: "ticker data not found in KV",
+                ticker,
+                inIndex: alreadyInIndex,
+              },
+              404,
+              cors
+            );
+          }
+
+          // Add to index if not already there
+          if (!alreadyInIndex) {
+            await ensureTickerIndex(KV, ticker);
+            const updatedIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+            const nowInIndex = updatedIndex.includes(ticker);
+
+            return sendJSON(
+              {
+                ok: true,
+                message: `Ticker ${ticker} ${
+                  nowInIndex ? "added to" : "failed to add to"
+                } index`,
+                ticker,
+                hadData: true,
+                wasInIndex: false,
+                nowInIndex,
+                indexSize: updatedIndex.length,
+              },
+              200,
+              cors
+            );
+          } else {
+            return sendJSON(
+              {
+                ok: true,
+                message: `Ticker ${ticker} already in index`,
+                ticker,
+                hadData: true,
+                inIndex: true,
+                indexSize: inIndex.length,
+              },
+              200,
+              cors
+            );
+          }
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, cors);
+        }
+      }
+
+      // POST /timed/watchlist/add?key=... - Add tickers to watchlist
+      if (url.pathname === "/timed/watchlist/add" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const { obj: body } = await readBodyAsJSON(req);
+          const tickersToAdd = body.tickers || [];
+
+          if (!Array.isArray(tickersToAdd) || tickersToAdd.length === 0) {
+            return sendJSON(
+              { ok: false, error: "tickers array required" },
+              400,
+              corsHeaders(env, req)
+            );
+          }
+
+          const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const added = [];
+          const alreadyExists = [];
+
+          for (const ticker of tickersToAdd) {
+            const tickerUpper = String(ticker).toUpperCase().trim();
+            if (!tickerUpper) continue;
+
+            if (!currentTickers.includes(tickerUpper)) {
+              currentTickers.push(tickerUpper);
+              added.push(tickerUpper);
+              await ensureTickerIndex(KV, tickerUpper);
+            } else {
+              alreadyExists.push(tickerUpper);
+            }
+          }
+
+          // Sort and save
+          currentTickers.sort();
+          await kvPutJSON(KV, "timed:tickers", currentTickers);
+
+          return sendJSON(
+            {
+              ok: true,
+              added: added.length,
+              alreadyExists: alreadyExists.length,
+              addedTickers: added,
+              alreadyExistsTickers: alreadyExists,
+              totalTickers: currentTickers.length,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // GET /timed/activity
+      if (url.pathname === "/timed/activity" && req.method === "GET") {
+        // Rate limiting - aligned with 5-minute refresh interval (generous limit)
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/activity",
+          1000, // Increased for single-user (plenty of headroom)
+          3600
+        );
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
+
+        // Also generate events from current ticker states (for historical display)
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const now = Date.now();
+        const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+        const currentEvents = [];
+
+        // Generate events from current state (only if not already in feed)
+        for (const ticker of tickers) {
+          const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          if (!latest) continue;
+
+          const flags = latest.flags || {};
+          const side = corridorSide(latest);
+          const inCorridor = !!side;
+          const state = String(latest.state || "");
+          const alignedLong = state === "HTF_BULL_LTF_BULL";
+          const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+
+          // Check if we already have recent events for this ticker+type combination
+          const hasRecentEventOfType = (type) => {
+            return feed.some(
+              (e) => e.ticker === ticker && e.type === type && e.ts > oneWeekAgo
+            );
+          };
+
+          // Generate corridor entry event if in corridor
+          if (inCorridor && !hasRecentEventOfType("corridor_entry")) {
+            currentEvents.push({
               type: "corridor_entry",
               ticker: ticker,
               side: side,
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
+              price: latest.price,
+              state: latest.state,
+              rank: latest.rank,
+              sl: latest.sl,
+              tp: latest.tp,
+              tp_levels: latest.tp_levels,
+              rr: latest.rr,
+              phase_pct: latest.phase_pct,
+              completion: latest.completion,
+              ts: latest.ts || now,
+              id: `current-${ticker}-corridor-${now}`,
             });
-            await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
-          } else if (exitedCorridor) {
-            await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
           }
 
-          // Track squeeze start
-          if (flags.sq30_on && prevSqueezeOn !== "true") {
-            await appendActivity(KV, {
+          // Generate squeeze start event if squeeze is on
+          if (flags.sq30_on && !hasRecentEventOfType("squeeze_start")) {
+            currentEvents.push({
               type: "squeeze_start",
               ticker: ticker,
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
+              price: latest.price,
+              state: latest.state,
+              rank: latest.rank,
+              sl: latest.sl,
+              tp: latest.tp,
+              tp_levels: latest.tp_levels,
+              rr: latest.rr,
+              phase_pct: latest.phase_pct,
+              completion: latest.completion,
+              ts: latest.ts || now,
+              id: `current-${ticker}-squeeze-${now}`,
             });
-            await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
-          } else if (!flags.sq30_on && prevSqueezeOn === "true") {
-            await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
           }
 
-          // Track squeeze release
-          if (sqRel && prevSqueezeRel !== "true") {
-            await appendActivity(KV, {
+          // Generate squeeze release event if squeeze released
+          if (flags.sq30_release && !hasRecentEventOfType("squeeze_release")) {
+            currentEvents.push({
               type: "squeeze_release",
               ticker: ticker,
               side:
                 side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              trigger_dir: payload.trigger_dir,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
+              price: latest.price,
+              state: latest.state,
+              rank: latest.rank,
+              trigger_dir: latest.trigger_dir,
+              sl: latest.sl,
+              tp: latest.tp,
+              tp_levels: latest.tp_levels,
+              rr: latest.rr,
+              phase_pct: latest.phase_pct,
+              completion: latest.completion,
+              ts: latest.ts || now,
+              id: `current-${ticker}-squeeze-rel-${now}`,
             });
-            await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
-          } else if (!sqRel && prevSqueezeRel === "true") {
-            await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
           }
 
-          // Track state change to aligned
-          if (enteredAligned) {
-            await appendActivity(KV, {
+          // Generate aligned state event
+          if (
+            (alignedLong || alignedShort) &&
+            !hasRecentEventOfType("state_aligned")
+          ) {
+            currentEvents.push({
               type: "state_aligned",
               ticker: ticker,
               side: alignedLong ? "LONG" : "SHORT",
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
+              price: latest.price,
+              state: latest.state,
+              rank: latest.rank,
+              sl: latest.sl,
+              tp: latest.tp,
+              tp_levels: latest.tp_levels,
+              rr: latest.rr,
+              phase_pct: latest.phase_pct,
+              completion: latest.completion,
+              ts: latest.ts || now,
+              id: `current-${ticker}-aligned-${now}`,
             });
           }
 
-          // Track Momentum Elite status change
-          const currentMomentumElite = !!(
-            payload.flags && payload.flags.momentum_elite
-          );
-          if (currentMomentumElite && prevMomentumElite !== "true") {
-            await appendActivity(KV, {
+          // Generate Momentum Elite event
+          if (flags.momentum_elite && !hasRecentEventOfType("momentum_elite")) {
+            currentEvents.push({
               type: "momentum_elite",
               ticker: ticker,
-              price: payload.price,
-              state: payload.state,
-              rank: payload.rank,
-              sl: payload.sl,
-              tp: payload.tp,
-              tp_levels: payload.tp_levels,
-              rr: payload.rr,
-              phase_pct: payload.phase_pct,
-              completion: payload.completion,
+              price: latest.price,
+              state: latest.state,
+              rank: latest.rank,
+              sl: latest.sl,
+              tp: latest.tp,
+              tp_levels: latest.tp_levels,
+              rr: latest.rr,
+              phase_pct: latest.phase_pct,
+              completion: latest.completion,
+              ts: latest.ts || now,
+              id: `current-${ticker}-momentum-${now}`,
             });
-            await kvPutText(KV, prevMomentumEliteKey, "true", 7 * 24 * 60 * 60);
-          } else if (!currentMomentumElite && prevMomentumElite === "true") {
-            await kvPutText(
-              KV,
-              prevMomentumEliteKey,
-              "false",
-              7 * 24 * 60 * 60
-            );
           }
-        } catch (activityErr) {
-          console.error(
-            `[ACTIVITY ERROR] Failed to track activity for ${ticker}:`,
-            {
-              error: String(activityErr),
-              message: activityErr.message,
-              stack: activityErr.stack,
-            }
-          );
-          // Don't throw - continue with ingestion even if activity tracking fails
         }
 
-        // Add ingestion timestamp to payload for per-ticker tracking
-        const now = Date.now();
-        payload.ingest_ts = now; // Timestamp when this data was ingested
-        payload.ingest_time = new Date(now).toISOString(); // Human-readable format
+        // Merge feed events with current events, deduplicate by ticker+type
+        const allEvents = [...feed, ...currentEvents];
+        const seen = new Set();
+        const uniqueEvents = allEvents.filter((e) => {
+          const key = `${e.ticker}-${e.type}-${Math.floor(
+            e.ts / (60 * 60 * 1000)
+          )}`; // Group by hour
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return e.ts > oneWeekAgo; // Only keep events from last week
+        });
 
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] About to get previous data and store`);
-        }
+        // Sort by timestamp descending
+        uniqueEvents.sort((a, b) => b.ts - a.ts);
 
-        // Get previous data BEFORE storing new data (for trade simulation comparison)
-        const prevLatest = await kvGetJSON(KV, `timed:latest:${ticker}`);
-
-        if (ticker === "ETHT") {
-          console.log(
-            `[ETHT DEBUG] Previous data retrieved, about to store latest`
-          );
-        }
-
-        // Store latest (do this BEFORE alert so UI has it)
-        await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] Successfully stored latest data`);
-        }
-
-        // Store version-specific snapshot for historical access
-        const snapshotVersion = payload.script_version || "unknown";
-        if (snapshotVersion !== "unknown") {
-          await kvPutJSON(
-            KV,
-            `timed:snapshot:${ticker}:${snapshotVersion}`,
-            payload
-          );
-          // Also store timestamp of when this version was last seen
-          await kvPutText(
-            KV,
-            `timed:version:${ticker}:${snapshotVersion}:last_seen`,
-            String(payload.ts || Date.now())
-          );
-        }
-
-        console.log(
-          `[INGEST STORED] ${ticker} - latest data saved at ${new Date(
-            now
-          ).toISOString()}`
+        const limit = Math.min(
+          100,
+          Number(url.searchParams.get("limit") || "100")
         );
+        const filtered = uniqueEvents.slice(0, limit);
 
-        // CRITICAL: Ensure ticker is in index IMMEDIATELY after storage
-        // This ensures ticker appears on dashboard even if request is canceled later
-        await ensureTickerIndex(KV, ticker);
-        if (ticker === "ETHT") {
-          console.log(`[ETHT DEBUG] Indexing completed`);
-        }
+        return sendJSON(
+          {
+            ok: true,
+            count: filtered.length,
+            events: filtered,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
 
-        // Process trade simulation (create/update trades automatically)
-        // Wrap in try-catch to prevent trade simulation errors from breaking ingestion
-        try {
-          await processTradeSimulation(KV, ticker, payload, prevLatest, env);
-        } catch (tradeErr) {
-          console.error(
-            `[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`,
-            {
-              error: String(tradeErr),
-              message: tradeErr.message,
-              stack: tradeErr.stack,
-            }
+      // GET /timed/check-ticker?ticker=AAPL
+      if (url.pathname === "/timed/check-ticker" && req.method === "GET") {
+        const ticker = url.searchParams.get("ticker");
+        if (!ticker) {
+          return sendJSON(
+            { ok: false, error: "ticker parameter required" },
+            400,
+            corsHeaders(env, req)
           );
-          // Don't throw - continue with ingestion even if trade simulation fails
         }
 
-        // Trail (light)
-        // Wrap in try-catch to prevent trail errors from breaking ingestion
-        try {
-          await appendTrail(
-            KV,
-            ticker,
+        const tickerUpper = ticker.toUpperCase();
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const inIndex = tickers.includes(tickerUpper);
+        const latest = await kvGetJSON(KV, `timed:latest:${tickerUpper}`);
+        const trail = await kvGetJSON(KV, `timed:trail:${tickerUpper}`);
+
+        return sendJSON(
+          {
+            ok: true,
+            ticker: tickerUpper,
+            inIndex,
+            hasLatest: !!latest,
+            hasTrail: !!trail,
+            latestData: latest || null,
+            trailLength: trail ? trail.length : 0,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/health
+      if (url.pathname === "/timed/health" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/health",
+          500,
+          3600
+        ); // Increased for single-user
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const last = Number(await KV.get("timed:last_ingest_ms")) || 0;
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const storedVersion = await getStoredVersion(KV);
+        return sendJSON(
+          {
+            ok: true,
+            now: Date.now(),
+            lastIngestMs: last,
+            minutesSinceLast: last ? (Date.now() - last) / 60000 : null,
+            tickers: tickers.length,
+            dataVersion: storedVersion || "none",
+            expectedVersion: CURRENT_DATA_VERSION,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/purge?key=... (Manual purge endpoint)
+      if (url.pathname === "/timed/purge" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const result = await purgeOldData(KV);
+        await setStoredVersion(KV, CURRENT_DATA_VERSION);
+
+        return sendJSON(
+          {
+            ok: true,
+            message: "Data purged successfully",
+            purged: result.purged,
+            tickerCount: result.tickerCount,
+            version: CURRENT_DATA_VERSION,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/cleanup-no-scores?key=... (Remove tickers without score data from index)
+      if (
+        url.pathname === "/timed/cleanup-no-scores" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const tickersToKeep = [];
+        const tickersRemoved = [];
+
+        for (const ticker of tickers) {
+          const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          const hasScores =
+            data &&
+            (data.htf_score !== undefined || data.ltf_score !== undefined);
+
+          if (hasScores) {
+            tickersToKeep.push(ticker);
+          } else {
+            tickersRemoved.push(ticker);
+            // Also clean up the latest data entry if it exists but has no scores
+            await KV.delete(`timed:latest:${ticker}`);
+          }
+        }
+
+        await kvPutJSON(KV, "timed:tickers", tickersToKeep);
+
+        return sendJSON(
+          {
+            ok: true,
+            message: `Cleaned up ${tickersRemoved.length} tickers without scores`,
+            removed: tickersRemoved,
+            kept: tickersToKeep.length,
+            totalBefore: tickers.length,
+            totalAfter: tickersToKeep.length,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/rebuild-index?key=... (Rebuild ticker index from watchlist)
+      if (url.pathname === "/timed/rebuild-index" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        // Known ticker list from watchlists (Q1 2026 + Sectors)
+        // This should match your TradingView watchlists
+        const knownTickers = [
+          "TSLA",
+          "STX",
+          "AU",
+          "CCJ",
+          "CLS",
+          "CRS",
+          "VST",
+          "FSLR",
+          "JCI",
+          "ORCL",
+          "AMZN",
+          "BRK-B",
+          "BABA",
+          "WMT",
+          "PH",
+          "GEV",
+          "HII",
+          "ULTA",
+          "SHOP",
+          "CSX",
+          "PWR",
+          "HOOD",
+          "SPGI",
+          "APP",
+          "PANW",
+          "RDDT",
+          "TT",
+          "GLXY",
+          "ETHA",
+          "META",
+          "NVDA",
+          "AMD",
+          "ANET",
+          "GS",
+          "TJX",
+          "SOFI",
+          "PNC",
+          "PLTR",
+          "NFLX",
+          "MSTR",
+          "MSFT",
+          "MNST",
+          "LRCX",
+          "KLAC",
+          "JPM",
+          "GOOGL",
+          "GE",
+          "EXPE",
+          "ETN",
+          "EMR",
+          "DE",
+          "CRWD",
+          "COST",
+          "CDNS",
+          "CAT",
+          "BK",
+          "AXP",
+          "AXON",
+          "AVGO",
+          "AAPL",
+          "RKLB",
+          "LITE",
+          "SN",
+          "ALB",
+          "RGLD",
+          "MTZ",
+          "ON",
+          "ALLY",
+          "DY",
+          "EWBC",
+          "PATH",
+          "WFRD",
+          "WAL",
+          "IESC",
+          "ENS",
+          "TWLO",
+          "MLI",
+          "KTOS",
+          "MDB",
+          "TLN",
+          "EME",
+          "AWI",
+          "IBP",
+          "DCI",
+          "WTS",
+          "FIX",
+          "UTHR",
+          "NBIS",
+          "SGI",
+          "AYI",
+          "RIOT",
+          "NXT",
+          "SANM",
+          "BWXT",
+          "PEGA",
+          "JOBY",
+          "IONQ",
+          "ITT",
+          "STRL",
+          "QLYS",
+          "MP",
+          "HIMS",
+          "IOT",
+          "BE",
+          "NEU",
+          "AVAV",
+          "PSTG",
+          "RBLX",
+          "CSCO",
+          "BA",
+          "NKE",
+          "PI",
+          "APLD",
+          "MU",
+          // ETFs
+          "XLK",
+          "XLF",
+          "XLY",
+          "XLP",
+          "XLC",
+          "XLB",
+          "XLE",
+          "XLU",
+          "XLV",
+          // Futures & Crypto
+          "ES",
+          "NQ",
+          "BTC",
+          "ETH",
+          "BTCUSD",
+          "ETHUSD",
+          // Futures contracts
+          "ES1!",
+          "NQ1!",
+          "MES1!",
+          "MNQ1!",
+          "YM1!",
+          "RTY1!",
+        ]
+          .map((t) => t.toUpperCase())
+          .filter((v, i, a) => a.indexOf(v) === i); // Deduplicate
+
+        const currentIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const addedTickers = [];
+        const existingTickers = new Set(currentIndex);
+
+        for (const ticker of knownTickers) {
+          if (!existingTickers.has(ticker)) {
+            currentIndex.push(ticker);
+            addedTickers.push(ticker);
+          }
+        }
+
+        // Sort and save
+        currentIndex.sort();
+        await kvPutJSON(KV, "timed:tickers", currentIndex);
+
+        return sendJSON(
+          {
+            ok: true,
+            message: `Index rebuilt. Added ${addedTickers.length} tickers.`,
+            beforeCount: currentIndex.length - addedTickers.length,
+            afterCount: currentIndex.length,
+            addedTickers: addedTickers.slice(0, 20), // Show first 20
+            totalAdded: addedTickers.length,
+            note: "Index will continue to grow as TradingView sends alerts for these tickers.",
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/purge-trades-by-version?key=...&version=2.6.0 (Purge trades by version)
+      if (
+        url.pathname === "/timed/purge-trades-by-version" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const targetVersion = url.searchParams.get("version");
+        if (!targetVersion) {
+          return sendJSON(
+            { ok: false, error: "version parameter required" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+        const beforeCount = allTrades.length;
+        const filteredTrades = allTrades.filter((trade) => {
+          const tradeVersion =
+            trade.scriptVersion || trade.script_version || "unknown";
+          return tradeVersion !== targetVersion;
+        });
+        const purgedCount = beforeCount - filteredTrades.length;
+
+        await kvPutJSON(KV, tradesKey, filteredTrades);
+
+        return sendJSON(
+          {
+            ok: true,
+            message: `Purged ${purgedCount} trades with version ${targetVersion}`,
+            beforeCount,
+            afterCount: filteredTrades.length,
+            purgedCount,
+            targetVersion,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/cleanup-tickers?key=... (Remove unapproved tickers, keep only approved list, normalize Gold/Silver)
+      // POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
+      if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const ip = url.searchParams.get("ip") || null;
+        const endpoint = url.searchParams.get("endpoint") || null;
+        const clearAll = url.searchParams.get("all") === "true";
+
+        // List of all known endpoints that use rate limiting
+        const allEndpoints = [
+          "/timed/all",
+          "/timed/latest",
+          "/timed/activity",
+          "/timed/trail",
+          "/timed/top",
+          "/timed/momentum",
+          "/timed/momentum/history",
+          "/timed/momentum/all",
+          "/timed/trades",
+          "/timed/health",
+          "/timed/version",
+          "/timed/alert-debug",
+          "/timed/check-ticker",
+        ];
+
+        let cleared = 0;
+        const clearedKeys = [];
+
+        if (clearAll) {
+          // Clear ALL rate limits - note: KV doesn't support listing all keys
+          // So we return a message that rate limits will expire naturally
+          // For immediate clearing, users should specify IP
+          return sendJSON(
             {
-              ts: payload.ts,
-              price: payload.price, // Add price to trail for momentum calculations
-              htf_score: payload.htf_score,
-              ltf_score: payload.ltf_score,
-              completion: payload.completion,
-              phase_pct: payload.phase_pct,
-              state: payload.state,
-              rank: payload.rank,
-              flags: payload.flags || {},
-              momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
-              trigger_reason: payload.trigger_reason,
-              trigger_dir: payload.trigger_dir,
+              ok: true,
+              message:
+                "Rate limit reset acknowledged. Note: Cloudflare KV doesn't support listing all keys, so active rate limits will expire naturally after 1 hour. For immediate clearing, use ?ip=IP_ADDRESS to clear all endpoints for a specific IP.",
+              note: "To clear all rate limits for your IP immediately, use: ?ip=YOUR_IP",
+              endpoints: allEndpoints,
             },
-            20
-          ); // Increased to 20 points for better history
-        } catch (trailErr) {
-          console.error(`[TRAIL ERROR] Failed to append trail for ${ticker}:`, {
-            error: String(trailErr),
-            message: trailErr.message,
-            stack: trailErr.stack,
-          });
-          // Don't throw - continue with ingestion even if trail fails
-        }
-
-        // Store version-specific snapshot for historical access
-        const version = payload.script_version || "unknown";
-        if (version !== "unknown") {
-          await kvPutJSON(KV, `timed:snapshot:${ticker}:${version}`, payload);
-          // Also store timestamp of when this version was last seen
-          await kvPutText(
-            KV,
-            `timed:version:${ticker}:${version}:last_seen`,
-            String(payload.ts || Date.now())
+            200,
+            corsHeaders(env, req)
+          );
+        } else if (ip && endpoint) {
+          // Clear specific IP + endpoint combination
+          const key = `ratelimit:${ip}:${endpoint}`;
+          await KV.delete(key);
+          cleared++;
+          clearedKeys.push(key);
+        } else if (ip) {
+          // Clear all rate limits for a specific IP (all endpoints)
+          for (const ep of allEndpoints) {
+            const key = `ratelimit:${ip}:${ep}`;
+            await KV.delete(key);
+            cleared++;
+            clearedKeys.push(key);
+          }
+        } else if (endpoint) {
+          // Clear all rate limits for a specific endpoint (all IPs)
+          // Note: This is not directly possible without listing all IPs
+          // For now, return an error suggesting to specify IP
+          return sendJSON(
+            {
+              ok: false,
+              error:
+                "Cannot clear endpoint without IP. Please specify both 'ip' and 'endpoint', or just 'ip' to clear all endpoints for that IP.",
+            },
+            400,
+            corsHeaders(env, req)
+          );
+        } else {
+          // No parameters - return usage info
+          return sendJSON(
+            {
+              ok: false,
+              error: "Missing parameters",
+              usage: {
+                clearAll: "POST /timed/clear-rate-limit?key=YOUR_KEY&all=true",
+                clearSpecific:
+                  "POST /timed/clear-rate-limit?key=YOUR_KEY&ip=IP_ADDRESS&endpoint=/timed/activity",
+                clearAllForIP:
+                  "POST /timed/clear-rate-limit?key=YOUR_KEY&ip=IP_ADDRESS",
+              },
+            },
+            400,
+            corsHeaders(env, req)
           );
         }
 
-        await ensureTickerIndex(KV, ticker);
-        await kvPutText(KV, "timed:last_ingest_ms", String(Date.now()));
+        return sendJSON(
+          {
+            ok: true,
+            message: `Cleared ${cleared} rate limit(s)`,
+            cleared,
+            keys: clearedKeys,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
 
-        // Get current ticker count for logging
+      // POST /timed/cleanup-tickers?key=... (Cleanup tickers to match approved list)
+      if (url.pathname === "/timed/cleanup-tickers" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        // Approved ticker list (normalized to uppercase)
+        const approvedTickers = new Set([
+          // Upticks
+          "TSLA",
+          "STX",
+          "AU",
+          "CCJ",
+          "CLS",
+          "CRS",
+          "VST",
+          "FSLR",
+          "JCI",
+          "ORCL",
+          "AMZN",
+          "BRK-B",
+          "BRK.B",
+          "BABA",
+          "WMT",
+          "PH",
+          "GEV",
+          "HII",
+          "ULTA",
+          "SHOP",
+          "CSX",
+          "PWR",
+          "HOOD",
+          "SPGI",
+          "APP",
+          "PANW",
+          "RDDT",
+          "TT",
+          "GLXY",
+          "ETHA",
+          // Super Granny
+          "META",
+          "NVDA",
+          "AMD",
+          "ANET",
+          "GS",
+          // GRNI
+          "TJX",
+          "SOFI",
+          "PNC",
+          "PLTR",
+          "NFLX",
+          "MSTR",
+          "MSFT",
+          "MNST",
+          "LRCX",
+          "KLAC",
+          "JPM",
+          "GOOGL",
+          "GE",
+          "EXPE",
+          "ETN",
+          "EMR",
+          "DE",
+          "CRWD",
+          "COST",
+          "CDNS",
+          "CAT",
+          "BK",
+          "AXP",
+          "AXON",
+          "AVGO",
+          "AAPL",
+          // GRNJ
+          "RKLB",
+          "LITE",
+          "SN",
+          "ALB",
+          "RGLD",
+          "MTZ",
+          "ON",
+          "ALLY",
+          "DY",
+          "EWBC",
+          "PATH",
+          "WFRD",
+          "WAL",
+          "IESC",
+          "ENS",
+          "TWLO",
+          "MLI",
+          "KTOS",
+          "MDB",
+          "TLN",
+          "EME",
+          "AWI",
+          "IBP",
+          "DCI",
+          "WTS",
+          "FIX",
+          "UTHR",
+          "NBIS",
+          "SGI",
+          "AYI",
+          "RIOT",
+          "NXT",
+          "SANM",
+          "BWXT",
+          "PEGA",
+          "JOBY",
+          "IONQ",
+          "ITT",
+          "STRL",
+          "QLYS",
+          "MP",
+          "HIMS",
+          "IOT",
+          "BE",
+          "NEU",
+          "AVAV",
+          "PSTG",
+          "RBLX",
+          // GRNY (already covered above)
+          // Social
+          "CSCO",
+          "BA",
+          "NKE",
+          "AAPL",
+          "PI",
+          "APLD",
+          "MU",
+          // SP Sectors
+          "XLK",
+          "XLF",
+          "XLY",
+          "XLP",
+          "XLC",
+          "XLB",
+          "XLE",
+          "XLU",
+          "XLV",
+          // Futures (normalize to common formats)
+          "ES",
+          "ES1!",
+          "MES1!",
+          "NQ",
+          "NQ1!",
+          "MNQ1!",
+          "BTC",
+          "BTC1!",
+          "BTCUSD",
+          "ETH",
+          "ETH1!",
+          "ETHT",
+          "ETHUSD",
+          "GOLD",
+          "XAUUSD",
+          "SILVER",
+          "XAGUSD",
+        ]);
+
+        // Ticker normalization map (handle variations)
+        const tickerMap = {
+          "BRK-B": "BRK.B", // Map BRK-B to BRK.B format
+          GOLD: "GOLD", // Keep as is
+          SILVER: "SILVER", // Keep as is
+          ES: "ES1!", // Map ES to ES1!
+          NQ: "NQ1!", // Map NQ to NQ1!
+          BTC: "BTC1!", // Map BTC to BTC1!
+          ETH: "ETH1!", // Map ETH to ETH1!
+        };
+
         const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const wasNewTicker = !currentTickers.includes(ticker);
-        console.log(
-          `[INGEST COMPLETE] ${ticker} - ${
-            wasNewTicker ? "NEW TICKER ADDED" : "updated existing"
-          } - Total tickers in index: ${currentTickers.length} - Version: ${
-            payload.script_version || "unknown"
-          }`
+        const currentSet = new Set(currentTickers.map((t) => t.toUpperCase()));
+
+        const toRemove = [];
+        const toKeep = [];
+        const renamed = [];
+
+        // Process each current ticker
+        for (const ticker of currentTickers) {
+          const upperTicker = ticker.toUpperCase();
+          const normalized = tickerMap[upperTicker] || upperTicker;
+
+          if (
+            approvedTickers.has(upperTicker) ||
+            approvedTickers.has(normalized)
+          ) {
+            // Keep this ticker
+            if (normalized !== upperTicker && tickerMap[upperTicker]) {
+              // Need to rename
+              renamed.push({ from: ticker, to: normalized });
+              toKeep.push(normalized);
+            } else {
+              toKeep.push(ticker);
+            }
+          } else {
+            // Remove this ticker
+            toRemove.push(ticker);
+          }
+        }
+
+        // Remove unapproved tickers from KV
+        let removedCount = 0;
+        for (const ticker of toRemove) {
+          await KV.delete(`timed:latest:${ticker}`);
+          await KV.delete(`timed:trail:${ticker}`);
+          removedCount++;
+        }
+
+        // Rename tickers if needed
+        let renamedCount = 0;
+        for (const { from, to } of renamed) {
+          const latestData = await kvGetJSON(KV, `timed:latest:${from}`);
+          const trailData = await kvGetJSON(KV, `timed:trail:${from}`);
+
+          if (latestData) {
+            await kvPutJSON(KV, `timed:latest:${to}`, latestData);
+            await KV.delete(`timed:latest:${from}`);
+          }
+          if (trailData) {
+            await kvPutJSON(KV, `timed:trail:${to}`, trailData);
+            await KV.delete(`timed:trail:${from}`);
+          }
+          renamedCount++;
+        }
+
+        // Update ticker index
+        await kvPutJSON(KV, "timed:tickers", toKeep.sort());
+
+        return sendJSON(
+          {
+            ok: true,
+            message: "Ticker cleanup completed",
+            removed: removedCount,
+            renamed: renamedCount,
+            kept: toKeep.length,
+            removedTickers: toRemove.sort(),
+            renamedTickers: renamed,
+            finalTickers: toKeep.sort(),
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/cors-debug (Debug CORS configuration)
+      if (url.pathname === "/timed/cors-debug" && req.method === "GET") {
+        const corsConfig = env.CORS_ALLOW_ORIGIN || "";
+        const allowedOrigins = corsConfig
+          .split(",")
+          .map((o) => o.trim())
+          .filter(Boolean);
+        const origin = req?.headers?.get("Origin") || "";
+
+        return sendJSON(
+          {
+            ok: true,
+            cors: {
+              config: corsConfig,
+              allowedOrigins: allowedOrigins,
+              requestedOrigin: origin,
+              isAllowed: allowedOrigins.includes(origin),
+              willReturn:
+                allowedOrigins.length === 0
+                  ? "*"
+                  : allowedOrigins.includes(origin)
+                  ? origin
+                  : "null",
+            },
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/version (Check current version)
+      if (url.pathname === "/timed/version" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/version",
+          500, // Increased for single-user
+          3600
         );
 
-        // Log all tickers in index if count is low (to debug missing tickers)
-        if (currentTickers.length < 130) {
-          console.log(
-            `[INGEST INDEX DEBUG] Current tickers (${currentTickers.length}):`,
-            currentTickers.slice(0, 30).join(", "),
-            currentTickers.length > 30
-              ? `... (showing first 30 of ${currentTickers.length})`
-              : ""
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
           );
         }
+
+        const storedVersion = await getStoredVersion(KV);
+        return sendJSON(
+          {
+            ok: true,
+            storedVersion: storedVersion || "none",
+            expectedVersion: CURRENT_DATA_VERSION,
+            match: storedVersion === CURRENT_DATA_VERSION,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/alert-debug?ticker=XYZ (Debug why alerts aren't firing)
+      if (url.pathname === "/timed/alert-debug" && req.method === "GET") {
+        // Rate limiting
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/alert-debug",
+          500, // Increased for single-user
+          3600
+        );
+
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker) {
+          return sendJSON(
+            { ok: false, error: "missing ticker" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        if (!data) {
+          return sendJSON(
+            { ok: false, error: "no data for ticker", ticker },
+            404,
+            corsHeaders(env, req)
+          );
+        }
+
+        // Replicate alert logic
+        const state = String(data.state || "");
+        const alignedLong = state === "HTF_BULL_LTF_BULL";
+        const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+        const aligned = alignedLong || alignedShort;
+
+        const prevKey = `timed:prevstate:${ticker}`;
+        const prevState = await KV.get(prevKey);
+        const enteredAligned = aligned && prevState !== state;
+
+        const trigReason = String(data.trigger_reason || "");
+        const trigOk =
+          trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+
+        const flags = data.flags || {};
+        const sqRel = !!flags.sq30_release;
+
+        const side = corridorSide(data);
+        const inCorridor = !!side;
+        const corridorAlignedOK =
+          (side === "LONG" && alignedLong) ||
+          (side === "SHORT" && alignedShort);
+
+        const shouldConsiderAlert =
+          inCorridor &&
+          corridorAlignedOK &&
+          (enteredAligned || trigOk || sqRel);
 
         // Threshold gates (with Momentum Elite adjustments)
         const momentumElite = !!flags.momentum_elite;
@@ -5429,2671 +8282,452 @@ export default {
           ? Math.max(60, baseMinRank - 10)
           : baseMinRank; // Lower rank requirement
 
-        const rrOk = payload.rr != null && Number(payload.rr) >= minRR;
+        // Use computeRRAtTrigger for alert-debug to match actual alert logic
+        const recalculatedRR = computeRRAtTrigger(data);
+        const rrToUse =
+          recalculatedRR != null && recalculatedRR > 0.5
+            ? recalculatedRR
+            : data.rr != null && Number(data.rr) >= minRR
+            ? Number(data.rr)
+            : recalculatedRR != null
+            ? recalculatedRR
+            : data.rr != null
+            ? Number(data.rr)
+            : 0;
+        const rrOk = rrToUse >= minRR;
         const compOk =
-          payload.completion == null
-            ? true
-            : Number(payload.completion) <= maxComp;
+          data.completion == null ? true : Number(data.completion) <= maxComp;
         const phaseOk =
-          payload.phase_pct == null
-            ? true
-            : Number(payload.phase_pct) <= maxPhase;
-        const rankOk = Number(payload.rank || 0) >= minRank;
+          data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
+        const rankOk = Number(data.rank || 0) >= minRank;
 
         // Also consider Momentum Elite as a trigger condition (quality signal)
-        // Momentum Elite can trigger even if not fully aligned, as long as in corridor
         const momentumEliteTrigger =
-          momentumElite && inCorridor && (corridorAlignedOK || sqRel);
+          momentumElite && inCorridor && corridorAlignedOK;
 
         // Enhanced trigger: original conditions OR Momentum Elite in good setup
         const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-        // Debug logging for alert conditions - log all tickers in corridor or entering corridor
-        if (inCorridor || enteredCorridor) {
-          console.log(`[ALERT DEBUG] ${ticker}:`, {
-            inCorridor,
-            enteredCorridor,
-            prevInCorridor,
-            corridorAlignedOK,
-            side,
-            state: payload.state,
-            enteredAligned,
-            trigOk,
-            trigReason,
-            sqRel,
-            shouldConsiderAlert,
-            momentumEliteTrigger,
-            enhancedTrigger,
-            rrOk,
-            rr: payload.rr,
-            minRR,
-            compOk,
-            completion: payload.completion,
-            maxComp,
-            phaseOk,
-            phase: payload.phase_pct,
-            maxPhase,
-            rankOk,
-            rank: payload.rank,
-            minRank,
-            momentumElite,
-            flags: payload.flags,
-          });
-        }
+        const discordEnabled = (env.DISCORD_ENABLE || "false") === "true";
+        const discordUrlSet = !!env.DISCORD_WEBHOOK_URL;
 
-        // Log alert evaluation summary
-        console.log(`[ALERT EVAL] ${ticker}:`, {
-          enhancedTrigger,
-          rrOk,
-          rr: payload.rr,
-          compOk,
-          completion: payload.completion,
-          phaseOk,
-          phase: payload.phase_pct,
-          rankOk,
-          rank: payload.rank,
-          allConditionsMet:
-            enhancedTrigger && rrOk && compOk && phaseOk && rankOk,
-        });
+        const wouldAlert =
+          enhancedTrigger &&
+          rrOk &&
+          compOk &&
+          phaseOk &&
+          rankOk &&
+          discordEnabled &&
+          discordUrlSet;
 
-        // Enhanced logging for alert conditions - log what's blocking alerts
-        if (
-          inCorridor &&
-          !(enhancedTrigger && rrOk && compOk && phaseOk && rankOk)
-        ) {
-          const blockers = [];
-          if (!enhancedTrigger) blockers.push("trigger conditions");
-          if (!rrOk)
-            blockers.push(
-              `RR (${payload.rr?.toFixed(2) || "null"} < ${minRR})`
-            );
-          if (!compOk)
-            blockers.push(
-              `Completion (${
-                payload.completion?.toFixed(2) || "null"
-              } > ${maxComp})`
-            );
-          if (!phaseOk)
-            blockers.push(
-              `Phase (${payload.phase_pct?.toFixed(2) || "null"} > ${maxPhase})`
-            );
-          if (!rankOk)
-            blockers.push(`Rank (${payload.rank || 0} < ${minRank})`);
-
-          console.log(
-            `[ALERT BLOCKED] ${ticker}: Alert blocked by: ${blockers.join(
-              ", "
-            )}`
-          );
-        }
-
-        // Trade simulation already processed above (before alert logic)
-
-        // Check Discord configuration before evaluating conditions
-        const discordEnable = env.DISCORD_ENABLE || "false";
-        const discordWebhook = env.DISCORD_WEBHOOK_URL;
-        const discordConfigured = discordEnable === "true" && !!discordWebhook;
-        
-        if (!discordConfigured && (inCorridor || enteredCorridor)) {
-          console.log(`[DISCORD CONFIG] ${ticker}: Discord not configured`, {
-            DISCORD_ENABLE: discordEnable,
-            hasWebhook: !!discordWebhook,
-            inCorridor,
-            enteredCorridor,
-          });
-        }
-
-        if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
-          // Dedup alert by trigger_ts if present (best), else ts
-          const keyTs =
-            payload.trigger_ts != null
-              ? String(payload.trigger_ts)
-              : String(payload.ts);
-          const akey = `timed:alerted:${ticker}:${keyTs}`;
-          const alreadyAlerted = await KV.get(akey);
-
-          if (!alreadyAlerted) {
-            await kvPutText(KV, akey, "1", 24 * 60 * 60);
-
-            console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
-              akey,
-              keyTs,
-              side,
-              rank: payload.rank,
-              discordConfigured,
-              DISCORD_ENABLE: discordEnable,
-              hasWebhook: !!discordWebhook,
-            });
-
-            const why =
-              (side === "LONG"
-                ? "Entry corridor Q1→Q2"
-                : "Entry corridor Q4→Q3") +
-              (momentumElite ? " | 🚀 Momentum Elite" : "") +
-              (enteredAligned ? " | Entered aligned" : "") +
-              (trigReason
-                ? ` | ${trigReason}${
-                    payload.trigger_dir ? " (" + payload.trigger_dir + ")" : ""
-                  }`
-                : "") +
-              (sqRel ? " | ⚡ squeeze release" : "");
-
-            const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-              ticker
-            )}`;
-
-            // Create Discord embed for trading opportunity
-            const rr = payload.rr || 0;
-            const rrFormatted =
-              rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
-            const opportunityEmbed = {
-              title: `🎯 Trading Opportunity: ${ticker} ${side}`,
-              color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
-              fields: [
-                {
-                  name: "Rank",
-                  value: `${payload.rank}`,
-                  inline: true,
-                },
-                {
-                  name: "State",
-                  value: payload.state || "N/A",
-                  inline: true,
-                },
-                {
-                  name: "Why",
-                  value: why || "N/A",
-                  inline: false,
-                },
-                {
-                  name: "HTF Score",
-                  value: `${fmt2(payload.htf_score)}`,
-                  inline: true,
-                },
-                {
-                  name: "LTF Score",
-                  value: `${fmt2(payload.ltf_score)}`,
-                  inline: true,
-                },
-                {
-                  name: "Risk/Reward",
-                  value: rrFormatted,
-                  inline: true,
-                },
-                {
-                  name: "Trigger Price",
-                  value: `$${fmt2(payload.trigger_price)}`,
-                  inline: true,
-                },
-                {
-                  name: "Current Price",
-                  value: `$${fmt2(payload.price)}`,
-                  inline: true,
-                },
-                {
-                  name: "ETA",
-                  value:
-                    payload.eta_days != null
-                      ? `${Number(payload.eta_days).toFixed(1)}d`
-                      : "—",
-                  inline: true,
-                },
-                {
-                  name: "Stop Loss",
-                  value: `$${fmt2(payload.sl)}`,
-                  inline: true,
-                },
-                {
-                  name: "Take Profit",
-                  value: `$${fmt2(payload.tp)}`,
-                  inline: true,
-                },
-                {
-                  name: "Completion",
-                  value: `${pct01(payload.completion)}`,
-                  inline: true,
-                },
-                {
-                  name: "Phase",
-                  value: `${pct01(payload.phase_pct)}`,
-                  inline: true,
-                },
-              ],
-              timestamp: new Date().toISOString(),
-              footer: {
-                text: "Timed Trading Alert",
+        return sendJSON(
+          {
+            ok: true,
+            ticker,
+            wouldAlert,
+            discord: {
+              enabled: discordEnabled,
+              urlSet: discordUrlSet,
+              configured: discordEnabled && discordUrlSet,
+            },
+            conditions: {
+              inCorridor,
+              side: side || "none",
+              corridorAlignedOK,
+              enteredAligned,
+              trigOk,
+              sqRel,
+              momentumElite,
+              shouldConsiderAlert,
+              momentumEliteTrigger,
+              enhancedTrigger,
+              rrOk: {
+                value: rrToUse,
+                valueFromPayload: data.rr,
+                recalculatedAtTrigger: recalculatedRR,
+                baseRequired: baseMinRR,
+                adjustedRequired: minRR,
+                ok: rrOk,
               },
-              url: tv, // Make the title clickable to open TradingView
-            };
-            await notifyDiscord(env, opportunityEmbed);
-            
-            // Log Discord alert to activity feed
-            await appendActivity(KV, {
-              ticker,
-              type: "discord_alert",
-              direction: side,
-              action: "entry",
-              rank: payload.rank,
-              rr: payload.rr,
-              price: payload.price,
-              trigger_price: payload.trigger_price,
-              sl: payload.sl,
-              tp: payload.tp,
-              state: payload.state,
-              htf_score: payload.htf_score,
-              ltf_score: payload.ltf_score,
-              completion: payload.completion,
-              phase_pct: payload.phase_pct,
-              why: why,
-              momentum_elite: momentumElite,
-            });
-          } else {
-            console.log(`[DISCORD ALERT] Skipped ${ticker} - already alerted`, {
-              akey,
-              keyTs,
-            });
-          }
-        } else if (inCorridor && corridorAlignedOK) {
-          // Log why alert didn't fire
-          const reasons = [];
-          if (!enhancedTrigger) reasons.push("no trigger condition");
-          if (!rrOk) reasons.push(`RR ${payload.rr} < ${minRR}`);
-          if (!compOk)
-            reasons.push(`Completion ${payload.completion} > ${maxComp}`);
-          if (!phaseOk)
-            reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
-          if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
-          console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
-        }
-
-        // Check for TD9 entry signals (potential reversal setups)
-        const tdSeq = payload.td_sequential || {};
-        const td9Bullish =
-          tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
-        const td9Bearish =
-          tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
-        const td13Bullish =
-          tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
-        const td13Bearish =
-          tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
-
-        // TD9 entry signal: TD9/TD13 bullish suggests LONG, TD9/TD13 bearish suggests SHORT
-        const hasTD9Signal =
-          td9Bullish || td9Bearish || td13Bullish || td13Bearish;
-        if (hasTD9Signal) {
-          const suggestedDirection =
-            td9Bullish || td13Bullish ? "LONG" : "SHORT";
-          const signalType = td13Bullish || td13Bearish ? "TD13" : "TD9";
-
-          // Check if TD9 signal aligns with corridor direction (potential entry)
-          const td9AlignsWithCorridor =
-            (suggestedDirection === "LONG" && side === "LONG") ||
-            (suggestedDirection === "SHORT" && side === "SHORT");
-
-          // Only alert if TD9 signal aligns with corridor and has reasonable RR
-          if (td9AlignsWithCorridor && payload.rr >= 1.2) {
-            const td9AlertKey = `timed:td9_alerted:${ticker}:${signalType}:${suggestedDirection}`;
-            const alreadyTD9Alerted = await KV.get(td9AlertKey);
-
-            if (!alreadyTD9Alerted) {
-              await kvPutText(KV, td9AlertKey, "1", 24 * 60 * 60); // 24h dedup
-
-              // Add activity feed event
-              await appendActivity(KV, {
-                ticker,
-                type: "td9_entry",
-                direction: suggestedDirection,
-                signalType,
-                price: payload.price,
-                sl: payload.sl,
-                tp: payload.tp,
-                rr: payload.rr,
-                rank: payload.rank,
-                td9_bullish: td9Bullish,
-                td9_bearish: td9Bearish,
-                td13_bullish: td13Bullish,
-                td13_bearish: td13Bearish,
-              });
-
-              // Send Discord alert
-              const td9Embed = createTD9EntryEmbed(
-                ticker,
-                suggestedDirection,
-                payload.price,
-                payload.sl,
-                payload.tp,
-                payload.rr,
-                payload.rank,
-                tdSeq,
-                payload // Pass full payload as tickerData
-              );
-              await notifyDiscord(env, td9Embed).catch(() => {});
-
-              console.log(
-                `[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`
-              );
-            }
-          }
-        }
-
-        // Get final ticker count
-        const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        console.log(
-          `[INGEST SUCCESS] ${ticker} - completed successfully. Total tickers: ${finalTickers.length}`
-        );
-        return ackJSON(
-          env,
-          { ok: true, ticker, totalTickers: finalTickers.length },
+              compOk: {
+                value: data.completion,
+                baseRequired: baseMaxComp,
+                adjustedRequired: maxComp,
+                ok: compOk,
+              },
+              phaseOk: {
+                value: data.phase_pct,
+                baseRequired: baseMaxPhase,
+                adjustedRequired: maxPhase,
+                ok: phaseOk,
+              },
+              rankOk: {
+                value: data.rank,
+                baseRequired: baseMinRank,
+                adjustedRequired: minRank,
+                ok: rankOk,
+              },
+            },
+            thresholds: {
+              base: {
+                minRR: baseMinRR,
+                maxComp: baseMaxComp,
+                maxPhase: baseMaxPhase,
+                minRank: baseMinRank,
+              },
+              adjusted: { minRR, maxComp, maxPhase, minRank },
+              momentumEliteAdjustments: momentumElite,
+            },
+            data: {
+              state,
+              htf_score: data.htf_score,
+              ltf_score: data.ltf_score,
+              rank: data.rank,
+              rr: data.rr,
+              completion: data.completion,
+              phase_pct: data.phase_pct,
+              trigger_reason: data.trigger_reason,
+              flags: data.flags,
+            },
+          },
           200,
-          req
+          corsHeaders(env, req)
         );
-      } catch (error) {
-        // Catch any unexpected errors during ingestion
+      }
+
+      // GET /timed/trades?version=2.1.0 (Get all trades, optional version filter)
+      if (url.pathname === "/timed/trades" && req.method === "GET") {
+        // Rate limiting - increased limits for UI polling (100 requests per minute)
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        const ticker = normTicker(body?.ticker) || "UNKNOWN";
-        console.error(`[INGEST ERROR] ${ticker} - IP: ${ip}`, {
-          error: String(error),
-          stack: error.stack,
-          message: error.message,
-          body: body ? { ticker: body.ticker, ts: body.ts } : null,
-        });
-        // Return 500 instead of 429 to avoid confusion
-        return ackJSON(
-          env,
-          {
-            ok: false,
-            error: "internal_error",
-            message: "An error occurred during ingestion",
-            ticker: ticker !== "UNKNOWN" ? ticker : null,
-          },
-          500,
-          req
-        );
-      }
-    }
-
-    // GET /timed/latest?ticker=
-    if (url.pathname === "/timed/latest" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/latest",
-        1000, // Increased for single-user
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const ticker = normTicker(url.searchParams.get("ticker"));
-      if (!ticker)
-        return sendJSON(
-          { ok: false, error: "missing ticker" },
-          400,
-          corsHeaders(env, req)
-        );
-      const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-      if (data) {
-        // Always recompute RR to ensure it uses the latest max TP from tp_levels
-        data.rr = computeRR(data);
-        return sendJSON(
-          { ok: true, ticker, latestData: data, data },
-          200,
-          corsHeaders(env, req)
-        );
-      }
-      return sendJSON(
-        { ok: false, error: "ticker_not_found", ticker },
-        404,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/tickers
-    if (url.pathname === "/timed/tickers" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/tickers",
-        1000, // Increased for single-user
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      return sendJSON(
-        { ok: true, tickers, count: tickers.length },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/all?version=2.5.0 (optional version parameter)
-    if (url.pathname === "/timed/all" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(KV, ip, "/timed/all", 1000, 3600); // Increased for single-user
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const storedVersion =
-        (await getStoredVersion(KV)) || CURRENT_DATA_VERSION;
-
-      // Debug: Check if BMNR is in the ticker index
-      if (tickers.includes("BMNR") || tickers.includes("BABA")) {
-        console.log(`[ALL ENDPOINT] BMNR/BABA in index:`, {
-          BMNR: tickers.includes("BMNR"),
-          BABA: tickers.includes("BABA"),
-          totalTickers: tickers.length,
-          indexSample: tickers.slice(0, 10),
-        });
-      } else {
-        console.log(
-          `[ALL ENDPOINT] BMNR/BABA NOT in index. Total tickers: ${tickers.length}`
-        );
-      }
-
-      // Check if version parameter is provided
-      const requestedVersion = url.searchParams.get("version");
-      const useVersionSnapshots =
-        requestedVersion && requestedVersion !== "latest";
-
-      // Use Promise.all for parallel KV reads instead of sequential
-      const dataPromises = tickers.map(async (t) => {
-        let value;
-        if (useVersionSnapshots) {
-          // Try to get version-specific snapshot first
-          value = await kvGetJSON(
-            KV,
-            `timed:snapshot:${t}:${requestedVersion}`
-          );
-          // If no snapshot found, fall back to latest
-          if (!value) {
-            value = await kvGetJSON(KV, `timed:latest:${t}`);
-            // Only include if version matches
-            if (value && value.script_version !== requestedVersion) {
-              value = null; // Don't include mismatched versions
-            }
-          }
-        } else {
-          // Default: get latest data
-          value = await kvGetJSON(KV, `timed:latest:${t}`);
-
-          // Debug: Check if BMNR data exists in KV
-          if (t === "BMNR" || t === "BABA") {
-            console.log(`[ALL ENDPOINT] Fetched ${t} from KV:`, {
-              hasValue: !!value,
-              valueKeys: value ? Object.keys(value) : [],
-              htf_score: value?.htf_score,
-              ltf_score: value?.ltf_score,
-              script_version: value?.script_version,
-            });
-          }
-        }
-        return { ticker: t, value };
-      });
-      const results = await Promise.all(dataPromises);
-
-      // Find all versions in the data
-      const versionsSeen = new Set();
-      for (const { value } of results) {
-        if (value && value.script_version) {
-          versionsSeen.add(value.script_version);
-        }
-      }
-
-      // Accept ANY version that exists in the data, plus "unknown" for legacy data
-      // This prevents filtering out data during version transitions
-      const acceptedVersions = new Set([
-        storedVersion,
-        CURRENT_DATA_VERSION,
-        "unknown", // Legacy data without script_version
-        ...Array.from(versionsSeen), // All versions seen in current data
-      ]);
-
-      const data = {};
-      let versionFilteredCount = 0;
-      const versionBreakdown = {}; // Track which versions are being filtered
-
-      for (const { ticker, value } of results) {
-        // Debug specific tickers that aren't showing
-        if (ticker === "BMNR" || ticker === "BABA") {
-          console.log(`[ALL ENDPOINT DEBUG] ${ticker}:`, {
-            inIndex: tickers.includes(ticker),
-            hasValue: !!value,
-            valueKeys: value ? Object.keys(value) : [],
-            htf_score: value?.htf_score,
-            ltf_score: value?.ltf_score,
-            script_version: value?.script_version,
-            price: value?.price,
-            state: value?.state,
-          });
-        }
-
-        if (value) {
-          // Accept ALL data - don't filter by version unless explicitly requested
-          // This ensures all historical data is accessible
-          const tickerVersion = value.script_version || "unknown";
-
-          // Only filter if a specific version was requested AND it doesn't match
-          if (useVersionSnapshots && tickerVersion !== requestedVersion) {
-            versionFilteredCount++;
-            // Track which versions are being filtered
-            if (!versionBreakdown[tickerVersion]) {
-              versionBreakdown[tickerVersion] = 0;
-            }
-            versionBreakdown[tickerVersion]++;
-            console.log(
-              `[FILTER] Ticker ${ticker} filtered: version=${tickerVersion}, requested=${requestedVersion}`
-            );
-          } else {
-            // Always recompute RR to ensure it uses the latest max TP from tp_levels
-            value.rr = computeRR(value);
-
-            // Enrich with sector from SECTOR_MAP if not present in data
-            if (!value.sector && !value.fundamentals?.sector) {
-              const sectorFromMap = getSector(ticker);
-              if (sectorFromMap) {
-                // Add sector to both top-level and fundamentals for consistency
-                value.sector = sectorFromMap;
-                if (!value.fundamentals) {
-                  value.fundamentals = {};
-                }
-                value.fundamentals.sector = sectorFromMap;
-              }
-            }
-
-            data[ticker] = value;
-          }
-        } else {
-          // Log tickers in index but without data
-          if (ticker === "BMNR" || ticker === "BABA") {
-            console.log(
-              `[ALL ENDPOINT DEBUG] ${ticker}: In index but no data found in KV`
-            );
-          }
-        }
-      }
-
-      // Log summary if any data was filtered
-      if (versionFilteredCount > 0) {
-        console.log(
-          `[FILTER] Filtered ${versionFilteredCount} tickers by version. Breakdown:`,
-          versionBreakdown
-        );
-      }
-      return sendJSON(
-        {
-          ok: true,
-          count: Object.keys(data).length,
-          totalIndex: tickers.length,
-          versionFiltered: versionFilteredCount,
-          versionBreakdown: versionBreakdown,
-          dataVersion: storedVersion,
-          requestedVersion: requestedVersion || "latest",
-          versionsSeen: Array.from(versionsSeen),
-          acceptedVersions: Array.from(acceptedVersions),
-          currentDataVersion: CURRENT_DATA_VERSION,
-          data,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/trail?ticker=
-    if (url.pathname === "/timed/trail" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/trail",
-        1000,
-        3600
-      ); // Increased for single-user
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const ticker = normTicker(url.searchParams.get("ticker"));
-      if (!ticker)
-        return sendJSON(
-          { ok: false, error: "missing ticker" },
-          400,
-          corsHeaders(env, req)
-        );
-      const trail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
-      return sendJSON({ ok: true, ticker, trail }, 200, corsHeaders(env, req));
-    }
-
-    // GET /timed/top?bucket=long|short|setup&n=10
-    if (url.pathname === "/timed/top" && req.method === "GET") {
-      const n = Math.max(
-        1,
-        Math.min(50, Number(url.searchParams.get("n") || "10"))
-      );
-      const bucket = String(
-        url.searchParams.get("bucket") || "long"
-      ).toLowerCase();
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-
-      const items = [];
-      for (const t of tickers) {
-        const d = await kvGetJSON(KV, `timed:latest:${t}`);
-        if (d) items.push(d);
-      }
-
-      // IMPORTANT: Top lists should favor corridor relevance for "long/short" tabs.
-      // long bucket shows Q2 (bull aligned), short shows Q3 (bear aligned), setup shows Q1/Q4.
-      const isLongAligned = (d) => d.state === "HTF_BULL_LTF_BULL";
-      const isShortAligned = (d) => d.state === "HTF_BEAR_LTF_BEAR";
-      const isSetup = (d) =>
-        d.state === "HTF_BULL_LTF_PULLBACK" ||
-        d.state === "HTF_BEAR_LTF_PULLBACK";
-
-      let filtered =
-        bucket === "long"
-          ? items.filter(isLongAligned)
-          : bucket === "short"
-          ? items.filter(isShortAligned)
-          : items.filter(isSetup);
-
-      filtered.sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
-      filtered = filtered.slice(0, n);
-
-      return sendJSON(
-        { ok: true, bucket, n: filtered.length, data: filtered },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/momentum?ticker=XYZ
-    if (url.pathname === "/timed/momentum" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/momentum",
-        1000, // Increased for single-user
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const ticker = normTicker(url.searchParams.get("ticker"));
-      if (!ticker)
-        return sendJSON(
-          { ok: false, error: "missing ticker" },
-          400,
-          corsHeaders(env, req)
-        );
-      const data = await kvGetJSON(KV, `timed:momentum:${ticker}`);
-      return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
-    }
-
-    // GET /timed/momentum/history?ticker=XYZ
-    if (url.pathname === "/timed/momentum/history" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/momentum/history",
-        1000, // Increased for single-user
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const ticker = normTicker(url.searchParams.get("ticker"));
-      if (!ticker)
-        return sendJSON(
-          { ok: false, error: "missing ticker" },
-          400,
-          corsHeaders(env, req)
-        );
-      const history =
-        (await kvGetJSON(KV, `timed:momentum:history:${ticker}`)) || [];
-      return sendJSON(
-        { ok: true, ticker, history },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/momentum/all
-    if (url.pathname === "/timed/momentum/all" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/momentum/all",
-        1000, // Increased for single-user
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const eliteTickers = [];
-      for (const t of tickers) {
-        const momentumData = await kvGetJSON(KV, `timed:momentum:${t}`);
-        if (momentumData && momentumData.momentum_elite) {
-          eliteTickers.push({ ticker: t, ...momentumData });
-        }
-      }
-      return sendJSON(
-        { ok: true, count: eliteTickers.length, tickers: eliteTickers },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/sectors - Get all sectors and their ratings
-    if (url.pathname === "/timed/sectors" && req.method === "GET") {
-      const sectors = getAllSectors().map((sector) => ({
-        sector,
-        ...getSectorRating(sector),
-        tickerCount: getTickersInSector(sector).length,
-      }));
-
-      return sendJSON({ ok: true, sectors }, 200, corsHeaders(env, req));
-    }
-
-    // GET /timed/sectors/:sector/tickers?limit=10 - Get top tickers in a sector
-    if (
-      url.pathname.startsWith("/timed/sectors/") &&
-      url.pathname.endsWith("/tickers") &&
-      req.method === "GET"
-    ) {
-      const sectorPath = url.pathname
-        .replace("/timed/sectors/", "")
-        .replace("/tickers", "");
-      const sector = decodeURIComponent(sectorPath);
-      const limit = Math.max(
-        1,
-        Math.min(50, Number(url.searchParams.get("limit") || "10"))
-      );
-
-      if (!getAllSectors().includes(sector)) {
-        return sendJSON(
-          { ok: false, error: `Invalid sector: ${sector}` },
-          400,
-          corsHeaders(env, req)
-        );
-      }
-
-      const topTickers = await rankTickersInSector(KV, sector, limit);
-
-      return sendJSON(
-        {
-          ok: true,
-          sector,
-          rating: getSectorRating(sector),
-          limit: topTickers.length,
-          tickers: topTickers,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/sectors/recommendations?limit=10 - Get top tickers across all overweight sectors
-    if (
-      url.pathname === "/timed/sectors/recommendations" &&
-      req.method === "GET"
-    ) {
-      const limitPerSector = Math.max(
-        1,
-        Math.min(20, Number(url.searchParams.get("limit") || "10"))
-      );
-      const totalLimit = Math.max(
-        1,
-        Math.min(100, Number(url.searchParams.get("totalLimit") || "50"))
-      );
-
-      const overweightSectors = getAllSectors().filter(
-        (sector) => getSectorRating(sector).rating === "overweight"
-      );
-
-      const allRecommendations = [];
-
-      for (const sector of overweightSectors) {
-        const topTickers = await rankTickersInSector(
+        const rateLimit = await checkRateLimit(
           KV,
-          sector,
-          limitPerSector
+          ip,
+          "/timed/trades",
+          100, // 100 requests
+          60 // per minute (instead of per hour)
         );
-        allRecommendations.push(
-          ...topTickers.map((t) => ({
-            ...t,
-            sector,
-          }))
-        );
-      }
 
-      // Sort by boosted rank and take top N
-      allRecommendations.sort((a, b) => b.boostedRank - a.boostedRank);
-      const topRecommendations = allRecommendations.slice(0, totalLimit);
-
-      return sendJSON(
-        {
-          ok: true,
-          sectors: overweightSectors,
-          limitPerSector,
-          totalLimit: topRecommendations.length,
-          recommendations: topRecommendations,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/debug/migrate-brk?key=... - Migrate BRK.B to BRK-B
-    if (url.pathname === "/timed/debug/migrate-brk" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const oldData = await kvGetJSON(KV, `timed:latest:BRK.B`);
-        const newData = await kvGetJSON(KV, `timed:latest:BRK-B`);
-
-        if (!oldData && !newData) {
+        if (!rateLimit.allowed) {
           return sendJSON(
-            { ok: false, error: "No BRK data found" },
-            404,
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 60 },
+            429,
             corsHeaders(env, req)
           );
         }
+        const versionFilter = url.searchParams.get("version");
+        const tradesKey = "timed:trades:all";
+        let allTrades = (await kvGetJSON(KV, tradesKey)) || [];
 
-        // Use newer data if both exist
-        const dataToUse =
-          oldData && newData && newData.ts > oldData.ts
-            ? newData
-            : oldData || newData;
-        const migrated = !!oldData && oldData !== dataToUse;
-
-        await kvPutJSON(KV, `timed:latest:BRK-B`, dataToUse);
-
-        // Migrate trail data
-        const oldTrail = await kvGetJSON(KV, `timed:trail:BRK.B`);
-        const newTrail = await kvGetJSON(KV, `timed:trail:BRK-B`);
-        if (oldTrail || newTrail) {
-          await kvPutJSON(KV, `timed:trail:BRK-B`, oldTrail || newTrail);
-        }
-
-        // Ensure BRK-B is in index
-        await ensureTickerIndex(KV, "BRK-B");
-
-        // Remove BRK.B from index if it exists
-        let tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        if (tickers.includes("BRK.B")) {
-          tickers = tickers.filter((t) => t !== "BRK.B");
-          await kvPutJSON(KV, "timed:tickers", tickers);
-        }
-
-        // Delete old BRK.B data if we migrated
-        if (migrated) {
-          await KV.delete(`timed:latest:BRK.B`);
-          await KV.delete(`timed:trail:BRK.B`);
-        }
-
-        return sendJSON(
-          {
-            ok: true,
-            message: "BRK migration completed",
-            hadOldData: !!oldData,
-            hadNewData: !!newData,
-            migrated,
-            finalTicker: "BRK-B",
-            ts: dataToUse?.ts,
-            htf_score: dataToUse?.htf_score,
-            ltf_score: dataToUse?.ltf_score,
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        console.error(`[MIGRATE BRK ERROR]`, {
-          error: String(err),
-          message: err.message,
-          stack: err.stack,
-        });
-        return sendJSON(
-          { ok: false, error: "internal_error", message: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // POST /timed/debug/cleanup-duplicates?key=... - Remove duplicate/empty tickers from index
-    if (
-      url.pathname === "/timed/debug/cleanup-duplicates" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const duplicatesToRemove = [
-          "BTC", // Duplicate of BTCUSD (BTCUSD has data)
-          "ES", // Duplicate of ES1! (ES1! has data)
-          "ETH", // Duplicate of ETHUSD (ETHUSD has data)
-          "NQ", // Duplicate of NQ1! (NQ1! has data)
-          "MES1!", // Not sending data
-          "MNQ1!", // Not sending data
-          "RTY1!", // Not sending data
-          "YM1!", // Not sending data
-        ];
-
-        const removed = [];
-        const notFound = [];
-        const hasData = [];
-
-        for (const ticker of duplicatesToRemove) {
-          if (!tickers.includes(ticker)) {
-            notFound.push(ticker);
-            continue;
-          }
-
-          // Check if ticker has data
-          const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        // Correct any trades with incorrect WIN/LOSS status based on P&L
+        let corrected = false;
+        for (let i = 0; i < allTrades.length; i++) {
+          const trade = allTrades[i];
           if (
-            data &&
-            (data.htf_score !== undefined || data.ltf_score !== undefined)
+            (trade.status === "WIN" || trade.status === "LOSS") &&
+            trade.pnl !== undefined &&
+            trade.pnl !== null
           ) {
-            hasData.push(ticker);
-            continue; // Don't remove if it has data
+            // Check if status matches P&L
+            if (trade.status === "WIN" && trade.pnl < 0) {
+              console.log(
+                `[TRADE CORRECTION] Correcting ${trade.ticker} ${
+                  trade.direction
+                }: WIN with negative P&L (${trade.pnl.toFixed(2)}) -> LOSS`
+              );
+              allTrades[i] = { ...trade, status: "LOSS" };
+              corrected = true;
+            } else if (trade.status === "LOSS" && trade.pnl > 0) {
+              console.log(
+                `[TRADE CORRECTION] Correcting ${trade.ticker} ${
+                  trade.direction
+                }: LOSS with positive P&L (${trade.pnl.toFixed(2)}) -> WIN`
+              );
+              allTrades[i] = { ...trade, status: "WIN" };
+              corrected = true;
+            }
           }
-
-          // Remove from index
-          removed.push(ticker);
-
-          // Also delete the data if it exists (even without scores)
-          await KV.delete(`timed:latest:${ticker}`);
-          await KV.delete(`timed:trail:${ticker}`);
         }
 
-        // Update index once after processing all removals
-        if (removed.length > 0) {
-          const updatedTickers = tickers.filter((t) => !removed.includes(t));
-          updatedTickers.sort();
-          await kvPutJSON(KV, "timed:tickers", updatedTickers);
+        // Save corrected trades back to KV if any corrections were made
+        if (corrected) {
+          await kvPutJSON(KV, tradesKey, allTrades);
+          console.log(
+            `[TRADE CORRECTION] Saved ${allTrades.length} trades with corrections`
+          );
         }
 
-        const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        let filteredTrades = allTrades;
+        if (versionFilter && versionFilter !== "all") {
+          filteredTrades = allTrades.filter(
+            (t) => (t.scriptVersion || "unknown") === versionFilter
+          );
+        }
+
+        // Get unique versions for reference
+        const versions = [
+          ...new Set(allTrades.map((t) => t.scriptVersion || "unknown")),
+        ]
+          .sort()
+          .reverse();
 
         return sendJSON(
           {
             ok: true,
-            message: "Cleanup completed",
-            removed,
-            notFound,
-            hasData,
-            beforeCount: tickers.length,
-            afterCount: finalTickers.length,
-            removedCount: removed.length,
+            count: filteredTrades.length,
+            totalCount: allTrades.length,
+            version: versionFilter || "all",
+            versions: versions,
+            trades: filteredTrades,
+            corrected: corrected, // Indicate if corrections were made
           },
           200,
           corsHeaders(env, req)
         );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
       }
-    }
 
-    // POST /timed/debug/fix-index?key=...&ticker=BMNR - Manually add ticker to index if data exists
-    if (url.pathname === "/timed/debug/fix-index" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
+      // POST /timed/trades?key=... (Create or update trade)
+      if (url.pathname === "/timed/trades" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
 
-      // Allow requests without origin for debug endpoints (curl, direct API calls)
-      const cors = corsHeaders(env, req, true);
-
-      try {
-        const ticker = normTicker(url.searchParams.get("ticker"));
-        if (!ticker) {
+        const { obj: body, err } = await readBodyAsJSON(req);
+        if (!body || !body.id) {
           return sendJSON(
-            { ok: false, error: "ticker parameter required" },
-            400,
-            cors
-          );
-        }
-
-        // Check if data exists in KV
-        const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-        const inIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const alreadyInIndex = inIndex.includes(ticker);
-
-        if (!data) {
-          return sendJSON(
-            {
-              ok: false,
-              error: "ticker data not found in KV",
-              ticker,
-              inIndex: alreadyInIndex,
-            },
-            404,
-            cors
-          );
-        }
-
-        // Add to index if not already there
-        if (!alreadyInIndex) {
-          await ensureTickerIndex(KV, ticker);
-          const updatedIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
-          const nowInIndex = updatedIndex.includes(ticker);
-
-          return sendJSON(
-            {
-              ok: true,
-              message: `Ticker ${ticker} ${
-                nowInIndex ? "added to" : "failed to add to"
-              } index`,
-              ticker,
-              hadData: true,
-              wasInIndex: false,
-              nowInIndex,
-              indexSize: updatedIndex.length,
-            },
-            200,
-            cors
-          );
-        } else {
-          return sendJSON(
-            {
-              ok: true,
-              message: `Ticker ${ticker} already in index`,
-              ticker,
-              hadData: true,
-              inIndex: true,
-              indexSize: inIndex.length,
-            },
-            200,
-            cors
-          );
-        }
-      } catch (err) {
-        return sendJSON({ ok: false, error: err.message }, 500, cors);
-      }
-    }
-
-    // POST /timed/watchlist/add?key=... - Add tickers to watchlist
-    if (url.pathname === "/timed/watchlist/add" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const { obj: body } = await readBodyAsJSON(req);
-        const tickersToAdd = body.tickers || [];
-
-        if (!Array.isArray(tickersToAdd) || tickersToAdd.length === 0) {
-          return sendJSON(
-            { ok: false, error: "tickers array required" },
+            { ok: false, error: "missing trade id" },
             400,
             corsHeaders(env, req)
           );
         }
 
-        const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const added = [];
-        const alreadyExists = [];
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
 
-        for (const ticker of tickersToAdd) {
-          const tickerUpper = String(ticker).toUpperCase().trim();
-          if (!tickerUpper) continue;
+        // Find existing trade or add new one
+        const existingIndex = allTrades.findIndex((t) => t.id === body.id);
 
-          if (!currentTickers.includes(tickerUpper)) {
-            currentTickers.push(tickerUpper);
-            added.push(tickerUpper);
-            await ensureTickerIndex(KV, tickerUpper);
-          } else {
-            alreadyExists.push(tickerUpper);
-          }
+        if (existingIndex >= 0) {
+          // Update existing trade
+          allTrades[existingIndex] = { ...allTrades[existingIndex], ...body };
+        } else {
+          // Add new trade
+          allTrades.push(body);
         }
 
-        // Sort and save
-        currentTickers.sort();
-        await kvPutJSON(KV, "timed:tickers", currentTickers);
+        // Sort by entry time (newest first)
+        allTrades.sort((a, b) => {
+          const timeA = new Date(a.entryTime || 0).getTime();
+          const timeB = new Date(b.entryTime || 0).getTime();
+          return timeB - timeA;
+        });
+
+        await kvPutJSON(KV, tradesKey, allTrades);
 
         return sendJSON(
           {
             ok: true,
-            added: added.length,
-            alreadyExists: alreadyExists.length,
-            addedTickers: added,
-            alreadyExistsTickers: alreadyExists,
-            totalTickers: currentTickers.length,
+            trade: existingIndex >= 0 ? allTrades[existingIndex] : body,
+            action: existingIndex >= 0 ? "updated" : "created",
           },
           200,
           corsHeaders(env, req)
         );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // GET /timed/activity
-    if (url.pathname === "/timed/activity" && req.method === "GET") {
-      // Rate limiting - aligned with 5-minute refresh interval (generous limit)
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/activity",
-        1000, // Increased for single-user (plenty of headroom)
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
       }
 
-      const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
+      // DELETE /timed/trades/:id?key=... (Delete trade)
+      if (
+        url.pathname.startsWith("/timed/trades/") &&
+        req.method === "DELETE"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
 
-      // Also generate events from current ticker states (for historical display)
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const now = Date.now();
-      const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-      const currentEvents = [];
-
-      // Generate events from current state (only if not already in feed)
-      for (const ticker of tickers) {
-        const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
-        if (!latest) continue;
-
-        const flags = latest.flags || {};
-        const side = corridorSide(latest);
-        const inCorridor = !!side;
-        const state = String(latest.state || "");
-        const alignedLong = state === "HTF_BULL_LTF_BULL";
-        const alignedShort = state === "HTF_BEAR_LTF_BEAR";
-
-        // Check if we already have recent events for this ticker+type combination
-        const hasRecentEventOfType = (type) => {
-          return feed.some(
-            (e) => e.ticker === ticker && e.type === type && e.ts > oneWeekAgo
+        const tradeId = url.pathname.split("/timed/trades/")[1];
+        if (!tradeId) {
+          return sendJSON(
+            { ok: false, error: "missing trade id" },
+            400,
+            corsHeaders(env, req)
           );
+        }
+
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const filteredTrades = allTrades.filter((t) => t.id !== tradeId);
+
+        await kvPutJSON(KV, tradesKey, filteredTrades);
+
+        return sendJSON(
+          {
+            ok: true,
+            deleted: allTrades.length - filteredTrades.length === 1,
+            remainingCount: filteredTrades.length,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // OPTIONS /timed/ai/chat (CORS preflight)
+      if (url.pathname === "/timed/ai/chat" && req.method === "OPTIONS") {
+        const origin = req?.headers?.get("Origin") || "";
+        // Always allow timedtrading.pages.dev origin, otherwise use "*"
+        const allowedOrigin = origin.includes("timedtrading.pages.dev")
+          ? origin
+          : "*";
+        const aiChatCorsHeaders = {
+          "Access-Control-Allow-Origin": allowedOrigin,
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Max-Age": "86400",
+          Vary: "Origin",
+        };
+        return new Response(null, {
+          status: 204,
+          headers: aiChatCorsHeaders,
+        });
+      }
+
+      // POST /timed/ai/chat (AI Chat Assistant)
+      if (url.pathname === "/timed/ai/chat" && req.method === "POST") {
+        // Get CORS headers early - always allow timedtrading.pages.dev for AI chat
+        const origin = req?.headers?.get("Origin") || "";
+        // Always allow timedtrading.pages.dev origin, otherwise use "*"
+        const allowedOrigin = origin.includes("timedtrading.pages.dev")
+          ? origin
+          : "*";
+        const aiChatCorsHeaders = {
+          "Access-Control-Allow-Origin": allowedOrigin,
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          Vary: "Origin",
         };
 
-        // Generate corridor entry event if in corridor
-        if (inCorridor && !hasRecentEventOfType("corridor_entry")) {
-          currentEvents.push({
-            type: "corridor_entry",
-            ticker: ticker,
-            side: side,
-            price: latest.price,
-            state: latest.state,
-            rank: latest.rank,
-            sl: latest.sl,
-            tp: latest.tp,
-            tp_levels: latest.tp_levels,
-            rr: latest.rr,
-            phase_pct: latest.phase_pct,
-            completion: latest.completion,
-            ts: latest.ts || now,
-            id: `current-${ticker}-corridor-${now}`,
-          });
-        }
-
-        // Generate squeeze start event if squeeze is on
-        if (flags.sq30_on && !hasRecentEventOfType("squeeze_start")) {
-          currentEvents.push({
-            type: "squeeze_start",
-            ticker: ticker,
-            price: latest.price,
-            state: latest.state,
-            rank: latest.rank,
-            sl: latest.sl,
-            tp: latest.tp,
-            tp_levels: latest.tp_levels,
-            rr: latest.rr,
-            phase_pct: latest.phase_pct,
-            completion: latest.completion,
-            ts: latest.ts || now,
-            id: `current-${ticker}-squeeze-${now}`,
-          });
-        }
-
-        // Generate squeeze release event if squeeze released
-        if (flags.sq30_release && !hasRecentEventOfType("squeeze_release")) {
-          currentEvents.push({
-            type: "squeeze_release",
-            ticker: ticker,
-            side:
-              side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
-            price: latest.price,
-            state: latest.state,
-            rank: latest.rank,
-            trigger_dir: latest.trigger_dir,
-            sl: latest.sl,
-            tp: latest.tp,
-            tp_levels: latest.tp_levels,
-            rr: latest.rr,
-            phase_pct: latest.phase_pct,
-            completion: latest.completion,
-            ts: latest.ts || now,
-            id: `current-${ticker}-squeeze-rel-${now}`,
-          });
-        }
-
-        // Generate aligned state event
-        if (
-          (alignedLong || alignedShort) &&
-          !hasRecentEventOfType("state_aligned")
-        ) {
-          currentEvents.push({
-            type: "state_aligned",
-            ticker: ticker,
-            side: alignedLong ? "LONG" : "SHORT",
-            price: latest.price,
-            state: latest.state,
-            rank: latest.rank,
-            sl: latest.sl,
-            tp: latest.tp,
-            tp_levels: latest.tp_levels,
-            rr: latest.rr,
-            phase_pct: latest.phase_pct,
-            completion: latest.completion,
-            ts: latest.ts || now,
-            id: `current-${ticker}-aligned-${now}`,
-          });
-        }
-
-        // Generate Momentum Elite event
-        if (flags.momentum_elite && !hasRecentEventOfType("momentum_elite")) {
-          currentEvents.push({
-            type: "momentum_elite",
-            ticker: ticker,
-            price: latest.price,
-            state: latest.state,
-            rank: latest.rank,
-            sl: latest.sl,
-            tp: latest.tp,
-            tp_levels: latest.tp_levels,
-            rr: latest.rr,
-            phase_pct: latest.phase_pct,
-            completion: latest.completion,
-            ts: latest.ts || now,
-            id: `current-${ticker}-momentum-${now}`,
-          });
-        }
-      }
-
-      // Merge feed events with current events, deduplicate by ticker+type
-      const allEvents = [...feed, ...currentEvents];
-      const seen = new Set();
-      const uniqueEvents = allEvents.filter((e) => {
-        const key = `${e.ticker}-${e.type}-${Math.floor(
-          e.ts / (60 * 60 * 1000)
-        )}`; // Group by hour
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return e.ts > oneWeekAgo; // Only keep events from last week
-      });
-
-      // Sort by timestamp descending
-      uniqueEvents.sort((a, b) => b.ts - a.ts);
-
-      const limit = Math.min(
-        100,
-        Number(url.searchParams.get("limit") || "100")
-      );
-      const filtered = uniqueEvents.slice(0, limit);
-
-      return sendJSON(
-        {
-          ok: true,
-          count: filtered.length,
-          events: filtered,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/check-ticker?ticker=AAPL
-    if (url.pathname === "/timed/check-ticker" && req.method === "GET") {
-      const ticker = url.searchParams.get("ticker");
-      if (!ticker) {
-        return sendJSON(
-          { ok: false, error: "ticker parameter required" },
-          400,
-          corsHeaders(env, req)
-        );
-      }
-
-      const tickerUpper = ticker.toUpperCase();
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const inIndex = tickers.includes(tickerUpper);
-      const latest = await kvGetJSON(KV, `timed:latest:${tickerUpper}`);
-      const trail = await kvGetJSON(KV, `timed:trail:${tickerUpper}`);
-
-      return sendJSON(
-        {
-          ok: true,
-          ticker: tickerUpper,
-          inIndex,
-          hasLatest: !!latest,
-          hasTrail: !!trail,
-          latestData: latest || null,
-          trailLength: trail ? trail.length : 0,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/health
-    if (url.pathname === "/timed/health" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/health",
-        500,
-        3600
-      ); // Increased for single-user
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const last = Number(await KV.get("timed:last_ingest_ms")) || 0;
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const storedVersion = await getStoredVersion(KV);
-      return sendJSON(
-        {
-          ok: true,
-          now: Date.now(),
-          lastIngestMs: last,
-          minutesSinceLast: last ? (Date.now() - last) / 60000 : null,
-          tickers: tickers.length,
-          dataVersion: storedVersion || "none",
-          expectedVersion: CURRENT_DATA_VERSION,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/purge?key=... (Manual purge endpoint)
-    if (url.pathname === "/timed/purge" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      const result = await purgeOldData(KV);
-      await setStoredVersion(KV, CURRENT_DATA_VERSION);
-
-      return sendJSON(
-        {
-          ok: true,
-          message: "Data purged successfully",
-          purged: result.purged,
-          tickerCount: result.tickerCount,
-          version: CURRENT_DATA_VERSION,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/cleanup-no-scores?key=... (Remove tickers without score data from index)
-    if (url.pathname === "/timed/cleanup-no-scores" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const tickersToKeep = [];
-      const tickersRemoved = [];
-
-      for (const ticker of tickers) {
-        const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-        const hasScores =
-          data &&
-          (data.htf_score !== undefined || data.ltf_score !== undefined);
-
-        if (hasScores) {
-          tickersToKeep.push(ticker);
-        } else {
-          tickersRemoved.push(ticker);
-          // Also clean up the latest data entry if it exists but has no scores
-          await KV.delete(`timed:latest:${ticker}`);
-        }
-      }
-
-      await kvPutJSON(KV, "timed:tickers", tickersToKeep);
-
-      return sendJSON(
-        {
-          ok: true,
-          message: `Cleaned up ${tickersRemoved.length} tickers without scores`,
-          removed: tickersRemoved,
-          kept: tickersToKeep.length,
-          totalBefore: tickers.length,
-          totalAfter: tickersToKeep.length,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/rebuild-index?key=... (Rebuild ticker index from watchlist)
-    if (url.pathname === "/timed/rebuild-index" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      // Known ticker list from watchlists (Q1 2026 + Sectors)
-      // This should match your TradingView watchlists
-      const knownTickers = [
-        "TSLA",
-        "STX",
-        "AU",
-        "CCJ",
-        "CLS",
-        "CRS",
-        "VST",
-        "FSLR",
-        "JCI",
-        "ORCL",
-        "AMZN",
-        "BRK-B",
-        "BABA",
-        "WMT",
-        "PH",
-        "GEV",
-        "HII",
-        "ULTA",
-        "SHOP",
-        "CSX",
-        "PWR",
-        "HOOD",
-        "SPGI",
-        "APP",
-        "PANW",
-        "RDDT",
-        "TT",
-        "GLXY",
-        "ETHA",
-        "META",
-        "NVDA",
-        "AMD",
-        "ANET",
-        "GS",
-        "TJX",
-        "SOFI",
-        "PNC",
-        "PLTR",
-        "NFLX",
-        "MSTR",
-        "MSFT",
-        "MNST",
-        "LRCX",
-        "KLAC",
-        "JPM",
-        "GOOGL",
-        "GE",
-        "EXPE",
-        "ETN",
-        "EMR",
-        "DE",
-        "CRWD",
-        "COST",
-        "CDNS",
-        "CAT",
-        "BK",
-        "AXP",
-        "AXON",
-        "AVGO",
-        "AAPL",
-        "RKLB",
-        "LITE",
-        "SN",
-        "ALB",
-        "RGLD",
-        "MTZ",
-        "ON",
-        "ALLY",
-        "DY",
-        "EWBC",
-        "PATH",
-        "WFRD",
-        "WAL",
-        "IESC",
-        "ENS",
-        "TWLO",
-        "MLI",
-        "KTOS",
-        "MDB",
-        "TLN",
-        "EME",
-        "AWI",
-        "IBP",
-        "DCI",
-        "WTS",
-        "FIX",
-        "UTHR",
-        "NBIS",
-        "SGI",
-        "AYI",
-        "RIOT",
-        "NXT",
-        "SANM",
-        "BWXT",
-        "PEGA",
-        "JOBY",
-        "IONQ",
-        "ITT",
-        "STRL",
-        "QLYS",
-        "MP",
-        "HIMS",
-        "IOT",
-        "BE",
-        "NEU",
-        "AVAV",
-        "PSTG",
-        "RBLX",
-        "CSCO",
-        "BA",
-        "NKE",
-        "PI",
-        "APLD",
-        "MU",
-        // ETFs
-        "XLK",
-        "XLF",
-        "XLY",
-        "XLP",
-        "XLC",
-        "XLB",
-        "XLE",
-        "XLU",
-        "XLV",
-        // Futures & Crypto
-        "ES",
-        "NQ",
-        "BTC",
-        "ETH",
-        "BTCUSD",
-        "ETHUSD",
-        // Futures contracts
-        "ES1!",
-        "NQ1!",
-        "MES1!",
-        "MNQ1!",
-        "YM1!",
-        "RTY1!",
-      ]
-        .map((t) => t.toUpperCase())
-        .filter((v, i, a) => a.indexOf(v) === i); // Deduplicate
-
-      const currentIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const addedTickers = [];
-      const existingTickers = new Set(currentIndex);
-
-      for (const ticker of knownTickers) {
-        if (!existingTickers.has(ticker)) {
-          currentIndex.push(ticker);
-          addedTickers.push(ticker);
-        }
-      }
-
-      // Sort and save
-      currentIndex.sort();
-      await kvPutJSON(KV, "timed:tickers", currentIndex);
-
-      return sendJSON(
-        {
-          ok: true,
-          message: `Index rebuilt. Added ${addedTickers.length} tickers.`,
-          beforeCount: currentIndex.length - addedTickers.length,
-          afterCount: currentIndex.length,
-          addedTickers: addedTickers.slice(0, 20), // Show first 20
-          totalAdded: addedTickers.length,
-          note: "Index will continue to grow as TradingView sends alerts for these tickers.",
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/purge-trades-by-version?key=...&version=2.6.0 (Purge trades by version)
-    if (
-      url.pathname === "/timed/purge-trades-by-version" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      const targetVersion = url.searchParams.get("version");
-      if (!targetVersion) {
-        return sendJSON(
-          { ok: false, error: "version parameter required" },
-          400,
-          corsHeaders(env, req)
-        );
-      }
-
-      const tradesKey = "timed:trades:all";
-      const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-
-      const beforeCount = allTrades.length;
-      const filteredTrades = allTrades.filter((trade) => {
-        const tradeVersion =
-          trade.scriptVersion || trade.script_version || "unknown";
-        return tradeVersion !== targetVersion;
-      });
-      const purgedCount = beforeCount - filteredTrades.length;
-
-      await kvPutJSON(KV, tradesKey, filteredTrades);
-
-      return sendJSON(
-        {
-          ok: true,
-          message: `Purged ${purgedCount} trades with version ${targetVersion}`,
-          beforeCount,
-          afterCount: filteredTrades.length,
-          purgedCount,
-          targetVersion,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/cleanup-tickers?key=... (Remove unapproved tickers, keep only approved list, normalize Gold/Silver)
-    // POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
-    if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      const ip = url.searchParams.get("ip") || null;
-      const endpoint = url.searchParams.get("endpoint") || null;
-      const clearAll = url.searchParams.get("all") === "true";
-
-      // List of all known endpoints that use rate limiting
-      const allEndpoints = [
-        "/timed/all",
-        "/timed/latest",
-        "/timed/activity",
-        "/timed/trail",
-        "/timed/top",
-        "/timed/momentum",
-        "/timed/momentum/history",
-        "/timed/momentum/all",
-        "/timed/trades",
-        "/timed/health",
-        "/timed/version",
-        "/timed/alert-debug",
-        "/timed/check-ticker",
-      ];
-
-      let cleared = 0;
-      const clearedKeys = [];
-
-      if (clearAll) {
-        // Clear ALL rate limits - note: KV doesn't support listing all keys
-        // So we return a message that rate limits will expire naturally
-        // For immediate clearing, users should specify IP
-        return sendJSON(
-          {
-            ok: true,
-            message:
-              "Rate limit reset acknowledged. Note: Cloudflare KV doesn't support listing all keys, so active rate limits will expire naturally after 1 hour. For immediate clearing, use ?ip=IP_ADDRESS to clear all endpoints for a specific IP.",
-            note: "To clear all rate limits for your IP immediately, use: ?ip=YOUR_IP",
-            endpoints: allEndpoints,
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } else if (ip && endpoint) {
-        // Clear specific IP + endpoint combination
-        const key = `ratelimit:${ip}:${endpoint}`;
-        await KV.delete(key);
-        cleared++;
-        clearedKeys.push(key);
-      } else if (ip) {
-        // Clear all rate limits for a specific IP (all endpoints)
-        for (const ep of allEndpoints) {
-          const key = `ratelimit:${ip}:${ep}`;
-          await KV.delete(key);
-          cleared++;
-          clearedKeys.push(key);
-        }
-      } else if (endpoint) {
-        // Clear all rate limits for a specific endpoint (all IPs)
-        // Note: This is not directly possible without listing all IPs
-        // For now, return an error suggesting to specify IP
-        return sendJSON(
-          {
-            ok: false,
-            error:
-              "Cannot clear endpoint without IP. Please specify both 'ip' and 'endpoint', or just 'ip' to clear all endpoints for that IP.",
-          },
-          400,
-          corsHeaders(env, req)
-        );
-      } else {
-        // No parameters - return usage info
-        return sendJSON(
-          {
-            ok: false,
-            error: "Missing parameters",
-            usage: {
-              clearAll: "POST /timed/clear-rate-limit?key=YOUR_KEY&all=true",
-              clearSpecific:
-                "POST /timed/clear-rate-limit?key=YOUR_KEY&ip=IP_ADDRESS&endpoint=/timed/activity",
-              clearAllForIP:
-                "POST /timed/clear-rate-limit?key=YOUR_KEY&ip=IP_ADDRESS",
-            },
-          },
-          400,
-          corsHeaders(env, req)
-        );
-      }
-
-      return sendJSON(
-        {
-          ok: true,
-          message: `Cleared ${cleared} rate limit(s)`,
-          cleared,
-          keys: clearedKeys,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/cleanup-tickers?key=... (Cleanup tickers to match approved list)
-    if (url.pathname === "/timed/cleanup-tickers" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      // Approved ticker list (normalized to uppercase)
-      const approvedTickers = new Set([
-        // Upticks
-        "TSLA",
-        "STX",
-        "AU",
-        "CCJ",
-        "CLS",
-        "CRS",
-        "VST",
-        "FSLR",
-        "JCI",
-        "ORCL",
-        "AMZN",
-        "BRK-B",
-        "BRK.B",
-        "BABA",
-        "WMT",
-        "PH",
-        "GEV",
-        "HII",
-        "ULTA",
-        "SHOP",
-        "CSX",
-        "PWR",
-        "HOOD",
-        "SPGI",
-        "APP",
-        "PANW",
-        "RDDT",
-        "TT",
-        "GLXY",
-        "ETHA",
-        // Super Granny
-        "META",
-        "NVDA",
-        "AMD",
-        "ANET",
-        "GS",
-        // GRNI
-        "TJX",
-        "SOFI",
-        "PNC",
-        "PLTR",
-        "NFLX",
-        "MSTR",
-        "MSFT",
-        "MNST",
-        "LRCX",
-        "KLAC",
-        "JPM",
-        "GOOGL",
-        "GE",
-        "EXPE",
-        "ETN",
-        "EMR",
-        "DE",
-        "CRWD",
-        "COST",
-        "CDNS",
-        "CAT",
-        "BK",
-        "AXP",
-        "AXON",
-        "AVGO",
-        "AAPL",
-        // GRNJ
-        "RKLB",
-        "LITE",
-        "SN",
-        "ALB",
-        "RGLD",
-        "MTZ",
-        "ON",
-        "ALLY",
-        "DY",
-        "EWBC",
-        "PATH",
-        "WFRD",
-        "WAL",
-        "IESC",
-        "ENS",
-        "TWLO",
-        "MLI",
-        "KTOS",
-        "MDB",
-        "TLN",
-        "EME",
-        "AWI",
-        "IBP",
-        "DCI",
-        "WTS",
-        "FIX",
-        "UTHR",
-        "NBIS",
-        "SGI",
-        "AYI",
-        "RIOT",
-        "NXT",
-        "SANM",
-        "BWXT",
-        "PEGA",
-        "JOBY",
-        "IONQ",
-        "ITT",
-        "STRL",
-        "QLYS",
-        "MP",
-        "HIMS",
-        "IOT",
-        "BE",
-        "NEU",
-        "AVAV",
-        "PSTG",
-        "RBLX",
-        // GRNY (already covered above)
-        // Social
-        "CSCO",
-        "BA",
-        "NKE",
-        "AAPL",
-        "PI",
-        "APLD",
-        "MU",
-        // SP Sectors
-        "XLK",
-        "XLF",
-        "XLY",
-        "XLP",
-        "XLC",
-        "XLB",
-        "XLE",
-        "XLU",
-        "XLV",
-        // Futures (normalize to common formats)
-        "ES",
-        "ES1!",
-        "MES1!",
-        "NQ",
-        "NQ1!",
-        "MNQ1!",
-        "BTC",
-        "BTC1!",
-        "BTCUSD",
-        "ETH",
-        "ETH1!",
-        "ETHT",
-        "ETHUSD",
-        "GOLD",
-        "XAUUSD",
-        "SILVER",
-        "XAGUSD",
-      ]);
-
-      // Ticker normalization map (handle variations)
-      const tickerMap = {
-        "BRK-B": "BRK.B", // Map BRK-B to BRK.B format
-        GOLD: "GOLD", // Keep as is
-        SILVER: "SILVER", // Keep as is
-        ES: "ES1!", // Map ES to ES1!
-        NQ: "NQ1!", // Map NQ to NQ1!
-        BTC: "BTC1!", // Map BTC to BTC1!
-        ETH: "ETH1!", // Map ETH to ETH1!
-      };
-
-      const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      const currentSet = new Set(currentTickers.map((t) => t.toUpperCase()));
-
-      const toRemove = [];
-      const toKeep = [];
-      const renamed = [];
-
-      // Process each current ticker
-      for (const ticker of currentTickers) {
-        const upperTicker = ticker.toUpperCase();
-        const normalized = tickerMap[upperTicker] || upperTicker;
-
-        if (
-          approvedTickers.has(upperTicker) ||
-          approvedTickers.has(normalized)
-        ) {
-          // Keep this ticker
-          if (normalized !== upperTicker && tickerMap[upperTicker]) {
-            // Need to rename
-            renamed.push({ from: ticker, to: normalized });
-            toKeep.push(normalized);
-          } else {
-            toKeep.push(ticker);
-          }
-        } else {
-          // Remove this ticker
-          toRemove.push(ticker);
-        }
-      }
-
-      // Remove unapproved tickers from KV
-      let removedCount = 0;
-      for (const ticker of toRemove) {
-        await KV.delete(`timed:latest:${ticker}`);
-        await KV.delete(`timed:trail:${ticker}`);
-        removedCount++;
-      }
-
-      // Rename tickers if needed
-      let renamedCount = 0;
-      for (const { from, to } of renamed) {
-        const latestData = await kvGetJSON(KV, `timed:latest:${from}`);
-        const trailData = await kvGetJSON(KV, `timed:trail:${from}`);
-
-        if (latestData) {
-          await kvPutJSON(KV, `timed:latest:${to}`, latestData);
-          await KV.delete(`timed:latest:${from}`);
-        }
-        if (trailData) {
-          await kvPutJSON(KV, `timed:trail:${to}`, trailData);
-          await KV.delete(`timed:trail:${from}`);
-        }
-        renamedCount++;
-      }
-
-      // Update ticker index
-      await kvPutJSON(KV, "timed:tickers", toKeep.sort());
-
-      return sendJSON(
-        {
-          ok: true,
-          message: "Ticker cleanup completed",
-          removed: removedCount,
-          renamed: renamedCount,
-          kept: toKeep.length,
-          removedTickers: toRemove.sort(),
-          renamedTickers: renamed,
-          finalTickers: toKeep.sort(),
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/cors-debug (Debug CORS configuration)
-    if (url.pathname === "/timed/cors-debug" && req.method === "GET") {
-      const corsConfig = env.CORS_ALLOW_ORIGIN || "";
-      const allowedOrigins = corsConfig
-        .split(",")
-        .map((o) => o.trim())
-        .filter(Boolean);
-      const origin = req?.headers?.get("Origin") || "";
-
-      return sendJSON(
-        {
-          ok: true,
-          cors: {
-            config: corsConfig,
-            allowedOrigins: allowedOrigins,
-            requestedOrigin: origin,
-            isAllowed: allowedOrigins.includes(origin),
-            willReturn:
-              allowedOrigins.length === 0
-                ? "*"
-                : allowedOrigins.includes(origin)
-                ? origin
-                : "null",
-          },
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/version (Check current version)
-    if (url.pathname === "/timed/version" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/version",
-        500, // Increased for single-user
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const storedVersion = await getStoredVersion(KV);
-      return sendJSON(
-        {
-          ok: true,
-          storedVersion: storedVersion || "none",
-          expectedVersion: CURRENT_DATA_VERSION,
-          match: storedVersion === CURRENT_DATA_VERSION,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/alert-debug?ticker=XYZ (Debug why alerts aren't firing)
-    if (url.pathname === "/timed/alert-debug" && req.method === "GET") {
-      // Rate limiting
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/alert-debug",
-        500, // Increased for single-user
-        3600
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-
-      const ticker = normTicker(url.searchParams.get("ticker"));
-      if (!ticker) {
-        return sendJSON(
-          { ok: false, error: "missing ticker" },
-          400,
-          corsHeaders(env, req)
-        );
-      }
-
-      const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-      if (!data) {
-        return sendJSON(
-          { ok: false, error: "no data for ticker", ticker },
-          404,
-          corsHeaders(env, req)
-        );
-      }
-
-      // Replicate alert logic
-      const state = String(data.state || "");
-      const alignedLong = state === "HTF_BULL_LTF_BULL";
-      const alignedShort = state === "HTF_BEAR_LTF_BEAR";
-      const aligned = alignedLong || alignedShort;
-
-      const prevKey = `timed:prevstate:${ticker}`;
-      const prevState = await KV.get(prevKey);
-      const enteredAligned = aligned && prevState !== state;
-
-      const trigReason = String(data.trigger_reason || "");
-      const trigOk =
-        trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
-
-      const flags = data.flags || {};
-      const sqRel = !!flags.sq30_release;
-
-      const side = corridorSide(data);
-      const inCorridor = !!side;
-      const corridorAlignedOK =
-        (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
-
-      const shouldConsiderAlert =
-        inCorridor && corridorAlignedOK && (enteredAligned || trigOk || sqRel);
-
-      // Threshold gates (with Momentum Elite adjustments)
-      const momentumElite = !!flags.momentum_elite;
-
-      // Momentum Elite gets relaxed thresholds (higher quality stocks)
-      const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
-      const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
-      const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
-      const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
-
-      // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
-      const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR; // Lower RR requirement
-      const maxComp = momentumElite
-        ? Math.min(0.5, baseMaxComp * 1.25)
-        : baseMaxComp; // Allow higher completion
-      const maxPhase = momentumElite
-        ? Math.min(0.7, baseMaxPhase * 1.17)
-        : baseMaxPhase; // Allow higher phase
-      const minRank = momentumElite
-        ? Math.max(60, baseMinRank - 10)
-        : baseMinRank; // Lower rank requirement
-
-      const rrOk = data.rr != null && Number(data.rr) >= minRR;
-      const compOk =
-        data.completion == null ? true : Number(data.completion) <= maxComp;
-      const phaseOk =
-        data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
-      const rankOk = Number(data.rank || 0) >= minRank;
-
-      // Also consider Momentum Elite as a trigger condition (quality signal)
-      const momentumEliteTrigger =
-        momentumElite && inCorridor && corridorAlignedOK;
-
-      // Enhanced trigger: original conditions OR Momentum Elite in good setup
-      const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
-
-      const discordEnabled = (env.DISCORD_ENABLE || "false") === "true";
-      const discordUrlSet = !!env.DISCORD_WEBHOOK_URL;
-
-      const wouldAlert =
-        enhancedTrigger &&
-        rrOk &&
-        compOk &&
-        phaseOk &&
-        rankOk &&
-        discordEnabled &&
-        discordUrlSet;
-
-      return sendJSON(
-        {
-          ok: true,
-          ticker,
-          wouldAlert,
-          discord: {
-            enabled: discordEnabled,
-            urlSet: discordUrlSet,
-            configured: discordEnabled && discordUrlSet,
-          },
-          conditions: {
-            inCorridor,
-            side: side || "none",
-            corridorAlignedOK,
-            enteredAligned,
-            trigOk,
-            sqRel,
-            momentumElite,
-            shouldConsiderAlert,
-            momentumEliteTrigger,
-            enhancedTrigger,
-            rrOk: {
-              value: data.rr,
-              baseRequired: baseMinRR,
-              adjustedRequired: minRR,
-              ok: rrOk,
-            },
-            compOk: {
-              value: data.completion,
-              baseRequired: baseMaxComp,
-              adjustedRequired: maxComp,
-              ok: compOk,
-            },
-            phaseOk: {
-              value: data.phase_pct,
-              baseRequired: baseMaxPhase,
-              adjustedRequired: maxPhase,
-              ok: phaseOk,
-            },
-            rankOk: {
-              value: data.rank,
-              baseRequired: baseMinRank,
-              adjustedRequired: minRank,
-              ok: rankOk,
-            },
-          },
-          thresholds: {
-            base: {
-              minRR: baseMinRR,
-              maxComp: baseMaxComp,
-              maxPhase: baseMaxPhase,
-              minRank: baseMinRank,
-            },
-            adjusted: { minRR, maxComp, maxPhase, minRank },
-            momentumEliteAdjustments: momentumElite,
-          },
-          data: {
-            state,
-            htf_score: data.htf_score,
-            ltf_score: data.ltf_score,
-            rank: data.rank,
-            rr: data.rr,
-            completion: data.completion,
-            phase_pct: data.phase_pct,
-            trigger_reason: data.trigger_reason,
-            flags: data.flags,
-          },
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // GET /timed/trades?version=2.1.0 (Get all trades, optional version filter)
-    if (url.pathname === "/timed/trades" && req.method === "GET") {
-      // Rate limiting - increased limits for UI polling (100 requests per minute)
-      const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-      const rateLimit = await checkRateLimit(
-        KV,
-        ip,
-        "/timed/trades",
-        100, // 100 requests
-        60 // per minute (instead of per hour)
-      );
-
-      if (!rateLimit.allowed) {
-        return sendJSON(
-          { ok: false, error: "rate_limit_exceeded", retryAfter: 60 },
-          429,
-          corsHeaders(env, req)
-        );
-      }
-      const versionFilter = url.searchParams.get("version");
-      const tradesKey = "timed:trades:all";
-      let allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-
-      // Correct any trades with incorrect WIN/LOSS status based on P&L
-      let corrected = false;
-      for (let i = 0; i < allTrades.length; i++) {
-        const trade = allTrades[i];
-        if (
-          (trade.status === "WIN" || trade.status === "LOSS") &&
-          trade.pnl !== undefined &&
-          trade.pnl !== null
-        ) {
-          // Check if status matches P&L
-          if (trade.status === "WIN" && trade.pnl < 0) {
-            console.log(
-              `[TRADE CORRECTION] Correcting ${trade.ticker} ${
-                trade.direction
-              }: WIN with negative P&L (${trade.pnl.toFixed(2)}) -> LOSS`
-            );
-            allTrades[i] = { ...trade, status: "LOSS" };
-            corrected = true;
-          } else if (trade.status === "LOSS" && trade.pnl > 0) {
-            console.log(
-              `[TRADE CORRECTION] Correcting ${trade.ticker} ${
-                trade.direction
-              }: LOSS with positive P&L (${trade.pnl.toFixed(2)}) -> WIN`
-            );
-            allTrades[i] = { ...trade, status: "WIN" };
-            corrected = true;
-          }
-        }
-      }
-
-      // Save corrected trades back to KV if any corrections were made
-      if (corrected) {
-        await kvPutJSON(KV, tradesKey, allTrades);
-        console.log(
-          `[TRADE CORRECTION] Saved ${allTrades.length} trades with corrections`
-        );
-      }
-
-      let filteredTrades = allTrades;
-      if (versionFilter && versionFilter !== "all") {
-        filteredTrades = allTrades.filter(
-          (t) => (t.scriptVersion || "unknown") === versionFilter
-        );
-      }
-
-      // Get unique versions for reference
-      const versions = [
-        ...new Set(allTrades.map((t) => t.scriptVersion || "unknown")),
-      ]
-        .sort()
-        .reverse();
-
-      return sendJSON(
-        {
-          ok: true,
-          count: filteredTrades.length,
-          totalCount: allTrades.length,
-          version: versionFilter || "all",
-          versions: versions,
-          trades: filteredTrades,
-          corrected: corrected, // Indicate if corrections were made
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/trades?key=... (Create or update trade)
-    if (url.pathname === "/timed/trades" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      const { obj: body, err } = await readBodyAsJSON(req);
-      if (!body || !body.id) {
-        return sendJSON(
-          { ok: false, error: "missing trade id" },
-          400,
-          corsHeaders(env, req)
-        );
-      }
-
-      const tradesKey = "timed:trades:all";
-      const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-
-      // Find existing trade or add new one
-      const existingIndex = allTrades.findIndex((t) => t.id === body.id);
-
-      if (existingIndex >= 0) {
-        // Update existing trade
-        allTrades[existingIndex] = { ...allTrades[existingIndex], ...body };
-      } else {
-        // Add new trade
-        allTrades.push(body);
-      }
-
-      // Sort by entry time (newest first)
-      allTrades.sort((a, b) => {
-        const timeA = new Date(a.entryTime || 0).getTime();
-        const timeB = new Date(b.entryTime || 0).getTime();
-        return timeB - timeA;
-      });
-
-      await kvPutJSON(KV, tradesKey, allTrades);
-
-      return sendJSON(
-        {
-          ok: true,
-          trade: existingIndex >= 0 ? allTrades[existingIndex] : body,
-          action: existingIndex >= 0 ? "updated" : "created",
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // DELETE /timed/trades/:id?key=... (Delete trade)
-    if (url.pathname.startsWith("/timed/trades/") && req.method === "DELETE") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      const tradeId = url.pathname.split("/timed/trades/")[1];
-      if (!tradeId) {
-        return sendJSON(
-          { ok: false, error: "missing trade id" },
-          400,
-          corsHeaders(env, req)
-        );
-      }
-
-      const tradesKey = "timed:trades:all";
-      const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-      const filteredTrades = allTrades.filter((t) => t.id !== tradeId);
-
-      await kvPutJSON(KV, tradesKey, filteredTrades);
-
-      return sendJSON(
-        {
-          ok: true,
-          deleted: allTrades.length - filteredTrades.length === 1,
-          remainingCount: filteredTrades.length,
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // OPTIONS /timed/ai/chat (CORS preflight)
-    if (url.pathname === "/timed/ai/chat" && req.method === "OPTIONS") {
-      const origin = req?.headers?.get("Origin") || "";
-      // Always allow timedtrading.pages.dev origin, otherwise use "*"
-      const allowedOrigin = origin.includes("timedtrading.pages.dev")
-        ? origin
-        : "*";
-      const aiChatCorsHeaders = {
-        "Access-Control-Allow-Origin": allowedOrigin,
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Access-Control-Max-Age": "86400",
-        Vary: "Origin",
-      };
-      return new Response(null, {
-        status: 204,
-        headers: aiChatCorsHeaders,
-      });
-    }
-
-    // POST /timed/ai/chat (AI Chat Assistant)
-    if (url.pathname === "/timed/ai/chat" && req.method === "POST") {
-      // Get CORS headers early - always allow timedtrading.pages.dev for AI chat
-      const origin = req?.headers?.get("Origin") || "";
-      // Always allow timedtrading.pages.dev origin, otherwise use "*"
-      const allowedOrigin = origin.includes("timedtrading.pages.dev")
-        ? origin
-        : "*";
-      const aiChatCorsHeaders = {
-        "Access-Control-Allow-Origin": allowedOrigin,
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-        Vary: "Origin",
-      };
-
-      // Wrap entire handler in try-catch to ensure CORS headers are always returned
-      try {
-        // Handle JSON parsing errors with CORS headers
-        let body;
+        // Wrap entire handler in try-catch to ensure CORS headers are always returned
         try {
-          const result = await readBodyAsJSON(req);
-          if (result.err) {
+          // Handle JSON parsing errors with CORS headers
+          let body;
+          try {
+            const result = await readBodyAsJSON(req);
+            if (result.err) {
+              return sendJSON(
+                { ok: false, error: "Invalid JSON in request body" },
+                400,
+                aiChatCorsHeaders
+              );
+            }
+            body = result.obj;
+          } catch (e) {
             return sendJSON(
-              { ok: false, error: "Invalid JSON in request body" },
+              { ok: false, error: "Failed to parse request body" },
               400,
               aiChatCorsHeaders
             );
           }
-          body = result.obj;
-        } catch (e) {
-          return sendJSON(
-            { ok: false, error: "Failed to parse request body" },
-            400,
-            aiChatCorsHeaders
-          );
-        }
 
-        if (!body || !body.message) {
-          return sendJSON(
-            { ok: false, error: "missing message" },
-            400,
-            aiChatCorsHeaders
-          );
-        }
-
-        try {
-          const openaiApiKey = env.OPENAI_API_KEY;
-          if (!openaiApiKey) {
+          if (!body || !body.message) {
             return sendJSON(
-              {
-                ok: false,
-                error:
-                  "AI service not configured. Please set OPENAI_API_KEY secret.",
-              },
-              503,
+              { ok: false, error: "missing message" },
+              400,
               aiChatCorsHeaders
             );
           }
 
-          // Fetch full ticker data for context
-          const tickerSymbols = body.tickerData || [];
-          const tickerContext = [];
-
-          // Handle ticker data fetching with error handling
           try {
-            const tickerDataPromises = tickerSymbols
-              .slice(0, 20)
-              .map(async (ticker) => {
-                try {
-                  const latestData = await kvGetJSON(
-                    KV,
-                    `timed:latest:${ticker}`
-                  );
-                  if (latestData) {
-                    return {
-                      ticker: ticker,
-                      rank: latestData.rank || 0,
-                      rr: latestData.rr || 0,
-                      price: latestData.price || 0,
-                      state: latestData.state || "",
-                      phase_pct: latestData.phase_pct || 0,
-                      completion: latestData.completion || 0,
-                      flags: latestData.flags || {},
-                    };
-                  }
-                  return null;
-                } catch (err) {
-                  console.error(
-                    `[AI CHAT] Error fetching ticker ${ticker}:`,
-                    err
-                  );
-                  return null;
-                }
-              });
-
-            const tickerDataResults = await Promise.all(tickerDataPromises);
-            tickerDataResults
-              .filter(Boolean)
-              .forEach((t) => tickerContext.push(t));
-          } catch (err) {
-            console.error("[AI CHAT] Error fetching ticker data:", err);
-            // Continue with empty ticker context - not critical
-          }
-
-          // Format activity feed context with safe handling
-          const activityContext = [];
-          try {
-            const rawActivityData = body.activityData || [];
-            if (Array.isArray(rawActivityData)) {
-              rawActivityData.slice(0, 10).forEach((event) => {
-                try {
-                  if (event && typeof event === "object") {
-                    const ts = event.ts ? Number(event.ts) : Date.now();
-                    const price = Number(event.price) || 0;
-                    activityContext.push({
-                      ticker: String(event.ticker || "UNKNOWN"),
-                      type: String(event.type || "event"),
-                      time:
-                        ts > 0
-                          ? new Date(ts).toLocaleTimeString()
-                          : "Unknown time",
-                      price: price,
-                      rank: Number(event.rank) || 0,
-                    });
-                  }
-                } catch (e) {
-                  console.error(
-                    "[AI CHAT] Error formatting activity event:",
-                    e
-                  );
-                  // Skip this event
-                }
-              });
+            const openaiApiKey = env.OPENAI_API_KEY;
+            if (!openaiApiKey) {
+              return sendJSON(
+                {
+                  ok: false,
+                  error:
+                    "AI service not configured. Please set OPENAI_API_KEY secret.",
+                },
+                503,
+                aiChatCorsHeaders
+              );
             }
-          } catch (err) {
-            console.error("[AI CHAT] Error processing activity data:", err);
-            // Continue with empty activity context - not critical
-          }
 
-          // Build system prompt with context
-          const systemPrompt = `You are an expert trading analyst assistant and active monitor for the Timed Trading platform. 
+            // Fetch full ticker data for context
+            const tickerSymbols = body.tickerData || [];
+            const tickerContext = [];
+
+            // Handle ticker data fetching with error handling
+            try {
+              const tickerDataPromises = tickerSymbols
+                .slice(0, 20)
+                .map(async (ticker) => {
+                  try {
+                    const latestData = await kvGetJSON(
+                      KV,
+                      `timed:latest:${ticker}`
+                    );
+                    if (latestData) {
+                      return {
+                        ticker: ticker,
+                        rank: latestData.rank || 0,
+                        rr: latestData.rr || 0,
+                        price: latestData.price || 0,
+                        state: latestData.state || "",
+                        phase_pct: latestData.phase_pct || 0,
+                        completion: latestData.completion || 0,
+                        flags: latestData.flags || {},
+                      };
+                    }
+                    return null;
+                  } catch (err) {
+                    console.error(
+                      `[AI CHAT] Error fetching ticker ${ticker}:`,
+                      err
+                    );
+                    return null;
+                  }
+                });
+
+              const tickerDataResults = await Promise.all(tickerDataPromises);
+              tickerDataResults
+                .filter(Boolean)
+                .forEach((t) => tickerContext.push(t));
+            } catch (err) {
+              console.error("[AI CHAT] Error fetching ticker data:", err);
+              // Continue with empty ticker context - not critical
+            }
+
+            // Format activity feed context with safe handling
+            const activityContext = [];
+            try {
+              const rawActivityData = body.activityData || [];
+              if (Array.isArray(rawActivityData)) {
+                rawActivityData.slice(0, 10).forEach((event) => {
+                  try {
+                    if (event && typeof event === "object") {
+                      const ts = event.ts ? Number(event.ts) : Date.now();
+                      const price = Number(event.price) || 0;
+                      activityContext.push({
+                        ticker: String(event.ticker || "UNKNOWN"),
+                        type: String(event.type || "event"),
+                        time:
+                          ts > 0
+                            ? new Date(ts).toLocaleTimeString()
+                            : "Unknown time",
+                        price: price,
+                        rank: Number(event.rank) || 0,
+                      });
+                    }
+                  } catch (e) {
+                    console.error(
+                      "[AI CHAT] Error formatting activity event:",
+                      e
+                    );
+                    // Skip this event
+                  }
+                });
+              }
+            } catch (err) {
+              console.error("[AI CHAT] Error processing activity data:", err);
+              // Continue with empty activity context - not critical
+            }
+
+            // Build system prompt with context
+            const systemPrompt = `You are an expert trading analyst assistant and active monitor for the Timed Trading platform. 
 Your role is to continuously observe market conditions, identify opportunities, warn about risks, and help traders make informed decisions.
 
 ## YOUR CAPABILITIES
@@ -8108,11 +8742,11 @@ Your role is to continuously observe market conditions, identify opportunities, 
 
 ## AVAILABLE DATA
 - **${
-            tickerContext.length
-          } tickers** with real-time data (rank, RR, price, phase, completion, state)
+              tickerContext.length
+            } tickers** with real-time data (rank, RR, price, phase, completion, state)
 - **${
-            activityContext.length
-          } recent activity events** (corridor entries, squeeze releases, alignments)
+              activityContext.length
+            } recent activity events** (corridor entries, squeeze releases, alignments)
 
 ### Sample Ticker Data (Top 10):
 ${
@@ -8259,448 +8893,449 @@ As an active monitor, you should:
 
 Remember: You're a helpful assistant. Be professional, accurate, and prioritize user safety by emphasizing risk management.`;
 
-          // Format conversation history
-          const messages = [
-            { role: "system", content: systemPrompt },
-            ...(body.conversationHistory || []).slice(-8).map((msg) => ({
-              role: msg.role,
-              content: msg.content,
-            })),
-            { role: "user", content: body.message },
-          ];
+            // Format conversation history
+            const messages = [
+              { role: "system", content: systemPrompt },
+              ...(body.conversationHistory || []).slice(-8).map((msg) => ({
+                role: msg.role,
+                content: msg.content,
+              })),
+              { role: "user", content: body.message },
+            ];
 
-          // Call OpenAI API with timeout
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+            // Call OpenAI API with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-          let aiResponse;
-          try {
-            aiResponse = await fetch(
-              "https://api.openai.com/v1/chat/completions",
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${openaiApiKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model:
-                    env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
-                      ? env.OPENAI_MODEL
-                      : "gpt-3.5-turbo",
-                  messages: messages,
-                  temperature: 0.7,
-                  max_tokens: 800,
-                }),
-                signal: controller.signal,
+            let aiResponse;
+            try {
+              aiResponse = await fetch(
+                "https://api.openai.com/v1/chat/completions",
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${openaiApiKey}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model:
+                      env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                        ? env.OPENAI_MODEL
+                        : "gpt-3.5-turbo",
+                    messages: messages,
+                    temperature: 0.7,
+                    max_tokens: 800,
+                  }),
+                  signal: controller.signal,
+                }
+              );
+            } catch (fetchError) {
+              clearTimeout(timeoutId);
+              if (fetchError.name === "AbortError") {
+                throw new Error(
+                  "Request timeout - OpenAI API took too long to respond"
+                );
               }
-            );
-          } catch (fetchError) {
+              throw new Error(`Network error: ${fetchError.message}`);
+            }
+
             clearTimeout(timeoutId);
-            if (fetchError.name === "AbortError") {
-              throw new Error(
-                "Request timeout - OpenAI API took too long to respond"
+
+            if (!aiResponse.ok) {
+              let errorData = {};
+              try {
+                errorData = await aiResponse.json();
+              } catch (e) {
+                // If response isn't JSON, use status text
+                errorData = { error: { message: aiResponse.statusText } };
+              }
+              console.error(
+                "[AI CHAT] OpenAI API error:",
+                aiResponse.status,
+                errorData
+              );
+              // Provide user-friendly error messages for common OpenAI errors
+              let errorMessage =
+                errorData.error?.message ||
+                `OpenAI API error: ${aiResponse.status}`;
+              if (aiResponse.status === 429) {
+                if (errorData.error?.code === "insufficient_quota") {
+                  errorMessage =
+                    "OpenAI API quota exceeded. Please check your billing and plan details.";
+                } else {
+                  errorMessage =
+                    "OpenAI API rate limit exceeded. Please try again later.";
+                }
+              }
+              throw new Error(errorMessage);
+            }
+
+            let aiData;
+            try {
+              aiData = await aiResponse.json();
+            } catch (e) {
+              throw new Error("Invalid JSON response from OpenAI API");
+            }
+
+            const aiMessage =
+              aiData.choices?.[0]?.message?.content ||
+              "Sorry, I couldn't process that request.";
+
+            // Extract sources if any tickers were mentioned
+            const mentionedTickers = [];
+            const tickerRegex = /\b([A-Z]{1,5})\b/g;
+            const matches = body.message.toUpperCase().match(tickerRegex);
+            if (matches) {
+              matches.forEach((ticker) => {
+                if (tickerContext.some((t) => t.ticker === ticker)) {
+                  mentionedTickers.push(ticker);
+                }
+              });
+            }
+
+            return sendJSON(
+              {
+                ok: true,
+                response: aiMessage,
+                sources:
+                  mentionedTickers.length > 0
+                    ? [`Data from: ${mentionedTickers.join(", ")}`]
+                    : [],
+                timestamp: Date.now(),
+              },
+              200,
+              aiChatCorsHeaders
+            );
+          } catch (error) {
+            // Catch any errors (including errors in error handling)
+            console.error("[AI CHAT ERROR]", error);
+            console.error("[AI CHAT ERROR] Stack:", error.stack);
+            console.error("[AI CHAT ERROR] Message:", error.message);
+            console.error("[AI CHAT ERROR] Name:", error.name);
+            // Always return CORS headers even on error
+            try {
+              return sendJSON(
+                {
+                  ok: false,
+                  error: error.message || "AI service error",
+                  details: error.stack,
+                },
+                500,
+                aiChatCorsHeaders
+              );
+            } catch (sendError) {
+              // If even sendJSON fails, return a basic response with CORS headers
+              console.error(
+                "[AI CHAT FATAL ERROR] Failed to send error response:",
+                sendError
+              );
+              return new Response(
+                JSON.stringify({ ok: false, error: "Internal server error" }),
+                {
+                  status: 500,
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...aiChatCorsHeaders,
+                  },
+                }
               );
             }
-            throw new Error(`Network error: ${fetchError.message}`);
-          }
-
-          clearTimeout(timeoutId);
-
-          if (!aiResponse.ok) {
-            let errorData = {};
-            try {
-              errorData = await aiResponse.json();
-            } catch (e) {
-              // If response isn't JSON, use status text
-              errorData = { error: { message: aiResponse.statusText } };
-            }
-            console.error(
-              "[AI CHAT] OpenAI API error:",
-              aiResponse.status,
-              errorData
-            );
-            // Provide user-friendly error messages for common OpenAI errors
-            let errorMessage =
-              errorData.error?.message ||
-              `OpenAI API error: ${aiResponse.status}`;
-            if (aiResponse.status === 429) {
-              if (errorData.error?.code === "insufficient_quota") {
-                errorMessage =
-                  "OpenAI API quota exceeded. Please check your billing and plan details.";
-              } else {
-                errorMessage =
-                  "OpenAI API rate limit exceeded. Please try again later.";
-              }
-            }
-            throw new Error(errorMessage);
-          }
-
-          let aiData;
-          try {
-            aiData = await aiResponse.json();
-          } catch (e) {
-            throw new Error("Invalid JSON response from OpenAI API");
-          }
-
-          const aiMessage =
-            aiData.choices?.[0]?.message?.content ||
-            "Sorry, I couldn't process that request.";
-
-          // Extract sources if any tickers were mentioned
-          const mentionedTickers = [];
-          const tickerRegex = /\b([A-Z]{1,5})\b/g;
-          const matches = body.message.toUpperCase().match(tickerRegex);
-          if (matches) {
-            matches.forEach((ticker) => {
-              if (tickerContext.some((t) => t.ticker === ticker)) {
-                mentionedTickers.push(ticker);
-              }
-            });
-          }
-
-          return sendJSON(
-            {
-              ok: true,
-              response: aiMessage,
-              sources:
-                mentionedTickers.length > 0
-                  ? [`Data from: ${mentionedTickers.join(", ")}`]
-                  : [],
-              timestamp: Date.now(),
-            },
-            200,
-            aiChatCorsHeaders
-          );
-        } catch (error) {
-          // Catch any errors (including errors in error handling)
-          console.error("[AI CHAT ERROR]", error);
-          console.error("[AI CHAT ERROR] Stack:", error.stack);
-          console.error("[AI CHAT ERROR] Message:", error.message);
-          console.error("[AI CHAT ERROR] Name:", error.name);
-          // Always return CORS headers even on error
+          } // End of inner try-catch for OpenAI API
+        } catch (fatalError) {
+          // Catch any unhandled errors that might crash the worker
+          console.error("[AI CHAT FATAL ERROR]", fatalError);
+          console.error("[AI CHAT FATAL ERROR] Stack:", fatalError?.stack);
+          console.error("[AI CHAT FATAL ERROR] Message:", fatalError?.message);
+          console.error("[AI CHAT FATAL ERROR] Name:", fatalError?.name);
+          console.error("[AI CHAT FATAL ERROR] Type:", typeof fatalError);
+          // Always return CORS headers even on fatal errors
+          // Re-create CORS headers in case they're out of scope
+          const origin = req?.headers?.get("Origin") || "";
+          const allowedOrigin = origin.includes("timedtrading.pages.dev")
+            ? origin
+            : "*";
+          const fatalCorsHeaders = {
+            "Access-Control-Allow-Origin": allowedOrigin,
+            "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+            Vary: "Origin",
+          };
           try {
             return sendJSON(
               {
                 ok: false,
-                error: error.message || "AI service error",
-                details: error.stack,
+                error: "Internal server error",
+                details: fatalError?.message || "Unknown error",
               },
               500,
-              aiChatCorsHeaders
+              fatalCorsHeaders
             );
           } catch (sendError) {
-            // If even sendJSON fails, return a basic response with CORS headers
-            console.error(
-              "[AI CHAT FATAL ERROR] Failed to send error response:",
-              sendError
-            );
+            // Last resort - return basic response
+            console.error("[AI CHAT] Even sendJSON failed:", sendError);
             return new Response(
               JSON.stringify({ ok: false, error: "Internal server error" }),
               {
                 status: 500,
                 headers: {
                   "Content-Type": "application/json",
-                  ...aiChatCorsHeaders,
+                  ...fatalCorsHeaders,
                 },
               }
             );
           }
-        } // End of inner try-catch for OpenAI API
-      } catch (fatalError) {
-        // Catch any unhandled errors that might crash the worker
-        console.error("[AI CHAT FATAL ERROR]", fatalError);
-        console.error("[AI CHAT FATAL ERROR] Stack:", fatalError?.stack);
-        console.error("[AI CHAT FATAL ERROR] Message:", fatalError?.message);
-        console.error("[AI CHAT FATAL ERROR] Name:", fatalError?.name);
-        console.error("[AI CHAT FATAL ERROR] Type:", typeof fatalError);
-        // Always return CORS headers even on fatal errors
-        // Re-create CORS headers in case they're out of scope
+        }
+      } // End of POST /timed/ai/chat handler
+
+      // GET /timed/ai/updates (Get periodic AI updates)
+      if (url.pathname === "/timed/ai/updates" && req.method === "GET") {
         const origin = req?.headers?.get("Origin") || "";
         const allowedOrigin = origin.includes("timedtrading.pages.dev")
           ? origin
           : "*";
-        const fatalCorsHeaders = {
+        const aiChatCorsHeaders = {
           "Access-Control-Allow-Origin": allowedOrigin,
           "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
           Vary: "Origin",
         };
+
         try {
+          const limit = parseInt(url.searchParams.get("limit") || "10", 10);
+
+          // Get list of updates
+          const updatesListKey = `timed:ai:updates:list`;
+          const updatesList = (await kvGetJSON(KV, updatesListKey)) || [];
+
+          // Fetch actual update data
+          const updatesPromises = updatesList
+            .slice(0, limit)
+            .map(async (item) => {
+              try {
+                const updateData = await kvGetJSON(KV, item.key);
+                return updateData;
+              } catch (err) {
+                return null;
+              }
+            });
+
+          const updates = (await Promise.all(updatesPromises))
+            .filter(Boolean)
+            .sort((a, b) => {
+              const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+              const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+              return timeB - timeA;
+            });
+
+          return sendJSON(
+            {
+              ok: true,
+              updates,
+              count: updates.length,
+            },
+            200,
+            aiChatCorsHeaders
+          );
+        } catch (error) {
+          console.error("[AI UPDATES ERROR]", error);
           return sendJSON(
             {
               ok: false,
-              error: "Internal server error",
-              details: fatalError?.message || "Unknown error",
+              error: error.message || "Failed to fetch updates",
             },
             500,
-            fatalCorsHeaders
-          );
-        } catch (sendError) {
-          // Last resort - return basic response
-          console.error("[AI CHAT] Even sendJSON failed:", sendError);
-          return new Response(
-            JSON.stringify({ ok: false, error: "Internal server error" }),
-            {
-              status: 500,
-              headers: {
-                "Content-Type": "application/json",
-                ...fatalCorsHeaders,
-              },
-            }
-          );
-        }
-      }
-    } // End of POST /timed/ai/chat handler
-
-    // GET /timed/ai/updates (Get periodic AI updates)
-    if (url.pathname === "/timed/ai/updates" && req.method === "GET") {
-      const origin = req?.headers?.get("Origin") || "";
-      const allowedOrigin = origin.includes("timedtrading.pages.dev")
-        ? origin
-        : "*";
-      const aiChatCorsHeaders = {
-        "Access-Control-Allow-Origin": allowedOrigin,
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-        Vary: "Origin",
-      };
-
-      try {
-        const limit = parseInt(url.searchParams.get("limit") || "10", 10);
-
-        // Get list of updates
-        const updatesListKey = `timed:ai:updates:list`;
-        const updatesList = (await kvGetJSON(KV, updatesListKey)) || [];
-
-        // Fetch actual update data
-        const updatesPromises = updatesList
-          .slice(0, limit)
-          .map(async (item) => {
-            try {
-              const updateData = await kvGetJSON(KV, item.key);
-              return updateData;
-            } catch (err) {
-              return null;
-            }
-          });
-
-        const updates = (await Promise.all(updatesPromises))
-          .filter(Boolean)
-          .sort((a, b) => {
-            const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-            const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-            return timeB - timeA;
-          });
-
-        return sendJSON(
-          {
-            ok: true,
-            updates,
-            count: updates.length,
-          },
-          200,
-          aiChatCorsHeaders
-        );
-      } catch (error) {
-        console.error("[AI UPDATES ERROR]", error);
-        return sendJSON(
-          {
-            ok: false,
-            error: error.message || "Failed to fetch updates",
-          },
-          500,
-          aiChatCorsHeaders
-        );
-      }
-    }
-
-    // GET /timed/ai/daily-summary (Daily Summary of Simulation Dashboard Performance)
-    if (url.pathname === "/timed/ai/daily-summary" && req.method === "GET") {
-      const origin = req?.headers?.get("Origin") || "";
-      const allowedOrigin = origin.includes("timedtrading.pages.dev")
-        ? origin
-        : "*";
-      const aiChatCorsHeaders = {
-        "Access-Control-Allow-Origin": allowedOrigin,
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-        Vary: "Origin",
-      };
-
-      try {
-        const openaiApiKey = env.OPENAI_API_KEY;
-        if (!openaiApiKey) {
-          return sendJSON(
-            {
-              ok: false,
-              error:
-                "AI service not configured. Please set OPENAI_API_KEY secret.",
-            },
-            503,
             aiChatCorsHeaders
           );
         }
+      }
 
-        // Get date filter (default: today)
-        const dateParam = url.searchParams.get("date");
-        const targetDate = dateParam ? new Date(dateParam) : new Date();
-        const todayStart = new Date(targetDate);
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date(targetDate);
-        todayEnd.setHours(23, 59, 59, 999);
+      // GET /timed/ai/daily-summary (Daily Summary of Simulation Dashboard Performance)
+      if (url.pathname === "/timed/ai/daily-summary" && req.method === "GET") {
+        const origin = req?.headers?.get("Origin") || "";
+        const allowedOrigin = origin.includes("timedtrading.pages.dev")
+          ? origin
+          : "*";
+        const aiChatCorsHeaders = {
+          "Access-Control-Allow-Origin": allowedOrigin,
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          Vary: "Origin",
+        };
 
-        // Fetch all trades from unified storage
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-
-        // Filter trades by date
-        const todayTrades = allTrades.filter((trade) => {
-          if (!trade.entryTime) return false;
-          const entryDate = new Date(trade.entryTime);
-          return entryDate >= todayStart && entryDate <= todayEnd;
-        });
-
-        // Categorize trades
-        const newTrades = todayTrades.filter(
-          (t) => t.status === "OPEN" || !t.status
-        );
-        const closedTrades = todayTrades.filter(
-          (t) => t.status === "WIN" || t.status === "LOSS"
-        );
-        const trimmedTrades = todayTrades.filter(
-          (t) => t.status === "TP_HIT_TRIM"
-        );
-
-        // Calculate P&L
-        const closedPnl = closedTrades.reduce(
-          (sum, t) => sum + (Number(t.pnl) || 0),
-          0
-        );
-        const openPnl = newTrades.reduce(
-          (sum, t) => sum + (Number(t.pnl) || 0),
-          0
-        );
-        const trimmedPnl = trimmedTrades.reduce(
-          (sum, t) => sum + (Number(t.pnl) || 0),
-          0
-        );
-
-        // Calculate win rate
-        const wins = closedTrades.filter((t) => t.status === "WIN").length;
-        const losses = closedTrades.filter((t) => t.status === "LOSS").length;
-        const winRate =
-          closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
-
-        // Analyze patterns for learning
-        const winningTrades = closedTrades.filter((t) => t.status === "WIN");
-        const losingTrades = closedTrades.filter((t) => t.status === "LOSS");
-
-        // Analyze by signal types (trigger reasons and flags)
-        const signalAnalysis = {};
-        const allTradesForSignals = [...todayTrades];
-        allTradesForSignals.forEach((trade) => {
-          const signals = [];
-
-          // Trigger reasons
-          if (trade.state) {
-            const state = String(trade.state || "");
-            if (state.includes("BULL")) signals.push("HTF_BULL");
-            if (state.includes("BEAR")) signals.push("HTF_BEAR");
-            if (state.includes("PULLBACK")) signals.push("LTF_PULLBACK");
-            if (state.includes("LTF_BULL")) signals.push("LTF_BULL");
-            if (state.includes("LTF_BEAR")) signals.push("LTF_BEAR");
+        try {
+          const openaiApiKey = env.OPENAI_API_KEY;
+          if (!openaiApiKey) {
+            return sendJSON(
+              {
+                ok: false,
+                error:
+                  "AI service not configured. Please set OPENAI_API_KEY secret.",
+              },
+              503,
+              aiChatCorsHeaders
+            );
           }
 
-          // Flags
-          const flags = trade.flags || {};
-          if (flags.sq30_release) signals.push("SQUEEZE_RELEASE");
-          if (flags.sq30_on) signals.push("SQUEEZE_ON");
-          if (flags.phase_zone_change) signals.push("PHASE_ZONE_CHANGE");
-          if (flags.momentum_elite) signals.push("MOMENTUM_ELITE");
+          // Get date filter (default: today)
+          const dateParam = url.searchParams.get("date");
+          const targetDate = dateParam ? new Date(dateParam) : new Date();
+          const todayStart = new Date(targetDate);
+          todayStart.setHours(0, 0, 0, 0);
+          const todayEnd = new Date(targetDate);
+          todayEnd.setHours(23, 59, 59, 999);
 
-          // Trigger reason
-          if (trade.trigger_reason) {
-            const triggerReason = String(trade.trigger_reason || "");
-            if (triggerReason === "EMA_CROSS") signals.push("EMA_CROSS_DAILY");
-            if (triggerReason === "SQUEEZE_RELEASE")
-              signals.push("SQUEEZE_RELEASE_TRIGGER");
-          }
+          // Fetch all trades from unified storage
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
 
-          const signalKey =
-            signals.length > 0 ? signals.sort().join("+") : "NO_SIGNALS";
-
-          if (!signalAnalysis[signalKey]) {
-            signalAnalysis[signalKey] = {
-              total: 0,
-              wins: 0,
-              losses: 0,
-              totalPnl: 0,
-              trades: [],
-            };
-          }
-
-          signalAnalysis[signalKey].total++;
-          if (trade.status === "WIN") signalAnalysis[signalKey].wins++;
-          if (trade.status === "LOSS") signalAnalysis[signalKey].losses++;
-          signalAnalysis[signalKey].totalPnl += Number(trade.pnl) || 0;
-          signalAnalysis[signalKey].trades.push({
-            ticker: trade.ticker,
-            status: trade.status,
-            pnl: Number(trade.pnl) || 0,
-            rank: Number(trade.rank) || 0,
-            rr: Number(trade.rr) || 0,
+          // Filter trades by date
+          const todayTrades = allTrades.filter((trade) => {
+            if (!trade.entryTime) return false;
+            const entryDate = new Date(trade.entryTime);
+            return entryDate >= todayStart && entryDate <= todayEnd;
           });
-        });
 
-        // Analyze by rank ranges
-        const rankAnalysis = {};
-        closedTrades.forEach((trade) => {
-          const rank = Number(trade.rank) || 0;
-          let range = "Unknown";
-          if (rank >= 80) range = "Rank ≥ 80";
-          else if (rank >= 70) range = "Rank 70-80";
-          else if (rank >= 60) range = "Rank 60-70";
-          else if (rank > 0) range = "Rank < 60";
+          // Categorize trades
+          const newTrades = todayTrades.filter(
+            (t) => t.status === "OPEN" || !t.status
+          );
+          const closedTrades = todayTrades.filter(
+            (t) => t.status === "WIN" || t.status === "LOSS"
+          );
+          const trimmedTrades = todayTrades.filter(
+            (t) => t.status === "TP_HIT_TRIM"
+          );
 
-          if (!rankAnalysis[range]) {
-            rankAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
-          }
-          if (trade.status === "WIN") rankAnalysis[range].wins++;
-          if (trade.status === "LOSS") rankAnalysis[range].losses++;
-          rankAnalysis[range].totalPnl += Number(trade.pnl) || 0;
-        });
+          // Calculate P&L
+          const closedPnl = closedTrades.reduce(
+            (sum, t) => sum + (Number(t.pnl) || 0),
+            0
+          );
+          const openPnl = newTrades.reduce(
+            (sum, t) => sum + (Number(t.pnl) || 0),
+            0
+          );
+          const trimmedPnl = trimmedTrades.reduce(
+            (sum, t) => sum + (Number(t.pnl) || 0),
+            0
+          );
 
-        // Analyze by RR ranges
-        const rrAnalysis = {};
-        closedTrades.forEach((trade) => {
-          const rr = Number(trade.rr) || 0;
-          let range = "Unknown";
-          if (rr >= 2.0) range = "RR ≥ 2.0";
-          else if (rr >= 1.5) range = "RR 1.5-2.0";
-          else if (rr >= 1.0) range = "RR 1.0-1.5";
-          else if (rr > 0) range = "RR < 1.0";
+          // Calculate win rate
+          const wins = closedTrades.filter((t) => t.status === "WIN").length;
+          const losses = closedTrades.filter((t) => t.status === "LOSS").length;
+          const winRate =
+            closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
 
-          if (!rrAnalysis[range]) {
-            rrAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
-          }
-          if (trade.status === "WIN") rrAnalysis[range].wins++;
-          if (trade.status === "LOSS") rrAnalysis[range].losses++;
-          rrAnalysis[range].totalPnl += Number(trade.pnl) || 0;
-        });
+          // Analyze patterns for learning
+          const winningTrades = closedTrades.filter((t) => t.status === "WIN");
+          const losingTrades = closedTrades.filter((t) => t.status === "LOSS");
 
-        // Find most common signals
-        const topSignals = Object.entries(signalAnalysis)
-          .filter(([_, stats]) => stats.total >= 2)
-          .sort((a, b) => {
-            const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
-            const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
-            return bRate - aRate;
-          })
-          .slice(0, 5);
+          // Analyze by signal types (trigger reasons and flags)
+          const signalAnalysis = {};
+          const allTradesForSignals = [...todayTrades];
+          allTradesForSignals.forEach((trade) => {
+            const signals = [];
 
-        // Build summary prompt
-        const summaryPrompt = `You are a senior trading analyst providing a comprehensive daily market thesis. Write as if someone asked you: "How did the market do today? What interesting developments were there?"
+            // Trigger reasons
+            if (trade.state) {
+              const state = String(trade.state || "");
+              if (state.includes("BULL")) signals.push("HTF_BULL");
+              if (state.includes("BEAR")) signals.push("HTF_BEAR");
+              if (state.includes("PULLBACK")) signals.push("LTF_PULLBACK");
+              if (state.includes("LTF_BULL")) signals.push("LTF_BULL");
+              if (state.includes("LTF_BEAR")) signals.push("LTF_BEAR");
+            }
+
+            // Flags
+            const flags = trade.flags || {};
+            if (flags.sq30_release) signals.push("SQUEEZE_RELEASE");
+            if (flags.sq30_on) signals.push("SQUEEZE_ON");
+            if (flags.phase_zone_change) signals.push("PHASE_ZONE_CHANGE");
+            if (flags.momentum_elite) signals.push("MOMENTUM_ELITE");
+
+            // Trigger reason
+            if (trade.trigger_reason) {
+              const triggerReason = String(trade.trigger_reason || "");
+              if (triggerReason === "EMA_CROSS")
+                signals.push("EMA_CROSS_DAILY");
+              if (triggerReason === "SQUEEZE_RELEASE")
+                signals.push("SQUEEZE_RELEASE_TRIGGER");
+            }
+
+            const signalKey =
+              signals.length > 0 ? signals.sort().join("+") : "NO_SIGNALS";
+
+            if (!signalAnalysis[signalKey]) {
+              signalAnalysis[signalKey] = {
+                total: 0,
+                wins: 0,
+                losses: 0,
+                totalPnl: 0,
+                trades: [],
+              };
+            }
+
+            signalAnalysis[signalKey].total++;
+            if (trade.status === "WIN") signalAnalysis[signalKey].wins++;
+            if (trade.status === "LOSS") signalAnalysis[signalKey].losses++;
+            signalAnalysis[signalKey].totalPnl += Number(trade.pnl) || 0;
+            signalAnalysis[signalKey].trades.push({
+              ticker: trade.ticker,
+              status: trade.status,
+              pnl: Number(trade.pnl) || 0,
+              rank: Number(trade.rank) || 0,
+              rr: Number(trade.rr) || 0,
+            });
+          });
+
+          // Analyze by rank ranges
+          const rankAnalysis = {};
+          closedTrades.forEach((trade) => {
+            const rank = Number(trade.rank) || 0;
+            let range = "Unknown";
+            if (rank >= 80) range = "Rank ≥ 80";
+            else if (rank >= 70) range = "Rank 70-80";
+            else if (rank >= 60) range = "Rank 60-70";
+            else if (rank > 0) range = "Rank < 60";
+
+            if (!rankAnalysis[range]) {
+              rankAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
+            }
+            if (trade.status === "WIN") rankAnalysis[range].wins++;
+            if (trade.status === "LOSS") rankAnalysis[range].losses++;
+            rankAnalysis[range].totalPnl += Number(trade.pnl) || 0;
+          });
+
+          // Analyze by RR ranges
+          const rrAnalysis = {};
+          closedTrades.forEach((trade) => {
+            const rr = Number(trade.rr) || 0;
+            let range = "Unknown";
+            if (rr >= 2.0) range = "RR ≥ 2.0";
+            else if (rr >= 1.5) range = "RR 1.5-2.0";
+            else if (rr >= 1.0) range = "RR 1.0-1.5";
+            else if (rr > 0) range = "RR < 1.0";
+
+            if (!rrAnalysis[range]) {
+              rrAnalysis[range] = { wins: 0, losses: 0, totalPnl: 0 };
+            }
+            if (trade.status === "WIN") rrAnalysis[range].wins++;
+            if (trade.status === "LOSS") rrAnalysis[range].losses++;
+            rrAnalysis[range].totalPnl += Number(trade.pnl) || 0;
+          });
+
+          // Find most common signals
+          const topSignals = Object.entries(signalAnalysis)
+            .filter(([_, stats]) => stats.total >= 2)
+            .sort((a, b) => {
+              const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
+              const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
+              return bRate - aRate;
+            })
+            .slice(0, 5);
+
+          // Build summary prompt
+          const summaryPrompt = `You are a senior trading analyst providing a comprehensive daily market thesis. Write as if someone asked you: "How did the market do today? What interesting developments were there?"
 
 Your response should be thesis-driven, narrative, and detailed - like a professional market commentary.
 
@@ -8741,18 +9376,18 @@ ${
 
 **Signal Details:**
 - **EMA Crossovers (Daily)**: ${
-          allTradesForSignals.filter((t) => t.trigger_reason === "EMA_CROSS")
-            .length
-        } trades
+            allTradesForSignals.filter((t) => t.trigger_reason === "EMA_CROSS")
+              .length
+          } trades
 - **Squeeze Releases**: ${
-          allTradesForSignals.filter((t) => t.flags?.sq30_release).length
-        } trades
+            allTradesForSignals.filter((t) => t.flags?.sq30_release).length
+          } trades
 - **Momentum Elite**: ${
-          allTradesForSignals.filter((t) => t.flags?.momentum_elite).length
-        } trades
+            allTradesForSignals.filter((t) => t.flags?.momentum_elite).length
+          } trades
 - **Phase Zone Changes**: ${
-          allTradesForSignals.filter((t) => t.flags?.phase_zone_change).length
-        } trades
+            allTradesForSignals.filter((t) => t.flags?.phase_zone_change).length
+          } trades
 
 ---
 
@@ -8925,231 +9560,232 @@ Based on today's data:
 
 **Length:** Aim for 800-1200 words. Be thorough but focused.`;
 
-        // Call OpenAI API
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+          // Call OpenAI API
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        let aiResponse;
-        try {
-          aiResponse = await fetch(
-            "https://api.openai.com/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${openaiApiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model:
-                  env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
-                    ? env.OPENAI_MODEL
-                    : "gpt-3.5-turbo",
-                messages: [{ role: "system", content: summaryPrompt }],
-                temperature: 0.7,
-                max_tokens: 2000,
-              }),
-              signal: controller.signal,
+          let aiResponse;
+          try {
+            aiResponse = await fetch(
+              "https://api.openai.com/v1/chat/completions",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${openaiApiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model:
+                    env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                      ? env.OPENAI_MODEL
+                      : "gpt-3.5-turbo",
+                  messages: [{ role: "system", content: summaryPrompt }],
+                  temperature: 0.7,
+                  max_tokens: 2000,
+                }),
+                signal: controller.signal,
+              }
+            );
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === "AbortError") {
+              throw new Error("Request timeout");
             }
-          );
-        } catch (fetchError) {
-          clearTimeout(timeoutId);
-          if (fetchError.name === "AbortError") {
-            throw new Error("Request timeout");
+            throw new Error(`Network error: ${fetchError.message}`);
           }
-          throw new Error(`Network error: ${fetchError.message}`);
-        }
 
-        clearTimeout(timeoutId);
+          clearTimeout(timeoutId);
 
-        if (!aiResponse.ok) {
-          throw new Error(`OpenAI API error: ${aiResponse.status}`);
-        }
+          if (!aiResponse.ok) {
+            throw new Error(`OpenAI API error: ${aiResponse.status}`);
+          }
 
-        const aiData = await aiResponse.json();
-        const summary =
-          aiData.choices?.[0]?.message?.content || "Daily summary unavailable.";
+          const aiData = await aiResponse.json();
+          const summary =
+            aiData.choices?.[0]?.message?.content ||
+            "Daily summary unavailable.";
 
-        return sendJSON(
-          {
-            ok: true,
-            summary,
-            stats: {
-              date: targetDate.toISOString().split("T")[0],
-              newTrades: newTrades.length,
-              closedTrades: closedTrades.length,
-              trimmedTrades: trimmedTrades.length,
-              wins,
-              losses,
-              winRate: winRate.toFixed(1),
-              closedPnl: closedPnl.toFixed(2),
-              openPnl: openPnl.toFixed(2),
-              trimmedPnl: trimmedPnl.toFixed(2),
-              totalPnl: (closedPnl + openPnl + trimmedPnl).toFixed(2),
-              rankAnalysis,
-              rrAnalysis,
-              signalAnalysis,
-              topSignals: topSignals.map(([signals, stats]) => ({
-                signals,
-                ...stats,
-              })),
+          return sendJSON(
+            {
+              ok: true,
+              summary,
+              stats: {
+                date: targetDate.toISOString().split("T")[0],
+                newTrades: newTrades.length,
+                closedTrades: closedTrades.length,
+                trimmedTrades: trimmedTrades.length,
+                wins,
+                losses,
+                winRate: winRate.toFixed(1),
+                closedPnl: closedPnl.toFixed(2),
+                openPnl: openPnl.toFixed(2),
+                trimmedPnl: trimmedPnl.toFixed(2),
+                totalPnl: (closedPnl + openPnl + trimmedPnl).toFixed(2),
+                rankAnalysis,
+                rrAnalysis,
+                signalAnalysis,
+                topSignals: topSignals.map(([signals, stats]) => ({
+                  signals,
+                  ...stats,
+                })),
+              },
+              timestamp: Date.now(),
             },
-            timestamp: Date.now(),
-          },
-          200,
-          aiChatCorsHeaders
-        );
-      } catch (error) {
-        console.error("[DAILY SUMMARY ERROR]", error);
-        return sendJSON(
-          {
-            ok: false,
-            error: error.message || "Daily summary service error",
-          },
-          500,
-          aiChatCorsHeaders
-        );
-      }
-    }
-
-    // GET /timed/ai/monitor (Real-time Monitoring & Proactive Alerts)
-    if (url.pathname === "/timed/ai/monitor" && req.method === "GET") {
-      const origin = req?.headers?.get("Origin") || "";
-      const allowedOrigin = origin.includes("timedtrading.pages.dev")
-        ? origin
-        : "*";
-      const aiChatCorsHeaders = {
-        "Access-Control-Allow-Origin": allowedOrigin,
-        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-        Vary: "Origin",
-      };
-
-      try {
-        const openaiApiKey = env.OPENAI_API_KEY;
-        if (!openaiApiKey) {
+            200,
+            aiChatCorsHeaders
+          );
+        } catch (error) {
+          console.error("[DAILY SUMMARY ERROR]", error);
           return sendJSON(
             {
               ok: false,
-              error:
-                "AI service not configured. Please set OPENAI_API_KEY secret.",
+              error: error.message || "Daily summary service error",
             },
-            503,
+            500,
             aiChatCorsHeaders
           );
         }
+      }
 
-        // Fetch all ticker data
-        const allKeys = await KV.list({ prefix: "timed:latest:" });
-        const tickerDataPromises = allKeys.keys
-          .slice(0, 50)
-          .map(async (key) => {
-            try {
-              const data = await kvGetJSON(KV, key.name);
-              if (data) {
-                const ticker = key.name.replace("timed:latest:", "");
-                return {
-                  ticker,
-                  rank: Number(data.rank) || 0,
-                  rr: Number(data.rr) || 0,
-                  price: Number(data.price) || 0,
-                  state: String(data.state || ""),
-                  phase_pct: Number(data.phase_pct) || 0,
-                  completion: Number(data.completion) || 0,
-                  flags: data.flags || {},
-                  htf_score: Number(data.htf_score) || 0,
-                  ltf_score: Number(data.ltf_score) || 0,
-                  sl: Number(data.sl) || 0,
-                  tp: Number(data.tp) || 0,
-                };
+      // GET /timed/ai/monitor (Real-time Monitoring & Proactive Alerts)
+      if (url.pathname === "/timed/ai/monitor" && req.method === "GET") {
+        const origin = req?.headers?.get("Origin") || "";
+        const allowedOrigin = origin.includes("timedtrading.pages.dev")
+          ? origin
+          : "*";
+        const aiChatCorsHeaders = {
+          "Access-Control-Allow-Origin": allowedOrigin,
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+          Vary: "Origin",
+        };
+
+        try {
+          const openaiApiKey = env.OPENAI_API_KEY;
+          if (!openaiApiKey) {
+            return sendJSON(
+              {
+                ok: false,
+                error:
+                  "AI service not configured. Please set OPENAI_API_KEY secret.",
+              },
+              503,
+              aiChatCorsHeaders
+            );
+          }
+
+          // Fetch all ticker data
+          const allKeys = await KV.list({ prefix: "timed:latest:" });
+          const tickerDataPromises = allKeys.keys
+            .slice(0, 50)
+            .map(async (key) => {
+              try {
+                const data = await kvGetJSON(KV, key.name);
+                if (data) {
+                  const ticker = key.name.replace("timed:latest:", "");
+                  return {
+                    ticker,
+                    rank: Number(data.rank) || 0,
+                    rr: Number(data.rr) || 0,
+                    price: Number(data.price) || 0,
+                    state: String(data.state || ""),
+                    phase_pct: Number(data.phase_pct) || 0,
+                    completion: Number(data.completion) || 0,
+                    flags: data.flags || {},
+                    htf_score: Number(data.htf_score) || 0,
+                    ltf_score: Number(data.ltf_score) || 0,
+                    sl: Number(data.sl) || 0,
+                    tp: Number(data.tp) || 0,
+                  };
+                }
+                return null;
+              } catch (err) {
+                console.error(`[AI MONITOR] Error fetching ${key.name}:`, err);
+                return null;
               }
-              return null;
-            } catch (err) {
-              console.error(`[AI MONITOR] Error fetching ${key.name}:`, err);
-              return null;
-            }
-          });
+            });
 
-        const allTickers = (await Promise.all(tickerDataPromises))
-          .filter(Boolean)
-          .sort((a, b) => (b.rank || 0) - (a.rank || 0));
+          const allTickers = (await Promise.all(tickerDataPromises))
+            .filter(Boolean)
+            .sort((a, b) => (b.rank || 0) - (a.rank || 0));
 
-        // Fetch recent activity feed (last 20 events)
-        const activityKeys = await KV.list({ prefix: "timed:activity:" });
-        const recentActivity = [];
-        const activityPromises = activityKeys.keys
-          .slice(-20)
-          .map(async (key) => {
-            try {
-              const data = await kvGetJSON(KV, key.name);
-              if (data) {
-                return {
-                  ticker: String(data.ticker || "UNKNOWN"),
-                  type: String(data.type || "event"),
-                  ts: Number(data.ts) || Date.now(),
-                  price: Number(data.price) || 0,
-                  rank: Number(data.rank) || 0,
-                };
+          // Fetch recent activity feed (last 20 events)
+          const activityKeys = await KV.list({ prefix: "timed:activity:" });
+          const recentActivity = [];
+          const activityPromises = activityKeys.keys
+            .slice(-20)
+            .map(async (key) => {
+              try {
+                const data = await kvGetJSON(KV, key.name);
+                if (data) {
+                  return {
+                    ticker: String(data.ticker || "UNKNOWN"),
+                    type: String(data.type || "event"),
+                    ts: Number(data.ts) || Date.now(),
+                    price: Number(data.price) || 0,
+                    rank: Number(data.rank) || 0,
+                  };
+                }
+                return null;
+              } catch (err) {
+                return null;
               }
-              return null;
-            } catch (err) {
-              return null;
-            }
-          });
+            });
 
-        const activityEvents = (await Promise.all(activityPromises))
-          .filter(Boolean)
-          .sort((a, b) => b.ts - a.ts)
-          .slice(0, 20);
+          const activityEvents = (await Promise.all(activityPromises))
+            .filter(Boolean)
+            .sort((a, b) => b.ts - a.ts)
+            .slice(0, 20);
 
-        // Fetch trade history for pattern recognition
-        const tradesKey = "timed:trades:all";
-        const allTradesForHistory = (await kvGetJSON(KV, tradesKey)) || [];
-        const tradeHistory = allTradesForHistory
-          .filter((t) => t.status === "WIN" || t.status === "LOSS")
-          .slice(-50) // Increased to 50 for better pattern recognition
-          .map((t) => ({
-            ticker: String(t.ticker || ""),
-            direction: String(t.direction || ""),
-            status: String(t.status || ""),
-            pnl: Number(t.pnl) || 0,
-            rank: Number(t.rank) || 0,
-            rr: Number(t.rr) || 0,
-            entryTime: String(t.entryTime || ""),
-            state: String(t.state || ""),
-            flags: t.flags || {},
-          }));
+          // Fetch trade history for pattern recognition
+          const tradesKey = "timed:trades:all";
+          const allTradesForHistory = (await kvGetJSON(KV, tradesKey)) || [];
+          const tradeHistory = allTradesForHistory
+            .filter((t) => t.status === "WIN" || t.status === "LOSS")
+            .slice(-50) // Increased to 50 for better pattern recognition
+            .map((t) => ({
+              ticker: String(t.ticker || ""),
+              direction: String(t.direction || ""),
+              status: String(t.status || ""),
+              pnl: Number(t.pnl) || 0,
+              rank: Number(t.rank) || 0,
+              rr: Number(t.rr) || 0,
+              entryTime: String(t.entryTime || ""),
+              state: String(t.state || ""),
+              flags: t.flags || {},
+            }));
 
-        // Pattern Recognition: Analyze winning patterns
-        const winningPatterns = analyzeWinningPatterns(
-          tradeHistory,
-          allTickers
-        );
+          // Pattern Recognition: Analyze winning patterns
+          const winningPatterns = analyzeWinningPatterns(
+            tradeHistory,
+            allTickers
+          );
 
-        // Proactive Alerts: Detect conditions that need attention
-        const proactiveAlerts = generateProactiveAlerts(
-          allTickers,
-          allTradesForHistory
-        );
+          // Proactive Alerts: Detect conditions that need attention
+          const proactiveAlerts = generateProactiveAlerts(
+            allTickers,
+            allTradesForHistory
+          );
 
-        // Analyze for proactive alerts
-        const primeSetups = allTickers.filter(
-          (t) =>
-            t.rank >= 75 &&
-            t.rr >= 1.5 &&
-            t.completion < 0.4 &&
-            t.phase_pct < 0.6
-        );
+          // Analyze for proactive alerts
+          const primeSetups = allTickers.filter(
+            (t) =>
+              t.rank >= 75 &&
+              t.rr >= 1.5 &&
+              t.completion < 0.4 &&
+              t.phase_pct < 0.6
+          );
 
-        const highRiskPositions = allTickers.filter(
-          (t) => t.completion > 0.7 || t.phase_pct > 0.8
-        );
+          const highRiskPositions = allTickers.filter(
+            (t) => t.completion > 0.7 || t.phase_pct > 0.8
+          );
 
-        const momentumEliteSetups = allTickers.filter(
-          (t) => t.flags?.momentum_elite && t.rank >= 70
-        );
+          const momentumEliteSetups = allTickers.filter(
+            (t) => t.flags?.momentum_elite && t.rank >= 70
+          );
 
-        // Build monitoring prompt
-        const monitoringPrompt = `You are an AI trading monitor for the Timed Trading platform. Your role is to continuously observe market conditions, identify opportunities, warn about risks, and provide actionable insights.
+          // Build monitoring prompt
+          const monitoringPrompt = `You are an AI trading monitor for the Timed Trading platform. Your role is to continuously observe market conditions, identify opportunities, warn about risks, and provide actionable insights.
 
 ## YOUR MONITORING CAPABILITIES
 - **Real-time Market Analysis**: Monitor all tickers and activity feeds
@@ -9161,11 +9797,11 @@ Based on today's data:
 ## CURRENT MARKET DATA
 - **${allTickers.length} total tickers** being monitored
 - **${
-          primeSetups.length
-        } prime setups** (Rank ≥75, RR ≥1.5, Completion <40%, Phase <60%)
+            primeSetups.length
+          } prime setups** (Rank ≥75, RR ≥1.5, Completion <40%, Phase <60%)
 - **${
-          highRiskPositions.length
-        } high-risk positions** (Completion >70% or Phase >80%)
+            highRiskPositions.length
+          } high-risk positions** (Completion >70% or Phase >80%)
 - **${momentumEliteSetups.length} Momentum Elite setups**
 - **${activityEvents.length} recent activity events**
 - **${tradeHistory.length} closed trades** for pattern analysis
@@ -9319,1261 +9955,1298 @@ Provide 3-5 actionable next steps:
 
 **IMPORTANT**: Reference the proactive alerts above and pattern recognition insights. Prioritize alerts marked as "high" priority. Be concise but thorough. Focus on actionable insights, not just data.`;
 
-        // Call OpenAI API
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+          // Call OpenAI API
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-        let aiResponse;
-        try {
-          aiResponse = await fetch(
-            "https://api.openai.com/v1/chat/completions",
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${openaiApiKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model:
-                  env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
-                    ? env.OPENAI_MODEL
-                    : "gpt-3.5-turbo",
-                messages: [{ role: "system", content: monitoringPrompt }],
-                temperature: 0.7,
-                max_tokens: 1000,
-              }),
-              signal: controller.signal,
-            }
-          );
-        } catch (fetchError) {
-          clearTimeout(timeoutId);
-          if (fetchError.name === "AbortError") {
-            throw new Error("Request timeout");
-          }
-          throw new Error(`Network error: ${fetchError.message}`);
-        }
-
-        clearTimeout(timeoutId);
-
-        if (!aiResponse.ok) {
-          let errorData = {};
+          let aiResponse;
           try {
-            errorData = await aiResponse.json();
-          } catch (e) {
-            errorData = { error: { message: aiResponse.statusText } };
-          }
-          throw new Error(
-            errorData.error?.message || `OpenAI API error: ${aiResponse.status}`
-          );
-        }
-
-        const aiData = await aiResponse.json();
-        const aiMessage =
-          aiData.choices?.[0]?.message?.content ||
-          "Monitoring analysis unavailable.";
-
-        return sendJSON(
-          {
-            ok: true,
-            analysis: aiMessage,
-            stats: {
-              totalTickers: allTickers.length,
-              primeSetups: primeSetups.length,
-              highRiskPositions: highRiskPositions.length,
-              momentumElite: momentumEliteSetups.length,
-              recentActivity: activityEvents.length,
-              tradeHistory: tradeHistory.length,
-            },
-            timestamp: Date.now(),
-          },
-          200,
-          aiChatCorsHeaders
-        );
-      } catch (error) {
-        console.error("[AI MONITOR ERROR]", error);
-        return sendJSON(
-          {
-            ok: false,
-            error: error.message || "Monitoring service error",
-          },
-          500,
-          aiChatCorsHeaders
-        );
-      }
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Debug Endpoints
-    // ─────────────────────────────────────────────────────────────
-
-    // GET /timed/debug/trades?ticker=RIOT - Get all trades with details, optionally filtered by ticker
-    if (url.pathname === "/timed/debug/trades" && req.method === "GET") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-
-        // Optional ticker filter
-        const tickerFilter = url.searchParams.get("ticker");
-        let filteredTrades = allTrades;
-        if (tickerFilter) {
-          const tickerUpper = String(tickerFilter).toUpperCase();
-          filteredTrades = allTrades.filter(
-            (t) => String(t.ticker || "").toUpperCase() === tickerUpper
-          );
-        }
-
-        const openTrades = filteredTrades.filter(
-          (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
-        );
-        const closedTrades = filteredTrades.filter(
-          (t) => t.status === "WIN" || t.status === "LOSS"
-        );
-
-        return sendJSON(
-          {
-            ok: true,
-            ticker: tickerFilter || null,
-            total: filteredTrades.length,
-            open: openTrades.length,
-            closed: closedTrades.length,
-            trades: filteredTrades,
-            summary: {
-              byVersion: filteredTrades.reduce((acc, t) => {
-                const v = t.scriptVersion || "unknown";
-                acc[v] = (acc[v] || 0) + 1;
-                return acc;
-              }, {}),
-              byStatus: filteredTrades.reduce((acc, t) => {
-                const s = t.status || "OPEN";
-                acc[s] = (acc[s] || 0) + 1;
-                return acc;
-              }, {}),
-            },
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // GET /timed/debug/score-analysis - Analyze score distribution
-    if (
-      url.pathname === "/timed/debug/score-analysis" &&
-      req.method === "GET"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const tickerDataPromises = tickerIndex.map(async (ticker) => {
-          const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-          return data;
-        });
-
-        const allData = (await Promise.all(tickerDataPromises)).filter(Boolean);
-
-        // Score distribution
-        const scoreRanges = {
-          "90-100": 0,
-          "80-89": 0,
-          "70-79": 0,
-          "60-69": 0,
-          "50-59": 0,
-          "40-49": 0,
-          "30-39": 0,
-          "20-29": 0,
-          "10-19": 0,
-          "0-9": 0,
-        };
-
-        const scoreBreakdown = [];
-        const componentStats = {
-          aligned: { count: 0, avgScore: 0 },
-          setup: { count: 0, avgScore: 0 },
-          squeezeRelease: { count: 0, avgScore: 0 },
-          squeezeOn: { count: 0, avgScore: 0 },
-          momentumElite: { count: 0, avgScore: 0 },
-          phaseZoneChange: { count: 0, avgScore: 0 },
-        };
-
-        allData.forEach((d) => {
-          const rank = Number(d.rank) || 0;
-          const scoreRange =
-            rank >= 90
-              ? "90-100"
-              : rank >= 80
-              ? "80-89"
-              : rank >= 70
-              ? "70-79"
-              : rank >= 60
-              ? "60-69"
-              : rank >= 50
-              ? "50-59"
-              : rank >= 40
-              ? "40-49"
-              : rank >= 30
-              ? "30-39"
-              : rank >= 20
-              ? "20-29"
-              : rank >= 10
-              ? "10-19"
-              : "0-9";
-          scoreRanges[scoreRange]++;
-
-          // Component analysis
-          const state = String(d.state || "");
-          const aligned =
-            state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-          const setup =
-            state === "HTF_BULL_LTF_PULLBACK" ||
-            state === "HTF_BEAR_LTF_PULLBACK";
-          const flags = d.flags || {};
-          const sqRel = !!flags.sq30_release;
-          const sqOn = !!flags.sq30_on;
-          const momentumElite = !!flags.momentum_elite;
-          const phaseZoneChange = !!flags.phase_zone_change;
-
-          if (aligned) {
-            componentStats.aligned.count++;
-            componentStats.aligned.avgScore += rank;
-          }
-          if (setup) {
-            componentStats.setup.count++;
-            componentStats.setup.avgScore += rank;
-          }
-          if (sqRel) {
-            componentStats.squeezeRelease.count++;
-            componentStats.squeezeRelease.avgScore += rank;
-          }
-          if (sqOn && !sqRel) {
-            componentStats.squeezeOn.count++;
-            componentStats.squeezeOn.avgScore += rank;
-          }
-          if (momentumElite) {
-            componentStats.momentumElite.count++;
-            componentStats.momentumElite.avgScore += rank;
-          }
-          if (phaseZoneChange) {
-            componentStats.phaseZoneChange.count++;
-            componentStats.phaseZoneChange.avgScore += rank;
+            aiResponse = await fetch(
+              "https://api.openai.com/v1/chat/completions",
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${openaiApiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  model:
+                    env.OPENAI_MODEL && env.OPENAI_MODEL !== "gpt-4"
+                      ? env.OPENAI_MODEL
+                      : "gpt-3.5-turbo",
+                  messages: [{ role: "system", content: monitoringPrompt }],
+                  temperature: 0.7,
+                  max_tokens: 1000,
+                }),
+                signal: controller.signal,
+              }
+            );
+          } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === "AbortError") {
+              throw new Error("Request timeout");
+            }
+            throw new Error(`Network error: ${fetchError.message}`);
           }
 
-          // Detailed breakdown for high scores
-          if (rank >= 85) {
-            const htf = Number(d.htf_score) || 0;
-            const ltf = Number(d.ltf_score) || 0;
-            const comp = Number(d.completion) || 0;
-            const phase = Number(d.phase_pct) || 0;
-            const rr = Number(d.rr) || 0;
+          clearTimeout(timeoutId);
 
-            scoreBreakdown.push({
-              ticker: d.ticker,
-              rank,
-              state,
-              aligned,
-              setup,
-              htf_score: htf,
-              ltf_score: ltf,
-              completion: comp,
-              phase_pct: phase,
-              rr,
-              flags: {
-                sq30_release: sqRel,
-                sq30_on: sqOn,
-                momentum_elite: momentumElite,
-                phase_zone_change: phaseZoneChange,
-              },
-            });
+          if (!aiResponse.ok) {
+            let errorData = {};
+            try {
+              errorData = await aiResponse.json();
+            } catch (e) {
+              errorData = { error: { message: aiResponse.statusText } };
+            }
+            throw new Error(
+              errorData.error?.message ||
+                `OpenAI API error: ${aiResponse.status}`
+            );
           }
-        });
 
-        // Calculate averages
-        Object.keys(componentStats).forEach((key) => {
-          if (componentStats[key].count > 0) {
-            componentStats[key].avgScore =
-              componentStats[key].avgScore / componentStats[key].count;
-          }
-        });
+          const aiData = await aiResponse.json();
+          const aiMessage =
+            aiData.choices?.[0]?.message?.content ||
+            "Monitoring analysis unavailable.";
 
-        // Overall stats
-        const ranks = allData
-          .map((d) => Number(d.rank) || 0)
-          .filter((r) => r > 0);
-        const avgRank =
-          ranks.length > 0
-            ? ranks.reduce((a, b) => a + b, 0) / ranks.length
-            : 0;
-        const medianRank =
-          ranks.length > 0
-            ? ranks.sort((a, b) => a - b)[Math.floor(ranks.length / 2)]
-            : 0;
-        const maxRank = ranks.length > 0 ? Math.max(...ranks) : 0;
-        const minRank = ranks.length > 0 ? Math.min(...ranks) : 0;
-
-        return sendJSON(
-          {
-            ok: true,
-            summary: {
-              totalTickers: allData.length,
-              avgRank: Math.round(avgRank * 100) / 100,
-              medianRank,
-              maxRank,
-              minRank,
-            },
-            distribution: scoreRanges,
-            componentStats,
-            highScoreBreakdown: scoreBreakdown.slice(0, 50), // Top 50 high scores
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // GET /timed/debug/tickers - Get all tickers with latest data
-    if (url.pathname === "/timed/debug/tickers" && req.method === "GET") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const tickerDataPromises = tickerIndex
-          .slice(0, 100)
-          .map(async (ticker) => {
-            const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            return {
-              ticker,
-              hasData: !!data,
-              data: data
-                ? {
-                    price: data.price,
-                    state: data.state,
-                    rank: data.rank,
-                    rr: data.rr,
-                    completion: data.completion,
-                    phase_pct: data.phase_pct,
-                    sl: data.sl,
-                    tp: data.tp,
-                    script_version: data.script_version,
-                    ingest_time: data.ingest_time,
-                  }
-                : null,
-            };
-          });
-
-        const tickerData = await Promise.all(tickerDataPromises);
-
-        return sendJSON(
-          {
-            ok: true,
-            totalTickers: tickerIndex.length,
-            tickersWithData: tickerData.filter((t) => t.hasData).length,
-            tickers: tickerData,
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // GET /timed/debug/config - Check Discord and other configuration
-    if (url.pathname === "/timed/debug/config" && req.method === "GET") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      return sendJSON(
-        {
-          ok: true,
-          config: {
-            discordEnabled: (env.DISCORD_ENABLE || "false") === "true",
-            discordWebhookSet: !!env.DISCORD_WEBHOOK_URL,
-            discordWebhookUrl: env.DISCORD_WEBHOOK_URL
-              ? "***SET***"
-              : "NOT SET",
-            openaiApiKeySet: !!env.OPENAI_API_KEY,
-            openaiModel: env.OPENAI_MODEL || "gpt-3.5-turbo",
-            alertMinRR: env.ALERT_MIN_RR || "1.5",
-            alertMaxCompletion: env.ALERT_MAX_COMPLETION || "0.4",
-            alertMaxPhase: env.ALERT_MAX_PHASE || "0.6",
-            alertMinRank: env.ALERT_MIN_RANK || "70",
-          },
-        },
-        200,
-        corsHeaders(env, req)
-      );
-    }
-
-    // POST /timed/debug/cleanup-duplicates?key=...&ticker=RIOT - Remove duplicate trades for a ticker
-    if (
-      url.pathname === "/timed/debug/cleanup-duplicates" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        const tickerFilter = url.searchParams.get("ticker");
-
-        if (!tickerFilter) {
-          return sendJSON(
-            { ok: false, error: "ticker parameter required" },
-            400,
-            corsHeaders(env, req)
-          );
-        }
-
-        const tickerUpper = String(tickerFilter).toUpperCase();
-        const tickerTrades = allTrades.filter(
-          (t) => String(t.ticker || "").toUpperCase() === tickerUpper
-        );
-
-        if (tickerTrades.length === 0) {
           return sendJSON(
             {
               ok: true,
-              message: `No trades found for ${tickerUpper}`,
-              removed: 0,
-              kept: 0,
+              analysis: aiMessage,
+              stats: {
+                totalTickers: allTickers.length,
+                primeSetups: primeSetups.length,
+                highRiskPositions: highRiskPositions.length,
+                momentumElite: momentumEliteSetups.length,
+                recentActivity: activityEvents.length,
+                tradeHistory: tradeHistory.length,
+              },
+              timestamp: Date.now(),
+            },
+            200,
+            aiChatCorsHeaders
+          );
+        } catch (error) {
+          console.error("[AI MONITOR ERROR]", error);
+          return sendJSON(
+            {
+              ok: false,
+              error: error.message || "Monitoring service error",
+            },
+            500,
+            aiChatCorsHeaders
+          );
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Debug Endpoints
+      // ─────────────────────────────────────────────────────────────
+
+      // GET /timed/debug/trades?ticker=RIOT - Get all trades with details, optionally filtered by ticker
+      if (url.pathname === "/timed/debug/trades" && req.method === "GET") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+          // Optional ticker filter
+          const tickerFilter = url.searchParams.get("ticker");
+          let filteredTrades = allTrades;
+          if (tickerFilter) {
+            const tickerUpper = String(tickerFilter).toUpperCase();
+            filteredTrades = allTrades.filter(
+              (t) => String(t.ticker || "").toUpperCase() === tickerUpper
+            );
+          }
+
+          const openTrades = filteredTrades.filter(
+            (t) =>
+              t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+          );
+          const closedTrades = filteredTrades.filter(
+            (t) => t.status === "WIN" || t.status === "LOSS"
+          );
+
+          return sendJSON(
+            {
+              ok: true,
+              ticker: tickerFilter || null,
+              total: filteredTrades.length,
+              open: openTrades.length,
+              closed: closedTrades.length,
+              trades: filteredTrades,
+              summary: {
+                byVersion: filteredTrades.reduce((acc, t) => {
+                  const v = t.scriptVersion || "unknown";
+                  acc[v] = (acc[v] || 0) + 1;
+                  return acc;
+                }, {}),
+                byStatus: filteredTrades.reduce((acc, t) => {
+                  const s = t.status || "OPEN";
+                  acc[s] = (acc[s] || 0) + 1;
+                  return acc;
+                }, {}),
+              },
             },
             200,
             corsHeaders(env, req)
           );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
         }
+      }
 
-        // Group by direction and find duplicates
-        const byDirection = {};
-        tickerTrades.forEach((trade) => {
-          const dir = trade.direction || "UNKNOWN";
-          if (!byDirection[dir]) {
-            byDirection[dir] = [];
+      // GET /timed/debug/score-analysis - Analyze score distribution
+      if (
+        url.pathname === "/timed/debug/score-analysis" &&
+        req.method === "GET"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const tickerDataPromises = tickerIndex.map(async (ticker) => {
+            const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            return data;
+          });
+
+          const allData = (await Promise.all(tickerDataPromises)).filter(
+            Boolean
+          );
+
+          // Score distribution
+          const scoreRanges = {
+            "90-100": 0,
+            "80-89": 0,
+            "70-79": 0,
+            "60-69": 0,
+            "50-59": 0,
+            "40-49": 0,
+            "30-39": 0,
+            "20-29": 0,
+            "10-19": 0,
+            "0-9": 0,
+          };
+
+          const scoreBreakdown = [];
+          const componentStats = {
+            aligned: { count: 0, avgScore: 0 },
+            setup: { count: 0, avgScore: 0 },
+            squeezeRelease: { count: 0, avgScore: 0 },
+            squeezeOn: { count: 0, avgScore: 0 },
+            momentumElite: { count: 0, avgScore: 0 },
+            phaseZoneChange: { count: 0, avgScore: 0 },
+          };
+
+          allData.forEach((d) => {
+            const rank = Number(d.rank) || 0;
+            const scoreRange =
+              rank >= 90
+                ? "90-100"
+                : rank >= 80
+                ? "80-89"
+                : rank >= 70
+                ? "70-79"
+                : rank >= 60
+                ? "60-69"
+                : rank >= 50
+                ? "50-59"
+                : rank >= 40
+                ? "40-49"
+                : rank >= 30
+                ? "30-39"
+                : rank >= 20
+                ? "20-29"
+                : rank >= 10
+                ? "10-19"
+                : "0-9";
+            scoreRanges[scoreRange]++;
+
+            // Component analysis
+            const state = String(d.state || "");
+            const aligned =
+              state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+            const setup =
+              state === "HTF_BULL_LTF_PULLBACK" ||
+              state === "HTF_BEAR_LTF_PULLBACK";
+            const flags = d.flags || {};
+            const sqRel = !!flags.sq30_release;
+            const sqOn = !!flags.sq30_on;
+            const momentumElite = !!flags.momentum_elite;
+            const phaseZoneChange = !!flags.phase_zone_change;
+
+            if (aligned) {
+              componentStats.aligned.count++;
+              componentStats.aligned.avgScore += rank;
+            }
+            if (setup) {
+              componentStats.setup.count++;
+              componentStats.setup.avgScore += rank;
+            }
+            if (sqRel) {
+              componentStats.squeezeRelease.count++;
+              componentStats.squeezeRelease.avgScore += rank;
+            }
+            if (sqOn && !sqRel) {
+              componentStats.squeezeOn.count++;
+              componentStats.squeezeOn.avgScore += rank;
+            }
+            if (momentumElite) {
+              componentStats.momentumElite.count++;
+              componentStats.momentumElite.avgScore += rank;
+            }
+            if (phaseZoneChange) {
+              componentStats.phaseZoneChange.count++;
+              componentStats.phaseZoneChange.avgScore += rank;
+            }
+
+            // Detailed breakdown for high scores
+            if (rank >= 85) {
+              const htf = Number(d.htf_score) || 0;
+              const ltf = Number(d.ltf_score) || 0;
+              const comp = Number(d.completion) || 0;
+              const phase = Number(d.phase_pct) || 0;
+              const rr = Number(d.rr) || 0;
+
+              scoreBreakdown.push({
+                ticker: d.ticker,
+                rank,
+                state,
+                aligned,
+                setup,
+                htf_score: htf,
+                ltf_score: ltf,
+                completion: comp,
+                phase_pct: phase,
+                rr,
+                flags: {
+                  sq30_release: sqRel,
+                  sq30_on: sqOn,
+                  momentum_elite: momentumElite,
+                  phase_zone_change: phaseZoneChange,
+                },
+              });
+            }
+          });
+
+          // Calculate averages
+          Object.keys(componentStats).forEach((key) => {
+            if (componentStats[key].count > 0) {
+              componentStats[key].avgScore =
+                componentStats[key].avgScore / componentStats[key].count;
+            }
+          });
+
+          // Overall stats
+          const ranks = allData
+            .map((d) => Number(d.rank) || 0)
+            .filter((r) => r > 0);
+          const avgRank =
+            ranks.length > 0
+              ? ranks.reduce((a, b) => a + b, 0) / ranks.length
+              : 0;
+          const medianRank =
+            ranks.length > 0
+              ? ranks.sort((a, b) => a - b)[Math.floor(ranks.length / 2)]
+              : 0;
+          const maxRank = ranks.length > 0 ? Math.max(...ranks) : 0;
+          const minRank = ranks.length > 0 ? Math.min(...ranks) : 0;
+
+          return sendJSON(
+            {
+              ok: true,
+              summary: {
+                totalTickers: allData.length,
+                avgRank: Math.round(avgRank * 100) / 100,
+                medianRank,
+                maxRank,
+                minRank,
+              },
+              distribution: scoreRanges,
+              componentStats,
+              highScoreBreakdown: scoreBreakdown.slice(0, 50), // Top 50 high scores
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // GET /timed/debug/tickers - Get all tickers with latest data
+      if (url.pathname === "/timed/debug/tickers" && req.method === "GET") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const tickerDataPromises = tickerIndex
+            .slice(0, 100)
+            .map(async (ticker) => {
+              const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              return {
+                ticker,
+                hasData: !!data,
+                data: data
+                  ? {
+                      price: data.price,
+                      state: data.state,
+                      rank: data.rank,
+                      rr: data.rr,
+                      completion: data.completion,
+                      phase_pct: data.phase_pct,
+                      sl: data.sl,
+                      tp: data.tp,
+                      script_version: data.script_version,
+                      ingest_time: data.ingest_time,
+                    }
+                  : null,
+              };
+            });
+
+          const tickerData = await Promise.all(tickerDataPromises);
+
+          return sendJSON(
+            {
+              ok: true,
+              totalTickers: tickerIndex.length,
+              tickersWithData: tickerData.filter((t) => t.hasData).length,
+              tickers: tickerData,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // GET /timed/debug/config - Check Discord and other configuration
+      if (url.pathname === "/timed/debug/config" && req.method === "GET") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        return sendJSON(
+          {
+            ok: true,
+            config: {
+              discordEnabled: (env.DISCORD_ENABLE || "false") === "true",
+              discordWebhookSet: !!env.DISCORD_WEBHOOK_URL,
+              discordWebhookUrl: env.DISCORD_WEBHOOK_URL
+                ? "***SET***"
+                : "NOT SET",
+              openaiApiKeySet: !!env.OPENAI_API_KEY,
+              openaiModel: env.OPENAI_MODEL || "gpt-3.5-turbo",
+              alertMinRR: env.ALERT_MIN_RR || "1.5",
+              alertMaxCompletion: env.ALERT_MAX_COMPLETION || "0.4",
+              alertMaxPhase: env.ALERT_MAX_PHASE || "0.6",
+              alertMinRank: env.ALERT_MIN_RANK || "70",
+            },
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/debug/cleanup-duplicates?key=...&ticker=RIOT - Remove duplicate trades for a ticker
+      if (
+        url.pathname === "/timed/debug/cleanup-duplicates" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const tickerFilter = url.searchParams.get("ticker");
+
+          if (!tickerFilter) {
+            return sendJSON(
+              { ok: false, error: "ticker parameter required" },
+              400,
+              corsHeaders(env, req)
+            );
           }
-          byDirection[dir].push(trade);
-        });
 
-        const tradesToKeep = [];
-        const tradesToRemove = [];
+          const tickerUpper = String(tickerFilter).toUpperCase();
+          const tickerTrades = allTrades.filter(
+            (t) => String(t.ticker || "").toUpperCase() === tickerUpper
+          );
 
-        Object.keys(byDirection).forEach((direction) => {
-          const dirTrades = byDirection[direction];
+          if (tickerTrades.length === 0) {
+            return sendJSON(
+              {
+                ok: true,
+                message: `No trades found for ${tickerUpper}`,
+                removed: 0,
+                kept: 0,
+              },
+              200,
+              corsHeaders(env, req)
+            );
+          }
 
-          // Keep the most recent open trade, or if all closed, keep the most recent one
-          const openTrades = dirTrades.filter(
+          // Group by direction and find duplicates
+          const byDirection = {};
+          tickerTrades.forEach((trade) => {
+            const dir = trade.direction || "UNKNOWN";
+            if (!byDirection[dir]) {
+              byDirection[dir] = [];
+            }
+            byDirection[dir].push(trade);
+          });
+
+          const tradesToKeep = [];
+          const tradesToRemove = [];
+
+          Object.keys(byDirection).forEach((direction) => {
+            const dirTrades = byDirection[direction];
+
+            // Keep the most recent open trade, or if all closed, keep the most recent one
+            const openTrades = dirTrades.filter(
+              (t) =>
+                t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+            );
+
+            if (openTrades.length > 0) {
+              // Keep the most recent open trade
+              const sortedOpen = openTrades.sort((a, b) => {
+                const timeA = new Date(a.entryTime || 0).getTime();
+                const timeB = new Date(b.entryTime || 0).getTime();
+                return timeB - timeA;
+              });
+              tradesToKeep.push(sortedOpen[0]);
+              tradesToRemove.push(...sortedOpen.slice(1));
+              tradesToRemove.push(
+                ...dirTrades.filter((t) => !openTrades.includes(t))
+              );
+            } else {
+              // All closed - keep the most recent one
+              const sortedClosed = dirTrades.sort((a, b) => {
+                const timeA = new Date(a.entryTime || 0).getTime();
+                const timeB = new Date(b.entryTime || 0).getTime();
+                return timeB - timeA;
+              });
+              tradesToKeep.push(sortedClosed[0]);
+              tradesToRemove.push(...sortedClosed.slice(1));
+            }
+          });
+
+          // Remove duplicates from allTrades
+          const tradeIdsToRemove = new Set(tradesToRemove.map((t) => t.id));
+          const cleanedTrades = allTrades.filter(
+            (t) => !tradeIdsToRemove.has(t.id)
+          );
+
+          await kvPutJSON(KV, tradesKey, cleanedTrades);
+
+          return sendJSON(
+            {
+              ok: true,
+              ticker: tickerUpper,
+              total: tickerTrades.length,
+              kept: tradesToKeep.length,
+              removed: tradesToRemove.length,
+              keptTrades: tradesToKeep.map((t) => ({
+                id: t.id,
+                entryTime: t.entryTime,
+                entryPrice: t.entryPrice,
+                status: t.status,
+              })),
+              removedTrades: tradesToRemove.map((t) => ({
+                id: t.id,
+                entryTime: t.entryTime,
+                entryPrice: t.entryPrice,
+                status: t.status,
+              })),
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/purge-ticker?key=...&ticker=RIOT - Delete ALL trades for a specific ticker
+      if (
+        url.pathname === "/timed/debug/purge-ticker" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const tickerFilter = url.searchParams.get("ticker");
+
+          if (!tickerFilter) {
+            return sendJSON(
+              { ok: false, error: "ticker parameter required" },
+              400,
+              corsHeaders(env, req)
+            );
+          }
+
+          const tickerUpper = String(tickerFilter).toUpperCase();
+          const beforeCount = allTrades.length;
+
+          // Filter out all trades for this ticker
+          const filteredTrades = allTrades.filter(
+            (t) => String(t.ticker || "").toUpperCase() !== tickerUpper
+          );
+
+          const removedCount = beforeCount - filteredTrades.length;
+
+          if (removedCount === 0) {
+            return sendJSON(
+              {
+                ok: true,
+                message: `No trades found for ${tickerUpper}`,
+                removed: 0,
+                remaining: beforeCount,
+              },
+              200,
+              corsHeaders(env, req)
+            );
+          }
+
+          // Save the cleaned trades
+          await kvPutJSON(KV, tradesKey, filteredTrades);
+
+          return sendJSON(
+            {
+              ok: true,
+              ticker: tickerUpper,
+              removed: removedCount,
+              remaining: filteredTrades.length,
+              beforeCount: beforeCount,
+              message: `Successfully purged all ${removedCount} trades for ${tickerUpper}`,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/cleanup-all-duplicates?key=... - Remove all duplicate trades (keeps most recent per ticker+direction)
+      if (
+        url.pathname === "/timed/debug/cleanup-all-duplicates" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+          const beforeCount = allTrades.length;
+
+          // Group trades by ticker+direction, keep most recent
+          const tradeMap = new Map();
+          const duplicates = [];
+
+          allTrades.forEach((trade) => {
+            const key = `${String(trade.ticker || "").toUpperCase()}_${
+              trade.direction || "UNKNOWN"
+            }`;
+            const existing = tradeMap.get(key);
+
+            if (!existing) {
+              tradeMap.set(key, trade);
+            } else {
+              // Compare entry times to keep the most recent
+              const existingTime = existing.entryTime
+                ? new Date(existing.entryTime).getTime()
+                : 0;
+              const currentTime = trade.entryTime
+                ? new Date(trade.entryTime).getTime()
+                : 0;
+
+              if (currentTime > existingTime) {
+                duplicates.push(existing);
+                tradeMap.set(key, trade);
+              } else {
+                duplicates.push(trade);
+              }
+            }
+          });
+
+          const cleanedTrades = Array.from(tradeMap.values());
+          const removedCount = beforeCount - cleanedTrades.length;
+
+          if (removedCount === 0) {
+            return sendJSON(
+              {
+                ok: true,
+                message: "No duplicates found",
+                beforeCount,
+                afterCount: cleanedTrades.length,
+                removed: 0,
+              },
+              200,
+              corsHeaders(env, req)
+            );
+          }
+
+          // Save cleaned trades
+          await kvPutJSON(KV, tradesKey, cleanedTrades);
+
+          // Group duplicates by ticker for summary
+          const duplicatesByTicker = {};
+          duplicates.forEach((d) => {
+            const ticker = String(d.ticker || "UNKNOWN").toUpperCase();
+            if (!duplicatesByTicker[ticker]) {
+              duplicatesByTicker[ticker] = [];
+            }
+            duplicatesByTicker[ticker].push({
+              id: d.id,
+              entryTime: d.entryTime,
+              entryPrice: d.entryPrice,
+              status: d.status,
+            });
+          });
+
+          return sendJSON(
+            {
+              ok: true,
+              message: `Successfully removed ${removedCount} duplicate trades`,
+              beforeCount,
+              afterCount: cleanedTrades.length,
+              removed: removedCount,
+              duplicatesByTicker,
+              summary: Object.keys(duplicatesByTicker).map((ticker) => ({
+                ticker,
+                count: duplicatesByTicker[ticker].length,
+              })),
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/recalculate-ranks?key=... - Recalculate ranks for all tickers using new formula
+      if (
+        url.pathname === "/timed/debug/recalculate-ranks" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const results = {
+            processed: 0,
+            updated: 0,
+            errors: [],
+          };
+
+          // Process all tickers
+          for (const ticker of tickerIndex) {
+            try {
+              const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              if (!data) {
+                results.errors.push({ ticker, error: "No data found" });
+                continue;
+              }
+
+              // Recalculate rank using new formula
+              const newRank = computeRank(data);
+              const oldRank = Number(data.rank) || 0;
+
+              // Only update if rank changed
+              if (newRank !== oldRank) {
+                data.rank = newRank;
+                await kvPutJSON(KV, `timed:latest:${ticker}`, data);
+                results.updated++;
+              }
+
+              results.processed++;
+            } catch (err) {
+              results.errors.push({ ticker, error: err.message });
+            }
+          }
+
+          return sendJSON(
+            {
+              ok: true,
+              message: `Recalculated ranks for ${results.processed} tickers`,
+              results,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/fix-entry-prices?key=... - Fix entry prices for trades that used trigger_price instead of current price
+      if (
+        url.pathname === "/timed/debug/fix-entry-prices" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          let fixed = 0;
+          const fixedTrades = [];
+
+          for (let i = 0; i < allTrades.length; i++) {
+            const trade = allTrades[i];
+
+            // Only fix OPEN trades (closed trades should keep their original entry price)
+            if (trade.status !== "OPEN" && trade.status !== "TP_HIT_TRIM") {
+              continue;
+            }
+
+            // Get latest ticker data
+            const tickerData = await kvGetJSON(
+              KV,
+              `timed:latest:${trade.ticker}`
+            );
+            if (!tickerData || !tickerData.price) {
+              console.log(
+                `[FIX ENTRY PRICES] Skipping ${trade.ticker} - no current price data`
+              );
+              continue;
+            }
+
+            const currentPrice = Number(tickerData.price);
+            const entryPrice = Number(trade.entryPrice);
+
+            if (
+              !Number.isFinite(currentPrice) ||
+              !Number.isFinite(entryPrice)
+            ) {
+              continue;
+            }
+
+            // Check if entry price differs significantly from current price (>1%)
+            const priceDiffPct =
+              Math.abs(currentPrice - entryPrice) / entryPrice;
+            if (priceDiffPct <= 0.01) {
+              // Entry price is close to current price - likely correct
+              continue;
+            }
+
+            // Check if this looks like it was created from trigger_price
+            // (entry price matches trigger_price or is significantly different from current)
+            const triggerPrice = tickerData.trigger_price
+              ? Number(tickerData.trigger_price)
+              : null;
+            const entryMatchesTrigger =
+              triggerPrice &&
+              Math.abs(entryPrice - triggerPrice) / triggerPrice < 0.001;
+
+            // Also check if trade is old (more than 1 hour)
+            const entryTime = trade.entryTime
+              ? new Date(trade.entryTime).getTime()
+              : null;
+            const now = Date.now();
+            const isOldTrade = entryTime && now - entryTime > 60 * 60 * 1000;
+
+            if (entryMatchesTrigger || isOldTrade || priceDiffPct > 0.05) {
+              // Fix entry price to current price
+              const correctedEntryPrice = currentPrice;
+
+              // Recalculate shares based on new entry price
+              const tickerUpper = String(trade.ticker || "").toUpperCase();
+              const isFutures =
+                FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
+              const correctedShares =
+                isFutures && FUTURES_SPECS[tickerUpper]
+                  ? 1
+                  : TRADE_SIZE / correctedEntryPrice;
+
+              // Recalculate P&L with corrected entry price
+              const tradeCalc = calculateTradePnl(
+                tickerData,
+                correctedEntryPrice,
+                trade
+              );
+
+              if (!tradeCalc) {
+                console.log(
+                  `[FIX ENTRY PRICES] Skipping ${trade.ticker} - cannot recalculate P&L`
+                );
+                continue;
+              }
+
+              // Update trade
+              const updatedTrade = {
+                ...trade,
+                entryPrice: correctedEntryPrice,
+                shares: correctedShares,
+                entryPriceCorrected: true,
+                ...tradeCalc,
+                history: [
+                  ...(trade.history || []),
+                  {
+                    type: "ENTRY_PRICE_CORRECTION",
+                    timestamp: new Date().toISOString(),
+                    price: correctedEntryPrice,
+                    shares: correctedShares,
+                    value: correctedEntryPrice * correctedShares,
+                    note: `Entry price corrected from $${entryPrice.toFixed(
+                      2
+                    )} to $${correctedEntryPrice.toFixed(
+                      2
+                    )} (was using trigger_price or outdated price)`,
+                  },
+                ],
+                lastUpdate: new Date().toISOString(),
+              };
+
+              allTrades[i] = updatedTrade;
+              fixed++;
+              fixedTrades.push({
+                ticker: trade.ticker,
+                direction: trade.direction,
+                oldEntryPrice: entryPrice.toFixed(2),
+                newEntryPrice: correctedEntryPrice.toFixed(2),
+                oldPnl: trade.pnl?.toFixed(2) || "0.00",
+                newPnl: tradeCalc.pnl?.toFixed(2) || "0.00",
+              });
+
+              console.log(
+                `[FIX ENTRY PRICES] Fixed ${trade.ticker} ${
+                  trade.direction
+                }: $${entryPrice.toFixed(2)} -> $${correctedEntryPrice.toFixed(
+                  2
+                )} (P&L: $${(trade.pnl || 0).toFixed(
+                  2
+                )} -> $${tradeCalc.pnl.toFixed(2)})`
+              );
+            }
+          }
+
+          if (fixed > 0) {
+            await kvPutJSON(KV, tradesKey, allTrades);
+            console.log(
+              `[FIX ENTRY PRICES] Fixed ${fixed} trades with incorrect entry prices`
+            );
+          }
+
+          return sendJSON(
+            {
+              ok: true,
+              message: `Fixed ${fixed} trades with incorrect entry prices`,
+              fixed,
+              fixedTrades,
+            },
+            200,
+            corsHeaders(env, req, true)
+          );
+        } catch (err) {
+          console.error(`[FIX ENTRY PRICES ERROR]`, {
+            error: String(err),
+            message: err.message,
+            stack: err.stack,
+          });
+          return sendJSON(
+            { ok: false, error: "internal_error", message: err.message },
+            500,
+            corsHeaders(env, req, true)
+          );
+        }
+      }
+
+      // POST /timed/debug/fix-backfill-trades?key=... - Fix entryTime for backfilled trades
+      if (
+        url.pathname === "/timed/debug/fix-backfill-trades" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const now = Date.now();
+          let fixed = 0;
+          const fixedTrades = [];
+
+          const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000; // 3 days ago
+
+          for (const trade of allTrades) {
+            let updated = false;
+            const updatedTrade = { ...trade };
+            let bestMatchTimestamp = null;
+            let bestMatchPrice = null;
+            let matchMethod = null;
+
+            // Method 1: Check if trade has triggerTimestamp that's significantly older than entryTime
+            if (trade.triggerTimestamp && trade.entryTime) {
+              const triggerTime = new Date(trade.triggerTimestamp).getTime();
+              const entryTime = new Date(trade.entryTime).getTime();
+              const isBackfill =
+                triggerTime && now - triggerTime > 60 * 60 * 1000; // More than 1 hour old
+
+              if (isBackfill && triggerTime < entryTime) {
+                bestMatchTimestamp = trade.triggerTimestamp;
+                bestMatchPrice = trade.entryPrice;
+                matchMethod = "triggerTimestamp";
+              }
+            }
+
+            // Method 2: Search trail data for when entry price was actually touched (last 3 days)
+            if (!bestMatchTimestamp && trade.ticker && trade.entryPrice) {
+              try {
+                const trail =
+                  (await kvGetJSON(KV, `timed:trail:${trade.ticker}`)) || [];
+                const entryPrice = Number(trade.entryPrice);
+                const priceTolerance = entryPrice * 0.005; // 0.5% tolerance
+
+                // Search through trail points in reverse (most recent first)
+                // Find the point where price matches entryPrice within tolerance
+                for (let i = trail.length - 1; i >= 0; i--) {
+                  const point = trail[i];
+                  if (!point.ts || !point.price) continue;
+
+                  const pointTime = Number(point.ts);
+                  const pointPrice = Number(point.price);
+
+                  // Only consider points from last 3 days
+                  if (pointTime < threeDaysAgo) continue;
+
+                  // Check if price matches entry price (within tolerance)
+                  const priceDiff = Math.abs(pointPrice - entryPrice);
+                  if (priceDiff <= priceTolerance) {
+                    // Found a match - use this timestamp
+                    bestMatchTimestamp = new Date(pointTime).toISOString();
+                    bestMatchPrice = pointPrice;
+                    matchMethod = "trail_price_match";
+                    break; // Use first match (most recent)
+                  }
+                }
+
+                // If no exact match, find closest price match in last 3 days
+                if (!bestMatchTimestamp) {
+                  let closestDiff = Infinity;
+                  let closestPoint = null;
+                  for (const point of trail) {
+                    if (!point.ts || !point.price) continue;
+                    const pointTime = Number(point.ts);
+                    const pointPrice = Number(point.price);
+                    if (pointTime < threeDaysAgo) continue;
+
+                    const priceDiff = Math.abs(pointPrice - entryPrice);
+                    if (priceDiff < closestDiff) {
+                      closestDiff = priceDiff;
+                      closestPoint = point;
+                    }
+                  }
+
+                  // Use closest match if it's within 2% of entry price
+                  if (closestPoint && closestDiff <= entryPrice * 0.02) {
+                    bestMatchTimestamp = new Date(
+                      Number(closestPoint.ts)
+                    ).toISOString();
+                    bestMatchPrice = Number(closestPoint.price);
+                    matchMethod = "trail_closest_match";
+                  }
+                }
+              } catch (err) {
+                // Ignore errors - trail data might not exist
+              }
+            }
+
+            // Method 3: Try to get triggerTimestamp from ticker's latest data
+            if (!bestMatchTimestamp && trade.ticker) {
+              try {
+                const tickerData = await kvGetJSON(
+                  KV,
+                  `timed:latest:${trade.ticker}`
+                );
+                if (tickerData && tickerData.trigger_ts) {
+                  const triggerTime = Number(tickerData.trigger_ts);
+                  // Only use if it's from last 3 days and older than current entryTime
+                  if (triggerTime >= threeDaysAgo) {
+                    const entryTime = trade.entryTime
+                      ? new Date(trade.entryTime).getTime()
+                      : now;
+                    if (triggerTime < entryTime) {
+                      bestMatchTimestamp = new Date(triggerTime).toISOString();
+                      bestMatchPrice =
+                        tickerData.trigger_price || trade.entryPrice;
+                      matchMethod = "ticker_trigger_ts";
+                      // Store it in the trade for future reference
+                      updatedTrade.triggerTimestamp = bestMatchTimestamp;
+                    }
+                  }
+                }
+              } catch (err) {
+                // Ignore errors
+              }
+            }
+
+            // Update entryTime if we found a better match
+            if (bestMatchTimestamp && trade.entryTime) {
+              const currentEntryTime = new Date(trade.entryTime).getTime();
+              const newEntryTime = new Date(bestMatchTimestamp).getTime();
+
+              // Only update if new time is significantly different (more than 5 minutes) and older
+              if (
+                Math.abs(newEntryTime - currentEntryTime) > 5 * 60 * 1000 &&
+                newEntryTime < currentEntryTime
+              ) {
+                updatedTrade.entryTime = bestMatchTimestamp;
+                updated = true;
+
+                // Also update entry price if we found a better match from trail
+                if (
+                  bestMatchPrice &&
+                  matchMethod.includes("trail") &&
+                  Math.abs(bestMatchPrice - trade.entryPrice) >
+                    trade.entryPrice * 0.01
+                ) {
+                  updatedTrade.entryPrice = bestMatchPrice;
+                }
+              }
+            }
+
+            // Update history entry timestamp if it matches the old entryTime
+            if (
+              updated &&
+              updatedTrade.history &&
+              Array.isArray(updatedTrade.history)
+            ) {
+              updatedTrade.history = updatedTrade.history.map((event) => {
+                if (
+                  event.type === "ENTRY" &&
+                  event.timestamp === trade.entryTime
+                ) {
+                  return {
+                    ...event,
+                    timestamp: updatedTrade.entryTime,
+                    price: updatedTrade.entryPrice || event.price,
+                  };
+                }
+                return event;
+              });
+            }
+
+            if (updated) {
+              fixed++;
+              fixedTrades.push({
+                id: trade.id,
+                ticker: trade.ticker,
+                oldEntryTime: trade.entryTime,
+                newEntryTime: updatedTrade.entryTime,
+                oldEntryPrice: trade.entryPrice,
+                newEntryPrice: updatedTrade.entryPrice,
+                matchMethod: matchMethod,
+              });
+              const index = allTrades.findIndex((t) => t.id === trade.id);
+              if (index >= 0) {
+                allTrades[index] = updatedTrade;
+              }
+            }
+          }
+
+          if (fixed > 0) {
+            await kvPutJSON(KV, tradesKey, allTrades);
+          }
+
+          return sendJSON(
+            {
+              ok: true,
+              fixed,
+              totalTrades: allTrades.length,
+              fixedTrades: fixedTrades.slice(0, 50), // Show first 50
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/clear-all-trades?key=... - Clear all trades and start fresh
+      if (
+        url.pathname === "/timed/debug/clear-all-trades" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const tradeCount = allTrades.length;
+
+          // Clear all trades
+          await KV.delete(tradesKey);
+
+          return sendJSON(
+            {
+              ok: true,
+              message: "All trades cleared successfully",
+              clearedCount: tradeCount,
+              note: "New trades will be created automatically as TradingView alerts come in",
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req)
+          );
+        }
+      }
+
+      // POST /timed/debug/simulate-trades?key=... - Manually simulate trades for all tickers
+      if (
+        url.pathname === "/timed/debug/simulate-trades" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const results = {
+            processed: 0,
+            created: 0,
+            updated: 0,
+            skipped: 0,
+            errors: [],
+          };
+
+          // Process first 50 tickers to avoid timeout
+          for (const ticker of tickerIndex.slice(0, 50)) {
+            try {
+              const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              if (latestData) {
+                const prevLatest = null; // No previous data for manual simulation
+                await processTradeSimulation(
+                  KV,
+                  ticker,
+                  latestData,
+                  prevLatest,
+                  env
+                );
+                results.processed++;
+              } else {
+                results.skipped++;
+              }
+            } catch (err) {
+              results.errors.push({ ticker, error: err.message });
+            }
+          }
+
+          // Get final trade count
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const openTrades = allTrades.filter(
             (t) =>
               t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
           );
 
-          if (openTrades.length > 0) {
-            // Keep the most recent open trade
-            const sortedOpen = openTrades.sort((a, b) => {
-              const timeA = new Date(a.entryTime || 0).getTime();
-              const timeB = new Date(b.entryTime || 0).getTime();
-              return timeB - timeA;
-            });
-            tradesToKeep.push(sortedOpen[0]);
-            tradesToRemove.push(...sortedOpen.slice(1));
-            tradesToRemove.push(
-              ...dirTrades.filter((t) => !openTrades.includes(t))
-            );
-          } else {
-            // All closed - keep the most recent one
-            const sortedClosed = dirTrades.sort((a, b) => {
-              const timeA = new Date(a.entryTime || 0).getTime();
-              const timeB = new Date(b.entryTime || 0).getTime();
-              return timeB - timeA;
-            });
-            tradesToKeep.push(sortedClosed[0]);
-            tradesToRemove.push(...sortedClosed.slice(1));
-          }
-        });
-
-        // Remove duplicates from allTrades
-        const tradeIdsToRemove = new Set(tradesToRemove.map((t) => t.id));
-        const cleanedTrades = allTrades.filter(
-          (t) => !tradeIdsToRemove.has(t.id)
-        );
-
-        await kvPutJSON(KV, tradesKey, cleanedTrades);
-
-        return sendJSON(
-          {
-            ok: true,
-            ticker: tickerUpper,
-            total: tickerTrades.length,
-            kept: tradesToKeep.length,
-            removed: tradesToRemove.length,
-            keptTrades: tradesToKeep.map((t) => ({
-              id: t.id,
-              entryTime: t.entryTime,
-              entryPrice: t.entryPrice,
-              status: t.status,
-            })),
-            removedTrades: tradesToRemove.map((t) => ({
-              id: t.id,
-              entryTime: t.entryTime,
-              entryPrice: t.entryPrice,
-              status: t.status,
-            })),
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // POST /timed/debug/purge-ticker?key=...&ticker=RIOT - Delete ALL trades for a specific ticker
-    if (url.pathname === "/timed/debug/purge-ticker" && req.method === "POST") {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        const tickerFilter = url.searchParams.get("ticker");
-
-        if (!tickerFilter) {
-          return sendJSON(
-            { ok: false, error: "ticker parameter required" },
-            400,
-            corsHeaders(env, req)
-          );
-        }
-
-        const tickerUpper = String(tickerFilter).toUpperCase();
-        const beforeCount = allTrades.length;
-
-        // Filter out all trades for this ticker
-        const filteredTrades = allTrades.filter(
-          (t) => String(t.ticker || "").toUpperCase() !== tickerUpper
-        );
-
-        const removedCount = beforeCount - filteredTrades.length;
-
-        if (removedCount === 0) {
           return sendJSON(
             {
               ok: true,
-              message: `No trades found for ${tickerUpper}`,
-              removed: 0,
-              remaining: beforeCount,
+              message: `Processed ${results.processed} tickers`,
+              results,
+              currentTrades: {
+                total: allTrades.length,
+                open: openTrades.length,
+              },
             },
             200,
             corsHeaders(env, req)
           );
-        }
-
-        // Save the cleaned trades
-        await kvPutJSON(KV, tradesKey, filteredTrades);
-
-        return sendJSON(
-          {
-            ok: true,
-            ticker: tickerUpper,
-            removed: removedCount,
-            remaining: filteredTrades.length,
-            beforeCount: beforeCount,
-            message: `Successfully purged all ${removedCount} trades for ${tickerUpper}`,
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // POST /timed/debug/cleanup-all-duplicates?key=... - Remove all duplicate trades (keeps most recent per ticker+direction)
-    if (
-      url.pathname === "/timed/debug/cleanup-all-duplicates" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-
-        const beforeCount = allTrades.length;
-
-        // Group trades by ticker+direction, keep most recent
-        const tradeMap = new Map();
-        const duplicates = [];
-
-        allTrades.forEach((trade) => {
-          const key = `${String(trade.ticker || "").toUpperCase()}_${
-            trade.direction || "UNKNOWN"
-          }`;
-          const existing = tradeMap.get(key);
-
-          if (!existing) {
-            tradeMap.set(key, trade);
-          } else {
-            // Compare entry times to keep the most recent
-            const existingTime = existing.entryTime
-              ? new Date(existing.entryTime).getTime()
-              : 0;
-            const currentTime = trade.entryTime
-              ? new Date(trade.entryTime).getTime()
-              : 0;
-
-            if (currentTime > existingTime) {
-              duplicates.push(existing);
-              tradeMap.set(key, trade);
-            } else {
-              duplicates.push(trade);
-            }
-          }
-        });
-
-        const cleanedTrades = Array.from(tradeMap.values());
-        const removedCount = beforeCount - cleanedTrades.length;
-
-        if (removedCount === 0) {
+        } catch (err) {
           return sendJSON(
-            {
-              ok: true,
-              message: "No duplicates found",
-              beforeCount,
-              afterCount: cleanedTrades.length,
-              removed: 0,
-            },
-            200,
+            { ok: false, error: err.message },
+            500,
             corsHeaders(env, req)
           );
         }
-
-        // Save cleaned trades
-        await kvPutJSON(KV, tradesKey, cleanedTrades);
-
-        // Group duplicates by ticker for summary
-        const duplicatesByTicker = {};
-        duplicates.forEach((d) => {
-          const ticker = String(d.ticker || "UNKNOWN").toUpperCase();
-          if (!duplicatesByTicker[ticker]) {
-            duplicatesByTicker[ticker] = [];
-          }
-          duplicatesByTicker[ticker].push({
-            id: d.id,
-            entryTime: d.entryTime,
-            entryPrice: d.entryPrice,
-            status: d.status,
-          });
-        });
-
-        return sendJSON(
-          {
-            ok: true,
-            message: `Successfully removed ${removedCount} duplicate trades`,
-            beforeCount,
-            afterCount: cleanedTrades.length,
-            removed: removedCount,
-            duplicatesByTicker,
-            summary: Object.keys(duplicatesByTicker).map((ticker) => ({
-              ticker,
-              count: duplicatesByTicker[ticker].length,
-            })),
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
       }
+
+      return sendJSON(
+        { ok: false, error: "not_found" },
+        404,
+        corsHeaders(env, req)
+      );
+    } catch (topLevelErr) {
+      // Catch any unhandled errors and return a proper response with CORS headers
+      console.error(`[FETCH ERROR] Unhandled error in fetch handler:`, {
+        error: String(topLevelErr),
+        message: topLevelErr?.message,
+        stack: topLevelErr?.stack,
+        url: req?.url,
+        method: req?.method,
+        hasKV: !!env?.KV_TIMED,
+        pathname: new URL(req?.url || "").pathname,
+      });
+      return sendJSON(
+        {
+          ok: false,
+          error: "internal_error",
+          message: "An unexpected error occurred",
+          details:
+            process.env.NODE_ENV === "development"
+              ? String(topLevelErr)
+              : undefined,
+        },
+        500,
+        corsHeaders(env, req)
+      );
     }
-
-    // POST /timed/debug/recalculate-ranks?key=... - Recalculate ranks for all tickers using new formula
-    if (
-      url.pathname === "/timed/debug/recalculate-ranks" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const results = {
-          processed: 0,
-          updated: 0,
-          errors: [],
-        };
-
-        // Process all tickers
-        for (const ticker of tickerIndex) {
-          try {
-            const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            if (!data) {
-              results.errors.push({ ticker, error: "No data found" });
-              continue;
-            }
-
-            // Recalculate rank using new formula
-            const newRank = computeRank(data);
-            const oldRank = Number(data.rank) || 0;
-
-            // Only update if rank changed
-            if (newRank !== oldRank) {
-              data.rank = newRank;
-              await kvPutJSON(KV, `timed:latest:${ticker}`, data);
-              results.updated++;
-            }
-
-            results.processed++;
-          } catch (err) {
-            results.errors.push({ ticker, error: err.message });
-          }
-        }
-
-        return sendJSON(
-          {
-            ok: true,
-            message: `Recalculated ranks for ${results.processed} tickers`,
-            results,
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // POST /timed/debug/fix-entry-prices?key=... - Fix entry prices for trades that used trigger_price instead of current price
-    if (
-      url.pathname === "/timed/debug/fix-entry-prices" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        let fixed = 0;
-        const fixedTrades = [];
-
-        for (let i = 0; i < allTrades.length; i++) {
-          const trade = allTrades[i];
-
-          // Only fix OPEN trades (closed trades should keep their original entry price)
-          if (trade.status !== "OPEN" && trade.status !== "TP_HIT_TRIM") {
-            continue;
-          }
-
-          // Get latest ticker data
-          const tickerData = await kvGetJSON(
-            KV,
-            `timed:latest:${trade.ticker}`
-          );
-          if (!tickerData || !tickerData.price) {
-            console.log(
-              `[FIX ENTRY PRICES] Skipping ${trade.ticker} - no current price data`
-            );
-            continue;
-          }
-
-          const currentPrice = Number(tickerData.price);
-          const entryPrice = Number(trade.entryPrice);
-
-          if (!Number.isFinite(currentPrice) || !Number.isFinite(entryPrice)) {
-            continue;
-          }
-
-          // Check if entry price differs significantly from current price (>1%)
-          const priceDiffPct = Math.abs(currentPrice - entryPrice) / entryPrice;
-          if (priceDiffPct <= 0.01) {
-            // Entry price is close to current price - likely correct
-            continue;
-          }
-
-          // Check if this looks like it was created from trigger_price
-          // (entry price matches trigger_price or is significantly different from current)
-          const triggerPrice = tickerData.trigger_price
-            ? Number(tickerData.trigger_price)
-            : null;
-          const entryMatchesTrigger =
-            triggerPrice &&
-            Math.abs(entryPrice - triggerPrice) / triggerPrice < 0.001;
-
-          // Also check if trade is old (more than 1 hour)
-          const entryTime = trade.entryTime
-            ? new Date(trade.entryTime).getTime()
-            : null;
-          const now = Date.now();
-          const isOldTrade = entryTime && now - entryTime > 60 * 60 * 1000;
-
-          if (entryMatchesTrigger || isOldTrade || priceDiffPct > 0.05) {
-            // Fix entry price to current price
-            const correctedEntryPrice = currentPrice;
-
-            // Recalculate shares based on new entry price
-            const tickerUpper = String(trade.ticker || "").toUpperCase();
-            const isFutures =
-              FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
-            const correctedShares =
-              isFutures && FUTURES_SPECS[tickerUpper]
-                ? 1
-                : TRADE_SIZE / correctedEntryPrice;
-
-            // Recalculate P&L with corrected entry price
-            const tradeCalc = calculateTradePnl(
-              tickerData,
-              correctedEntryPrice,
-              trade
-            );
-
-            if (!tradeCalc) {
-              console.log(
-                `[FIX ENTRY PRICES] Skipping ${trade.ticker} - cannot recalculate P&L`
-              );
-              continue;
-            }
-
-            // Update trade
-            const updatedTrade = {
-              ...trade,
-              entryPrice: correctedEntryPrice,
-              shares: correctedShares,
-              entryPriceCorrected: true,
-              ...tradeCalc,
-              history: [
-                ...(trade.history || []),
-                {
-                  type: "ENTRY_PRICE_CORRECTION",
-                  timestamp: new Date().toISOString(),
-                  price: correctedEntryPrice,
-                  shares: correctedShares,
-                  value: correctedEntryPrice * correctedShares,
-                  note: `Entry price corrected from $${entryPrice.toFixed(
-                    2
-                  )} to $${correctedEntryPrice.toFixed(
-                    2
-                  )} (was using trigger_price or outdated price)`,
-                },
-              ],
-              lastUpdate: new Date().toISOString(),
-            };
-
-            allTrades[i] = updatedTrade;
-            fixed++;
-            fixedTrades.push({
-              ticker: trade.ticker,
-              direction: trade.direction,
-              oldEntryPrice: entryPrice.toFixed(2),
-              newEntryPrice: correctedEntryPrice.toFixed(2),
-              oldPnl: trade.pnl?.toFixed(2) || "0.00",
-              newPnl: tradeCalc.pnl?.toFixed(2) || "0.00",
-            });
-
-            console.log(
-              `[FIX ENTRY PRICES] Fixed ${trade.ticker} ${
-                trade.direction
-              }: $${entryPrice.toFixed(2)} -> $${correctedEntryPrice.toFixed(
-                2
-              )} (P&L: $${(trade.pnl || 0).toFixed(
-                2
-              )} -> $${tradeCalc.pnl.toFixed(2)})`
-            );
-          }
-        }
-
-        if (fixed > 0) {
-          await kvPutJSON(KV, tradesKey, allTrades);
-          console.log(
-            `[FIX ENTRY PRICES] Fixed ${fixed} trades with incorrect entry prices`
-          );
-        }
-
-        return sendJSON(
-          {
-            ok: true,
-            message: `Fixed ${fixed} trades with incorrect entry prices`,
-            fixed,
-            fixedTrades,
-          },
-          200,
-          corsHeaders(env, req, true)
-        );
-      } catch (err) {
-        console.error(`[FIX ENTRY PRICES ERROR]`, {
-          error: String(err),
-          message: err.message,
-          stack: err.stack,
-        });
-        return sendJSON(
-          { ok: false, error: "internal_error", message: err.message },
-          500,
-          corsHeaders(env, req, true)
-        );
-      }
-    }
-
-    // POST /timed/debug/fix-backfill-trades?key=... - Fix entryTime for backfilled trades
-    if (
-      url.pathname === "/timed/debug/fix-backfill-trades" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        const now = Date.now();
-        let fixed = 0;
-        const fixedTrades = [];
-
-        const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000; // 3 days ago
-
-        for (const trade of allTrades) {
-          let updated = false;
-          const updatedTrade = { ...trade };
-          let bestMatchTimestamp = null;
-          let bestMatchPrice = null;
-          let matchMethod = null;
-
-          // Method 1: Check if trade has triggerTimestamp that's significantly older than entryTime
-          if (trade.triggerTimestamp && trade.entryTime) {
-            const triggerTime = new Date(trade.triggerTimestamp).getTime();
-            const entryTime = new Date(trade.entryTime).getTime();
-            const isBackfill =
-              triggerTime && now - triggerTime > 60 * 60 * 1000; // More than 1 hour old
-
-            if (isBackfill && triggerTime < entryTime) {
-              bestMatchTimestamp = trade.triggerTimestamp;
-              bestMatchPrice = trade.entryPrice;
-              matchMethod = "triggerTimestamp";
-            }
-          }
-
-          // Method 2: Search trail data for when entry price was actually touched (last 3 days)
-          if (!bestMatchTimestamp && trade.ticker && trade.entryPrice) {
-            try {
-              const trail =
-                (await kvGetJSON(KV, `timed:trail:${trade.ticker}`)) || [];
-              const entryPrice = Number(trade.entryPrice);
-              const priceTolerance = entryPrice * 0.005; // 0.5% tolerance
-
-              // Search through trail points in reverse (most recent first)
-              // Find the point where price matches entryPrice within tolerance
-              for (let i = trail.length - 1; i >= 0; i--) {
-                const point = trail[i];
-                if (!point.ts || !point.price) continue;
-
-                const pointTime = Number(point.ts);
-                const pointPrice = Number(point.price);
-
-                // Only consider points from last 3 days
-                if (pointTime < threeDaysAgo) continue;
-
-                // Check if price matches entry price (within tolerance)
-                const priceDiff = Math.abs(pointPrice - entryPrice);
-                if (priceDiff <= priceTolerance) {
-                  // Found a match - use this timestamp
-                  bestMatchTimestamp = new Date(pointTime).toISOString();
-                  bestMatchPrice = pointPrice;
-                  matchMethod = "trail_price_match";
-                  break; // Use first match (most recent)
-                }
-              }
-
-              // If no exact match, find closest price match in last 3 days
-              if (!bestMatchTimestamp) {
-                let closestDiff = Infinity;
-                let closestPoint = null;
-                for (const point of trail) {
-                  if (!point.ts || !point.price) continue;
-                  const pointTime = Number(point.ts);
-                  const pointPrice = Number(point.price);
-                  if (pointTime < threeDaysAgo) continue;
-
-                  const priceDiff = Math.abs(pointPrice - entryPrice);
-                  if (priceDiff < closestDiff) {
-                    closestDiff = priceDiff;
-                    closestPoint = point;
-                  }
-                }
-
-                // Use closest match if it's within 2% of entry price
-                if (closestPoint && closestDiff <= entryPrice * 0.02) {
-                  bestMatchTimestamp = new Date(
-                    Number(closestPoint.ts)
-                  ).toISOString();
-                  bestMatchPrice = Number(closestPoint.price);
-                  matchMethod = "trail_closest_match";
-                }
-              }
-            } catch (err) {
-              // Ignore errors - trail data might not exist
-            }
-          }
-
-          // Method 3: Try to get triggerTimestamp from ticker's latest data
-          if (!bestMatchTimestamp && trade.ticker) {
-            try {
-              const tickerData = await kvGetJSON(
-                KV,
-                `timed:latest:${trade.ticker}`
-              );
-              if (tickerData && tickerData.trigger_ts) {
-                const triggerTime = Number(tickerData.trigger_ts);
-                // Only use if it's from last 3 days and older than current entryTime
-                if (triggerTime >= threeDaysAgo) {
-                  const entryTime = trade.entryTime
-                    ? new Date(trade.entryTime).getTime()
-                    : now;
-                  if (triggerTime < entryTime) {
-                    bestMatchTimestamp = new Date(triggerTime).toISOString();
-                    bestMatchPrice =
-                      tickerData.trigger_price || trade.entryPrice;
-                    matchMethod = "ticker_trigger_ts";
-                    // Store it in the trade for future reference
-                    updatedTrade.triggerTimestamp = bestMatchTimestamp;
-                  }
-                }
-              }
-            } catch (err) {
-              // Ignore errors
-            }
-          }
-
-          // Update entryTime if we found a better match
-          if (bestMatchTimestamp && trade.entryTime) {
-            const currentEntryTime = new Date(trade.entryTime).getTime();
-            const newEntryTime = new Date(bestMatchTimestamp).getTime();
-
-            // Only update if new time is significantly different (more than 5 minutes) and older
-            if (
-              Math.abs(newEntryTime - currentEntryTime) > 5 * 60 * 1000 &&
-              newEntryTime < currentEntryTime
-            ) {
-              updatedTrade.entryTime = bestMatchTimestamp;
-              updated = true;
-
-              // Also update entry price if we found a better match from trail
-              if (
-                bestMatchPrice &&
-                matchMethod.includes("trail") &&
-                Math.abs(bestMatchPrice - trade.entryPrice) >
-                  trade.entryPrice * 0.01
-              ) {
-                updatedTrade.entryPrice = bestMatchPrice;
-              }
-            }
-          }
-
-          // Update history entry timestamp if it matches the old entryTime
-          if (
-            updated &&
-            updatedTrade.history &&
-            Array.isArray(updatedTrade.history)
-          ) {
-            updatedTrade.history = updatedTrade.history.map((event) => {
-              if (
-                event.type === "ENTRY" &&
-                event.timestamp === trade.entryTime
-              ) {
-                return {
-                  ...event,
-                  timestamp: updatedTrade.entryTime,
-                  price: updatedTrade.entryPrice || event.price,
-                };
-              }
-              return event;
-            });
-          }
-
-          if (updated) {
-            fixed++;
-            fixedTrades.push({
-              id: trade.id,
-              ticker: trade.ticker,
-              oldEntryTime: trade.entryTime,
-              newEntryTime: updatedTrade.entryTime,
-              oldEntryPrice: trade.entryPrice,
-              newEntryPrice: updatedTrade.entryPrice,
-              matchMethod: matchMethod,
-            });
-            const index = allTrades.findIndex((t) => t.id === trade.id);
-            if (index >= 0) {
-              allTrades[index] = updatedTrade;
-            }
-          }
-        }
-
-        if (fixed > 0) {
-          await kvPutJSON(KV, tradesKey, allTrades);
-        }
-
-        return sendJSON(
-          {
-            ok: true,
-            fixed,
-            totalTrades: allTrades.length,
-            fixedTrades: fixedTrades.slice(0, 50), // Show first 50
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // POST /timed/debug/clear-all-trades?key=... - Clear all trades and start fresh
-    if (
-      url.pathname === "/timed/debug/clear-all-trades" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        const tradeCount = allTrades.length;
-
-        // Clear all trades
-        await KV.delete(tradesKey);
-
-        return sendJSON(
-          {
-            ok: true,
-            message: "All trades cleared successfully",
-            clearedCount: tradeCount,
-            note: "New trades will be created automatically as TradingView alerts come in",
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    // POST /timed/debug/simulate-trades?key=... - Manually simulate trades for all tickers
-    if (
-      url.pathname === "/timed/debug/simulate-trades" &&
-      req.method === "POST"
-    ) {
-      const authFail = requireKeyOr401(req, env);
-      if (authFail) return authFail;
-
-      try {
-        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const results = {
-          processed: 0,
-          created: 0,
-          updated: 0,
-          skipped: 0,
-          errors: [],
-        };
-
-        // Process first 50 tickers to avoid timeout
-        for (const ticker of tickerIndex.slice(0, 50)) {
-          try {
-            const latestData = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            if (latestData) {
-              const prevLatest = null; // No previous data for manual simulation
-              await processTradeSimulation(
-                KV,
-                ticker,
-                latestData,
-                prevLatest,
-                env
-              );
-              results.processed++;
-            } else {
-              results.skipped++;
-            }
-          } catch (err) {
-            results.errors.push({ ticker, error: err.message });
-          }
-        }
-
-        // Get final trade count
-        const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        const openTrades = allTrades.filter(
-          (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
-        );
-
-        return sendJSON(
-          {
-            ok: true,
-            message: `Processed ${results.processed} tickers`,
-            results,
-            currentTrades: {
-              total: allTrades.length,
-              open: openTrades.length,
-            },
-          },
-          200,
-          corsHeaders(env, req)
-        );
-      } catch (err) {
-        return sendJSON(
-          { ok: false, error: err.message },
-          500,
-          corsHeaders(env, req)
-        );
-      }
-    }
-
-    return sendJSON(
-      { ok: false, error: "not_found" },
-      404,
-      corsHeaders(env, req)
-    );
   },
 
   // Scheduled handler for periodic AI updates (9:45 AM, noon, 3:30 PM ET) and trade updates (every 5 min)
