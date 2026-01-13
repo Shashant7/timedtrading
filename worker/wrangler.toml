@@ -27,8 +27,8 @@ id = "e48593af3ef74bf986b2592909ed40cb"
 # Then paste the resulting database_id below.
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "timed_trading_db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_name = "timed-trading-ledger"
+database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security

@@ -1,3 +1,10 @@
+.DS_Store
+
+# Local wrangler auth/cache (do not commit)
+worker/.wrangler_home/
+
+# Local logs (do not commit)
+logs*.txt
 # Dependencies
 node_modules/
 package-lock.json
