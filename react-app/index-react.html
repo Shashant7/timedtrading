@@ -2888,8 +2888,14 @@
                     updated[ticker] = trail;
                     trailsFetchedRef.current.add(ticker);
                     // Debug: Log when trails are loaded
-                    if (Object.keys(updated).length <= 10 || ticker === "AAPL" || ticker === "MSFT") {
-                      console.log(`[TRAILS] Loaded ${trail.length} points for ${ticker}`);
+                    if (
+                      Object.keys(updated).length <= 10 ||
+                      ticker === "AAPL" ||
+                      ticker === "MSFT"
+                    ) {
+                      console.log(
+                        `[TRAILS] Loaded ${trail.length} points for ${ticker}`
+                      );
                     }
                   }
                 });
@@ -2920,16 +2926,19 @@
       }) {
         // Fetch trail data for all tickers
         const { allTrails, loadingTrails } = useAllTrails(tickers);
-        
+
         // Debug: Log trail loading status
         React.useEffect(() => {
           const trailsCount = Object.keys(allTrails).length;
           if (trailsCount > 0 && !window._allTrailsStatusLogged) {
             window._allTrailsStatusLogged = true;
-            console.log(`[TRAILS STATUS] Loaded trails for ${trailsCount} tickers`, {
-              sampleTickers: Object.keys(allTrails).slice(0, 5),
-              loading: loadingTrails,
-            });
+            console.log(
+              `[TRAILS STATUS] Loaded trails for ${trailsCount} tickers`,
+              {
+                sampleTickers: Object.keys(allTrails).slice(0, 5),
+                loading: loadingTrails,
+              }
+            );
           }
         }, [allTrails, loadingTrails]);
         // Debug: Log what BubbleChart receives
@@ -3760,24 +3769,49 @@
                     });
 
                     // Debug: Log trail rendering
-                    if (historicalTrails.length > 0 && !window._trailRenderLogged) {
+                    if (
+                      historicalTrails.length > 0 &&
+                      !window._trailRenderLogged
+                    ) {
                       window._trailRenderLogged = true;
-                      console.log(`[HISTORICAL TRAILS] Rendering ${historicalTrails.length} trail elements for ${trailsRendered} tickers`);
+                      console.log(
+                        `[HISTORICAL TRAILS] Rendering ${historicalTrails.length} trail elements for ${trailsRendered} tickers`
+                      );
                     }
 
                     // Debug: Log trail rendering
-                    if (historicalTrails.length > 0 && !window._trailRenderLogged) {
+                    if (
+                      historicalTrails.length > 0 &&
+                      !window._trailRenderLogged
+                    ) {
                       window._trailRenderLogged = true;
-                      console.log(`[HISTORICAL TRAILS] Rendering ${historicalTrails.length} trail elements for ${trailsRendered} tickers`, {
-                        sampleTrail: historicalTrails.slice(0, 3),
-                        allTrailsKeys: Object.keys(allTrails).slice(0, 10),
-                        totalTrailsLoaded: Object.keys(allTrails).length,
-                      });
-                    } else if (historicalTrails.length === 0 && Object.keys(allTrails).length > 0 && !window._trailRenderLogged) {
+                      console.log(
+                        `[HISTORICAL TRAILS] Rendering ${historicalTrails.length} trail elements for ${trailsRendered} tickers`,
+                        {
+                          sampleTrail: historicalTrails.slice(0, 3),
+                          allTrailsKeys: Object.keys(allTrails).slice(0, 10),
+                          totalTrailsLoaded: Object.keys(allTrails).length,
+                        }
+                      );
+                    } else if (
+                      historicalTrails.length === 0 &&
+                      Object.keys(allTrails).length > 0 &&
+                      !window._trailRenderLogged
+                    ) {
                       window._trailRenderLogged = true;
-                      console.warn(`[HISTORICAL TRAILS] No trails rendered despite ${Object.keys(allTrails).length} tickers having trail data`, {
-                        sampleTrails: Object.entries(allTrails).slice(0, 3).map(([k, v]) => ({ ticker: k, length: Array.isArray(v) ? v.length : 'not array' })),
-                      });
+                      console.warn(
+                        `[HISTORICAL TRAILS] No trails rendered despite ${
+                          Object.keys(allTrails).length
+                        } tickers having trail data`,
+                        {
+                          sampleTrails: Object.entries(allTrails)
+                            .slice(0, 3)
+                            .map(([k, v]) => ({
+                              ticker: k,
+                              length: Array.isArray(v) ? v.length : "not array",
+                            })),
+                        }
+                      );
                     }
 
                     return (
