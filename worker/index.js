@@ -5824,21 +5824,13 @@ export default {
               ? Math.max(60, baseMinRank - 10)
               : baseMinRank; // Lower rank requirement
 
-            // CRITICAL: For alert evaluation, use trigger_price for RR calculation, not current price
-            // This evaluates RR at the entry point, which is what we want for alerts
-            // When price moves UP after trigger, using current price decreases RR incorrectly
-            // Example: Trigger at 177.52, current at 182.68 -> RR at trigger = 5.80, RR at current = 0.21
-            const recalculatedRR = computeRRAtTrigger(payload);
-            // FIX: If recalculatedRR is very low (< 0.5) but payload.rr is high, it means price moved significantly
-            // In this case, use the higher of the two (RR at trigger or current RR) to avoid blocking good setups
-            // This handles cases where price moved up after trigger, making current RR low but trigger RR was good
+            // Use current price for dynamic RR calculation (real-time risk/reward)
+            // This shows the current R:R based on where price is now, not where it was at trigger
+            // This is more accurate for alerts as it reflects the actual current opportunity
+            const currentRR = computeRR(payload);
             const rrToUse =
-              recalculatedRR != null && recalculatedRR > 0.5
-                ? recalculatedRR
-                : payload.rr != null && Number(payload.rr) >= minRR
-                ? Number(payload.rr) // Use payload.rr if it meets threshold (was calculated at trigger time)
-                : recalculatedRR != null
-                ? recalculatedRR
+              currentRR != null
+                ? currentRR
                 : payload.rr != null
                 ? Number(payload.rr)
                 : 0;
@@ -5880,7 +5872,7 @@ export default {
                 rrOk,
                 rr: rrToUse,
                 rrFromPayload: payload.rr,
-                recalculatedRR: recalculatedRR,
+                calculatedAtCurrentPrice: currentRR,
                 minRR,
                 compOk,
                 completion: payload.completion,
@@ -5902,7 +5894,7 @@ export default {
               rrOk,
               rr: rrToUse,
               rrFromPayload: payload.rr,
-              recalculatedRR: recalculatedRR,
+              calculatedAtCurrentPrice: currentRR,
               compOk,
               completion: payload.completion,
               phaseOk,
@@ -5926,7 +5918,7 @@ export default {
                     rrToUse?.toFixed(2) || "null"
                   } < ${minRR}, payload.rr=${
                     payload.rr?.toFixed(2) || "null"
-                  }, recalculated=${recalculatedRR?.toFixed(2) || "null"})`
+                  }, currentRR=${currentRR?.toFixed(2) || "null"})`
                 );
               if (!compOk)
                 blockers.push(
@@ -8282,15 +8274,11 @@ export default {
           ? Math.max(60, baseMinRank - 10)
           : baseMinRank; // Lower rank requirement
 
-        // Use computeRRAtTrigger for alert-debug to match actual alert logic
-        const recalculatedRR = computeRRAtTrigger(data);
+        // Use current price for dynamic RR calculation (matches actual alert logic)
+        const currentRR = computeRR(data);
         const rrToUse =
-          recalculatedRR != null && recalculatedRR > 0.5
-            ? recalculatedRR
-            : data.rr != null && Number(data.rr) >= minRR
-            ? Number(data.rr)
-            : recalculatedRR != null
-            ? recalculatedRR
+          currentRR != null
+            ? currentRR
             : data.rr != null
             ? Number(data.rr)
             : 0;
@@ -8344,7 +8332,7 @@ export default {
               rrOk: {
                 value: rrToUse,
                 valueFromPayload: data.rr,
-                recalculatedAtTrigger: recalculatedRR,
+                calculatedAtCurrentPrice: currentRR,
                 baseRequired: baseMinRR,
                 adjustedRequired: minRR,
                 ok: rrOk,
