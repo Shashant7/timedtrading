@@ -3216,13 +3216,16 @@
                   Q4 Pullback
                 </text>
 
-                {/* Corridors */}
+                {/* Corridors - More pronounced */}
                 <rect
                   x={offsetX + (LONG_CORRIDOR.ltfMin + 50) * scaleX}
                   y={offsetY}
                   width={(LONG_CORRIDOR.ltfMax - LONG_CORRIDOR.ltfMin) * scaleX}
                   height={plotHeight / 2}
-                  fill="rgba(46,204,113,0.1)"
+                  fill="rgba(46,204,113,0.25)"
+                  stroke="rgba(46,204,113,0.6)"
+                  strokeWidth="2"
+                  strokeDasharray="4 4"
                 />
                 <rect
                   x={offsetX + (SHORT_CORRIDOR.ltfMin + 50) * scaleX}
@@ -3231,7 +3234,10 @@
                     (SHORT_CORRIDOR.ltfMax - SHORT_CORRIDOR.ltfMin) * scaleX
                   }
                   height={plotHeight / 2}
-                  fill="rgba(231,76,60,0.1)"
+                  fill="rgba(231,76,60,0.25)"
+                  stroke="rgba(231,76,60,0.6)"
+                  strokeWidth="2"
+                  strokeDasharray="4 4"
                 />
 
                 {/* Crosshair - Vertical line */}
@@ -4270,23 +4276,27 @@
                   domain={[-50, 50]}
                   stroke="#93a4d6"
                 />
-                {/* Corridors - Long corridor (top half, LTF: -8 to +12) */}
+                {/* Corridors - Long corridor (top half, LTF: -8 to +12) - More pronounced */}
                 <ReferenceArea
                   x1={LONG_CORRIDOR.ltfMin}
                   x2={LONG_CORRIDOR.ltfMax}
                   y1={0}
                   y2={50}
-                  fill="rgba(46,204,113,0.1)"
-                  stroke="none"
+                  fill="rgba(46,204,113,0.25)"
+                  stroke="rgba(46,204,113,0.6)"
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
                 />
-                {/* Corridors - Short corridor (bottom half, LTF: -12 to +8) */}
+                {/* Corridors - Short corridor (bottom half, LTF: -12 to +8) - More pronounced */}
                 <ReferenceArea
                   x1={SHORT_CORRIDOR.ltfMin}
                   x2={SHORT_CORRIDOR.ltfMax}
                   y1={-50}
                   y2={0}
-                  fill="rgba(231,76,60,0.1)"
-                  stroke="none"
+                  fill="rgba(231,76,60,0.25)"
+                  stroke="rgba(231,76,60,0.6)"
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
                 />
                 {/* Zero lines - X=0 and Y=0 */}
                 <ReferenceLine
@@ -4333,13 +4343,13 @@
                       allTickersForRanking &&
                       Array.isArray(allTickersForRanking)
                     ) {
-                      const sortedByRank = [
-                        ...allTickersForRanking,
-                      ].sort((a, b) => {
-                        const scoreA = Number(a.dynamicRank) || 0;
-                        const scoreB = Number(b.dynamicRank) || 0;
-                        return scoreB - scoreA;
-                      });
+                      const sortedByRank = [...allTickersForRanking].sort(
+                        (a, b) => {
+                          const scoreA = Number(a.dynamicRank) || 0;
+                          const scoreB = Number(b.dynamicRank) || 0;
+                          return scoreB - scoreA;
+                        }
+                      );
                       totalTickers = sortedByRank.length;
                       const tickerUpper = String(t.ticker || "")
                         .trim()
