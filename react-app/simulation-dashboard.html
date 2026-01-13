@@ -450,6 +450,46 @@
       // ─────────────────────────────────────────────────────────────
       function useTradeAnalytics(trades) {
         return useMemo(() => {
+          const EPS = 1e-6;
+
+          const clamp01 = (x) => Math.max(0, Math.min(1, x));
+          const smoothWinRate = (wins, losses) => {
+            // Laplace smoothing (prevents noisy 1/1 = 100% claims)
+            const w = Number(wins || 0);
+            const l = Number(losses || 0);
+            const n = w + l;
+            return n > 0 ? (w + 1) / (n + 2) : 0;
+          };
+          const confidenceLabel = (n) => {
+            if (n >= 30) return "high";
+            if (n >= 10) return "medium";
+            if (n >= 5) return "low";
+            return "very low";
+          };
+          const getExitReason = (trade) => {
+            if (!trade) return null;
+            if (trade.exitReason) return String(trade.exitReason);
+            const hist = trade.history;
+            if (Array.isArray(hist)) {
+              for (let i = hist.length - 1; i >= 0; i--) {
+                const e = hist[i];
+                if (e && e.type === "EXIT") {
+                  if (e.reason) return String(e.reason);
+                  const note = String(e.note || "");
+                  const m = note.match(/\(([^)]+)\)\s*$/);
+                  if (m && m[1]) return String(m[1]);
+                }
+              }
+            }
+            return null;
+          };
+          const hasTrimEvent = (trade) => {
+            if (!trade) return false;
+            if ((Number(trade.trimmedPct) || 0) > EPS) return true;
+            const hist = trade.history;
+            return Array.isArray(hist) && hist.some((e) => e && e.type === "TRIM");
+          };
+
           // Helper to check if trade has remaining shares/contracts (not fully closed)
           const hasRemainingShares = (t) => {
             const tickerSym = String(t.ticker || "").toUpperCase();
@@ -608,63 +648,99 @@
           });
 
           // Generate recommendations
-          const recommendations = [];
+          const recommendations = { filters: [], management: [] };
+
+          const pushRec = (bucket, rec) => {
+            if (!bucket || !recommendations[bucket]) return;
+            recommendations[bucket].push(rec);
+          };
           
           // Find best performing signal combinations
           const bestSignals = Object.entries(signalAnalysis)
-            .filter(([_, stats]) => stats.wins + stats.losses >= 3) // At least 3 trades
+            .filter(([_, stats]) => stats.wins + stats.losses >= 5) // Reduce noise
             .sort((a, b) => {
-              const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
-              const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
-              return bRate - aRate;
+              const aN = a[1].wins + a[1].losses;
+              const bN = b[1].wins + b[1].losses;
+              const aRate = smoothWinRate(a[1].wins, a[1].losses);
+              const bRate = smoothWinRate(b[1].wins, b[1].losses);
+              // Prefer higher winrate, then larger sample, then higher pnl
+              if (bRate !== aRate) return bRate - aRate;
+              if (bN !== aN) return bN - aN;
+              return (b[1].totalPnl || 0) - (a[1].totalPnl || 0);
             })
             .slice(0, 3);
           
-          if (bestSignals.length > 0 && bestSignals[0][1].wins / (bestSignals[0][1].wins + bestSignals[0][1].losses) >= 0.6) {
-            recommendations.push({
-              type: "signal",
-              priority: "high",
-              message: `Focus on setups with: ${bestSignals[0][0]}. Win rate: ${((bestSignals[0][1].wins / (bestSignals[0][1].wins + bestSignals[0][1].losses)) * 100).toFixed(1)}%`,
-            });
+          if (bestSignals.length > 0) {
+            const [sigKey, stats] = bestSignals[0];
+            const n = stats.wins + stats.losses;
+            const wr = smoothWinRate(stats.wins, stats.losses);
+            const avgPnl = n > 0 ? (stats.totalPnl || 0) / n : 0;
+            if (wr >= 0.55 && n >= 5) {
+              pushRec("filters", {
+                type: "signal",
+                priority: n >= 15 ? "high" : "medium",
+                message: `Filters: Favor ${sigKey} (smoothed win rate ${(wr * 100).toFixed(1)}%, avg $${avgPnl.toFixed(2)} per trade, n=${n}, confidence ${confidenceLabel(n)})`,
+              });
+            }
           }
 
           // Find best RR range
           const bestRR = Object.entries(rrAnalysis)
-            .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+            .filter(([_, stats]) => stats.wins + stats.losses >= 5)
             .sort((a, b) => {
-              const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
-              const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
-              return bRate - aRate;
+              const aN = a[1].wins + a[1].losses;
+              const bN = b[1].wins + b[1].losses;
+              const aRate = smoothWinRate(a[1].wins, a[1].losses);
+              const bRate = smoothWinRate(b[1].wins, b[1].losses);
+              if (bRate !== aRate) return bRate - aRate;
+              if (bN !== aN) return bN - aN;
+              return (b[1].totalPnl || 0) - (a[1].totalPnl || 0);
             })[0];
           
-          if (bestRR && bestRR[1].wins / (bestRR[1].wins + bestRR[1].losses) >= 0.55) {
-            recommendations.push({
-              type: "rr",
-              priority: "medium",
-              message: `Best performing RR range: ${bestRR[0]} (${((bestRR[1].wins / (bestRR[1].wins + bestRR[1].losses)) * 100).toFixed(1)}% win rate)`,
-            });
+          if (bestRR) {
+            const [range, stats] = bestRR;
+            const n = stats.wins + stats.losses;
+            const wr = smoothWinRate(stats.wins, stats.losses);
+            const avgPnl = n > 0 ? (stats.totalPnl || 0) / n : 0;
+            if (n >= 5 && (wr >= 0.52 || avgPnl > 0)) {
+              pushRec("filters", {
+                type: "rr",
+                priority: n >= 15 ? "medium" : "low",
+                message: `Filters: RR sweet spot looks like ${range} (smoothed win rate ${(wr * 100).toFixed(1)}%, avg $${avgPnl.toFixed(2)}, n=${n})`,
+              });
+            }
           }
 
           // Find best rank range
           const bestRank = Object.entries(rankAnalysis)
-            .filter(([_, stats]) => stats.wins + stats.losses >= 3)
+            .filter(([_, stats]) => stats.wins + stats.losses >= 5)
             .sort((a, b) => {
-              const aRate = a[1].wins / (a[1].wins + a[1].losses || 1);
-              const bRate = b[1].wins / (b[1].wins + b[1].losses || 1);
-              return bRate - aRate;
+              const aN = a[1].wins + a[1].losses;
+              const bN = b[1].wins + b[1].losses;
+              const aRate = smoothWinRate(a[1].wins, a[1].losses);
+              const bRate = smoothWinRate(b[1].wins, b[1].losses);
+              if (bRate !== aRate) return bRate - aRate;
+              if (bN !== aN) return bN - aN;
+              return (b[1].totalPnl || 0) - (a[1].totalPnl || 0);
             })[0];
           
-          if (bestRank && bestRank[1].wins / (bestRank[1].wins + bestRank[1].losses) >= 0.55) {
-            recommendations.push({
-              type: "rank",
-              priority: "medium",
-              message: `Best performing rank range: ${bestRank[0]} (${((bestRank[1].wins / (bestRank[1].wins + bestRank[1].losses)) * 100).toFixed(1)}% win rate)`,
-            });
+          if (bestRank) {
+            const [range, stats] = bestRank;
+            const n = stats.wins + stats.losses;
+            const wr = smoothWinRate(stats.wins, stats.losses);
+            const avgPnl = n > 0 ? (stats.totalPnl || 0) / n : 0;
+            if (n >= 5 && (wr >= 0.52 || avgPnl > 0)) {
+              pushRec("filters", {
+                type: "rank",
+                priority: n >= 15 ? "medium" : "low",
+                message: `Filters: Best rank bucket so far is ${range} (smoothed win rate ${(wr * 100).toFixed(1)}%, avg $${avgPnl.toFixed(2)}, n=${n})`,
+              });
+            }
           }
 
           // Profit factor recommendations - only show if we have enough closed trades to analyze
           if (profitFactor < 1.0 && closedTrades >= 10) {
-            recommendations.push({
+            pushRec("filters", {
               type: "risk",
               priority: "high",
               message: `Profit factor is ${profitFactor.toFixed(2)}. Consider tightening stops or improving entry selection.`,
@@ -673,10 +749,79 @@
 
           // Win rate recommendations - only show if we have enough closed trades to analyze
           if (winRate < 40 && closedTrades >= 10) {
-            recommendations.push({
+            pushRec("filters", {
               type: "filter",
               priority: "high",
               message: `Win rate is ${winRate.toFixed(1)}%. Consider raising minimum rank threshold or requiring squeeze release.`,
+            });
+          }
+
+          // Management learning (post-entry): trims + exit reasons
+          if (closedTrades >= 5) {
+            const closedWithTrim = closed.filter((t) => hasTrimEvent(t));
+            const closedNoTrim = closed.filter((t) => !hasTrimEvent(t));
+
+            const summarize = (arr) => {
+              const n = arr.length;
+              const w = arr.filter((t) => t.status === "WIN").length;
+              const l = arr.filter((t) => t.status === "LOSS").length;
+              const wr = smoothWinRate(w, l);
+              const totalP = arr.reduce((s, t) => s + (t.pnl || 0), 0);
+              const avgP = n > 0 ? totalP / n : 0;
+              return { n, w, l, wr, avgP };
+            };
+
+            const trimStats = summarize(closedWithTrim);
+            const noTrimStats = summarize(closedNoTrim);
+            if (trimStats.n >= 5 || noTrimStats.n >= 5) {
+              const better =
+                trimStats.n >= 5 && noTrimStats.n >= 5
+                  ? trimStats.avgP - noTrimStats.avgP
+                  : 0;
+              if (trimStats.n >= 5 && noTrimStats.n >= 5 && Math.abs(better) > 1e-9) {
+                pushRec("management", {
+                  type: "trim_vs_no_trim",
+                  priority: "medium",
+                  message: `Management: Trades with trims avg $${trimStats.avgP.toFixed(2)} (n=${trimStats.n}) vs no-trim avg $${noTrimStats.avgP.toFixed(2)} (n=${noTrimStats.n}). ${better > 0 ? "Trimming is helping." : "Trimming may be hurting."}`,
+                });
+              } else if (trimStats.n >= 5 && noTrimStats.n < 5) {
+                pushRec("management", {
+                  type: "trim_data",
+                  priority: "low",
+                  message: `Management: Most closed trades include trims (n=${trimStats.n}). Keep logging trims + exits to learn hold/trim improvements.`,
+                });
+              }
+            }
+
+            const exitReasonStats = {};
+            closed.forEach((t) => {
+              const r = getExitReason(t) || "UNKNOWN";
+              if (!exitReasonStats[r]) exitReasonStats[r] = { n: 0, wins: 0, losses: 0, pnl: 0 };
+              exitReasonStats[r].n += 1;
+              if (t.status === "WIN") exitReasonStats[r].wins += 1;
+              if (t.status === "LOSS") exitReasonStats[r].losses += 1;
+              exitReasonStats[r].pnl += t.pnl || 0;
+            });
+
+            const topExit = Object.entries(exitReasonStats)
+              .filter(([_, s]) => s.n >= 3)
+              .sort((a, b) => (b[1].pnl || 0) - (a[1].pnl || 0))[0];
+
+            if (topExit) {
+              const [reason, s] = topExit;
+              const wr = smoothWinRate(s.wins, s.losses);
+              const avgP = s.n > 0 ? (s.pnl || 0) / s.n : 0;
+              pushRec("management", {
+                type: "exit_reason",
+                priority: reason === "SL" ? "high" : "low",
+                message: `Management: Exit reason ${reason} avg $${avgP.toFixed(2)} (smoothed win rate ${(wr * 100).toFixed(1)}%, n=${s.n}).`,
+              });
+            }
+          } else {
+            pushRec("management", {
+              type: "needs_data",
+              priority: "low",
+              message: `Management: Need more closed trades (currently n=${closedTrades}) to learn trim/exit improvements reliably.`,
             });
           }
 
@@ -1613,32 +1758,59 @@
             </div>
 
             {/* Self-Learning Recommendations */}
-            {analytics.recommendations && analytics.recommendations.length > 0 && (
-              <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                <h3 className="text-lg font-bold mb-4">🎓 Self-Learning Recommendations</h3>
-                <div className="space-y-2">
-                  {analytics.recommendations.map((rec, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-lg border ${
-                        rec.priority === "high"
-                          ? "bg-yellow-500/10 border-yellow-500/30"
-                          : "bg-blue-500/10 border-blue-500/30"
-                      }`}
-                    >
-                      <div className="flex items-start gap-2">
-                        <span className="text-lg">
-                          {rec.priority === "high" ? "⚠️" : "💡"}
-                        </span>
-                        <div className="flex-1">
-                          <div className="text-sm font-semibold">{rec.message}</div>
-                        </div>
+            {(() => {
+              const recs = analytics.recommendations || {};
+              const filterRecs = Array.isArray(recs.filters) ? recs.filters : [];
+              const mgmtRecs = Array.isArray(recs.management) ? recs.management : [];
+              const hasAny = filterRecs.length + mgmtRecs.length > 0;
+              if (!hasAny) return null;
+
+              const renderRec = (rec, idx) => (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-lg border ${
+                    rec.priority === "high"
+                      ? "bg-yellow-500/10 border-yellow-500/30"
+                      : "bg-blue-500/10 border-blue-500/30"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg">{rec.priority === "high" ? "⚠️" : "💡"}</span>
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">{rec.message}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              return (
+                <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                  <h3 className="text-lg font-bold mb-4">🎓 Self-Learning Recommendations</h3>
+
+                  {filterRecs.length > 0 && (
+                    <div className="mb-4">
+                      <div className="text-xs text-[#93a4d6] font-semibold mb-2">
+                        Filters (before entry)
+                      </div>
+                      <div className="space-y-2">
+                        {filterRecs.map(renderRec)}
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {mgmtRecs.length > 0 && (
+                    <div>
+                      <div className="text-xs text-[#93a4d6] font-semibold mb-2">
+                        Management (after entry)
+                      </div>
+                      <div className="space-y-2">
+                        {mgmtRecs.map(renderRec)}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Signal Analysis */}
             <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">

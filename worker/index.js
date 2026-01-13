@@ -1335,6 +1335,17 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     pnl = realizedPnl + remainingPnl;
     pnlPct = ((sl - entryPrice) / entryPrice) * 100;
     status = "LOSS";
+    return {
+      shares,
+      pnl,
+      pnlPct,
+      status,
+      currentPrice,
+      trimmedPct: trimmedPct,
+      tpArray,
+      exitPrice: sl,
+      exitReason: "SL",
+    };
   } else if (hitTPLevels.length > 0) {
     // One or more TP levels hit - determine next trim action
     // Find the highest TP level hit that we haven't trimmed yet
@@ -1385,6 +1396,11 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
           currentPrice,
           trimmedPct: 1.0,
           tpArray,
+          exitPrice: nextTrimTP.price,
+          exitReason: "TP_FULL",
+          trimPrice: nextTrimTP.price,
+          trimTargetPct: targetTrimPct,
+          trimDeltaPct: trimAmount,
         };
       }
 
@@ -1397,6 +1413,9 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
         currentPrice,
         trimmedPct: targetTrimPct,
         tpArray, // Store TP array for next check
+        trimPrice: nextTrimTP.price,
+        trimTargetPct: targetTrimPct,
+        trimDeltaPct: trimAmount,
       };
     } else {
       // Already trimmed at all hit TP levels - check if we should hold winners
@@ -1458,6 +1477,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
           currentPrice,
           trimmedPct,
           tpArray,
+          exitReason: null,
         };
       }
 
@@ -1473,6 +1493,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
         currentPrice,
         trimmedPct,
         tpArray,
+        exitReason: null,
       };
     }
   } else {
@@ -1506,6 +1527,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     currentPrice,
     trimmedPct: newTrimmedPct,
     tpArray,
+    exitReason: null,
   };
 }
 
@@ -1975,6 +1997,8 @@ async function processTradeSimulation(
           status: tdSeqStatus,
           currentPrice,
           trimmedPct: existingOpenTrade.trimmedPct || 0,
+          exitPrice: currentPrice,
+          exitReason: "TDSEQ",
         };
 
         // Add activity feed event for TD9 exit
@@ -2031,20 +2055,29 @@ async function processTradeSimulation(
           }
         }
 
-        // Update history for status changes
-        const history = existingOpenTrade.history || [
-          {
+        // Update history for trade lifecycle events (ENTRY / TRIM / EXIT)
+        const history = Array.isArray(existingOpenTrade.history)
+          ? [...existingOpenTrade.history]
+          : [];
+
+        const ensureEntryInHistory = () => {
+          const hasEntry = history.some((e) => e && e.type === "ENTRY");
+          if (hasEntry) return;
+          history.unshift({
             type: "ENTRY",
             timestamp: existingOpenTrade.entryTime,
             price: existingOpenTrade.entryPrice,
             shares: existingOpenTrade.shares || 0,
             value:
               existingOpenTrade.entryPrice * (existingOpenTrade.shares || 0),
-            note: `Initial entry at $${existingOpenTrade.entryPrice.toFixed(
+            note: `Initial entry at $${Number(existingOpenTrade.entryPrice).toFixed(
               2
             )}`,
-          },
-        ];
+            positionPct: 1.0,
+          });
+        };
+
+        ensureEntryInHistory();
 
         // Add history entry if entry price was corrected
         if (
@@ -2065,23 +2098,68 @@ async function processTradeSimulation(
           });
         }
 
-        const currentPrice = Number(tickerData.price || 0);
         const oldStatus = existingOpenTrade.status || "OPEN";
+        const oldTrimmedPct = Number(existingOpenTrade.trimmedPct || 0);
+        const newTrimmedPct = Number(
+          tradeCalc.trimmedPct != null ? tradeCalc.trimmedPct : oldTrimmedPct
+        );
+        const trimDeltaPctRaw = newTrimmedPct - oldTrimmedPct;
+        const EPS = 1e-6;
+        const didTrim = trimDeltaPctRaw > EPS;
 
-        // Add history entry for trim
-        if (newStatus === "TP_HIT_TRIM" && oldStatus !== "TP_HIT_TRIM") {
-          const trimmedShares = (existingOpenTrade.shares || 0) * 0.5; // Allow fractional shares
-          history.push({
-            type: "TRIM",
-            timestamp: new Date().toISOString(),
-            price: Number(tickerData.tp || existingOpenTrade.tp),
-            shares: trimmedShares,
-            value:
-              Number(tickerData.tp || existingOpenTrade.tp) * trimmedShares,
-            note: `Trimmed 50% at TP $${Number(
-              tickerData.tp || existingOpenTrade.tp
-            ).toFixed(2)}`,
+        // Determine prices/reasons used by the calc
+        const currentPrice = Number(tickerData.price || tradeCalc.currentPrice || 0);
+        const trimPrice = Number(
+          tradeCalc.trimPrice != null
+            ? tradeCalc.trimPrice
+            : tickerData.tp != null
+            ? Number(tickerData.tp)
+            : existingOpenTrade.tp
+        );
+        const exitPrice = Number(
+          tradeCalc.exitPrice != null ? tradeCalc.exitPrice : currentPrice
+        );
+        const exitReason =
+          tradeCalc.exitReason ||
+          (shouldExitFromTDSeq ? "TDSEQ" : newStatus === "LOSS" ? "SL" : "TP_FULL");
+
+        // Add TRIM event whenever trimmedPct increases (supports progressive trims)
+        if (didTrim) {
+          const alreadyLogged = history.some((e) => {
+            if (!e || e.type !== "TRIM") return false;
+            const ePct = Number(
+              e.trimPct != null
+                ? e.trimPct
+                : e.trimmedPct != null
+                ? e.trimmedPct
+                : 0
+            );
+            return Math.abs(ePct - newTrimmedPct) < EPS;
           });
+
+          if (!alreadyLogged) {
+            const trimShares = (correctedShares || existingOpenTrade.shares || 0) * trimDeltaPctRaw; // Allow fractional shares
+            history.push({
+              type: "TRIM",
+              timestamp: new Date().toISOString(),
+              price: Number.isFinite(trimPrice) ? trimPrice : null,
+              shares: trimShares,
+              value:
+                Number.isFinite(trimPrice) && Number.isFinite(trimShares)
+                  ? trimPrice * trimShares
+                  : null,
+              trimPct: newTrimmedPct, // total trimmed
+              trimDeltaPct: trimDeltaPctRaw, // this trim step
+              remainingPct: Math.max(0, 1 - newTrimmedPct),
+              note: `Trimmed ${Math.round(trimDeltaPctRaw * 100)}% at TP ${
+                Number.isFinite(trimPrice)
+                  ? `$${Number(trimPrice).toFixed(2)}`
+                  : "—"
+              } (total trimmed: ${Math.round(
+                newTrimmedPct * 100
+              )}%)`,
+            });
+          }
         }
 
         // Add history entry for close
@@ -2090,16 +2168,19 @@ async function processTradeSimulation(
           oldStatus !== "WIN" &&
           oldStatus !== "LOSS"
         ) {
-          const remainingShares = existingOpenTrade.shares || 0;
+          const remainingShares =
+            (correctedShares || existingOpenTrade.shares || 0) *
+            Math.max(0, 1 - oldTrimmedPct);
           history.push({
             type: "EXIT",
             timestamp: new Date().toISOString(),
-            price: currentPrice,
+            price: exitPrice,
             shares: remainingShares,
-            value: currentPrice * remainingShares,
+            value: exitPrice * remainingShares,
+            reason: exitReason,
             note: `Closed ${
               newStatus === "WIN" ? "profitably" : "at loss"
-            } at $${currentPrice.toFixed(2)}`,
+            } at $${Number(exitPrice).toFixed(2)} (${exitReason})`,
           });
         }
 
@@ -2119,6 +2200,10 @@ async function processTradeSimulation(
           rr: Number(tickerData.rr) || existingOpenTrade.rr,
           rank: Number(tickerData.rank) || existingOpenTrade.rank,
           history: history,
+          exitReason:
+            newStatus === "WIN" || newStatus === "LOSS" ? exitReason : null,
+          exitPrice:
+            newStatus === "WIN" || newStatus === "LOSS" ? exitPrice : null,
         };
 
         const tradeIndex = allTrades.findIndex(
@@ -2132,29 +2217,27 @@ async function processTradeSimulation(
           );
 
           // Send Discord notifications for status changes
-          if (env && newStatus !== oldStatus) {
-            const currentPrice = Number(
-              tickerData.price || updatedTrade.currentPrice || 0
-            );
+          if (env) {
             const pnl = updatedTrade.pnl || 0;
             const pnlPct = updatedTrade.pnlPct || 0;
 
-            if (newStatus === "TP_HIT_TRIM" && oldStatus !== "TP_HIT_TRIM") {
-              // Trade trimmed
+            // Send TRIM alert whenever a new TRIM event was created
+            if (didTrim) {
               console.log(
-                `[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction}`
+                `[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction} (trimmedPct ${oldTrimmedPct} -> ${newTrimmedPct})`
               );
               const embed = createTradeTrimmedEmbed(
                 ticker,
                 direction,
-                existingOpenTrade.entryPrice,
+                updatedTrade.entryPrice,
                 currentPrice,
-                Number(tickerData.tp || updatedTrade.tp),
+                Number.isFinite(trimPrice) ? trimPrice : Number(updatedTrade.tp),
                 pnl,
                 pnlPct,
-                updatedTrade.trimmedPct || 0.5,
+                newTrimmedPct,
                 tickerData,
-                updatedTrade
+                updatedTrade,
+                trimDeltaPctRaw
               );
               await notifyDiscord(env, embed).catch((err) => {
                 console.error(
@@ -2162,12 +2245,14 @@ async function processTradeSimulation(
                   err
                 );
               }); // Don't let Discord errors break trade updates
-            } else if (
+            }
+
+            // Send EXIT alert on first transition into WIN/LOSS
+            if (
               (newStatus === "WIN" || newStatus === "LOSS") &&
               oldStatus !== "WIN" &&
               oldStatus !== "LOSS"
             ) {
-              // Trade closed
               console.log(
                 `[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`
               );
@@ -2175,8 +2260,8 @@ async function processTradeSimulation(
                 ticker,
                 direction,
                 newStatus,
-                existingOpenTrade.entryPrice,
-                currentPrice,
+                updatedTrade.entryPrice,
+                exitPrice,
                 pnl,
                 pnlPct,
                 updatedTrade.rank || existingOpenTrade.rank || 0,
@@ -2191,7 +2276,7 @@ async function processTradeSimulation(
                 );
               }); // Don't let Discord errors break trade updates
 
-              // If this was a TD9 exit, send additional TD9 alert
+              // If this was a TD exit, send additional TD9/TD13 alert
               if (shouldExitFromTDSeq) {
                 console.log(
                   `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`
@@ -2200,8 +2285,8 @@ async function processTradeSimulation(
                 const td9Embed = createTD9ExitEmbed(
                   ticker,
                   direction,
-                  existingOpenTrade.entryPrice,
-                  currentPrice,
+                  updatedTrade.entryPrice,
+                  exitPrice,
                   pnl,
                   pnlPct,
                   tdSeq,
@@ -2215,7 +2300,7 @@ async function processTradeSimulation(
                 });
               }
             }
-          } else if (!env) {
+          } else {
             console.log(
               `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} status change (${oldStatus} -> ${newStatus}) - env not available`
             );
@@ -3715,20 +3800,25 @@ function generateTradeActionInterpretation(
     }
   } else if (action === "CLOSE") {
     const status = trade?.status || "CLOSED";
+    const exitReason = trade?.exitReason || null;
     actionText = `**Closing position** because:`;
 
-    if (status === "WIN") {
-      reasons.push(
-        "✅ **Take Profit fully achieved** - All TP levels hit, trade completed successfully"
-      );
-    } else if (status === "LOSS") {
-      reasons.push(
-        "❌ **Stop Loss hit** - Price moved against position, risk management triggered"
-      );
-    } else if (tdSeq.exit_long || tdSeq.exit_short) {
+    if (exitReason === "TDSEQ") {
       reasons.push(
         "🔢 **TD Sequential exit signal** - DeMark exhaustion pattern suggests trend reversal"
       );
+    } else if (exitReason === "SL") {
+      reasons.push(
+        "❌ **Stop Loss hit** - Price moved against position, risk management triggered"
+      );
+    } else if (exitReason === "TP_FULL") {
+      reasons.push(
+        "✅ **Take Profit fully achieved** - All TP levels hit, trade completed successfully"
+      );
+    } else if (status === "WIN") {
+      reasons.push("✅ **Trade closed as WIN** - Profit secured");
+    } else if (status === "LOSS") {
+      reasons.push("❌ **Trade closed as LOSS** - Loss realized");
     }
 
     // Final P&L context
@@ -3987,10 +4077,30 @@ function createTradeTrimmedEmbed(
   pnlPct,
   trimmedPct = 0.5,
   tickerData = null,
-  trade = null
+  trade = null,
+  trimDeltaPct = null
 ) {
   const remainingPct = 1 - trimmedPct;
   const trimPercent = Math.round(trimmedPct * 100);
+  const stepTrimPct =
+    typeof trimDeltaPct === "number" && Number.isFinite(trimDeltaPct)
+      ? trimDeltaPct
+      : null;
+  const stepTrimPercent = stepTrimPct != null ? Math.round(stepTrimPct * 100) : null;
+
+  // Next TP level (if we have a TP array)
+  const nextTp =
+    trade?.tpArray && Array.isArray(trade.tpArray)
+      ? [...trade.tpArray]
+          .map((x) => ({
+            price: Number(x?.price),
+            trimPct: Number(x?.trimPct),
+            label: x?.label,
+          }))
+          .filter((x) => Number.isFinite(x.price) && Number.isFinite(x.trimPct))
+          .sort((a, b) => a.trimPct - b.trimPct)
+          .find((x) => x.trimPct > trimmedPct + 1e-6) || null
+      : null;
 
   // Generate natural language interpretation
   const interpretation = tickerData
@@ -4018,14 +4128,18 @@ function createTradeTrimmedEmbed(
       name: "💵 Realized P&L",
       value: `**Amount:** $${pnl.toFixed(2)}\n**Percentage:** ${
         pnlPct >= 0 ? "+" : ""
-      }${pnlPct.toFixed(2)}%\n**Trimmed:** ${trimPercent}%`,
+      }${pnlPct.toFixed(2)}%\n**This Trim:** ${
+        stepTrimPercent != null ? `${stepTrimPercent}%` : "—"
+      }\n**Total Trimmed:** ${trimPercent}%`,
       inline: true,
     },
     {
       name: "📈 Position Status",
       value: `**Remaining:** ${Math.round(
         remainingPct * 100
-      )}%\n**Status:** Holding remaining position`,
+      )}%\n**Next TP:** ${
+        nextTp ? `$${Number(nextTp.price).toFixed(2)} (${Math.round(nextTp.trimPct * 100)}%)` : "—"
+      }\n**Status:** Holding remaining position`,
       inline: true,
     },
   ];
@@ -4103,16 +4217,22 @@ function createTradeClosedEmbed(
     },
   ];
 
-  // Add exit reason if TD Sequential exit
-  if (tickerData?.td_sequential) {
-    const tdSeq = tickerData.td_sequential;
-    if (tdSeq.exit_long || tdSeq.exit_short) {
-      fields.push({
-        name: "🔢 Exit Signal",
-        value: `**TD Sequential Exhaustion** - DeMark pattern suggests trend reversal`,
-        inline: false,
-      });
-    }
+  // Add explicit exit reason when available
+  const exitReason = trade?.exitReason || null;
+  if (exitReason) {
+    const reasonText =
+      exitReason === "TDSEQ"
+        ? "🔢 **TD Sequential Exhaustion** - DeMark pattern suggests trend reversal"
+        : exitReason === "SL"
+        ? "❌ **Stop Loss Hit** - Risk management triggered"
+        : exitReason === "TP_FULL"
+        ? "✅ **Take Profit Achieved** - TP plan completed"
+        : `📌 **Exit Reason:** ${exitReason}`;
+    fields.push({
+      name: "📌 Exit Reason",
+      value: reasonText,
+      inline: false,
+    });
   }
 
   // Add performance metrics
