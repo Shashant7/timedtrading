@@ -69,6 +69,25 @@
         "YM": { pointValue: 5, name: "E-mini Dow" },
       };
 
+      const USD_FMT = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2,
+      });
+      const INT_FMT = new Intl.NumberFormat("en-US");
+
+      function fmtUsd(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        return USD_FMT.format(n);
+      }
+
+      function fmtInt(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        return INT_FMT.format(n);
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Hooks
       // ─────────────────────────────────────────────────────────────
@@ -2160,6 +2179,167 @@
         );
       }
 
+      function KpiCard({ label, value, sub = null, tone = "neutral" }) {
+        const toneBar =
+          tone === "green"
+            ? "from-green-400 to-emerald-500"
+            : tone === "red"
+            ? "from-red-400 to-rose-500"
+            : tone === "yellow"
+            ? "from-yellow-300 to-amber-500"
+            : tone === "blue"
+            ? "from-blue-400 to-cyan-400"
+            : "from-[#6b7a9f] to-[#26325f]";
+
+        return (
+          <div className="relative bg-[#0f1630] border border-[#26325f] rounded-xl p-3 overflow-hidden">
+            <div className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${toneBar}`} />
+            <div className="pl-2">
+              <div className="text-[11px] uppercase tracking-wide text-[#93a4d6]">{label}</div>
+              <div className="mt-1 text-lg font-bold text-white leading-tight">{value}</div>
+              {sub ? <div className="mt-1 text-[11px] text-[#6b7a9f]">{sub}</div> : null}
+            </div>
+          </div>
+        );
+      }
+
+      function PerformanceDashboard({ mode, ledgerSummary, analytics }) {
+        const isLedger = mode === "ledger";
+
+        const loading = isLedger ? !!ledgerSummary?.loading : false;
+        const err = isLedger ? ledgerSummary?.error : null;
+        const t = isLedger ? ledgerSummary?.data?.totals : null;
+
+        const totalTrades = isLedger ? Number(t?.totalTrades || 0) : Number(analytics?.totalTrades || 0);
+        const openTrades = isLedger ? Number(t?.openTrades || 0) : Number(analytics?.openTrades || 0);
+        const trimmedTrades = isLedger ? 0 : Number(analytics?.trimmedTrades || 0);
+        const closedTrades = isLedger ? Number(t?.closedTrades || 0) : Number(analytics?.closedTrades || 0);
+        const wins = isLedger ? Number(t?.wins || 0) : Number(analytics?.wins || 0);
+        const losses = isLedger ? Number(t?.losses || 0) : Number(analytics?.losses || 0);
+        const winRate = isLedger ? Number(t?.winRate || 0) : Number(analytics?.winRate || 0);
+
+        const closedPnl = isLedger ? Number(t?.closedPnl || 0) : Number(analytics?.totalPnl || 0);
+        const openPnl = !isLedger ? Number(analytics?.openPnl || 0) : null;
+
+        const avgWin = isLedger ? Number(t?.avgWin || 0) : Number(analytics?.avgWin || 0);
+        const avgLoss = isLedger ? Number(t?.avgLoss || 0) : Number(analytics?.avgLoss || 0);
+        const profitFactor = isLedger ? Number(t?.profitFactor || 0) : Number(analytics?.profitFactor || 0);
+        const expectancy = isLedger
+          ? Number(t?.expectancy || 0)
+          : closedTrades > 0
+          ? closedPnl / closedTrades
+          : 0;
+
+        const openCapitalTrades = isLedger ? openTrades : openTrades + trimmedTrades;
+        const openCapital = openCapitalTrades * TRADE_SIZE;
+        const totalCapital = totalTrades * TRADE_SIZE;
+
+        const pfLabel =
+          Number.isFinite(profitFactor) && profitFactor !== Infinity ? profitFactor.toFixed(2) : "∞";
+
+        const cards = [
+          { label: "Total Trades", value: fmtInt(totalTrades) },
+          {
+            label: "Open Trades",
+            value: fmtInt(openTrades),
+            sub: isLedger ? "status ≠ WIN/LOSS" : "no trims yet",
+            tone: "yellow",
+          },
+          ...(!isLedger
+            ? [
+                {
+                  label: "Trimmed Trades",
+                  value: fmtInt(trimmedTrades),
+                  sub: "partial position left",
+                  tone: "blue",
+                },
+              ]
+            : []),
+          { label: "Wins", value: fmtInt(wins), tone: "green" },
+          { label: "Losses", value: fmtInt(losses), tone: "red" },
+          {
+            label: "Win Rate",
+            value: `${Number.isFinite(winRate) ? winRate.toFixed(1) : "0.0"}%`,
+            tone: winRate >= 55 ? "green" : winRate >= 45 ? "yellow" : "red",
+          },
+          {
+            label: "Closed P&L",
+            value: fmtUsd(closedPnl),
+            sub: `${fmtInt(closedTrades)} closed`,
+            tone: closedPnl >= 0 ? "green" : "red",
+          },
+          ...(!isLedger
+            ? [
+                {
+                  label: "Open P&L",
+                  value: fmtUsd(openPnl),
+                  sub: "unrealized",
+                  tone: (openPnl || 0) >= 0 ? "green" : "yellow",
+                },
+              ]
+            : []),
+          { label: "Avg Win", value: fmtUsd(avgWin), tone: "green" },
+          { label: "Avg Loss", value: fmtUsd(avgLoss), tone: "red" },
+          {
+            label: "Profit Factor",
+            value: pfLabel,
+            sub: "gross wins / gross losses",
+            tone: profitFactor >= 1.5 ? "green" : profitFactor >= 1.0 ? "yellow" : "red",
+          },
+          {
+            label: "Expectancy",
+            value: fmtUsd(expectancy),
+            sub: "avg per closed trade",
+            tone: expectancy >= 0 ? "green" : "red",
+          },
+          {
+            label: "Open Capital",
+            value: fmtUsd(openCapital),
+            sub: `${fmtUsd(TRADE_SIZE)} model / trade`,
+            tone: "blue",
+          },
+          {
+            label: "Total Capital Deployed",
+            value: fmtUsd(totalCapital),
+            sub: "model allocation (lifetime)",
+          },
+        ];
+
+        return (
+          <div className="mb-6 bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+              <div>
+                <div className="text-xs text-[#93a4d6]">Dashboard</div>
+                <div className="text-lg font-bold">
+                  {isLedger ? "Ledger KPIs" : "Legacy KPIs"}
+                </div>
+              </div>
+              <div className="text-xs text-[#6b7a9f]">
+                {isLedger ? "Source: D1 ledger" : "Source: KV + live prices"}
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="text-sm text-[#93a4d6]">Loading dashboard metrics…</div>
+            ) : err ? (
+              <div className="text-sm text-red-400">Dashboard unavailable: {err}</div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                {cards.map((c, idx) => (
+                  <KpiCard
+                    key={`${c.label}-${idx}`}
+                    label={c.label}
+                    value={c.value}
+                    sub={c.sub || null}
+                    tone={c.tone || "neutral"}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Helper Functions for TickerDetails
       // ─────────────────────────────────────────────────────────────
@@ -3904,6 +4084,12 @@
                   </div>
                 </div>
               </header>
+
+              <PerformanceDashboard
+                mode={trackerMode}
+                ledgerSummary={ledgerSummary}
+                analytics={analytics}
+              />
 
               {/* Ledger Mode (D1-backed) */}
               {trackerMode === "ledger" && (

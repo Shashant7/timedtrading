@@ -10336,7 +10336,9 @@ export default {
               SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) AS losses,
               SUM(CASE WHEN status IN ('WIN','LOSS') THEN pnl ELSE 0 END) AS closed_pnl,
               SUM(CASE WHEN status = 'WIN' THEN pnl ELSE 0 END) AS gross_win,
-              SUM(CASE WHEN status = 'LOSS' THEN -pnl ELSE 0 END) AS gross_loss
+              SUM(CASE WHEN status = 'LOSS' THEN -pnl ELSE 0 END) AS gross_loss,
+              AVG(CASE WHEN status = 'WIN' THEN pnl ELSE NULL END) AS avg_win,
+              AVG(CASE WHEN status = 'LOSS' THEN -pnl ELSE NULL END) AS avg_loss_abs
             FROM trades
             ${where}`
           )
@@ -10344,6 +10346,7 @@ export default {
           .first();
 
         const closed = Number(overall?.closed || 0);
+        const openTrades = Math.max(0, Number(overall?.total || 0) - closed);
         const wins = Number(overall?.wins || 0);
         const losses = Number(overall?.losses || 0);
         const winRate = closed > 0 ? (wins / closed) * 100 : 0;
@@ -10351,6 +10354,10 @@ export default {
         const grossLoss = Number(overall?.gross_loss || 0);
         const profitFactor =
           grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
+        const avgWin = Number(overall?.avg_win || 0);
+        const avgLossAbs = Number(overall?.avg_loss_abs || 0);
+        const expectancy =
+          closed > 0 ? Number(overall?.closed_pnl || 0) / closed : 0;
 
         const rankBuckets = await db
           .prepare(
@@ -10446,12 +10453,18 @@ export default {
             until,
             totals: {
               totalTrades: Number(overall?.total || 0),
+              openTrades,
               closedTrades: closed,
               wins,
               losses,
               winRate,
               closedPnl: Number(overall?.closed_pnl || 0),
               profitFactor,
+              avgWin,
+              avgLoss: avgLossAbs,
+              expectancy,
+              grossWin,
+              grossLoss,
             },
             breakdown: {
               byRank: rankBuckets?.results || [],
