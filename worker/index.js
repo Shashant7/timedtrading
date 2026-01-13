@@ -2071,9 +2071,9 @@ async function processTradeSimulation(
             shares: existingOpenTrade.shares || 0,
             value:
               existingOpenTrade.entryPrice * (existingOpenTrade.shares || 0),
-            note: `Initial entry at $${Number(existingOpenTrade.entryPrice).toFixed(
-              2
-            )}`,
+            note: `Initial entry at $${Number(
+              existingOpenTrade.entryPrice
+            ).toFixed(2)}`,
             positionPct: 1.0,
           });
         };
@@ -2111,7 +2111,9 @@ async function processTradeSimulation(
         const didTrim = trimDeltaPctRaw > EPS;
 
         // Determine prices/reasons used by the calc
-        const currentPrice = Number(tickerData.price || tradeCalc.currentPrice || 0);
+        const currentPrice = Number(
+          tickerData.price || tradeCalc.currentPrice || 0
+        );
         const trimPrice = Number(
           tradeCalc.trimPrice != null
             ? tradeCalc.trimPrice
@@ -2124,7 +2126,11 @@ async function processTradeSimulation(
         );
         const exitReason =
           tradeCalc.exitReason ||
-          (shouldExitFromTDSeq ? "TDSEQ" : newStatus === "LOSS" ? "SL" : "TP_FULL");
+          (shouldExitFromTDSeq
+            ? "TDSEQ"
+            : newStatus === "LOSS"
+            ? "SL"
+            : "TP_FULL");
 
         // Add TRIM event whenever trimmedPct increases (supports progressive trims)
         if (didTrim) {
@@ -2141,7 +2147,9 @@ async function processTradeSimulation(
           });
 
           if (!alreadyLogged) {
-            const trimShares = (correctedShares || existingOpenTrade.shares || 0) * trimDeltaPctRaw; // Allow fractional shares
+            const trimShares =
+              (correctedShares || existingOpenTrade.shares || 0) *
+              trimDeltaPctRaw; // Allow fractional shares
             const ev = {
               type: "TRIM",
               timestamp: new Date().toISOString(),
@@ -2158,9 +2166,7 @@ async function processTradeSimulation(
                 Number.isFinite(trimPrice)
                   ? `$${Number(trimPrice).toFixed(2)}`
                   : "—"
-              } (total trimmed: ${Math.round(
-                newTrimmedPct * 100
-              )}%)`,
+              } (total trimmed: ${Math.round(newTrimmedPct * 100)}%)`,
             };
             history.push(ev);
             newHistoryEvents.push(ev);
@@ -2225,12 +2231,22 @@ async function processTradeSimulation(
 
           // Persist trade + new lifecycle events to D1 ledger (best-effort)
           d1UpsertTrade(env, updatedTrade).catch((e) => {
-            console.error(`[D1 LEDGER] Failed to upsert trade ${updatedTrade?.id}:`, e);
+            console.error(
+              `[D1 LEDGER] Failed to upsert trade ${updatedTrade?.id}:`,
+              e
+            );
           });
-          if (updatedTrade?.id && Array.isArray(newHistoryEvents) && newHistoryEvents.length > 0) {
+          if (
+            updatedTrade?.id &&
+            Array.isArray(newHistoryEvents) &&
+            newHistoryEvents.length > 0
+          ) {
             for (const ev of newHistoryEvents) {
               d1InsertTradeEvent(env, updatedTrade.id, ev).catch((e) => {
-                console.error(`[D1 LEDGER] Failed to insert trade event for ${updatedTrade.id}:`, e);
+                console.error(
+                  `[D1 LEDGER] Failed to insert trade event for ${updatedTrade.id}:`,
+                  e
+                );
               });
             }
           }
@@ -2250,7 +2266,9 @@ async function processTradeSimulation(
                 direction,
                 updatedTrade.entryPrice,
                 currentPrice,
-                Number.isFinite(trimPrice) ? trimPrice : Number(updatedTrade.tp),
+                Number.isFinite(trimPrice)
+                  ? trimPrice
+                  : Number(updatedTrade.tp),
                 pnl,
                 pnlPct,
                 newTrimmedPct,
@@ -2587,13 +2605,21 @@ async function processTradeSimulation(
 
                 // Persist to D1 ledger (best-effort)
                 d1UpsertTrade(env, updatedTrade).catch((e) => {
-                  console.error(`[D1 LEDGER] Failed to upsert scaled-in trade:`, e);
+                  console.error(
+                    `[D1 LEDGER] Failed to upsert scaled-in trade:`,
+                    e
+                  );
                 });
                 const scaleEvent = history[history.length - 1];
                 if (scaleEvent && updatedTrade?.id) {
-                  d1InsertTradeEvent(env, updatedTrade.id, scaleEvent).catch((e) => {
-                    console.error(`[D1 LEDGER] Failed to insert SCALE_IN event:`, e);
-                  });
+                  d1InsertTradeEvent(env, updatedTrade.id, scaleEvent).catch(
+                    (e) => {
+                      console.error(
+                        `[D1 LEDGER] Failed to insert SCALE_IN event:`,
+                        e
+                      );
+                    }
+                  );
                 }
 
                 // Send Discord notification for scaling in
@@ -2848,7 +2874,10 @@ async function processTradeSimulation(
 
             // Persist new trade + ENTRY event to D1 ledger (best-effort)
             d1UpsertTrade(env, trade).catch((e) => {
-              console.error(`[D1 LEDGER] Failed to upsert new trade ${ticker}:`, e);
+              console.error(
+                `[D1 LEDGER] Failed to upsert new trade ${ticker}:`,
+                e
+              );
             });
             const entryEvent =
               Array.isArray(trade.history) && trade.history.length > 0
@@ -2856,7 +2885,10 @@ async function processTradeSimulation(
                 : null;
             if (entryEvent && trade?.id) {
               d1InsertTradeEvent(env, trade.id, entryEvent).catch((e) => {
-                console.error(`[D1 LEDGER] Failed to insert ENTRY event for ${ticker}:`, e);
+                console.error(
+                  `[D1 LEDGER] Failed to insert ENTRY event for ${ticker}:`,
+                  e
+                );
               });
             }
 
@@ -3452,7 +3484,8 @@ async function d1InsertTrailPoint(env, ticker, payload) {
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
 
   const ts = Number(payload?.ts);
-  if (!Number.isFinite(ts)) return { ok: false, skipped: true, reason: "bad_ts" };
+  if (!Number.isFinite(ts))
+    return { ok: false, skipped: true, reason: "bad_ts" };
 
   const point = {
     ts,
@@ -3604,7 +3637,8 @@ async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
               })()
             : {},
         momentum_elite: false, // derived in UI/logic from flags when needed
-        trigger_reason: r.trigger_reason != null ? String(r.trigger_reason) : null,
+        trigger_reason:
+          r.trigger_reason != null ? String(r.trigger_reason) : null,
         trigger_dir: r.trigger_dir != null ? String(r.trigger_dir) : null,
       }))
       .filter((p) => Number.isFinite(p.ts));
@@ -3618,41 +3652,59 @@ async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
   }
 }
 
-async function d1GetTrailPayloadRange(env, ticker, sinceTs = null, untilTs = null, limit = 5000) {
+async function d1GetTrailPayloadRange(
+  env,
+  ticker,
+  sinceTs = null,
+  untilTs = null,
+  limit = 5000
+) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   const t = String(ticker || "").toUpperCase();
   const lim = Math.max(1, Math.min(20000, Number(limit) || 5000));
 
-  const since = sinceTs != null && Number.isFinite(Number(sinceTs)) ? Number(sinceTs) : null;
-  const until = untilTs != null && Number.isFinite(Number(untilTs)) ? Number(untilTs) : null;
+  const since =
+    sinceTs != null && Number.isFinite(Number(sinceTs))
+      ? Number(sinceTs)
+      : null;
+  const until =
+    untilTs != null && Number.isFinite(Number(untilTs))
+      ? Number(untilTs)
+      : null;
 
   try {
     let stmt;
     if (since != null && until != null) {
-      stmt = db.prepare(
-        `SELECT ts, payload_json
+      stmt = db
+        .prepare(
+          `SELECT ts, payload_json
          FROM timed_trail
          WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3
          ORDER BY ts ASC
          LIMIT ?4`
-      ).bind(t, since, until, lim);
+        )
+        .bind(t, since, until, lim);
     } else if (since != null) {
-      stmt = db.prepare(
-        `SELECT ts, payload_json
+      stmt = db
+        .prepare(
+          `SELECT ts, payload_json
          FROM timed_trail
          WHERE ticker = ?1 AND ts >= ?2
          ORDER BY ts ASC
          LIMIT ?3`
-      ).bind(t, since, lim);
+        )
+        .bind(t, since, lim);
     } else {
-      stmt = db.prepare(
-        `SELECT ts, payload_json
+      stmt = db
+        .prepare(
+          `SELECT ts, payload_json
          FROM timed_trail
          WHERE ticker = ?1
          ORDER BY ts DESC
          LIMIT ?2`
-      ).bind(t, lim);
+        )
+        .bind(t, lim);
     }
 
     const rows = await stmt.all();
@@ -3698,7 +3750,8 @@ async function d1UpsertAlert(env, alert) {
 
   const ticker = String(alert?.ticker || "").toUpperCase();
   const ts = Number(alert?.ts);
-  if (!ticker || !Number.isFinite(ts)) return { ok: false, skipped: true, reason: "bad_key" };
+  if (!ticker || !Number.isFinite(ts))
+    return { ok: false, skipped: true, reason: "bad_key" };
 
   const alertId = String(alert?.alert_id || `${ticker}:${ts}`);
   const discordSent = alert?.discord_sent ? 1 : 0;
@@ -3753,15 +3806,29 @@ async function d1UpsertTrade(env, trade) {
 
   // Best-effort exit ts from history
   let exitTs = null;
+  let exitEvent = null;
   if (Array.isArray(trade.history)) {
     for (let i = trade.history.length - 1; i >= 0; i--) {
       const e = trade.history[i];
       if (e && e.type === "EXIT") {
+        exitEvent = e;
         exitTs = isoToMs(e.timestamp);
         break;
       }
     }
   }
+
+  // Best-effort exit price/reason from history for legacy trades (so backfill becomes useful)
+  const derivedExitPrice =
+    trade.exitPrice != null
+      ? Number(trade.exitPrice)
+      : exitEvent && exitEvent.price != null
+      ? Number(exitEvent.price)
+      : null;
+  const derivedExitReason =
+    trade.exitReason != null
+      ? String(trade.exitReason)
+      : inferExitReasonForLegacyTrade(trade, exitEvent);
 
   try {
     // Preserve created_at by inserting once.
@@ -3784,8 +3851,8 @@ async function d1UpsertTrade(env, trade) {
         trade.rr != null ? Number(trade.rr) : null,
         trade.status != null ? String(trade.status) : null,
         exitTs != null ? Number(exitTs) : null,
-        trade.exitPrice != null ? Number(trade.exitPrice) : null,
-        trade.exitReason != null ? String(trade.exitReason) : null,
+        Number.isFinite(derivedExitPrice) ? derivedExitPrice : null,
+        derivedExitReason != null ? String(derivedExitReason) : null,
         trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
         trade.pnl != null ? Number(trade.pnl) : null,
         trade.pnlPct != null ? Number(trade.pnlPct) : null,
@@ -3818,8 +3885,8 @@ async function d1UpsertTrade(env, trade) {
         trade.rr != null ? Number(trade.rr) : null,
         trade.status != null ? String(trade.status) : null,
         exitTs != null ? Number(exitTs) : null,
-        trade.exitPrice != null ? Number(trade.exitPrice) : null,
-        trade.exitReason != null ? String(trade.exitReason) : null,
+        Number.isFinite(derivedExitPrice) ? derivedExitPrice : null,
+        derivedExitReason != null ? String(derivedExitReason) : null,
         trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
         trade.pnl != null ? Number(trade.pnl) : null,
         trade.pnlPct != null ? Number(trade.pnlPct) : null,
@@ -3847,13 +3914,18 @@ async function d1InsertTradeEvent(env, tradeId, event) {
 
   const ts = isoToMs(event.timestamp) || Number(event.ts) || null;
   const type = String(event.type || "").toUpperCase();
-  if (!Number.isFinite(ts) || !type) return { ok: false, skipped: true, reason: "bad_event_key" };
+  if (!Number.isFinite(ts) || !type)
+    return { ok: false, skipped: true, reason: "bad_event_key" };
 
   const eventId = `${tradeId}:${type}:${ts}`;
 
   // Quantity fields: for TRIM, represent trimmed percentages.
   const qtyPctTotal =
-    event.trimPct != null ? Number(event.trimPct) : event.trimmedPct != null ? Number(event.trimmedPct) : null;
+    event.trimPct != null
+      ? Number(event.trimPct)
+      : event.trimmedPct != null
+      ? Number(event.trimmedPct)
+      : null;
   const qtyPctDelta =
     event.trimDeltaPct != null ? Number(event.trimDeltaPct) : null;
 
@@ -3879,8 +3951,12 @@ async function d1InsertTradeEvent(env, tradeId, event) {
         Number(ts),
         type,
         event.price != null ? Number(event.price) : null,
-        qtyPctDelta != null && Number.isFinite(qtyPctDelta) ? qtyPctDelta : null,
-        qtyPctTotal != null && Number.isFinite(qtyPctTotal) ? qtyPctTotal : null,
+        qtyPctDelta != null && Number.isFinite(qtyPctDelta)
+          ? qtyPctDelta
+          : null,
+        qtyPctTotal != null && Number.isFinite(qtyPctTotal)
+          ? qtyPctTotal
+          : null,
         event.pnl_realized != null ? Number(event.pnl_realized) : null,
         event.reason != null ? String(event.reason) : null,
         meta
@@ -3916,6 +3992,52 @@ function decodeCursor(s) {
   } catch {
     return null;
   }
+}
+
+function parseExitReasonFromText(text) {
+  const s = String(text || "").toUpperCase();
+  if (!s) return null;
+  if (s.includes("TDSEQ") || s.includes("TD9") || s.includes("TD13"))
+    return "TDSEQ";
+  // Prefer explicit SL phrasing
+  if (s.includes("STOP LOSS") || s.includes("STOP-LOSS")) return "SL";
+  // Avoid mapping generic "SL" inside words; still helpful for legacy notes
+  if (/\bSL\b/.test(s)) return "SL";
+  if (s.includes("TP_FULL")) return "TP_FULL";
+  if (s.includes("TAKE PROFIT")) return "TP_FULL";
+  // Avoid mapping any "TP" occurrence too aggressively
+  if (/\bTP\b/.test(s)) return "TP_FULL";
+  return null;
+}
+
+function parseTrimPctFromText(text) {
+  const s = String(text || "");
+  const m = s.match(/Trimmed\s+(\d{1,3})%/i);
+  if (!m) return null;
+  const pct = Number(m[1]);
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+  return Math.max(0, Math.min(1, pct / 100));
+}
+
+function inferExitReasonForLegacyTrade(trade, exitEvent) {
+  const explicit =
+    (exitEvent && exitEvent.reason) ||
+    (trade && trade.exitReason) ||
+    (trade && trade.exit_reason);
+  if (explicit) return String(explicit);
+
+  const parsed =
+    parseExitReasonFromText(exitEvent?.note) ||
+    parseExitReasonFromText(exitEvent?.meta_json) ||
+    parseExitReasonFromText(exitEvent?.text) ||
+    parseExitReasonFromText(exitEvent?.type);
+  if (parsed) return parsed;
+
+  // Heuristic fallback for legacy trades with no reason recorded
+  const status = String(trade?.status || "").toUpperCase();
+  if (status === "LOSS") return "SL";
+  if (status === "WIN") return "TP_FULL";
+  return "unknown";
 }
 
 // Activity feed tracking (1 week history)
@@ -4613,7 +4735,8 @@ function createTradeTrimmedEmbed(
     typeof trimDeltaPct === "number" && Number.isFinite(trimDeltaPct)
       ? trimDeltaPct
       : null;
-  const stepTrimPercent = stepTrimPct != null ? Math.round(stepTrimPct * 100) : null;
+  const stepTrimPercent =
+    stepTrimPct != null ? Math.round(stepTrimPct * 100) : null;
 
   // Next TP level (if we have a TP array)
   const nextTp =
@@ -4662,10 +4785,12 @@ function createTradeTrimmedEmbed(
     },
     {
       name: "📈 Position Status",
-      value: `**Remaining:** ${Math.round(
-        remainingPct * 100
-      )}%\n**Next TP:** ${
-        nextTp ? `$${Number(nextTp.price).toFixed(2)} (${Math.round(nextTp.trimPct * 100)}%)` : "—"
+      value: `**Remaining:** ${Math.round(remainingPct * 100)}%\n**Next TP:** ${
+        nextTp
+          ? `$${Number(nextTp.price).toFixed(2)} (${Math.round(
+              nextTp.trimPct * 100
+            )}%)`
+          : "—"
       }\n**Status:** Holding remaining position`,
       inline: true,
     },
@@ -6750,18 +6875,26 @@ export default {
                 // Calculate current R:R using current price (not trigger price)
                 // This gives accurate R:R based on where price is now
                 const currentRR = computeRR(payload);
-                const rr = currentRR != null ? currentRR : (payload.rr || 0);
-                
+                const rr = currentRR != null ? currentRR : payload.rr || 0;
+
                 // Process TP levels with metadata
                 const currentPrice = Number(payload.price) || 0;
                 let tpLevels = [];
                 let maxTP = Number(payload.tp);
                 let minTP = Number(payload.tp);
-                
-                if (payload.tp_levels && Array.isArray(payload.tp_levels) && payload.tp_levels.length > 0) {
+
+                if (
+                  payload.tp_levels &&
+                  Array.isArray(payload.tp_levels) &&
+                  payload.tp_levels.length > 0
+                ) {
                   tpLevels = payload.tp_levels
                     .map((tpItem) => {
-                      if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
+                      if (
+                        typeof tpItem === "object" &&
+                        tpItem !== null &&
+                        tpItem.price != null
+                      ) {
                         const price = Number(tpItem.price);
                         if (!Number.isFinite(price) || price <= 0) return null;
                         return {
@@ -6770,11 +6903,16 @@ export default {
                           type: tpItem.type || "ATR_FIB",
                           timeframe: tpItem.timeframe || "D",
                           confidence: Number(tpItem.confidence || 0.75),
-                          multiplier: tpItem.multiplier ? Number(tpItem.multiplier) : null,
+                          multiplier: tpItem.multiplier
+                            ? Number(tpItem.multiplier)
+                            : null,
                           label: tpItem.label || "TP",
                         };
                       }
-                      const price = typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
+                      const price =
+                        typeof tpItem === "number"
+                          ? Number(tpItem)
+                          : Number(tpItem);
                       if (!Number.isFinite(price) || price <= 0) return null;
                       return {
                         price,
@@ -6787,18 +6925,20 @@ export default {
                       };
                     })
                     .filter((tp) => tp !== null);
-                  
+
                   if (tpLevels.length > 0) {
                     const tpPrices = tpLevels.map((tp) => tp.price);
                     maxTP = Math.max(...tpPrices);
                     minTP = Math.min(...tpPrices);
                   }
                 }
-                
+
                 // Add primary TP if not already in levels
                 const primaryTP = Number(payload.tp);
                 if (Number.isFinite(primaryTP) && primaryTP > 0) {
-                  const exists = tpLevels.some((tp) => Math.abs(tp.price - primaryTP) < 0.01);
+                  const exists = tpLevels.some(
+                    (tp) => Math.abs(tp.price - primaryTP) < 0.01
+                  );
                   if (!exists) {
                     tpLevels.push({
                       price: primaryTP,
@@ -6811,31 +6951,47 @@ export default {
                     });
                   }
                 }
-                
+
                 // Sort TP levels by price (ascending for LONG, descending for SHORT)
                 const state = String(payload.state || "");
                 const isLong = state.includes("BULL");
-                tpLevels.sort((a, b) => (isLong ? a.price - b.price : b.price - a.price));
-                
+                tpLevels.sort((a, b) =>
+                  isLong ? a.price - b.price : b.price - a.price
+                );
+
                 const rrFormatted =
                   rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
-                
+
                 // Calculate distance to TP and SL from current price
-                const distanceToMaxTP = maxTP > 0 ? Math.abs(maxTP - currentPrice) : 0;
-                const distanceToSL = Number(payload.sl) > 0 ? Math.abs(currentPrice - Number(payload.sl)) : 0;
-                const maxTPDistancePct = currentPrice > 0 ? ((distanceToMaxTP / currentPrice) * 100).toFixed(2) : "0.00";
-                const slDistancePct = currentPrice > 0 ? ((distanceToSL / currentPrice) * 100).toFixed(2) : "0.00";
-                
+                const distanceToMaxTP =
+                  maxTP > 0 ? Math.abs(maxTP - currentPrice) : 0;
+                const distanceToSL =
+                  Number(payload.sl) > 0
+                    ? Math.abs(currentPrice - Number(payload.sl))
+                    : 0;
+                const maxTPDistancePct =
+                  currentPrice > 0
+                    ? ((distanceToMaxTP / currentPrice) * 100).toFixed(2)
+                    : "0.00";
+                const slDistancePct =
+                  currentPrice > 0
+                    ? ((distanceToSL / currentPrice) * 100).toFixed(2)
+                    : "0.00";
+
                 // Generate comprehensive trade opportunity interpretation
-                const interpretation = generateTradeActionInterpretation("ENTRY", payload, {
-                  direction: side,
-                  rank: payload.rank,
-                  rr: rr,
-                });
-                
+                const interpretation = generateTradeActionInterpretation(
+                  "ENTRY",
+                  payload,
+                  {
+                    direction: side,
+                    rank: payload.rank,
+                    rr: rr,
+                  }
+                );
+
                 // Build comprehensive fields similar to Trade Entered card
                 const fields = [];
-                
+
                 // Action & Reasoning (comprehensive explanation)
                 if (interpretation) {
                   fields.push({
@@ -6847,38 +7003,74 @@ export default {
                   // Fallback detailed explanation
                   const reasons = [];
                   if (inCorridor) reasons.push("✅ Price is in entry corridor");
-                  if (corridorAlignedOK) reasons.push("✅ Timeframes are aligned");
-                  if (enhancedTrigger) reasons.push("✅ Trigger conditions met");
+                  if (corridorAlignedOK)
+                    reasons.push("✅ Timeframes are aligned");
+                  if (enhancedTrigger)
+                    reasons.push("✅ Trigger conditions met");
                   if (momentumElite) reasons.push("⭐ Momentum Elite stock");
-                  if (rr >= 1.5) reasons.push(`💰 Excellent R:R (${rrFormatted})`);
-                  if (payload.rank >= 75) reasons.push(`⭐ High rank (${payload.rank})`);
-                  
+                  if (rr >= 1.5)
+                    reasons.push(`💰 Excellent R:R (${rrFormatted})`);
+                  if (payload.rank >= 75)
+                    reasons.push(`⭐ High rank (${payload.rank})`);
+
                   fields.push({
                     name: "📊 Why This Is A Trade Opportunity",
-                    value: reasons.length > 0 ? reasons.join("\n") : why || "Trade opportunity detected",
+                    value:
+                      reasons.length > 0
+                        ? reasons.join("\n")
+                        : why || "Trade opportunity detected",
                     inline: false,
                   });
                 }
-                
+
                 // Entry Details
                 fields.push({
                   name: "💰 Entry Details",
-                  value: `**Trigger Price:** $${fmt2(payload.trigger_price)}\n**Current Price:** $${fmt2(payload.price)}\n**Stop Loss:** $${fmt2(payload.sl)} (${slDistancePct}% away)`,
+                  value: `**Trigger Price:** $${fmt2(
+                    payload.trigger_price
+                  )}\n**Current Price:** $${fmt2(
+                    payload.price
+                  )}\n**Stop Loss:** $${fmt2(
+                    payload.sl
+                  )} (${slDistancePct}% away)`,
                   inline: false,
                 });
-                
+
                 // TP Levels with detailed breakdown
                 if (tpLevels.length > 0) {
-                  const tpLevelText = tpLevels.map((tp) => {
-                    const distance = Math.abs(tp.price - currentPrice);
-                    const distancePct = currentPrice > 0 ? ((distance / currentPrice) * 100).toFixed(2) : "0.00";
-                    const isMax = Math.abs(tp.price - maxTP) < 0.01;
-                    const prefix = isMax ? "**⭐ MAX TP:**" : `**TP:**`;
-                    const typeLabel = tp.type === "STRUCTURE" ? "Structure" : tp.type === "ATR_FIB" ? (tp.multiplier ? `ATR×${tp.multiplier}` : "ATR Fib") : tp.type;
-                    const tfLabel = tp.timeframe === "W" ? "Weekly" : tp.timeframe === "D" ? "Daily" : tp.timeframe === "240" || tp.timeframe === "4H" ? "4H" : tp.timeframe;
-                    return `${prefix} $${tp.price.toFixed(2)} (${distancePct}% away) - ${typeLabel} @ ${tfLabel} (${(tp.confidence * 100).toFixed(0)}% conf)`;
-                  }).join("\n");
-                  
+                  const tpLevelText = tpLevels
+                    .map((tp) => {
+                      const distance = Math.abs(tp.price - currentPrice);
+                      const distancePct =
+                        currentPrice > 0
+                          ? ((distance / currentPrice) * 100).toFixed(2)
+                          : "0.00";
+                      const isMax = Math.abs(tp.price - maxTP) < 0.01;
+                      const prefix = isMax ? "**⭐ MAX TP:**" : `**TP:**`;
+                      const typeLabel =
+                        tp.type === "STRUCTURE"
+                          ? "Structure"
+                          : tp.type === "ATR_FIB"
+                          ? tp.multiplier
+                            ? `ATR×${tp.multiplier}`
+                            : "ATR Fib"
+                          : tp.type;
+                      const tfLabel =
+                        tp.timeframe === "W"
+                          ? "Weekly"
+                          : tp.timeframe === "D"
+                          ? "Daily"
+                          : tp.timeframe === "240" || tp.timeframe === "4H"
+                          ? "4H"
+                          : tp.timeframe;
+                      return `${prefix} $${tp.price.toFixed(
+                        2
+                      )} (${distancePct}% away) - ${typeLabel} @ ${tfLabel} (${(
+                        tp.confidence * 100
+                      ).toFixed(0)}% conf)`;
+                    })
+                    .join("\n");
+
                   fields.push({
                     name: "🎯 Take Profit Levels",
                     value: tpLevelText,
@@ -6886,47 +7078,68 @@ export default {
                   });
                 } else {
                   // Fallback if no TP levels
-                  const distanceToTP = primaryTP > 0 ? Math.abs(primaryTP - currentPrice) : 0;
-                  const tpDistancePct = currentPrice > 0 ? ((distanceToTP / currentPrice) * 100).toFixed(2) : "0.00";
-                  const tpVeryClose = currentPrice > 0 && distanceToTP / currentPrice < 0.005;
+                  const distanceToTP =
+                    primaryTP > 0 ? Math.abs(primaryTP - currentPrice) : 0;
+                  const tpDistancePct =
+                    currentPrice > 0
+                      ? ((distanceToTP / currentPrice) * 100).toFixed(2)
+                      : "0.00";
+                  const tpVeryClose =
+                    currentPrice > 0 && distanceToTP / currentPrice < 0.005;
                   const tpWarning = tpVeryClose ? " ⚠️ Very close!" : "";
-                  
+
                   fields.push({
                     name: "🎯 Take Profit",
-                    value: `**Primary TP:** $${fmt2(primaryTP)} (${tpDistancePct}% away)${tpWarning}`,
+                    value: `**Primary TP:** $${fmt2(
+                      primaryTP
+                    )} (${tpDistancePct}% away)${tpWarning}`,
                     inline: false,
                   });
                 }
-                
+
                 // Scores & Metrics
                 const htfScore = Number(payload.htf_score || 0);
                 const ltfScore = Number(payload.ltf_score || 0);
                 const completion = Number(payload.completion || 0);
                 const phase = Number(payload.phase_pct || 0);
-                
+
                 fields.push({
                   name: "📈 Scores & Metrics",
-                  value: `**HTF Score:** ${htfScore.toFixed(2)}\n**LTF Score:** ${ltfScore.toFixed(2)}\n**Completion:** ${(completion * 100).toFixed(1)}%\n**Phase:** ${(phase * 100).toFixed(1)}%`,
+                  value: `**HTF Score:** ${htfScore.toFixed(
+                    2
+                  )}\n**LTF Score:** ${ltfScore.toFixed(2)}\n**Completion:** ${(
+                    completion * 100
+                  ).toFixed(1)}%\n**Phase:** ${(phase * 100).toFixed(1)}%`,
                   inline: true,
                 });
-                
+
                 // Quality Metrics
                 fields.push({
                   name: "⭐ Quality Metrics",
-                  value: `**Rank:** ${payload.rank}\n**Risk/Reward:** ${rrFormatted}${currentRR != null && currentRR !== payload.rr ? " ⚠️" : ""}\n**State:** ${payload.state || "N/A"}\n**ETA:** ${payload.eta_days != null ? `${Number(payload.eta_days).toFixed(1)}d` : "—"}`,
+                  value: `**Rank:** ${
+                    payload.rank
+                  }\n**Risk/Reward:** ${rrFormatted}${
+                    currentRR != null && currentRR !== payload.rr ? " ⚠️" : ""
+                  }\n**State:** ${payload.state || "N/A"}\n**ETA:** ${
+                    payload.eta_days != null
+                      ? `${Number(payload.eta_days).toFixed(1)}d`
+                      : "—"
+                  }`,
                   inline: true,
                 });
-                
+
                 // Active Signals
                 if (payload.flags) {
                   const flags = payload.flags;
                   const flagItems = [];
                   if (flags.sq30_release) flagItems.push("🚀 Squeeze Release");
-                  if (flags.sq30_on && !flags.sq30_release) flagItems.push("💥 In Squeeze");
+                  if (flags.sq30_on && !flags.sq30_release)
+                    flagItems.push("💥 In Squeeze");
                   if (flags.momentum_elite) flagItems.push("⭐ Momentum Elite");
                   if (flags.phase_dot) flagItems.push("⚫ Phase Dot");
-                  if (flags.phase_zone_change) flagItems.push("🔄 Phase Zone Change");
-                  
+                  if (flags.phase_zone_change)
+                    flagItems.push("🔄 Phase Zone Change");
+
                   if (flagItems.length > 0) {
                     fields.push({
                       name: "🚩 Active Signals",
@@ -6935,7 +7148,7 @@ export default {
                     });
                   }
                 }
-                
+
                 // TD Sequential if available
                 if (payload.td_sequential) {
                   const tdSeq = payload.td_sequential;
@@ -6944,54 +7157,74 @@ export default {
                   if (tdSeq.td9_bearish) tdItems.push("🔢 TD9 Bearish");
                   if (tdSeq.td13_bullish) tdItems.push("🔢 TD13 Bullish");
                   if (tdSeq.td13_bearish) tdItems.push("🔢 TD13 Bearish");
-                  
+
                   if (tdItems.length > 0) {
                     fields.push({
                       name: "🔢 TD Sequential",
-                      value: tdItems.join("\n") + (tdSeq.boost ? `\n**Boost:** ${Number(tdSeq.boost).toFixed(1)}` : ""),
+                      value:
+                        tdItems.join("\n") +
+                        (tdSeq.boost
+                          ? `\n**Boost:** ${Number(tdSeq.boost).toFixed(1)}`
+                          : ""),
                       inline: false,
                     });
                   }
                 }
-                
+
                 // RSI if available
                 if (payload.rsi) {
                   const rsi = payload.rsi;
                   const rsiValue = Number(rsi.value || 0);
                   const rsiLevel = rsi.level || "neutral";
                   const divergence = rsi.divergence || {};
-                  
+
                   let rsiText = `**RSI:** ${rsiValue.toFixed(2)} (${rsiLevel})`;
                   if (divergence.type && divergence.type !== "none") {
-                    rsiText += `\n**Divergence:** ${divergence.type === "bullish" ? "🔼 Bullish" : "🔽 Bearish"}`;
+                    rsiText += `\n**Divergence:** ${
+                      divergence.type === "bullish"
+                        ? "🔼 Bullish"
+                        : "🔽 Bearish"
+                    }`;
                     if (divergence.strength) {
-                      rsiText += ` (Strength: ${Number(divergence.strength).toFixed(2)})`;
+                      rsiText += ` (Strength: ${Number(
+                        divergence.strength
+                      ).toFixed(2)})`;
                     }
                   }
-                  
+
                   fields.push({
                     name: "📊 RSI",
                     value: rsiText,
                     inline: false,
                   });
                 }
-                
+
                 // EMA Cloud positions if available
-                if (payload.daily_ema_cloud || payload.fourh_ema_cloud || payload.oneh_ema_cloud) {
+                if (
+                  payload.daily_ema_cloud ||
+                  payload.fourh_ema_cloud ||
+                  payload.oneh_ema_cloud
+                ) {
                   const cloudItems = [];
                   if (payload.daily_ema_cloud) {
                     const daily = payload.daily_ema_cloud;
-                    cloudItems.push(`**Daily (5-8 EMA):** ${daily.position.toUpperCase()}`);
+                    cloudItems.push(
+                      `**Daily (5-8 EMA):** ${daily.position.toUpperCase()}`
+                    );
                   }
                   if (payload.fourh_ema_cloud) {
                     const fourH = payload.fourh_ema_cloud;
-                    cloudItems.push(`**4H (8-13 EMA):** ${fourH.position.toUpperCase()}`);
+                    cloudItems.push(
+                      `**4H (8-13 EMA):** ${fourH.position.toUpperCase()}`
+                    );
                   }
                   if (payload.oneh_ema_cloud) {
                     const oneH = payload.oneh_ema_cloud;
-                    cloudItems.push(`**1H (13-21 EMA):** ${oneH.position.toUpperCase()}`);
+                    cloudItems.push(
+                      `**1H (13-21 EMA):** ${oneH.position.toUpperCase()}`
+                    );
                   }
-                  
+
                   if (cloudItems.length > 0) {
                     fields.push({
                       name: "☁️ EMA Cloud Positions",
@@ -7000,7 +7233,7 @@ export default {
                     });
                   }
                 }
-                
+
                 const opportunityEmbed = {
                   title: `🎯 Trading Opportunity: ${ticker} ${side}`,
                   color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
@@ -7025,17 +7258,19 @@ export default {
                   dedupe_day: today,
                   discord_sent: !!sendRes?.ok,
                   discord_status: sendRes?.status ?? null,
-                  discord_error:
-                    sendRes?.ok
-                      ? null
-                      : sendRes?.reason ||
-                        sendRes?.statusText ||
-                        sendRes?.error ||
-                        "discord_send_failed",
+                  discord_error: sendRes?.ok
+                    ? null
+                    : sendRes?.reason ||
+                      sendRes?.statusText ||
+                      sendRes?.error ||
+                      "discord_send_failed",
                   payload_json: alertPayloadJson,
                   meta_json: alertMetaJson,
                 }).catch((e) => {
-                  console.error(`[D1 LEDGER] Failed to upsert alert ${ticker}:`, e);
+                  console.error(
+                    `[D1 LEDGER] Failed to upsert alert ${ticker}:`,
+                    e
+                  );
                 });
 
                 // Log Discord alert to activity feed
@@ -7127,7 +7362,10 @@ export default {
                   payload_json: alertPayloadJson,
                   meta_json: alertMetaJson,
                 }).catch((e) => {
-                  console.error(`[D1 LEDGER] Failed to upsert deduped alert ${ticker}:`, e);
+                  console.error(
+                    `[D1 LEDGER] Failed to upsert deduped alert ${ticker}:`,
+                    e
+                  );
                 });
               }
             } else if (inCorridor && corridorAlignedOK) {
@@ -7300,19 +7538,12 @@ export default {
               state: payload.state,
               rank: payload.rank,
               flags: payload.flags || {},
-              momentum_elite: !!(
-                payload.flags && payload.flags.momentum_elite
-              ),
+              momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
               trigger_reason: payload.trigger_reason,
               trigger_dir: payload.trigger_dir,
             };
 
-            await appendTrail(
-              KV,
-              ticker,
-              trailPoint,
-              20
-            ); // Increased to 20 points for better history
+            await appendTrail(KV, ticker, trailPoint, 20); // Increased to 20 points for better history
 
             // Also store into D1 (if configured) for 7-day history.
             // Don't let D1 failures affect ingestion.
@@ -7776,7 +8007,8 @@ export default {
         } catch (error) {
           console.error(`[TRAIL] Unexpected error:`, error);
           // Return empty trail instead of 500 error
-          const ticker = normTicker(url.searchParams.get("ticker")) || "UNKNOWN";
+          const ticker =
+            normTicker(url.searchParams.get("ticker")) || "UNKNOWN";
           return sendJSON(
             { ok: true, ticker, trail: [], count: 0, source: "error" },
             200,
@@ -9389,11 +9621,7 @@ export default {
         // Use current price for dynamic RR calculation (matches actual alert logic)
         const currentRR = computeRR(data);
         const rrToUse =
-          currentRR != null
-            ? currentRR
-            : data.rr != null
-            ? Number(data.rr)
-            : 0;
+          currentRR != null ? currentRR : data.rr != null ? Number(data.rr) : 0;
         const rrOk = rrToUse >= minRR;
         const compOk =
           data.completion == null ? true : Number(data.completion) <= maxComp;
@@ -9537,7 +9765,13 @@ export default {
         const limit =
           limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 5000;
 
-        const history = await d1GetTrailPayloadRange(env, ticker, since, until, limit);
+        const history = await d1GetTrailPayloadRange(
+          env,
+          ticker,
+          since,
+          until,
+          limit
+        );
         if (!history.ok) {
           return sendJSON(
             {
@@ -9553,7 +9787,9 @@ export default {
           );
         }
 
-        const payloads = Array.isArray(history.payloads) ? history.payloads : [];
+        const payloads = Array.isArray(history.payloads)
+          ? history.payloads
+          : [];
         if (payloads.length === 0) {
           return sendJSON(
             {
@@ -9589,10 +9825,12 @@ export default {
           const alignedShort = state === "HTF_BEAR_LTF_BEAR";
           const aligned = alignedLong || alignedShort;
 
-          const enteredAligned = aligned && prevState != null && prevState !== state;
+          const enteredAligned =
+            aligned && prevState != null && prevState !== state;
 
           const trigReason = String(data.trigger_reason || "");
-          const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+          const trigOk =
+            trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
 
           const flags = data.flags || {};
           const sqRel = !!flags.sq30_release;
@@ -9600,17 +9838,28 @@ export default {
           const side = corridorSide(data);
           const inCorridor = !!side;
           const corridorAlignedOK =
-            (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+            (side === "LONG" && alignedLong) ||
+            (side === "SHORT" && alignedShort);
 
           const shouldConsiderAlert =
-            inCorridor && corridorAlignedOK && (enteredAligned || trigOk || sqRel);
+            inCorridor &&
+            corridorAlignedOK &&
+            (enteredAligned || trigOk || sqRel);
 
           const momentumElite = !!flags.momentum_elite;
 
-          const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
-          const maxComp = momentumElite ? Math.min(0.5, baseMaxComp * 1.25) : baseMaxComp;
-          const maxPhase = momentumElite ? Math.min(0.7, baseMaxPhase * 1.17) : baseMaxPhase;
-          const minRank = momentumElite ? Math.max(60, baseMinRank - 10) : baseMinRank;
+          const minRR = momentumElite
+            ? Math.max(1.2, baseMinRR * 0.9)
+            : baseMinRR;
+          const maxComp = momentumElite
+            ? Math.min(0.5, baseMaxComp * 1.25)
+            : baseMaxComp;
+          const maxPhase = momentumElite
+            ? Math.min(0.7, baseMaxPhase * 1.17)
+            : baseMaxPhase;
+          const minRank = momentumElite
+            ? Math.max(60, baseMinRank - 10)
+            : baseMinRank;
 
           const currentRR = computeRR(data);
           const rrToUse =
@@ -9620,17 +9869,19 @@ export default {
               ? Number(data.rr)
               : 0;
           const rrOk = rrToUse >= minRR;
-          const compOk = data.completion == null ? true : Number(data.completion) <= maxComp;
-          const phaseOk = data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
+          const compOk =
+            data.completion == null ? true : Number(data.completion) <= maxComp;
+          const phaseOk =
+            data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
           const rankOk = Number(data.rank || 0) >= minRank;
 
-          const momentumEliteTrigger = momentumElite && inCorridor && corridorAlignedOK;
+          const momentumEliteTrigger =
+            momentumElite && inCorridor && corridorAlignedOK;
           const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
           const wouldAlertLogic =
             enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
-          const wouldAlert =
-            wouldAlertLogic && discordEnabled && discordUrlSet;
+          const wouldAlert = wouldAlertLogic && discordEnabled && discordUrlSet;
 
           // Track days where alert would have been eligible (for dedupe lookups)
           const ts = Number(data.ts);
@@ -9683,8 +9934,10 @@ export default {
         // Compute "wouldSendIfFirstOfDay" as a deterministic simulation of dedupe behavior
         const firstOfDaySeen = new Set();
         const enriched = results.map((r) => {
-          if (!r.wouldAlert) return { ...r, dedupe: dedupe[r.day] || null, wouldSend: false };
-          const already = (dedupe[r.day] && dedupe[r.day].alreadyAlerted) || false;
+          if (!r.wouldAlert)
+            return { ...r, dedupe: dedupe[r.day] || null, wouldSend: false };
+          const already =
+            (dedupe[r.day] && dedupe[r.day].alreadyAlerted) || false;
           const first = r.day && !firstOfDaySeen.has(r.day);
           if (r.day && first) firstOfDaySeen.add(r.day);
           return {
@@ -9732,7 +9985,13 @@ export default {
         }
 
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        const rateLimit = await checkRateLimit(KV, ip, "/timed/ledger/trades", 600, 3600);
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/ledger/trades",
+          600,
+          3600
+        );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
@@ -9748,8 +10007,10 @@ export default {
         const limitRaw = url.searchParams.get("limit");
         const cursorRaw = url.searchParams.get("cursor");
 
-        const since = sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
-        const until = untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
+        const since =
+          sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
+        const until =
+          untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
         const limit = Math.max(1, Math.min(1000, Number(limitRaw) || 200));
         const cursor = decodeCursor(cursorRaw);
 
@@ -9771,9 +10032,17 @@ export default {
           where += " AND entry_ts <= ?";
           binds.push(Number(until));
         }
-        if (cursor && Number.isFinite(Number(cursor.entry_ts)) && cursor.trade_id) {
+        if (
+          cursor &&
+          Number.isFinite(Number(cursor.entry_ts)) &&
+          cursor.trade_id
+        ) {
           where += " AND (entry_ts < ? OR (entry_ts = ? AND trade_id < ?))";
-          binds.push(Number(cursor.entry_ts), Number(cursor.entry_ts), String(cursor.trade_id));
+          binds.push(
+            Number(cursor.entry_ts),
+            Number(cursor.entry_ts),
+            String(cursor.trade_id)
+          );
         }
 
         const sql = `SELECT
@@ -9785,7 +10054,10 @@ export default {
           ORDER BY entry_ts DESC, trade_id DESC
           LIMIT ?`;
 
-        const rows = await db.prepare(sql).bind(...binds, limit + 1).all();
+        const rows = await db
+          .prepare(sql)
+          .bind(...binds, limit + 1)
+          .all();
         const results = Array.isArray(rows?.results) ? rows.results : [];
         const page = results.slice(0, limit);
         const hasMore = results.length > limit;
@@ -9803,7 +10075,10 @@ export default {
       }
 
       // GET /timed/ledger/trades/:tradeId
-      if (url.pathname.startsWith("/timed/ledger/trades/") && req.method === "GET") {
+      if (
+        url.pathname.startsWith("/timed/ledger/trades/") &&
+        req.method === "GET"
+      ) {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -9813,7 +10088,9 @@ export default {
           );
         }
 
-        const tradeId = decodeURIComponent(url.pathname.split("/timed/ledger/trades/")[1] || "").trim();
+        const tradeId = decodeURIComponent(
+          url.pathname.split("/timed/ledger/trades/")[1] || ""
+        ).trim();
         if (!tradeId) {
           return sendJSON(
             { ok: false, error: "missing trade_id" },
@@ -9822,7 +10099,8 @@ export default {
           );
         }
 
-        const includeEvidence = (url.searchParams.get("includeEvidence") || "") === "1";
+        const includeEvidence =
+          (url.searchParams.get("includeEvidence") || "") === "1";
 
         const tradeRow = await db
           .prepare(
@@ -9854,7 +10132,9 @@ export default {
           .bind(tradeId)
           .all();
 
-        const events = Array.isArray(eventsRows?.results) ? eventsRows.results : [];
+        const events = Array.isArray(eventsRows?.results)
+          ? eventsRows.results
+          : [];
 
         let evidence = null;
         if (includeEvidence) {
@@ -9907,7 +10187,13 @@ export default {
         }
 
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        const rateLimit = await checkRateLimit(KV, ip, "/timed/ledger/alerts", 600, 3600);
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/ledger/alerts",
+          600,
+          3600
+        );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
@@ -9923,8 +10209,10 @@ export default {
         const limitRaw = url.searchParams.get("limit");
         const cursorRaw = url.searchParams.get("cursor");
 
-        const since = sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
-        const until = untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
+        const since =
+          sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
+        const until =
+          untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
         const limit = Math.max(1, Math.min(1000, Number(limitRaw) || 200));
         const cursor = decodeCursor(cursorRaw);
 
@@ -9948,7 +10236,11 @@ export default {
         }
         if (cursor && Number.isFinite(Number(cursor.ts)) && cursor.alert_id) {
           where += " AND (ts < ? OR (ts = ? AND alert_id < ?))";
-          binds.push(Number(cursor.ts), Number(cursor.ts), String(cursor.alert_id));
+          binds.push(
+            Number(cursor.ts),
+            Number(cursor.ts),
+            String(cursor.alert_id)
+          );
         }
 
         const sql = `SELECT
@@ -9959,7 +10251,10 @@ export default {
           ORDER BY ts DESC, alert_id DESC
           LIMIT ?`;
 
-        const rows = await db.prepare(sql).bind(...binds, limit + 1).all();
+        const rows = await db
+          .prepare(sql)
+          .bind(...binds, limit + 1)
+          .all();
         const results = Array.isArray(rows?.results) ? rows.results : [];
         const page = results.slice(0, limit);
         const hasMore = results.length > limit;
@@ -9988,7 +10283,13 @@ export default {
         }
 
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        const rateLimit = await checkRateLimit(KV, ip, "/timed/ledger/summary", 300, 3600);
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/ledger/summary",
+          300,
+          3600
+        );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
@@ -9999,8 +10300,10 @@ export default {
 
         const sinceRaw = url.searchParams.get("since");
         const untilRaw = url.searchParams.get("until");
-        const since = sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
-        const until = untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
+        const since =
+          sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
+        const until =
+          untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
 
         let where = "WHERE 1=1";
         const binds = [];
@@ -10035,7 +10338,8 @@ export default {
         const winRate = closed > 0 ? (wins / closed) * 100 : 0;
         const grossWin = Number(overall?.gross_win || 0);
         const grossLoss = Number(overall?.gross_loss || 0);
-        const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
+        const profitFactor =
+          grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
 
         const rankBuckets = await db
           .prepare(
@@ -10152,7 +10456,10 @@ export default {
 
       // POST /timed/admin/backfill-trades?key=...&limit=...&offset=...&ticker=...
       // Backfill KV trades/history into D1 ledger tables (idempotent via upserts + INSERT OR IGNORE).
-      if (url.pathname === "/timed/admin/backfill-trades" && req.method === "POST") {
+      if (
+        url.pathname === "/timed/admin/backfill-trades" &&
+        req.method === "POST"
+      ) {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -10174,7 +10481,8 @@ export default {
         const filtered = Array.isArray(allTrades)
           ? allTrades.filter((t) => {
               if (!t || !t.id) return false;
-              if (tickerFilter) return String(t.ticker || "").toUpperCase() === tickerFilter;
+              if (tickerFilter)
+                return String(t.ticker || "").toUpperCase() === tickerFilter;
               return true;
             })
           : [];
@@ -10194,12 +10502,75 @@ export default {
           await Promise.all(
             batch.map(async (t) => {
               try {
-                const r = await d1UpsertTrade(env, t);
+                // Enrich legacy history (trim percentages + inferred exit reason/price)
+                const tradeCopy = { ...t };
+                if (Array.isArray(tradeCopy.history)) {
+                  let prevTrimTotal = 0;
+                  for (let idx = 0; idx < tradeCopy.history.length; idx++) {
+                    const ev = tradeCopy.history[idx];
+                    if (!ev || !ev.type) continue;
+                    if (String(ev.type).toUpperCase() === "TRIM") {
+                      const inferredTotal =
+                        ev.trimPct != null
+                          ? Number(ev.trimPct)
+                          : parseTrimPctFromText(ev.note) ??
+                            parseTrimPctFromText(ev.meta_json);
+                      if (
+                        inferredTotal != null &&
+                        Number.isFinite(inferredTotal)
+                      ) {
+                        ev.trimPct = inferredTotal;
+                        if (ev.trimDeltaPct == null && prevTrimTotal != null) {
+                          ev.trimDeltaPct = Math.max(
+                            0,
+                            inferredTotal - prevTrimTotal
+                          );
+                        }
+                        prevTrimTotal = inferredTotal;
+                      }
+                    }
+                    if (String(ev.type).toUpperCase() === "EXIT") {
+                      // Add explicit reason for better bucketing
+                      ev.reason =
+                        ev.reason ||
+                        inferExitReasonForLegacyTrade(tradeCopy, ev);
+                      // Ensure price is a number if present
+                      if (ev.price != null) ev.price = Number(ev.price);
+                    }
+                  }
+                }
+
+                // Ensure trade-level exit fields exist for legacy trades
+                if (
+                  (String(tradeCopy.status || "").toUpperCase() === "WIN" ||
+                    String(tradeCopy.status || "").toUpperCase() === "LOSS") &&
+                  Array.isArray(tradeCopy.history)
+                ) {
+                  const exitEv =
+                    [...tradeCopy.history]
+                      .reverse()
+                      .find((e) => e && e.type === "EXIT") || null;
+                  if (exitEv) {
+                    if (tradeCopy.exitPrice == null && exitEv.price != null)
+                      tradeCopy.exitPrice = Number(exitEv.price);
+                    if (!tradeCopy.exitReason)
+                      tradeCopy.exitReason = inferExitReasonForLegacyTrade(
+                        tradeCopy,
+                        exitEv
+                      );
+                  }
+                }
+
+                const r = await d1UpsertTrade(env, tradeCopy);
                 if (r.ok) tradesUpserted += 1;
 
-                if (Array.isArray(t.history)) {
-                  for (const ev of t.history) {
-                    const er = await d1InsertTradeEvent(env, String(t.id), ev);
+                if (Array.isArray(tradeCopy.history)) {
+                  for (const ev of tradeCopy.history) {
+                    const er = await d1InsertTradeEvent(
+                      env,
+                      String(tradeCopy.id),
+                      ev
+                    );
                     if (er.ok) eventsInserted += 1;
                   }
                 }
