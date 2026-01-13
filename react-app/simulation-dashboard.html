@@ -75,19 +75,31 @@
       function useTickerData() {
         const [data, setData] = useState({});
         const [loading, setLoading] = useState(true);
+        const [refreshing, setRefreshing] = useState(false);
         const [error, setError] = useState(null);
         const [lastUpdate, setLastUpdate] = useState(null);
+        const hasLoadedRef = React.useRef(false);
 
         const fetchData = useCallback(async () => {
           try {
-            setLoading(true);
+            if (!hasLoadedRef.current) setLoading(true);
+            setRefreshing(true);
             setError(null);
-            const res = await fetch(`${API_BASE}/timed/all`);
+            const timestamp = Date.now();
+            const res = await fetch(`${API_BASE}/timed/all?_t=${timestamp}`, {
+              cache: "no-store",
+              headers: {
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+            });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
             if (json.ok && json.data) {
               setData(json.data);
               setLastUpdate(new Date());
+              hasLoadedRef.current = true;
             } else {
               throw new Error(json.error || "Invalid response");
             }
@@ -96,31 +108,46 @@
             console.error("Fetch error:", err);
           } finally {
             setLoading(false);
+            setRefreshing(false);
           }
         }, []);
 
         useEffect(() => {
           fetchData();
-          const interval = setInterval(fetchData, 180000); // Refresh every 3 minutes
+          const interval = setInterval(fetchData, 30000); // Refresh every 30 seconds (keep prices fresh)
           return () => clearInterval(interval);
         }, [fetchData]);
 
-        return { data, loading, error, lastUpdate, refetch: fetchData };
+        return { data, loading, refreshing, error, lastUpdate, refetch: fetchData };
       }
 
       function useSimulatedTrades() {
         const [trades, setTrades] = useState([]);
         const [loading, setLoading] = useState(true);
+        const [refreshing, setRefreshing] = useState(false);
         const [error, setError] = useState(null);
+        const hasLoadedRef = React.useRef(false);
 
         // Fetch trades from Worker
         const fetchTrades = useCallback(async (version = null) => {
           try {
-            setLoading(true);
+            if (!hasLoadedRef.current) setLoading(true);
+            setRefreshing(true);
             setError(null);
-            const url = version ? `${API_BASE}/timed/trades?version=${encodeURIComponent(version)}` : `${API_BASE}/timed/trades`;
+            const ts = Date.now();
+            const baseUrl = version
+              ? `${API_BASE}/timed/trades?version=${encodeURIComponent(version)}`
+              : `${API_BASE}/timed/trades`;
+            const url = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}_t=${ts}`;
             console.log(`[UI] Fetching trades from ${url}`);
-            const res = await fetch(url);
+            const res = await fetch(url, {
+              cache: "no-store",
+              headers: {
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+            });
             console.log(`[UI] Response status: ${res.status}, ok: ${res.ok}`);
             if (!res.ok) {
               const errorText = await res.text();
@@ -138,6 +165,7 @@
             if (json.ok && Array.isArray(json.trades)) {
               console.log(`[UI] ✅ Setting ${json.trades.length} trades`);
               setTrades(json.trades);
+              hasLoadedRef.current = true;
             } else {
               console.error(`[UI] ❌ Invalid response:`, json);
               setTrades([]); // Set empty array instead of throwing
@@ -149,6 +177,7 @@
             setTrades([]); // Ensure trades is set to empty array on error
           } finally {
             setLoading(false);
+            setRefreshing(false);
           }
         }, []);
 
@@ -177,7 +206,7 @@
         }, [trades, saveTrade]);
 
 
-        return { trades, loading, error, addTrade, updateTrade, refetch: fetchTrades };
+        return { trades, loading, refreshing, error, addTrade, updateTrade, refetch: fetchTrades };
       }
 
       // ─────────────────────────────────────────────────────────────
@@ -3114,8 +3143,8 @@
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
-        const { data, loading, error, lastUpdate, refetch } = useTickerData();
-        const { trades, loading: tradesLoading, error: tradesError, addTrade, updateTrade, refetch: refetchTrades } = useSimulatedTrades();
+        const { data, loading, refreshing, error, lastUpdate, refetch } = useTickerData();
+        const { trades, loading: tradesLoading, refreshing: tradesRefreshing, error: tradesError, addTrade, updateTrade, refetch: refetchTrades } = useSimulatedTrades();
         
         // Welcome Guide state
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(false);
@@ -3165,14 +3194,16 @@
           return Array.from(versionSet).sort().reverse(); // Most recent first
         }, [trades]);
         
-        // Filter trades by version (client-side), remove duplicates, and sort alphabetically
+        // Filter trades by version (client-side), de-dupe only exact duplicates, and sort alphabetically
         const filteredTrades = useMemo(() => {
           let filtered = selectedVersion === "all" ? trades : trades.filter(t => (t.scriptVersion || "unknown") === selectedVersion);
           
-          // Remove duplicates: keep the most recent trade for each ticker+direction combination
+          // Remove duplicates: keep the most recent trade for each exact trade key
+          // (Ticker + Direction + EntryTime/Id). This prevents accidental collapsing of real historical trades.
           const tradeMap = new Map();
           filtered.forEach(trade => {
-            const key = `${trade.ticker}_${trade.direction}`;
+            const entryKey = trade.entryTime || trade.entryTs || trade.trigger_ts || trade.id || "";
+            const key = `${trade.ticker}_${trade.direction}_${entryKey}`;
             const existing = tradeMap.get(key);
             if (!existing) {
               tradeMap.set(key, trade);
@@ -3196,8 +3227,102 @@
           
           return filtered;
         }, [trades, selectedVersion]);
+
+        // Keep Current Price fresh by overriding open/trimmed trades with latest ticker prices.
+        // Trades returned by the Worker can lag between runs; this makes the UI reflect latest ingested prices.
+        const filteredTradesWithLivePrices = useMemo(() => {
+          if (!Array.isArray(filteredTrades)) return [];
+          return filteredTrades.map((t) => {
+            const symRaw = t?.ticker;
+            if (!symRaw) return t;
+            const sym = String(symRaw).toUpperCase();
+            const live =
+              (data && (data[sym] || data[symRaw])) ||
+              null;
+            const livePrice =
+              live && live.price != null ? Number(live.price) : NaN;
+            const isOpenLike =
+              t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM";
+            if (!isOpenLike || !Number.isFinite(livePrice)) return t;
+            const next = {
+              ...t,
+              currentPrice: livePrice,
+              _uiPriceTs: live.ts || live.ingest_ts || null,
+            };
+
+            // Recompute P&L using latest price so the UI always reflects the latest move.
+            // This does not change status; the Worker remains the source of truth for state transitions.
+            const tickerSymbol = String(next.ticker || "").toUpperCase();
+            const isFutures =
+              FUTURES_SPECS[tickerSymbol] || tickerSymbol.endsWith("1!");
+            const pointValue =
+              isFutures && FUTURES_SPECS[tickerSymbol]
+                ? FUTURES_SPECS[tickerSymbol].pointValue
+                : 1;
+            const entryPrice = Number(next.entryPrice);
+            const tp = Number(next.tp);
+            const sl = Number(next.sl);
+            const currentPrice = Number(next.currentPrice);
+            const trimmedPct = Number(next.trimmedPct) || 0;
+            const shares =
+              next.shares ||
+              (isFutures && FUTURES_SPECS[tickerSymbol]
+                ? 1
+                : TRADE_SIZE / (entryPrice || 1));
+
+            if (
+              Number.isFinite(entryPrice) &&
+              Number.isFinite(tp) &&
+              Number.isFinite(sl) &&
+              Number.isFinite(currentPrice) &&
+              Number.isFinite(shares)
+            ) {
+              let pnl = 0;
+              let pnlPct = 0;
+
+              if (next.direction === "LONG") {
+                const hitTP = currentPrice >= tp;
+                const hitSL = currentPrice <= sl;
+                if (hitTP) {
+                  const tpDiff = tp - entryPrice;
+                  pnl = tpDiff * shares * pointValue * (trimmedPct === 0 ? 0.5 : 1);
+                  pnlPct = ((tp - entryPrice) / entryPrice) * 100;
+                } else if (hitSL) {
+                  const slDiff = sl - entryPrice;
+                  pnl = slDiff * shares * pointValue;
+                  pnlPct = ((sl - entryPrice) / entryPrice) * 100;
+                } else {
+                  const priceDiff = currentPrice - entryPrice;
+                  pnl = priceDiff * shares * pointValue;
+                  pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+                }
+              } else if (next.direction === "SHORT") {
+                const hitTP = currentPrice <= tp;
+                const hitSL = currentPrice >= sl;
+                if (hitTP) {
+                  const tpDiff = entryPrice - tp;
+                  pnl = tpDiff * shares * pointValue * (trimmedPct === 0 ? 0.5 : 1);
+                  pnlPct = ((entryPrice - tp) / entryPrice) * 100;
+                } else if (hitSL) {
+                  const slDiff = entryPrice - sl;
+                  pnl = slDiff * shares * pointValue;
+                  pnlPct = ((entryPrice - sl) / entryPrice) * 100;
+                } else {
+                  const priceDiff = entryPrice - currentPrice;
+                  pnl = priceDiff * shares * pointValue;
+                  pnlPct = ((entryPrice - currentPrice) / entryPrice) * 100;
+                }
+              }
+
+              next.pnl = pnl;
+              next.pnlPct = pnlPct;
+            }
+
+            return next;
+          });
+        }, [filteredTrades, data]);
         
-        const analytics = useTradeAnalytics(filteredTrades);
+        const analytics = useTradeAnalytics(filteredTradesWithLivePrices);
 
         // Trade simulation is handled by Worker - just refresh trades periodically
         useEffect(() => {
@@ -3233,8 +3358,8 @@
           }
         }, []);
 
-        const openTrades = filteredTrades.filter((t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM");
-        const closedTrades = filteredTrades.filter(
+        const openTrades = filteredTradesWithLivePrices.filter((t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM");
+        const closedTrades = filteredTradesWithLivePrices.filter(
           (t) => t.status === "WIN" || t.status === "LOSS"
         );
 
@@ -3333,7 +3458,13 @@
                     </button>
                     {lastUpdate && (
                       <span className="text-sm text-[#93a4d6]">
-                        Updated {lastUpdate.toLocaleTimeString()}
+                        Prices updated{" "}
+                        <span className="text-[#00ffff] font-semibold">
+                          {lastUpdate.toLocaleTimeString()}
+                        </span>
+                        {(refreshing || tradesRefreshing) && (
+                          <span className="ml-2 text-[#6b7a9f]">(refreshing…)</span>
+                        )}
                       </span>
                     )}
                   </div>
@@ -3640,7 +3771,8 @@
                   {/* Trade List */}
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
                     {(() => {
-                      const filteredTrades = trades && trades.length > 0 ? trades.filter((trade) => {
+                      const tradesSource = filteredTradesWithLivePrices;
+                      const tradesInDateRange = tradesSource && tradesSource.length > 0 ? tradesSource.filter((trade) => {
                         if (!trade.entryTime) return false;
                         const entryDate = new Date(trade.entryTime);
                         const startDate = new Date(tradeDateRange.startDate);
@@ -3654,8 +3786,8 @@
                         return timeB - timeA; // Newest first
                       }) : [];
                       
-                      return filteredTrades.length > 0 ? (
-                        filteredTrades.map((trade) => (
+                      return tradesInDateRange.length > 0 ? (
+                        tradesInDateRange.map((trade) => (
                           <div
                             key={trade.id || `${trade.ticker}-${trade.entryTime}`}
                             className="bg-[#0f1630] border border-[#26325f] rounded p-3 hover:border-[#3a4a7a] transition-colors cursor-pointer"
@@ -3694,6 +3826,9 @@
                             </div>
                             <div className="flex items-center justify-between text-xs text-[#93a4d6]">
                               <span>Entry: ${trade.entryPrice?.toFixed(2) || "—"}</span>
+                              <span className="text-yellow-400">
+                                Current: ${(trade.currentPrice || trade.entryPrice)?.toFixed(2) || "—"}
+                              </span>
                               <span>RR: {trade.rr?.toFixed(2) || "—"}</span>
                               <span>Rank: {trade.rank || "—"}</span>
                               {trade.entryTime && (
@@ -3715,8 +3850,8 @@
                       );
                     })()}
                   </div>
-                  {trades && trades.length > 0 && (() => {
-                    const filteredTrades = trades.filter((trade) => {
+                  {filteredTradesWithLivePrices && filteredTradesWithLivePrices.length > 0 && (() => {
+                    const filteredTrades = filteredTradesWithLivePrices.filter((trade) => {
                       if (!trade.entryTime) return false;
                       const entryDate = new Date(trade.entryTime);
                       const startDate = new Date(tradeDateRange.startDate);
@@ -3772,7 +3907,7 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredTrades.length === 0 ? (
+                        {filteredTradesWithLivePrices.length === 0 ? (
                           <tr>
                             <td colSpan="16" className="p-8 text-center text-[#93a4d6]">
                               {selectedVersion === "all" 
@@ -3781,7 +3916,7 @@
                             </td>
                           </tr>
                         ) : (
-                          filteredTrades.map((trade) => (
+                          filteredTradesWithLivePrices.map((trade) => (
                             <TradeRow 
                               key={trade.id} 
                               trade={trade} 
