@@ -3773,12 +3773,17 @@
                         allTrailsKeys: Object.keys(allTrails).slice(0, 10),
                         totalTrailsLoaded: Object.keys(allTrails).length,
                       });
+                    } else if (historicalTrails.length === 0 && Object.keys(allTrails).length > 0 && !window._trailRenderLogged) {
+                      window._trailRenderLogged = true;
+                      console.warn(`[HISTORICAL TRAILS] No trails rendered despite ${Object.keys(allTrails).length} tickers having trail data`, {
+                        sampleTrails: Object.entries(allTrails).slice(0, 3).map(([k, v]) => ({ ticker: k, length: Array.isArray(v) ? v.length : 'not array' })),
+                      });
                     }
 
                     return (
                       <>
                         {/* Historical trails - rendered first so they appear behind current bubbles */}
-                        {historicalTrails}
+                        {historicalTrails.length > 0 && historicalTrails}
                         {/* Current bubbles */}
                         {tickers.map((ticker, index) => {
                           // Log first few bubbles
