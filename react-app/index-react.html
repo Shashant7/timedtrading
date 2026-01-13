@@ -1904,22 +1904,32 @@
           showLabels,
           isTopRanked = false,
         }) => {
-          // DEBUG: Log every bubble to see if component is being called
+          // CRITICAL DEBUG: Log EVERY bubble call immediately
           if (!window._svgBubbleCallCount) {
             window._svgBubbleCallCount = 0;
           }
           window._svgBubbleCallCount++;
-          if (window._svgBubbleCallCount <= 5) {
+          
+          // Always log first 10 to see what's happening
+          if (window._svgBubbleCallCount <= 10) {
             console.log(
               `[SVGBUBBLE CALLED] #${window._svgBubbleCallCount} - ${
                 ticker?.ticker || "NO TICKER"
               }`,
               {
-                ticker: ticker,
+                ticker: ticker?.ticker,
                 hasTicker: !!ticker,
-                tickerKeys: ticker ? Object.keys(ticker) : [],
+                tickerKeys: ticker ? Object.keys(ticker).slice(0, 20) : [],
+                hasPhasePct: ticker ? 'phase_pct' in ticker : false,
+                phasePct: ticker ? ticker.phase_pct : undefined,
               }
             );
+          }
+          
+          // CRITICAL: If no ticker, return null immediately
+          if (!ticker || !ticker.ticker) {
+            console.error(`[SVGBUBBLE ERROR] No ticker provided!`, { ticker });
+            return null;
           }
 
           // Ensure we have valid numeric values - check for null/undefined explicitly
@@ -3431,19 +3441,32 @@
                     })()}
                   </>
                 ) : (
-                  tickers && tickers.length > 0 ? (
-                    tickers.map((ticker) => {
+                  (() => {
+                    // CRITICAL DEBUG: Log what we're about to render
+                    console.log(`[BUBBLE RENDER CHECK]`, {
+                      hasTickers: !!tickers,
+                      tickersLength: tickers ? tickers.length : 0,
+                      isArray: Array.isArray(tickers),
+                      selectedTicker: selectedTicker,
+                      selectedTrail: selectedTrail,
+                      willRenderAll: !(selectedTicker && selectedTrail),
+                    });
+                    
+                    if (!tickers || tickers.length === 0) {
+                      console.error(`[BUBBLE ERROR] No tickers to render!`, { tickers, selectedTicker, selectedTrail });
+                      return null;
+                    }
+                    
+                    return tickers.map((ticker, index) => {
                       // Log first few bubbles
-                      if (!window._bubbleRenderedCount) {
-                        window._bubbleRenderedCount = 0;
-                      }
-                      window._bubbleRenderedCount++;
-                      if (window._bubbleRenderedCount <= 5) {
-                        console.log(`[BUBBLE RENDER] ${ticker.ticker}:`, {
+                      if (index < 5) {
+                        console.log(`[BUBBLE RENDER] ${ticker.ticker} (${index}):`, {
                           hasTicker: !!ticker,
-                          tickerKeys: ticker ? Object.keys(ticker).slice(0, 10) : [],
+                          tickerKeys: ticker ? Object.keys(ticker).slice(0, 15) : [],
                           hasPhasePct: ticker ? 'phase_pct' in ticker : false,
                           phasePct: ticker ? ticker.phase_pct : undefined,
+                          hasCompletion: ticker ? 'completion' in ticker : false,
+                          hasRR: ticker ? 'rr' in ticker : false,
                         });
                       }
                       return (
@@ -3465,10 +3488,8 @@
                           isTopRanked={topRankedTicker === ticker.ticker}
                         />
                       );
-                    })
-                  ) : (
-                    console.warn(`[BUBBLE CHART] No tickers to render!`, { tickers, selectedTicker, selectedTrail }) || null
-                  )
+                    });
+                  })()
                 )}
               </svg>
 
