@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
     <title>Timed Trading</title>
 
     <!-- React & ReactDOM via CDN -->
@@ -332,14 +332,29 @@
             const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
             // Fetch both ticker data and ticker index to ensure all 133 tickers are shown
+            const timestamp = Date.now();
             const [dataRes, tickersRes] = await Promise.all([
-              fetch(`${API_BASE}/timed/all`, {
+              fetch(`${API_BASE}/timed/all?_t=${timestamp}`, {
                 signal: controller.signal,
-                headers: { Accept: "application/json" },
+                cache: "no-store",
+                headers: {
+                  Accept: "application/json",
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  Pragma: "no-cache",
+                  Expires: "0",
+                  "X-Request-ID": `data-${timestamp}`,
+                },
               }),
-              fetch(`${API_BASE}/timed/tickers`, {
+              fetch(`${API_BASE}/timed/tickers?_t=${timestamp}`, {
                 signal: controller.signal,
-                headers: { Accept: "application/json" },
+                cache: "no-store",
+                headers: {
+                  Accept: "application/json",
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  Pragma: "no-cache",
+                  Expires: "0",
+                  "X-Request-ID": `tickers-${timestamp}`,
+                },
               }),
             ]);
 
@@ -2241,7 +2256,16 @@
               onClick={() => onClick(ticker.ticker)}
               onMouseEnter={() => onHover(ticker.ticker)}
               onMouseLeave={() => onHover(null)}
-              style={{ cursor: "pointer", transition: "all 0.2s ease-out" }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                onHover(ticker.ticker);
+                onClick(ticker.ticker);
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                onHover(null);
+              }}
+              style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
             >
               {/* Glow effect for prime */}
               {prime && (
@@ -2652,7 +2676,16 @@
               onClick={() => onClick(ticker.ticker)}
               onMouseEnter={() => onHover(ticker.ticker)}
               onMouseLeave={() => onHover(null)}
-              style={{ cursor: "pointer", transition: "all 0.2s ease-out" }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                onHover(ticker.ticker);
+                onClick(ticker.ticker);
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                onHover(null);
+              }}
+              style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
             >
               {/* Glow effect for prime */}
               {prime && (
@@ -2978,7 +3011,22 @@
                 preserveAspectRatio="xMidYMid meet"
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
-                className="w-full h-full"
+                onTouchMove={(e) => {
+                  // Convert touch event to mouse-like coordinates for mobile
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const touch = e.touches[0];
+                  if (touch) {
+                    const syntheticEvent = {
+                      nativeEvent: {
+                        offsetX: touch.clientX - rect.left,
+                        offsetY: touch.clientY - rect.top,
+                      },
+                    };
+                    handleMouseMove(syntheticEvent);
+                  }
+                }}
+                onTouchEnd={handleMouseLeave}
+                className="w-full h-full touch-none"
               >
                 {/* Grid with better styling */}
                 <defs>
@@ -3908,7 +3956,16 @@
                 onClick={() => onBubbleClick(ticker.ticker)}
                 onMouseEnter={() => onHover(ticker.ticker)}
                 onMouseLeave={() => onHover(null)}
-                style={{ cursor: "pointer", transition: "all 0.2s ease-out" }}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  onHover(ticker.ticker);
+                  onBubbleClick(ticker.ticker);
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  onHover(null);
+                }}
+                style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
               >
                 {/* Glow effect for prime */}
                 {prime && (
@@ -4172,6 +4229,13 @@
                 margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
                 onMouseMove={handleRechartsMouseMove}
                 onMouseLeave={handleRechartsMouseLeave}
+                onTouchMove={(e) => {
+                  // Recharts handles touch events, but we need to ensure they work
+                  if (e.activeCoordinate) {
+                    handleRechartsMouseMove(e);
+                  }
+                }}
+                onTouchEnd={handleRechartsMouseLeave}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#26325f" />
                 <XAxis
@@ -10002,7 +10066,15 @@
           if (isOpen) {
             const fetchUpdates = async () => {
               try {
-                const res = await fetch(`${API_BASE}/timed/ai/updates?limit=5`);
+                const timestamp = Date.now();
+                const res = await fetch(`${API_BASE}/timed/ai/updates?limit=5&_t=${timestamp}`, {
+                  cache: "no-store",
+                  headers: {
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    Pragma: "no-cache",
+                    Expires: "0",
+                  },
+                });
                 if (res.ok) {
                   const data = await res.json();
                   if (data.ok && data.updates) {
@@ -10029,10 +10101,15 @@
           setMessages((prev) => [...prev, monitorMessage]);
 
           try {
-            const response = await fetch(`${API_BASE}/timed/ai/monitor`, {
+            const timestamp = Date.now();
+            const response = await fetch(`${API_BASE}/timed/ai/monitor?_t=${timestamp}`, {
               method: "GET",
+              cache: "no-store",
               headers: {
                 "Content-Type": "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
               },
             });
 
@@ -10103,10 +10180,15 @@
               console.warn("Failed to fetch activity for chat:", e);
             }
 
-            const response = await fetch(`${API_BASE}/timed/ai/chat`, {
+            const timestamp = Date.now();
+            const response = await fetch(`${API_BASE}/timed/ai/chat?_t=${timestamp}`, {
               method: "POST",
+              cache: "no-store",
               headers: {
                 "Content-Type": "application/json",
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
               },
               body: JSON.stringify({
                 message: userMessage.content,
@@ -10378,11 +10460,20 @@
             try {
               setLoading(true);
               // Fetch both the ticker data and all tickers for absolute ranking
+              const timestamp = Date.now();
               const [tickerRes, allRes] = await Promise.all([
                 fetch(
                   `${API_BASE}/timed/latest?ticker=${encodeURIComponent(
                     tickerSymbol
-                  )}`
+                  )}&_t=${timestamp}`,
+                  {
+                    cache: "no-store",
+                    headers: {
+                      "Cache-Control": "no-cache, no-store, must-revalidate",
+                      Pragma: "no-cache",
+                      Expires: "0",
+                    },
+                  }
                 ),
                 fetch(`${API_BASE}/timed/all`),
               ]);
@@ -11017,9 +11108,9 @@
                 {!error && (
                   <div className="space-y-4">
                     {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
-                    <div className="flex gap-4 items-start">
+                    <div className="flex flex-col lg:flex-row gap-4 items-start">
                       {/* Activity Feed - Left side (complementary, fixed width) */}
-                      <div className="flex-shrink-0">
+                      <div className="w-full lg:w-auto lg:flex-shrink-0">
                         <ActivityFeed
                           onTickerClick={handleTickerSelect}
                           tickerData={data}
@@ -11028,8 +11119,8 @@
 
                       {/* Bubble Chart - Center Hero (flexible, takes remaining space) */}
                       <div
-                        className={`flex-1 min-w-0 transition-all ${
-                          selectedTicker ? "mr-[470px]" : ""
+                        className={`w-full lg:flex-1 lg:min-w-0 transition-all ${
+                          selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
                         <TimeTravelSlider
@@ -11047,7 +11138,7 @@
                           onTimeChange={setTimeTravelTickers}
                           tickerFilter={filters.tickerFilter}
                         />
-                        <div className="h-[900px]">
+                        <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
                           {loading && tickers.length === 0 ? (
                             <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
                               <div className="text-center">
@@ -11077,7 +11168,7 @@
 
                     {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
                     {selectedTicker && (
-                      <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl">
+                      <div className="fixed right-0 top-0 w-full sm:w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
                         <OverlayPortal
                           selectedTicker={selectedTicker}
                           tickers={tickers}
