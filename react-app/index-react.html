@@ -7316,12 +7316,26 @@
         const [selectedTimestamp, setSelectedTimestamp] = useState(null);
         const [trailData, setTrailData] = useState({});
         const [loadingTrails, setLoadingTrails] = useState(false);
+        const [trailLoadProgress, setTrailLoadProgress] = useState({
+          total: 0,
+          done: 0,
+        });
         const [isPlaying, setIsPlaying] = useState(false);
         const [playSpeedMs, setPlaySpeedMs] = useState(600); // ms per 5-min step
         const [loopPlayback, setLoopPlayback] = useState(true);
 
-        // Round timestamp to nearest 5 minutes
-        const roundTo5Minutes = (ts) => {
+        // Prevent render loops when parent passes unstable callbacks/arrays.
+        // (This was causing "Maximum update depth exceeded" and breaking Play.)
+        const onTimeChangeRef = React.useRef(onTimeChange);
+        useEffect(() => {
+          onTimeChangeRef.current = onTimeChange;
+        }, [onTimeChange]);
+
+        const tickersRef = React.useRef(tickers);
+        tickersRef.current = tickers;
+
+        // Round timestamp to nearest 5 minutes (stable reference for effects)
+        const roundTo5Minutes = React.useCallback((ts) => {
           const date = new Date(ts);
           const minutes = date.getMinutes();
           const roundedMinutes = Math.floor(minutes / 5) * 5;
@@ -7329,7 +7343,7 @@
           date.setSeconds(0);
           date.setMilliseconds(0);
           return date.getTime();
-        };
+        }, []);
 
         // Get available timestamps from ALL tickers (not just filtered) for stable range
         // This prevents the slider from jumping around when search filters change
@@ -7360,7 +7374,7 @@
             }
           });
           return Array.from(timestamps).sort((a, b) => a - b);
-        }, [allTickers, tickers]);
+        }, [allTickers, tickers, roundTo5Minutes]);
 
         const minTimestamp =
           availableTimestamps.length > 0
@@ -7479,17 +7493,24 @@
         // Fetch trails ONCE when activating (or when ticker set changes).
         // Snapshot updates (including animation) should NOT refetch trails.
         useEffect(() => {
+          let cancelled = false;
+
           if (!isActive) {
             setIsPlaying(false);
             setTrailData({});
+            setTrailLoadProgress({ total: 0, done: 0 });
             lastFetchedSymbolsRef.current = "";
-            onTimeChange(null);
-            return;
+            onTimeChangeRef.current?.(null);
+            return () => {
+              cancelled = true;
+            };
           }
 
-          if (tickers.length === 0) {
-            onTimeChange([]);
-            return;
+          if (tickersRef.current.length === 0) {
+            onTimeChangeRef.current?.([]);
+            return () => {
+              cancelled = true;
+            };
           }
 
           // Prevent concurrent fetches
@@ -7506,7 +7527,13 @@
             lastFetchedSymbolsRef.current = tickerSymbols;
             try {
               const trails = {};
-              const tickerSymbolsArray = tickers.map((t) => t.ticker);
+              const tickerSymbolsArray = tickersRef.current.map(
+                (t) => t.ticker
+              );
+              setTrailLoadProgress({
+                total: tickerSymbolsArray.length,
+                done: 0,
+              });
 
               const MAX_CONCURRENT = 5;
               for (
@@ -7546,22 +7573,35 @@
                   }
                 });
 
+                if (!cancelled) {
+                  setTrailLoadProgress((p) => ({
+                    total: p.total || tickerSymbolsArray.length,
+                    done: Math.min(
+                      (p.done || 0) + batch.length,
+                      tickerSymbolsArray.length
+                    ),
+                  }));
+                }
+
                 // Small delay between batches to avoid spikes
                 await new Promise((r) => setTimeout(r, 250));
               }
 
-              setTrailData(trails);
+              if (!cancelled) setTrailData(trails);
             } catch (err) {
               console.error("Failed to fetch trails:", err);
-              setTrailData({});
+              if (!cancelled) setTrailData({});
             } finally {
-              setLoadingTrails(false);
+              if (!cancelled) setLoadingTrails(false);
               fetchingRef.current = false;
             }
           };
 
           fetchTrails();
-        }, [isActive, tickerSymbols, tickers, onTimeChange]);
+          return () => {
+            cancelled = true;
+          };
+        }, [isActive, tickerSymbols]);
 
         // Compute snapshot whenever timestamp changes or new trails arrive.
         useEffect(() => {
@@ -7569,18 +7609,18 @@
           if (!selectedTimestamp) return;
           const roundedTimestamp = roundTo5Minutes(selectedTimestamp);
           const snapshot = buildSnapshotTickers(
-            tickers,
+            tickersRef.current,
             trailData,
             roundedTimestamp
           );
-          onTimeChange(snapshot);
+          onTimeChangeRef.current?.(snapshot);
         }, [
           isActive,
           selectedTimestamp,
           trailData,
-          tickers,
-          onTimeChange,
+          tickerSymbols,
           buildSnapshotTickers,
+          roundTo5Minutes,
         ]);
 
         // Animation: advance by 5 minutes at a configurable speed.
@@ -7667,7 +7707,7 @@
                       if (!e.target.checked) {
                         setIsPlaying(false);
                         setSelectedTimestamp(null);
-                        onTimeChange(null);
+                        onTimeChangeRef.current?.(null);
                       } else {
                         // Round to 5 minutes when activating
                         setSelectedTimestamp(roundTo5Minutes(maxTimestamp));
@@ -7682,7 +7722,17 @@
                 {isActive && (
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setIsPlaying((p) => !p)}
+                      onClick={() => {
+                        // Ensure we have a starting timestamp before playing
+                        if (!isPlaying) {
+                          setSelectedTimestamp((prev) =>
+                            prev !== null && prev !== undefined
+                              ? prev
+                              : maxTimestamp
+                          );
+                        }
+                        setIsPlaying((p) => !p);
+                      }}
                       className="px-2 py-1 bg-[#26325f] hover:bg-[#3a4aa0] rounded text-xs text-white"
                       title="Play / Pause"
                     >
@@ -7761,8 +7811,30 @@
                   <span>{formatTimestamp(maxTimestamp)}</span>
                 </div>
                 {loadingTrails && (
-                  <div className="text-xs text-[#93a4d6] text-center">
-                    Loading historical data...
+                  <div className="text-xs text-[#93a4d6]">
+                    <div className="flex items-center justify-between mb-1">
+                      <span>Loading historical data…</span>
+                      <span className="tabular-nums">
+                        {trailLoadProgress.done}/{trailLoadProgress.total || 0}
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-[#0f1630] border border-[#26325f] rounded overflow-hidden">
+                      <div
+                        className="h-full bg-[#00ffff]"
+                        style={{
+                          width: `${
+                            trailLoadProgress.total > 0
+                              ? Math.round(
+                                  (trailLoadProgress.done /
+                                    trailLoadProgress.total) *
+                                    100
+                                )
+                              : 0
+                          }%`,
+                          transition: "width 200ms ease",
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
