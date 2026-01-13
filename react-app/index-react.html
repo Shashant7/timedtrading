@@ -7316,6 +7316,9 @@
         const [selectedTimestamp, setSelectedTimestamp] = useState(null);
         const [trailData, setTrailData] = useState({});
         const [loadingTrails, setLoadingTrails] = useState(false);
+        const [isPlaying, setIsPlaying] = useState(false);
+        const [playSpeedMs, setPlaySpeedMs] = useState(600); // ms per 5-min step
+        const [loopPlayback, setLoopPlayback] = useState(true);
 
         // Round timestamp to nearest 5 minutes
         const roundTo5Minutes = (ts) => {
@@ -7368,9 +7371,102 @@
             ? availableTimestamps[availableTimestamps.length - 1]
             : roundTo5Minutes(Date.now());
 
+        const STEP_MS = 5 * 60 * 1000;
+
+        const buildSnapshotTickers = React.useCallback(
+          (sourceTickers, trails, roundedTimestamp) => {
+            if (!Array.isArray(sourceTickers)) return [];
+            return sourceTickers
+              .map((ticker) => {
+                const symbol = ticker?.ticker;
+                if (!symbol) return null;
+
+                const trail = trails?.[symbol] || [];
+                const pointsWithTs = Array.isArray(trail)
+                  ? trail
+                      .map((point) => {
+                        const pointTs =
+                          point.ts ||
+                          (point.timestamp
+                            ? new Date(point.timestamp).getTime()
+                            : null);
+                        if (!pointTs) return null;
+                        return {
+                          point,
+                          pointTs,
+                          roundedPointTs: roundTo5Minutes(pointTs),
+                        };
+                      })
+                      .filter(Boolean)
+                  : [];
+
+                // Snapshot: use closest known point. If missing data, keep visible using latest values.
+                if (pointsWithTs.length > 0) {
+                  const closest = pointsWithTs.reduce((best, cur) => {
+                    if (!best) return cur;
+                    const bestDist = Math.abs(
+                      best.roundedPointTs - roundedTimestamp
+                    );
+                    const curDist = Math.abs(
+                      cur.roundedPointTs - roundedTimestamp
+                    );
+                    return curDist < bestDist ? cur : best;
+                  }, null);
+
+                  const closestPoint = closest.point;
+                  return {
+                    ...ticker,
+                    htf_score:
+                      closestPoint.htf_score !== undefined
+                        ? closestPoint.htf_score
+                        : ticker.htf_score,
+                    ltf_score:
+                      closestPoint.ltf_score !== undefined
+                        ? closestPoint.ltf_score
+                        : ticker.ltf_score,
+                    price:
+                      closestPoint.price !== undefined
+                        ? closestPoint.price
+                        : ticker.price,
+                    state: closestPoint.state || ticker.state,
+                    rank:
+                      closestPoint.rank !== undefined
+                        ? closestPoint.rank
+                        : ticker.rank,
+                    rr:
+                      closestPoint.rr !== undefined
+                        ? closestPoint.rr
+                        : ticker.rr,
+                    completion:
+                      closestPoint.completion !== undefined
+                        ? closestPoint.completion
+                        : ticker.completion,
+                    phase_pct:
+                      closestPoint.phase_pct !== undefined
+                        ? closestPoint.phase_pct
+                        : ticker.phase_pct,
+                    ts: closest.pointTs,
+                    _isTimeTravel: true,
+                    _timeTravelMissing: false,
+                  };
+                }
+
+                return {
+                  ...ticker,
+                  _isTimeTravel: true,
+                  _timeTravelMissing: true,
+                  ts: ticker.ts || ticker.ingest_ts || null,
+                };
+              })
+              .filter(Boolean);
+          },
+          [roundTo5Minutes]
+        );
+
         // Fetch trail data and filter by timestamp
         // Use a ref to track if we're currently fetching to prevent race conditions
         const fetchingRef = React.useRef(false);
+        const lastFetchedSymbolsRef = React.useRef("");
 
         // Memoize ticker symbols to prevent unnecessary re-fetches
         const tickerSymbols = useMemo(() => {
@@ -7380,8 +7476,13 @@
             .join(",");
         }, [tickers]);
 
+        // Fetch trails ONCE when activating (or when ticker set changes).
+        // Snapshot updates (including animation) should NOT refetch trails.
         useEffect(() => {
           if (!isActive) {
+            setIsPlaying(false);
+            setTrailData({});
+            lastFetchedSymbolsRef.current = "";
             onTimeChange(null);
             return;
           }
@@ -7392,130 +7493,67 @@
           }
 
           // Prevent concurrent fetches
-          if (fetchingRef.current) {
+          if (fetchingRef.current) return;
+
+          // Avoid refetch if we already fetched this exact ticker set
+          if (lastFetchedSymbolsRef.current === tickerSymbols) {
             return;
           }
 
           const fetchTrails = async () => {
             fetchingRef.current = true;
             setLoadingTrails(true);
+            lastFetchedSymbolsRef.current = tickerSymbols;
             try {
               const trails = {};
               const tickerSymbolsArray = tickers.map((t) => t.ticker);
 
-              const trailPromises = tickerSymbolsArray.map(async (ticker) => {
-                try {
-                  const res = await fetch(
-                    `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
-                      ticker
-                    )}`
-                  );
-                  if (res.ok) {
-                    const json = await res.json();
-                    if (json.ok && json.trail && Array.isArray(json.trail)) {
-                      return { ticker, trail: json.trail };
+              const MAX_CONCURRENT = 5;
+              for (
+                let i = 0;
+                i < tickerSymbolsArray.length;
+                i += MAX_CONCURRENT
+              ) {
+                const batch = tickerSymbolsArray.slice(i, i + MAX_CONCURRENT);
+                const batchResults = await Promise.all(
+                  batch.map(async (ticker) => {
+                    try {
+                      const res = await fetch(
+                        `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
+                          ticker
+                        )}`
+                      );
+                      if (res.ok) {
+                        const json = await res.json();
+                        if (
+                          json.ok &&
+                          json.trail &&
+                          Array.isArray(json.trail)
+                        ) {
+                          return { ticker, trail: json.trail };
+                        }
+                      }
+                      return { ticker, trail: [] };
+                    } catch (err) {
+                      return { ticker, trail: [] };
                     }
-                  }
-                  return { ticker, trail: [] };
-                } catch (err) {
-                  return { ticker, trail: [] };
-                }
-              });
+                  })
+                );
 
-              const results = await Promise.all(trailPromises);
-              results.forEach(({ ticker, trail }) => {
-                if (trail.length > 0) {
-                  trails[ticker] = trail;
-                }
-              });
+                batchResults.forEach(({ ticker, trail }) => {
+                  if (Array.isArray(trail) && trail.length > 0) {
+                    trails[ticker] = trail;
+                  }
+                });
+
+                // Small delay between batches to avoid spikes
+                await new Promise((r) => setTimeout(r, 250));
+              }
 
               setTrailData(trails);
-
-              if (selectedTimestamp) {
-                // Round selected timestamp to 5 minutes for consistency
-                const roundedTimestamp = roundTo5Minutes(selectedTimestamp);
-
-                const filtered = tickers
-                  .map((ticker) => {
-                    const trail = trails[ticker.ticker] || [];
-                    const validPoints = trail.filter((point) => {
-                      const pointTs =
-                        point.ts ||
-                        (point.timestamp
-                          ? new Date(point.timestamp).getTime()
-                          : null);
-                      if (!pointTs) return false;
-                      // Round point timestamp to 5 minutes for comparison
-                      const roundedPointTs = roundTo5Minutes(pointTs);
-                      return roundedPointTs <= roundedTimestamp;
-                    });
-
-                    if (validPoints.length > 0) {
-                      const closestPoint = validPoints.reduce(
-                        (closest, point) => {
-                          const pointTs =
-                            point.ts ||
-                            (point.timestamp
-                              ? new Date(point.timestamp).getTime()
-                              : null);
-                          const roundedPointTs = roundTo5Minutes(pointTs);
-                          const closestTs = closest?.ts
-                            ? roundTo5Minutes(closest.ts)
-                            : null;
-                          if (!closestTs) return point;
-                          return Math.abs(roundedPointTs - roundedTimestamp) <
-                            Math.abs(closestTs - roundedTimestamp)
-                            ? point
-                            : closest;
-                        }
-                      );
-
-                      return {
-                        ...ticker,
-                        htf_score:
-                          closestPoint.htf_score !== undefined
-                            ? closestPoint.htf_score
-                            : ticker.htf_score,
-                        ltf_score:
-                          closestPoint.ltf_score !== undefined
-                            ? closestPoint.ltf_score
-                            : ticker.ltf_score,
-                        price:
-                          closestPoint.price !== undefined
-                            ? closestPoint.price
-                            : ticker.price,
-                        state: closestPoint.state || ticker.state,
-                        rank:
-                          closestPoint.rank !== undefined
-                            ? closestPoint.rank
-                            : ticker.rank,
-                        rr:
-                          closestPoint.rr !== undefined
-                            ? closestPoint.rr
-                            : ticker.rr,
-                        completion:
-                          closestPoint.completion !== undefined
-                            ? closestPoint.completion
-                            : ticker.completion,
-                        phase_pct:
-                          closestPoint.phase_pct !== undefined
-                            ? closestPoint.phase_pct
-                            : ticker.phase_pct,
-                        ts: closestPoint.ts,
-                        _isTimeTravel: true,
-                      };
-                    }
-                    return null;
-                  })
-                  .filter(Boolean);
-
-                onTimeChange(filtered);
-              } else {
-                onTimeChange(tickers);
-              }
             } catch (err) {
               console.error("Failed to fetch trails:", err);
-              onTimeChange(tickers);
+              setTrailData({});
             } finally {
               setLoadingTrails(false);
               fetchingRef.current = false;
@@ -7523,13 +7561,67 @@
           };
 
           fetchTrails();
-        }, [isActive, selectedTimestamp, tickerSymbols, onTimeChange]); // Use tickerSymbols instead of tickers
+        }, [isActive, tickerSymbols, tickers, onTimeChange]);
+
+        // Compute snapshot whenever timestamp changes or new trails arrive.
+        useEffect(() => {
+          if (!isActive) return;
+          if (!selectedTimestamp) return;
+          const roundedTimestamp = roundTo5Minutes(selectedTimestamp);
+          const snapshot = buildSnapshotTickers(
+            tickers,
+            trailData,
+            roundedTimestamp
+          );
+          onTimeChange(snapshot);
+        }, [
+          isActive,
+          selectedTimestamp,
+          trailData,
+          tickers,
+          onTimeChange,
+          buildSnapshotTickers,
+        ]);
+
+        // Animation: advance by 5 minutes at a configurable speed.
+        useEffect(() => {
+          if (!isActive || !isPlaying) return;
+
+          const id = setInterval(() => {
+            setSelectedTimestamp((prev) => {
+              const cur =
+                prev !== null && prev !== undefined
+                  ? roundTo5Minutes(prev)
+                  : roundTo5Minutes(maxTimestamp);
+              const next = cur + STEP_MS;
+              if (next > maxTimestamp) {
+                if (loopPlayback) {
+                  return roundTo5Minutes(minTimestamp);
+                }
+                setIsPlaying(false);
+                return cur;
+              }
+              return next;
+            });
+          }, playSpeedMs);
+
+          return () => clearInterval(id);
+        }, [
+          isActive,
+          isPlaying,
+          playSpeedMs,
+          loopPlayback,
+          minTimestamp,
+          maxTimestamp,
+          roundTo5Minutes,
+        ]);
 
         const handleTimestampChange = (e) => {
           const ts = Number(e.target.value);
           // Round to nearest 5 minutes
           const rounded = roundTo5Minutes(ts);
           setSelectedTimestamp(rounded);
+          setIsPlaying(false);
         };
 
         const formatTimestamp = (ts) => {
@@ -7573,6 +7665,7 @@
                     onChange={(e) => {
                       setIsActive(e.target.checked);
                       if (!e.target.checked) {
+                        setIsPlaying(false);
                         setSelectedTimestamp(null);
                         onTimeChange(null);
                       } else {
@@ -7586,6 +7679,35 @@
                     ⏱️ Time Travel
                   </span>
                 </label>
+                {isActive && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsPlaying((p) => !p)}
+                      className="px-2 py-1 bg-[#26325f] hover:bg-[#3a4aa0] rounded text-xs text-white"
+                      title="Play / Pause"
+                    >
+                      {isPlaying ? "⏸ Pause" : "▶️ Play"}
+                    </button>
+                    <select
+                      value={playSpeedMs}
+                      onChange={(e) => setPlaySpeedMs(Number(e.target.value))}
+                      className="bg-[#0f1630] border border-[#26325f] rounded px-2 py-1 text-xs text-[#e7ecff]"
+                      title="Playback speed"
+                    >
+                      <option value={300}>Fast</option>
+                      <option value={600}>Normal</option>
+                      <option value={1200}>Slow</option>
+                    </select>
+                    <label className="flex items-center gap-1 text-xs text-[#93a4d6]">
+                      <input
+                        type="checkbox"
+                        checked={loopPlayback}
+                        onChange={(e) => setLoopPlayback(e.target.checked)}
+                      />
+                      Loop
+                    </label>
+                  </div>
+                )}
                 {trackedTickers.length > 0 && (
                   <div className="flex items-center gap-2 text-xs text-[#93a4d6]">
                     <span className="text-[#00ffff]">Tracking:</span>
@@ -8051,6 +8173,220 @@
                 })}
               </div>
             )}
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Ingestion Status Panel (minimizable)
+      // ─────────────────────────────────────────────────────────────
+      function IngestionStatusPanel({
+        allData,
+        filteredTickers,
+        onRefresh,
+        defaultMinimized = true,
+      }) {
+        const storageKey = "timedTrading_ingestionPanelMinimized";
+        const [minimized, setMinimized] = React.useState(() => {
+          try {
+            const raw = localStorage.getItem(storageKey);
+            if (raw === null) return defaultMinimized;
+            return raw === "true";
+          } catch {
+            return defaultMinimized;
+          }
+        });
+
+        React.useEffect(() => {
+          try {
+            localStorage.setItem(storageKey, String(minimized));
+          } catch {}
+        }, [minimized]);
+
+        const now = Date.now();
+        const allTickers = React.useMemo(() => {
+          if (!allData || typeof allData !== "object") return [];
+          const values = Array.isArray(allData)
+            ? allData
+            : Object.values(allData);
+          return values.filter((t) => t && typeof t === "object" && t.ticker);
+        }, [allData]);
+
+        const getMs = (x) => {
+          if (!x) return null;
+          if (typeof x === "number" && Number.isFinite(x)) return x;
+          if (typeof x === "string") {
+            const ms = new Date(x).getTime();
+            return Number.isFinite(ms) ? ms : null;
+          }
+          return null;
+        };
+
+        const toAgeMin = (t) => {
+          // Prefer ingest_ts, then ts
+          const ms =
+            getMs(t.ingest_ts) ||
+            getMs(t.ts) ||
+            getMs(t.timestamp) ||
+            getMs(t.last_update);
+          if (!ms) return null;
+          return (now - ms) / 60000;
+        };
+
+        const stats = React.useMemo(() => {
+          const bucket = {
+            total: allTickers.length,
+            filtered: Array.isArray(filteredTickers)
+              ? filteredTickers.length
+              : 0,
+            missing: 0,
+            fresh: 0,
+            warn: 0,
+            stale: 0,
+            veryStale: 0,
+            worst: [],
+          };
+
+          const withAge = allTickers
+            .map((t) => {
+              const ageMin = toAgeMin(t);
+              return {
+                ticker: t.ticker,
+                ageMin,
+                ingest_ts: t.ingest_ts,
+                ts: t.ts,
+              };
+            })
+            .sort((a, b) => {
+              const aa = a.ageMin ?? -1;
+              const bb = b.ageMin ?? -1;
+              return bb - aa;
+            });
+
+          withAge.forEach((r) => {
+            if (r.ageMin === null) {
+              bucket.missing++;
+              return;
+            }
+            if (r.ageMin <= 10) bucket.fresh++;
+            else if (r.ageMin <= 20) bucket.warn++;
+            else if (r.ageMin <= 60) bucket.stale++;
+            else bucket.veryStale++;
+          });
+
+          bucket.worst = withAge.filter((r) => r.ageMin !== null).slice(0, 10);
+
+          return bucket;
+        }, [allTickers, filteredTickers, now]);
+
+        const badge = (() => {
+          if (stats.total === 0) return "—";
+          if (stats.veryStale > 0 || stats.missing > 0) return "⚠️";
+          if (stats.stale > 0) return "🟡";
+          return "✅";
+        })();
+
+        if (minimized) {
+          return (
+            <div className="fixed bottom-4 left-4 z-50">
+              <button
+                onClick={() => setMinimized(false)}
+                className="px-3 py-2 bg-[#0f1630]/95 backdrop-blur-sm border border-[#26325f] rounded-lg text-xs text-white shadow-lg hover:bg-[#141f3d]"
+              >
+                📡 Ingestion {badge} ({stats.fresh}/{stats.total})
+              </button>
+            </div>
+          );
+        }
+
+        return (
+          <div className="fixed bottom-4 left-4 z-50 w-[340px] max-w-[90vw] bg-[#0f1630]/95 backdrop-blur-sm border border-[#26325f] rounded-xl shadow-2xl">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[#26325f]">
+              <div className="text-sm font-bold text-white flex items-center gap-2">
+                📡 Ingestion Status <span className="text-xs">{badge}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onRefresh}
+                  className="px-2 py-1 bg-[#26325f] hover:bg-[#3a4aa0] rounded text-xs text-white"
+                  title="Refresh data"
+                >
+                  🔄
+                </button>
+                <button
+                  onClick={() => setMinimized(true)}
+                  className="px-2 py-1 bg-[#26325f] hover:bg-[#3a4aa0] rounded text-xs text-white"
+                  title="Minimize"
+                >
+                  ▾
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3 text-xs text-[#93a4d6] space-y-2">
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                <div>
+                  <span className="text-white font-semibold">Total:</span>{" "}
+                  {stats.total}
+                </div>
+                <div>
+                  <span className="text-white font-semibold">Visible:</span>{" "}
+                  {stats.filtered}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-[#121a33] border border-[#26325f] rounded p-2">
+                  <div className="text-white font-semibold">Fresh (≤10m)</div>
+                  <div className="text-[#2ecc71] font-bold">{stats.fresh}</div>
+                </div>
+                <div className="bg-[#121a33] border border-[#26325f] rounded p-2">
+                  <div className="text-white font-semibold">Warn (10–20m)</div>
+                  <div className="text-[#f39c12] font-bold">{stats.warn}</div>
+                </div>
+                <div className="bg-[#121a33] border border-[#26325f] rounded p-2">
+                  <div className="text-white font-semibold">Stale (20–60m)</div>
+                  <div className="text-[#e67e22] font-bold">{stats.stale}</div>
+                </div>
+                <div className="bg-[#121a33] border border-[#26325f] rounded p-2">
+                  <div className="text-white font-semibold">
+                    &gt;60m / Missing
+                  </div>
+                  <div className="text-[#e74c3c] font-bold">
+                    {stats.veryStale + stats.missing}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2">
+                <div className="text-white font-semibold mb-1">
+                  Worst offenders
+                </div>
+                <div className="max-h-[160px] overflow-y-auto space-y-1 pr-1">
+                  {stats.worst.length === 0 ? (
+                    <div className="text-[#93a4d6]">No timestamps found.</div>
+                  ) : (
+                    stats.worst.map((r) => (
+                      <div
+                        key={r.ticker}
+                        className="flex items-center justify-between bg-[#121a33] border border-[#26325f] rounded px-2 py-1"
+                      >
+                        <div className="text-white font-semibold">
+                          {r.ticker}
+                        </div>
+                        <div className="text-[#93a4d6]">
+                          {Math.round(r.ageMin)}m
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="text-[10px] text-[#6b7a9f]">
+                Uses `ingest_ts` (preferred) then `ts` to estimate freshness.
+              </div>
+            </div>
           </div>
         );
       }
@@ -11786,6 +12122,13 @@
                     </div>
                   </div>
                 )}
+
+                {/* Ingestion Status Panel (minimizable, always accessible) */}
+                <IngestionStatusPanel
+                  allData={data}
+                  filteredTickers={applyFilters(data, effectiveFilters, trades)}
+                  onRefresh={refetch}
+                />
 
                 {/* Main Content - Hero Layout: Activity Feed (left) | Bubble Chart (center) | Detail (right) */}
                 {!error && (
