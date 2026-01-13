@@ -210,6 +210,211 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // Ledger (D1) Hooks
+      // ─────────────────────────────────────────────────────────────
+
+      function useLedgerSummary({ since = null, until = null } = {}) {
+        const [data, setData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+
+        const fetchSummary = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const qs = new URLSearchParams();
+            if (since != null) qs.set("since", String(since));
+            if (until != null) qs.set("until", String(until));
+            const url = `${API_BASE}/timed/ledger/summary?${qs.toString()}`;
+            const res = await fetch(url, { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "ledger_summary_failed");
+            setData(json);
+          } catch (e) {
+            setError(String(e.message || e));
+            setData(null);
+          } finally {
+            setLoading(false);
+          }
+        }, [since, until]);
+
+        useEffect(() => {
+          fetchSummary();
+        }, [fetchSummary]);
+
+        return { data, loading, error, refetch: fetchSummary };
+      }
+
+      function useLedgerTrades({ ticker = "", status = "all", since = null, until = null, pageSize = 200 } = {}) {
+        const [items, setItems] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [loadingMore, setLoadingMore] = useState(false);
+        const [error, setError] = useState(null);
+        const [hasMore, setHasMore] = useState(false);
+        const [cursor, setCursor] = useState(null);
+
+        const buildUrl = useCallback((cursorVal) => {
+          const qs = new URLSearchParams();
+          if (ticker) qs.set("ticker", ticker);
+          if (status && status !== "all") qs.set("status", status);
+          if (since != null) qs.set("since", String(since));
+          if (until != null) qs.set("until", String(until));
+          qs.set("limit", String(pageSize));
+          if (cursorVal) qs.set("cursor", String(cursorVal));
+          return `${API_BASE}/timed/ledger/trades?${qs.toString()}`;
+        }, [ticker, status, since, until, pageSize]);
+
+        const fetchFirstPage = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const res = await fetch(buildUrl(null), { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
+            const trades = Array.isArray(json.trades) ? json.trades : [];
+            setItems(trades);
+            setHasMore(!!json.hasMore);
+            setCursor(json.nextCursor || null);
+          } catch (e) {
+            setError(String(e.message || e));
+            setItems([]);
+            setHasMore(false);
+            setCursor(null);
+          } finally {
+            setLoading(false);
+          }
+        }, [buildUrl]);
+
+        const fetchMore = useCallback(async () => {
+          if (!cursor || loadingMore) return;
+          try {
+            setLoadingMore(true);
+            const res = await fetch(buildUrl(cursor), { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
+            const trades = Array.isArray(json.trades) ? json.trades : [];
+            setItems((prev) => [...prev, ...trades]);
+            setHasMore(!!json.hasMore);
+            setCursor(json.nextCursor || null);
+          } catch (e) {
+            setError(String(e.message || e));
+          } finally {
+            setLoadingMore(false);
+          }
+        }, [buildUrl, cursor, loadingMore]);
+
+        useEffect(() => {
+          fetchFirstPage();
+        }, [fetchFirstPage]);
+
+        return { items, loading, loadingMore, error, hasMore, fetchMore, refetch: fetchFirstPage };
+      }
+
+      function useLedgerAlerts({ ticker = "", since = null, until = null, pageSize = 200 } = {}) {
+        const [items, setItems] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [loadingMore, setLoadingMore] = useState(false);
+        const [error, setError] = useState(null);
+        const [hasMore, setHasMore] = useState(false);
+        const [cursor, setCursor] = useState(null);
+
+        const buildUrl = useCallback((cursorVal) => {
+          const qs = new URLSearchParams();
+          if (ticker) qs.set("ticker", ticker);
+          if (since != null) qs.set("since", String(since));
+          if (until != null) qs.set("until", String(until));
+          qs.set("limit", String(pageSize));
+          if (cursorVal) qs.set("cursor", String(cursorVal));
+          return `${API_BASE}/timed/ledger/alerts?${qs.toString()}`;
+        }, [ticker, since, until, pageSize]);
+
+        const fetchFirstPage = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const res = await fetch(buildUrl(null), { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "ledger_alerts_failed");
+            const alerts = Array.isArray(json.alerts) ? json.alerts : [];
+            setItems(alerts);
+            setHasMore(!!json.hasMore);
+            setCursor(json.nextCursor || null);
+          } catch (e) {
+            setError(String(e.message || e));
+            setItems([]);
+            setHasMore(false);
+            setCursor(null);
+          } finally {
+            setLoading(false);
+          }
+        }, [buildUrl]);
+
+        const fetchMore = useCallback(async () => {
+          if (!cursor || loadingMore) return;
+          try {
+            setLoadingMore(true);
+            const res = await fetch(buildUrl(cursor), { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "ledger_alerts_failed");
+            const alerts = Array.isArray(json.alerts) ? json.alerts : [];
+            setItems((prev) => [...prev, ...alerts]);
+            setHasMore(!!json.hasMore);
+            setCursor(json.nextCursor || null);
+          } catch (e) {
+            setError(String(e.message || e));
+          } finally {
+            setLoadingMore(false);
+          }
+        }, [buildUrl, cursor, loadingMore]);
+
+        useEffect(() => {
+          fetchFirstPage();
+        }, [fetchFirstPage]);
+
+        return { items, loading, loadingMore, error, hasMore, fetchMore, refetch: fetchFirstPage };
+      }
+
+      function useLedgerTradeDetail(tradeId, includeEvidence = false) {
+        const [data, setData] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState(null);
+
+        const fetchDetail = useCallback(async () => {
+          if (!tradeId) {
+            setData(null);
+            setError(null);
+            return;
+          }
+          try {
+            setLoading(true);
+            setError(null);
+            const qs = includeEvidence ? "?includeEvidence=1" : "";
+            const res = await fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}${qs}`, { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "ledger_trade_detail_failed");
+            setData(json);
+          } catch (e) {
+            setError(String(e.message || e));
+            setData(null);
+          } finally {
+            setLoading(false);
+          }
+        }, [tradeId, includeEvidence]);
+
+        useEffect(() => {
+          fetchDetail();
+        }, [fetchDetail]);
+
+        return { data, loading, error, refetch: fetchDetail };
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // Trade Simulation Logic
       // ─────────────────────────────────────────────────────────────
       function shouldTriggerTrade(ticker, prevData) {
@@ -3336,6 +3541,39 @@
         
         // Version filter state
         const [selectedVersion, setSelectedVersion] = useState("all");
+
+        // Ledger (D1) mode state
+        const [trackerMode, setTrackerMode] = useState("ledger"); // ledger | legacy
+        const [ledgerTab, setLedgerTab] = useState("trades"); // trades | alerts | proof
+        const [ledgerTickerFilter, setLedgerTickerFilter] = useState("");
+        const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
+        const [ledgerRangeDays, setLedgerRangeDays] = useState(7);
+        const [ledgerSelectedTradeId, setLedgerSelectedTradeId] = useState(null);
+        const [ledgerIncludeEvidence, setLedgerIncludeEvidence] = useState(true);
+
+        const ledgerSince = useMemo(() => {
+          const days = Number(ledgerRangeDays) || 7;
+          return Date.now() - days * 24 * 60 * 60 * 1000;
+        }, [ledgerRangeDays]);
+
+        const ledgerTrades = useLedgerTrades({
+          ticker: ledgerTickerFilter.trim(),
+          status: ledgerStatusFilter,
+          since: ledgerSince,
+          until: null,
+          pageSize: 200,
+        });
+        const ledgerAlerts = useLedgerAlerts({
+          ticker: ledgerTickerFilter.trim(),
+          since: ledgerSince,
+          until: null,
+          pageSize: 200,
+        });
+        const ledgerSummary = useLedgerSummary({ since: ledgerSince, until: null });
+        const ledgerTradeDetail = useLedgerTradeDetail(
+          ledgerSelectedTradeId,
+          ledgerIncludeEvidence
+        );
         
         // Daily summary state
         const [dailySummary, setDailySummary] = useState(null);
@@ -3615,6 +3853,30 @@
                   </h1>
                   <div className="flex items-center gap-4">
                     {(loading || tradesLoading) && <div className="loading-spinner"></div>}
+                    <div className="flex items-center rounded-lg overflow-hidden border border-[#26325f] bg-[#0f1630]">
+                      <button
+                        onClick={() => setTrackerMode("ledger")}
+                        className={`px-3 py-2 text-sm transition-colors ${
+                          trackerMode === "ledger"
+                            ? "bg-[#1a2550] text-white"
+                            : "text-[#93a4d6] hover:text-white"
+                        }`}
+                        title="Ledger mode (D1 source of truth)"
+                      >
+                        Ledger
+                      </button>
+                      <button
+                        onClick={() => setTrackerMode("legacy")}
+                        className={`px-3 py-2 text-sm transition-colors ${
+                          trackerMode === "legacy"
+                            ? "bg-[#1a2550] text-white"
+                            : "text-[#93a4d6] hover:text-white"
+                        }`}
+                        title="Legacy mode (KV trades + UI recompute)"
+                      >
+                        Legacy
+                      </button>
+                    </div>
                     <button
                       onClick={() => { refetch(); refetchTrades(); }}
                       className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
@@ -3642,6 +3904,483 @@
                   </div>
                 </div>
               </header>
+
+              {/* Ledger Mode (D1-backed) */}
+              {trackerMode === "ledger" && (
+                <div className="mb-6 bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setLedgerTab("trades")}
+                        className={`px-3 py-2 rounded-lg text-sm border transition-colors ${
+                          ledgerTab === "trades"
+                            ? "bg-[#1a2550] border-[#3a4a7a] text-white"
+                            : "bg-[#0f1630] border-[#26325f] text-[#93a4d6] hover:text-white"
+                        }`}
+                      >
+                        Trades
+                      </button>
+                      <button
+                        onClick={() => setLedgerTab("alerts")}
+                        className={`px-3 py-2 rounded-lg text-sm border transition-colors ${
+                          ledgerTab === "alerts"
+                            ? "bg-[#1a2550] border-[#3a4a7a] text-white"
+                            : "bg-[#0f1630] border-[#26325f] text-[#93a4d6] hover:text-white"
+                        }`}
+                      >
+                        Alerts
+                      </button>
+                      <button
+                        onClick={() => setLedgerTab("proof")}
+                        className={`px-3 py-2 rounded-lg text-sm border transition-colors ${
+                          ledgerTab === "proof"
+                            ? "bg-[#1a2550] border-[#3a4a7a] text-white"
+                            : "bg-[#0f1630] border-[#26325f] text-[#93a4d6] hover:text-white"
+                        }`}
+                      >
+                        Proof
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[#93a4d6]">Ticker</span>
+                        <input
+                          value={ledgerTickerFilter}
+                          onChange={(e) => setLedgerTickerFilter(e.target.value.toUpperCase())}
+                          placeholder="e.g. AMD"
+                          className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white w-[120px]"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[#93a4d6]">Range</span>
+                        <select
+                          value={ledgerRangeDays}
+                          onChange={(e) => setLedgerRangeDays(Number(e.target.value))}
+                          className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white"
+                        >
+                          <option value={1}>1d</option>
+                          <option value={7}>7d</option>
+                          <option value={14}>14d</option>
+                          <option value={30}>30d</option>
+                        </select>
+                      </div>
+
+                      {ledgerTab === "trades" && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-[#93a4d6]">Status</span>
+                          <select
+                            value={ledgerStatusFilter}
+                            onChange={(e) => setLedgerStatusFilter(e.target.value)}
+                            className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white"
+                          >
+                            <option value="all">All</option>
+                            <option value="OPEN">OPEN</option>
+                            <option value="TP_HIT_TRIM">TP_HIT_TRIM</option>
+                            <option value="WIN">WIN</option>
+                            <option value="LOSS">LOSS</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {ledgerTab === "trades" && (
+                        <label className="flex items-center gap-2 text-xs text-[#93a4d6]">
+                          <input
+                            type="checkbox"
+                            checked={ledgerIncludeEvidence}
+                            onChange={(e) => setLedgerIncludeEvidence(e.target.checked)}
+                          />
+                          Include evidence
+                        </label>
+                      )}
+                    </div>
+                  </div>
+
+                  {ledgerTab === "trades" && (
+                    <div className="flex gap-4 items-start">
+                      <div className={`flex-1 ${ledgerSelectedTradeId ? "mr-[470px]" : ""}`}>
+                        {ledgerTrades.loading ? (
+                          <div className="text-sm text-[#93a4d6]">Loading trades…</div>
+                        ) : ledgerTrades.error ? (
+                          <div className="text-sm text-red-400">
+                            Ledger trades unavailable: {ledgerTrades.error}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="overflow-x-auto -mx-4 px-4">
+                              <table className="w-full min-w-full">
+                                <thead>
+                                  <tr className="border-b border-[#26325f] text-left">
+                                    <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">Dir</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">Entry Time</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">RR</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">Status</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">Exit Reason</th>
+                                    <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {ledgerTrades.items.length === 0 ? (
+                                    <tr>
+                                      <td colSpan="9" className="p-6 text-center text-[#93a4d6]">
+                                        No ledger trades found for this filter/range.
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    ledgerTrades.items.map((t) => {
+                                      const id = t.trade_id;
+                                      const pnl = Number(t.pnl || 0);
+                                      return (
+                                        <tr
+                                          key={id}
+                                          className={`border-b border-[#26325f]/50 hover:bg-[#0f1630] cursor-pointer ${
+                                            ledgerSelectedTradeId === id ? "bg-[#0f1630]" : ""
+                                          }`}
+                                          onClick={() => setLedgerSelectedTradeId(id)}
+                                        >
+                                          <td className="p-2 font-semibold">{t.ticker}</td>
+                                          <td className="p-2">
+                                            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                              t.direction === "LONG"
+                                                ? "bg-green-500/20 text-green-400"
+                                                : "bg-red-500/20 text-red-400"
+                                            }`}>
+                                              {t.direction}
+                                            </span>
+                                          </td>
+                                          <td className="p-2 text-sm">${Number(t.entry_price || 0).toFixed(2)}</td>
+                                          <td className="p-2 text-xs text-[#93a4d6]">
+                                            {t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleString() : "—"}
+                                          </td>
+                                          <td className="p-2 text-sm text-blue-400 font-semibold">{t.rank ?? "—"}</td>
+                                          <td className="p-2 text-sm">{t.rr != null ? Number(t.rr).toFixed(2) : "—"}</td>
+                                          <td className="p-2 text-sm">{t.status || "—"}</td>
+                                          <td className="p-2 text-xs text-[#93a4d6]">{t.exit_reason || "—"}</td>
+                                          <td className={`p-2 text-sm font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                            ${pnl.toFixed(2)}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            <div className="mt-3 flex items-center justify-between">
+                              <div className="text-xs text-[#93a4d6]">
+                                Showing {ledgerTrades.items.length}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => ledgerTrades.refetch()}
+                                  className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white"
+                                >
+                                  Refresh
+                                </button>
+                                <button
+                                  onClick={() => ledgerTrades.fetchMore()}
+                                  disabled={!ledgerTrades.hasMore || ledgerTrades.loadingMore}
+                                  className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white disabled:opacity-50"
+                                >
+                                  {ledgerTrades.loadingMore ? "Loading…" : ledgerTrades.hasMore ? "Load more" : "No more"}
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Right Rail - Ledger Trade Detail */}
+                      {ledgerSelectedTradeId && (
+                        <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
+                          <div className="p-6">
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-bold">Trade Detail</h3>
+                              <button
+                                onClick={() => setLedgerSelectedTradeId(null)}
+                                className="text-[#93a4d6] hover:text-white text-xl"
+                              >
+                                ✕
+                              </button>
+                            </div>
+
+                            {ledgerTradeDetail.loading ? (
+                              <div className="text-sm text-[#93a4d6]">Loading…</div>
+                            ) : ledgerTradeDetail.error ? (
+                              <div className="text-sm text-red-400">{ledgerTradeDetail.error}</div>
+                            ) : ledgerTradeDetail.data && ledgerTradeDetail.data.trade ? (
+                              <>
+                                <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4 mb-4">
+                                  <div className="text-sm text-[#93a4d6] mb-2">Summary</div>
+                                  <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <div>
+                                      <div className="text-xs text-[#93a4d6]">Ticker</div>
+                                      <div className="font-semibold">{ledgerTradeDetail.data.trade.ticker}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xs text-[#93a4d6]">Direction</div>
+                                      <div className="font-semibold">{ledgerTradeDetail.data.trade.direction}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xs text-[#93a4d6]">Entry</div>
+                                      <div className="font-semibold">
+                                        ${Number(ledgerTradeDetail.data.trade.entry_price || 0).toFixed(2)}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xs text-[#93a4d6]">Status</div>
+                                      <div className="font-semibold">{ledgerTradeDetail.data.trade.status}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xs text-[#93a4d6]">Rank</div>
+                                      <div className="font-semibold text-blue-400">{ledgerTradeDetail.data.trade.rank ?? "—"}</div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xs text-[#93a4d6]">RR</div>
+                                      <div className="font-semibold">{ledgerTradeDetail.data.trade.rr != null ? Number(ledgerTradeDetail.data.trade.rr).toFixed(2) : "—"}</div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="mb-4">
+                                  <div className="text-sm font-semibold mb-2">Events</div>
+                                  <div className="space-y-2">
+                                    {(ledgerTradeDetail.data.events || []).map((ev) => (
+                                      <div key={ev.event_id} className="bg-[#121a33] border border-[#26325f] rounded p-3">
+                                        <div className="flex items-center justify-between">
+                                          <div className="font-semibold text-sm">{ev.type}</div>
+                                          <div className="text-xs text-[#93a4d6]">
+                                            {ev.ts ? new Date(Number(ev.ts)).toLocaleString() : "—"}
+                                          </div>
+                                        </div>
+                                        <div className="text-xs text-[#93a4d6] mt-1">
+                                          Price: {ev.price != null ? `$${Number(ev.price).toFixed(2)}` : "—"}{" "}
+                                          {ev.reason ? `| Reason: ${ev.reason}` : ""}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {Array.isArray(ledgerTradeDetail.data.evidence) && ledgerTradeDetail.data.evidence.length > 0 && (
+                                  <div className="mb-6">
+                                    <div className="text-sm font-semibold mb-2">Evidence Snapshots</div>
+                                    <div className="space-y-2">
+                                      {ledgerTradeDetail.data.evidence.slice(0, 10).map((ev) => (
+                                        <details key={ev.event_id} className="bg-[#121a33] border border-[#26325f] rounded p-3">
+                                          <summary className="cursor-pointer text-sm">
+                                            {ev.event_id} ({new Date(Number(ev.snapshot_ts)).toLocaleString()})
+                                          </summary>
+                                          <pre className="mt-2 text-[10px] text-[#93a4d6] overflow-x-auto whitespace-pre-wrap">
+                                            {JSON.stringify(ev.payload, null, 2)}
+                                          </pre>
+                                        </details>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="text-sm text-[#93a4d6]">No detail available.</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {ledgerTab === "alerts" && (
+                    <div>
+                      {ledgerAlerts.loading ? (
+                        <div className="text-sm text-[#93a4d6]">Loading alerts…</div>
+                      ) : ledgerAlerts.error ? (
+                        <div className="text-sm text-red-400">
+                          Ledger alerts unavailable: {ledgerAlerts.error}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="overflow-x-auto -mx-4 px-4">
+                            <table className="w-full min-w-full">
+                              <thead>
+                                <tr className="border-b border-[#26325f] text-left">
+                                  <th className="p-2 text-xs text-[#93a4d6]">Time</th>
+                                  <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
+                                  <th className="p-2 text-xs text-[#93a4d6]">Side</th>
+                                  <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
+                                  <th className="p-2 text-xs text-[#93a4d6]">RR</th>
+                                  <th className="p-2 text-xs text-[#93a4d6]">Trigger</th>
+                                  <th className="p-2 text-xs text-[#93a4d6]">Discord</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {ledgerAlerts.items.length === 0 ? (
+                                  <tr>
+                                    <td colSpan="7" className="p-6 text-center text-[#93a4d6]">
+                                      No ledger alerts found for this filter/range.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  ledgerAlerts.items.map((a) => (
+                                    <tr key={a.alert_id} className="border-b border-[#26325f]/50">
+                                      <td className="p-2 text-xs text-[#93a4d6]">{a.ts ? new Date(Number(a.ts)).toLocaleString() : "—"}</td>
+                                      <td className="p-2 font-semibold">{a.ticker}</td>
+                                      <td className="p-2 text-sm">{a.side || "—"}</td>
+                                      <td className="p-2 text-sm text-blue-400 font-semibold">{a.rank ?? "—"}</td>
+                                      <td className="p-2 text-sm">{a.rr_at_alert != null ? Number(a.rr_at_alert).toFixed(2) : "—"}</td>
+                                      <td className="p-2 text-xs text-[#93a4d6]">{a.trigger_reason || "—"}</td>
+                                      <td className="p-2 text-xs">
+                                        {a.discord_sent ? (
+                                          <span className="text-green-400 font-semibold">Sent</span>
+                                        ) : (
+                                          <span className="text-yellow-400">{a.discord_error || "Skipped"}</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div className="mt-3 flex items-center justify-between">
+                            <div className="text-xs text-[#93a4d6]">
+                              Showing {ledgerAlerts.items.length}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => ledgerAlerts.refetch()}
+                                className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white"
+                              >
+                                Refresh
+                              </button>
+                              <button
+                                onClick={() => ledgerAlerts.fetchMore()}
+                                disabled={!ledgerAlerts.hasMore || ledgerAlerts.loadingMore}
+                                className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white disabled:opacity-50"
+                              >
+                                {ledgerAlerts.loadingMore ? "Loading…" : ledgerAlerts.hasMore ? "Load more" : "No more"}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {ledgerTab === "proof" && (
+                    <div>
+                      {ledgerSummary.loading ? (
+                        <div className="text-sm text-[#93a4d6]">Loading proof metrics…</div>
+                      ) : ledgerSummary.error ? (
+                        <div className="text-sm text-red-400">
+                          Ledger summary unavailable: {ledgerSummary.error}
+                        </div>
+                      ) : ledgerSummary.data ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                            <div className="text-xs text-[#93a4d6] mb-2">Totals (closed trades)</div>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <div className="text-xs text-[#93a4d6]">Closed trades</div>
+                                <div className="text-lg font-bold">{ledgerSummary.data.totals.closedTrades}</div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-[#93a4d6]">Win rate</div>
+                                <div className="text-lg font-bold">{ledgerSummary.data.totals.winRate.toFixed(1)}%</div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-[#93a4d6]">Closed P&L</div>
+                                <div className={`text-lg font-bold ${ledgerSummary.data.totals.closedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                  ${ledgerSummary.data.totals.closedPnl.toFixed(2)}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-[#93a4d6]">Profit factor</div>
+                                <div className="text-lg font-bold">{Number(ledgerSummary.data.totals.profitFactor).toFixed(2)}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                            <div className="text-xs text-[#93a4d6] mb-2">Calibration by Rank</div>
+                            <div className="space-y-1 text-xs">
+                              {(ledgerSummary.data.breakdown.byRank || []).map((r) => {
+                                const n = Number(r.n || 0);
+                                const wr = n > 0 ? (Number(r.wins || 0) / n) * 100 : 0;
+                                return (
+                                  <div key={r.bucket} className="flex items-center justify-between">
+                                    <span className="text-[#93a4d6]">{r.bucket}</span>
+                                    <span className="font-semibold">
+                                      {r.wins}W/{r.losses}L ({wr.toFixed(1)}%) ${Number(r.pnl || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4 md:col-span-2">
+                            <div className="text-xs text-[#93a4d6] mb-2">Calibration by RR</div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                              {(ledgerSummary.data.breakdown.byRR || []).map((r) => {
+                                const n = Number(r.n || 0);
+                                const wr = n > 0 ? (Number(r.wins || 0) / n) * 100 : 0;
+                                return (
+                                  <div key={r.bucket} className="flex items-center justify-between bg-[#121a33] border border-[#26325f] rounded px-3 py-2">
+                                    <span className="text-[#93a4d6]">{r.bucket}</span>
+                                    <span className="font-semibold">
+                                      {r.wins}W/{r.losses}L ({wr.toFixed(1)}%) ${Number(r.pnl || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                            <div className="text-xs text-[#93a4d6] mb-2">Outcomes by Exit Reason</div>
+                            <div className="space-y-1 text-xs">
+                              {(ledgerSummary.data.breakdown.byExitReason || []).map((r) => {
+                                const n = Number(r.n || 0);
+                                const wr = n > 0 ? (Number(r.wins || 0) / n) * 100 : 0;
+                                return (
+                                  <div key={r.reason} className="flex items-center justify-between">
+                                    <span className="text-[#93a4d6]">{r.reason}</span>
+                                    <span className="font-semibold">
+                                      {r.wins}W/{r.losses}L ({wr.toFixed(1)}%) ${Number(r.pnl || 0).toFixed(2)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                            <div className="text-xs text-[#93a4d6] mb-2">Alerts by Trigger Reason</div>
+                            <div className="space-y-1 text-xs">
+                              {(ledgerSummary.data.breakdown.byTriggerReason || []).map((r) => (
+                                <div key={r.reason} className="flex items-center justify-between">
+                                  <span className="text-[#93a4d6]">{r.reason}</span>
+                                  <span className="font-semibold">
+                                    {r.sent} sent / {r.not_sent} skipped ({r.n} total)
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-[#93a4d6]">No proof data available.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Daily Summary Modal */}
               {showSummary && dailySummary && (
@@ -3893,10 +4632,12 @@
                 </div>
               )}
 
-              {/* Analytics */}
-              <div className="mb-6">
-                <AnalyticsPanel analytics={analytics} />
-              </div>
+              {trackerMode === "legacy" && (
+                <>
+                  {/* Analytics */}
+                  <div className="mb-6">
+                    <AnalyticsPanel analytics={analytics} />
+                  </div>
 
               {/* Trade Tracker Section with Date Filter */}
               <div className="mb-6">
@@ -4041,8 +4782,8 @@
                 </div>
               </div>
 
-              {/* Trades Table with Right Rail Detail View */}
-              <div className="flex gap-4 items-start relative">
+                  {/* Trades Table with Right Rail Detail View */}
+                  <div className="flex gap-4 items-start relative">
                 {/* Table Container - Left Side */}
                 <div className={`flex-1 bg-[#121a33] border border-[#26325f] rounded-xl p-4 transition-all ${selectedTicker ? 'mr-[470px]' : ''}`}>
                   <div className="flex items-center justify-between mb-4">
@@ -4123,7 +4864,9 @@
                     />
                   </div>
                 )}
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           </>

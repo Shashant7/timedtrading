@@ -22,6 +22,14 @@ name = "timed-trading-ingest"
 binding = "KV_TIMED"
 id = "e48593af3ef74bf986b2592909ed40cb"
 
+# D1 Database binding (for 7-day historical trails)
+# Create via: `wrangler d1 create timed_trading_db`
+# Then paste the resulting database_id below.
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "timed_trading_db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security
 # Secrets must be set via Cloudflare Dashboard or `wrangler secret put`
@@ -44,14 +52,12 @@ TV_ACK_ALWAYS_200 = "true"
 
 # Scheduled triggers for periodic AI updates
 # Times are in UTC (9:45 AM ET = 14:45 UTC, 12:00 PM ET = 17:00 UTC, 3:30 PM ET = 20:30 UTC)
-[[env.production.triggers.crons]]
-cron = "45 14 * * 1-5"  # 9:45 AM ET (14:45 UTC) on weekdays - AI Market Update
-[[env.production.triggers.crons]]
-cron = "0 17 * * 1-5"   # 12:00 PM ET (17:00 UTC) on weekdays - AI Market Update
-[[env.production.triggers.crons]]
-cron = "30 20 * * 1-5"  # 3:30 PM ET (20:30 UTC) on weekdays - AI Market Update
-[[env.production.triggers.crons]]
-cron = "*/5 * * * *"    # Every 5 minutes - Update open trades
-[[env.production.triggers.crons]]
-cron = "*/15 * * * 1-5" # Every 15 minutes during market hours (weekdays) - Proactive Alerts & Pattern Recognition
+[env.production.triggers]
+crons = [
+  "45 14 * * 1-5",  # 9:45 AM ET (14:45 UTC) on weekdays - AI Market Update
+  "0 17 * * 1-5",   # 12:00 PM ET (17:00 UTC) on weekdays - AI Market Update
+  "30 20 * * 1-5",  # 3:30 PM ET (20:30 UTC) on weekdays - AI Market Update
+  "*/5 * * * *",    # Every 5 minutes - Update open trades
+  "*/15 * * * 1-5", # Every 15 minutes during market hours (weekdays) - Proactive Alerts & Pattern Recognition
+]
 

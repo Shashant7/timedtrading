@@ -2059,6 +2059,7 @@ async function processTradeSimulation(
         const history = Array.isArray(existingOpenTrade.history)
           ? [...existingOpenTrade.history]
           : [];
+        const newHistoryEvents = [];
 
         const ensureEntryInHistory = () => {
           const hasEntry = history.some((e) => e && e.type === "ENTRY");
@@ -2084,7 +2085,7 @@ async function processTradeSimulation(
           correctedEntryPrice !== existingOpenTrade.entryPrice &&
           !entryPriceCorrected
         ) {
-          history.push({
+          const ev = {
             type: "ENTRY_CORRECTION",
             timestamp: new Date().toISOString(),
             price: correctedEntryPrice,
@@ -2095,7 +2096,9 @@ async function processTradeSimulation(
             )} to $${correctedEntryPrice.toFixed(
               2
             )} (was incorrectly using trigger_price)`,
-          });
+          };
+          history.push(ev);
+          newHistoryEvents.push(ev);
         }
 
         const oldStatus = existingOpenTrade.status || "OPEN";
@@ -2139,7 +2142,7 @@ async function processTradeSimulation(
 
           if (!alreadyLogged) {
             const trimShares = (correctedShares || existingOpenTrade.shares || 0) * trimDeltaPctRaw; // Allow fractional shares
-            history.push({
+            const ev = {
               type: "TRIM",
               timestamp: new Date().toISOString(),
               price: Number.isFinite(trimPrice) ? trimPrice : null,
@@ -2158,7 +2161,9 @@ async function processTradeSimulation(
               } (total trimmed: ${Math.round(
                 newTrimmedPct * 100
               )}%)`,
-            });
+            };
+            history.push(ev);
+            newHistoryEvents.push(ev);
           }
         }
 
@@ -2171,7 +2176,7 @@ async function processTradeSimulation(
           const remainingShares =
             (correctedShares || existingOpenTrade.shares || 0) *
             Math.max(0, 1 - oldTrimmedPct);
-          history.push({
+          const ev = {
             type: "EXIT",
             timestamp: new Date().toISOString(),
             price: exitPrice,
@@ -2181,7 +2186,9 @@ async function processTradeSimulation(
             note: `Closed ${
               newStatus === "WIN" ? "profitably" : "at loss"
             } at $${Number(exitPrice).toFixed(2)} (${exitReason})`,
-          });
+          };
+          history.push(ev);
+          newHistoryEvents.push(ev);
         }
 
         const updatedTrade = {
@@ -2215,6 +2222,18 @@ async function processTradeSimulation(
           console.log(
             `[TRADE SIM] Updated trade ${ticker} ${direction}: ${oldStatus} -> ${newStatus}`
           );
+
+          // Persist trade + new lifecycle events to D1 ledger (best-effort)
+          d1UpsertTrade(env, updatedTrade).catch((e) => {
+            console.error(`[D1 LEDGER] Failed to upsert trade ${updatedTrade?.id}:`, e);
+          });
+          if (updatedTrade?.id && Array.isArray(newHistoryEvents) && newHistoryEvents.length > 0) {
+            for (const ev of newHistoryEvents) {
+              d1InsertTradeEvent(env, updatedTrade.id, ev).catch((e) => {
+                console.error(`[D1 LEDGER] Failed to insert trade event for ${updatedTrade.id}:`, e);
+              });
+            }
+          }
 
           // Send Discord notifications for status changes
           if (env) {
@@ -2566,6 +2585,17 @@ async function processTradeSimulation(
                   )}, Total Shares: ${totalShares}`
                 );
 
+                // Persist to D1 ledger (best-effort)
+                d1UpsertTrade(env, updatedTrade).catch((e) => {
+                  console.error(`[D1 LEDGER] Failed to upsert scaled-in trade:`, e);
+                });
+                const scaleEvent = history[history.length - 1];
+                if (scaleEvent && updatedTrade?.id) {
+                  d1InsertTradeEvent(env, updatedTrade.id, scaleEvent).catch((e) => {
+                    console.error(`[D1 LEDGER] Failed to insert SCALE_IN event:`, e);
+                  });
+                }
+
                 // Send Discord notification for scaling in
                 if (env) {
                   const embed = {
@@ -2814,6 +2844,20 @@ async function processTradeSimulation(
               console.log(
                 `[TRADE SIM] ⚠️ Trade ${ticker} ${direction} created but NOT saved - will retry on next ingestion`
               );
+            }
+
+            // Persist new trade + ENTRY event to D1 ledger (best-effort)
+            d1UpsertTrade(env, trade).catch((e) => {
+              console.error(`[D1 LEDGER] Failed to upsert new trade ${ticker}:`, e);
+            });
+            const entryEvent =
+              Array.isArray(trade.history) && trade.history.length > 0
+                ? trade.history[0]
+                : null;
+            if (entryEvent && trade?.id) {
+              d1InsertTradeEvent(env, trade.id, entryEvent).catch((e) => {
+                console.error(`[D1 LEDGER] Failed to insert ENTRY event for ${ticker}:`, e);
+              });
             }
 
             // Send Discord notification for new trade entry
@@ -3399,6 +3443,481 @@ async function appendTrail(KV, ticker, point, maxN = 8) {
   await kvPutJSON(KV, key, keep);
 }
 
+// ─────────────────────────────────────────────────────────────
+// D1 Trail Storage (7-day historical)
+// ─────────────────────────────────────────────────────────────
+
+async function d1InsertTrailPoint(env, ticker, payload) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+
+  const ts = Number(payload?.ts);
+  if (!Number.isFinite(ts)) return { ok: false, skipped: true, reason: "bad_ts" };
+
+  const point = {
+    ts,
+    price: payload?.price,
+    htf_score: payload?.htf_score,
+    ltf_score: payload?.ltf_score,
+    completion: payload?.completion,
+    phase_pct: payload?.phase_pct,
+    state: payload?.state,
+    rank: payload?.rank,
+    flags: payload?.flags || {},
+    trigger_reason: payload?.trigger_reason,
+    trigger_dir: payload?.trigger_dir,
+  };
+
+  const flagsJson =
+    point?.flags && typeof point.flags === "object"
+      ? JSON.stringify(point.flags)
+      : point?.flags != null
+      ? JSON.stringify(point.flags)
+      : null;
+
+  try {
+    await db
+      .prepare(
+        `INSERT OR REPLACE INTO timed_trail
+          (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, payload_json)
+         VALUES
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`
+      )
+      .bind(
+        String(ticker || "").toUpperCase(),
+        ts,
+        point?.price != null ? Number(point.price) : null,
+        point?.htf_score != null ? Number(point.htf_score) : null,
+        point?.ltf_score != null ? Number(point.ltf_score) : null,
+        point?.completion != null ? Number(point.completion) : null,
+        point?.phase_pct != null ? Number(point.phase_pct) : null,
+        point?.state != null ? String(point.state) : null,
+        point?.rank != null ? Number(point.rank) : null,
+        flagsJson,
+        point?.trigger_reason != null ? String(point.trigger_reason) : null,
+        point?.trigger_dir != null ? String(point.trigger_dir) : null,
+        (() => {
+          try {
+            return JSON.stringify(payload);
+          } catch {
+            return null;
+          }
+        })()
+      )
+      .run();
+
+    return { ok: true };
+  } catch (err) {
+    console.error(`[D1 TRAIL] Insert failed for ${ticker}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1CleanupOldTrail(env, ttlDays = 8) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+
+  const KV = env?.KV_TIMED;
+  // throttle cleanup to at most once per hour
+  const throttleKey = "timed:d1:trail:last_cleanup_ms";
+  try {
+    if (KV) {
+      const last = Number(await KV.get(throttleKey));
+      if (Number.isFinite(last) && Date.now() - last < 60 * 60 * 1000) {
+        return { ok: true, skipped: true, reason: "throttled" };
+      }
+    }
+  } catch {
+    // ignore throttle failures
+  }
+
+  const cutoff = Date.now() - Number(ttlDays) * 24 * 60 * 60 * 1000;
+  try {
+    const r = await db
+      .prepare(`DELETE FROM timed_trail WHERE ts < ?1`)
+      .bind(cutoff)
+      .run();
+
+    if (KV) {
+      await KV.put(throttleKey, String(Date.now()), {
+        expirationTtl: 2 * 60 * 60, // 2 hours
+      });
+    }
+
+    return { ok: true, deleted: r?.meta?.changes || 0, cutoff };
+  } catch (err) {
+    console.error(`[D1 TRAIL] Cleanup failed:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  const t = String(ticker || "").toUpperCase();
+  const lim = Math.max(1, Math.min(20000, Number(limit) || 5000));
+
+  try {
+    let stmt;
+    if (sinceTs != null && Number.isFinite(Number(sinceTs))) {
+      stmt = db
+        .prepare(
+          `SELECT ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir
+           FROM timed_trail
+           WHERE ticker = ?1 AND ts >= ?2
+           ORDER BY ts ASC
+           LIMIT ?3`
+        )
+        .bind(t, Number(sinceTs), lim);
+    } else {
+      stmt = db
+        .prepare(
+          `SELECT ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir
+           FROM timed_trail
+           WHERE ticker = ?1
+           ORDER BY ts DESC
+           LIMIT ?2`
+        )
+        .bind(t, lim);
+    }
+
+    const rows = await stmt.all();
+    const out = Array.isArray(rows?.results) ? rows.results : [];
+    const trail = out
+      .map((r) => ({
+        ts: Number(r.ts),
+        price: r.price != null ? Number(r.price) : null,
+        htf_score: r.htf_score != null ? Number(r.htf_score) : null,
+        ltf_score: r.ltf_score != null ? Number(r.ltf_score) : null,
+        completion: r.completion != null ? Number(r.completion) : null,
+        phase_pct: r.phase_pct != null ? Number(r.phase_pct) : null,
+        state: r.state != null ? String(r.state) : null,
+        rank: r.rank != null ? Number(r.rank) : null,
+        flags:
+          r.flags_json && typeof r.flags_json === "string"
+            ? (() => {
+                try {
+                  return JSON.parse(r.flags_json);
+                } catch {
+                  return {};
+                }
+              })()
+            : {},
+        momentum_elite: false, // derived in UI/logic from flags when needed
+        trigger_reason: r.trigger_reason != null ? String(r.trigger_reason) : null,
+        trigger_dir: r.trigger_dir != null ? String(r.trigger_dir) : null,
+      }))
+      .filter((p) => Number.isFinite(p.ts));
+
+    // If we queried DESC (no since), normalize to ASC for consumers
+    trail.sort((a, b) => a.ts - b.ts);
+    return { ok: true, trail, source: "d1" };
+  } catch (err) {
+    console.error(`[D1 TRAIL] Query failed for ${ticker}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1GetTrailPayloadRange(env, ticker, sinceTs = null, untilTs = null, limit = 5000) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  const t = String(ticker || "").toUpperCase();
+  const lim = Math.max(1, Math.min(20000, Number(limit) || 5000));
+
+  const since = sinceTs != null && Number.isFinite(Number(sinceTs)) ? Number(sinceTs) : null;
+  const until = untilTs != null && Number.isFinite(Number(untilTs)) ? Number(untilTs) : null;
+
+  try {
+    let stmt;
+    if (since != null && until != null) {
+      stmt = db.prepare(
+        `SELECT ts, payload_json
+         FROM timed_trail
+         WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3
+         ORDER BY ts ASC
+         LIMIT ?4`
+      ).bind(t, since, until, lim);
+    } else if (since != null) {
+      stmt = db.prepare(
+        `SELECT ts, payload_json
+         FROM timed_trail
+         WHERE ticker = ?1 AND ts >= ?2
+         ORDER BY ts ASC
+         LIMIT ?3`
+      ).bind(t, since, lim);
+    } else {
+      stmt = db.prepare(
+        `SELECT ts, payload_json
+         FROM timed_trail
+         WHERE ticker = ?1
+         ORDER BY ts DESC
+         LIMIT ?2`
+      ).bind(t, lim);
+    }
+
+    const rows = await stmt.all();
+    const results = Array.isArray(rows?.results) ? rows.results : [];
+    const payloads = results
+      .map((r) => {
+        const ts = Number(r.ts);
+        const raw = r.payload_json;
+        if (!raw || typeof raw !== "string") return null;
+        try {
+          const p = JSON.parse(raw);
+          p.ts = ts; // trust DB ts
+          return p;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => Number(a.ts) - Number(b.ts));
+
+    return { ok: true, payloads, source: "d1" };
+  } catch (err) {
+    console.error(`[D1 TRAIL] Payload query failed for ${ticker}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// D1 Ledger Storage (alerts + trades + trade_events)
+// ─────────────────────────────────────────────────────────────
+
+function isoToMs(v) {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const s = String(v);
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+async function d1UpsertAlert(env, alert) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+
+  const ticker = String(alert?.ticker || "").toUpperCase();
+  const ts = Number(alert?.ts);
+  if (!ticker || !Number.isFinite(ts)) return { ok: false, skipped: true, reason: "bad_key" };
+
+  const alertId = String(alert?.alert_id || `${ticker}:${ts}`);
+  const discordSent = alert?.discord_sent ? 1 : 0;
+
+  try {
+    await db
+      .prepare(
+        `INSERT OR REPLACE INTO alerts
+          (alert_id, ticker, ts, side, state, rank, rr_at_alert, trigger_reason, dedupe_day,
+           discord_sent, discord_status, discord_error, payload_json, meta_json)
+         VALUES
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+      )
+      .bind(
+        alertId,
+        ticker,
+        ts,
+        alert?.side != null ? String(alert.side) : null,
+        alert?.state != null ? String(alert.state) : null,
+        alert?.rank != null ? Number(alert.rank) : null,
+        alert?.rr_at_alert != null ? Number(alert.rr_at_alert) : null,
+        alert?.trigger_reason != null ? String(alert.trigger_reason) : null,
+        alert?.dedupe_day != null ? String(alert.dedupe_day) : null,
+        discordSent,
+        alert?.discord_status != null ? Number(alert.discord_status) : null,
+        alert?.discord_error != null ? String(alert.discord_error) : null,
+        alert?.payload_json != null ? String(alert.payload_json) : null,
+        alert?.meta_json != null ? String(alert.meta_json) : null
+      )
+      .run();
+
+    return { ok: true, alert_id: alertId };
+  } catch (err) {
+    console.error(`[D1 LEDGER] Alert upsert failed for ${ticker}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1UpsertTrade(env, trade) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  if (!trade) return { ok: false, skipped: true, reason: "missing_trade" };
+
+  const tradeId = String(trade.id || trade.trade_id || "").trim();
+  if (!tradeId) return { ok: false, skipped: true, reason: "missing_trade_id" };
+
+  const ticker = String(trade.ticker || "").toUpperCase();
+  const direction = String(trade.direction || "").toUpperCase();
+  const entryTs = isoToMs(trade.entryTime) || Number(trade.entry_ts) || null;
+  const createdAt = entryTs || Date.now();
+  const updatedAt = Date.now();
+
+  // Best-effort exit ts from history
+  let exitTs = null;
+  if (Array.isArray(trade.history)) {
+    for (let i = trade.history.length - 1; i >= 0; i--) {
+      const e = trade.history[i];
+      if (e && e.type === "EXIT") {
+        exitTs = isoToMs(e.timestamp);
+        break;
+      }
+    }
+  }
+
+  try {
+    // Preserve created_at by inserting once.
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO trades
+          (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+           created_at, updated_at)
+         VALUES
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`
+      )
+      .bind(
+        tradeId,
+        ticker || null,
+        direction || null,
+        entryTs != null ? Number(entryTs) : null,
+        trade.entryPrice != null ? Number(trade.entryPrice) : null,
+        trade.rank != null ? Number(trade.rank) : null,
+        trade.rr != null ? Number(trade.rr) : null,
+        trade.status != null ? String(trade.status) : null,
+        exitTs != null ? Number(exitTs) : null,
+        trade.exitPrice != null ? Number(trade.exitPrice) : null,
+        trade.exitReason != null ? String(trade.exitReason) : null,
+        trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
+        trade.pnl != null ? Number(trade.pnl) : null,
+        trade.pnlPct != null ? Number(trade.pnlPct) : null,
+        trade.scriptVersion != null
+          ? String(trade.scriptVersion)
+          : trade.script_version != null
+          ? String(trade.script_version)
+          : null,
+        createdAt,
+        updatedAt
+      )
+      .run();
+
+    await db
+      .prepare(
+        `UPDATE trades SET
+          ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
+          exit_ts=?9, exit_price=?10, exit_reason=?11,
+          trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
+          updated_at=?16
+         WHERE trade_id=?1`
+      )
+      .bind(
+        tradeId,
+        ticker || null,
+        direction || null,
+        entryTs != null ? Number(entryTs) : null,
+        trade.entryPrice != null ? Number(trade.entryPrice) : null,
+        trade.rank != null ? Number(trade.rank) : null,
+        trade.rr != null ? Number(trade.rr) : null,
+        trade.status != null ? String(trade.status) : null,
+        exitTs != null ? Number(exitTs) : null,
+        trade.exitPrice != null ? Number(trade.exitPrice) : null,
+        trade.exitReason != null ? String(trade.exitReason) : null,
+        trade.trimmedPct != null ? Number(trade.trimmedPct) : null,
+        trade.pnl != null ? Number(trade.pnl) : null,
+        trade.pnlPct != null ? Number(trade.pnlPct) : null,
+        trade.scriptVersion != null
+          ? String(trade.scriptVersion)
+          : trade.script_version != null
+          ? String(trade.script_version)
+          : null,
+        updatedAt
+      )
+      .run();
+
+    return { ok: true, trade_id: tradeId };
+  } catch (err) {
+    console.error(`[D1 LEDGER] Trade upsert failed for ${tradeId}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1InsertTradeEvent(env, tradeId, event) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  if (!tradeId) return { ok: false, skipped: true, reason: "missing_trade_id" };
+  if (!event) return { ok: false, skipped: true, reason: "missing_event" };
+
+  const ts = isoToMs(event.timestamp) || Number(event.ts) || null;
+  const type = String(event.type || "").toUpperCase();
+  if (!Number.isFinite(ts) || !type) return { ok: false, skipped: true, reason: "bad_event_key" };
+
+  const eventId = `${tradeId}:${type}:${ts}`;
+
+  // Quantity fields: for TRIM, represent trimmed percentages.
+  const qtyPctTotal =
+    event.trimPct != null ? Number(event.trimPct) : event.trimmedPct != null ? Number(event.trimmedPct) : null;
+  const qtyPctDelta =
+    event.trimDeltaPct != null ? Number(event.trimDeltaPct) : null;
+
+  const meta = (() => {
+    try {
+      return JSON.stringify(event);
+    } catch {
+      return null;
+    }
+  })();
+
+  try {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO trade_events
+          (event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json)
+         VALUES
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+      )
+      .bind(
+        eventId,
+        String(tradeId),
+        Number(ts),
+        type,
+        event.price != null ? Number(event.price) : null,
+        qtyPctDelta != null && Number.isFinite(qtyPctDelta) ? qtyPctDelta : null,
+        qtyPctTotal != null && Number.isFinite(qtyPctTotal) ? qtyPctTotal : null,
+        event.pnl_realized != null ? Number(event.pnl_realized) : null,
+        event.reason != null ? String(event.reason) : null,
+        meta
+      )
+      .run();
+
+    return { ok: true, event_id: eventId };
+  } catch (err) {
+    console.error(`[D1 LEDGER] Trade event insert failed for ${tradeId}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+function encodeCursor(obj) {
+  try {
+    const s = JSON.stringify(obj);
+    if (typeof btoa === "function") return btoa(s);
+    // Node fallback
+    return Buffer.from(s, "utf8").toString("base64");
+  } catch {
+    return null;
+  }
+}
+
+function decodeCursor(s) {
+  if (!s) return null;
+  try {
+    const raw =
+      typeof atob === "function"
+        ? atob(String(s))
+        : Buffer.from(String(s), "base64").toString("utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 // Activity feed tracking (1 week history)
 async function appendActivity(KV, event) {
   const key = "timed:activity:feed";
@@ -3541,14 +4060,14 @@ async function notifyDiscord(env, embed) {
     console.log(
       `[DISCORD] Notifications disabled (DISCORD_ENABLE="${discordEnable}", expected "true")`
     );
-    return;
+    return { ok: false, skipped: true, reason: "disabled" };
   }
   const url = env.DISCORD_WEBHOOK_URL;
   if (!url) {
     console.log(
       `[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`
     );
-    return;
+    return { ok: false, skipped: true, reason: "missing_webhook" };
   }
 
   console.log(`[DISCORD] Sending notification: ${embed.title || "Untitled"}`);
@@ -3566,12 +4085,19 @@ async function notifyDiscord(env, embed) {
         `[DISCORD] Failed to send notification: ${response.status} ${response.statusText}`,
         { responseText: responseText.substring(0, 200) }
       );
+      return {
+        ok: false,
+        status: response.status,
+        statusText: response.statusText,
+        responseText: responseText.substring(0, 200),
+      };
     } else {
       console.log(
         `[DISCORD] ✅ Notification sent successfully: ${
           embed.title || "Untitled"
         }`
       );
+      return { ok: true, status: response.status };
     }
   } catch (error) {
     console.error(`[DISCORD] Error sending notification:`, {
@@ -3579,6 +4105,7 @@ async function notifyDiscord(env, embed) {
       message: error.message,
       stack: error.stack,
     });
+    return { ok: false, error: String(error), message: error.message };
   }
 }
 
@@ -6155,6 +6682,51 @@ export default {
                   hasWebhook: !!discordWebhook,
                 });
 
+                const alertTs = Number(payload.ts || Date.now());
+                const alertPayloadJson = (() => {
+                  try {
+                    return JSON.stringify(payload);
+                  } catch {
+                    return null;
+                  }
+                })();
+                const alertMetaJson = (() => {
+                  try {
+                    return JSON.stringify({
+                      akey,
+                      today,
+                      alreadyAlerted: false,
+                      side,
+                      state: payload.state,
+                      rank: payload.rank,
+                      rr: rrToUse,
+                      rrFromPayload: payload.rr,
+                      calculatedAtCurrentPrice: currentRR,
+                      thresholds: { minRR, maxComp, maxPhase, minRank },
+                      checks: {
+                        inCorridor,
+                        enteredCorridor,
+                        prevInCorridor,
+                        corridorAlignedOK,
+                        enteredAligned,
+                        trigOk,
+                        trigReason,
+                        sqRel,
+                        shouldConsiderAlert,
+                        momentumEliteTrigger,
+                        enhancedTrigger,
+                        rrOk,
+                        compOk,
+                        phaseOk,
+                        rankOk,
+                      },
+                      discordConfigured,
+                    });
+                  } catch {
+                    return null;
+                  }
+                })();
+
                 const why =
                   (side === "LONG"
                     ? "Entry corridor Q1→Q2"
@@ -6439,7 +7011,32 @@ export default {
                   },
                   url: tv, // Make the title clickable to open TradingView
                 };
-                await notifyDiscord(env, opportunityEmbed);
+                const sendRes = await notifyDiscord(env, opportunityEmbed);
+
+                // Persist alert ledger record to D1 (best-effort)
+                d1UpsertAlert(env, {
+                  ticker,
+                  ts: alertTs,
+                  side,
+                  state: payload.state,
+                  rank: payload.rank,
+                  rr_at_alert: rrToUse,
+                  trigger_reason: trigReason,
+                  dedupe_day: today,
+                  discord_sent: !!sendRes?.ok,
+                  discord_status: sendRes?.status ?? null,
+                  discord_error:
+                    sendRes?.ok
+                      ? null
+                      : sendRes?.reason ||
+                        sendRes?.statusText ||
+                        sendRes?.error ||
+                        "discord_send_failed",
+                  payload_json: alertPayloadJson,
+                  meta_json: alertMetaJson,
+                }).catch((e) => {
+                  console.error(`[D1 LEDGER] Failed to upsert alert ${ticker}:`, e);
+                });
 
                 // Log Discord alert to activity feed
                 await appendActivity(KV, {
@@ -6469,6 +7066,69 @@ export default {
                     today,
                   }
                 );
+
+                // Persist deduped alert decision to D1 (best-effort)
+                const alertTs = Number(payload.ts || Date.now());
+                const alertPayloadJson = (() => {
+                  try {
+                    return JSON.stringify(payload);
+                  } catch {
+                    return null;
+                  }
+                })();
+                const alertMetaJson = (() => {
+                  try {
+                    return JSON.stringify({
+                      akey,
+                      today,
+                      alreadyAlerted: true,
+                      side,
+                      state: payload.state,
+                      rank: payload.rank,
+                      rr: rrToUse,
+                      rrFromPayload: payload.rr,
+                      calculatedAtCurrentPrice: currentRR,
+                      thresholds: { minRR, maxComp, maxPhase, minRank },
+                      checks: {
+                        inCorridor,
+                        enteredCorridor,
+                        prevInCorridor,
+                        corridorAlignedOK,
+                        enteredAligned,
+                        trigOk,
+                        trigReason,
+                        sqRel,
+                        shouldConsiderAlert,
+                        momentumEliteTrigger,
+                        enhancedTrigger,
+                        rrOk,
+                        compOk,
+                        phaseOk,
+                        rankOk,
+                      },
+                      discordConfigured,
+                    });
+                  } catch {
+                    return null;
+                  }
+                })();
+                d1UpsertAlert(env, {
+                  ticker,
+                  ts: alertTs,
+                  side,
+                  state: payload.state,
+                  rank: payload.rank,
+                  rr_at_alert: rrToUse,
+                  trigger_reason: trigReason,
+                  dedupe_day: today,
+                  discord_sent: false,
+                  discord_status: null,
+                  discord_error: "deduped_already_alerted",
+                  payload_json: alertPayloadJson,
+                  meta_json: alertMetaJson,
+                }).catch((e) => {
+                  console.error(`[D1 LEDGER] Failed to upsert deduped alert ${ticker}:`, e);
+                });
               }
             } else if (inCorridor && corridorAlignedOK) {
               // Log why alert didn't fire
@@ -6630,27 +7290,40 @@ export default {
           // Trail (light)
           // Wrap in try-catch to prevent trail errors from breaking ingestion
           try {
+            const trailPoint = {
+              ts: payload.ts,
+              price: payload.price, // Add price to trail for momentum calculations
+              htf_score: payload.htf_score,
+              ltf_score: payload.ltf_score,
+              completion: payload.completion,
+              phase_pct: payload.phase_pct,
+              state: payload.state,
+              rank: payload.rank,
+              flags: payload.flags || {},
+              momentum_elite: !!(
+                payload.flags && payload.flags.momentum_elite
+              ),
+              trigger_reason: payload.trigger_reason,
+              trigger_dir: payload.trigger_dir,
+            };
+
             await appendTrail(
               KV,
               ticker,
-              {
-                ts: payload.ts,
-                price: payload.price, // Add price to trail for momentum calculations
-                htf_score: payload.htf_score,
-                ltf_score: payload.ltf_score,
-                completion: payload.completion,
-                phase_pct: payload.phase_pct,
-                state: payload.state,
-                rank: payload.rank,
-                flags: payload.flags || {},
-                momentum_elite: !!(
-                  payload.flags && payload.flags.momentum_elite
-                ),
-                trigger_reason: payload.trigger_reason,
-                trigger_dir: payload.trigger_dir,
-              },
+              trailPoint,
               20
             ); // Increased to 20 points for better history
+
+            // Also store into D1 (if configured) for 7-day history.
+            // Don't let D1 failures affect ingestion.
+            d1InsertTrailPoint(env, ticker, payload).catch((e) => {
+              console.error(`[D1 TRAIL] Insert exception for ${ticker}:`, e);
+            });
+
+            // Periodic cleanup (throttled) to keep ~1 week retention
+            d1CleanupOldTrail(env, 8).catch((e) => {
+              console.error(`[D1 TRAIL] Cleanup exception:`, e);
+            });
           } catch (trailErr) {
             console.error(
               `[TRAIL ERROR] Failed to append trail for ${ticker}:`,
@@ -7037,26 +7710,61 @@ export default {
             );
           }
 
-          // Get trail data with error handling
+          const sinceRaw = url.searchParams.get("since");
+          const limitRaw = url.searchParams.get("limit");
+          const since =
+            sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
+          const limit =
+            limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 5000;
+
+          // Prefer D1 for longer history
+          const d1Result = await d1GetTrailRange(env, ticker, since, limit);
+          if (d1Result.ok) {
+            return sendJSON(
+              {
+                ok: true,
+                ticker,
+                trail: d1Result.trail,
+                count: d1Result.trail.length,
+                source: d1Result.source,
+              },
+              200,
+              {
+                ...corsHeaders(env, req),
+                "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
+                "X-RateLimit-Remaining": String(rateLimit.remaining ?? 0),
+                "X-RateLimit-Reset": String(rateLimit.resetAt ?? Date.now()),
+              }
+            );
+          }
+
+          // KV fallback (small rolling window)
           let trail = [];
           try {
             trail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
-            // Ensure trail is an array
-            if (!Array.isArray(trail)) {
-              console.warn(
-                `[TRAIL] Invalid trail data for ${ticker}, expected array, got:`,
-                typeof trail
-              );
-              trail = [];
-            }
+            if (!Array.isArray(trail)) trail = [];
           } catch (kvError) {
             console.error(`[TRAIL] KV read error for ${ticker}:`, kvError);
-            // Return empty trail instead of error to prevent 500
             trail = [];
           }
 
+          if (since != null && Number.isFinite(since)) {
+            trail = trail.filter((p) => Number(p?.ts) >= since);
+          }
+
           return sendJSON(
-            { ok: true, ticker, trail },
+            {
+              ok: true,
+              ticker,
+              trail,
+              count: trail.length,
+              source: "kv",
+              note: d1Result.skipped
+                ? `D1 unavailable (${d1Result.reason || "unknown"})`
+                : d1Result.error
+                ? `D1 error (${d1Result.error})`
+                : "D1 unavailable",
+            },
             200,
             {
               ...corsHeaders(env, req),
@@ -7070,7 +7778,7 @@ export default {
           // Return empty trail instead of 500 error
           const ticker = normTicker(url.searchParams.get("ticker")) || "UNKNOWN";
           return sendJSON(
-            { ok: true, ticker, trail: [] },
+            { ok: true, ticker, trail: [], count: 0, source: "error" },
             200,
             corsHeaders(env, req)
           );
@@ -8781,6 +9489,739 @@ export default {
               trigger_reason: data.trigger_reason,
               flags: data.flags,
             },
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/alert-replay?ticker=XYZ&since=<ms>&until=<ms>&limit=<n>
+      // Replays alert eligibility across historical ingest payloads (D1-backed).
+      if (url.pathname === "/timed/alert-replay" && req.method === "GET") {
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/alert-replay",
+          200, // conservative; this endpoint can be heavy
+          3600
+        );
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker) {
+          return sendJSON(
+            { ok: false, error: "missing ticker" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const sinceRaw = url.searchParams.get("since");
+        const untilRaw = url.searchParams.get("until");
+        const limitRaw = url.searchParams.get("limit");
+
+        const now = Date.now();
+        const since =
+          sinceRaw != null && sinceRaw !== ""
+            ? Number(sinceRaw)
+            : now - 8 * 24 * 60 * 60 * 1000; // default: last ~week
+        const until =
+          untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
+        const limit =
+          limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 5000;
+
+        const history = await d1GetTrailPayloadRange(env, ticker, since, until, limit);
+        if (!history.ok) {
+          return sendJSON(
+            {
+              ok: false,
+              error: history.skipped
+                ? `d1_unavailable:${history.reason || "unknown"}`
+                : "d1_query_failed",
+              details: history.error || null,
+              ticker,
+            },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const payloads = Array.isArray(history.payloads) ? history.payloads : [];
+        if (payloads.length === 0) {
+          return sendJSON(
+            {
+              ok: true,
+              ticker,
+              source: history.source,
+              since,
+              until,
+              count: 0,
+              results: [],
+              note: "No historical payloads found in D1 for requested range.",
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        }
+
+        const discordEnabled = (env.DISCORD_ENABLE || "false") === "true";
+        const discordUrlSet = !!env.DISCORD_WEBHOOK_URL;
+
+        const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
+        const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
+        const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
+        const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
+
+        let prevState = null;
+        const results = [];
+        const wouldDays = new Set();
+
+        for (const data of payloads) {
+          const state = String(data.state || "");
+          const alignedLong = state === "HTF_BULL_LTF_BULL";
+          const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+          const aligned = alignedLong || alignedShort;
+
+          const enteredAligned = aligned && prevState != null && prevState !== state;
+
+          const trigReason = String(data.trigger_reason || "");
+          const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+
+          const flags = data.flags || {};
+          const sqRel = !!flags.sq30_release;
+
+          const side = corridorSide(data);
+          const inCorridor = !!side;
+          const corridorAlignedOK =
+            (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+
+          const shouldConsiderAlert =
+            inCorridor && corridorAlignedOK && (enteredAligned || trigOk || sqRel);
+
+          const momentumElite = !!flags.momentum_elite;
+
+          const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
+          const maxComp = momentumElite ? Math.min(0.5, baseMaxComp * 1.25) : baseMaxComp;
+          const maxPhase = momentumElite ? Math.min(0.7, baseMaxPhase * 1.17) : baseMaxPhase;
+          const minRank = momentumElite ? Math.max(60, baseMinRank - 10) : baseMinRank;
+
+          const currentRR = computeRR(data);
+          const rrToUse =
+            currentRR != null
+              ? currentRR
+              : data.rr != null
+              ? Number(data.rr)
+              : 0;
+          const rrOk = rrToUse >= minRR;
+          const compOk = data.completion == null ? true : Number(data.completion) <= maxComp;
+          const phaseOk = data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
+          const rankOk = Number(data.rank || 0) >= minRank;
+
+          const momentumEliteTrigger = momentumElite && inCorridor && corridorAlignedOK;
+          const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+
+          const wouldAlertLogic =
+            enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
+          const wouldAlert =
+            wouldAlertLogic && discordEnabled && discordUrlSet;
+
+          // Track days where alert would have been eligible (for dedupe lookups)
+          const ts = Number(data.ts);
+          const day = Number.isFinite(ts)
+            ? new Date(ts).toISOString().split("T")[0]
+            : null;
+          if (wouldAlert && day) wouldDays.add(day);
+
+          if (wouldAlertLogic) {
+            results.push({
+              ts,
+              day,
+              state,
+              side: side || "none",
+              inCorridor,
+              corridorAlignedOK,
+              enteredAligned,
+              trigOk,
+              trigger_reason: trigReason || null,
+              sqRel,
+              momentumElite,
+              rr: rrToUse,
+              rrOk,
+              completion: data.completion,
+              compOk,
+              phase_pct: data.phase_pct,
+              phaseOk,
+              rank: data.rank,
+              rankOk,
+              enhancedTrigger,
+              wouldAlertLogic,
+              wouldAlert, // includes discord configured
+            });
+          }
+
+          prevState = state;
+        }
+
+        // Check KV dedupe keys for days where we'd alert (so replay can explain "blocked by dedupe")
+        const dedupe = {};
+        const days = Array.from(wouldDays);
+        await Promise.all(
+          days.map(async (day) => {
+            const key = `timed:alerted:${ticker}:${day}`;
+            const v = await KV.get(key);
+            dedupe[day] = { key, alreadyAlerted: !!v };
+          })
+        );
+
+        // Compute "wouldSendIfFirstOfDay" as a deterministic simulation of dedupe behavior
+        const firstOfDaySeen = new Set();
+        const enriched = results.map((r) => {
+          if (!r.wouldAlert) return { ...r, dedupe: dedupe[r.day] || null, wouldSend: false };
+          const already = (dedupe[r.day] && dedupe[r.day].alreadyAlerted) || false;
+          const first = r.day && !firstOfDaySeen.has(r.day);
+          if (r.day && first) firstOfDaySeen.add(r.day);
+          return {
+            ...r,
+            dedupe: dedupe[r.day] || null,
+            wouldSend: !already && first,
+          };
+        });
+
+        return sendJSON(
+          {
+            ok: true,
+            ticker,
+            source: history.source,
+            since,
+            until,
+            pointsFetched: payloads.length,
+            eligiblePoints: enriched.length, // only those passing logic
+            wouldSendCount: enriched.filter((x) => x.wouldSend).length,
+            discord: { enabled: discordEnabled, urlSet: discordUrlSet },
+            thresholds: {
+              base: {
+                minRR: baseMinRR,
+                maxComp: baseMaxComp,
+                maxPhase: baseMaxPhase,
+                minRank: baseMinRank,
+              },
+            },
+            results: enriched,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/ledger/trades?since&until&ticker&status&limit&cursor
+      if (url.pathname === "/timed/ledger/trades" && req.method === "GET") {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(KV, ip, "/timed/ledger/trades", 600, 3600);
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = normTicker(url.searchParams.get("ticker")) || null;
+        const status = url.searchParams.get("status");
+        const sinceRaw = url.searchParams.get("since");
+        const untilRaw = url.searchParams.get("until");
+        const limitRaw = url.searchParams.get("limit");
+        const cursorRaw = url.searchParams.get("cursor");
+
+        const since = sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
+        const until = untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
+        const limit = Math.max(1, Math.min(1000, Number(limitRaw) || 200));
+        const cursor = decodeCursor(cursorRaw);
+
+        let where = "WHERE 1=1";
+        const binds = [];
+        if (ticker) {
+          where += " AND ticker = ?";
+          binds.push(String(ticker).toUpperCase());
+        }
+        if (status && status !== "all") {
+          where += " AND status = ?";
+          binds.push(String(status));
+        }
+        if (since != null && Number.isFinite(since)) {
+          where += " AND entry_ts >= ?";
+          binds.push(Number(since));
+        }
+        if (until != null && Number.isFinite(until)) {
+          where += " AND entry_ts <= ?";
+          binds.push(Number(until));
+        }
+        if (cursor && Number.isFinite(Number(cursor.entry_ts)) && cursor.trade_id) {
+          where += " AND (entry_ts < ? OR (entry_ts = ? AND trade_id < ?))";
+          binds.push(Number(cursor.entry_ts), Number(cursor.entry_ts), String(cursor.trade_id));
+        }
+
+        const sql = `SELECT
+            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+            script_version, created_at, updated_at
+          FROM trades
+          ${where}
+          ORDER BY entry_ts DESC, trade_id DESC
+          LIMIT ?`;
+
+        const rows = await db.prepare(sql).bind(...binds, limit + 1).all();
+        const results = Array.isArray(rows?.results) ? rows.results : [];
+        const page = results.slice(0, limit);
+        const hasMore = results.length > limit;
+        const last = page.length > 0 ? page[page.length - 1] : null;
+        const nextCursor =
+          hasMore && last
+            ? encodeCursor({ entry_ts: last.entry_ts, trade_id: last.trade_id })
+            : null;
+
+        return sendJSON(
+          { ok: true, count: page.length, hasMore, nextCursor, trades: page },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/ledger/trades/:tradeId
+      if (url.pathname.startsWith("/timed/ledger/trades/") && req.method === "GET") {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tradeId = decodeURIComponent(url.pathname.split("/timed/ledger/trades/")[1] || "").trim();
+        if (!tradeId) {
+          return sendJSON(
+            { ok: false, error: "missing trade_id" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const includeEvidence = (url.searchParams.get("includeEvidence") || "") === "1";
+
+        const tradeRow = await db
+          .prepare(
+            `SELECT
+              trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+              exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+              script_version, created_at, updated_at
+             FROM trades WHERE trade_id = ?1 LIMIT 1`
+          )
+          .bind(tradeId)
+          .first();
+
+        if (!tradeRow) {
+          return sendJSON(
+            { ok: false, error: "not_found", trade_id: tradeId },
+            404,
+            corsHeaders(env, req)
+          );
+        }
+
+        const eventsRows = await db
+          .prepare(
+            `SELECT
+              event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
+             FROM trade_events
+             WHERE trade_id = ?1
+             ORDER BY ts ASC`
+          )
+          .bind(tradeId)
+          .all();
+
+        const events = Array.isArray(eventsRows?.results) ? eventsRows.results : [];
+
+        let evidence = null;
+        if (includeEvidence) {
+          const ticker = String(tradeRow.ticker || "").toUpperCase();
+          evidence = [];
+          for (const ev of events) {
+            const ts = Number(ev.ts);
+            if (!ticker || !Number.isFinite(ts)) continue;
+            const snap = await db
+              .prepare(
+                `SELECT ts, payload_json
+                 FROM timed_trail
+                 WHERE ticker = ?1 AND ts <= ?2
+                 ORDER BY ts DESC
+                 LIMIT 1`
+              )
+              .bind(ticker, ts)
+              .first();
+            if (snap && snap.payload_json) {
+              try {
+                evidence.push({
+                  event_id: ev.event_id,
+                  ts: ts,
+                  snapshot_ts: Number(snap.ts),
+                  payload: JSON.parse(String(snap.payload_json)),
+                });
+              } catch {
+                // ignore parse errors
+              }
+            }
+          }
+        }
+
+        return sendJSON(
+          { ok: true, trade: tradeRow, events, evidence },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/ledger/alerts?since&until&ticker&dedupe_day&limit&cursor
+      if (url.pathname === "/timed/ledger/alerts" && req.method === "GET") {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(KV, ip, "/timed/ledger/alerts", 600, 3600);
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = normTicker(url.searchParams.get("ticker")) || null;
+        const dedupeDay = url.searchParams.get("dedupe_day");
+        const sinceRaw = url.searchParams.get("since");
+        const untilRaw = url.searchParams.get("until");
+        const limitRaw = url.searchParams.get("limit");
+        const cursorRaw = url.searchParams.get("cursor");
+
+        const since = sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
+        const until = untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
+        const limit = Math.max(1, Math.min(1000, Number(limitRaw) || 200));
+        const cursor = decodeCursor(cursorRaw);
+
+        let where = "WHERE 1=1";
+        const binds = [];
+        if (ticker) {
+          where += " AND ticker = ?";
+          binds.push(String(ticker).toUpperCase());
+        }
+        if (dedupeDay && dedupeDay !== "all") {
+          where += " AND dedupe_day = ?";
+          binds.push(String(dedupeDay));
+        }
+        if (since != null && Number.isFinite(since)) {
+          where += " AND ts >= ?";
+          binds.push(Number(since));
+        }
+        if (until != null && Number.isFinite(until)) {
+          where += " AND ts <= ?";
+          binds.push(Number(until));
+        }
+        if (cursor && Number.isFinite(Number(cursor.ts)) && cursor.alert_id) {
+          where += " AND (ts < ? OR (ts = ? AND alert_id < ?))";
+          binds.push(Number(cursor.ts), Number(cursor.ts), String(cursor.alert_id));
+        }
+
+        const sql = `SELECT
+            alert_id, ticker, ts, side, state, rank, rr_at_alert, trigger_reason, dedupe_day,
+            discord_sent, discord_status, discord_error
+          FROM alerts
+          ${where}
+          ORDER BY ts DESC, alert_id DESC
+          LIMIT ?`;
+
+        const rows = await db.prepare(sql).bind(...binds, limit + 1).all();
+        const results = Array.isArray(rows?.results) ? rows.results : [];
+        const page = results.slice(0, limit);
+        const hasMore = results.length > limit;
+        const last = page.length > 0 ? page[page.length - 1] : null;
+        const nextCursor =
+          hasMore && last
+            ? encodeCursor({ ts: last.ts, alert_id: last.alert_id })
+            : null;
+
+        return sendJSON(
+          { ok: true, count: page.length, hasMore, nextCursor, alerts: page },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/ledger/summary?since&until
+      if (url.pathname === "/timed/ledger/summary" && req.method === "GET") {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(KV, ip, "/timed/ledger/summary", 300, 3600);
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const sinceRaw = url.searchParams.get("since");
+        const untilRaw = url.searchParams.get("until");
+        const since = sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
+        const until = untilRaw != null && untilRaw !== "" ? Number(untilRaw) : null;
+
+        let where = "WHERE 1=1";
+        const binds = [];
+        if (since != null && Number.isFinite(since)) {
+          where += " AND entry_ts >= ?";
+          binds.push(Number(since));
+        }
+        if (until != null && Number.isFinite(until)) {
+          where += " AND entry_ts <= ?";
+          binds.push(Number(until));
+        }
+
+        const overall = await db
+          .prepare(
+            `SELECT
+              COUNT(*) AS total,
+              SUM(CASE WHEN status IN ('WIN','LOSS') THEN 1 ELSE 0 END) AS closed,
+              SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) AS losses,
+              SUM(CASE WHEN status IN ('WIN','LOSS') THEN pnl ELSE 0 END) AS closed_pnl,
+              SUM(CASE WHEN status = 'WIN' THEN pnl ELSE 0 END) AS gross_win,
+              SUM(CASE WHEN status = 'LOSS' THEN -pnl ELSE 0 END) AS gross_loss
+            FROM trades
+            ${where}`
+          )
+          .bind(...binds)
+          .first();
+
+        const closed = Number(overall?.closed || 0);
+        const wins = Number(overall?.wins || 0);
+        const losses = Number(overall?.losses || 0);
+        const winRate = closed > 0 ? (wins / closed) * 100 : 0;
+        const grossWin = Number(overall?.gross_win || 0);
+        const grossLoss = Number(overall?.gross_loss || 0);
+        const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
+
+        const rankBuckets = await db
+          .prepare(
+            `SELECT
+              CASE
+                WHEN rank >= 80 THEN '80+'
+                WHEN rank >= 70 THEN '70-79'
+                WHEN rank >= 60 THEN '60-69'
+                WHEN rank IS NULL THEN 'unknown'
+                ELSE '<60'
+              END AS bucket,
+              COUNT(*) AS n,
+              SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) AS losses,
+              SUM(CASE WHEN status IN ('WIN','LOSS') THEN pnl ELSE 0 END) AS pnl
+            FROM trades
+            ${where}
+            GROUP BY bucket
+            ORDER BY bucket`
+          )
+          .bind(...binds)
+          .all();
+
+        const rrBuckets = await db
+          .prepare(
+            `SELECT
+              CASE
+                WHEN rr >= 2.0 THEN '2.0+'
+                WHEN rr >= 1.5 THEN '1.5-1.99'
+                WHEN rr >= 1.0 THEN '1.0-1.49'
+                WHEN rr IS NULL THEN 'unknown'
+                ELSE '<1.0'
+              END AS bucket,
+              COUNT(*) AS n,
+              SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) AS losses,
+              SUM(CASE WHEN status IN ('WIN','LOSS') THEN pnl ELSE 0 END) AS pnl
+            FROM trades
+            ${where}
+            GROUP BY bucket
+            ORDER BY bucket`
+          )
+          .bind(...binds)
+          .all();
+
+        const exitReasons = await db
+          .prepare(
+            `SELECT
+              COALESCE(exit_reason, 'unknown') AS reason,
+              COUNT(*) AS n,
+              SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) AS wins,
+              SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) AS losses,
+              SUM(CASE WHEN status IN ('WIN','LOSS') THEN pnl ELSE 0 END) AS pnl
+            FROM trades
+            ${where}
+            GROUP BY reason
+            ORDER BY n DESC`
+          )
+          .bind(...binds)
+          .all();
+
+        // Trigger reasons from alerts (sent + skipped) in same time window (best-effort)
+        let alertWhere = "WHERE 1=1";
+        const alertBinds = [];
+        if (since != null && Number.isFinite(since)) {
+          alertWhere += " AND ts >= ?";
+          alertBinds.push(Number(since));
+        }
+        if (until != null && Number.isFinite(until)) {
+          alertWhere += " AND ts <= ?";
+          alertBinds.push(Number(until));
+        }
+
+        const triggerReasons = await db
+          .prepare(
+            `SELECT
+              COALESCE(trigger_reason, 'unknown') AS reason,
+              COUNT(*) AS n,
+              SUM(CASE WHEN discord_sent = 1 THEN 1 ELSE 0 END) AS sent,
+              SUM(CASE WHEN discord_sent = 0 THEN 1 ELSE 0 END) AS not_sent
+            FROM alerts
+            ${alertWhere}
+            GROUP BY reason
+            ORDER BY n DESC`
+          )
+          .bind(...alertBinds)
+          .all();
+
+        return sendJSON(
+          {
+            ok: true,
+            since,
+            until,
+            totals: {
+              totalTrades: Number(overall?.total || 0),
+              closedTrades: closed,
+              wins,
+              losses,
+              winRate,
+              closedPnl: Number(overall?.closed_pnl || 0),
+              profitFactor,
+            },
+            breakdown: {
+              byRank: rankBuckets?.results || [],
+              byRR: rrBuckets?.results || [],
+              byExitReason: exitReasons?.results || [],
+              byTriggerReason: triggerReasons?.results || [],
+            },
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/admin/backfill-trades?key=...&limit=...&offset=...&ticker=...
+      // Backfill KV trades/history into D1 ledger tables (idempotent via upserts + INSERT OR IGNORE).
+      if (url.pathname === "/timed/admin/backfill-trades" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const qLimit = Number(url.searchParams.get("limit") || "0");
+        const qOffset = Number(url.searchParams.get("offset") || "0");
+        const tickerFilter = normTicker(url.searchParams.get("ticker"));
+
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const filtered = Array.isArray(allTrades)
+          ? allTrades.filter((t) => {
+              if (!t || !t.id) return false;
+              if (tickerFilter) return String(t.ticker || "").toUpperCase() === tickerFilter;
+              return true;
+            })
+          : [];
+
+        const offset = Math.max(0, Number.isFinite(qOffset) ? qOffset : 0);
+        const limit =
+          qLimit > 0 ? Math.max(1, Math.min(5000, qLimit)) : filtered.length;
+        const slice = filtered.slice(offset, offset + limit);
+
+        let tradesUpserted = 0;
+        let eventsInserted = 0;
+        const errors = [];
+
+        const batchSize = 50;
+        for (let i = 0; i < slice.length; i += batchSize) {
+          const batch = slice.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (t) => {
+              try {
+                const r = await d1UpsertTrade(env, t);
+                if (r.ok) tradesUpserted += 1;
+
+                if (Array.isArray(t.history)) {
+                  for (const ev of t.history) {
+                    const er = await d1InsertTradeEvent(env, String(t.id), ev);
+                    if (er.ok) eventsInserted += 1;
+                  }
+                }
+              } catch (e) {
+                errors.push({ trade_id: t?.id || null, error: String(e) });
+              }
+            })
+          );
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            ticker: tickerFilter || null,
+            totalInKV: Array.isArray(allTrades) ? allTrades.length : 0,
+            filtered: filtered.length,
+            offset,
+            limit: slice.length,
+            tradesUpserted,
+            eventsInserted,
+            errorsCount: errors.length,
+            errors: errors.slice(0, 25),
           },
           200,
           corsHeaders(env, req)
