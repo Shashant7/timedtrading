@@ -301,6 +301,7 @@
           Tooltip: Recharts.Tooltip,
           ResponsiveContainer: Recharts.ResponsiveContainer,
           ReferenceLine: Recharts.ReferenceLine,
+          ReferenceArea: Recharts.ReferenceArea,
         };
       }
 
@@ -2894,6 +2895,7 @@
             Tooltip: Recharts.Tooltip,
             ResponsiveContainer: Recharts.ResponsiveContainer,
             ReferenceLine: Recharts.ReferenceLine,
+            ReferenceArea: Recharts.ReferenceArea,
           };
         }
 
@@ -3792,6 +3794,7 @@
           Tooltip,
           ResponsiveContainer,
           ReferenceLine,
+          ReferenceArea,
         } = currentRechartsComponents;
 
         const [rechartsCrosshair, setRechartsCrosshair] = useState(null);
@@ -4184,6 +4187,24 @@
                   name="HTF Score"
                   domain={[-50, 50]}
                   stroke="#93a4d6"
+                />
+                {/* Corridors - Long corridor (top half, LTF: -8 to +12) */}
+                <ReferenceArea
+                  x1={LONG_CORRIDOR.ltfMin}
+                  x2={LONG_CORRIDOR.ltfMax}
+                  y1={0}
+                  y2={50}
+                  fill="rgba(46,204,113,0.1)"
+                  stroke="none"
+                />
+                {/* Corridors - Short corridor (bottom half, LTF: -12 to +8) */}
+                <ReferenceArea
+                  x1={SHORT_CORRIDOR.ltfMin}
+                  x2={SHORT_CORRIDOR.ltfMax}
+                  y1={-50}
+                  y2={0}
+                  fill="rgba(231,76,60,0.1)"
+                  stroke="none"
                 />
                 {/* Zero lines - X=0 and Y=0 */}
                 <ReferenceLine
