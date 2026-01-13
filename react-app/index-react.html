@@ -2810,7 +2810,7 @@
                       signal: AbortSignal.timeout(5000), // 5 second timeout
                     }
                   );
-                  
+
                   if (res.ok) {
                     const json = await res.json();
                     if (
@@ -2887,6 +2887,10 @@
                   if (trail.length > 0) {
                     updated[ticker] = trail;
                     trailsFetchedRef.current.add(ticker);
+                    // Debug: Log when trails are loaded
+                    if (Object.keys(updated).length <= 10 || ticker === "AAPL" || ticker === "MSFT") {
+                      console.log(`[TRAILS] Loaded ${trail.length} points for ${ticker}`);
+                    }
                   }
                 });
                 return updated;
@@ -3654,12 +3658,14 @@
 
                     // Render historical trails for all tickers (behind current bubbles)
                     const historicalTrails = [];
+                    let trailsRendered = 0;
                     tickers.forEach((ticker) => {
                       const tickerKey = String(
                         ticker?.ticker || ""
                       ).toUpperCase();
                       const trail = allTrails[tickerKey];
                       if (trail && Array.isArray(trail) && trail.length > 1) {
+                        trailsRendered++;
                         // Render trail lines
                         trail.forEach((point, idx) => {
                           if (idx === 0) return;
@@ -3685,7 +3691,7 @@
 
                           // Older points are more transparent (idx/trail.length gives age)
                           const ageRatio = idx / trail.length;
-                          const opacity = 0.1 + (1 - ageRatio) * 0.2; // 0.1 to 0.3 opacity
+                          const opacity = 0.2 + (1 - ageRatio) * 0.4; // 0.2 to 0.6 opacity (increased for visibility)
 
                           historicalTrails.push(
                             <line
@@ -3697,7 +3703,7 @@
                               stroke={phaseCompletionToColor(
                                 point.phase_pct || 0
                               )}
-                              strokeWidth="1"
+                              strokeWidth="1.5"
                               opacity={opacity}
                               className="comet-trail"
                             />
@@ -3718,8 +3724,8 @@
 
                           // Older positions are smaller and more transparent
                           const ageRatio = idx / trail.length;
-                          const size = 2 + (1 - ageRatio) * 3; // 2 to 5 pixels
-                          const opacity = 0.15 + (1 - ageRatio) * 0.25; // 0.15 to 0.4 opacity
+                          const size = 3 + (1 - ageRatio) * 4; // 3 to 7 pixels (increased for visibility)
+                          const opacity = 0.25 + (1 - ageRatio) * 0.5; // 0.25 to 0.75 opacity (increased for visibility)
                           const color = phaseCompletionToColor(
                             point.phase_pct || 0
                           );
@@ -3733,18 +3739,28 @@
                               fill={color}
                               fillOpacity={opacity}
                               stroke={color}
-                              strokeWidth="0.5"
-                              strokeOpacity={opacity * 0.5}
+                              strokeWidth="1"
+                              strokeOpacity={opacity * 0.7}
                             />
                           );
                         });
                       }
                     });
 
+                    // Debug: Log trail rendering
+                    if (historicalTrails.length > 0 && !window._trailRenderLogged) {
+                      window._trailRenderLogged = true;
+                      console.log(`[HISTORICAL TRAILS] Rendering ${historicalTrails.length} trail elements for ${trailsRendered} tickers`);
+                    }
+
                     return (
                       <>
                         {/* Historical trails - rendered first so they appear behind current bubbles */}
-                        {historicalTrails}
+                        {historicalTrails.length > 0 && (
+                          <g key="historical-trails" style={{ pointerEvents: "none" }}>
+                            {historicalTrails}
+                          </g>
+                        )}
                         {/* Current bubbles */}
                         {tickers.map((ticker, index) => {
                           // Log first few bubbles
