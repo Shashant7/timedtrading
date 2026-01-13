@@ -1087,7 +1087,7 @@ elapsedDays = (not na(triggerTs)) ? ((time - triggerTs) / 86400000.0) : na
 baseETA = (not na(elapsedDays) and completion > 0 and completion < 0.999) ? (elapsedDays * (1.0 / completion - 1.0)) : na
 
 // Enhanced ETA with momentum adjustment
-etaDays = na
+float etaDays = na
 if not na(baseETA) and not na(elapsedDays) and completion > 0.01 and completion < 0.999
     // Calculate recent velocity (how fast we're progressing now vs average)
     // Use completion rate over last 25% of elapsed time to get recent velocity
