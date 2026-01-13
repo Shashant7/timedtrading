@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"
+    />
     <title>Timed Trading</title>
 
     <!-- React & ReactDOM via CDN -->
@@ -2265,7 +2268,11 @@
                 e.preventDefault();
                 onHover(null);
               }}
-              style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
+              style={{
+                cursor: "pointer",
+                transition: "all 0.2s ease-out",
+                touchAction: "manipulation",
+              }}
             >
               {/* Glow effect for prime */}
               {prime && (
@@ -2685,7 +2692,11 @@
                 e.preventDefault();
                 onHover(null);
               }}
-              style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
+              style={{
+                cursor: "pointer",
+                transition: "all 0.2s ease-out",
+                touchAction: "manipulation",
+              }}
             >
               {/* Glow effect for prime */}
               {prime && (
@@ -3847,6 +3858,9 @@
 
         const [rechartsCrosshair, setRechartsCrosshair] = useState(null);
         const chartContainerRef = React.useRef(null);
+        
+        // Store allTickersWithRanksForComparison for tooltip access
+        const allTickersForRanking = allTickersWithRanksForComparison;
 
         const data = useMemo(
           () =>
@@ -3965,7 +3979,11 @@
                   e.preventDefault();
                   onHover(null);
                 }}
-                style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
+                style={{
+                  cursor: "pointer",
+                  transition: "all 0.2s ease-out",
+                  touchAction: "manipulation",
+                }}
               >
                 {/* Glow effect for prime */}
                 {prime && (
@@ -4307,15 +4325,151 @@
                   content={({ active, payload }) => {
                     if (!active || !payload?.[0]) return null;
                     const t = payload[0].payload.ticker;
+                    
+                    // Calculate rank position (same logic as native SVG tooltip)
+                    let rankPosition = null;
+                    let totalTickers = 0;
+                    if (allTickersWithRanksForComparison && Array.isArray(allTickersWithRanksForComparison)) {
+                      const sortedByRank = [...allTickersWithRanksForComparison].sort(
+                        (a, b) => {
+                          const scoreA = Number(a.dynamicRank) || 0;
+                          const scoreB = Number(b.dynamicRank) || 0;
+                          return scoreB - scoreA;
+                        }
+                      );
+                      totalTickers = sortedByRank.length;
+                      const tickerUpper = String(t.ticker || "").trim().toUpperCase();
+                      const index = sortedByRank.findIndex(
+                        (ticker) =>
+                          String(ticker.ticker || "").trim().toUpperCase() === tickerUpper
+                      );
+                      if (index >= 0) {
+                        rankPosition = index + 1;
+                      }
+                    }
+                    
                     return (
-                      <div className="bg-[#121a33] border border-[#26325f] rounded p-3 text-sm">
-                        <div className="font-bold">{t.ticker}</div>
-                        <div>Rank: {t.rank || "—"}</div>
-                        <div>RR: {t.rr ? Number(t.rr).toFixed(2) : "—"}</div>
-                        <div>State: {t.state || "—"}</div>
+                      <div className="bg-[#121a33] border-2 border-[#26325f] rounded-lg p-3 text-sm pointer-events-none z-10 shadow-xl">
+                        <div className="font-bold text-base mb-2">
+                          {t.ticker}
+                          {t.price && (
+                            <span className="ml-2 text-sm font-normal text-white">
+                              ${Number(t.price).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                        {(() => {
+                          // Show ingest time (same logic as native SVG tooltip)
+                          const ingestTime =
+                            t.ingest_ts ||
+                            t.ingest_time ||
+                            t.ts;
+                          if (ingestTime) {
+                            try {
+                              const timeValue =
+                                typeof ingestTime === "string"
+                                  ? new Date(ingestTime)
+                                  : new Date(Number(ingestTime));
+                              if (!isNaN(timeValue.getTime())) {
+                                const ageMs = Date.now() - timeValue.getTime();
+                                const ageMinutes = Math.floor(ageMs / 60000);
+                                const ageHours = Math.floor(ageMinutes / 60);
+                                const isStale = ageMinutes > 30;
+
+                                const displayTime = timeValue.toLocaleTimeString(
+                                  "en-US",
+                                  {
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                    hour12: true,
+                                  }
+                                );
+                                const displayDate = timeValue.toLocaleDateString(
+                                  "en-US",
+                                  {
+                                    month: "short",
+                                    day: "numeric",
+                                  }
+                                );
+                                return (
+                                  <div
+                                    className={`text-[10px] mb-2 ${
+                                      isStale
+                                        ? "text-yellow-400"
+                                        : "text-[#93a4d6]"
+                                    }`}
+                                  >
+                                    {displayDate} {displayTime}
+                                    {isStale && (
+                                      <span
+                                        className="ml-1"
+                                        title={`Data is ${
+                                          ageHours > 0 ? `${ageHours}h ` : ""
+                                        }${ageMinutes % 60}m old`}
+                                      >
+                                        ⚠️
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              }
+                            } catch (e) {}
+                          }
+                          return null;
+                        })()}
                         {isPrimeBubble(t) && (
-                          <div className="text-[#2ecc71]">⭐ PRIME SETUP</div>
+                          <div className="mb-2 px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-semibold text-center">
+                            ⭐ PRIME SETUP
+                          </div>
                         )}
+                        <div className="space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">Score</span>
+                            <span className="font-semibold">
+                              {t.rank || "—"}
+                            </span>
+                          </div>
+                          {rankPosition !== null && totalTickers > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-[#93a4d6]">Rank</span>
+                              <span className="font-semibold">
+                                {rankPosition} / {totalTickers}
+                              </span>
+                            </div>
+                          )}
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">RR</span>
+                            <span className="font-semibold">
+                              {t.rr ? Number(t.rr).toFixed(2) : "—"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">State</span>
+                            <span className="font-semibold">
+                              {t.state || "—"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">Phase</span>
+                            <span
+                              className="font-semibold"
+                              style={{
+                                color: phaseToColor(
+                                  Number(t.phase_pct) || 0
+                                ),
+                              }}
+                            >
+                              {Math.round((Number(t.phase_pct) || 0) * 100)}
+                              %{t.phase_zone && ` (${t.phase_zone})`}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">Completion</span>
+                            <span className="font-semibold">
+                              {Math.round(completionForSize(t) * 100)}%
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     );
                   }}
@@ -10067,14 +10221,17 @@
             const fetchUpdates = async () => {
               try {
                 const timestamp = Date.now();
-                const res = await fetch(`${API_BASE}/timed/ai/updates?limit=5&_t=${timestamp}`, {
-                  cache: "no-store",
-                  headers: {
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    Pragma: "no-cache",
-                    Expires: "0",
-                  },
-                });
+                const res = await fetch(
+                  `${API_BASE}/timed/ai/updates?limit=5&_t=${timestamp}`,
+                  {
+                    cache: "no-store",
+                    headers: {
+                      "Cache-Control": "no-cache, no-store, must-revalidate",
+                      Pragma: "no-cache",
+                      Expires: "0",
+                    },
+                  }
+                );
                 if (res.ok) {
                   const data = await res.json();
                   if (data.ok && data.updates) {
@@ -10102,16 +10259,19 @@
 
           try {
             const timestamp = Date.now();
-            const response = await fetch(`${API_BASE}/timed/ai/monitor?_t=${timestamp}`, {
-              method: "GET",
-              cache: "no-store",
-              headers: {
-                "Content-Type": "application/json",
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                Pragma: "no-cache",
-                Expires: "0",
-              },
-            });
+            const response = await fetch(
+              `${API_BASE}/timed/ai/monitor?_t=${timestamp}`,
+              {
+                method: "GET",
+                cache: "no-store",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  Pragma: "no-cache",
+                  Expires: "0",
+                },
+              }
+            );
 
             if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
@@ -10181,27 +10341,30 @@
             }
 
             const timestamp = Date.now();
-            const response = await fetch(`${API_BASE}/timed/ai/chat?_t=${timestamp}`, {
-              method: "POST",
-              cache: "no-store",
-              headers: {
-                "Content-Type": "application/json",
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                Pragma: "no-cache",
-                Expires: "0",
-              },
-              body: JSON.stringify({
-                message: userMessage.content,
-                conversationHistory: messages.slice(-10).map((m) => ({
-                  role: m.role,
-                  content: m.content,
-                })),
-                tickerData: tickerData
-                  ? Object.keys(tickerData).slice(0, 50)
-                  : [],
-                activityData: activityData,
-              }),
-            });
+            const response = await fetch(
+              `${API_BASE}/timed/ai/chat?_t=${timestamp}`,
+              {
+                method: "POST",
+                cache: "no-store",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  Pragma: "no-cache",
+                  Expires: "0",
+                },
+                body: JSON.stringify({
+                  message: userMessage.content,
+                  conversationHistory: messages.slice(-10).map((m) => ({
+                    role: m.role,
+                    content: m.content,
+                  })),
+                  tickerData: tickerData
+                    ? Object.keys(tickerData).slice(0, 50)
+                    : [],
+                  activityData: activityData,
+                }),
+              }
+            );
 
             if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
