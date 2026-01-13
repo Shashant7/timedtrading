@@ -2767,6 +2767,88 @@
         }
       );
 
+      // Hook to fetch trail data for all tickers
+      function useAllTrails(tickers) {
+        const [allTrails, setAllTrails] = useState({});
+        const [loadingTrails, setLoadingTrails] = useState(false);
+        const trailsFetchedRef = React.useRef(new Set());
+
+        React.useEffect(() => {
+          if (!tickers || tickers.length === 0) {
+            setAllTrails({});
+            return;
+          }
+
+          // Only fetch trails for tickers we haven't fetched yet
+          const tickersToFetch = tickers
+            .map((t) => String(t?.ticker || "").toUpperCase())
+            .filter((t) => t && !trailsFetchedRef.current.has(t));
+
+          if (tickersToFetch.length === 0) return;
+
+          // Limit concurrent fetches to avoid overwhelming the API
+          const MAX_CONCURRENT = 10;
+          const batches = [];
+          for (let i = 0; i < tickersToFetch.length; i += MAX_CONCURRENT) {
+            batches.push(tickersToFetch.slice(i, i + MAX_CONCURRENT));
+          }
+
+          setLoadingTrails(true);
+          
+          const fetchBatch = async (batch) => {
+            const promises = batch.map(async (ticker) => {
+              try {
+                const res = await fetch(
+                  `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker)}`
+                );
+                if (res.ok) {
+                  const json = await res.json();
+                  if (json.ok && Array.isArray(json.trail) && json.trail.length > 0) {
+                    return { ticker, trail: json.trail };
+                  }
+                }
+                return { ticker, trail: [] };
+              } catch (err) {
+                console.error(`Failed to fetch trail for ${ticker}:`, err);
+                return { ticker, trail: [] };
+              }
+            });
+
+            const results = await Promise.all(promises);
+            return results;
+          };
+
+          // Fetch all batches sequentially to avoid overwhelming the API
+          const fetchAllBatches = async () => {
+            const allResults = [];
+            for (const batch of batches) {
+              const results = await fetchBatch(batch);
+              allResults.push(...results);
+              
+              // Update state incrementally for better UX
+              setAllTrails((prev) => {
+                const updated = { ...prev };
+                results.forEach(({ ticker, trail }) => {
+                  if (trail.length > 0) {
+                    updated[ticker] = trail;
+                    trailsFetchedRef.current.add(ticker);
+                  }
+                });
+                return updated;
+              });
+              
+              // Small delay between batches
+              await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+            setLoadingTrails(false);
+          };
+
+          fetchAllBatches();
+        }, [tickers]);
+
+        return { allTrails, loadingTrails };
+      }
+
       function BubbleChart({
         tickers,
         onBubbleClick,
@@ -2777,6 +2859,8 @@
         allData,
         allTickersWithRanksForComparison,
       }) {
+        // Fetch trail data for all tickers
+        const { allTrails } = useAllTrails(tickers);
         // Debug: Log what BubbleChart receives
         React.useEffect(() => {
           if (!window._bubbleChartPropsLogged) {
@@ -3513,7 +3597,95 @@
                       return null;
                     }
 
-                    return tickers.map((ticker, index) => {
+                    // Render historical trails for all tickers (behind current bubbles)
+                    const historicalTrails = [];
+                    tickers.forEach((ticker) => {
+                      const tickerKey = String(ticker?.ticker || "").toUpperCase();
+                      const trail = allTrails[tickerKey];
+                      if (trail && Array.isArray(trail) && trail.length > 1) {
+                        // Render trail lines
+                        trail.forEach((point, idx) => {
+                          if (idx === 0) return;
+                          const prevPoint = trail[idx - 1];
+                          const x1 =
+                            (Number(prevPoint.ltf_score) || 0) * scaleX +
+                            offsetX +
+                            50 * scaleX;
+                          const y1 =
+                            (Number(prevPoint.htf_score) || 0) * -scaleY +
+                            offsetY +
+                            plotHeight -
+                            50 * scaleY;
+                          const x2 =
+                            (Number(point.ltf_score) || 0) * scaleX +
+                            offsetX +
+                            50 * scaleX;
+                          const y2 =
+                            (Number(point.htf_score) || 0) * -scaleY +
+                            offsetY +
+                            plotHeight -
+                            50 * scaleY;
+                          
+                          // Older points are more transparent (idx/trail.length gives age)
+                          const ageRatio = idx / trail.length;
+                          const opacity = 0.1 + (1 - ageRatio) * 0.2; // 0.1 to 0.3 opacity
+                          
+                          historicalTrails.push(
+                            <line
+                              key={`trail-${tickerKey}-${idx}`}
+                              x1={x1}
+                              y1={y1}
+                              x2={x2}
+                              y2={y2}
+                              stroke={phaseCompletionToColor(point.phase_pct || 0)}
+                              strokeWidth="1"
+                              opacity={opacity}
+                              className="comet-trail"
+                            />
+                          );
+                        });
+
+                        // Render historical bubble positions (skip last one as it's the current position)
+                        trail.slice(0, -1).forEach((point, idx) => {
+                          const x =
+                            (Number(point.ltf_score) || 0) * scaleX +
+                            offsetX +
+                            50 * scaleX;
+                          const y =
+                            (Number(point.htf_score) || 0) * -scaleY +
+                            offsetY +
+                            plotHeight -
+                            50 * scaleY;
+                          
+                          // Older positions are smaller and more transparent
+                          const ageRatio = idx / trail.length;
+                          const size = 2 + (1 - ageRatio) * 3; // 2 to 5 pixels
+                          const opacity = 0.15 + (1 - ageRatio) * 0.25; // 0.15 to 0.4 opacity
+                          const color = phaseCompletionToColor(point.phase_pct || 0);
+                          
+                          historicalTrails.push(
+                            <circle
+                              key={`trail-bubble-${tickerKey}-${idx}`}
+                              cx={x}
+                              cy={y}
+                              r={size}
+                              fill={color}
+                              fillOpacity={opacity}
+                              stroke={color}
+                              strokeWidth="0.5"
+                              strokeOpacity={opacity * 0.5}
+                            />
+                          );
+                        });
+                      }
+                    });
+
+                    return (
+                      <>
+                        {/* Historical trails - rendered first so they appear behind current bubbles */}
+                        {historicalTrails}
+                        {/* Current bubbles */}
+                        {tickers.map((ticker, index) => {
                       // Log first few bubbles
                       if (index < 5) {
                         console.log(
@@ -3551,7 +3723,9 @@
                           isTopRanked={topRankedTicker === ticker.ticker}
                         />
                       );
-                    });
+                    })}
+                      </>
+                    );
                   })()
                 )}
               </svg>
