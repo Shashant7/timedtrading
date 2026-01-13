@@ -318,6 +318,59 @@
       // ─────────────────────────────────────────────────────────────
       // Hooks
       // ─────────────────────────────────────────────────────────────
+      // Normalize trail point keys so chart rendering doesn't collapse to 0,0
+      // Supports older / alternate API formats (x/y, ltf/htf, etc.)
+      function normalizeTrailPoints(trail) {
+        if (!Array.isArray(trail)) return [];
+        return trail
+          .map((p) => {
+            if (!p || typeof p !== "object") return null;
+
+            const ltf =
+              p.ltf_score ??
+              p.ltfScore ??
+              p.ltf ??
+              p.x ??
+              p.ltf_value ??
+              p.ltfValue ??
+              p.ltf_score_value;
+            const htf =
+              p.htf_score ??
+              p.htfScore ??
+              p.htf ??
+              p.y ??
+              p.htf_value ??
+              p.htfValue ??
+              p.htf_score_value;
+
+            const phase =
+              p.phase_pct ??
+              p.phasePct ??
+              p.phase ??
+              p.phase_completion ??
+              p.phaseCompletion;
+            const completion =
+              p.completion ?? p.comp ?? p.completion_pct ?? p.completionPct;
+
+            return {
+              ...p,
+              ltf_score: Number.isFinite(Number(ltf)) ? Number(ltf) : 0,
+              htf_score: Number.isFinite(Number(htf)) ? Number(htf) : 0,
+              phase_pct: Number.isFinite(Number(phase))
+                ? Math.max(0, Math.min(1, Number(phase)))
+                : Number.isFinite(Number(p.phase_pct))
+                ? Number(p.phase_pct)
+                : 0,
+              completion: Number.isFinite(Number(completion))
+                ? Math.max(0, Math.min(1, Number(completion)))
+                : Number.isFinite(Number(p.completion))
+                ? Number(p.completion)
+                : 0,
+            };
+          })
+          .filter(Boolean);
+      }
+
       function useTickerData() {
         const [data, setData] = useState({});
         const [loading, setLoading] = useState(true);
@@ -2818,7 +2871,10 @@
                       Array.isArray(json.trail) &&
                       json.trail.length > 0
                     ) {
-                      return { ticker, trail: json.trail };
+                      return {
+                        ticker,
+                        trail: normalizeTrailPoints(json.trail),
+                      };
                     }
                     // If ok but empty trail, return empty (not an error)
                     return { ticker, trail: [] };
@@ -2924,7 +2980,49 @@
         allData,
         allTickersWithRanksForComparison,
       }) {
-        // Fetch trail data for all tickers
+        // Debug: Log props received
+        React.useEffect(() => {
+          console.log(`[BUBBLE CHART] Props received:`, {
+            selectedTicker,
+            hasSelectedTrail: !!selectedTrail,
+            selectedTrailLength: Array.isArray(selectedTrail)
+              ? selectedTrail.length
+              : 0,
+            tickersCount: tickers ? tickers.length : 0,
+          });
+        }, [selectedTicker, selectedTrail, tickers]);
+
+        // Filter tickers to only show selected one if a ticker is selected
+        const displayTickers = React.useMemo(() => {
+          console.log(
+            `[DISPLAY TICKERS] Computing with selectedTicker:`,
+            selectedTicker,
+            {
+              hasSelectedTicker: !!selectedTicker,
+              tickersCount: tickers ? tickers.length : 0,
+            }
+          );
+          if (selectedTicker) {
+            // Only show the selected ticker
+            const filtered = tickers.filter((t) => {
+              if (!t || typeof t !== "object") return false;
+              const tTicker = String(t.ticker || "").toUpperCase();
+              return tTicker === String(selectedTicker).toUpperCase();
+            });
+            console.log(
+              `[BUBBLE FILTER] selectedTicker=${selectedTicker}, filtered from ${tickers.length} to ${filtered.length} tickers`,
+              { filteredTickers: filtered.map((t) => t.ticker) }
+            );
+            return filtered;
+          }
+          // Show all tickers when nothing is selected
+          console.log(
+            `[BUBBLE FILTER] No selectedTicker, showing all ${tickers.length} tickers`
+          );
+          return tickers;
+        }, [tickers, selectedTicker]);
+
+        // Fetch trail data for all tickers (use original tickers, not filtered)
         const { allTrails, loadingTrails } = useAllTrails(tickers);
 
         // Debug: Log trail loading status
@@ -3112,6 +3210,24 @@
             ReferenceArea: Recharts.ReferenceArea,
           };
         }
+
+        // TEMP: force Native SVG rendering (selection + trail lives here)
+        const FORCE_NATIVE_SVG = true;
+        if (FORCE_NATIVE_SVG) currentRechartsComponents = null;
+
+        // Debug: Log which path we're taking
+        console.log(
+          `[BUBBLE CHART RENDER] Using ${
+            currentRechartsComponents ? "Recharts" : "Native SVG"
+          } mode`,
+          {
+            selectedTicker,
+            hasSelectedTrail: !!selectedTrail,
+            selectedTrailLength: Array.isArray(selectedTrail)
+              ? selectedTrail.length
+              : 0,
+          }
+        );
 
         // Fallback: Native SVG chart (works without Recharts)
         if (!currentRechartsComponents) {
@@ -3507,23 +3623,28 @@
 
                 {/* Bubbles - Show only selected ticker with trail if selected, otherwise show all */}
                 {(() => {
-                  // Debug: Log which branch we're taking
-                  if (!window._bubbleBranchLogged) {
-                    window._bubbleBranchLogged = true;
-                    console.log(`[BUBBLE BRANCH]`, {
-                      hasSelectedTicker: !!selectedTicker,
-                      hasSelectedTrail: !!selectedTrail,
-                      tickersCount: tickers ? tickers.length : 0,
-                      willShowSelected: !!(selectedTicker && selectedTrail),
-                      willShowAll: !(selectedTicker && selectedTrail),
-                    });
-                  }
+                  // Debug: Log which branch we're taking (always log, not just once)
+                  console.log(`[BUBBLE BRANCH]`, {
+                    hasSelectedTicker: !!selectedTicker,
+                    selectedTickerValue: selectedTicker,
+                    hasSelectedTrail: !!selectedTrail,
+                    selectedTrailLength: selectedTrail
+                      ? selectedTrail.length
+                      : 0,
+                    tickersCount: tickers ? tickers.length : 0,
+                    willShowSelected: !!selectedTicker,
+                    willShowAll: !selectedTicker,
+                  });
                   return null;
                 })()}
-                {selectedTicker && selectedTrail ? (
+                {selectedTicker ? (
                   <>
+                    {console.log(
+                      `[SELECTED BRANCH] Rendering selected ticker: ${selectedTicker}`
+                    )}
                     {/* Trail path - comet effect */}
-                    {selectedTrail.length > 1 &&
+                    {selectedTrail &&
+                      selectedTrail.length > 1 &&
                       selectedTrail.map((point, idx) => {
                         if (idx === 0) return null;
                         const prevPoint = selectedTrail[idx - 1];
@@ -3562,51 +3683,63 @@
                         );
                       })}
                     {/* Trail points (smaller bubbles) - show historical positions */}
-                    {selectedTrail.slice(0, -1).map((point, idx) => {
-                      // Create a ticker-like object from trail point
-                      const tickerData = {
-                        ticker: selectedTicker,
-                        htf_score: point.htf_score || 0,
-                        ltf_score: point.ltf_score || 0,
-                        phase_pct: point.phase_pct || 0,
-                        completion: point.completion || 0,
-                        flags: {},
-                        state: point.state || "",
-                      };
-                      const x =
-                        (Number(tickerData.ltf_score) || 0) * scaleX +
-                        offsetX +
-                        50 * scaleX;
-                      const y =
-                        (Number(tickerData.htf_score) || 0) * -scaleY +
-                        offsetY +
-                        plotHeight -
-                        50 * scaleY;
-                      const size = 3 + (idx / selectedTrail.length) * 4; // Smaller, growing towards present
-                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.4; // Fade in from past to present
+                    {selectedTrail &&
+                      selectedTrail.length > 1 &&
+                      selectedTrail.slice(0, -1).map((point, idx) => {
+                        // Create a ticker-like object from trail point
+                        const tickerData = {
+                          ticker: selectedTicker,
+                          htf_score: point.htf_score || 0,
+                          ltf_score: point.ltf_score || 0,
+                          phase_pct: point.phase_pct || 0,
+                          completion: point.completion || 0,
+                          flags: {},
+                          state: point.state || "",
+                        };
+                        const x =
+                          (Number(tickerData.ltf_score) || 0) * scaleX +
+                          offsetX +
+                          50 * scaleX;
+                        const y =
+                          (Number(tickerData.htf_score) || 0) * -scaleY +
+                          offsetY +
+                          plotHeight -
+                          50 * scaleY;
+                        const size = 3 + (idx / selectedTrail.length) * 4; // Smaller, growing towards present
+                        const opacity =
+                          0.3 + (idx / selectedTrail.length) * 0.4; // Fade in from past to present
 
-                      return (
-                        <circle
-                          key={`trail-point-${idx}`}
-                          cx={x}
-                          cy={y}
-                          r={size}
-                          fill="#00ffff"
-                          fillOpacity={opacity}
-                          stroke="#00ffff"
-                          strokeWidth="1"
-                          strokeOpacity={opacity * 0.5}
-                        />
-                      );
-                    })}
+                        return (
+                          <circle
+                            key={`trail-point-${idx}`}
+                            cx={x}
+                            cy={y}
+                            r={size}
+                            fill="#00ffff"
+                            fillOpacity={opacity}
+                            stroke="#00ffff"
+                            strokeWidth="1"
+                            strokeOpacity={opacity * 0.5}
+                          />
+                        );
+                      })}
                     {/* Current position (larger, highlighted) */}
                     {(() => {
+                      console.log(
+                        `[SELECTED BRANCH] Looking for ticker: ${selectedTicker} in tickers array (${
+                          tickers ? tickers.length : 0
+                        } items)`
+                      );
                       // Try to find ticker in filtered list first
-                      let currentTicker = tickers.find((t) => {
+                      let currentTicker = displayTickers.find((t) => {
                         if (!t || typeof t !== "object") return false;
                         const tTicker = String(t.ticker || "").toUpperCase();
                         return tTicker === String(selectedTicker).toUpperCase();
                       });
+                      console.log(
+                        `[SELECTED BRANCH] Found in tickers array:`,
+                        !!currentTicker
+                      );
 
                       // If not in filtered list, try to get from allData (for tickers filtered out but selected)
                       if (
@@ -3659,13 +3792,13 @@
                 ) : (
                   (() => {
                     // CRITICAL DEBUG: Log what we're about to render
-                    console.log(`[BUBBLE RENDER CHECK]`, {
+                    console.log(`[ALL BUBBLES BRANCH] Rendering all bubbles`, {
                       hasTickers: !!tickers,
                       tickersLength: tickers ? tickers.length : 0,
                       isArray: Array.isArray(tickers),
                       selectedTicker: selectedTicker,
                       selectedTrail: selectedTrail,
-                      willRenderAll: !(selectedTicker && selectedTrail),
+                      willRenderAll: !selectedTicker,
                     });
 
                     if (!tickers || tickers.length === 0) {
@@ -3680,7 +3813,7 @@
                     // Render historical trails for all tickers (behind current bubbles)
                     const historicalTrails = [];
                     let trailsRendered = 0;
-                    tickers.forEach((ticker) => {
+                    displayTickers.forEach((ticker) => {
                       const tickerKey = String(
                         ticker?.ticker || ""
                       ).toUpperCase();
@@ -3819,7 +3952,7 @@
                         {/* Historical trails - rendered first so they appear behind current bubbles */}
                         {historicalTrails.length > 0 && historicalTrails}
                         {/* Current bubbles */}
-                        {tickers.map((ticker, index) => {
+                        {displayTickers.map((ticker, index) => {
                           // Log first few bubbles
                           if (index < 5) {
                             console.log(
@@ -4186,15 +4319,26 @@
         // Store allTickersWithRanksForComparison for tooltip access
         const allTickersForRanking = allTickersWithRanksForComparison;
 
-        const data = useMemo(
-          () =>
-            tickers.map((t) => ({
-              x: Number(t.ltf_score) || 0,
-              y: Number(t.htf_score) || 0,
-              ticker: t,
-            })),
-          [tickers]
-        );
+        // Filter data based on selectedTicker - if selected, only show that ticker
+        const data = useMemo(() => {
+          const tickersToUse = selectedTicker
+            ? tickers.filter((t) => {
+                if (!t || typeof t !== "object") return false;
+                const tTicker = String(t.ticker || "").toUpperCase();
+                return tTicker === String(selectedTicker).toUpperCase();
+              })
+            : tickers;
+
+          console.log(
+            `[RECHARTS DATA] selectedTicker=${selectedTicker}, using ${tickersToUse.length} of ${tickers.length} tickers`
+          );
+
+          return tickersToUse.map((t) => ({
+            x: Number(t.ltf_score) || 0,
+            y: Number(t.htf_score) || 0,
+            ticker: t,
+          }));
+        }, [tickers, selectedTicker]);
 
         // Recharts shape renderer - receives cx, cy, payload from Recharts
         const BubbleShape = React.useCallback(
@@ -4291,12 +4435,20 @@
 
             return (
               <g
-                onClick={() => onBubbleClick(ticker.ticker)}
+                onClick={() => {
+                  console.log(
+                    `[BUBBLE CLICK] Direct click on ticker: ${ticker.ticker}`
+                  );
+                  onBubbleClick(ticker.ticker);
+                }}
                 onMouseEnter={() => onHover(ticker.ticker)}
                 onMouseLeave={() => onHover(null)}
                 onTouchStart={(e) => {
                   e.preventDefault();
                   onHover(ticker.ticker);
+                  console.log(
+                    `[BUBBLE CLICK] Touch on ticker: ${ticker.ticker}`
+                  );
                   onBubbleClick(ticker.ticker);
                 }}
                 onTouchEnd={(e) => {
@@ -4804,6 +4956,121 @@
                 <Scatter data={data} shape={BubbleShape} />
               </ScatterChart>
             </ResponsiveContainer>
+
+            {/* Trail rendering overlay for selected ticker (Recharts mode) */}
+            {selectedTicker &&
+              selectedTrail &&
+              Array.isArray(selectedTrail) &&
+              selectedTrail.length > 1 && (
+                <svg
+                  className="absolute inset-0 pointer-events-none z-10"
+                  style={{ width: "100%", height: "100%" }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="trailGradient"
+                      x1="0%"
+                      y1="0%"
+                      x2="100%"
+                      y2="100%"
+                    >
+                      <stop offset="0%" stopColor="#00ffff" stopOpacity="0.3" />
+                      <stop
+                        offset="100%"
+                        stopColor="#00ffff"
+                        stopOpacity="0.6"
+                      />
+                    </linearGradient>
+                  </defs>
+                  <g>
+                    {/* Trail lines */}
+                    {selectedTrail.map((point, idx) => {
+                      if (idx === 0) return null;
+                      const prevPoint = selectedTrail[idx - 1];
+                      // Calculate positions relative to chart dimensions
+                      // Recharts uses domain [-50, 50] for both axes
+                      const chartWidth =
+                        chartContainerRef.current?.clientWidth || 1200;
+                      const chartHeight =
+                        chartContainerRef.current?.clientHeight || 800;
+                      const margin = 20;
+                      const plotWidth = chartWidth - 2 * margin;
+                      const plotHeight = chartHeight - 2 * margin;
+
+                      const x1 =
+                        (((Number(prevPoint.ltf_score) || 0) + 50) / 100) *
+                          plotWidth +
+                        margin;
+                      const y1 =
+                        ((50 - (Number(prevPoint.htf_score) || 0)) / 100) *
+                          plotHeight +
+                        margin;
+                      const x2 =
+                        (((Number(point.ltf_score) || 0) + 50) / 100) *
+                          plotWidth +
+                        margin;
+                      const y2 =
+                        ((50 - (Number(point.htf_score) || 0)) / 100) *
+                          plotHeight +
+                        margin;
+
+                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.5;
+
+                      return (
+                        <line
+                          key={`trail-line-${idx}`}
+                          x1={x1}
+                          y1={y1}
+                          x2={x2}
+                          y2={y2}
+                          stroke="#00ffff"
+                          strokeWidth="2"
+                          opacity={opacity}
+                          className="comet-trail"
+                        />
+                      );
+                    })}
+                    {/* Trail points (historical bubbles) */}
+                    {selectedTrail.slice(0, -1).map((point, idx) => {
+                      const chartWidth =
+                        chartContainerRef.current?.clientWidth || 1200;
+                      const chartHeight =
+                        chartContainerRef.current?.clientHeight || 800;
+                      const margin = 20;
+                      const plotWidth = chartWidth - 2 * margin;
+                      const plotHeight = chartHeight - 2 * margin;
+
+                      const cx =
+                        (((Number(point.ltf_score) || 0) + 50) / 100) *
+                          plotWidth +
+                        margin;
+                      const cy =
+                        ((50 - (Number(point.htf_score) || 0)) / 100) *
+                          plotHeight +
+                        margin;
+                      const size = 3 + (idx / selectedTrail.length) * 4;
+                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.4;
+                      const color = phaseCompletionToColor(
+                        point.phase_pct || 0
+                      );
+
+                      return (
+                        <circle
+                          key={`trail-point-${idx}`}
+                          cx={cx}
+                          cy={cy}
+                          r={size}
+                          fill={color}
+                          fillOpacity={opacity}
+                          stroke="#00ffff"
+                          strokeWidth="1"
+                          strokeOpacity={opacity * 0.5}
+                        />
+                      );
+                    })}
+                  </g>
+                </svg>
+              )}
 
             {/* Crosshair value labels for Recharts */}
             {rechartsCrosshair && (
@@ -11197,6 +11464,9 @@
         // Fetch trail data when ticker is selected
         useEffect(() => {
           if (selectedTicker) {
+            // ✅ Immediately set to empty array to trigger selected-only view
+            setSelectedTrail([]);
+
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -11209,7 +11479,22 @@
               .then((res) => res.json())
               .then((data) => {
                 if (data.ok && Array.isArray(data.trail)) {
-                  setSelectedTrail(data.trail);
+                  const normalized = normalizeTrailPoints(data.trail);
+                  // One-time sample log to confirm keys look right
+                  if (!window._trailSampleLogged) {
+                    window._trailSampleLogged = true;
+                    console.log(`[TRAIL SAMPLE] ${selectedTicker}`, {
+                      first: normalized[0],
+                      rawFirst: Array.isArray(data.trail)
+                        ? data.trail[0]
+                        : null,
+                      rawKeys:
+                        data.trail && data.trail[0]
+                          ? Object.keys(data.trail[0])
+                          : [],
+                    });
+                  }
+                  setSelectedTrail(normalized);
                 } else {
                   setSelectedTrail([]);
                 }
@@ -11228,10 +11513,23 @@
           }
         }, [selectedTicker]);
 
+        // Debug: Log when selectedTicker changes
+        React.useEffect(() => {
+          console.log(`[SELECTED TICKER STATE] Changed to:`, selectedTicker, {
+            isTruthy: !!selectedTicker,
+            type: typeof selectedTicker,
+            value: selectedTicker,
+          });
+        }, [selectedTicker]);
+
         // Safe setter for selectedTicker to prevent infinite loops
         const handleTickerSelect = useCallback((ticker) => {
           try {
+            console.log(`[CLICK HANDLER] Setting selectedTicker to:`, ticker);
             setSelectedTicker(ticker);
+            console.log(
+              `[CLICK HANDLER] selectedTicker set, should trigger re-render`
+            );
           } catch (error) {
             console.error("Error setting selected ticker:", error);
           }
