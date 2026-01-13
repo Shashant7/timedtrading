@@ -4,41 +4,54 @@ compatibility_date = "2024-01-01"
 
 [env.production]
 name = "timed-trading-ingest"
-route = { pattern = "timed-trading-ingest.shashant.workers.dev/*", zone_name = "shashant.workers.dev" }
+# Note: workers.dev subdomains don't need route configuration
+# Routes are only needed for custom domains
+# The worker is automatically available at: timed-trading-ingest.shashant.workers.dev
 
-# KV Namespace binding
-[[kv_namespaces]]
-binding = "KV_TIMED"
-id = "YOUR_KV_NAMESPACE_ID"  # Replace with your actual KV namespace ID
-preview_id = "YOUR_KV_PREVIEW_ID"  # Optional: for preview environments
-
-# Environment variables (set via `wrangler secret put` or Cloudflare dashboard)
-# Required:
-# - TIMED_API_KEY: API key for POST /timed/ingest authentication
-# - KV_TIMED: KV namespace binding (configured above)
+# KV Namespace binding for production
+# IMPORTANT: Configure bindings in wrangler.toml to persist across deployments
+# Dashboard bindings are NOT preserved when deploying via wrangler
+# 
+# To get your KV namespace ID:
+# 1. Go to: https://dash.cloudflare.com -> Workers & Pages -> KV
+# 2. Click on your namespace (e.g., "TIMED_TRADING_KV")
+# 3. Copy the "Namespace ID" (long alphanumeric string)
+# 4. Replace "YOUR_KV_NAMESPACE_ID" below with your actual ID
 #
-# Optional:
-# - CORS_ALLOW_ORIGIN: CORS origin (default: "*")
-# - TV_ACK_ALWAYS_200: Always return 200 for TradingView (default: "true")
-# - DISCORD_ENABLE: Enable Discord alerts (default: "false")
+[[env.production.kv_namespaces]]
+binding = "KV_TIMED"
+id = "e48593af3ef74bf986b2592909ed40cb"
+
+# Environment variables (non-sensitive config - stored here for persistence)
+# IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security
+# Secrets must be set via Cloudflare Dashboard or `wrangler secret put`
+#
+# Required Secrets (set via Dashboard or CLI):
+# - TIMED_API_KEY: API key for POST /timed/ingest authentication
 # - DISCORD_WEBHOOK_URL: Discord webhook URL
-# - ALERT_MIN_RR: Minimum RR for alerts (default: "1.5")
-# - ALERT_MAX_COMPLETION: Maximum completion % (default: "0.4")
-# - ALERT_MAX_PHASE: Maximum phase % (default: "0.6")
-# - ALERT_MIN_RANK: Minimum rank (default: "70")
 # - OPENAI_API_KEY: OpenAI API key for AI Assistant
-# - OPENAI_MODEL: OpenAI model (default: "gpt-3.5-turbo")
+#
+# Environment Variables (non-sensitive - stored in wrangler.toml):
+[env.production.vars]
+DISCORD_ENABLE = "true"
+ALERT_MIN_RR = "1.5"
+ALERT_MAX_COMPLETION = "0.4"
+ALERT_MAX_PHASE = "0.6"
+ALERT_MIN_RANK = "70"
+OPENAI_MODEL = "gpt-3.5-turbo"
+CORS_ALLOW_ORIGIN = "*"
+TV_ACK_ALWAYS_200 = "true"
 
 # Scheduled triggers for periodic AI updates
 # Times are in UTC (9:45 AM ET = 14:45 UTC, 12:00 PM ET = 17:00 UTC, 3:30 PM ET = 20:30 UTC)
-[[triggers.crons]]
+[[env.production.triggers.crons]]
 cron = "45 14 * * 1-5"  # 9:45 AM ET (14:45 UTC) on weekdays - AI Market Update
-[[triggers.crons]]
+[[env.production.triggers.crons]]
 cron = "0 17 * * 1-5"   # 12:00 PM ET (17:00 UTC) on weekdays - AI Market Update
-[[triggers.crons]]
+[[env.production.triggers.crons]]
 cron = "30 20 * * 1-5"  # 3:30 PM ET (20:30 UTC) on weekdays - AI Market Update
-[[triggers.crons]]
+[[env.production.triggers.crons]]
 cron = "*/5 * * * *"    # Every 5 minutes - Update open trades
-[[triggers.crons]]
+[[env.production.triggers.crons]]
 cron = "*/15 * * * 1-5" # Every 15 minutes during market hours (weekdays) - Proactive Alerts & Pattern Recognition
 
