@@ -6023,113 +6023,259 @@ export default {
                 const currentRR = computeRR(payload);
                 const rr = currentRR != null ? currentRR : (payload.rr || 0);
                 
-                // Get the best TP level (max from tp_levels if available)
-                let bestTP = Number(payload.tp);
+                // Process TP levels with metadata
+                const currentPrice = Number(payload.price) || 0;
+                let tpLevels = [];
+                let maxTP = Number(payload.tp);
+                let minTP = Number(payload.tp);
+                
                 if (payload.tp_levels && Array.isArray(payload.tp_levels) && payload.tp_levels.length > 0) {
-                  const tpPrices = payload.tp_levels
+                  tpLevels = payload.tp_levels
                     .map((tpItem) => {
                       if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
-                        return Number(tpItem.price);
+                        const price = Number(tpItem.price);
+                        if (!Number.isFinite(price) || price <= 0) return null;
+                        return {
+                          price,
+                          source: tpItem.source || "ATR Level",
+                          type: tpItem.type || "ATR_FIB",
+                          timeframe: tpItem.timeframe || "D",
+                          confidence: Number(tpItem.confidence || 0.75),
+                          multiplier: tpItem.multiplier ? Number(tpItem.multiplier) : null,
+                          label: tpItem.label || "TP",
+                        };
                       }
-                      return typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
+                      const price = typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
+                      if (!Number.isFinite(price) || price <= 0) return null;
+                      return {
+                        price,
+                        source: "ATR Level",
+                        type: "ATR_FIB",
+                        timeframe: "D",
+                        confidence: 0.75,
+                        multiplier: null,
+                        label: "TP",
+                      };
                     })
-                    .filter((p) => Number.isFinite(p));
+                    .filter((tp) => tp !== null);
                   
-                  if (tpPrices.length > 0) {
-                    // For LONG: use max TP, for SHORT: use min TP
-                    const state = String(payload.state || "");
-                    const isLong = state.includes("BULL");
-                    bestTP = isLong ? Math.max(...tpPrices) : Math.min(...tpPrices);
+                  if (tpLevels.length > 0) {
+                    const tpPrices = tpLevels.map((tp) => tp.price);
+                    maxTP = Math.max(...tpPrices);
+                    minTP = Math.min(...tpPrices);
                   }
                 }
+                
+                // Add primary TP if not already in levels
+                const primaryTP = Number(payload.tp);
+                if (Number.isFinite(primaryTP) && primaryTP > 0) {
+                  const exists = tpLevels.some((tp) => Math.abs(tp.price - primaryTP) < 0.01);
+                  if (!exists) {
+                    tpLevels.push({
+                      price: primaryTP,
+                      source: "Primary TP",
+                      type: "ATR_FIB",
+                      timeframe: "D",
+                      confidence: 0.75,
+                      multiplier: null,
+                      label: "TP",
+                    });
+                  }
+                }
+                
+                // Sort TP levels by price (ascending for LONG, descending for SHORT)
+                const state = String(payload.state || "");
+                const isLong = state.includes("BULL");
+                tpLevels.sort((a, b) => (isLong ? a.price - b.price : b.price - a.price));
                 
                 const rrFormatted =
                   rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
                 
                 // Calculate distance to TP and SL from current price
-                const currentPrice = Number(payload.price) || 0;
-                const distanceToTP = bestTP > 0 ? Math.abs(bestTP - currentPrice) : 0;
+                const distanceToMaxTP = maxTP > 0 ? Math.abs(maxTP - currentPrice) : 0;
                 const distanceToSL = Number(payload.sl) > 0 ? Math.abs(currentPrice - Number(payload.sl)) : 0;
-                const tpDistancePct = currentPrice > 0 ? ((distanceToTP / currentPrice) * 100).toFixed(2) : "0.00";
+                const maxTPDistancePct = currentPrice > 0 ? ((distanceToMaxTP / currentPrice) * 100).toFixed(2) : "0.00";
                 const slDistancePct = currentPrice > 0 ? ((distanceToSL / currentPrice) * 100).toFixed(2) : "0.00";
                 
-                // Warn if TP is very close to current price (less than 0.5% away)
-                const tpVeryClose = currentPrice > 0 && distanceToTP / currentPrice < 0.005;
-                const tpWarning = tpVeryClose ? " ⚠️ Very close!" : "";
+                // Generate comprehensive trade opportunity interpretation
+                const interpretation = generateTradeActionInterpretation("ENTRY", payload, {
+                  direction: side,
+                  rank: payload.rank,
+                  rr: rr,
+                });
+                
+                // Build comprehensive fields similar to Trade Entered card
+                const fields = [];
+                
+                // Action & Reasoning (comprehensive explanation)
+                if (interpretation) {
+                  fields.push({
+                    name: "📊 Why This Is A Trade Opportunity",
+                    value: `${interpretation.action}\n\n${interpretation.reasons}`,
+                    inline: false,
+                  });
+                } else {
+                  // Fallback detailed explanation
+                  const reasons = [];
+                  if (inCorridor) reasons.push("✅ Price is in entry corridor");
+                  if (corridorAlignedOK) reasons.push("✅ Timeframes are aligned");
+                  if (enhancedTrigger) reasons.push("✅ Trigger conditions met");
+                  if (momentumElite) reasons.push("⭐ Momentum Elite stock");
+                  if (rr >= 1.5) reasons.push(`💰 Excellent R:R (${rrFormatted})`);
+                  if (payload.rank >= 75) reasons.push(`⭐ High rank (${payload.rank})`);
+                  
+                  fields.push({
+                    name: "📊 Why This Is A Trade Opportunity",
+                    value: reasons.length > 0 ? reasons.join("\n") : why || "Trade opportunity detected",
+                    inline: false,
+                  });
+                }
+                
+                // Entry Details
+                fields.push({
+                  name: "💰 Entry Details",
+                  value: `**Trigger Price:** $${fmt2(payload.trigger_price)}\n**Current Price:** $${fmt2(payload.price)}\n**Stop Loss:** $${fmt2(payload.sl)} (${slDistancePct}% away)`,
+                  inline: false,
+                });
+                
+                // TP Levels with detailed breakdown
+                if (tpLevels.length > 0) {
+                  const tpLevelText = tpLevels.map((tp) => {
+                    const distance = Math.abs(tp.price - currentPrice);
+                    const distancePct = currentPrice > 0 ? ((distance / currentPrice) * 100).toFixed(2) : "0.00";
+                    const isMax = Math.abs(tp.price - maxTP) < 0.01;
+                    const prefix = isMax ? "**⭐ MAX TP:**" : `**TP:**`;
+                    const typeLabel = tp.type === "STRUCTURE" ? "Structure" : tp.type === "ATR_FIB" ? (tp.multiplier ? `ATR×${tp.multiplier}` : "ATR Fib") : tp.type;
+                    const tfLabel = tp.timeframe === "W" ? "Weekly" : tp.timeframe === "D" ? "Daily" : tp.timeframe === "240" || tp.timeframe === "4H" ? "4H" : tp.timeframe;
+                    return `${prefix} $${tp.price.toFixed(2)} (${distancePct}% away) - ${typeLabel} @ ${tfLabel} (${(tp.confidence * 100).toFixed(0)}% conf)`;
+                  }).join("\n");
+                  
+                  fields.push({
+                    name: "🎯 Take Profit Levels",
+                    value: tpLevelText,
+                    inline: false,
+                  });
+                } else {
+                  // Fallback if no TP levels
+                  const distanceToTP = primaryTP > 0 ? Math.abs(primaryTP - currentPrice) : 0;
+                  const tpDistancePct = currentPrice > 0 ? ((distanceToTP / currentPrice) * 100).toFixed(2) : "0.00";
+                  const tpVeryClose = currentPrice > 0 && distanceToTP / currentPrice < 0.005;
+                  const tpWarning = tpVeryClose ? " ⚠️ Very close!" : "";
+                  
+                  fields.push({
+                    name: "🎯 Take Profit",
+                    value: `**Primary TP:** $${fmt2(primaryTP)} (${tpDistancePct}% away)${tpWarning}`,
+                    inline: false,
+                  });
+                }
+                
+                // Scores & Metrics
+                const htfScore = Number(payload.htf_score || 0);
+                const ltfScore = Number(payload.ltf_score || 0);
+                const completion = Number(payload.completion || 0);
+                const phase = Number(payload.phase_pct || 0);
+                
+                fields.push({
+                  name: "📈 Scores & Metrics",
+                  value: `**HTF Score:** ${htfScore.toFixed(2)}\n**LTF Score:** ${ltfScore.toFixed(2)}\n**Completion:** ${(completion * 100).toFixed(1)}%\n**Phase:** ${(phase * 100).toFixed(1)}%`,
+                  inline: true,
+                });
+                
+                // Quality Metrics
+                fields.push({
+                  name: "⭐ Quality Metrics",
+                  value: `**Rank:** ${payload.rank}\n**Risk/Reward:** ${rrFormatted}${currentRR != null && currentRR !== payload.rr ? " ⚠️" : ""}\n**State:** ${payload.state || "N/A"}\n**ETA:** ${payload.eta_days != null ? `${Number(payload.eta_days).toFixed(1)}d` : "—"}`,
+                  inline: true,
+                });
+                
+                // Active Signals
+                if (payload.flags) {
+                  const flags = payload.flags;
+                  const flagItems = [];
+                  if (flags.sq30_release) flagItems.push("🚀 Squeeze Release");
+                  if (flags.sq30_on && !flags.sq30_release) flagItems.push("💥 In Squeeze");
+                  if (flags.momentum_elite) flagItems.push("⭐ Momentum Elite");
+                  if (flags.phase_dot) flagItems.push("⚫ Phase Dot");
+                  if (flags.phase_zone_change) flagItems.push("🔄 Phase Zone Change");
+                  
+                  if (flagItems.length > 0) {
+                    fields.push({
+                      name: "🚩 Active Signals",
+                      value: flagItems.join("\n"),
+                      inline: false,
+                    });
+                  }
+                }
+                
+                // TD Sequential if available
+                if (payload.td_sequential) {
+                  const tdSeq = payload.td_sequential;
+                  const tdItems = [];
+                  if (tdSeq.td9_bullish) tdItems.push("🔢 TD9 Bullish");
+                  if (tdSeq.td9_bearish) tdItems.push("🔢 TD9 Bearish");
+                  if (tdSeq.td13_bullish) tdItems.push("🔢 TD13 Bullish");
+                  if (tdSeq.td13_bearish) tdItems.push("🔢 TD13 Bearish");
+                  
+                  if (tdItems.length > 0) {
+                    fields.push({
+                      name: "🔢 TD Sequential",
+                      value: tdItems.join("\n") + (tdSeq.boost ? `\n**Boost:** ${Number(tdSeq.boost).toFixed(1)}` : ""),
+                      inline: false,
+                    });
+                  }
+                }
+                
+                // RSI if available
+                if (payload.rsi) {
+                  const rsi = payload.rsi;
+                  const rsiValue = Number(rsi.value || 0);
+                  const rsiLevel = rsi.level || "neutral";
+                  const divergence = rsi.divergence || {};
+                  
+                  let rsiText = `**RSI:** ${rsiValue.toFixed(2)} (${rsiLevel})`;
+                  if (divergence.type && divergence.type !== "none") {
+                    rsiText += `\n**Divergence:** ${divergence.type === "bullish" ? "🔼 Bullish" : "🔽 Bearish"}`;
+                    if (divergence.strength) {
+                      rsiText += ` (Strength: ${Number(divergence.strength).toFixed(2)})`;
+                    }
+                  }
+                  
+                  fields.push({
+                    name: "📊 RSI",
+                    value: rsiText,
+                    inline: false,
+                  });
+                }
+                
+                // EMA Cloud positions if available
+                if (payload.daily_ema_cloud || payload.fourh_ema_cloud || payload.oneh_ema_cloud) {
+                  const cloudItems = [];
+                  if (payload.daily_ema_cloud) {
+                    const daily = payload.daily_ema_cloud;
+                    cloudItems.push(`**Daily (5-8 EMA):** ${daily.position.toUpperCase()}`);
+                  }
+                  if (payload.fourh_ema_cloud) {
+                    const fourH = payload.fourh_ema_cloud;
+                    cloudItems.push(`**4H (8-13 EMA):** ${fourH.position.toUpperCase()}`);
+                  }
+                  if (payload.oneh_ema_cloud) {
+                    const oneH = payload.oneh_ema_cloud;
+                    cloudItems.push(`**1H (13-21 EMA):** ${oneH.position.toUpperCase()}`);
+                  }
+                  
+                  if (cloudItems.length > 0) {
+                    fields.push({
+                      name: "☁️ EMA Cloud Positions",
+                      value: cloudItems.join("\n"),
+                      inline: false,
+                    });
+                  }
+                }
                 
                 const opportunityEmbed = {
                   title: `🎯 Trading Opportunity: ${ticker} ${side}`,
                   color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
-                  fields: [
-                    {
-                      name: "Rank",
-                      value: `${payload.rank}`,
-                      inline: true,
-                    },
-                    {
-                      name: "State",
-                      value: payload.state || "N/A",
-                      inline: true,
-                    },
-                    {
-                      name: "Why",
-                      value: why || "N/A",
-                      inline: false,
-                    },
-                    {
-                      name: "HTF Score",
-                      value: `${fmt2(payload.htf_score)}`,
-                      inline: true,
-                    },
-                    {
-                      name: "LTF Score",
-                      value: `${fmt2(payload.ltf_score)}`,
-                      inline: true,
-                    },
-                    {
-                      name: "Risk/Reward (Current)",
-                      value: `${rrFormatted}${currentRR != null && currentRR !== payload.rr ? " ⚠️" : ""}`,
-                      inline: true,
-                    },
-                    {
-                      name: "Trigger Price",
-                      value: `$${fmt2(payload.trigger_price)}`,
-                      inline: true,
-                    },
-                    {
-                      name: "Current Price",
-                      value: `$${fmt2(payload.price)}`,
-                      inline: true,
-                    },
-                    {
-                      name: "ETA",
-                      value:
-                        payload.eta_days != null
-                          ? `${Number(payload.eta_days).toFixed(1)}d`
-                          : "—",
-                      inline: true,
-                    },
-                    {
-                      name: "Stop Loss",
-                      value: `$${fmt2(payload.sl)} (${slDistancePct}% away)`,
-                      inline: true,
-                    },
-                    {
-                      name: "Take Profit",
-                      value: `$${fmt2(bestTP)} (${tpDistancePct}% away)${tpWarning}`,
-                      inline: true,
-                    },
-                    {
-                      name: "Completion",
-                      value: `${pct01(payload.completion)}`,
-                      inline: true,
-                    },
-                    {
-                      name: "Phase",
-                      value: `${pct01(payload.phase_pct)}`,
-                      inline: true,
-                    },
-                  ],
+                  fields: fields,
                   timestamp: new Date().toISOString(),
                   footer: {
                     text: "Timed Trading Alert",
