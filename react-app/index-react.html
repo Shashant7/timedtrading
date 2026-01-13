@@ -1414,10 +1414,11 @@
         const conditions = {};
 
         // Multi-ticker search: "AAPL, GOOGL, TSLA"
+        // Also check if it's a simple ticker list (comma-separated, no filter keywords)
         if (
           query.includes(",") &&
           !query.match(
-            /rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup/
+            /rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/
           )
         ) {
           return {
@@ -1630,6 +1631,7 @@
 
         // Parse ticker filter (comma-separated ticker symbols)
         const tickerFilterSet = new Set();
+        // Support tickerFilter from dedicated field OR from search query if it's a multi-ticker query
         if (
           effectiveFilters.tickerFilter &&
           typeof effectiveFilters.tickerFilter === "string"
@@ -1639,6 +1641,10 @@
             .map((t) => t.trim().toUpperCase())
             .filter(Boolean)
             .forEach((t) => tickerFilterSet.add(t));
+        }
+        // Also check if search query is a multi-ticker list
+        if (queryResult && queryResult.type === "multi-ticker") {
+          queryResult.tickers.forEach((t) => tickerFilterSet.add(t));
         }
 
         for (const [tickerRaw, d] of Object.entries(dataObj)) {
