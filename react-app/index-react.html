@@ -1909,7 +1909,7 @@
             window._svgBubbleCallCount = 0;
           }
           window._svgBubbleCallCount++;
-          
+
           // Always log first 10 to see what's happening
           if (window._svgBubbleCallCount <= 10) {
             console.log(
@@ -1920,12 +1920,12 @@
                 ticker: ticker?.ticker,
                 hasTicker: !!ticker,
                 tickerKeys: ticker ? Object.keys(ticker).slice(0, 20) : [],
-                hasPhasePct: ticker ? 'phase_pct' in ticker : false,
+                hasPhasePct: ticker ? "phase_pct" in ticker : false,
                 phasePct: ticker ? ticker.phase_pct : undefined,
               }
             );
           }
-          
+
           // CRITICAL: If no ticker, return null immediately
           if (!ticker || !ticker.ticker) {
             console.error(`[SVGBUBBLE ERROR] No ticker provided!`, { ticker });
@@ -1958,12 +1958,12 @@
           const validComp = Number.isFinite(comp)
             ? Math.max(0, Math.min(1, comp))
             : 0;
-          
+
           // If phase_pct is missing, try to estimate from completion or use a default based on state
           let validPhasePct = Number.isFinite(phasePct)
             ? Math.max(0, Math.min(1, phasePct))
             : null;
-          
+
           // Fallback: if phase_pct is missing, use completion as proxy or estimate from state
           if (validPhasePct === null) {
             if (validComp > 0) {
@@ -1982,12 +1982,12 @@
               validPhasePct = 0.1; // Default to early phase (green)
             }
           }
-          
+
           // Default RR to a small value if missing to ensure size variation
           // Use dynamicRank or rank as fallback for size if RR is missing
-          const fallbackRR = ticker.dynamicRank 
+          const fallbackRR = ticker.dynamicRank
             ? Math.max(0.5, Math.min(5, (Number(ticker.dynamicRank) || 0) / 50))
-            : ticker.rank 
+            : ticker.rank
             ? Math.max(0.5, Math.min(5, (Number(ticker.rank) || 0) / 50))
             : 0.5;
           const validRR = Number.isFinite(rr) && rr > 0 ? rr : fallbackRR;
@@ -1997,11 +1997,10 @@
           // Formula: baseSize + (RR * multiplier) * (1 - completion)
           // This makes high RR + low completion = largest bubbles
           // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
-          // Normalized to show more tickers - reduced multiplier significantly
           const cappedRR = Math.min(validRR, 5); // Cap RR at 5 for size calculation
           const completionPenalty = 1 - validComp; // 1.0 when completion is 0, 0.0 when completion is 1
-          const baseSize = 5; // Increased from 4 for better visibility
-          const rrMultiplier = 3; // Increased from 2 for more size variation
+          const baseSize = 8; // Increased for better visibility
+          const rrMultiplier = 6; // Increased for more size variation
           // Smaller size for tickers waiting for data
           const size = waitingForData
             ? baseSize * 0.7
@@ -2009,7 +2008,9 @@
 
           // Force minimum size variation - if all sizes are the same, add variation based on ticker
           // Use multiple factors for better variation
-          const tickerHash = (ticker.ticker || "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+          const tickerHash = (ticker.ticker || "")
+            .split("")
+            .reduce((acc, char) => acc + char.charCodeAt(0), 0);
           const sizeVariation = (tickerHash % 5) * 0.8; // Add 0-3.2px variation based on ticker name
           const finalSize = Math.max(baseSize, size + sizeVariation); // Add variation, ensure minimum baseSize
 
@@ -2021,7 +2022,7 @@
           // Use gray for tickers waiting for data
           // SIMPLIFIED: Direct calculation to ensure it always works
           let color;
-          
+
           // DEBUG: Log phase calculation for first few bubbles
           if (window._svgBubbleCallCount <= 5) {
             console.log(`[BUBBLE COLOR CALC] ${ticker.ticker}:`, {
@@ -2029,19 +2030,19 @@
               validPhasePct,
               phasePct,
               rawPhasePct: ticker.phase_pct,
-              hasPhasePct: 'phase_pct' in ticker,
+              hasPhasePct: "phase_pct" in ticker,
             });
           }
-          
+
           if (waitingForData) {
             color = "#6b7a9f"; // Gray for waiting
           } else {
             // Direct color calculation based on phase percentage
             // Ensure validPhasePct is a number
-            const p = Number.isFinite(validPhasePct) 
+            const p = Number.isFinite(validPhasePct)
               ? Math.max(0, Math.min(1, validPhasePct))
               : 0.1; // Default to 0.1 (green) if invalid
-              
+
             if (p < 0.3) {
               color = "#2ecc71"; // Green: under 30%
             } else if (p < 0.6) {
@@ -2050,10 +2051,13 @@
               color = "#e74c3c"; // Red: 60-100%
             }
           }
-          
+
           // Final safety: ensure color is always valid
           if (!color || typeof color !== "string" || !color.startsWith("#")) {
-            console.warn(`[BUBBLE COLOR] Invalid color for ${ticker.ticker}, using green fallback:`, color);
+            console.warn(
+              `[BUBBLE COLOR] Invalid color for ${ticker.ticker}, using green fallback:`,
+              color
+            );
             color = "#2ecc71"; // Green fallback
           }
 
@@ -2159,9 +2163,9 @@
               borderColor,
               borderWidth,
               tickerKeys: Object.keys(ticker).slice(0, 20),
-              hasPhasePct: 'phase_pct' in ticker,
-              hasRR: 'rr' in ticker,
-              hasCompletion: 'completion' in ticker,
+              hasPhasePct: "phase_pct" in ticker,
+              hasRR: "rr" in ticker,
+              hasCompletion: "completion" in ticker,
             });
           }
 
@@ -2199,20 +2203,24 @@
 
           // FINAL SAFETY CHECK - ensure all values are valid before rendering
           // CRITICAL: Double-check color is valid before using
-          const finalColor = (color && typeof color === 'string' && color.startsWith('#')) 
-            ? color 
-            : "#2ecc71"; // Force green if invalid
-            
-          const finalOpacity = (typeof opacity === 'number' && opacity >= 0 && opacity <= 1) 
-            ? opacity 
-            : 0.85;
+          const finalColor =
+            color && typeof color === "string" && color.startsWith("#")
+              ? color
+              : "#2ecc71"; // Force green if invalid
+
+          const finalOpacity =
+            typeof opacity === "number" && opacity >= 0 && opacity <= 1
+              ? opacity
+              : 0.85;
           const renderedSize = Math.max(3, Math.min(50, bubbleSize)); // Clamp size between 3 and 50
-          const finalBorderColor = (borderColor && typeof borderColor === 'string') 
-            ? borderColor 
-            : "#ffffff";
-          const finalBorderWidth = (typeof borderWidth === 'number' && borderWidth > 0) 
-            ? borderWidth 
-            : 1.5;
+          const finalBorderColor =
+            borderColor && typeof borderColor === "string"
+              ? borderColor
+              : "#ffffff";
+          const finalBorderWidth =
+            typeof borderWidth === "number" && borderWidth > 0
+              ? borderWidth
+              : 1.5;
 
           // Log first 5 bubbles to verify styling
           if (window._svgBubbleCallCount <= 5) {
@@ -2538,10 +2546,10 @@
           } else {
             // Direct color calculation based on phase percentage
             // Ensure validPhasePct is a number
-            const p = Number.isFinite(validPhasePct) 
+            const p = Number.isFinite(validPhasePct)
               ? Math.max(0, Math.min(1, validPhasePct))
               : 0.1; // Default to 0.1 (green) if invalid
-              
+
             if (p < 0.3) {
               color = "#2ecc71"; // Green: under 30%
             } else if (p < 0.6) {
@@ -2550,7 +2558,7 @@
               color = "#e74c3c"; // Red: 60-100%
             }
           }
-          
+
           // Final safety: ensure color is always valid
           if (!color || typeof color !== "string" || !color.startsWith("#")) {
             color = "#2ecc71"; // Green fallback
@@ -2760,13 +2768,16 @@
               tickersCount: tickers ? tickers.length : 0,
               hasTickers: !!tickers,
               isArray: Array.isArray(tickers),
-              firstTicker: tickers && tickers.length > 0 ? {
-                ticker: tickers[0].ticker,
-                hasPhasePct: 'phase_pct' in (tickers[0] || {}),
-                hasCompletion: 'completion' in (tickers[0] || {}),
-                hasRR: 'rr' in (tickers[0] || {}),
-                keys: Object.keys(tickers[0] || {}).slice(0, 15),
-              } : null,
+              firstTicker:
+                tickers && tickers.length > 0
+                  ? {
+                      ticker: tickers[0].ticker,
+                      hasPhasePct: "phase_pct" in (tickers[0] || {}),
+                      hasCompletion: "completion" in (tickers[0] || {}),
+                      hasRR: "rr" in (tickers[0] || {}),
+                      keys: Object.keys(tickers[0] || {}).slice(0, 15),
+                    }
+                  : null,
               hasAllData: !!allData,
               allDataKeys: allData ? Object.keys(allData).slice(0, 10) : [],
             });
@@ -3469,23 +3480,34 @@
                       selectedTrail: selectedTrail,
                       willRenderAll: !(selectedTicker && selectedTrail),
                     });
-                    
+
                     if (!tickers || tickers.length === 0) {
-                      console.error(`[BUBBLE ERROR] No tickers to render!`, { tickers, selectedTicker, selectedTrail });
+                      console.error(`[BUBBLE ERROR] No tickers to render!`, {
+                        tickers,
+                        selectedTicker,
+                        selectedTrail,
+                      });
                       return null;
                     }
-                    
+
                     return tickers.map((ticker, index) => {
                       // Log first few bubbles
                       if (index < 5) {
-                        console.log(`[BUBBLE RENDER] ${ticker.ticker} (${index}):`, {
-                          hasTicker: !!ticker,
-                          tickerKeys: ticker ? Object.keys(ticker).slice(0, 15) : [],
-                          hasPhasePct: ticker ? 'phase_pct' in ticker : false,
-                          phasePct: ticker ? ticker.phase_pct : undefined,
-                          hasCompletion: ticker ? 'completion' in ticker : false,
-                          hasRR: ticker ? 'rr' in ticker : false,
-                        });
+                        console.log(
+                          `[BUBBLE RENDER] ${ticker.ticker} (${index}):`,
+                          {
+                            hasTicker: !!ticker,
+                            tickerKeys: ticker
+                              ? Object.keys(ticker).slice(0, 15)
+                              : [],
+                            hasPhasePct: ticker ? "phase_pct" in ticker : false,
+                            phasePct: ticker ? ticker.phase_pct : undefined,
+                            hasCompletion: ticker
+                              ? "completion" in ticker
+                              : false,
+                            hasRR: ticker ? "rr" in ticker : false,
+                          }
+                        );
                       }
                       return (
                         <SVGBubble
@@ -3836,84 +3858,317 @@
         );
 
         // Recharts shape renderer - receives cx, cy, payload from Recharts
-        const BubbleShape = React.useCallback((props) => {
-          const { cx, cy, payload } = props;
-          const ticker = payload?.ticker;
-          if (!ticker) return null;
+        const BubbleShape = React.useCallback(
+          (props) => {
+            const { cx, cy, payload } = props;
+            const ticker = payload?.ticker;
+            if (!ticker) return null;
 
-          const comp = ticker.completion != null ? Number(ticker.completion) : 0;
-          const phasePct = ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
-          const rr = ticker.rr != null ? Number(ticker.rr) : 0;
-          const waitingForData = ticker.waitingForData === true;
+            const comp =
+              ticker.completion != null ? Number(ticker.completion) : 0;
+            const phasePct =
+              ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
+            const rr = ticker.rr != null ? Number(ticker.rr) : 0;
+            const waitingForData = ticker.waitingForData === true;
 
-          const validComp = Number.isFinite(comp) ? Math.max(0, Math.min(1, comp)) : 0;
-          const validPhase = Number.isFinite(phasePct) ? Math.max(0, Math.min(1, phasePct)) : 0.1;
-          const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0.5;
+            const validComp = Number.isFinite(comp)
+              ? Math.max(0, Math.min(1, comp))
+              : 0;
+            const validPhase = Number.isFinite(phasePct)
+              ? Math.max(0, Math.min(1, phasePct))
+              : 0.1;
+            const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0.5;
 
-          const cappedRR = Math.min(validRR, 5);
-          const baseSize = 8;
-          const rrMultiplier = 6;
-          const size = waitingForData
-            ? baseSize * 0.7
-            : baseSize + cappedRR * rrMultiplier * (1 - validComp);
+            const cappedRR = Math.min(validRR, 5);
+            const baseSize = 8;
+            const rrMultiplier = 6;
+            const size = waitingForData
+              ? baseSize * 0.7
+              : baseSize + cappedRR * rrMultiplier * (1 - validComp);
 
-          // Color based on phase
-          let color = "#2ecc71"; // Green default
-          if (waitingForData) {
-            color = "#6b7a9f"; // Gray for waiting
-          } else if (validPhase >= 0.6) {
-            color = "#e74c3c"; // Red: 60-100%
-          } else if (validPhase >= 0.3) {
-            color = "#f39c12"; // Yellow: 30-60%
-          }
+            // Add size variation for better visual distinction
+            const tickerHash = (ticker.ticker || "")
+              .split("")
+              .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+            const sizeVariation = (tickerHash % 5) * 0.8;
+            const finalSize = Math.max(baseSize, size + sizeVariation);
 
-          const flags = ticker.flags || {};
-          const prime = isPrimeBubble(ticker);
-          const isBubbleHovered = hoveredTicker === ticker.ticker;
-          const borderColor = waitingForData
-            ? "#93a4d6"
-            : prime
-            ? "#2ecc71"
-            : flags.sq30_release
-            ? "#00ffff"
-            : flags.sq30_on
-            ? "#ffd700"
-            : "#ffffff";
+            // Color based on phase
+            let color = "#2ecc71"; // Green default
+            if (waitingForData) {
+              color = "#6b7a9f"; // Gray for waiting
+            } else if (validPhase >= 0.6) {
+              color = "#e74c3c"; // Red: 60-100%
+            } else if (validPhase >= 0.3) {
+              color = "#f39c12"; // Yellow: 30-60%
+            }
 
-          const opacity = waitingForData ? 0.6 : isBubbleHovered ? 1 : prime ? 0.95 : 0.85;
-          const borderWidth = waitingForData ? 2 : prime ? 3 : flags.sq30_release || flags.sq30_on ? 2 : 1.5;
-          const bubbleSize = isBubbleHovered ? size * 1.2 : size;
+            const flags = ticker.flags || {};
+            const prime = isPrimeBubble(ticker);
+            const isTopRanked = topRankedTicker === ticker.ticker;
+            const isBubbleHovered = hoveredTicker === ticker.ticker;
+            const hasSqueeze = flags.sq30_release || flags.sq30_on;
+            
+            // Determine emoji
+            const emoji = isTopRanked
+              ? "👑"
+              : waitingForData
+              ? "⏳"
+              : prime
+              ? "⭐"
+              : flags.sq30_release
+              ? "⚡"
+              : flags.sq30_on
+              ? "🧨"
+              : "";
 
-          return (
-            <g
-              onClick={() => onBubbleClick(ticker.ticker)}
-              onMouseEnter={() => onHover(ticker.ticker)}
-              onMouseLeave={() => onHover(null)}
-              style={{ cursor: "pointer", transition: "all 0.2s ease-out" }}
-            >
-              {prime && (
+            const borderColor = waitingForData
+              ? "#93a4d6"
+              : prime
+              ? "#2ecc71"
+              : flags.sq30_release
+              ? "#00ffff"
+              : flags.sq30_on
+              ? "#ffd700"
+              : "#ffffff";
+
+            const opacity = waitingForData
+              ? 0.6
+              : isBubbleHovered
+              ? 1
+              : prime
+              ? 0.95
+              : 0.85;
+            const borderWidth = waitingForData
+              ? 2
+              : prime
+              ? 3
+              : flags.sq30_release || flags.sq30_on
+              ? 2
+              : 1.5;
+            const bubbleSize = isBubbleHovered ? finalSize * 1.2 : finalSize;
+            const labelY = cy - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
+
+            return (
+              <g
+                onClick={() => onBubbleClick(ticker.ticker)}
+                onMouseEnter={() => onHover(ticker.ticker)}
+                onMouseLeave={() => onHover(null)}
+                style={{ cursor: "pointer", transition: "all 0.2s ease-out" }}
+              >
+                {/* Glow effect for prime */}
+                {prime && (
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={bubbleSize + 2}
+                    fill="none"
+                    stroke="#2ecc71"
+                    strokeWidth="1"
+                    opacity="0.3"
+                  />
+                )}
+                {/* Additional glow effects for #1 ranked */}
+                {isTopRanked && (
+                  <>
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={bubbleSize + 8}
+                      fill="none"
+                      stroke="#ffd700"
+                      strokeWidth="4"
+                      opacity="0.6"
+                    >
+                      <animate
+                        attributeName="opacity"
+                        values="0.3;0.9;0.3"
+                        dur="2s"
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={bubbleSize + 12}
+                      fill="none"
+                      stroke="#ffd700"
+                      strokeWidth="2"
+                      opacity="0.3"
+                    >
+                      <animate
+                        attributeName="opacity"
+                        values="0.1;0.5;0.1"
+                        dur="2s"
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+                  </>
+                )}
                 <circle
                   cx={cx}
                   cy={cy}
-                  r={bubbleSize + 2}
-                  fill="none"
-                  stroke="#2ecc71"
-                  strokeWidth="1"
-                  opacity="0.3"
+                  r={Math.max(3, bubbleSize)}
+                  fill={color}
+                  fillOpacity={opacity}
+                  stroke={borderColor}
+                  strokeWidth={borderWidth}
                 />
-              )}
-              <circle
-                cx={cx}
-                cy={cy}
-                r={Math.max(3, bubbleSize)}
-                fill={color}
-                fillOpacity={opacity}
-                stroke={borderColor}
-                strokeWidth={borderWidth}
-              />
-            </g>
-          );
-        }, [onBubbleClick, onHover, hoveredTicker]);
+                {/* Emoji above bubble */}
+                {emoji && (
+                  <g style={{ pointerEvents: "none" }}>
+                    {/* Background circle for #1 ranked */}
+                    {isTopRanked && (
+                      <circle
+                        cx={cx}
+                        cy={labelY - 10}
+                        r="40"
+                        fill="#ffd700"
+                        fillOpacity="0.3"
+                      >
+                        <animate
+                          attributeName="fillOpacity"
+                          values="0.2;0.5;0.2"
+                          dur="1.5s"
+                          repeatCount="indefinite"
+                        />
+                      </circle>
+                    )}
+                    {/* Outer glow rings for #1 */}
+                    {isTopRanked && (
+                      <>
+                        <circle
+                          cx={cx}
+                          cy={labelY - 10}
+                          r="45"
+                          fill="none"
+                          stroke="#ffd700"
+                          strokeWidth="3"
+                          opacity="0.6"
+                        >
+                          <animate
+                            attributeName="r"
+                            values="40;50;40"
+                            dur="2s"
+                            repeatCount="indefinite"
+                          />
+                          <animate
+                            attributeName="opacity"
+                            values="0.4;0.8;0.4"
+                            dur="2s"
+                            repeatCount="indefinite"
+                          />
+                        </circle>
+                        <circle
+                          cx={cx}
+                          cy={labelY - 10}
+                          r="55"
+                          fill="none"
+                          stroke="#ffd700"
+                          strokeWidth="2"
+                          opacity="0.3"
+                        >
+                          <animate
+                            attributeName="r"
+                            values="50;60;50"
+                            dur="2.5s"
+                            repeatCount="indefinite"
+                          />
+                        </circle>
+                      </>
+                    )}
+                    {/* Main emoji text */}
+                    <text
+                      x={cx}
+                      y={labelY}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize={
+                        isTopRanked
+                          ? "72"
+                          : waitingForData
+                          ? "10"
+                          : prime
+                          ? "14"
+                          : "12"
+                      }
+                      fill={
+                        isTopRanked
+                          ? "#ffd700"
+                          : waitingForData
+                          ? "#93a4d6"
+                          : prime
+                          ? "#2ecc71"
+                          : flags.sq30_release
+                          ? "#00ffff"
+                          : "#ffd700"
+                      }
+                      fontWeight="bold"
+                      style={{
+                        textShadow: isTopRanked
+                          ? "0 0 20px rgba(255, 215, 0, 1), 0 0 40px rgba(255, 215, 0, 0.8)"
+                          : "0 0 3px rgba(0,0,0,0.8)",
+                        filter: isTopRanked
+                          ? "drop-shadow(0 0 15px rgba(255, 215, 0, 1))"
+                          : "none",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      {emoji}
+                    </text>
+                    {/* Sparkle effects for #1 */}
+                    {isTopRanked && (
+                      <>
+                        <text
+                          x={cx - 30}
+                          y={labelY - 20}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          fontSize="24"
+                          fill="#ffd700"
+                          opacity="0.9"
+                          style={{ pointerEvents: "none" }}
+                        >
+                          ✨
+                        </text>
+                        <text
+                          x={cx + 30}
+                          y={labelY - 20}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          fontSize="24"
+                          fill="#ffd700"
+                          opacity="0.9"
+                          style={{ pointerEvents: "none" }}
+                        >
+                          ✨
+                        </text>
+                      </>
+                    )}
+                  </g>
+                )}
+                {/* Ticker label */}
+                {(showLabels || isBubbleHovered) && (
+                  <text
+                    x={cx}
+                    y={labelY - (emoji ? 14 : 8)}
+                    textAnchor="middle"
+                    fontSize="10"
+                    fill={waitingForData ? "#93a4d6" : "#e7ecff"}
+                    fontWeight="600"
+                    style={{
+                      textShadow: "0 0 4px rgba(0,0,0,0.9)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {ticker.ticker}
+                  </text>
+                )}
+              </g>
+            );
+          },
+          [onBubbleClick, onHover, hoveredTicker, topRankedTicker, showLabels]
+        );
 
         const handleRechartsMouseMove = (e) => {
           if (
@@ -4024,10 +4279,7 @@
                     );
                   }}
                 />
-                <Scatter
-                  data={data}
-                  shape={BubbleShape}
-                />
+                <Scatter data={data} shape={BubbleShape} />
               </ScatterChart>
             </ResponsiveContainer>
 
