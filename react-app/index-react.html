@@ -2531,18 +2531,28 @@
 
           // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
           // Use gray for tickers waiting for data
-          // Ensure we always have a valid color
-          let color = waitingForData
-            ? "#6b7a9f"
-            : phaseCompletionToColor(validPhasePct);
-
-          // Fallback: if color is still undefined/null, use green
-          if (!color || color === "undefined" || color === "null") {
-            color = "#2ecc71"; // Green fallback
+          // SIMPLIFIED: Direct calculation to ensure it always works
+          let color;
+          if (waitingForData) {
+            color = "#6b7a9f"; // Gray for waiting
+          } else {
+            // Direct color calculation based on phase percentage
+            // Ensure validPhasePct is a number
+            const p = Number.isFinite(validPhasePct) 
+              ? Math.max(0, Math.min(1, validPhasePct))
+              : 0.1; // Default to 0.1 (green) if invalid
+              
+            if (p < 0.3) {
+              color = "#2ecc71"; // Green: under 30%
+            } else if (p < 0.6) {
+              color = "#f39c12"; // Yellow: 30-60%
+            } else {
+              color = "#e74c3c"; // Red: 60-100%
+            }
           }
-
-          // Ensure color is a valid hex string
-          if (!color.startsWith("#")) {
+          
+          // Final safety: ensure color is always valid
+          if (!color || typeof color !== "string" || !color.startsWith("#")) {
             color = "#2ecc71"; // Green fallback
           }
 
@@ -2684,19 +2694,11 @@
               <circle
                 cx={x}
                 cy={y}
-                r={Math.max(2, bubbleSize)} // Ensure minimum size of 2
-                fill={color || "#2ecc71"} // Fallback to green if undefined
-                fillOpacity={opacity || 0.85} // Fallback opacity if undefined
-                stroke={borderColor || "#ffffff"} // Fallback border color if undefined
-                strokeWidth={borderWidth || 1.5} // Fallback border width if undefined
-                style={{
-                  transition: "all 0.2s ease-out",
-                  // Force rendering - ensure no CSS overrides
-                  fill: color || "#2ecc71",
-                  stroke: borderColor || "#ffffff",
-                  fillOpacity: opacity || 0.85,
-                  strokeWidth: borderWidth || 1.5,
-                }}
+                r={Math.max(3, bubbleSize)}
+                fill={color}
+                fillOpacity={opacity}
+                stroke={borderColor}
+                strokeWidth={borderWidth}
               />
               {/* Emoji above bubble */}
               {emoji && (
