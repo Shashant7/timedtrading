@@ -11216,49 +11216,34 @@
 
                   {/* Filters */}
                   <div className="mt-4">
-                    <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <input
-                          type="text"
-                          placeholder="Search ticker(s) or use natural language... (e.g., 'AAPL, GOOGL' or 'top 40' or 'rank over 75')"
-                          value={filters.search}
-                          onChange={(e) =>
-                            handleFilterChange({ search: e.target.value })
+                    <div className="mb-4">
+                      <input
+                        type="text"
+                        placeholder="Search tickers, filters, or conditions... (e.g., 'AAPL, GOOGL, TSLA' or 'top 40' or 'rank over 75')"
+                        value={filters.search}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          handleFilterChange({ search: value });
+                          // Also update tickerFilter if it looks like a simple ticker list (for Time Travel compatibility)
+                          // Only if it's comma-separated and doesn't contain filter keywords
+                          if (
+                            value.includes(",") &&
+                            !value.match(
+                              /rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/
+                            )
+                          ) {
+                            handleFilterChange({ tickerFilter: value });
+                          } else if (!value.trim()) {
+                            handleFilterChange({ tickerFilter: "" });
                           }
-                          className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6]"
-                        />
-                        <div className="mt-1 text-xs text-[#6b7a9f]">
-                          💡 Examples:{" "}
-                          <span className="text-[#93a4d6]">
-                            "AAPL, GOOGL, TSLA"
-                          </span>{" "}
-                          • <span className="text-[#93a4d6]">"top 40"</span> •{" "}
-                          <span className="text-[#93a4d6]">
-                            "top long setup"
-                          </span>{" "}
-                          •{" "}
-                          <span className="text-[#93a4d6]">"rank over 75"</span>{" "}
-                          • <span className="text-[#93a4d6]">"RR above 2"</span>{" "}
-                          •{" "}
-                          <span className="text-[#93a4d6]">
-                            "prime setup and in corridor"
-                          </span>
-                        </div>
-                      </div>
-                      <div>
-                        <input
-                          type="text"
-                          placeholder="Filter specific tickers (comma-separated, e.g., AAPL, GOOGL, TSLA)"
-                          value={filters.tickerFilter}
-                          onChange={(e) =>
-                            handleFilterChange({ tickerFilter: e.target.value })
-                          }
-                          className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6]"
-                        />
-                        <div className="mt-1 text-xs text-[#6b7a9f]">
-                          🎯 Filter to specific tickers for focused tracking.
-                          Works with Time Travel mode.
-                        </div>
+                        }}
+                        className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6]"
+                      />
+                      <div className="mt-1 text-xs text-[#6b7a9f]">
+                        💡 Search by tickers (comma-separated), natural language filters, or conditions.{" "}
+                        <span className="text-[#93a4d6]">
+                          Examples: "AAPL, GOOGL, TSLA" • "top 40" • "rank over 75" • "RR above 2" • "prime setup and in corridor"
+                        </span>
                       </div>
                     </div>
                     <QuickFilters
