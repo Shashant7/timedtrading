@@ -6018,9 +6018,45 @@ export default {
                 )}`;
 
                 // Create Discord embed for trading opportunity
-                const rr = payload.rr || 0;
+                // Calculate current R:R using current price (not trigger price)
+                // This gives accurate R:R based on where price is now
+                const currentRR = computeRR(payload);
+                const rr = currentRR != null ? currentRR : (payload.rr || 0);
+                
+                // Get the best TP level (max from tp_levels if available)
+                let bestTP = Number(payload.tp);
+                if (payload.tp_levels && Array.isArray(payload.tp_levels) && payload.tp_levels.length > 0) {
+                  const tpPrices = payload.tp_levels
+                    .map((tpItem) => {
+                      if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
+                        return Number(tpItem.price);
+                      }
+                      return typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
+                    })
+                    .filter((p) => Number.isFinite(p));
+                  
+                  if (tpPrices.length > 0) {
+                    // For LONG: use max TP, for SHORT: use min TP
+                    const state = String(payload.state || "");
+                    const isLong = state.includes("BULL");
+                    bestTP = isLong ? Math.max(...tpPrices) : Math.min(...tpPrices);
+                  }
+                }
+                
                 const rrFormatted =
                   rr >= 1 ? `${rr.toFixed(2)}:1` : `1:${(1 / rr).toFixed(2)}`;
+                
+                // Calculate distance to TP and SL from current price
+                const currentPrice = Number(payload.price) || 0;
+                const distanceToTP = bestTP > 0 ? Math.abs(bestTP - currentPrice) : 0;
+                const distanceToSL = Number(payload.sl) > 0 ? Math.abs(currentPrice - Number(payload.sl)) : 0;
+                const tpDistancePct = currentPrice > 0 ? ((distanceToTP / currentPrice) * 100).toFixed(2) : "0.00";
+                const slDistancePct = currentPrice > 0 ? ((distanceToSL / currentPrice) * 100).toFixed(2) : "0.00";
+                
+                // Warn if TP is very close to current price (less than 0.5% away)
+                const tpVeryClose = currentPrice > 0 && distanceToTP / currentPrice < 0.005;
+                const tpWarning = tpVeryClose ? " ⚠️ Very close!" : "";
+                
                 const opportunityEmbed = {
                   title: `🎯 Trading Opportunity: ${ticker} ${side}`,
                   color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
@@ -6051,8 +6087,8 @@ export default {
                       inline: true,
                     },
                     {
-                      name: "Risk/Reward",
-                      value: rrFormatted,
+                      name: "Risk/Reward (Current)",
+                      value: `${rrFormatted}${currentRR != null && currentRR !== payload.rr ? " ⚠️" : ""}`,
                       inline: true,
                     },
                     {
@@ -6075,12 +6111,12 @@ export default {
                     },
                     {
                       name: "Stop Loss",
-                      value: `$${fmt2(payload.sl)}`,
+                      value: `$${fmt2(payload.sl)} (${slDistancePct}% away)`,
                       inline: true,
                     },
                     {
                       name: "Take Profit",
-                      value: `$${fmt2(payload.tp)}`,
+                      value: `$${fmt2(bestTP)} (${tpDistancePct}% away)${tpWarning}`,
                       inline: true,
                     },
                     {
