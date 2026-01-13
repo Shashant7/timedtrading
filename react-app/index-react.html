@@ -1923,21 +1923,64 @@
           }
 
           // Ensure we have valid numeric values - check for null/undefined explicitly
+          // Try multiple property names in case data structure varies
           const comp =
-            ticker.completion != null ? Number(ticker.completion) : 0;
+            ticker.completion != null
+              ? Number(ticker.completion)
+              : ticker.completion_pct != null
+              ? Number(ticker.completion_pct)
+              : 0;
           const phasePct =
-            ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
-          const rr = ticker.rr != null ? Number(ticker.rr) : 0;
+            ticker.phase_pct != null
+              ? Number(ticker.phase_pct)
+              : ticker.phase != null
+              ? Number(ticker.phase)
+              : 0;
+          const rr =
+            ticker.rr != null
+              ? Number(ticker.rr)
+              : ticker.risk_reward != null
+              ? Number(ticker.risk_reward)
+              : 0;
           const waitingForData = ticker.waitingForData === true;
 
           // Validate values are finite numbers and clamp to valid ranges
           const validComp = Number.isFinite(comp)
             ? Math.max(0, Math.min(1, comp))
             : 0;
-          const validPhasePct = Number.isFinite(phasePct)
+          
+          // If phase_pct is missing, try to estimate from completion or use a default based on state
+          let validPhasePct = Number.isFinite(phasePct)
             ? Math.max(0, Math.min(1, phasePct))
-            : 0;
-          const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0;
+            : null;
+          
+          // Fallback: if phase_pct is missing, use completion as proxy or estimate from state
+          if (validPhasePct === null) {
+            if (validComp > 0) {
+              validPhasePct = validComp; // Use completion as phase estimate
+            } else if (ticker.state) {
+              // Estimate phase based on state (early states = lower phase)
+              const state = String(ticker.state).toUpperCase();
+              if (state.includes("PREP") || state.includes("PULLBACK")) {
+                validPhasePct = 0.2; // Early phase
+              } else if (state.includes("BULL") || state.includes("BEAR")) {
+                validPhasePct = 0.5; // Mid phase
+              } else {
+                validPhasePct = 0.1; // Default to early phase
+              }
+            } else {
+              validPhasePct = 0.1; // Default to early phase (green)
+            }
+          }
+          
+          // Default RR to a small value if missing to ensure size variation
+          // Use dynamicRank or rank as fallback for size if RR is missing
+          const fallbackRR = ticker.dynamicRank 
+            ? Math.max(0.5, Math.min(5, (Number(ticker.dynamicRank) || 0) / 50))
+            : ticker.rank 
+            ? Math.max(0.5, Math.min(5, (Number(ticker.rank) || 0) / 50))
+            : 0.5;
+          const validRR = Number.isFinite(rr) && rr > 0 ? rr : fallbackRR;
 
           // Bubble size based on RR, adjusted for completion (lower completion = larger size)
           // RR is the opportunity, but we want to reduce size as completion increases
@@ -1947,16 +1990,18 @@
           // Normalized to show more tickers - reduced multiplier significantly
           const cappedRR = Math.min(validRR, 5); // Cap RR at 5 for size calculation
           const completionPenalty = 1 - validComp; // 1.0 when completion is 0, 0.0 when completion is 1
-          const baseSize = 4; // Reduced from 8
-          const rrMultiplier = 2; // Reduced from 6 - much smaller bubbles
+          const baseSize = 5; // Increased from 4 for better visibility
+          const rrMultiplier = 3; // Increased from 2 for more size variation
           // Smaller size for tickers waiting for data
           const size = waitingForData
             ? baseSize * 0.7
             : baseSize + cappedRR * rrMultiplier * completionPenalty;
 
           // Force minimum size variation - if all sizes are the same, add variation based on ticker
-          const sizeVariation = (ticker.ticker?.charCodeAt(0) || 0) % 3; // Add small variation based on ticker name
-          const finalSize = Math.max(baseSize, size + sizeVariation * 0.5); // Add 0-1px variation, ensure minimum baseSize
+          // Use multiple factors for better variation
+          const tickerHash = (ticker.ticker || "").split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+          const sizeVariation = (tickerHash % 5) * 0.8; // Add 0-3.2px variation based on ticker name
+          const finalSize = Math.max(baseSize, size + sizeVariation); // Add variation, ensure minimum baseSize
 
           const prime = isPrimeBubble(ticker);
           const flags = ticker.flags || {};
@@ -1970,12 +2015,17 @@
             : phaseCompletionToColor(validPhasePct);
 
           // Fallback: if color is still undefined/null, use green
-          if (!color || color === "undefined" || color === "null") {
+          if (!color || color === "undefined" || color === "null" || typeof color !== "string") {
             color = "#2ecc71"; // Green fallback
           }
 
           // Ensure color is a valid hex string
           if (!color.startsWith("#")) {
+            color = "#2ecc71"; // Green fallback
+          }
+
+          // Final safety check - ensure color is never empty or invalid
+          if (!color || color.length < 4) {
             color = "#2ecc71"; // Green fallback
           }
 
@@ -2056,7 +2106,22 @@
               validRR,
               validComp,
               validPhasePct,
+              rawRR: rr,
+              rawComp: comp,
+              rawPhasePct: phasePct,
+              tickerKeys: Object.keys(ticker),
               ticker: ticker,
+            });
+          }
+
+          // Log first 10 bubbles to verify styling is applied
+          if (window._svgBubbleCallCount <= 10) {
+            console.log(`[BUBBLE STYLE] ${ticker.ticker}:`, {
+              color,
+              size: bubbleSize.toFixed(2),
+              phasePct: validPhasePct,
+              rr: validRR,
+              completion: validComp,
             });
           }
 
@@ -2114,18 +2179,18 @@
               <circle
                 cx={x}
                 cy={y}
-                r={Math.max(2, bubbleSize)} // Ensure minimum size of 2 (was 1, too small)
-                fill={color || "#2ecc71"} // Fallback to green if undefined (was white)
-                fillOpacity={opacity || 0.85} // Fallback opacity if undefined
-                stroke={borderColor || "#ffffff"} // Fallback border color if undefined
-                strokeWidth={borderWidth || 1.5} // Fallback border width if undefined
+                r={Math.max(3, bubbleSize)} // Ensure minimum size of 3 for visibility
+                fill={color} // Color is guaranteed to be valid hex string
+                fillOpacity={opacity} // Opacity is guaranteed to be valid
+                stroke={borderColor} // Border color is guaranteed to be valid
+                strokeWidth={borderWidth} // Border width is guaranteed to be valid
                 style={{
                   transition: "all 0.2s ease-out",
                   // Force rendering - ensure no CSS overrides
-                  fill: color || "#2ecc71", // Use green as fallback
-                  stroke: borderColor || "#ffffff",
-                  fillOpacity: opacity || 0.85,
-                  strokeWidth: borderWidth || 1.5,
+                  fill: color,
+                  stroke: borderColor,
+                  fillOpacity: opacity,
+                  strokeWidth: borderWidth + "px",
                 }}
               />
               {/* Emoji above bubble - #1 ranked gets special treatment */}
