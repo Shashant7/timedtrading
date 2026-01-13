@@ -6842,37 +6842,67 @@ export default {
 
       // GET /timed/trail?ticker=
       if (url.pathname === "/timed/trail" && req.method === "GET") {
-        // Rate limiting
-        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        const rateLimit = await checkRateLimit(
-          KV,
-          ip,
-          "/timed/trail",
-          1000,
-          3600
-        ); // Increased for single-user
+        try {
+          // Rate limiting
+          const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+          const rateLimit = await checkRateLimit(
+            KV,
+            ip,
+            "/timed/trail",
+            2000, // Increased limit for trail endpoint
+            3600
+          );
 
-        if (!rateLimit.allowed) {
+          if (!rateLimit.allowed) {
+            return sendJSON(
+              { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+              429,
+              corsHeaders(env, req)
+            );
+          }
+
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          if (!ticker) {
+            return sendJSON(
+              { ok: false, error: "missing ticker" },
+              400,
+              corsHeaders(env, req)
+            );
+          }
+
+          // Get trail data with error handling
+          let trail = [];
+          try {
+            trail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
+            // Ensure trail is an array
+            if (!Array.isArray(trail)) {
+              console.warn(
+                `[TRAIL] Invalid trail data for ${ticker}, expected array, got:`,
+                typeof trail
+              );
+              trail = [];
+            }
+          } catch (kvError) {
+            console.error(`[TRAIL] KV read error for ${ticker}:`, kvError);
+            // Return empty trail instead of error to prevent 500
+            trail = [];
+          }
+
           return sendJSON(
-            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-            429,
+            { ok: true, ticker, trail },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (error) {
+          console.error(`[TRAIL] Unexpected error:`, error);
+          // Return empty trail instead of 500 error
+          const ticker = normTicker(url.searchParams.get("ticker")) || "UNKNOWN";
+          return sendJSON(
+            { ok: true, ticker, trail: [] },
+            200,
             corsHeaders(env, req)
           );
         }
-
-        const ticker = normTicker(url.searchParams.get("ticker"));
-        if (!ticker)
-          return sendJSON(
-            { ok: false, error: "missing ticker" },
-            400,
-            corsHeaders(env, req)
-          );
-        const trail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
-        return sendJSON(
-          { ok: true, ticker, trail },
-          200,
-          corsHeaders(env, req)
-        );
       }
 
       // GET /timed/top?bucket=long|short|setup&n=10

@@ -2787,31 +2787,86 @@
           if (tickersToFetch.length === 0) return;
 
           // Limit concurrent fetches to avoid overwhelming the API
-          const MAX_CONCURRENT = 10;
+          // Reduced batch size to avoid rate limiting and server errors
+          const MAX_CONCURRENT = 5;
           const batches = [];
           for (let i = 0; i < tickersToFetch.length; i += MAX_CONCURRENT) {
             batches.push(tickersToFetch.slice(i, i + MAX_CONCURRENT));
           }
 
           setLoadingTrails(true);
-          
+
           const fetchBatch = async (batch) => {
             const promises = batch.map(async (ticker) => {
-              try {
-                const res = await fetch(
-                  `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(ticker)}`
-                );
-                if (res.ok) {
-                  const json = await res.json();
-                  if (json.ok && Array.isArray(json.trail) && json.trail.length > 0) {
-                    return { ticker, trail: json.trail };
+              // Retry logic with exponential backoff
+              let lastError = null;
+              for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                  const res = await fetch(
+                    `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
+                      ticker
+                    )}`,
+                    {
+                      signal: AbortSignal.timeout(5000), // 5 second timeout
+                    }
+                  );
+                  
+                  if (res.ok) {
+                    const json = await res.json();
+                    if (
+                      json.ok &&
+                      Array.isArray(json.trail) &&
+                      json.trail.length > 0
+                    ) {
+                      return { ticker, trail: json.trail };
+                    }
+                    // If ok but empty trail, return empty (not an error)
+                    return { ticker, trail: [] };
+                  } else if (res.status === 429) {
+                    // Rate limited - wait longer before retry
+                    await new Promise((resolve) =>
+                      setTimeout(resolve, 1000 * (attempt + 1))
+                    );
+                    continue;
+                  } else if (res.status >= 500) {
+                    // Server error - retry with backoff
+                    if (attempt < 2) {
+                      await new Promise((resolve) =>
+                        setTimeout(resolve, 500 * Math.pow(2, attempt))
+                      );
+                      continue;
+                    }
+                  }
+                  // For other errors (400, 404, etc.), don't retry
+                  return { ticker, trail: [] };
+                } catch (err) {
+                  lastError = err;
+                  // Only retry on network errors or timeouts, not on abort
+                  if (
+                    err.name !== "AbortError" &&
+                    err.name !== "TimeoutError" &&
+                    attempt < 2
+                  ) {
+                    await new Promise((resolve) =>
+                      setTimeout(resolve, 500 * Math.pow(2, attempt))
+                    );
+                    continue;
+                  }
+                  // If it's an abort/timeout or last attempt, return empty
+                  if (attempt === 2 || err.name === "AbortError") {
+                    break;
                   }
                 }
-                return { ticker, trail: [] };
-              } catch (err) {
-                console.error(`Failed to fetch trail for ${ticker}:`, err);
-                return { ticker, trail: [] };
               }
+              // If we get here, all retries failed
+              if (lastError && lastError.name !== "AbortError") {
+                // Only log if it's not a timeout/abort (those are expected)
+                console.warn(
+                  `Failed to fetch trail for ${ticker} after 3 attempts:`,
+                  lastError.message
+                );
+              }
+              return { ticker, trail: [] };
             });
 
             const results = await Promise.all(promises);
@@ -2824,7 +2879,7 @@
             for (const batch of batches) {
               const results = await fetchBatch(batch);
               allResults.push(...results);
-              
+
               // Update state incrementally for better UX
               setAllTrails((prev) => {
                 const updated = { ...prev };
@@ -2836,9 +2891,9 @@
                 });
                 return updated;
               });
-              
-              // Small delay between batches
-              await new Promise((resolve) => setTimeout(resolve, 100));
+
+              // Longer delay between batches to avoid overwhelming the API
+              await new Promise((resolve) => setTimeout(resolve, 500));
             }
             setLoadingTrails(false);
           };
@@ -3600,7 +3655,9 @@
                     // Render historical trails for all tickers (behind current bubbles)
                     const historicalTrails = [];
                     tickers.forEach((ticker) => {
-                      const tickerKey = String(ticker?.ticker || "").toUpperCase();
+                      const tickerKey = String(
+                        ticker?.ticker || ""
+                      ).toUpperCase();
                       const trail = allTrails[tickerKey];
                       if (trail && Array.isArray(trail) && trail.length > 1) {
                         // Render trail lines
@@ -3625,11 +3682,11 @@
                             offsetY +
                             plotHeight -
                             50 * scaleY;
-                          
+
                           // Older points are more transparent (idx/trail.length gives age)
                           const ageRatio = idx / trail.length;
                           const opacity = 0.1 + (1 - ageRatio) * 0.2; // 0.1 to 0.3 opacity
-                          
+
                           historicalTrails.push(
                             <line
                               key={`trail-${tickerKey}-${idx}`}
@@ -3637,7 +3694,9 @@
                               y1={y1}
                               x2={x2}
                               y2={y2}
-                              stroke={phaseCompletionToColor(point.phase_pct || 0)}
+                              stroke={phaseCompletionToColor(
+                                point.phase_pct || 0
+                              )}
                               strokeWidth="1"
                               opacity={opacity}
                               className="comet-trail"
@@ -3656,13 +3715,15 @@
                             offsetY +
                             plotHeight -
                             50 * scaleY;
-                          
+
                           // Older positions are smaller and more transparent
                           const ageRatio = idx / trail.length;
                           const size = 2 + (1 - ageRatio) * 3; // 2 to 5 pixels
                           const opacity = 0.15 + (1 - ageRatio) * 0.25; // 0.15 to 0.4 opacity
-                          const color = phaseCompletionToColor(point.phase_pct || 0);
-                          
+                          const color = phaseCompletionToColor(
+                            point.phase_pct || 0
+                          );
+
                           historicalTrails.push(
                             <circle
                               key={`trail-bubble-${tickerKey}-${idx}`}
@@ -3686,44 +3747,48 @@
                         {historicalTrails}
                         {/* Current bubbles */}
                         {tickers.map((ticker, index) => {
-                      // Log first few bubbles
-                      if (index < 5) {
-                        console.log(
-                          `[BUBBLE RENDER] ${ticker.ticker} (${index}):`,
-                          {
-                            hasTicker: !!ticker,
-                            tickerKeys: ticker
-                              ? Object.keys(ticker).slice(0, 15)
-                              : [],
-                            hasPhasePct: ticker ? "phase_pct" in ticker : false,
-                            phasePct: ticker ? ticker.phase_pct : undefined,
-                            hasCompletion: ticker
-                              ? "completion" in ticker
-                              : false,
-                            hasRR: ticker ? "rr" in ticker : false,
+                          // Log first few bubbles
+                          if (index < 5) {
+                            console.log(
+                              `[BUBBLE RENDER] ${ticker.ticker} (${index}):`,
+                              {
+                                hasTicker: !!ticker,
+                                tickerKeys: ticker
+                                  ? Object.keys(ticker).slice(0, 15)
+                                  : [],
+                                hasPhasePct: ticker
+                                  ? "phase_pct" in ticker
+                                  : false,
+                                phasePct: ticker ? ticker.phase_pct : undefined,
+                                hasCompletion: ticker
+                                  ? "completion" in ticker
+                                  : false,
+                                hasRR: ticker ? "rr" in ticker : false,
+                              }
+                            );
                           }
-                        );
-                      }
-                      return (
-                        <SVGBubble
-                          key={ticker.ticker}
-                          ticker={ticker}
-                          onClick={onBubbleClick}
-                          onHover={(t) => {
-                            onHover(t);
-                            if (t)
-                              setTooltip(tickers.find((tt) => tt.ticker === t));
-                          }}
-                          isHovered={hoveredTicker === ticker.ticker}
-                          scaleX={scaleX}
-                          scaleY={-scaleY}
-                          offsetX={offsetX + 50 * scaleX}
-                          offsetY={offsetY + plotHeight - 50 * scaleY}
-                          showLabels={showLabels}
-                          isTopRanked={topRankedTicker === ticker.ticker}
-                        />
-                      );
-                    })}
+                          return (
+                            <SVGBubble
+                              key={ticker.ticker}
+                              ticker={ticker}
+                              onClick={onBubbleClick}
+                              onHover={(t) => {
+                                onHover(t);
+                                if (t)
+                                  setTooltip(
+                                    tickers.find((tt) => tt.ticker === t)
+                                  );
+                              }}
+                              isHovered={hoveredTicker === ticker.ticker}
+                              scaleX={scaleX}
+                              scaleY={-scaleY}
+                              offsetX={offsetX + 50 * scaleX}
+                              offsetY={offsetY + plotHeight - 50 * scaleY}
+                              showLabels={showLabels}
+                              isTopRanked={topRankedTicker === ticker.ticker}
+                            />
+                          );
+                        })}
                       </>
                     );
                   })()
