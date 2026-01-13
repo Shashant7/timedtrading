@@ -10001,7 +10001,7 @@ export default {
         }
 
         const ticker = normTicker(url.searchParams.get("ticker")) || null;
-        const status = url.searchParams.get("status");
+        const statusRaw = url.searchParams.get("status");
         const sinceRaw = url.searchParams.get("since");
         const untilRaw = url.searchParams.get("until");
         const limitRaw = url.searchParams.get("limit");
@@ -10020,9 +10020,20 @@ export default {
           where += " AND ticker = ?";
           binds.push(String(ticker).toUpperCase());
         }
-        if (status && status !== "all") {
-          where += " AND status = ?";
-          binds.push(String(status));
+        const statusNorm =
+          statusRaw != null ? String(statusRaw).trim().toLowerCase() : "";
+        if (statusNorm && statusNorm !== "all") {
+          // UX-friendly filters used by the ledger UI
+          if (statusNorm === "closed") {
+            where += " AND status IN ('WIN','LOSS')";
+          } else if (statusNorm === "open") {
+            // Includes OPEN + TRIMMED-style intermediate statuses + nulls
+            where += " AND (status IS NULL OR status NOT IN ('WIN','LOSS'))";
+          } else {
+            // Exact match fallback (stored statuses are uppercase)
+            where += " AND status = ?";
+            binds.push(String(statusRaw).toUpperCase());
+          }
         }
         if (since != null && Number.isFinite(since)) {
           where += " AND entry_ts >= ?";
