@@ -2012,7 +2012,23 @@
           // Ensure we always have a valid color
           let color = waitingForData
             ? "#6b7a9f"
-            : phaseCompletionToColor(validPhasePct);
+            : (() => {
+                try {
+                  const result = phaseCompletionToColor(validPhasePct);
+                  if (!result || typeof result !== 'string' || !result.startsWith('#')) {
+                    if (window._svgBubbleCallCount <= 5) {
+                      console.warn(`[BUBBLE COLOR] phaseCompletionToColor returned invalid result for ${ticker.ticker}:`, result);
+                    }
+                    return "#2ecc71"; // Fallback to green
+                  }
+                  return result;
+                } catch (e) {
+                  if (window._svgBubbleCallCount <= 5) {
+                    console.error(`[BUBBLE COLOR] Error calling phaseCompletionToColor for ${ticker.ticker}:`, e);
+                  }
+                  return "#2ecc71"; // Fallback to green
+                }
+              })();
 
           // Fallback: if color is still undefined/null, use green
           if (!color || color === "undefined" || color === "null" || typeof color !== "string") {
@@ -2170,9 +2186,17 @@
           const labelY = y - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
 
           // FINAL SAFETY CHECK - ensure all values are valid before rendering
-          const finalColor = (color && typeof color === 'string' && color.startsWith('#')) 
-            ? color 
-            : "#2ecc71"; // Force green if color is invalid
+          // CRITICAL: Always ensure color is a valid hex string - default to green if anything fails
+          let finalColor = "#2ecc71"; // Default green
+          if (color && typeof color === 'string' && color.startsWith('#')) {
+            finalColor = color;
+          } else {
+            // Log the issue for first few bubbles
+            if (window._svgBubbleCallCount <= 5) {
+              console.warn(`[BUBBLE COLOR] ${ticker.ticker}: Invalid color "${color}", using fallback green`);
+            }
+          }
+          
           const finalOpacity = (typeof opacity === 'number' && opacity >= 0 && opacity <= 1) 
             ? opacity 
             : 0.85;
@@ -2184,9 +2208,16 @@
             ? borderWidth 
             : 1.5;
 
-          // Log if we had to use fallbacks
-          if (window._svgBubbleCallCount <= 5 && finalColor !== color) {
-            console.warn(`[BUBBLE COLOR FIX] ${ticker.ticker}: Original color was invalid (${color}), using fallback ${finalColor}`);
+          // ALWAYS log first bubble to verify color is set
+          if (window._svgBubbleCallCount === 1) {
+            console.log(`[BUBBLE FIRST] ${ticker.ticker}:`, {
+              originalColor: color,
+              finalColor: finalColor,
+              validPhasePct: validPhasePct,
+              phaseCompletionToColorResult: phaseCompletionToColor(validPhasePct),
+              renderedSize: renderedSize,
+              bubbleSize: bubbleSize,
+            });
           }
 
           return (
@@ -2212,17 +2243,17 @@
                 cx={x}
                 cy={y}
                 r={renderedSize}
-                fill={finalColor}
-                fillOpacity={finalOpacity}
-                stroke={finalBorderColor}
-                strokeWidth={finalBorderWidth}
+                fill={finalColor || "#2ecc71"}
+                fillOpacity={finalOpacity || 0.85}
+                stroke={finalBorderColor || "#ffffff"}
+                strokeWidth={finalBorderWidth || 1.5}
                 style={{
                   transition: "all 0.2s ease-out",
-                  // Force rendering - ensure no CSS overrides
-                  fill: finalColor,
-                  stroke: finalBorderColor,
-                  fillOpacity: finalOpacity,
-                  strokeWidth: finalBorderWidth + "px",
+                  // CRITICAL: Force fill color - SVG defaults to black if fill is not set
+                  fill: finalColor || "#2ecc71",
+                  stroke: finalBorderColor || "#ffffff",
+                  fillOpacity: finalOpacity || 0.85,
+                  strokeWidth: (finalBorderWidth || 1.5) + "px",
                 }}
               />
               {/* Emoji above bubble - #1 ranked gets special treatment */}
