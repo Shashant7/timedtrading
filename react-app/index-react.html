@@ -2198,8 +2198,8 @@
             : flags.sq30_on
             ? "🧨"
             : "";
-          // For #1 ranked, position emoji much higher to ensure visibility
-          const labelY = y - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
+          // For #1 ranked, position emoji higher (reduced from 50 to 20 for smaller crown)
+          const labelY = y - bubbleSize - (emoji ? (isTopRanked ? 20 : 12) : 8);
 
           // FINAL SAFETY CHECK - ensure all values are valid before rendering
           // CRITICAL: Double-check color is valid before using
@@ -2266,12 +2266,12 @@
               {/* Emoji above bubble - #1 ranked gets special treatment */}
               {emoji && (
                 <g style={{ pointerEvents: "none" }}>
-                  {/* Background circle for #1 ranked to make it super visible */}
+                  {/* Background circle for #1 ranked - reduced size */}
                   {isTopRanked && (
                     <circle
                       cx={x}
-                      cy={labelY - 10}
-                      r="40"
+                      cy={labelY - 5}
+                      r="18"
                       fill="#ffd700"
                       fillOpacity="0.3"
                     >
@@ -2283,21 +2283,21 @@
                       />
                     </circle>
                   )}
-                  {/* Outer glow ring for #1 */}
+                  {/* Outer glow ring for #1 - reduced size */}
                   {isTopRanked && (
                     <>
                       <circle
                         cx={x}
-                        cy={labelY - 10}
-                        r="45"
+                        cy={labelY - 5}
+                        r="22"
                         fill="none"
                         stroke="#ffd700"
-                        strokeWidth="3"
+                        strokeWidth="2"
                         opacity="0.6"
                       >
                         <animate
                           attributeName="r"
-                          values="40;50;40"
+                          values="20;24;20"
                           dur="2s"
                           repeatCount="indefinite"
                         />
@@ -2305,28 +2305,6 @@
                           attributeName="opacity"
                           values="0.4;0.8;0.4"
                           dur="2s"
-                          repeatCount="indefinite"
-                        />
-                      </circle>
-                      <circle
-                        cx={x}
-                        cy={labelY - 10}
-                        r="55"
-                        fill="none"
-                        stroke="#ffd700"
-                        strokeWidth="2"
-                        opacity="0.3"
-                      >
-                        <animate
-                          attributeName="r"
-                          values="50;60;50"
-                          dur="2.5s"
-                          repeatCount="indefinite"
-                        />
-                        <animate
-                          attributeName="opacity"
-                          values="0.2;0.5;0.2"
-                          dur="2.5s"
                           repeatCount="indefinite"
                         />
                       </circle>
@@ -2340,7 +2318,7 @@
                     dominantBaseline="middle"
                     fontSize={
                       isTopRanked
-                        ? "72"
+                        ? "24"
                         : waitingForData
                         ? "10"
                         : prime
@@ -2371,15 +2349,15 @@
                   >
                     {emoji}
                   </text>
-                  {/* Additional sparkle effects for #1 */}
+                  {/* Additional sparkle effects for #1 - reduced size */}
                   {isTopRanked && (
                     <>
                       <text
-                        x={x - 30}
-                        y={labelY - 20}
+                        x={x - 15}
+                        y={labelY - 10}
                         textAnchor="middle"
                         dominantBaseline="middle"
-                        fontSize="24"
+                        fontSize="12"
                         fill="#ffd700"
                         opacity="0.9"
                         style={{ pointerEvents: "none" }}
@@ -2387,25 +2365,13 @@
                         ✨
                       </text>
                       <text
-                        x={x + 30}
-                        y={labelY - 20}
+                        x={x + 15}
+                        y={labelY - 10}
                         textAnchor="middle"
                         dominantBaseline="middle"
-                        fontSize="24"
+                        fontSize="12"
                         fill="#ffd700"
                         opacity="0.9"
-                        style={{ pointerEvents: "none" }}
-                      >
-                        ✨
-                      </text>
-                      <text
-                        x={x}
-                        y={labelY - 35}
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fontSize="20"
-                        fill="#ffd700"
-                        opacity="0.7"
                         style={{ pointerEvents: "none" }}
                       >
                         ✨
@@ -2414,16 +2380,16 @@
                   )}
                 </g>
               )}
-              {/* Additional glow effect for #1 ranked */}
+              {/* Additional glow effect for #1 ranked - reduced size */}
               {isTopRanked && (
                 <>
                   <circle
                     cx={x}
                     cy={y}
-                    r={bubbleSize + 8}
+                    r={bubbleSize + 4}
                     fill="none"
                     stroke="#ffd700"
-                    strokeWidth="4"
+                    strokeWidth="2"
                     opacity="0.6"
                   >
                     <animate
@@ -2434,8 +2400,8 @@
                     />
                     <animate
                       attributeName="r"
-                      values={`${bubbleSize + 6};${bubbleSize + 12};${
-                        bubbleSize + 6
+                      values={`${bubbleSize + 3};${bubbleSize + 6};${
+                        bubbleSize + 3
                       }`}
                       dur="2s"
                       repeatCount="indefinite"
@@ -2445,10 +2411,10 @@
                   <circle
                     cx={x}
                     cy={y}
-                    r={bubbleSize + 12}
+                    r={bubbleSize + 6}
                     fill="none"
                     stroke="#ffd700"
-                    strokeWidth="2"
+                    strokeWidth="1.5"
                     opacity="0.3"
                   >
                     <animate
@@ -3932,7 +3898,7 @@
               : 1.5;
             const bubbleSize = isBubbleHovered ? finalSize * 1.2 : finalSize;
             const labelY =
-              cy - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
+              cy - bubbleSize - (emoji ? (isTopRanked ? 20 : 12) : 8);
 
             return (
               <g
@@ -3953,16 +3919,16 @@
                     opacity="0.3"
                   />
                 )}
-                {/* Additional glow effects for #1 ranked */}
+                {/* Additional glow effects for #1 ranked - reduced size */}
                 {isTopRanked && (
                   <>
                     <circle
                       cx={cx}
                       cy={cy}
-                      r={bubbleSize + 8}
+                      r={bubbleSize + 4}
                       fill="none"
                       stroke="#ffd700"
-                      strokeWidth="4"
+                      strokeWidth="2"
                       opacity="0.6"
                     >
                       <animate
@@ -3971,14 +3937,22 @@
                         dur="2s"
                         repeatCount="indefinite"
                       />
+                      <animate
+                        attributeName="r"
+                        values={`${bubbleSize + 3};${bubbleSize + 6};${
+                          bubbleSize + 3
+                        }`}
+                        dur="2s"
+                        repeatCount="indefinite"
+                      />
                     </circle>
                     <circle
                       cx={cx}
                       cy={cy}
-                      r={bubbleSize + 12}
+                      r={bubbleSize + 6}
                       fill="none"
                       stroke="#ffd700"
-                      strokeWidth="2"
+                      strokeWidth="1.5"
                       opacity="0.3"
                     >
                       <animate
@@ -4002,12 +3976,12 @@
                 {/* Emoji above bubble */}
                 {emoji && (
                   <g style={{ pointerEvents: "none" }}>
-                    {/* Background circle for #1 ranked */}
+                    {/* Background circle for #1 ranked - reduced size */}
                     {isTopRanked && (
                       <circle
                         cx={cx}
-                        cy={labelY - 10}
-                        r="40"
+                        cy={labelY - 5}
+                        r="18"
                         fill="#ffd700"
                         fillOpacity="0.3"
                       >
@@ -4019,21 +3993,21 @@
                         />
                       </circle>
                     )}
-                    {/* Outer glow rings for #1 */}
+                    {/* Outer glow ring for #1 - reduced size */}
                     {isTopRanked && (
                       <>
                         <circle
                           cx={cx}
-                          cy={labelY - 10}
-                          r="45"
+                          cy={labelY - 5}
+                          r="22"
                           fill="none"
                           stroke="#ffd700"
-                          strokeWidth="3"
+                          strokeWidth="2"
                           opacity="0.6"
                         >
                           <animate
                             attributeName="r"
-                            values="40;50;40"
+                            values="20;24;20"
                             dur="2s"
                             repeatCount="indefinite"
                           />
@@ -4041,22 +4015,6 @@
                             attributeName="opacity"
                             values="0.4;0.8;0.4"
                             dur="2s"
-                            repeatCount="indefinite"
-                          />
-                        </circle>
-                        <circle
-                          cx={cx}
-                          cy={labelY - 10}
-                          r="55"
-                          fill="none"
-                          stroke="#ffd700"
-                          strokeWidth="2"
-                          opacity="0.3"
-                        >
-                          <animate
-                            attributeName="r"
-                            values="50;60;50"
-                            dur="2.5s"
                             repeatCount="indefinite"
                           />
                         </circle>
@@ -4070,7 +4028,7 @@
                       dominantBaseline="middle"
                       fontSize={
                         isTopRanked
-                          ? "72"
+                          ? "24"
                           : waitingForData
                           ? "10"
                           : prime
@@ -4101,15 +4059,15 @@
                     >
                       {emoji}
                     </text>
-                    {/* Sparkle effects for #1 */}
+                    {/* Sparkle effects for #1 - reduced size */}
                     {isTopRanked && (
                       <>
                         <text
-                          x={cx - 30}
-                          y={labelY - 20}
+                          x={cx - 15}
+                          y={labelY - 10}
                           textAnchor="middle"
                           dominantBaseline="middle"
-                          fontSize="24"
+                          fontSize="12"
                           fill="#ffd700"
                           opacity="0.9"
                           style={{ pointerEvents: "none" }}
@@ -4117,11 +4075,11 @@
                           ✨
                         </text>
                         <text
-                          x={cx + 30}
-                          y={labelY - 20}
+                          x={cx + 15}
+                          y={labelY - 10}
                           textAnchor="middle"
                           dominantBaseline="middle"
-                          fontSize="24"
+                          fontSize="12"
                           fill="#ffd700"
                           opacity="0.9"
                           style={{ pointerEvents: "none" }}
