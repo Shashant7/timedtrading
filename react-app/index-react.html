@@ -2009,39 +2009,24 @@
 
           // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
           // Use gray for tickers waiting for data
-          // Ensure we always have a valid color
-          let color = waitingForData
-            ? "#6b7a9f"
-            : (() => {
-                try {
-                  const result = phaseCompletionToColor(validPhasePct);
-                  if (!result || typeof result !== 'string' || !result.startsWith('#')) {
-                    if (window._svgBubbleCallCount <= 5) {
-                      console.warn(`[BUBBLE COLOR] phaseCompletionToColor returned invalid result for ${ticker.ticker}:`, result);
-                    }
-                    return "#2ecc71"; // Fallback to green
-                  }
-                  return result;
-                } catch (e) {
-                  if (window._svgBubbleCallCount <= 5) {
-                    console.error(`[BUBBLE COLOR] Error calling phaseCompletionToColor for ${ticker.ticker}:`, e);
-                  }
-                  return "#2ecc71"; // Fallback to green
-                }
-              })();
-
-          // Fallback: if color is still undefined/null, use green
-          if (!color || color === "undefined" || color === "null" || typeof color !== "string") {
-            color = "#2ecc71"; // Green fallback
+          // SIMPLIFIED: Direct calculation to ensure it always works
+          let color;
+          if (waitingForData) {
+            color = "#6b7a9f"; // Gray for waiting
+          } else {
+            // Direct color calculation based on phase percentage
+            const p = Math.max(0, Math.min(1, validPhasePct));
+            if (p < 0.3) {
+              color = "#2ecc71"; // Green: under 30%
+            } else if (p < 0.6) {
+              color = "#f39c12"; // Yellow: 30-60%
+            } else {
+              color = "#e74c3c"; // Red: 60-100%
+            }
           }
-
-          // Ensure color is a valid hex string
-          if (!color.startsWith("#")) {
-            color = "#2ecc71"; // Green fallback
-          }
-
-          // Final safety check - ensure color is never empty or invalid
-          if (!color || color.length < 4) {
+          
+          // Final safety: ensure color is always valid
+          if (!color || typeof color !== "string" || !color.startsWith("#")) {
             color = "#2ecc71"; // Green fallback
           }
 
@@ -2186,17 +2171,8 @@
           const labelY = y - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
 
           // FINAL SAFETY CHECK - ensure all values are valid before rendering
-          // CRITICAL: Always ensure color is a valid hex string - default to green if anything fails
-          let finalColor = "#2ecc71"; // Default green
-          if (color && typeof color === 'string' && color.startsWith('#')) {
-            finalColor = color;
-          } else {
-            // Log the issue for first few bubbles
-            if (window._svgBubbleCallCount <= 5) {
-              console.warn(`[BUBBLE COLOR] ${ticker.ticker}: Invalid color "${color}", using fallback green`);
-            }
-          }
-          
+          // Use the color directly (already validated above)
+          const finalColor = color; // Color is already validated to be a valid hex string
           const finalOpacity = (typeof opacity === 'number' && opacity >= 0 && opacity <= 1) 
             ? opacity 
             : 0.85;
@@ -2208,15 +2184,14 @@
             ? borderWidth 
             : 1.5;
 
-          // ALWAYS log first bubble to verify color is set
-          if (window._svgBubbleCallCount === 1) {
-            console.log(`[BUBBLE FIRST] ${ticker.ticker}:`, {
-              originalColor: color,
-              finalColor: finalColor,
-              validPhasePct: validPhasePct,
-              phaseCompletionToColorResult: phaseCompletionToColor(validPhasePct),
-              renderedSize: renderedSize,
-              bubbleSize: bubbleSize,
+          // Log first 5 bubbles to verify styling
+          if (window._svgBubbleCallCount <= 5) {
+            console.log(`[BUBBLE STYLE] ${ticker.ticker}:`, {
+              color: finalColor,
+              size: renderedSize,
+              phasePct: validPhasePct,
+              opacity: finalOpacity,
+              borderColor: finalBorderColor,
             });
           }
 
@@ -2243,18 +2218,10 @@
                 cx={x}
                 cy={y}
                 r={renderedSize}
-                fill={finalColor || "#2ecc71"}
-                fillOpacity={finalOpacity || 0.85}
-                stroke={finalBorderColor || "#ffffff"}
-                strokeWidth={finalBorderWidth || 1.5}
-                style={{
-                  transition: "all 0.2s ease-out",
-                  // CRITICAL: Force fill color - SVG defaults to black if fill is not set
-                  fill: finalColor || "#2ecc71",
-                  stroke: finalBorderColor || "#ffffff",
-                  fillOpacity: finalOpacity || 0.85,
-                  strokeWidth: (finalBorderWidth || 1.5) + "px",
-                }}
+                fill={finalColor}
+                fillOpacity={finalOpacity}
+                stroke={finalBorderColor}
+                strokeWidth={finalBorderWidth}
               />
               {/* Emoji above bubble - #1 ranked gets special treatment */}
               {emoji && (
