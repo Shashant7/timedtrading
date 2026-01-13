@@ -11240,9 +11240,11 @@
                         className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6]"
                       />
                       <div className="mt-1 text-xs text-[#6b7a9f]">
-                        💡 Search by tickers (comma-separated), natural language filters, or conditions.{" "}
+                        💡 Search by tickers (comma-separated), natural language
+                        filters, or conditions.{" "}
                         <span className="text-[#93a4d6]">
-                          Examples: "AAPL, GOOGL, TSLA" • "top 40" • "rank over 75" • "RR above 2" • "prime setup and in corridor"
+                          Examples: "AAPL, GOOGL, TSLA" • "top 40" • "rank over
+                          75" • "RR above 2" • "prime setup and in corridor"
                         </span>
                       </div>
                     </div>
@@ -11308,6 +11310,69 @@
                           onTimeChange={setTimeTravelTickers}
                           tickerFilter={filters.tickerFilter}
                         />
+                        {/* Bubble Chart Legend - Compact Horizontal */}
+                        <div className="w-full bg-[#0f1630] border border-[#26325f] rounded-lg px-4 py-2 mb-2">
+                          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-[#93a4d6]">
+                            {/* Colors Section */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[#e7ecff] font-semibold">Colors:</span>
+                              <div className="flex items-center gap-1">
+                                <div className="w-3 h-3 rounded-full bg-[#2ecc71] border border-[#1e8449]"></div>
+                                <span>&lt;30%</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-3 h-3 rounded-full bg-[#f39c12] border border-[#d68910]"></div>
+                                <span>30-60%</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-3 h-3 rounded-full bg-[#e74c3c] border border-[#c0392b]"></div>
+                                <span>&gt;60%</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-3 h-3 rounded-full bg-[#6b7a9f] border border-[#93a4d6]"></div>
+                                <span>Waiting</span>
+                              </div>
+                            </div>
+                            
+                            {/* Size Section */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[#e7ecff] font-semibold">Size:</span>
+                              <div className="flex items-center gap-1">
+                                <div className="w-2 h-2 rounded-full bg-[#93a4d6]"></div>
+                                <span>Small = Low R:R</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <div className="w-4 h-4 rounded-full bg-[#93a4d6]"></div>
+                                <span>Large = High R:R</span>
+                              </div>
+                            </div>
+                            
+                            {/* Emojis Section */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[#e7ecff] font-semibold">Emojis:</span>
+                              <div className="flex items-center gap-1">
+                                <span className="text-base">👑</span>
+                                <span>#1 Ranked</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-base">⭐</span>
+                                <span>Prime</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-base">⚡</span>
+                                <span>Squeeze Release</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-base">🔥</span>
+                                <span>In Squeeze</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-base">⏳</span>
+                                <span>Waiting</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                         <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
                           {loading && tickers.length === 0 ? (
                             <div className="w-full h-full bg-[#121a33] rounded-xl border border-[#26325f] flex items-center justify-center">
