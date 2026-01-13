@@ -3858,7 +3858,7 @@
 
         const [rechartsCrosshair, setRechartsCrosshair] = useState(null);
         const chartContainerRef = React.useRef(null);
-        
+
         // Store allTickersWithRanksForComparison for tooltip access
         const allTickersForRanking = allTickersWithRanksForComparison;
 
@@ -4325,29 +4325,36 @@
                   content={({ active, payload }) => {
                     if (!active || !payload?.[0]) return null;
                     const t = payload[0].payload.ticker;
-                    
+
                     // Calculate rank position (same logic as native SVG tooltip)
                     let rankPosition = null;
                     let totalTickers = 0;
-                    if (allTickersWithRanksForComparison && Array.isArray(allTickersWithRanksForComparison)) {
-                      const sortedByRank = [...allTickersWithRanksForComparison].sort(
-                        (a, b) => {
-                          const scoreA = Number(a.dynamicRank) || 0;
-                          const scoreB = Number(b.dynamicRank) || 0;
-                          return scoreB - scoreA;
-                        }
-                      );
+                    if (
+                      allTickersWithRanksForComparison &&
+                      Array.isArray(allTickersWithRanksForComparison)
+                    ) {
+                      const sortedByRank = [
+                        ...allTickersWithRanksForComparison,
+                      ].sort((a, b) => {
+                        const scoreA = Number(a.dynamicRank) || 0;
+                        const scoreB = Number(b.dynamicRank) || 0;
+                        return scoreB - scoreA;
+                      });
                       totalTickers = sortedByRank.length;
-                      const tickerUpper = String(t.ticker || "").trim().toUpperCase();
+                      const tickerUpper = String(t.ticker || "")
+                        .trim()
+                        .toUpperCase();
                       const index = sortedByRank.findIndex(
                         (ticker) =>
-                          String(ticker.ticker || "").trim().toUpperCase() === tickerUpper
+                          String(ticker.ticker || "")
+                            .trim()
+                            .toUpperCase() === tickerUpper
                       );
                       if (index >= 0) {
                         rankPosition = index + 1;
                       }
                     }
-                    
+
                     return (
                       <div className="bg-[#121a33] border-2 border-[#26325f] rounded-lg p-3 text-sm pointer-events-none z-10 shadow-xl">
                         <div className="font-bold text-base mb-2">
@@ -4361,9 +4368,7 @@
                         {(() => {
                           // Show ingest time (same logic as native SVG tooltip)
                           const ingestTime =
-                            t.ingest_ts ||
-                            t.ingest_time ||
-                            t.ts;
+                            t.ingest_ts || t.ingest_time || t.ts;
                           if (ingestTime) {
                             try {
                               const timeValue =
@@ -4376,21 +4381,17 @@
                                 const ageHours = Math.floor(ageMinutes / 60);
                                 const isStale = ageMinutes > 30;
 
-                                const displayTime = timeValue.toLocaleTimeString(
-                                  "en-US",
-                                  {
+                                const displayTime =
+                                  timeValue.toLocaleTimeString("en-US", {
                                     hour: "numeric",
                                     minute: "2-digit",
                                     hour12: true,
-                                  }
-                                );
-                                const displayDate = timeValue.toLocaleDateString(
-                                  "en-US",
-                                  {
+                                  });
+                                const displayDate =
+                                  timeValue.toLocaleDateString("en-US", {
                                     month: "short",
                                     day: "numeric",
-                                  }
-                                );
+                                  });
                                 return (
                                   <div
                                     className={`text-[10px] mb-2 ${
@@ -4454,13 +4455,11 @@
                             <span
                               className="font-semibold"
                               style={{
-                                color: phaseToColor(
-                                  Number(t.phase_pct) || 0
-                                ),
+                                color: phaseToColor(Number(t.phase_pct) || 0),
                               }}
                             >
-                              {Math.round((Number(t.phase_pct) || 0) * 100)}
-                              %{t.phase_zone && ` (${t.phase_zone})`}
+                              {Math.round((Number(t.phase_pct) || 0) * 100)}%
+                              {t.phase_zone && ` (${t.phase_zone})`}
                             </span>
                           </div>
                           <div className="flex justify-between">
