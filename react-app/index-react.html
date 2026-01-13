@@ -2720,6 +2720,27 @@
         allData,
         allTickersWithRanksForComparison,
       }) {
+        // Debug: Log what BubbleChart receives
+        React.useEffect(() => {
+          if (!window._bubbleChartPropsLogged) {
+            window._bubbleChartPropsLogged = true;
+            console.log(`[BUBBLE CHART PROPS] Received:`, {
+              tickersCount: tickers ? tickers.length : 0,
+              hasTickers: !!tickers,
+              isArray: Array.isArray(tickers),
+              firstTicker: tickers && tickers.length > 0 ? {
+                ticker: tickers[0].ticker,
+                hasPhasePct: 'phase_pct' in (tickers[0] || {}),
+                hasCompletion: 'completion' in (tickers[0] || {}),
+                hasRR: 'rr' in (tickers[0] || {}),
+                keys: Object.keys(tickers[0] || {}).slice(0, 15),
+              } : null,
+              hasAllData: !!allData,
+              allDataKeys: allData ? Object.keys(allData).slice(0, 10) : [],
+            });
+          }
+        }, [tickers, allData]);
+
         const [tooltip, setTooltip] = useState(null);
         const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
         const [showLabels, setShowLabels] = useState(true);
@@ -3376,25 +3397,38 @@
                     })()}
                   </>
                 ) : (
-                  tickers.map((ticker) => (
-                    <SVGBubble
-                      key={ticker.ticker}
-                      ticker={ticker}
-                      onClick={onBubbleClick}
-                      onHover={(t) => {
-                        onHover(t);
-                        if (t)
-                          setTooltip(tickers.find((tt) => tt.ticker === t));
-                      }}
-                      isHovered={hoveredTicker === ticker.ticker}
-                      scaleX={scaleX}
-                      scaleY={-scaleY}
-                      offsetX={offsetX + 50 * scaleX}
-                      offsetY={offsetY + plotHeight - 50 * scaleY}
-                      showLabels={showLabels}
-                      isTopRanked={topRankedTicker === ticker.ticker}
-                    />
-                  ))
+                  (() => {
+                    // Debug: Log tickers array before mapping
+                    if (!window._bubbleChartTickersLogged) {
+                      window._bubbleChartTickersLogged = true;
+                      console.log(`[BUBBLE CHART] Rendering bubbles:`, {
+                        tickersCount: tickers ? tickers.length : 0,
+                        hasTickers: !!tickers,
+                        isArray: Array.isArray(tickers),
+                        firstTicker: tickers && tickers.length > 0 ? tickers[0] : null,
+                        sampleKeys: tickers && tickers.length > 0 ? Object.keys(tickers[0] || {}) : [],
+                      });
+                    }
+                    return tickers.map((ticker) => (
+                      <SVGBubble
+                        key={ticker.ticker}
+                        ticker={ticker}
+                        onClick={onBubbleClick}
+                        onHover={(t) => {
+                          onHover(t);
+                          if (t)
+                            setTooltip(tickers.find((tt) => tt.ticker === t));
+                        }}
+                        isHovered={hoveredTicker === ticker.ticker}
+                        scaleX={scaleX}
+                        scaleY={-scaleY}
+                        offsetX={offsetX + 50 * scaleX}
+                        offsetY={offsetY + plotHeight - 50 * scaleY}
+                        showLabels={showLabels}
+                        isTopRanked={topRankedTicker === ticker.ticker}
+                      />
+                    ));
+                  })()
                 )}
               </svg>
 
