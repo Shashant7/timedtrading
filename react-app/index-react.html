@@ -2250,10 +2250,10 @@
                 cx={x}
                 cy={y}
                 r={renderedSize}
-                fill="#2ecc71"
-                fillOpacity="0.85"
-                stroke="#ffffff"
-                strokeWidth="1.5"
+                fill={finalColor}
+                fillOpacity={finalOpacity}
+                stroke={finalBorderColor}
+                strokeWidth={finalBorderWidth}
               />
               {/* Emoji above bubble - #1 ranked gets special treatment */}
               {emoji && (
@@ -2904,8 +2904,24 @@
           };
         }, []);
 
+        // Check Recharts availability (may load later)
+        // Re-check inside component in case Recharts loaded after initial script execution
+        let currentRechartsComponents = RechartsComponents;
+        if (!currentRechartsComponents && typeof Recharts !== "undefined") {
+          currentRechartsComponents = {
+            ScatterChart: Recharts.ScatterChart,
+            Scatter: Recharts.Scatter,
+            XAxis: Recharts.XAxis,
+            YAxis: Recharts.YAxis,
+            CartesianGrid: Recharts.CartesianGrid,
+            Tooltip: Recharts.Tooltip,
+            ResponsiveContainer: Recharts.ResponsiveContainer,
+            ReferenceLine: Recharts.ReferenceLine,
+          };
+        }
+
         // Fallback: Native SVG chart (works without Recharts)
-        if (!RechartsComponents) {
+        if (!currentRechartsComponents) {
           const chartWidth = dimensions.width;
           const chartHeight = dimensions.height;
           const margin = 50; // Reduced margin for more plot space
@@ -3794,7 +3810,7 @@
           );
         }
 
-        // Recharts version (if loaded)
+        // Recharts version (if loaded) - use currentRechartsComponents
         const {
           ScatterChart,
           Scatter,
@@ -3804,7 +3820,7 @@
           Tooltip,
           ResponsiveContainer,
           ReferenceLine,
-        } = RechartsComponents;
+        } = currentRechartsComponents;
 
         const [rechartsCrosshair, setRechartsCrosshair] = useState(null);
         const chartContainerRef = React.useRef(null);
@@ -3818,6 +3834,86 @@
             })),
           [tickers]
         );
+
+        // Recharts shape renderer - receives cx, cy, payload from Recharts
+        const BubbleShape = React.useCallback((props) => {
+          const { cx, cy, payload } = props;
+          const ticker = payload?.ticker;
+          if (!ticker) return null;
+
+          const comp = ticker.completion != null ? Number(ticker.completion) : 0;
+          const phasePct = ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
+          const rr = ticker.rr != null ? Number(ticker.rr) : 0;
+          const waitingForData = ticker.waitingForData === true;
+
+          const validComp = Number.isFinite(comp) ? Math.max(0, Math.min(1, comp)) : 0;
+          const validPhase = Number.isFinite(phasePct) ? Math.max(0, Math.min(1, phasePct)) : 0.1;
+          const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0.5;
+
+          const cappedRR = Math.min(validRR, 5);
+          const baseSize = 8;
+          const rrMultiplier = 6;
+          const size = waitingForData
+            ? baseSize * 0.7
+            : baseSize + cappedRR * rrMultiplier * (1 - validComp);
+
+          // Color based on phase
+          let color = "#2ecc71"; // Green default
+          if (waitingForData) {
+            color = "#6b7a9f"; // Gray for waiting
+          } else if (validPhase >= 0.6) {
+            color = "#e74c3c"; // Red: 60-100%
+          } else if (validPhase >= 0.3) {
+            color = "#f39c12"; // Yellow: 30-60%
+          }
+
+          const flags = ticker.flags || {};
+          const prime = isPrimeBubble(ticker);
+          const isBubbleHovered = hoveredTicker === ticker.ticker;
+          const borderColor = waitingForData
+            ? "#93a4d6"
+            : prime
+            ? "#2ecc71"
+            : flags.sq30_release
+            ? "#00ffff"
+            : flags.sq30_on
+            ? "#ffd700"
+            : "#ffffff";
+
+          const opacity = waitingForData ? 0.6 : isBubbleHovered ? 1 : prime ? 0.95 : 0.85;
+          const borderWidth = waitingForData ? 2 : prime ? 3 : flags.sq30_release || flags.sq30_on ? 2 : 1.5;
+          const bubbleSize = isBubbleHovered ? size * 1.2 : size;
+
+          return (
+            <g
+              onClick={() => onBubbleClick(ticker.ticker)}
+              onMouseEnter={() => onHover(ticker.ticker)}
+              onMouseLeave={() => onHover(null)}
+              style={{ cursor: "pointer", transition: "all 0.2s ease-out" }}
+            >
+              {prime && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={bubbleSize + 2}
+                  fill="none"
+                  stroke="#2ecc71"
+                  strokeWidth="1"
+                  opacity="0.3"
+                />
+              )}
+              <circle
+                cx={cx}
+                cy={cy}
+                r={Math.max(3, bubbleSize)}
+                fill={color}
+                fillOpacity={opacity}
+                stroke={borderColor}
+                strokeWidth={borderWidth}
+              />
+            </g>
+          );
+        }, [onBubbleClick, onHover, hoveredTicker]);
 
         const handleRechartsMouseMove = (e) => {
           if (
@@ -3928,17 +4024,10 @@
                     );
                   }}
                 />
-                <Scatter data={data}>
-                  {data.map((entry, index) => (
-                    <Bubble
-                      key={entry.ticker.ticker}
-                      ticker={entry.ticker}
-                      onClick={onBubbleClick}
-                      onHover={onHover}
-                      isHovered={hoveredTicker === entry.ticker.ticker}
-                    />
-                  ))}
-                </Scatter>
+                <Scatter
+                  data={data}
+                  shape={BubbleShape}
+                />
               </ScatterChart>
             </ResponsiveContainer>
 
