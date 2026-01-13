@@ -1999,8 +1999,8 @@
           // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
           const cappedRR = Math.min(validRR, 5); // Cap RR at 5 for size calculation
           const completionPenalty = 1 - validComp; // 1.0 when completion is 0, 0.0 when completion is 1
-          const baseSize = 8; // Increased for better visibility
-          const rrMultiplier = 6; // Increased for more size variation
+          const baseSize = 5; // Reduced for less overlap
+          const rrMultiplier = 3; // Reduced for smaller bubbles
           // Smaller size for tickers waiting for data
           const size = waitingForData
             ? baseSize * 0.7
@@ -3038,44 +3038,26 @@
                 </defs>
                 <rect width="100%" height="100%" fill="url(#grid)" />
 
-                {/* Axes - Much more visible - Both center lines same style */}
-                {/* Vertical center line (x=0) */}
-                <line
-                  x1={offsetX + 50 * scaleX}
-                  y1={offsetY}
-                  x2={offsetX + 50 * scaleX}
-                  y2={offsetY + plotHeight}
-                  stroke="#e7ecff"
-                  strokeWidth="3"
-                  opacity="0.9"
-                />
+                {/* Axes - Zero lines (X=0 and Y=0) - Make them very visible */}
+                {/* Vertical center line (X=0) */}
                 <line
                   x1={offsetX + 50 * scaleX}
                   y1={offsetY}
                   x2={offsetX + 50 * scaleX}
                   y2={offsetY + plotHeight}
                   stroke="#ffffff"
-                  strokeWidth="1"
-                  opacity="0.5"
+                  strokeWidth="2"
+                  opacity="1"
                 />
-                {/* Horizontal center line (y=0) */}
-                <line
-                  x1={offsetX}
-                  y1={offsetY + plotHeight / 2}
-                  x2={offsetX + plotWidth}
-                  y2={offsetY + plotHeight / 2}
-                  stroke="#e7ecff"
-                  strokeWidth="3"
-                  opacity="0.9"
-                />
+                {/* Horizontal center line (Y=0) */}
                 <line
                   x1={offsetX}
                   y1={offsetY + plotHeight / 2}
                   x2={offsetX + plotWidth}
                   y2={offsetY + plotHeight / 2}
                   stroke="#ffffff"
-                  strokeWidth="1"
-                  opacity="0.5"
+                  strokeWidth="2"
+                  opacity="1"
                 />
                 {/* Vertical axis line (y-axis) */}
                 <line
@@ -3259,64 +3241,66 @@
                     />
                   )}
 
-                {/* Crosshair value labels */}
-                {crosshairPos &&
-                  crosshairPos.chartX >= 0 &&
-                  crosshairPos.chartX <= plotWidth && (
-                    <g>
-                      {/* LTF value at bottom */}
-                      <rect
-                        x={offsetX + crosshairPos.chartX - 25}
-                        y={offsetY + plotHeight + 5}
-                        width="50"
-                        height="18"
-                        fill="#0b1020"
-                        stroke="#00ffff"
-                        strokeWidth="1"
-                        opacity="0.9"
-                        rx="2"
-                      />
-                      <text
-                        x={offsetX + crosshairPos.chartX}
-                        y={offsetY + plotHeight + 17}
-                        fill="#00ffff"
-                        textAnchor="middle"
-                        fontSize="11"
-                        fontWeight="600"
-                      >
-                        {crosshairPos.ltfValue.toFixed(1)}
-                      </text>
-                    </g>
-                  )}
+                {/* Crosshair value labels - Always show when crosshair is active */}
+                {crosshairPos && (
+                  <>
+                    {/* LTF value at bottom - show if crosshair is in plot area */}
+                    {crosshairPos.chartX >= 0 &&
+                      crosshairPos.chartX <= plotWidth && (
+                        <g>
+                          <rect
+                            x={offsetX + crosshairPos.chartX - 30}
+                            y={offsetY + plotHeight + 5}
+                            width="60"
+                            height="20"
+                            fill="#0b1020"
+                            stroke="#00ffff"
+                            strokeWidth="1.5"
+                            opacity="0.95"
+                            rx="3"
+                          />
+                          <text
+                            x={offsetX + crosshairPos.chartX}
+                            y={offsetY + plotHeight + 18}
+                            fill="#00ffff"
+                            textAnchor="middle"
+                            fontSize="12"
+                            fontWeight="700"
+                          >
+                            LTF: {crosshairPos.ltfValue.toFixed(1)}
+                          </text>
+                        </g>
+                      )}
 
-                {crosshairPos &&
-                  crosshairPos.chartY >= 0 &&
-                  crosshairPos.chartY <= plotHeight && (
-                    <g>
-                      {/* HTF value on left */}
-                      <rect
-                        x={offsetX - 45}
-                        y={offsetY + crosshairPos.chartY - 9}
-                        width="40"
-                        height="18"
-                        fill="#0b1020"
-                        stroke="#00ffff"
-                        strokeWidth="1"
-                        opacity="0.9"
-                        rx="2"
-                      />
-                      <text
-                        x={offsetX - 25}
-                        y={offsetY + crosshairPos.chartY + 4}
-                        fill="#00ffff"
-                        textAnchor="middle"
-                        fontSize="11"
-                        fontWeight="600"
-                      >
-                        {crosshairPos.htfValue.toFixed(1)}
-                      </text>
-                    </g>
-                  )}
+                    {/* HTF value on left - show if crosshair is in plot area */}
+                    {crosshairPos.chartY >= 0 &&
+                      crosshairPos.chartY <= plotHeight && (
+                        <g>
+                          <rect
+                            x={offsetX - 55}
+                            y={offsetY + crosshairPos.chartY - 10}
+                            width="50"
+                            height="20"
+                            fill="#0b1020"
+                            stroke="#00ffff"
+                            strokeWidth="1.5"
+                            opacity="0.95"
+                            rx="3"
+                          />
+                          <text
+                            x={offsetX - 30}
+                            y={offsetY + crosshairPos.chartY + 5}
+                            fill="#00ffff"
+                            textAnchor="middle"
+                            fontSize="12"
+                            fontWeight="700"
+                          >
+                            HTF: {crosshairPos.htfValue.toFixed(1)}
+                          </text>
+                        </g>
+                      )}
+                  </>
+                )}
 
                 {/* Bubbles - Show only selected ticker with trail if selected, otherwise show all */}
                 {(() => {
@@ -3880,8 +3864,8 @@
             const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0.5;
 
             const cappedRR = Math.min(validRR, 5);
-            const baseSize = 8;
-            const rrMultiplier = 6;
+            const baseSize = 5; // Reduced for less overlap
+            const rrMultiplier = 3; // Reduced for smaller bubbles
             const size = waitingForData
               ? baseSize * 0.7
               : baseSize + cappedRR * rrMultiplier * (1 - validComp);
@@ -3908,7 +3892,7 @@
             const isTopRanked = topRankedTicker === ticker.ticker;
             const isBubbleHovered = hoveredTicker === ticker.ticker;
             const hasSqueeze = flags.sq30_release || flags.sq30_on;
-            
+
             // Determine emoji
             const emoji = isTopRanked
               ? "👑"
@@ -3947,7 +3931,8 @@
               ? 2
               : 1.5;
             const bubbleSize = isBubbleHovered ? finalSize * 1.2 : finalSize;
-            const labelY = cy - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
+            const labelY =
+              cy - bubbleSize - (emoji ? (isTopRanked ? 50 : 12) : 8);
 
             return (
               <g
@@ -4241,6 +4226,19 @@
                   name="HTF Score"
                   domain={[-50, 50]}
                   stroke="#93a4d6"
+                />
+                {/* Zero lines - X=0 and Y=0 */}
+                <ReferenceLine
+                  x={0}
+                  stroke="#ffffff"
+                  strokeWidth={2}
+                  opacity={1}
+                />
+                <ReferenceLine
+                  y={0}
+                  stroke="#ffffff"
+                  strokeWidth={2}
+                  opacity={1}
                 />
                 {/* Crosshair - Vertical line */}
                 {rechartsCrosshair && rechartsCrosshair.ltfValue !== null && (
