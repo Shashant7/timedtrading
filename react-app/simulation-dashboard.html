@@ -3725,7 +3725,15 @@
         // Unified experience: D1-backed Trade Journey (single mode)
         const trackerMode = "ledger";
         const [ledgerTab, setLedgerTab] = useState("trades"); // trades | alerts | proof
-        const [ledgerTickerFilter, setLedgerTickerFilter] = useState("");
+        const initialLedgerTicker = (() => {
+          try {
+            const t = new URLSearchParams(window.location.search).get("ticker") || "";
+            return String(t).trim().toUpperCase();
+          } catch {
+            return "";
+          }
+        })();
+        const [ledgerTickerFilter, setLedgerTickerFilter] = useState(initialLedgerTicker);
         const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
         const [ledgerRangeDays, setLedgerRangeDays] = useState(7);
         const [ledgerSelectedTradeId, setLedgerSelectedTradeId] = useState(null);

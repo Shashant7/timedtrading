@@ -8819,10 +8819,122 @@
         allLoadedData = null,
         sectors = [],
       }) {
-        if (!ticker) return null;
+        const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
 
-        const tickerSymbol = ticker.ticker;
-        if (!tickerSymbol) return null;
+        const [ledgerTrades, setLedgerTrades] = useState([]);
+        const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
+        const [ledgerTradesError, setLedgerTradesError] = useState(null);
+
+        const [bubbleJourney, setBubbleJourney] = useState([]);
+        const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
+        const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) {
+            setLedgerTrades([]);
+            setLedgerTradesError(null);
+            setLedgerTradesLoading(false);
+            return;
+          }
+
+          let cancelled = false;
+          const fetchLedgerTrades = async () => {
+            try {
+              setLedgerTradesLoading(true);
+              setLedgerTradesError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("limit", "20");
+              const res = await fetch(
+                `${API_BASE}/timed/ledger/trades?${qs.toString()}`,
+                { cache: "no-store" }
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
+              const trades = Array.isArray(json.trades) ? json.trades : [];
+              if (!cancelled) setLedgerTrades(trades);
+            } catch (e) {
+              if (!cancelled) {
+                setLedgerTrades([]);
+                setLedgerTradesError(String(e.message || e));
+              }
+            } finally {
+              if (!cancelled) setLedgerTradesLoading(false);
+            }
+          };
+
+          fetchLedgerTrades();
+          return () => {
+            cancelled = true;
+          };
+        }, [tickerSymbol]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) {
+            setBubbleJourney([]);
+            setBubbleJourneyError(null);
+            setBubbleJourneyLoading(false);
+            return;
+          }
+
+          let cancelled = false;
+
+          const toMs = (v) => {
+            if (v == null) return NaN;
+            if (typeof v === "number") return v;
+            const n = Number(v);
+            if (Number.isFinite(n)) return n;
+            const d = new Date(String(v));
+            const ms = d.getTime();
+            return Number.isFinite(ms) ? ms : NaN;
+          };
+
+          const fetchBubbleJourney = async () => {
+            try {
+              setBubbleJourneyLoading(true);
+              setBubbleJourneyError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              // Server may return oldest->newest; grab a reasonable window and sort client-side.
+              qs.set("limit", "250");
+              const res = await fetch(`${API_BASE}/timed/trail?${qs.toString()}`, {
+                cache: "no-store",
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "trail_failed");
+              const raw = Array.isArray(json.trail) ? json.trail : [];
+              const normalized = normalizeTrailPoints(raw);
+              const withTs = normalized
+                .map((p) => {
+                  const ts = toMs(p.ts ?? p.timestamp ?? p.ingest_ts ?? p.ingest_time);
+                  if (!Number.isFinite(ts)) return null;
+                  return { ...p, __ts_ms: ts };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.__ts_ms - b.__ts_ms);
+              const last20 = withTs.slice(-20);
+              if (!cancelled) setBubbleJourney(last20);
+            } catch (e) {
+              if (!cancelled) {
+                setBubbleJourney([]);
+                setBubbleJourneyError(String(e.message || e));
+              }
+            } finally {
+              if (!cancelled) setBubbleJourneyLoading(false);
+            }
+          };
+
+          fetchBubbleJourney();
+          return () => {
+            cancelled = true;
+          };
+        }, [tickerSymbol]);
+
+        if (!ticker || !tickerSymbol) return null;
 
         const prime = isPrimeBubble(ticker);
         const ent = entryType(ticker);
@@ -9199,6 +9311,147 @@
                   <div className="text-sm text-[#93a4d6]">
                     {actionInfo.description}
                   </div>
+                </div>
+
+                {/* Bubble Journey (last 20 plots) */}
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm text-[#93a4d6]">Bubble Journey (last 20)</div>
+                    <a
+                      href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
+                      className="text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
+                      title="Open Time Travel (if supported)"
+                    >
+                      Time Travel
+                    </a>
+                  </div>
+
+                  {bubbleJourneyLoading ? (
+                    <div className="text-xs text-[#93a4d6] flex items-center gap-2">
+                      <div className="loading-spinner"></div>
+                      Loading trail…
+                    </div>
+                  ) : bubbleJourneyError ? (
+                    <div className="text-xs text-red-400">Trail unavailable: {bubbleJourneyError}</div>
+                  ) : bubbleJourney.length === 0 ? (
+                    <div className="text-xs text-[#93a4d6]">No trail points found for this ticker.</div>
+                  ) : (
+                    <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                      {bubbleJourney
+                        .slice()
+                        .reverse()
+                        .map((p, idx) => {
+                          const ts = Number(p.__ts_ms);
+                          const state = p.state || p.quadrant || p.zone || "—";
+                          const phasePct =
+                            p.phase_pct != null ? `${Math.round(Number(p.phase_pct) * 100)}%` : "—";
+                          const rank = p.rank != null ? String(p.rank) : "—";
+                          const rr =
+                            p.rr != null && Number.isFinite(Number(p.rr))
+                              ? Number(p.rr).toFixed(2)
+                              : p.rr_at_alert != null && Number.isFinite(Number(p.rr_at_alert))
+                              ? Number(p.rr_at_alert).toFixed(2)
+                              : "—";
+                          return (
+                            <div
+                              key={`${ts}-${idx}`}
+                              className="px-2 py-1 bg-[#121a33] border border-[#26325f] rounded flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-[10px] text-[#93a4d6]">
+                                  {Number.isFinite(ts) ? new Date(ts).toLocaleString() : "—"}
+                                </div>
+                                <div className="text-xs text-white truncate">
+                                  {state}
+                                  <span className="text-[#6b7a9f]"> • </span>
+                                  <span className="text-[#93a4d6]">Phase</span> {phasePct}
+                                </div>
+                              </div>
+                              <div className="text-right text-[10px] text-[#93a4d6] whitespace-nowrap">
+                                <div>
+                                  <span className="text-[#6b7a9f]">Rank</span>{" "}
+                                  <span className="text-white font-semibold">{rank}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[#6b7a9f]">RR</span>{" "}
+                                  <span className="text-white font-semibold">{rr}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Trade Journey (Ledger trades) */}
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm text-[#93a4d6]">Trade Journey (Ledger)</div>
+                    <a
+                      href={`simulation-dashboard.html?ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
+                      className="text-xs px-2 py-1 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 hover:bg-blue-500/30"
+                      title="Open full Trade Tracker"
+                    >
+                      Open
+                    </a>
+                  </div>
+                  {ledgerTradesLoading ? (
+                    <div className="text-xs text-[#93a4d6] flex items-center gap-2">
+                      <div className="loading-spinner"></div>
+                      Loading ledger trades…
+                    </div>
+                  ) : ledgerTradesError ? (
+                    <div className="text-xs text-red-400">Ledger unavailable: {ledgerTradesError}</div>
+                  ) : ledgerTrades.length === 0 ? (
+                    <div className="text-xs text-[#93a4d6]">No ledger trades found for this ticker.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {ledgerTrades.slice(0, 5).map((t) => {
+                        const isClosed = t.status === "WIN" || t.status === "LOSS";
+                        const pnl = Number(t.pnl || 0);
+                        return (
+                          <div
+                            key={t.trade_id}
+                            className="p-2 bg-[#121a33] border border-[#26325f] rounded flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs text-[#93a4d6]">
+                                {t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleString() : "—"}
+                              </div>
+                              <div className="text-sm font-semibold text-white truncate">
+                                {t.ticker}{" "}
+                                <span className={`text-xs font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
+                                  {t.direction}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs">
+                                {isClosed ? (
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${t.status === "WIN" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+                                    {t.status}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-yellow-500/15 text-yellow-300">
+                                    {t.status || "OPEN"}
+                                  </span>
+                                )}
+                              </div>
+                              <div className={`text-xs font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {isClosed ? `$${pnl.toFixed(2)}` : "—"}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {ledgerTrades.length > 5 && (
+                        <div className="text-[10px] text-[#6b7a9f]">
+                          Showing 5 of {ledgerTrades.length} recent trades.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Quadrant Progression */}
