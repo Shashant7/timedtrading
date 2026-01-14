@@ -8851,22 +8851,24 @@
                           </div>
                         </div>
                         <div className="mt-1 grid grid-cols-3 gap-2 text-[10px] text-[#6b7a9f]">
-                          <div>
+                          <div className="min-w-0">
                             <span className="text-[#5b6890]">Entry</span>{" "}
-                            <span className="text-white">{entryZone}</span>
-                          </div>
-                          <div>
-                            <span className="text-[#5b6890]">SL</span>{" "}
-                            <span className="text-red-400">
-                              {Number.isFinite(sl) ? `$${sl.toFixed(2)}` : "—"}
+                            <span className="text-white whitespace-normal break-words">
+                              {entryZone}
                             </span>
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <span className="text-[#5b6890]">TP Max</span>{" "}
                             <span className="text-green-400">
                               {Number.isFinite(tpDisplay)
                                 ? `$${tpDisplay.toFixed(2)}`
                                 : "—"}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-[#5b6890]">SL</span>{" "}
+                            <span className="text-red-400">
+                              {Number.isFinite(sl) ? `$${sl.toFixed(2)}` : "—"}
                             </span>
                           </div>
                         </div>
