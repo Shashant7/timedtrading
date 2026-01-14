@@ -88,6 +88,103 @@
         return INT_FMT.format(n);
       }
 
+      function resolveDirection(src) {
+        const direct = String(src?.direction || "").toUpperCase();
+        if (direct === "LONG" || direct === "SHORT") return direct;
+        const state = String(src?.state || "");
+        if (state.includes("BULL")) return "LONG";
+        if (state.includes("BEAR")) return "SHORT";
+        const triggerDir = String(src?.trigger_dir || "").toUpperCase();
+        if (triggerDir.includes("BULL")) return "LONG";
+        if (triggerDir.includes("BEAR")) return "SHORT";
+        return null;
+      }
+
+      function computeEntryRef(src) {
+        const entryRef = Number(src?.entry_ref);
+        if (Number.isFinite(entryRef) && entryRef > 0) return entryRef;
+        const trigger = Number(src?.trigger_price);
+        if (Number.isFinite(trigger) && trigger > 0) return trigger;
+        const entryPrice = Number(src?.entryPrice);
+        if (Number.isFinite(entryPrice) && entryPrice > 0) return entryPrice;
+        const price = Number(src?.price ?? src?.currentPrice);
+        return Number.isFinite(price) && price > 0 ? price : null;
+      }
+
+      function computeTpTargetPrice(src) {
+        const directTarget = Number(src?.tp_target_price ?? src?.tp_target);
+        if (Number.isFinite(directTarget) && directTarget > 0) return directTarget;
+        const tp = Number(src?.tp);
+        if (Number.isFinite(tp) && tp > 0) return tp;
+        return null;
+      }
+
+      function computeTpMaxPrice(src) {
+        const directMax = Number(src?.tp_max_price ?? src?.tp_max);
+        if (Number.isFinite(directMax) && directMax > 0) return directMax;
+        const entry = computeEntryRef(src);
+        if (!Number.isFinite(entry)) return null;
+        const dir = resolveDirection(src);
+        const tpLevels = Array.isArray(src?.tp_levels) ? src.tp_levels : [];
+        const candidates = tpLevels
+          .map((tp) => {
+            const price =
+              tp && typeof tp === "object" && tp.price != null
+                ? Number(tp.price)
+                : Number(tp);
+            return Number.isFinite(price) ? price : null;
+          })
+          .filter((p) => Number.isFinite(p));
+        if (candidates.length === 0) return null;
+        if (dir === "LONG") {
+          const valid = candidates.filter((p) => p > entry);
+          return valid.length > 0 ? Math.max(...valid) : null;
+        }
+        if (dir === "SHORT") {
+          const valid = candidates.filter((p) => p < entry);
+          return valid.length > 0 ? Math.min(...valid) : null;
+        }
+        return null;
+      }
+
+      function computeReturnPct(src) {
+        const direct =
+          Number(src?.expected_return_pct) ||
+          Number(src?.tp_target_pct) ||
+          Number(src?.tp_max_pct);
+        if (Number.isFinite(direct)) return direct;
+        const entry = computeEntryRef(src);
+        const tpTarget = computeTpTargetPrice(src) ?? computeTpMaxPrice(src);
+        if (!Number.isFinite(entry) || !Number.isFinite(tpTarget)) return null;
+        return (Math.abs(tpTarget - entry) / entry) * 100;
+      }
+
+      function computeRiskPct(src) {
+        const direct = Number(src?.risk_pct);
+        if (Number.isFinite(direct)) return direct;
+        const entry = computeEntryRef(src);
+        const sl = Number(src?.sl);
+        if (!Number.isFinite(entry) || !Number.isFinite(sl)) return null;
+        return (Math.abs(entry - sl) / entry) * 100;
+      }
+
+      function computeEtaDays(src) {
+        const eta = Number(src?.eta_days_v2 ?? src?.eta_days);
+        return Number.isFinite(eta) ? eta : null;
+      }
+
+      function computeHorizonBucket(src) {
+        const bucket = String(src?.horizon_bucket || "")
+          .trim()
+          .toUpperCase();
+        if (bucket) return bucket.replace("_", " ");
+        const eta = computeEtaDays(src);
+        if (!Number.isFinite(eta)) return "—";
+        if (eta <= 7) return "SHORT TERM";
+        if (eta <= 30) return "SWING";
+        return "POSITIONAL";
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Hooks
       // ─────────────────────────────────────────────────────────────
@@ -1232,6 +1329,22 @@
         const trimmedShares = trade ? (shares * trimmedPct) : 0;
         const remainingShares = trade ? (shares - trimmedShares) : null;
 
+        const metricsSource = trade
+          ? {
+              ...tickerData,
+              entryPrice: trade.entryPrice,
+              tp: trade.tp ?? tickerData.tp,
+              sl: trade.sl ?? tickerData.sl,
+              direction: trade.direction,
+            }
+          : tickerData;
+        const horizon = computeHorizonBucket(metricsSource);
+        const eta = computeEtaDays(metricsSource);
+        const retPct = computeReturnPct(metricsSource);
+        const riskPct = computeRiskPct(metricsSource);
+        const tpTarget = computeTpTargetPrice(metricsSource);
+        const tpMax = computeTpMaxPrice(metricsSource);
+
         return (
           <div className="w-full h-full flex flex-col bg-[#0f1630]">
             {/* Scrollable Content Area */}
@@ -1309,8 +1422,38 @@
                       <span className="font-semibold text-red-400">${trade.sl?.toFixed(2) || "—"}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Take Profit</span>
-                      <span className="font-semibold text-green-400">${trade.tp?.toFixed(2) || "—"}</span>
+                      <span className="text-[#93a4d6]">TP (Target)</span>
+                      <span className="font-semibold text-green-400">
+                        {Number.isFinite(tpTarget) ? `$${tpTarget.toFixed(2)}` : trade.tp?.toFixed(2) || "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">TP (Max)</span>
+                      <span className="font-semibold text-green-400">
+                        {Number.isFinite(tpMax) ? `$${tpMax.toFixed(2)}` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Return %</span>
+                      <span className="font-semibold text-green-400">
+                        {Number.isFinite(retPct) ? `${retPct.toFixed(1)}%` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Risk %</span>
+                      <span className="font-semibold text-red-400">
+                        {Number.isFinite(riskPct) ? `${riskPct.toFixed(1)}%` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">ETA</span>
+                      <span className="font-semibold">
+                        {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                      <span className="text-[#93a4d6]">Horizon</span>
+                      <span className="font-semibold">{horizon}</span>
                     </div>
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                       <span className="text-[#93a4d6]">Risk/Reward</span>
@@ -1702,7 +1845,7 @@
         );
       }
 
-      function TradeRow({ trade, onTickerClick, onTradeClick }) {
+      function TradeRow({ trade, tickerData, onTickerClick, onTradeClick }) {
         const pnlColor = trade.pnl >= 0 ? "text-green-400" : "text-red-400";
         const statusColor =
           trade.status === "WIN"
@@ -1718,6 +1861,14 @@
         const isFutures = FUTURES_SPECS[tickerSymbol] || tickerSymbol.endsWith("1!");
         const pointValue = isFutures && FUTURES_SPECS[tickerSymbol] ? FUTURES_SPECS[tickerSymbol].pointValue : 1;
         
+        // Metrics derived from latest ticker data (preferred) or trade data
+        const metricsSource = tickerData || trade;
+        const horizon = computeHorizonBucket(metricsSource);
+        const eta = computeEtaDays(metricsSource);
+        const retPct = computeReturnPct(metricsSource);
+        const riskPct = computeRiskPct(metricsSource);
+        const tpTarget = computeTpTargetPrice(metricsSource);
+
         // Calculate position values
         // For futures: shares = contracts (always 1), for stocks: calculate from TRADE_SIZE
         const shares = trade.shares || (isFutures && FUTURES_SPECS[tickerSymbol] ? 1 : TRADE_SIZE / (trade.entryPrice || 1));
@@ -1876,7 +2027,19 @@
               )}
             </td>
             <td className="p-2 text-sm">${trade.sl.toFixed(2)}</td>
-            <td className="p-2 text-sm">${trade.tp.toFixed(2)}</td>
+            <td className="p-2 text-sm">
+              ${Number.isFinite(tpTarget) ? tpTarget.toFixed(2) : trade.tp.toFixed(2)}
+            </td>
+            <td className="p-2 text-sm text-green-400">
+              {Number.isFinite(retPct) ? `${retPct.toFixed(1)}%` : "—"}
+            </td>
+            <td className="p-2 text-sm text-red-400">
+              {Number.isFinite(riskPct) ? `${riskPct.toFixed(1)}%` : "—"}
+            </td>
+            <td className="p-2 text-sm">
+              {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
+            </td>
+            <td className="p-2 text-xs text-[#93a4d6]">{horizon}</td>
             <td className="p-2 text-sm">{formatRR(trade.rr)}</td>
             <td className="p-2 text-sm">{trade.rank}</td>
             <td className={`p-2 text-sm font-semibold ${recalculatedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -5085,7 +5248,11 @@
                           <th className="p-2 text-xs text-[#93a4d6]">Market Value</th>
                           <th className="p-2 text-xs text-[#93a4d6]">Trimmed</th>
                           <th className="p-2 text-xs text-[#93a4d6]">SL</th>
-                          <th className="p-2 text-xs text-[#93a4d6]">TP</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">TP Target</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Return %</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Risk %</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Horizon</th>
                           <th className="p-2 text-xs text-[#93a4d6]">RR</th>
                           <th className="p-2 text-xs text-[#93a4d6]">Score</th>
                           <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
@@ -5097,17 +5264,21 @@
                       <tbody>
                         {filteredTradesWithLivePrices.length === 0 ? (
                           <tr>
-                            <td colSpan="16" className="p-8 text-center text-[#93a4d6]">
+                            <td colSpan="20" className="p-8 text-center text-[#93a4d6]">
                               {selectedVersion === "all" 
                                 ? "No trades yet. Trades will be automatically created when alerts trigger."
                                 : `No trades found for version ${selectedVersion}.`}
                             </td>
                           </tr>
                         ) : (
-                          filteredTradesWithLivePrices.map((trade) => (
+                          filteredTradesWithLivePrices.map((trade) => {
+                            const sym = String(trade.ticker || "").toUpperCase();
+                            const tickerData = data && (data[sym] || data[trade.ticker]);
+                            return (
                             <TradeRow 
                               key={trade.id} 
-                              trade={trade} 
+                              trade={trade}
+                              tickerData={tickerData}
                               onTickerClick={(ticker) => {
                                 setSelectedTicker(ticker);
                                 setSelectedTrade(null); // Clear trade selection when selecting ticker
@@ -5118,7 +5289,8 @@
                                 setSelectedTrade(trade);
                               }}
                             />
-                          ))
+                          );
+                          })
                         )}
                       </tbody>
                     </table>
