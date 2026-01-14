@@ -1312,14 +1312,24 @@
         return null;
       }
 
+      function computeTpTargetPrice(ticker) {
+        const directTarget = Number(ticker?.tp_target_price ?? ticker?.tp_target);
+        if (Number.isFinite(directTarget) && directTarget > 0) return directTarget;
+        const primary = Number(ticker?.tp);
+        if (Number.isFinite(primary) && primary > 0) return primary;
+        return null;
+      }
+
       function computeReturnPct(ticker) {
         const direct =
-          Number(ticker?.expected_return_pct) || Number(ticker?.tp_max_pct);
+          Number(ticker?.expected_return_pct) ||
+          Number(ticker?.tp_target_pct) ||
+          Number(ticker?.tp_max_pct);
         if (Number.isFinite(direct)) return direct;
         const entry = computeEntryRef(ticker);
-        const tpMax = computeTpMaxPrice(ticker);
-        if (!Number.isFinite(entry) || !Number.isFinite(tpMax)) return null;
-        return (Math.abs(tpMax - entry) / entry) * 100;
+        const tpTarget = computeTpTargetPrice(ticker) ?? computeTpMaxPrice(ticker);
+        if (!Number.isFinite(entry) || !Number.isFinite(tpTarget)) return null;
+        return (Math.abs(tpTarget - entry) / entry) * 100;
       }
 
       function computeRiskPct(ticker) {
@@ -8807,13 +8817,13 @@
                     const conf = getNum(t.eta_confidence);
                     const entryZone = formatEntryZone(t);
                     const sl = Number(t?.sl);
+                    const tpTarget = computeTpTargetPrice(t);
                     const tpMax = computeTpMaxPrice(t);
-                    const tpPrimary = Number(t?.tp);
                     const tpDisplay =
-                      Number.isFinite(tpMax) && tpMax > 0
+                      Number.isFinite(tpTarget) && tpTarget > 0
+                        ? tpTarget
+                        : Number.isFinite(tpMax) && tpMax > 0
                         ? tpMax
-                        : Number.isFinite(tpPrimary) && tpPrimary > 0
-                        ? tpPrimary
                         : null;
                     return (
                       <button
@@ -8858,7 +8868,7 @@
                             </span>
                           </div>
                           <div className="min-w-0">
-                            <span className="text-[#5b6890]">TP Max</span>{" "}
+                            <span className="text-[#5b6890]">TP</span>{" "}
                             <span className="text-green-400">
                               {Number.isFinite(tpDisplay)
                                 ? `$${tpDisplay.toFixed(2)}`
@@ -10439,32 +10449,28 @@
                     </span>
                   </div>
                   {(() => {
+                    const tpTarget = computeTpTargetPrice(ticker);
                     const tpMax = computeTpMaxPrice(ticker);
-                    const tpPrimary = Number(ticker?.tp);
-                    const primaryValid = Number.isFinite(tpPrimary) && tpPrimary > 0;
+                    const targetValid = Number.isFinite(tpTarget) && tpTarget > 0;
                     const maxValid = Number.isFinite(tpMax) && tpMax > 0;
-                    const showPrimary =
-                      primaryValid && (!maxValid || Math.abs(tpPrimary - tpMax) > 0.01);
+                    const showMax =
+                      maxValid && (!targetValid || Math.abs(tpMax - tpTarget) > 0.01);
                     return (
                       <>
-                        {showPrimary && (
+                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                          <span className="text-[#93a4d6]">TP (Target)</span>
+                          <span className="font-semibold text-green-400">
+                            {targetValid ? `$${tpTarget.toFixed(2)}` : "—"}
+                          </span>
+                        </div>
+                        {showMax && (
                           <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                            <span className="text-[#93a4d6]">TP (Primary)</span>
+                            <span className="text-[#93a4d6]">TP (Max)</span>
                             <span className="font-semibold text-green-400">
-                              ${tpPrimary.toFixed(2)}
+                              ${tpMax.toFixed(2)}
                             </span>
                           </div>
                         )}
-                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                          <span className="text-[#93a4d6]">TP (Max)</span>
-                          <span className="font-semibold text-green-400">
-                            {maxValid
-                              ? `$${tpMax.toFixed(2)}`
-                              : primaryValid
-                              ? `$${tpPrimary.toFixed(2)}`
-                              : "—"}
-                          </span>
-                        </div>
                       </>
                     );
                   })()}

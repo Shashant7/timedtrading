@@ -727,6 +727,8 @@ function deriveHorizonAndMetrics(payload) {
     risk_pct: null,
     tp_max_price: null,
     tp_max_pct: null,
+    tp_target_price: null,
+    tp_target_pct: null,
     expected_return_pct: null,
     eta_days_v2: null,
     eta_days_next: null,
@@ -785,7 +787,6 @@ function deriveHorizonAndMetrics(payload) {
       const tpMaxPct = (Math.abs(tpMax - entryRef) / entryRef) * 100;
       if (Number.isFinite(tpMaxPct) && tpMaxPct > 0) {
         out.tp_max_pct = Math.round(tpMaxPct * 100) / 100;
-        out.expected_return_pct = out.tp_max_pct;
       }
     }
   }
@@ -826,6 +827,31 @@ function deriveHorizonAndMetrics(payload) {
   } else {
     expectedDailyMovePct = 0.006;
     out.eta_confidence += 0.05;
+  }
+
+  // Intelligent target TP: use horizon-aware TP array to pick a realistic target
+  const tpArray = buildIntelligentTPArray(payload, entryRef, direction);
+  const targetTp =
+    tpArray && tpArray.length > 1
+      ? tpArray[1]
+      : tpArray && tpArray.length > 0
+      ? tpArray[0]
+      : null;
+  if (targetTp && Number.isFinite(targetTp.price) && targetTp.price > 0) {
+    out.tp_target_price = Number(targetTp.price);
+    const targetPct =
+      (Math.abs(out.tp_target_price - entryRef) / entryRef) * 100;
+    if (Number.isFinite(targetPct) && targetPct > 0) {
+      out.tp_target_pct = Math.round(targetPct * 100) / 100;
+      out.expected_return_pct = out.tp_target_pct;
+    }
+    if (Number.isFinite(expectedDailyMovePct) && expectedDailyMovePct > 0) {
+      const etaTarget = targetPct / 100 / expectedDailyMovePct;
+      if (Number.isFinite(etaTarget) && etaTarget > 0) {
+        out.eta_days_v2 = Math.round(clampNum(etaTarget, 0.2, 180) * 100) / 100;
+        out.eta_confidence += 0.15;
+      }
+    }
   }
 
   const qualityScore = (tp) => {
@@ -869,8 +895,10 @@ function deriveHorizonAndMetrics(payload) {
   const next = scored[0] || null;
   if (next) {
     out.eta_days_next = Math.round(clampNum(next._eta, 0.2, 180) * 100) / 100;
-    out.eta_days_v2 = out.eta_days_next;
-    out.eta_confidence += 0.2;
+    if (!Number.isFinite(out.eta_days_v2)) {
+      out.eta_days_v2 = out.eta_days_next;
+      out.eta_confidence += 0.2;
+    }
   }
 
   if (Number.isFinite(out.tp_max_price) && out.tp_max_price > 0) {
@@ -879,6 +907,13 @@ function deriveHorizonAndMetrics(payload) {
     if (Number.isFinite(etaMax) && etaMax > 0) {
       out.eta_days_max = Math.round(clampNum(etaMax, 0.5, 365) * 100) / 100;
     }
+  }
+
+  if (
+    !Number.isFinite(out.expected_return_pct) &&
+    Number.isFinite(out.tp_max_pct)
+  ) {
+    out.expected_return_pct = out.tp_max_pct;
   }
 
   out.eta_confidence =
