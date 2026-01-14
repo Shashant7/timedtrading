@@ -4040,6 +4040,36 @@ function inferExitReasonForLegacyTrade(trade, exitEvent) {
   return "unknown";
 }
 
+async function d1GetNearestTrailPayload(db, ticker, targetTs, windowMs = 2 * 60 * 60 * 1000) {
+  if (!db) return null;
+  const sym = String(ticker || "").toUpperCase();
+  const ts = Number(targetTs);
+  if (!sym || !Number.isFinite(ts)) return null;
+  const w = Math.max(60 * 1000, Number(windowMs) || 0);
+  const lo = ts - w;
+  const hi = ts + w;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ts, payload_json
+         FROM timed_trail
+         WHERE ticker = ?1 AND ts BETWEEN ?2 AND ?3 AND payload_json IS NOT NULL
+         ORDER BY ABS(ts - ?4) ASC
+         LIMIT 1`
+      )
+      .bind(sym, lo, hi, ts)
+      .first();
+    if (!row || !row.payload_json) return null;
+    try {
+      return { ts: Number(row.ts), payload: JSON.parse(String(row.payload_json)) };
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 // Activity feed tracking (1 week history)
 async function appendActivity(KV, event) {
   const key = "timed:activity:feed";
@@ -10148,39 +10178,35 @@ export default {
           : [];
 
         let evidence = null;
+        let entry_evidence = null;
         if (includeEvidence) {
           const ticker = String(tradeRow.ticker || "").toUpperCase();
+          // Always try to attach a "best" entry snapshot (bubble-style detail)
+          entry_evidence = await d1GetNearestTrailPayload(
+            db,
+            ticker,
+            tradeRow.entry_ts,
+            3 * 60 * 60 * 1000
+          );
+
           evidence = [];
           for (const ev of events) {
             const ts = Number(ev.ts);
             if (!ticker || !Number.isFinite(ts)) continue;
-            const snap = await db
-              .prepare(
-                `SELECT ts, payload_json
-                 FROM timed_trail
-                 WHERE ticker = ?1 AND ts <= ?2
-                 ORDER BY ts DESC
-                 LIMIT 1`
-              )
-              .bind(ticker, ts)
-              .first();
-            if (snap && snap.payload_json) {
-              try {
-                evidence.push({
-                  event_id: ev.event_id,
-                  ts: ts,
-                  snapshot_ts: Number(snap.ts),
-                  payload: JSON.parse(String(snap.payload_json)),
-                });
-              } catch {
-                // ignore parse errors
-              }
+            const snap = await d1GetNearestTrailPayload(db, ticker, ts, 2 * 60 * 60 * 1000);
+            if (snap && snap.payload) {
+              evidence.push({
+                event_id: ev.event_id,
+                ts: ts,
+                snapshot_ts: Number(snap.ts),
+                payload: snap.payload,
+              });
             }
           }
         }
 
         return sendJSON(
-          { ok: true, trade: tradeRow, events, evidence },
+          { ok: true, trade: tradeRow, events, evidence, entry_evidence },
           200,
           corsHeaders(env, req)
         );
