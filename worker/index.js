@@ -7980,13 +7980,19 @@ export default {
 
           // Prefer D1 for longer history
           const d1Result = await d1GetTrailRange(env, ticker, since, limit);
-          if (d1Result.ok) {
+          // IMPORTANT:
+          // D1 can be "ok" but still return 0 rows (e.g. not backfilled / not ingesting),
+          // while KV may still have a rolling trail window. In that case we should
+          // fall back to KV so the UI can render *something*.
+          const d1Trail =
+            d1Result && Array.isArray(d1Result.trail) ? d1Result.trail : [];
+          if (d1Result.ok && d1Trail.length > 0) {
             return sendJSON(
               {
                 ok: true,
                 ticker,
-                trail: d1Result.trail,
-                count: d1Result.trail.length,
+                trail: d1Trail,
+                count: d1Trail.length,
                 source: d1Result.source,
               },
               200,
@@ -8020,7 +8026,9 @@ export default {
               trail,
               count: trail.length,
               source: "kv",
-              note: d1Result.skipped
+              note: d1Result.ok
+                ? "D1 returned 0 rows (falling back to KV)"
+                : d1Result.skipped
                 ? `D1 unavailable (${d1Result.reason || "unknown"})`
                 : d1Result.error
                 ? `D1 error (${d1Result.error})`
