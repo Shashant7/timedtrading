@@ -759,7 +759,8 @@ function deriveHorizonAndMetrics(payload) {
       const price = Number(tp?.price);
       if (!Number.isFinite(price) || price <= 0) return null;
       const distancePct = Math.abs(price - entryRef) / entryRef;
-      if (!Number.isFinite(distancePct) || distancePct < minDistPct) return null;
+      if (!Number.isFinite(distancePct) || distancePct < minDistPct)
+        return null;
       if (isLong && price <= entryRef) return null;
       if (!isLong && price >= entryRef) return null;
       return {
@@ -795,8 +796,9 @@ function deriveHorizonAndMetrics(payload) {
 
   let dailyAtrPct = null;
   if (Number.isFinite(atrD) && atrD > 0) dailyAtrPct = atrD / entryRef;
-  else if (Number.isFinite(atrW) && atrW > 0) dailyAtrPct = (atrW / entryRef) / 5;
-  else if (Number.isFinite(atr4) && atr4 > 0) dailyAtrPct = (atr4 / entryRef) * 1.8;
+  else if (Number.isFinite(atrW) && atrW > 0) dailyAtrPct = atrW / entryRef / 5;
+  else if (Number.isFinite(atr4) && atr4 > 0)
+    dailyAtrPct = (atr4 / entryRef) * 1.8;
 
   const htfAbs = Math.abs(Number(payload.htf_score) || 0);
   const ltfAbs = Math.abs(Number(payload.ltf_score) || 0);
@@ -879,9 +881,8 @@ function deriveHorizonAndMetrics(payload) {
     }
   }
 
-  out.eta_confidence = Math.round(
-    clampNum(out.eta_confidence, 0.1, 0.95) * 100
-  ) / 100;
+  out.eta_confidence =
+    Math.round(clampNum(out.eta_confidence, 0.1, 0.95) * 100) / 100;
   const etaForBucket = Number.isFinite(out.eta_days_v2)
     ? out.eta_days_v2
     : Number(payload.eta_days);
@@ -1103,7 +1104,13 @@ function scoreTPLevel(tpLevel, entryPrice, direction, allTPs, horizonConfig) {
 
 // Helper: Fuse many TP candidates into a few "confluence" TP zones.
 // We cluster nearby TPs and return weighted centroids (still direction-safe).
-function fuseTPCandidates(tpCandidates, entryPrice, direction, risk, horizonConfig) {
+function fuseTPCandidates(
+  tpCandidates,
+  entryPrice,
+  direction,
+  risk,
+  horizonConfig
+) {
   if (!Array.isArray(tpCandidates) || tpCandidates.length === 0) return [];
   const isLong = direction === "LONG";
 
@@ -1249,9 +1256,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   // Horizon-aware settings (short vs swing vs positional)
   const bucketRaw = String(
     tickerData.horizon_bucket ||
-      horizonBucketFromEtaDays(
-        tickerData.eta_days_v2 ?? tickerData.eta_days
-      ) ||
+      horizonBucketFromEtaDays(tickerData.eta_days_v2 ?? tickerData.eta_days) ||
       ""
   )
     .trim()
@@ -1471,11 +1476,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     const topTP = scoredTPs[0];
     if (topTP) {
       const baseDistance = Math.abs(topTP.price - entryPrice);
-      const [m1, m2, m3] = horizonConfig.fallbackMultipliers || [
-        0.6,
-        1.0,
-        1.5,
-      ];
+      const [m1, m2, m3] = horizonConfig.fallbackMultipliers || [0.6, 1.0, 1.5];
 
       // Create TP1 (closest)
       const tp1 = isLong
@@ -6685,7 +6686,10 @@ export default {
               const derived = deriveHorizonAndMetrics(payload);
               Object.assign(payload, derived);
             } catch (e) {
-              console.error(`[DERIVED METRICS] Failed for ${ticker}:`, String(e));
+              console.error(
+                `[DERIVED METRICS] Failed for ${ticker}:`,
+                String(e)
+              );
             }
 
             // Add ingestion timestamp even for deduped (track when last seen)
@@ -8327,7 +8331,10 @@ export default {
               Object.assign(data, derived);
             }
           } catch (e) {
-            console.error(`[DERIVED METRICS] /timed/latest failed for ${ticker}:`, String(e));
+            console.error(
+              `[DERIVED METRICS] /timed/latest failed for ${ticker}:`,
+              String(e)
+            );
           }
 
           return sendJSON(
