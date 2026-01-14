@@ -1045,6 +1045,20 @@ async function computeOpenTradesCorrelation(env, KV, options = {}) {
   }
 
   const avgCorrByTicker = {};
+  const sectorMap = new Map();
+  const sectorCounts = {};
+  for (const ticker of openTickers) {
+    try {
+      const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+      const sector =
+        latest?.sector || latest?.fundamentals?.sector || "UNKNOWN";
+      sectorMap.set(ticker, sector);
+      sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+    } catch {
+      sectorMap.set(ticker, "UNKNOWN");
+      sectorCounts.UNKNOWN = (sectorCounts.UNKNOWN || 0) + 1;
+    }
+  }
   for (const ticker of openTickers) {
     const baseMap = returnMapByTicker.get(ticker);
     if (!baseMap || baseMap.size < 5) continue;
@@ -1075,6 +1089,23 @@ async function computeOpenTradesCorrelation(env, KV, options = {}) {
         corr_count: corrVals.length,
       };
     }
+  }
+
+  // Fallback proxy: sector concentration when return series is insufficient.
+  for (const ticker of openTickers) {
+    if (avgCorrByTicker[ticker]) continue;
+    const sector = sectorMap.get(ticker) || "UNKNOWN";
+    const sameSector = Math.max(1, sectorCounts[sector] || 1);
+    const total = Math.max(1, openTickers.length);
+    const share = sameSector / total;
+    const avg = Math.min(0.95, 0.3 + 0.7 * share);
+    const diversity = Math.round(Math.max(0, 1 - avg) * 100);
+    avgCorrByTicker[ticker] = {
+      avg_corr: Math.round(avg * 1000) / 1000,
+      diversity_score: diversity,
+      corr_count: 0,
+      _proxy: "sector",
+    };
   }
 
   const result = {
