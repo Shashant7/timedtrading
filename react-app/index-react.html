@@ -11996,17 +11996,23 @@
             setSelectedTrail([]);
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            // Trail payloads can be large; request a small window and allow a bit more time.
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
 
             const fetchSelectedTrail = async () => {
-              const url = `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
-                selectedTicker
-              )}`;
+              const qs = new URLSearchParams();
+              qs.set("ticker", String(selectedTicker || "").toUpperCase());
+              // We only need recent history for Bubble Journey rendering
+              qs.set("limit", "250");
+              const url = `${API_BASE}/timed/trail?${qs.toString()}`;
 
               // A couple of light retries on 429/5xx to survive transient limits.
               for (let attempt = 0; attempt < 2; attempt++) {
                 try {
-                  const res = await fetch(url, { signal: controller.signal });
+                  const res = await fetch(url, {
+                    signal: controller.signal,
+                    cache: "no-store",
+                  });
 
                   if (res.status === 429) {
                     // Respect Retry-After if present (seconds)
@@ -12033,11 +12039,13 @@
                   const data = await res.json();
                   if (data.ok && Array.isArray(data.trail)) {
                     const normalized = normalizeTrailPoints(data.trail);
+                    const last20 =
+                      normalized.length > 20 ? normalized.slice(-20) : normalized;
                     // One-time sample log to confirm keys look right
                     if (!window._trailSampleLogged) {
                       window._trailSampleLogged = true;
                       console.log(`[TRAIL SAMPLE] ${selectedTicker}`, {
-                        first: normalized[0],
+                        first: last20[0],
                         rawFirst: Array.isArray(data.trail)
                           ? data.trail[0]
                           : null,
@@ -12047,7 +12055,7 @@
                             : [],
                       });
                     }
-                    setSelectedTrail(normalized);
+                    setSelectedTrail(last20);
                     return;
                   }
 
