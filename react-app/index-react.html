@@ -3356,20 +3356,24 @@
           const offsetX = margin;
           const offsetY = margin;
 
-          const handleMouseMove = (e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+          const handlePointerMove = (clientX, clientY, targetEl) => {
+            const rect = targetEl.getBoundingClientRect();
 
-            setTooltipPos({
-              x: mouseX,
-              y: mouseY,
-            });
+            // CSS pixels within the rendered SVG element (used for HTML tooltip positioning)
+            const cssX = clientX - rect.left;
+            const cssY = clientY - rect.top;
+            setTooltipPos({ x: cssX, y: cssY });
 
-            // Calculate crosshair position and values
-            // Convert mouse position to chart coordinates
-            const chartX = mouseX - offsetX;
-            const chartY = mouseY - offsetY;
+            // Convert CSS pixels → SVG viewBox units so the crosshair aligns even when the
+            // SVG is scaled (e.g., layout changes when right-rail opens).
+            const sx = rect.width ? chartWidth / rect.width : 1;
+            const sy = rect.height ? chartHeight / rect.height : 1;
+            const svgX = cssX * sx;
+            const svgY = cssY * sy;
+
+            // Convert SVG position to plot-area coordinates
+            const chartX = svgX - offsetX;
+            const chartY = svgY - offsetY;
 
             // Check if mouse is within plot area
             if (
@@ -3383,8 +3387,8 @@
               const htfValue = 50 - chartY / scaleY; // Inverted: top is +50, bottom is -50
 
               setCrosshairPos({
-                x: mouseX,
-                y: mouseY,
+                x: svgX,
+                y: svgY,
                 ltfValue: ltfValue,
                 htfValue: htfValue,
                 chartX: chartX,
@@ -3393,6 +3397,10 @@
             } else {
               setCrosshairPos(null);
             }
+          };
+
+          const handleMouseMove = (e) => {
+            handlePointerMove(e.clientX, e.clientY, e.currentTarget);
           };
 
           const handleMouseLeave = () => {
@@ -3423,16 +3431,13 @@
                 onMouseLeave={handleMouseLeave}
                 onTouchMove={(e) => {
                   // Convert touch event to mouse-like coordinates for mobile
-                  const rect = e.currentTarget.getBoundingClientRect();
                   const touch = e.touches[0];
                   if (touch) {
-                    const syntheticEvent = {
-                      nativeEvent: {
-                        offsetX: touch.clientX - rect.left,
-                        offsetY: touch.clientY - rect.top,
-                      },
-                    };
-                    handleMouseMove(syntheticEvent);
+                    handlePointerMove(
+                      touch.clientX,
+                      touch.clientY,
+                      e.currentTarget
+                    );
                   }
                 }}
                 onTouchEnd={handleMouseLeave}
@@ -9494,6 +9499,14 @@
                           const state = p.state || p.quadrant || p.zone || "—";
                           const phasePct =
                             p.phase_pct != null ? `${Math.round(Number(p.phase_pct) * 100)}%` : "—";
+                          const htf =
+                            p.htf_score != null && Number.isFinite(Number(p.htf_score))
+                              ? Number(p.htf_score).toFixed(1)
+                              : "—";
+                          const ltf =
+                            p.ltf_score != null && Number.isFinite(Number(p.ltf_score))
+                              ? Number(p.ltf_score).toFixed(1)
+                              : "—";
                           const rank = p.rank != null ? String(p.rank) : "—";
                           const rr =
                             p.rr != null && Number.isFinite(Number(p.rr))
@@ -9514,6 +9527,13 @@
                                   {state}
                                   <span className="text-[#6b7a9f]"> • </span>
                                   <span className="text-[#93a4d6]">Phase</span> {phasePct}
+                                </div>
+                                <div className="text-[10px] text-[#93a4d6]">
+                                  <span className="text-[#6b7a9f]">HTF</span>{" "}
+                                  <span className="text-white font-semibold">{htf}</span>
+                                  <span className="text-[#6b7a9f]"> • </span>
+                                  <span className="text-[#6b7a9f]">LTF</span>{" "}
+                                  <span className="text-white font-semibold">{ltf}</span>
                                 </div>
                               </div>
                               <div className="text-right text-[10px] text-[#93a4d6] whitespace-nowrap">
