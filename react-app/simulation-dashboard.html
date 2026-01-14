@@ -169,8 +169,32 @@
       }
 
       function computeEtaDays(src) {
-        const eta = Number(src?.eta_days_v2 ?? src?.eta_days);
-        return Number.isFinite(eta) ? eta : null;
+        const staleness = String(src?.staleness || "").toUpperCase();
+        if (staleness && staleness !== "FRESH") return null;
+        const baseEta = Number(src?.eta_days_v2 ?? src?.eta_days);
+        if (!Number.isFinite(baseEta) || baseEta <= 0) return null;
+        const dir = resolveDirection(src);
+        const entry = computeEntryRef(src);
+        const target = computeTpTargetPrice(src);
+        const current = Number(src?.price ?? src?.currentPrice);
+        if (
+          !Number.isFinite(entry) ||
+          !Number.isFinite(target) ||
+          !Number.isFinite(current) ||
+          !dir
+        ) {
+          return baseEta;
+        }
+        const totalDist = Math.abs(target - entry);
+        if (!Number.isFinite(totalDist) || totalDist <= 0) return baseEta;
+        const progress =
+          dir === "LONG"
+            ? (current - entry) / (target - entry)
+            : (entry - current) / (entry - target);
+        if (!Number.isFinite(progress)) return baseEta;
+        const clamped = Math.max(0, Math.min(1, progress));
+        const remaining = baseEta * (1 - clamped);
+        return Math.max(0.1, Math.round(remaining * 100) / 100);
       }
 
       function computeHorizonBucket(src) {
