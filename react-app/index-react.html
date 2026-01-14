@@ -5054,6 +5054,63 @@
                               {Math.round(completionForSize(t) * 100)}%
                             </span>
                           </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">Horizon</span>
+                            <span className="font-semibold">
+                              {(() => {
+                                const eta = Number(
+                                  t.eta_days_v2 ?? t.eta_days
+                                );
+                                const bucket = String(
+                                  t.horizon_bucket || ""
+                                )
+                                  .trim()
+                                  .toUpperCase();
+                                if (bucket) return bucket.replace("_", " ");
+                                if (!Number.isFinite(eta)) return "—";
+                                if (eta <= 7) return "SHORT TERM";
+                                if (eta <= 30) return "SWING";
+                                return "POSITIONAL";
+                              })()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">ETA</span>
+                            <span className="font-semibold">
+                              {(() => {
+                                const eta = Number(
+                                  t.eta_days_v2 ?? t.eta_days
+                                );
+                                return Number.isFinite(eta)
+                                  ? `${eta.toFixed(1)}d`
+                                  : "—";
+                              })()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">Return %</span>
+                            <span className="font-semibold">
+                              {(() => {
+                                const ret =
+                                  Number(t.expected_return_pct) ||
+                                  Number(t.tp_max_pct);
+                                return Number.isFinite(ret)
+                                  ? `${ret.toFixed(1)}%`
+                                  : "—";
+                              })()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-[#93a4d6]">Risk %</span>
+                            <span className="font-semibold">
+                              {(() => {
+                                const risk = Number(t.risk_pct);
+                                return Number.isFinite(risk)
+                                  ? `${risk.toFixed(1)}%`
+                                  : "—";
+                              })()}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );

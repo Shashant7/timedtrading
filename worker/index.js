@@ -1038,7 +1038,7 @@ function getTradeDirection(state) {
 }
 
 // Helper: Score TP level for intelligent selection
-function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
+function scoreTPLevel(tpLevel, entryPrice, direction, allTPs, horizonConfig) {
   const isLong = direction === "LONG";
   const price = Number(tpLevel.price || tpLevel);
 
@@ -1065,15 +1065,23 @@ function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
   else if (type === "FVG") score += 0.1;
   else if (type === "GAP") score += 0.05;
 
-  // Distance from entry (sweet spot: 2-5% for swing trades, prefer not too close or too far)
+  // Distance from entry (use horizon-aware bands)
   const distancePct = Math.abs(price - entryPrice) / entryPrice;
-  if (distancePct >= 0.02 && distancePct <= 0.05) {
+  const bands = horizonConfig || {};
+  const sweetMin = Number(bands.sweetMin ?? 0.02);
+  const sweetMax = Number(bands.sweetMax ?? 0.05);
+  const okMin = Number(bands.okMin ?? 0.01);
+  const okMax = Number(bands.okMax ?? 0.08);
+  const minDist = Number(bands.minDistancePct ?? 0.01);
+  const tooFar = Number(bands.tooFarPct ?? 0.15);
+
+  if (distancePct >= sweetMin && distancePct <= sweetMax) {
     score += 0.2; // Sweet spot
-  } else if (distancePct >= 0.01 && distancePct <= 0.08) {
+  } else if (distancePct >= okMin && distancePct <= okMax) {
     score += 0.1; // Acceptable range
-  } else if (distancePct < 0.01) {
+  } else if (distancePct < minDist) {
     score -= 0.2; // Too close - penalize
-  } else if (distancePct > 0.15) {
+  } else if (distancePct > tooFar) {
     score -= 0.1; // Too far - slight penalty
   }
 
@@ -1095,7 +1103,7 @@ function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
 
 // Helper: Fuse many TP candidates into a few "confluence" TP zones.
 // We cluster nearby TPs and return weighted centroids (still direction-safe).
-function fuseTPCandidates(tpCandidates, entryPrice, direction, risk) {
+function fuseTPCandidates(tpCandidates, entryPrice, direction, risk, horizonConfig) {
   if (!Array.isArray(tpCandidates) || tpCandidates.length === 0) return [];
   const isLong = direction === "LONG";
 
@@ -1122,7 +1130,7 @@ function fuseTPCandidates(tpCandidates, entryPrice, direction, risk) {
 
   const clusters = [];
   for (const tp of items) {
-    const s = scoreTPLevel(tp, entryPrice, direction, items);
+    const s = scoreTPLevel(tp, entryPrice, direction, items, horizonConfig);
     const w = Math.max(0.1, 1 + s); // keep weights positive
     const last = clusters[clusters.length - 1];
     if (!last) {
@@ -1238,6 +1246,58 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   const risk = Math.abs(entryPrice - sl);
   if (risk <= 0) return [];
 
+  // Horizon-aware settings (short vs swing vs positional)
+  const bucketRaw = String(
+    tickerData.horizon_bucket ||
+      horizonBucketFromEtaDays(
+        tickerData.eta_days_v2 ?? tickerData.eta_days
+      ) ||
+      ""
+  )
+    .trim()
+    .toUpperCase();
+  const bucket = bucketRaw || "SWING";
+
+  const horizonConfigMap = {
+    SHORT_TERM: {
+      minDistancePct: 0.03,
+      sweetMin: 0.05,
+      sweetMax: 0.12,
+      okMin: 0.03,
+      okMax: 0.18,
+      tooFarPct: 0.25,
+      minDistanceBetweenTPs: 0.03,
+      maxTPs: 3,
+      trimLevels: [0.35, 0.7, 1.0],
+      fallbackMultipliers: [0.7, 1.0, 1.4],
+    },
+    SWING: {
+      minDistancePct: 0.04,
+      sweetMin: 0.08,
+      sweetMax: 0.2,
+      okMin: 0.05,
+      okMax: 0.3,
+      tooFarPct: 0.45,
+      minDistanceBetweenTPs: 0.05,
+      maxTPs: 4,
+      trimLevels: [0.2, 0.45, 0.7, 1.0],
+      fallbackMultipliers: [0.6, 1.0, 1.6],
+    },
+    POSITIONAL: {
+      minDistancePct: 0.06,
+      sweetMin: 0.15,
+      sweetMax: 0.4,
+      okMin: 0.1,
+      okMax: 0.6,
+      tooFarPct: 0.8,
+      minDistanceBetweenTPs: 0.08,
+      maxTPs: 4,
+      trimLevels: [0.1, 0.25, 0.5, 1.0],
+      fallbackMultipliers: [0.5, 1.0, 1.8],
+    },
+  };
+  const horizonConfig = horizonConfigMap[bucket] || horizonConfigMap.SWING;
+
   // Extract all TP levels with metadata
   let tpLevels = [];
   if (
@@ -1286,8 +1346,8 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   }
 
   // Filter by direction and ensure they're beyond entry
-  // Also filter out TPs that are too close (< 1% from entry) - these are likely noise
-  const minDistancePct = 0.01; // Minimum 1% distance from entry
+  // Also filter out TPs that are too close - these are likely noise
+  const minDistancePct = horizonConfig.minDistancePct;
   const validTPs = tpLevels
     .filter((item) => {
       const price = Number(item.price);
@@ -1332,7 +1392,13 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
 
   // Fuse raw TP candidates into a few "confluence" zones, then score those fused zones.
   // This prevents overreacting to noisy/clustered TP sets and yields more stable trim levels.
-  const fusedTPs = fuseTPCandidates(validTPs, entryPrice, direction, risk);
+  const fusedTPs = fuseTPCandidates(
+    validTPs,
+    entryPrice,
+    direction,
+    risk,
+    horizonConfig
+  );
   const baseForScoring = fusedTPs.length > 0 ? fusedTPs : validTPs;
 
   // Score all candidates (fused preferred; otherwise raw)
@@ -1341,7 +1407,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     score:
       tpItem && tpItem._fused && typeof tpItem._fused.score === "number"
         ? tpItem._fused.score
-        : scoreTPLevel(tpItem, entryPrice, direction, validTPs),
+        : scoreTPLevel(tpItem, entryPrice, direction, validTPs, horizonConfig),
   }));
 
   // Prioritize HTF timeframes (Weekly/Daily) - these should be further away and more reliable
@@ -1373,8 +1439,8 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   // Build intelligent TP array with progressive trim levels
   // Strategy: Prioritize HTF timeframes (Weekly/Daily) and select 3-4 TPs that are well-spaced
   const selectedTPs = [];
-  const minDistanceBetweenTPs = 0.02; // Minimum 2% distance between TPs
-  const maxTPs = 4; // Maximum 4 TP levels
+  const minDistanceBetweenTPs = horizonConfig.minDistanceBetweenTPs;
+  const maxTPs = horizonConfig.maxTPs;
 
   // First pass: Prioritize HTF timeframes (W, D) - these are more reliable and further away
   const htfTPs = scoredTPs.filter((tp) => {
@@ -1405,39 +1471,45 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     const topTP = scoredTPs[0];
     if (topTP) {
       const baseDistance = Math.abs(topTP.price - entryPrice);
+      const [m1, m2, m3] = horizonConfig.fallbackMultipliers || [
+        0.6,
+        1.0,
+        1.5,
+      ];
 
-      // Create TP1 (closest, 25% trim)
+      // Create TP1 (closest)
       const tp1 = isLong
-        ? entryPrice + baseDistance * 0.5
-        : entryPrice - baseDistance * 0.5;
+        ? entryPrice + baseDistance * m1
+        : entryPrice - baseDistance * m1;
 
-      // TP2 (middle, 50% trim) - use top scored TP
+      // TP2 (middle) - use top scored TP
       const tp2 = topTP.price;
 
-      // TP3 (farthest, 75% trim)
+      // TP3 (farthest)
       const tp3 = isLong
-        ? entryPrice + baseDistance * 1.5
-        : entryPrice - baseDistance * 1.5;
+        ? entryPrice + baseDistance * m3
+        : entryPrice - baseDistance * m3;
 
+      const trims = horizonConfig.trimLevels || [0.25, 0.5, 0.75];
       return [
         {
           price: tp1,
-          trimPct: 0.25,
-          label: "TP1 (25%)",
+          trimPct: trims[0] || 0.25,
+          label: `TP1 (${Math.round((trims[0] || 0.25) * 100)}%)`,
           source: topTP.source,
           timeframe: topTP.timeframe,
         },
         {
           price: tp2,
-          trimPct: 0.5,
-          label: "TP2 (50%)",
+          trimPct: trims[1] || 0.5,
+          label: `TP2 (${Math.round((trims[1] || 0.5) * 100)}%)`,
           source: topTP.source,
           timeframe: topTP.timeframe,
         },
         {
           price: tp3,
-          trimPct: 0.75,
-          label: "TP3 (75%)",
+          trimPct: trims[2] || 0.75,
+          label: `TP3 (${Math.round((trims[2] || 0.75) * 100)}%)`,
           source: topTP.source,
           timeframe: topTP.timeframe,
         },
@@ -1453,7 +1525,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     return distA - distB;
   });
 
-  const trimLevels = [0.25, 0.5, 0.75];
+  const trimLevels = horizonConfig.trimLevels || [0.25, 0.5, 0.75];
   const tpArray = sortedByDistance.slice(0, 3).map((tp, idx) => ({
     price: tp.price,
     trimPct: trimLevels[idx] || 0.75,
@@ -1463,13 +1535,13 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     confidence: tp.confidence,
   }));
 
-  // If we have a 4th TP, add it as final exit (100%)
-  if (sortedByDistance.length > 3) {
+  // If we have a 4th TP, add it as final exit
+  if (sortedByDistance.length > 3 && trimLevels[3] != null) {
     const finalTP = sortedByDistance[3];
     tpArray.push({
       price: finalTP.price,
-      trimPct: 1.0,
-      label: "TP4 (100%)",
+      trimPct: trimLevels[3],
+      label: `TP4 (${Math.round(trimLevels[3] * 100)}%)`,
       source: finalTP.source,
       timeframe: finalTP.timeframe,
       confidence: finalTP.confidence,
