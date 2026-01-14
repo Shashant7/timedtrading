@@ -8741,6 +8741,17 @@ export default {
               String(e)
             );
           }
+          // Back-compat: compute entry decision if missing
+          try {
+            if (!data.entry_decision) {
+              data.entry_decision = buildEntryDecision(ticker, data, null);
+            }
+          } catch (e) {
+            console.error(
+              `[ENTRY DECISION] /timed/latest failed for ${ticker}:`,
+              String(e)
+            );
+          }
 
           try {
             const corrData = await computeOpenTradesCorrelation(env, KV);
@@ -8959,6 +8970,21 @@ export default {
               } catch (e) {
                 console.error(
                   `[DERIVED METRICS] /timed/all failed for ${ticker}:`,
+                  String(e)
+                );
+              }
+              // Back-compat: compute entry decision if missing
+              try {
+                if (!value.entry_decision) {
+                  value.entry_decision = buildEntryDecision(
+                    ticker,
+                    value,
+                    null
+                  );
+                }
+              } catch (e) {
+                console.error(
+                  `[ENTRY DECISION] /timed/all failed for ${ticker}:`,
                   String(e)
                 );
               }
