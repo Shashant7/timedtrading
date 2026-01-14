@@ -840,6 +840,137 @@ function scoreTPLevel(tpLevel, entryPrice, direction, allTPs) {
   return score;
 }
 
+// Helper: Fuse many TP candidates into a few "confluence" TP zones.
+// We cluster nearby TPs and return weighted centroids (still direction-safe).
+function fuseTPCandidates(tpCandidates, entryPrice, direction, risk) {
+  if (!Array.isArray(tpCandidates) || tpCandidates.length === 0) return [];
+  const isLong = direction === "LONG";
+
+  // Cluster distance: a blend of % of entry and fraction of risk.
+  // This keeps clustering stable across different price ranges.
+  const clusterAbs = Math.max(entryPrice * 0.003, (Number(risk) || 0) * 0.25); // ~0.3% or 0.25R
+
+  const items = tpCandidates
+    .map((tp) => {
+      const price = Number(tp?.price);
+      if (!Number.isFinite(price) || price <= 0) return null;
+      return { ...tp, price };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.price - b.price);
+
+  const tfPriority = (tf) => {
+    const t = String(tf || "D").toUpperCase();
+    if (t === "W") return 3;
+    if (t === "D") return 2;
+    if (t === "240" || t === "4H") return 1;
+    return 0;
+  };
+
+  const clusters = [];
+  for (const tp of items) {
+    const s = scoreTPLevel(tp, entryPrice, direction, items);
+    const w = Math.max(0.1, 1 + s); // keep weights positive
+    const last = clusters[clusters.length - 1];
+    if (!last) {
+      clusters.push({
+        items: [{ tp, s, w }],
+        min: tp.price,
+        max: tp.price,
+        sumW: w,
+        sumWP: w * tp.price,
+      });
+      continue;
+    }
+
+    // Add to cluster if close to its current centroid (or within min/max band)
+    const centroid = last.sumWP / Math.max(1e-9, last.sumW);
+    const closeToCentroid = Math.abs(tp.price - centroid) <= clusterAbs;
+    const closeToBand =
+      tp.price >= last.min - clusterAbs && tp.price <= last.max + clusterAbs;
+
+    if (closeToCentroid || closeToBand) {
+      last.items.push({ tp, s, w });
+      last.min = Math.min(last.min, tp.price);
+      last.max = Math.max(last.max, tp.price);
+      last.sumW += w;
+      last.sumWP += w * tp.price;
+    } else {
+      clusters.push({
+        items: [{ tp, s, w }],
+        min: tp.price,
+        max: tp.price,
+        sumW: w,
+        sumWP: w * tp.price,
+      });
+    }
+  }
+
+  const fused = clusters
+    .map((c, idx) => {
+      const price = c.sumWP / Math.max(1e-9, c.sumW);
+      // Direction safety: ignore clusters that ended up on wrong side (paranoia)
+      if (isLong && price <= entryPrice) return null;
+      if (!isLong && price >= entryPrice) return null;
+
+      const bestTf = c.items
+        .map((x) => x.tp?.timeframe)
+        .sort((a, b) => tfPriority(b) - tfPriority(a))[0];
+
+      const confidences = c.items
+        .map((x) => Number(x.tp?.confidence))
+        .filter((n) => Number.isFinite(n));
+      const confidence =
+        confidences.length > 0
+          ? Math.max(...confidences) // prefer the strongest member
+          : 0.75;
+
+      const sources = Array.from(
+        new Set(
+          c.items
+            .map((x) => String(x.tp?.source || "").trim())
+            .filter(Boolean)
+        )
+      );
+      const types = Array.from(
+        new Set(
+          c.items
+            .map((x) => String(x.tp?.type || "").trim())
+            .filter(Boolean)
+        )
+      );
+
+      // Confluence score: sum of member scores + small boost for multiple confirmations,
+      // and a light penalty for a very wide cluster.
+      const sumScore = c.items.reduce((acc, x) => acc + (x.s || 0), 0);
+      const confluenceBoost = 0.2 * Math.log(1 + c.items.length);
+      const spreadPct = (c.max - c.min) / Math.max(1e-9, entryPrice);
+      const spreadPenalty = Math.min(0.2, spreadPct * 2); // cap penalty
+      const fusedScore = sumScore + confluenceBoost - spreadPenalty;
+
+      return {
+        price,
+        source: sources.length > 0 ? `FUSED(${c.items.length}): ${sources.slice(0, 2).join(", ")}` : `FUSED(${c.items.length})`,
+        type: types.length > 0 ? `FUSED:${types.slice(0, 2).join(",")}` : "FUSED",
+        timeframe: bestTf || "D",
+        confidence,
+        multiplier: null,
+        label: `TP_FUSED_${idx + 1}`,
+        _fused: {
+          idx,
+          count: c.items.length,
+          min: c.min,
+          max: c.max,
+          score: fusedScore,
+        },
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b._fused?.score || 0) - (a._fused?.score || 0));
+
+  return fused;
+}
+
 // Helper: Build intelligent TP array with progressive trim levels (25%, 50%, 75%)
 // This creates a systematic TP array that allows holding winners longer
 function buildIntelligentTPArray(tickerData, entryPrice, direction) {
@@ -946,10 +1077,18 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     return [];
   }
 
-  // Score all valid TPs
-  const scoredTPs = validTPs.map((tpItem) => ({
+  // Fuse raw TP candidates into a few "confluence" zones, then score those fused zones.
+  // This prevents overreacting to noisy/clustered TP sets and yields more stable trim levels.
+  const fusedTPs = fuseTPCandidates(validTPs, entryPrice, direction, risk);
+  const baseForScoring = fusedTPs.length > 0 ? fusedTPs : validTPs;
+
+  // Score all candidates (fused preferred; otherwise raw)
+  const scoredTPs = baseForScoring.map((tpItem) => ({
     ...tpItem,
-    score: scoreTPLevel(tpItem, entryPrice, direction, validTPs),
+    score:
+      tpItem && tpItem._fused && typeof tpItem._fused.score === "number"
+        ? tpItem._fused.score
+        : scoreTPLevel(tpItem, entryPrice, direction, validTPs),
   }));
 
   // Prioritize HTF timeframes (Weekly/Daily) - these should be further away and more reliable
@@ -1282,8 +1421,10 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
   const minDistancePct = 0.01; // keep consistent with buildIntelligentTPArray
   const isProfitSide = (tpPrice) =>
     isLong
-      ? tpPrice > entryPrice && (tpPrice - entryPrice) / entryPrice >= minDistancePct
-      : tpPrice < entryPrice && (entryPrice - tpPrice) / entryPrice >= minDistancePct;
+      ? tpPrice > entryPrice &&
+        (tpPrice - entryPrice) / entryPrice >= minDistancePct
+      : tpPrice < entryPrice &&
+        (entryPrice - tpPrice) / entryPrice >= minDistancePct;
 
   const sanitizedTpArray = Array.isArray(tpArray)
     ? tpArray
@@ -2262,8 +2403,14 @@ async function processTradeSimulation(
             const first =
               Array.isArray(arr) && arr.length > 0
                 ? arr
-                    .map((x) => ({ price: Number(x?.price), trimPct: Number(x?.trimPct) }))
-                    .filter((x) => Number.isFinite(x.price) && Number.isFinite(x.trimPct))
+                    .map((x) => ({
+                      price: Number(x?.price),
+                      trimPct: Number(x?.trimPct),
+                    }))
+                    .filter(
+                      (x) =>
+                        Number.isFinite(x.price) && Number.isFinite(x.trimPct)
+                    )
                     .sort((a, b) => a.trimPct - b.trimPct)[0]?.price
                 : null;
             return Number.isFinite(first)
@@ -2278,7 +2425,9 @@ async function processTradeSimulation(
                 ? tradeCalc.tpArray
                 : existingOpenTrade.tpArray;
             const prices = Array.isArray(arr)
-              ? arr.map((x) => Number(x?.price)).filter((p) => Number.isFinite(p))
+              ? arr
+                  .map((x) => Number(x?.price))
+                  .filter((p) => Number.isFinite(p))
               : [];
             const exitTp =
               prices.length > 0
@@ -2294,12 +2443,7 @@ async function processTradeSimulation(
                 : null;
             const rrCalc =
               risk > 0 && gain != null && gain > 0 ? gain / risk : null;
-            return (
-              rrCalc ||
-              Number(tickerData.rr) ||
-              existingOpenTrade.rr ||
-              0
-            );
+            return rrCalc || Number(tickerData.rr) || existingOpenTrade.rr || 0;
           })(),
           rank: Number(tickerData.rank) || existingOpenTrade.rank,
           history: history,
@@ -4880,6 +5024,20 @@ function createTradeTrimmedEmbed(
           .find((x) => x.trimPct > trimmedPct + 1e-6) || null
       : null;
 
+  const tpPlan =
+    trade?.tpArray && Array.isArray(trade.tpArray)
+      ? [...trade.tpArray]
+          .map((x) => ({
+            price: Number(x?.price),
+            trimPct: Number(x?.trimPct),
+            label: x?.label,
+            source: x?.source,
+            timeframe: x?.timeframe,
+          }))
+          .filter((x) => Number.isFinite(x.price) && Number.isFinite(x.trimPct))
+          .sort((a, b) => a.trimPct - b.trimPct)
+      : [];
+
   // Generate natural language interpretation
   const interpretation = tickerData
     ? generateTradeActionInterpretation("TRIM", tickerData, trade, trimmedPct)
@@ -4923,6 +5081,22 @@ function createTradeTrimmedEmbed(
       inline: true,
     },
   ];
+
+  if (tpPlan.length > 0) {
+    fields.push({
+      name: "🎯 TP Plan",
+      value: tpPlan
+        .slice(0, 5)
+        .map((tp) => {
+          const pct = Math.round(tp.trimPct * 100);
+          const meta =
+            tp.timeframe || tp.source ? ` (${[tp.timeframe, tp.source].filter(Boolean).join(", ")})` : "";
+          return `**${tp.label || `TP (${pct}%)`}:** $${tp.price.toFixed(2)} (${pct}%)${meta}`;
+        })
+        .join("\n"),
+      inline: false,
+    });
+  }
 
   // Add EMA Cloud position if available (for hold decision context)
   if (tickerData?.fourh_ema_cloud) {
