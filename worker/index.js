@@ -396,6 +396,27 @@ function minutesSince(ts) {
   return (Date.now() - ts) / 60000;
 }
 
+function formatUtcMinuteBucket(ts) {
+  if (!Number.isFinite(ts)) return null;
+  return new Date(ts).toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm (UTC)
+}
+
+function buildAlertDedupeKey({ ticker, action, side, ts }) {
+  const t = String(ticker || "").toUpperCase();
+  const act = String(action || "").toUpperCase();
+  const dir = String(side || "").toUpperCase();
+  const bucket = formatUtcMinuteBucket(ts);
+  const day = bucket ? bucket.slice(0, 10) : null;
+  if (!t || !act || !bucket) {
+    return { key: null, bucket: null, day };
+  }
+  return {
+    key: `timed:alerted:${t}:${act}:${dir || "UNKNOWN"}:${bucket}`,
+    bucket,
+    day,
+  };
+}
+
 function stalenessBucket(ticker, ts) {
   const mt = marketType(ticker);
   const age = minutesSince(ts);
@@ -1261,6 +1282,126 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
   return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
+}
+
+function buildEntryDecision(ticker, tickerData, prevState) {
+  const tickerUpper = String(ticker || "").toUpperCase();
+  const blockers = [];
+  const warnings = [];
+  const flags = tickerData.flags || {};
+  const state = String(tickerData.state || "");
+
+  const alignedLong = state === "HTF_BULL_LTF_BULL";
+  const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+  const aligned = alignedLong || alignedShort;
+
+  const h = Number(tickerData.htf_score);
+  const l = Number(tickerData.ltf_score);
+  const inCorridor =
+    Number.isFinite(h) &&
+    Number.isFinite(l) &&
+    ((h > 0 && l >= -8 && l <= 12) || (h < 0 && l >= -12 && l <= 8));
+  const side =
+    h > 0 && l >= -8 && l <= 12
+      ? "LONG"
+      : h < 0 && l >= -12 && l <= 8
+      ? "SHORT"
+      : null;
+  const corridorAlignedOK =
+    (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+
+  const enteredAligned = aligned && prevState && prevState !== state;
+  const trigReason = String(tickerData.trigger_reason || "");
+  const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+  const sqRelease = !!flags.sq30_release;
+  const hasTrigger = !!tickerData.trigger_price && !!tickerData.trigger_ts;
+
+  const shouldConsiderAlert =
+    inCorridor &&
+    corridorAlignedOK &&
+    (enteredAligned || trigOk || sqRelease || hasTrigger);
+
+  const momentumElite = !!flags.momentum_elite;
+  const baseMinRR = 1.5;
+  const baseMaxComp = 0.4;
+  const baseMaxPhase = 0.6;
+  const baseMinRank = 70;
+
+  const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
+  const maxComp = momentumElite
+    ? Math.min(0.5, baseMaxComp * 1.25)
+    : baseMaxComp;
+  const maxPhase = momentumElite
+    ? Math.min(0.7, baseMaxPhase * 1.17)
+    : baseMaxPhase;
+  const minRank = momentumElite ? Math.max(60, baseMinRank - 10) : baseMinRank;
+
+  const price = Number(tickerData.price);
+  const triggerPrice = Number(tickerData.trigger_price);
+  const entryPrice =
+    Number.isFinite(price) && price > 0
+      ? price
+      : Number.isFinite(triggerPrice) && triggerPrice > 0
+      ? triggerPrice
+      : null;
+  const entryPriceSource =
+    Number.isFinite(price) && price > 0
+      ? "price"
+      : Number.isFinite(triggerPrice) && triggerPrice > 0
+      ? "trigger_price"
+      : null;
+
+  const rrAtEntry =
+    entryPrice != null ? calculateRRAtEntry(tickerData, entryPrice) : null;
+  const comp = Number(tickerData.completion) || 0;
+  const phase = Number(tickerData.phase_pct) || 0;
+  const rank = Number(tickerData.rank) || 0;
+
+  const rrOk = (rrAtEntry || 0) >= minRR;
+  const compOk = comp <= maxComp;
+  const phaseOk = phase <= maxPhase;
+  const rankOk = rank >= minRank;
+
+  if (FUTURES_TICKERS.has(tickerUpper)) blockers.push("futures_disabled");
+  if (!Number.isFinite(entryPrice) || !tickerData.sl || !tickerData.tp)
+    blockers.push("missing_levels");
+  if (!inCorridor) blockers.push("not_in_corridor");
+  if (inCorridor && !corridorAlignedOK) blockers.push("corridor_misaligned");
+  if (!shouldConsiderAlert) blockers.push("no_trigger");
+  if (!rrOk) blockers.push("rr_below_min");
+  if (!compOk) blockers.push("completion_high");
+  if (!phaseOk) blockers.push("phase_high");
+  if (!rankOk) blockers.push("rank_low");
+
+  const staleness = String(tickerData.staleness || "").toUpperCase();
+  if (staleness && staleness !== "FRESH") warnings.push("stale_data");
+
+  return {
+    ok: blockers.length === 0,
+    action: "ENTRY",
+    side: side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
+    blockers,
+    warnings,
+    entry_price: entryPrice,
+    entry_price_source: entryPriceSource,
+    checks: {
+      aligned,
+      in_corridor: inCorridor,
+      corridor_aligned: corridorAlignedOK,
+      entered_aligned: enteredAligned,
+      trigger_ok: trigOk,
+      squeeze_release: sqRelease,
+      has_trigger: hasTrigger,
+      rr_at_entry: rrAtEntry,
+      rr_min: minRR,
+      completion: comp,
+      completion_max: maxComp,
+      phase,
+      phase_max: maxPhase,
+      rank,
+      rank_min: minRank,
+    },
+  };
 }
 
 // Get direction from state
@@ -7293,6 +7434,11 @@ export default {
             (inCorridor &&
               ((corridorAlignedOK && (enteredAligned || trigOk || sqRel)) ||
                 (sqRel && side))); // Squeeze release in corridor is a valid trigger even if not fully aligned
+          payload.entry_decision = buildEntryDecision(
+            ticker,
+            payload,
+            prevState
+          );
           const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
           const prevSqueezeOn = await KV.get(prevSqueezeKey);
           const prevSqueezeRelKey = `timed:prevsqueezerel:${ticker}`;
@@ -7656,12 +7802,21 @@ export default {
             }
 
             if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
-              // Dedup alert by date (YYYY-MM-DD) - allows re-alerting next day
-              // This ensures alerts fire daily if conditions are met, but prevents spam within same day
-              const now = new Date();
-              const today = now.toISOString().split("T")[0]; // YYYY-MM-DD format
-              const akey = `timed:alerted:${ticker}:${today}`;
-              const alreadyAlerted = await KV.get(akey);
+              // Smart dedupe: action + direction + UTC minute bucket (prevents duplicates but allows valid re-alerts)
+              const action = "ENTRY";
+              const alertEventTs = Number(
+                payload.trigger_ts || payload.ts || Date.now()
+              );
+              const dedupeInfo = buildAlertDedupeKey({
+                ticker,
+                action,
+                side,
+                ts: alertEventTs,
+              });
+              const akey = dedupeInfo.key;
+              const today =
+                dedupeInfo.day || new Date().toISOString().split("T")[0];
+              const alreadyAlerted = akey ? await KV.get(akey) : null;
 
               console.log(`[ALERT CHECK] ${ticker}:`, {
                 enhancedTrigger,
@@ -7672,6 +7827,8 @@ export default {
                 allConditionsMet: true,
                 today,
                 akey,
+                dedupe_bucket: dedupeInfo.bucket,
+                action,
                 alreadyAlerted: !!alreadyAlerted,
                 trigger_ts: payload.trigger_ts,
                 ts: payload.ts,
@@ -7679,11 +7836,15 @@ export default {
 
               if (!alreadyAlerted) {
                 // Store deduplication key for 48 hours (covers edge cases around midnight)
-                await kvPutText(KV, akey, "1", 48 * 60 * 60);
+                if (akey) {
+                  await kvPutText(KV, akey, "1", 48 * 60 * 60);
+                }
 
                 console.log(`[DISCORD ALERT] Sending alert for ${ticker}`, {
                   akey,
                   today,
+                  dedupe_bucket: dedupeInfo.bucket,
+                  action,
                   side,
                   rank: payload.rank,
                   discordConfigured,
@@ -7691,7 +7852,7 @@ export default {
                   hasWebhook: !!discordWebhook,
                 });
 
-                const alertTs = Number(payload.ts || Date.now());
+                const alertTs = alertEventTs;
                 const alertPayloadJson = (() => {
                   try {
                     return JSON.stringify(payload);
@@ -7704,6 +7865,8 @@ export default {
                     return JSON.stringify({
                       akey,
                       today,
+                      dedupe_bucket: dedupeInfo.bucket,
+                      action,
                       alreadyAlerted: false,
                       side,
                       state: payload.state,
@@ -8183,11 +8346,13 @@ export default {
                   {
                     akey,
                     today,
+                    dedupe_bucket: dedupeInfo.bucket,
+                    action,
                   }
                 );
 
                 // Persist deduped alert decision to D1 (best-effort)
-                const alertTs = Number(payload.ts || Date.now());
+                const alertTs = alertEventTs;
                 const alertPayloadJson = (() => {
                   try {
                     return JSON.stringify(payload);
@@ -8200,6 +8365,8 @@ export default {
                     return JSON.stringify({
                       akey,
                       today,
+                      dedupe_bucket: dedupeInfo.bucket,
+                      action,
                       alreadyAlerted: true,
                       side,
                       state: payload.state,
@@ -10857,17 +11024,23 @@ export default {
             enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
           const wouldAlert = wouldAlertLogic && discordEnabled && discordUrlSet;
 
-          // Track days where alert would have been eligible (for dedupe lookups)
-          const ts = Number(data.ts);
-          const day = Number.isFinite(ts)
-            ? new Date(ts).toISOString().split("T")[0]
-            : null;
-          if (wouldAlert && day) wouldDays.add(day);
+          const action = "ENTRY";
+          const ts = Number(data.trigger_ts || data.ts);
+          const dedupeInfo = buildAlertDedupeKey({
+            ticker,
+            action,
+            side,
+            ts,
+          });
+          if (wouldAlert && dedupeInfo.key) wouldDays.add(dedupeInfo.key);
 
           if (wouldAlertLogic) {
             results.push({
               ts,
-              day,
+              day: dedupeInfo.day,
+              dedupe_key: dedupeInfo.key,
+              dedupe_bucket: dedupeInfo.bucket,
+              action,
               state,
               side: side || "none",
               inCorridor,
@@ -10894,29 +11067,33 @@ export default {
           prevState = state;
         }
 
-        // Check KV dedupe keys for days where we'd alert (so replay can explain "blocked by dedupe")
+        // Check KV dedupe keys for alert buckets (so replay can explain "blocked by dedupe")
         const dedupe = {};
         const days = Array.from(wouldDays);
         await Promise.all(
           days.map(async (day) => {
-            const key = `timed:alerted:${ticker}:${day}`;
-            const v = await KV.get(key);
-            dedupe[day] = { key, alreadyAlerted: !!v };
+            const v = await KV.get(day);
+            dedupe[day] = { key: day, alreadyAlerted: !!v };
           })
         );
 
-        // Compute "wouldSendIfFirstOfDay" as a deterministic simulation of dedupe behavior
+        // Compute "wouldSendIfFirstBucket" as a deterministic simulation of dedupe behavior
         const firstOfDaySeen = new Set();
         const enriched = results.map((r) => {
           if (!r.wouldAlert)
-            return { ...r, dedupe: dedupe[r.day] || null, wouldSend: false };
+            return {
+              ...r,
+              dedupe: dedupe[r.dedupe_key] || null,
+              wouldSend: false,
+            };
           const already =
-            (dedupe[r.day] && dedupe[r.day].alreadyAlerted) || false;
-          const first = r.day && !firstOfDaySeen.has(r.day);
-          if (r.day && first) firstOfDaySeen.add(r.day);
+            (dedupe[r.dedupe_key] && dedupe[r.dedupe_key].alreadyAlerted) ||
+            false;
+          const first = r.dedupe_key && !firstOfDaySeen.has(r.dedupe_key);
+          if (r.dedupe_key && first) firstOfDaySeen.add(r.dedupe_key);
           return {
             ...r,
-            dedupe: dedupe[r.day] || null,
+            dedupe: dedupe[r.dedupe_key] || null,
             wouldSend: !already && first,
           };
         });
