@@ -835,6 +835,7 @@
       let clickHandlerBound = false;
       let selectedTicker = null;
       let selectedTrail = null;
+      let lastTrailRenderKey = null; // used to decide when Plotly structure must be rebuilt
 
       // Trails cache
       const trailCache = new Map(); // ticker -> { atMs, trail }
@@ -1690,13 +1691,21 @@
           ],
         };
 
-        // Use restyle/relayout for updates when possible (faster than full react)
+        // Use restyle/relayout for updates when possible (faster than full react).
+        // IMPORTANT: Plotly.restyle cannot add/remove traces. So we only do the fast
+        // update path when the *structure* (trail traces) hasn't changed.
         const existing = document.getElementById("chart").data;
+        const trailRenderKey =
+          selectedTrail && selectedTrail.length >= 2
+            ? `${selectedTicker || ""}|${selectedTrail.length}`
+            : null;
+        const needsStructuralRender =
+          !!faintTrailsByTicker || trailRenderKey !== lastTrailRenderKey;
         const isUpdate =
+          !needsStructuralRender &&
           existing &&
           existing.length > 0 &&
-          existing[0]?.x?.length === X.length &&
-          !faintTrailsByTicker; // Only for simple updates
+          existing[0]?.x?.length === X.length; // Only for simple updates
 
         if (isUpdate && existing[0].x.length === X.length) {
           // Partial update - much faster
@@ -1723,6 +1732,7 @@
             staticPlot: false,
             doubleClick: "reset",
           });
+          lastTrailRenderKey = trailRenderKey;
         }
 
         // Bind click once
