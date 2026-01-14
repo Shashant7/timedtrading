@@ -1421,6 +1421,23 @@
                       <span className="text-[#93a4d6]">Stop Loss</span>
                       <span className="font-semibold text-red-400">${trade.sl?.toFixed(2) || "—"}</span>
                     </div>
+                    {trade.status === "TP_HIT_TRIM" && Number.isFinite(trade.trimPrice ?? trade.trim_price) && (
+                      <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                        <span className="text-[#93a4d6]">Trim Price</span>
+                        <span className="font-semibold text-yellow-300">
+                          ${Number(trade.trimPrice ?? trade.trim_price).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    {(trade.status === "WIN" || trade.status === "LOSS") &&
+                      Number.isFinite(trade.exitPrice ?? trade.exit_price) && (
+                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                          <span className="text-[#93a4d6]">Exit Price</span>
+                          <span className="font-semibold text-purple-300">
+                            ${Number(trade.exitPrice ?? trade.exit_price).toFixed(2)}
+                          </span>
+                        </div>
+                      )}
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                       <span className="text-[#93a4d6]">TP (Target)</span>
                       <span className="font-semibold text-green-400">
@@ -1868,6 +1885,8 @@
         const retPct = computeReturnPct(metricsSource);
         const riskPct = computeRiskPct(metricsSource);
         const tpTarget = computeTpTargetPrice(metricsSource);
+        const exitPrice = Number(trade.exitPrice ?? trade.exit_price);
+        const trimPrice = Number(trade.trimPrice ?? trade.trim_price);
 
         // Calculate position values
         // For futures: shares = contracts (always 1), for stocks: calculate from TRADE_SIZE
@@ -2049,9 +2068,22 @@
               {recalculatedPnlPct.toFixed(2)}%
             </td>
             <td className={`p-2 text-sm font-semibold ${statusColor}`}>
-              {trade.status === "TP_HIT_TRIM" 
-                ? `TRIMMED (${((trade.trimmedPct || 0) * 100).toFixed(0)}%)`
-                : trade.status || "OPEN"}
+              <div>
+                {trade.status === "TP_HIT_TRIM"
+                  ? `TRIMMED (${((trade.trimmedPct || 0) * 100).toFixed(0)}%)`
+                  : trade.status || "OPEN"}
+              </div>
+              {trade.status === "TP_HIT_TRIM" && Number.isFinite(trimPrice) && (
+                <div className="text-[10px] text-yellow-300">
+                  Trim @ ${trimPrice.toFixed(2)}
+                </div>
+              )}
+              {(trade.status === "WIN" || trade.status === "LOSS") &&
+                Number.isFinite(exitPrice) && (
+                  <div className="text-[10px] text-purple-300">
+                    Exit @ ${exitPrice.toFixed(2)}
+                  </div>
+                )}
             </td>
             <td className="p-2 text-xs text-[#93a4d6] font-mono">
               {trade.scriptVersion || "unknown"}
@@ -4428,6 +4460,8 @@
                                             <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">RR</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Horizon</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Status</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Outcome</th>
                                           </tr>
@@ -4437,6 +4471,10 @@
                                             const id = t.trade_id;
                                             const pnl = Number(t.pnl || 0);
                                             const isClosed = t.status === "WIN" || t.status === "LOSS";
+                                            const sym = String(t.ticker || "").toUpperCase();
+                                            const live = data && (data[sym] || data[t.ticker]);
+                                            const eta = computeEtaDays(live || t);
+                                            const horizon = computeHorizonBucket(live || t);
                                             return (
                                               <tr
                                                 key={id}
@@ -4463,6 +4501,10 @@
                                                 <td className="p-2 text-sm">{fmtUsd(t.entry_price || 0)}</td>
                                                 <td className="p-2 text-sm text-blue-400 font-semibold">{t.rank ?? "—"}</td>
                                                 <td className="p-2 text-sm">{t.rr != null ? Number(t.rr).toFixed(2) : "—"}</td>
+                                                <td className="p-2 text-sm">
+                                                  {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
+                                                </td>
+                                                <td className="p-2 text-xs text-[#93a4d6]">{horizon}</td>
                                                 <td className="p-2 text-sm">
                                                   {isClosed ? (
                                                     <span className={`px-2 py-0.5 rounded text-xs font-semibold ${t.status === "WIN" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
