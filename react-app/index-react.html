@@ -1266,6 +1266,8 @@
       }
 
       function computeEntryRef(ticker) {
+        const entryRef = Number(ticker?.entry_ref);
+        if (Number.isFinite(entryRef) && entryRef > 0) return entryRef;
         const trigger = Number(ticker?.trigger_price);
         if (Number.isFinite(trigger) && trigger > 0) return trigger;
         const price = Number(ticker?.price);
@@ -1275,6 +1277,8 @@
       function computeTpMaxPrice(ticker) {
         const entry = computeEntryRef(ticker);
         if (!Number.isFinite(entry)) return null;
+        const directMax = Number(ticker?.tp_max_price ?? ticker?.tp_max);
+        if (Number.isFinite(directMax) && directMax > 0) return directMax;
         const dir = getDirectionFromState(ticker);
         const tpLevels = Array.isArray(ticker?.tp_levels)
           ? ticker.tp_levels
@@ -8803,7 +8807,14 @@
                     const conf = getNum(t.eta_confidence);
                     const entryZone = formatEntryZone(t);
                     const sl = Number(t?.sl);
-                    const tp = Number(t?.tp);
+                    const tpMax = computeTpMaxPrice(t);
+                    const tpPrimary = Number(t?.tp);
+                    const tpDisplay =
+                      Number.isFinite(tpMax) && tpMax > 0
+                        ? tpMax
+                        : Number.isFinite(tpPrimary) && tpPrimary > 0
+                        ? tpPrimary
+                        : null;
                     return (
                       <button
                         key={`${bucket}-${t.ticker}`}
@@ -8851,9 +8862,11 @@
                             </span>
                           </div>
                           <div>
-                            <span className="text-[#5b6890]">TP</span>{" "}
+                            <span className="text-[#5b6890]">TP Max</span>{" "}
                             <span className="text-green-400">
-                              {Number.isFinite(tp) ? `$${tp.toFixed(2)}` : "—"}
+                              {Number.isFinite(tpDisplay)
+                                ? `$${tpDisplay.toFixed(2)}`
+                                : "—"}
                             </span>
                           </div>
                         </div>
@@ -10423,12 +10436,36 @@
                       {ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Target Price (TP)</span>
-                    <span className="font-semibold text-green-400">
-                      {ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}
-                    </span>
-                  </div>
+                  {(() => {
+                    const tpMax = computeTpMaxPrice(ticker);
+                    const tpPrimary = Number(ticker?.tp);
+                    const primaryValid = Number.isFinite(tpPrimary) && tpPrimary > 0;
+                    const maxValid = Number.isFinite(tpMax) && tpMax > 0;
+                    const showPrimary =
+                      primaryValid && (!maxValid || Math.abs(tpPrimary - tpMax) > 0.01);
+                    return (
+                      <>
+                        {showPrimary && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">TP (Primary)</span>
+                            <span className="font-semibold text-green-400">
+                              ${tpPrimary.toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                          <span className="text-[#93a4d6]">TP (Max)</span>
+                          <span className="font-semibold text-green-400">
+                            {maxValid
+                              ? `$${tpMax.toFixed(2)}`
+                              : primaryValid
+                              ? `$${tpPrimary.toFixed(2)}`
+                              : "—"}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
 
                   {/* TP Levels Array - Always show if available */}
                   {(() => {
