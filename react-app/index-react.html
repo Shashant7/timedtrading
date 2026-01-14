@@ -1740,6 +1740,15 @@
       function applyFilters(dataObj, filters, trades = []) {
         const out = [];
 
+        const deriveHorizonBucket = (t) => {
+          const etaRaw = t?.eta_days_v2 ?? t?.eta_days;
+          const eta = Number(etaRaw);
+          if (!Number.isFinite(eta) || eta <= 0) return null;
+          if (eta <= 7) return "SHORT_TERM";
+          if (eta <= 30) return "SWING";
+          return "POSITIONAL";
+        };
+
         // Create a set of tickers that have trades (normalize ticker names)
         const tickersWithTrades = new Set();
         if (Array.isArray(trades)) {
@@ -1826,10 +1835,11 @@
             effectiveFilters.horizonBucket &&
             typeof effectiveFilters.horizonBucket === "string"
           ) {
-            const hb = String(d?.horizon_bucket || "")
-              .trim()
-              .toUpperCase();
-            if (hb !== String(effectiveFilters.horizonBucket).toUpperCase()) {
+            const rawBucket = d?.horizon_bucket || deriveHorizonBucket(d) || "";
+            const hb = String(rawBucket).trim().toUpperCase();
+            if (
+              hb !== String(effectiveFilters.horizonBucket).toUpperCase()
+            ) {
               continue;
             }
           }
@@ -8613,8 +8623,15 @@
           return Number.isFinite(n) ? n : null;
         };
 
-        const normBucket = (t) =>
-          String(t?.horizon_bucket || "UNKNOWN").toUpperCase();
+        const normBucket = (t) => {
+          const raw = t?.horizon_bucket;
+          if (raw) return String(raw).toUpperCase();
+          const eta = getNum(t?.eta_days_v2 ?? t?.eta_days);
+          if (!Number.isFinite(eta) || eta <= 0) return "UNKNOWN";
+          if (eta <= 7) return "SHORT_TERM";
+          if (eta <= 30) return "SWING";
+          return "POSITIONAL";
+        };
 
         const byBucket = React.useMemo(() => {
           const list = Array.isArray(tickers) ? tickers : [];
