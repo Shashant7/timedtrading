@@ -216,6 +216,13 @@
         }
       }
 
+      /* Bubble Trail path (prefer readability over animation) */
+      .trail-path {
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 0 4px rgba(0, 255, 255, 0.25));
+      }
+
       @keyframes momentum-pulse-old {
         0%,
         100% {
@@ -1249,6 +1256,106 @@
         // 3. It works even when price hasn't reached trigger yet
         const c = Number(ticker.completion);
         return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
+      }
+
+      // Compute bubble visuals (radius + color) for historical trail points.
+      // NOTE: Trail points from KV/D1 may not include `rr`, so we fall back to `rank`
+      // (similar to the main bubble renderers) to preserve meaningful size variation.
+      // We also scale trail bubble radii down for readability while preserving relative size.
+      function bubbleVisualForTrailPoint(point, tickerSymbol) {
+        const comp =
+          point && point.completion != null ? Number(point.completion) : 0;
+        const validComp = Number.isFinite(comp)
+          ? Math.max(0, Math.min(1, comp))
+          : 0;
+
+        // Prefer explicit phase_pct; otherwise fall back to completion as a proxy
+        const phasePctRaw =
+          point && point.phase_pct != null ? Number(point.phase_pct) : null;
+        const phasePct =
+          phasePctRaw != null && Number.isFinite(phasePctRaw)
+            ? Math.max(0, Math.min(1, phasePctRaw))
+            : validComp > 0
+            ? validComp
+            : 0.1;
+
+        const rrRaw = point && point.rr != null ? Number(point.rr) : null;
+        const rankRaw = point && point.rank != null ? Number(point.rank) : null;
+        const fallbackRR =
+          rankRaw != null && Number.isFinite(rankRaw)
+            ? Math.max(0.5, Math.min(5, rankRaw / 50))
+            : 0.5;
+        const validRR =
+          rrRaw != null && Number.isFinite(rrRaw) && rrRaw > 0
+            ? rrRaw
+            : fallbackRR;
+
+        const cappedRR = Math.min(validRR, 5);
+        const baseSize = 4;
+        const rrMultiplier = 2;
+        const size = baseSize + cappedRR * rrMultiplier * (1 - validComp);
+
+        const sym = String(tickerSymbol || point?.ticker || "")
+          .trim()
+          .toUpperCase();
+        const tickerHash = sym
+          .split("")
+          .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const sizeVariation = (tickerHash % 5) * 0.8;
+        const finalSize = Math.max(baseSize, size + sizeVariation);
+
+        const TRAIL_SIZE_SCALE = 0.7; // keep proportional sizes, less clutter
+        const radius = Math.max(2.5, Math.min(50, finalSize * TRAIL_SIZE_SCALE));
+        const color = phaseCompletionToColor(phasePct);
+        return { radius, color, phasePct, validComp, validRR };
+      }
+
+      // Split a trail into segments when there are big timestamp gaps.
+      // This prevents confusing “teleport” lines (e.g., overnight / missing samples).
+      function splitTrailByGaps(trail, gapMs = 30 * 60 * 1000) {
+        if (!Array.isArray(trail) || trail.length === 0) return [];
+        const segments = [];
+        let cur = [];
+        for (let i = 0; i < trail.length; i++) {
+          const p = trail[i];
+          const prev = i > 0 ? trail[i - 1] : null;
+          const ts = Number(p?.ts);
+          const prevTs = Number(prev?.ts);
+          const hasGap =
+            prev &&
+            Number.isFinite(ts) &&
+            Number.isFinite(prevTs) &&
+            ts - prevTs > gapMs;
+          if (hasGap && cur.length > 0) {
+            segments.push(cur);
+            cur = [];
+          }
+          cur.push(p);
+        }
+        if (cur.length > 0) segments.push(cur);
+        return segments;
+      }
+
+      // Smooth path through points using Catmull-Rom → cubic Bezier conversion.
+      function catmullRomPath(points) {
+        if (!Array.isArray(points) || points.length < 2) return "";
+        const pts = points.map((p) => ({
+          x: Number(p?.x) || 0,
+          y: Number(p?.y) || 0,
+        }));
+        let d = `M ${pts[0].x} ${pts[0].y}`;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = i > 0 ? pts[i - 1] : pts[i];
+          const p1 = pts[i];
+          const p2 = pts[i + 1];
+          const p3 = i + 2 < pts.length ? pts[i + 2] : p2;
+          const c1x = p1.x + (p2.x - p0.x) / 6;
+          const c1y = p1.y + (p2.y - p0.y) / 6;
+          const c2x = p2.x - (p3.x - p1.x) / 6;
+          const c2y = p2.y - (p3.y - p1.y) / 6;
+          d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`;
+        }
+        return d;
       }
 
       // Calculate score breakdown (mirrors worker computeRank logic)
@@ -3354,6 +3461,23 @@
                       <feMergeNode in="SourceGraphic" />
                     </feMerge>
                   </filter>
+
+                  {/* Arrowhead marker for the Bubble Trail path */}
+                  <marker
+                    id="trailArrow"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="6"
+                    markerHeight="6"
+                    orient="auto"
+                  >
+                    <path
+                      d="M 0 0 L 10 5 L 0 10 z"
+                      fill="#00ffff"
+                      opacity="0.8"
+                    />
+                  </marker>
                 </defs>
                 <rect width="100%" height="100%" fill="url(#grid)" />
 
@@ -3649,45 +3773,46 @@
                       `[SELECTED BRANCH] Rendering selected ticker: ${selectedTicker}`
                     )}
                     {/* Trail path - comet effect */}
-                    {selectedTrail &&
-                      selectedTrail.length > 1 &&
-                      selectedTrail.map((point, idx) => {
-                        if (idx === 0) return null;
-                        const prevPoint = selectedTrail[idx - 1];
-                        const x1 =
-                          (Number(prevPoint.ltf_score) || 0) * scaleX +
-                          offsetX +
-                          50 * scaleX;
-                        const y1 =
-                          (Number(prevPoint.htf_score) || 0) * -scaleY +
-                          offsetY +
-                          plotHeight -
-                          50 * scaleY;
-                        const x2 =
-                          (Number(point.ltf_score) || 0) * scaleX +
-                          offsetX +
-                          50 * scaleX;
-                        const y2 =
-                          (Number(point.htf_score) || 0) * -scaleY +
-                          offsetY +
-                          plotHeight -
-                          50 * scaleY;
-                        const opacity =
-                          0.3 + (idx / selectedTrail.length) * 0.5; // Fade in from past to present
-                        return (
-                          <line
-                            key={`trail-${idx}`}
-                            x1={x1}
-                            y1={y1}
-                            x2={x2}
-                            y2={y2}
-                            stroke="#00ffff"
-                            strokeWidth="2"
-                            opacity={opacity}
-                            className="comet-trail"
-                          />
-                        );
-                      })}
+                    {selectedTrail && selectedTrail.length > 1 && (() => {
+                      const GAP_MS = 30 * 60 * 1000; // break across big gaps (e.g., overnight)
+                      const segments = splitTrailByGaps(selectedTrail, GAP_MS);
+                      return segments
+                        .filter((seg) => Array.isArray(seg) && seg.length > 1)
+                        .map((seg, segIdx) => {
+                          const pts = seg.map((p) => ({
+                            x:
+                              (Number(p?.ltf_score) || 0) * scaleX +
+                              offsetX +
+                              50 * scaleX,
+                            y:
+                              (Number(p?.htf_score) || 0) * -scaleY +
+                              offsetY +
+                              plotHeight -
+                              50 * scaleY,
+                          }));
+                          const d = catmullRomPath(pts);
+                          if (!d) return null;
+                          const isLast =
+                            segIdx === segments.length - 1 &&
+                            seg &&
+                            seg.length > 1;
+                          // Keep the path readable (less “busy” than animated dashes).
+                          const opacity = 0.35 + (segIdx / Math.max(1, segments.length - 1)) * 0.25;
+                          return (
+                            <path
+                              key={`trail-path-${segIdx}`}
+                              d={d}
+                              fill="none"
+                              stroke="#00ffff"
+                              strokeWidth="2.25"
+                              opacity={opacity}
+                              className="trail-path"
+                              markerEnd={isLast ? "url(#trailArrow)" : undefined}
+                              pointerEvents="none"
+                            />
+                          );
+                        });
+                    })()}
                     {/* Trail points (smaller bubbles) - show historical positions */}
                     {selectedTrail &&
                       selectedTrail.length > 1 &&
@@ -3711,7 +3836,11 @@
                           offsetY +
                           plotHeight -
                           50 * scaleY;
-                        const size = 3 + (idx / selectedTrail.length) * 4; // Smaller, growing towards present
+                        const visual = bubbleVisualForTrailPoint(
+                          point,
+                          selectedTicker
+                        );
+                        const size = visual.radius; // historical size (scaled down, proportional)
                         const opacity =
                           0.3 + (idx / selectedTrail.length) * 0.4; // Fade in from past to present
 
@@ -3721,9 +3850,9 @@
                             cx={x}
                             cy={y}
                             r={size}
-                            fill="#00ffff"
+                            fill={visual.color}
                             fillOpacity={opacity}
-                            stroke="#00ffff"
+                            stroke={visual.color}
                             strokeWidth="1"
                             strokeOpacity={opacity * 0.5}
                           />
@@ -4848,14 +4977,27 @@
                         stopOpacity="0.6"
                       />
                     </linearGradient>
+
+                    {/* Arrowhead marker for the Bubble Trail path */}
+                    <marker
+                      id="trailArrowRecharts"
+                      viewBox="0 0 10 10"
+                      refX="9"
+                      refY="5"
+                      markerWidth="6"
+                      markerHeight="6"
+                      orient="auto"
+                    >
+                      <path
+                        d="M 0 0 L 10 5 L 0 10 z"
+                        fill="#00ffff"
+                        opacity="0.8"
+                      />
+                    </marker>
                   </defs>
                   <g>
                     {/* Trail lines */}
-                    {selectedTrail.map((point, idx) => {
-                      if (idx === 0) return null;
-                      const prevPoint = selectedTrail[idx - 1];
-                      // Calculate positions relative to chart dimensions
-                      // Recharts uses domain [-50, 50] for both axes
+                    {(() => {
                       const chartWidth =
                         chartContainerRef.current?.clientWidth || 1200;
                       const chartHeight =
@@ -4864,39 +5006,44 @@
                       const plotWidth = chartWidth - 2 * margin;
                       const plotHeight = chartHeight - 2 * margin;
 
-                      const x1 =
-                        (((Number(prevPoint.ltf_score) || 0) + 50) / 100) *
-                          plotWidth +
-                        margin;
-                      const y1 =
-                        ((50 - (Number(prevPoint.htf_score) || 0)) / 100) *
-                          plotHeight +
-                        margin;
-                      const x2 =
-                        (((Number(point.ltf_score) || 0) + 50) / 100) *
-                          plotWidth +
-                        margin;
-                      const y2 =
-                        ((50 - (Number(point.htf_score) || 0)) / 100) *
-                          plotHeight +
-                        margin;
+                      const GAP_MS = 30 * 60 * 1000;
+                      const segments = splitTrailByGaps(selectedTrail, GAP_MS);
 
-                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.5;
-
-                      return (
-                        <line
-                          key={`trail-line-${idx}`}
-                          x1={x1}
-                          y1={y1}
-                          x2={x2}
-                          y2={y2}
-                          stroke="#00ffff"
-                          strokeWidth="2"
-                          opacity={opacity}
-                          className="comet-trail"
-                        />
-                      );
-                    })}
+                      return segments
+                        .filter((seg) => Array.isArray(seg) && seg.length > 1)
+                        .map((seg, segIdx) => {
+                          const pts = seg.map((p) => ({
+                            x:
+                              (((Number(p?.ltf_score) || 0) + 50) / 100) *
+                                plotWidth +
+                              margin,
+                            y:
+                              ((50 - (Number(p?.htf_score) || 0)) / 100) *
+                                plotHeight +
+                              margin,
+                          }));
+                          const d = catmullRomPath(pts);
+                          if (!d) return null;
+                          const isLast = segIdx === segments.length - 1;
+                          const opacity =
+                            0.35 +
+                            (segIdx / Math.max(1, segments.length - 1)) * 0.25;
+                          return (
+                            <path
+                              key={`trail-path-recharts-${segIdx}`}
+                              d={d}
+                              fill="none"
+                              stroke="#00ffff"
+                              strokeWidth="2.25"
+                              opacity={opacity}
+                              className="trail-path"
+                              markerEnd={
+                                isLast ? "url(#trailArrowRecharts)" : undefined
+                              }
+                            />
+                          );
+                        });
+                    })()}
                     {/* Trail points (historical bubbles) */}
                     {selectedTrail.slice(0, -1).map((point, idx) => {
                       const chartWidth =
@@ -4915,11 +5062,13 @@
                         ((50 - (Number(point.htf_score) || 0)) / 100) *
                           plotHeight +
                         margin;
-                      const size = 3 + (idx / selectedTrail.length) * 4;
-                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.4;
-                      const color = phaseCompletionToColor(
-                        point.phase_pct || 0
+                      const visual = bubbleVisualForTrailPoint(
+                        point,
+                        selectedTicker
                       );
+                      const size = visual.radius;
+                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.4;
+                      const color = visual.color;
 
                       return (
                         <circle
@@ -4929,7 +5078,7 @@
                           r={size}
                           fill={color}
                           fillOpacity={opacity}
-                          stroke="#00ffff"
+                          stroke={color}
                           strokeWidth="1"
                           strokeOpacity={opacity * 0.5}
                         />
@@ -12118,6 +12267,12 @@
           return applyFilters(data, effectiveFilters, trades);
         }, [data, effectiveFilters, trades, timeTravelTickers]);
 
+        // Base filtered tickers for Time Travel slider controls.
+        // IMPORTANT: Hooks must never be called conditionally inside JSX.
+        const timeTravelBaseTickers = useMemo(() => {
+          return applyFilters(data, effectiveFilters, trades);
+        }, [data, effectiveFilters, trades]);
+
         // Compute dynamic ranks once for all tickers to ensure consistency
         // IMPORTANT: Use ALL tickers from data, not filtered tickers, for Ranked List
         const allTickersForRanking = useMemo(() => {
@@ -12483,15 +12638,7 @@
                         }`}
                       >
                         <TimeTravelSlider
-                          tickers={useMemo(() => {
-                            const filtered = applyFilters(
-                              data,
-                              effectiveFilters,
-                              trades
-                            );
-                            // If ticker filter is active, show which tickers are being tracked
-                            return filtered;
-                          }, [data, effectiveFilters, trades])}
+                          tickers={timeTravelBaseTickers}
                           allTickers={data}
                           data={data}
                           onTimeChange={setTimeTravelTickers}

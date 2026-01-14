@@ -4040,7 +4040,12 @@ function inferExitReasonForLegacyTrade(trade, exitEvent) {
   return "unknown";
 }
 
-async function d1GetNearestTrailPayload(db, ticker, targetTs, windowMs = 2 * 60 * 60 * 1000) {
+async function d1GetNearestTrailPayload(
+  db,
+  ticker,
+  targetTs,
+  windowMs = 2 * 60 * 60 * 1000
+) {
   if (!db) return null;
   const sym = String(ticker || "").toUpperCase();
   const ts = Number(targetTs);
@@ -4061,7 +4066,10 @@ async function d1GetNearestTrailPayload(db, ticker, targetTs, windowMs = 2 * 60 
       .first();
     if (!row || !row.payload_json) return null;
     try {
-      return { ts: Number(row.ts), payload: JSON.parse(String(row.payload_json)) };
+      return {
+        ts: Number(row.ts),
+        payload: JSON.parse(String(row.payload_json)),
+      };
     } catch {
       return null;
     }
@@ -7722,7 +7730,7 @@ export default {
           KV,
           ip,
           "/timed/tickers",
-          1000, // Increased for single-user
+          20000, // Increased: UI polling + multiple tabs
           3600
         );
 
@@ -7750,7 +7758,7 @@ export default {
           KV,
           ip,
           "/timed/all",
-          1000,
+          20000,
           3600
         ); // Increased for single-user
 
@@ -10201,7 +10209,12 @@ export default {
           for (const ev of events) {
             const ts = Number(ev.ts);
             if (!ticker || !Number.isFinite(ts)) continue;
-            const snap = await d1GetNearestTrailPayload(db, ticker, ts, 2 * 60 * 60 * 1000);
+            const snap = await d1GetNearestTrailPayload(
+              db,
+              ticker,
+              ts,
+              2 * 60 * 60 * 1000
+            );
             if (snap && snap.payload) {
               evidence.push({
                 event_id: ev.event_id,
