@@ -4,6 +4,16 @@ This guide helps you access and analyze Cloudflare Worker logs to diagnose Disco
 
 ## Quick Start
 
+## Prerequisite: Enable Worker Logs in Cloudflare
+
+Cloudflare **does not stream any logs** to the Dashboard “Logs” tab (or to `wrangler tail`) unless **Worker Logs are enabled** for the worker.
+
+1. Go to **Cloudflare Dashboard** → **Workers & Pages** → `timed-trading-ingest`
+2. Open **Settings** → **Observability** (or **Logs** depending on UI)
+3. **Enable Worker Logs** (sometimes shown as “Tail logs” / “Workers Logs”)
+
+After enabling, use the commands below.
+
 ### Option 1: Using Wrangler CLI (Recommended)
 
 1. **Install Wrangler** (if not already installed):
@@ -19,7 +29,7 @@ This guide helps you access and analyze Cloudflare Worker logs to diagnose Disco
 3. **Fetch logs**:
    ```bash
    cd worker
-   wrangler tail --format pretty > logs.txt
+   wrangler tail --env production --format pretty > logs.txt
    ```
    
    Or use the helper script:

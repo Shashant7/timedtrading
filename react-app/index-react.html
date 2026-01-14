@@ -1304,7 +1304,8 @@
         const sizeVariation = (tickerHash % 5) * 0.8;
         const finalSize = Math.max(baseSize, size + sizeVariation);
 
-        const TRAIL_SIZE_SCALE = 0.7; // keep proportional sizes, less clutter
+        // Trail bubbles should reflect their true size-at-the-time.
+        const TRAIL_SIZE_SCALE = 1.0;
         const radius = Math.max(2.5, Math.min(50, finalSize * TRAIL_SIZE_SCALE));
         const color = phaseCompletionToColor(phasePct);
         return { radius, color, phasePct, validComp, validRR };
@@ -3105,6 +3106,7 @@
         onHover,
         selectedTicker,
         selectedTrail,
+        highlightTrailPoint = null,
         allData,
         allTickersWithRanksForComparison,
       }) {
@@ -3882,6 +3884,67 @@
                           />
                         );
                       })}
+                    {/* Highlight a specific historical point (from Bubble Journey hover/click) */}
+                    {highlightTrailPoint &&
+                      Number.isFinite(Number(highlightTrailPoint?.ltf_score)) &&
+                      Number.isFinite(Number(highlightTrailPoint?.htf_score)) &&
+                      (() => {
+                        const hx =
+                          (Number(highlightTrailPoint.ltf_score) || 0) * scaleX +
+                          offsetX +
+                          50 * scaleX;
+                        const hy =
+                          (Number(highlightTrailPoint.htf_score) || 0) *
+                            -scaleY +
+                          offsetY +
+                          plotHeight -
+                          50 * scaleY;
+                        const visual = bubbleVisualForTrailPoint(
+                          highlightTrailPoint,
+                          selectedTicker
+                        );
+                        const r = Math.max(3, Number(visual?.radius) || 6);
+                        return (
+                          <g
+                            key={`trail-highlight-${String(
+                              highlightTrailPoint?.ts ?? ""
+                            )}`}
+                            pointerEvents="none"
+                          >
+                            <circle
+                              cx={hx}
+                              cy={hy}
+                              r={r + 3}
+                              fill="none"
+                              stroke="#00ffff"
+                              strokeWidth="2.25"
+                              opacity="0.9"
+                            >
+                              <animate
+                                attributeName="r"
+                                values={`${r + 2};${r + 10};${r + 2}`}
+                                dur="1.4s"
+                                repeatCount="indefinite"
+                              />
+                              <animate
+                                attributeName="opacity"
+                                values="0.95;0.25;0.95"
+                                dur="1.4s"
+                                repeatCount="indefinite"
+                              />
+                            </circle>
+                            <circle
+                              cx={hx}
+                              cy={hy}
+                              r={r + 1}
+                              fill="none"
+                              stroke={visual?.color || "#00ffff"}
+                              strokeWidth="1.5"
+                              opacity="0.8"
+                            />
+                          </g>
+                        );
+                      })()}
                     {/* Current position (larger, highlighted) */}
                     {(() => {
                       console.log(
@@ -5108,6 +5171,77 @@
                         />
                       );
                     })}
+                    {/* Highlight a specific historical point (from Bubble Journey hover/click) */}
+                    {highlightTrailPoint &&
+                      Number.isFinite(Number(highlightTrailPoint?.ltf_score)) &&
+                      Number.isFinite(Number(highlightTrailPoint?.htf_score)) &&
+                      (() => {
+                        const chartWidth =
+                          chartContainerRef.current?.clientWidth || 1200;
+                        const chartHeight =
+                          chartContainerRef.current?.clientHeight || 800;
+                        const margin = 20;
+                        const plotWidth = chartWidth - 2 * margin;
+                        const plotHeight = chartHeight - 2 * margin;
+
+                        const hx =
+                          (((Number(highlightTrailPoint.ltf_score) || 0) + 50) /
+                            100) *
+                            plotWidth +
+                          margin;
+                        const hy =
+                          ((50 - (Number(highlightTrailPoint.htf_score) || 0)) /
+                            100) *
+                            plotHeight +
+                          margin;
+
+                        const visual = bubbleVisualForTrailPoint(
+                          highlightTrailPoint,
+                          selectedTicker
+                        );
+                        const r = Math.max(3, Number(visual?.radius) || 6);
+
+                        return (
+                          <g
+                            key={`trail-highlight-recharts-${String(
+                              highlightTrailPoint?.ts ?? ""
+                            )}`}
+                            pointerEvents="none"
+                          >
+                            <circle
+                              cx={hx}
+                              cy={hy}
+                              r={r + 3}
+                              fill="none"
+                              stroke="#00ffff"
+                              strokeWidth="2.25"
+                              opacity="0.9"
+                            >
+                              <animate
+                                attributeName="r"
+                                values={`${r + 2};${r + 10};${r + 2}`}
+                                dur="1.4s"
+                                repeatCount="indefinite"
+                              />
+                              <animate
+                                attributeName="opacity"
+                                values="0.95;0.25;0.95"
+                                dur="1.4s"
+                                repeatCount="indefinite"
+                              />
+                            </circle>
+                            <circle
+                              cx={hx}
+                              cy={hy}
+                              r={r + 1}
+                              fill="none"
+                              stroke={visual?.color || "#00ffff"}
+                              strokeWidth="1.5"
+                              opacity="0.8"
+                            />
+                          </g>
+                        );
+                      })()}
                   </g>
                 </svg>
               )}
@@ -8991,6 +9125,9 @@
         onClose,
         allLoadedData = null,
         sectors = [],
+        onJourneyHover = null,
+        onJourneySelect = null,
+        selectedJourneyTs = null,
       }) {
         const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
 
@@ -9533,10 +9670,42 @@
                               : p.rr_at_alert != null && Number.isFinite(Number(p.rr_at_alert))
                               ? Number(p.rr_at_alert).toFixed(2)
                               : "—";
+                          const isSelected =
+                            selectedJourneyTs != null &&
+                            Number.isFinite(ts) &&
+                            Number(ts) === Number(selectedJourneyTs);
+
+                          const pointForChart = {
+                            ts: Number.isFinite(ts) ? ts : null,
+                            htf_score:
+                              p.htf_score != null ? Number(p.htf_score) : null,
+                            ltf_score:
+                              p.ltf_score != null ? Number(p.ltf_score) : null,
+                            phase_pct:
+                              p.phase_pct != null ? Number(p.phase_pct) : null,
+                            completion:
+                              p.completion != null ? Number(p.completion) : null,
+                            rank: p.rank != null ? Number(p.rank) : null,
+                            rr: p.rr != null ? Number(p.rr) : null,
+                            state: p.state || null,
+                          };
                           return (
                             <div
                               key={`${ts}-${idx}`}
-                              className="px-2 py-1 bg-[#121a33] border border-[#26325f] rounded flex items-center justify-between gap-2"
+                              className={`px-2 py-1 bg-[#121a33] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                                isSelected
+                                  ? "border-cyan-400/80 bg-cyan-500/10"
+                                  : "border-[#26325f] hover:border-cyan-400/40 hover:bg-[#16224a]"
+                              }`}
+                              onMouseEnter={() => {
+                                if (onJourneyHover) onJourneyHover(pointForChart);
+                              }}
+                              onMouseLeave={() => {
+                                if (onJourneyHover) onJourneyHover(null);
+                              }}
+                              onClick={() => {
+                                if (onJourneySelect) onJourneySelect(pointForChart);
+                              }}
                             >
                               <div className="min-w-0">
                                 <div className="text-[10px] text-[#93a4d6]">
@@ -11922,7 +12091,14 @@
       // ─────────────────────────────────────────────────────────────
       // TickerDetailsLoader - must be defined before App
       // ─────────────────────────────────────────────────────────────
-      const TickerDetailsLoader = ({ tickerSymbol, onClose }) => {
+      const TickerDetailsLoader = ({
+        tickerSymbol,
+        onClose,
+        sectors = [],
+        onJourneyHover = null,
+        onJourneySelect = null,
+        selectedJourneyTs = null,
+      }) => {
         const [tickerData, setTickerData] = useState(null);
         const [allLoadedData, setAllLoadedData] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -12029,6 +12205,9 @@
             onClose={onClose}
             allLoadedData={allLoadedData}
             sectors={sectors}
+            onJourneyHover={onJourneyHover}
+            onJourneySelect={onJourneySelect}
+            selectedJourneyTs={selectedJourneyTs}
           />
         );
       };
@@ -12042,6 +12221,9 @@
         data,
         onClose,
         sectors = [],
+        onJourneyHover = null,
+        onJourneySelect = null,
+        selectedJourneyTs = null,
       }) => {
         if (!selectedTicker) return null;
 
@@ -12090,6 +12272,11 @@
               <TickerDetailsLoader
                 tickerSymbol={tickerUpper}
                 onClose={onClose}
+                allLoadedData={data}
+                sectors={sectors}
+                onJourneyHover={onJourneyHover}
+                onJourneySelect={onJourneySelect}
+                selectedJourneyTs={selectedJourneyTs}
               />
             );
           }
@@ -12102,6 +12289,10 @@
               trade={null}
               onClose={onClose}
               allLoadedData={data}
+              sectors={sectors}
+              onJourneyHover={onJourneyHover}
+              onJourneySelect={onJourneySelect}
+              selectedJourneyTs={selectedJourneyTs}
             />
           );
 
@@ -12166,6 +12357,8 @@
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [selectedTrail, setSelectedTrail] = useState(null);
         const [hoveredTicker, setHoveredTicker] = useState(null);
+        const [journeyHoverPoint, setJourneyHoverPoint] = useState(null);
+        const [journeySelectedPoint, setJourneySelectedPoint] = useState(null);
         const [chatOpen, setChatOpen] = useState(false);
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(() => {
           // Check if user has seen dashboard welcome page before
@@ -12180,6 +12373,10 @@
         // Fetch trail data when ticker is selected
         useEffect(() => {
           if (selectedTicker) {
+            // Reset any journey highlight when switching tickers
+            setJourneyHoverPoint(null);
+            setJourneySelectedPoint(null);
+
             // ✅ Immediately set to empty array to trigger selected-only view
             setSelectedTrail([]);
 
@@ -12770,6 +12967,9 @@
                               onHover={setHoveredTicker}
                               selectedTicker={selectedTicker}
                               selectedTrail={selectedTrail}
+                              highlightTrailPoint={
+                                journeyHoverPoint || journeySelectedPoint
+                              }
                               allData={data}
                               allTickersWithRanksForComparison={
                                 allTickersWithRanks
@@ -12789,6 +12989,11 @@
                           data={data}
                           onClose={() => handleTickerSelect(null)}
                           sectors={sectors}
+                          onJourneyHover={setJourneyHoverPoint}
+                          onJourneySelect={(p) => {
+                            setJourneySelectedPoint(p);
+                          }}
+                          selectedJourneyTs={journeySelectedPoint?.ts ?? null}
                         />
                       </div>
                     )}

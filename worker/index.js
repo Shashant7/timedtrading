@@ -927,16 +927,12 @@ function fuseTPCandidates(tpCandidates, entryPrice, direction, risk) {
 
       const sources = Array.from(
         new Set(
-          c.items
-            .map((x) => String(x.tp?.source || "").trim())
-            .filter(Boolean)
+          c.items.map((x) => String(x.tp?.source || "").trim()).filter(Boolean)
         )
       );
       const types = Array.from(
         new Set(
-          c.items
-            .map((x) => String(x.tp?.type || "").trim())
-            .filter(Boolean)
+          c.items.map((x) => String(x.tp?.type || "").trim()).filter(Boolean)
         )
       );
 
@@ -950,8 +946,12 @@ function fuseTPCandidates(tpCandidates, entryPrice, direction, risk) {
 
       return {
         price,
-        source: sources.length > 0 ? `FUSED(${c.items.length}): ${sources.slice(0, 2).join(", ")}` : `FUSED(${c.items.length})`,
-        type: types.length > 0 ? `FUSED:${types.slice(0, 2).join(",")}` : "FUSED",
+        source:
+          sources.length > 0
+            ? `FUSED(${c.items.length}): ${sources.slice(0, 2).join(", ")}`
+            : `FUSED(${c.items.length})`,
+        type:
+          types.length > 0 ? `FUSED:${types.slice(0, 2).join(",")}` : "FUSED",
         timeframe: bestTf || "D",
         confidence,
         multiplier: null,
@@ -5090,8 +5090,12 @@ function createTradeTrimmedEmbed(
         .map((tp) => {
           const pct = Math.round(tp.trimPct * 100);
           const meta =
-            tp.timeframe || tp.source ? ` (${[tp.timeframe, tp.source].filter(Boolean).join(", ")})` : "";
-          return `**${tp.label || `TP (${pct}%)`}:** $${tp.price.toFixed(2)} (${pct}%)${meta}`;
+            tp.timeframe || tp.source
+              ? ` (${[tp.timeframe, tp.source].filter(Boolean).join(", ")})`
+              : "";
+          return `**${tp.label || `TP (${pct}%)`}:** $${tp.price.toFixed(
+            2
+          )} (${pct}%)${meta}`;
         })
         .join("\n"),
       inline: false,
@@ -8250,46 +8254,54 @@ export default {
           const limit =
             limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 5000;
 
-          // Prefer D1 for longer history
+          // Prefer D1 for longer history, but fall back to KV if D1 is empty/sparse.
           const d1Result = await d1GetTrailRange(env, ticker, since, limit);
-          // IMPORTANT:
-          // D1 can be "ok" but still return 0 rows (e.g. not backfilled / not ingesting),
-          // while KV may still have a rolling trail window. In that case we should
-          // fall back to KV so the UI can render *something*.
           const d1Trail =
             d1Result && Array.isArray(d1Result.trail) ? d1Result.trail : [];
-          if (d1Result.ok && d1Trail.length > 0) {
-            return sendJSON(
-              {
-                ok: true,
-                ticker,
-                trail: d1Trail,
-                count: d1Trail.length,
-                source: d1Result.source,
-              },
-              200,
-              {
-                ...corsHeaders(env, req),
-                "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
-                "X-RateLimit-Remaining": String(rateLimit.remaining ?? 0),
-                "X-RateLimit-Reset": String(rateLimit.resetAt ?? Date.now()),
-              }
-            );
-          }
 
-          // KV fallback (small rolling window)
-          let trail = [];
+          // KV (rolling window) — also used as fallback when D1 is sparse.
+          let kvTrail = [];
           try {
-            trail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
-            if (!Array.isArray(trail)) trail = [];
+            kvTrail = (await kvGetJSON(KV, `timed:trail:${ticker}`)) || [];
+            if (!Array.isArray(kvTrail)) kvTrail = [];
           } catch (kvError) {
             console.error(`[TRAIL] KV read error for ${ticker}:`, kvError);
-            trail = [];
+            kvTrail = [];
           }
 
           if (since != null && Number.isFinite(since)) {
-            trail = trail.filter((p) => Number(p?.ts) >= since);
+            kvTrail = kvTrail.filter((p) => Number(p?.ts) >= since);
           }
+
+          // IMPORTANT:
+          // D1 can be "ok" but still return very few rows (e.g. not backfilled / intermittent writes),
+          // while KV may still have a healthy recent window. If D1 is sparse and KV is richer,
+          // return KV so the UI can render a usable trail.
+          if (d1Result.ok && d1Trail.length > 0) {
+            const d1IsSparse = d1Trail.length < 2;
+            const kvIsRicher = kvTrail.length > d1Trail.length;
+            if (!d1IsSparse || !kvIsRicher) {
+              return sendJSON(
+                {
+                  ok: true,
+                  ticker,
+                  trail: d1Trail,
+                  count: d1Trail.length,
+                  source: d1Result.source,
+                },
+                200,
+                {
+                  ...corsHeaders(env, req),
+                  "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
+                  "X-RateLimit-Remaining": String(rateLimit.remaining ?? 0),
+                  "X-RateLimit-Reset": String(rateLimit.resetAt ?? Date.now()),
+                }
+              );
+            }
+          }
+
+          // KV response (either fallback, or D1 is sparse/unavailable)
+          const trail = kvTrail;
 
           return sendJSON(
             {
@@ -8299,7 +8311,9 @@ export default {
               count: trail.length,
               source: "kv",
               note: d1Result.ok
-                ? "D1 returned 0 rows (falling back to KV)"
+                ? d1Trail.length > 0
+                  ? `D1 returned sparse rows (${d1Trail.length}) — using KV recent window`
+                  : "D1 returned 0 rows (falling back to KV)"
                 : d1Result.skipped
                 ? `D1 unavailable (${d1Result.reason || "unknown"})`
                 : d1Result.error

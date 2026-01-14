@@ -32,12 +32,12 @@ echo ""
 cd "$(dirname "$0")/../worker" || exit 1
 
 echo "=== Discord Alert Related Logs ==="
-wrangler tail --format pretty 2>&1 | grep -E "(DISCORD|ALERT|corridor|enteredCorridor)" | head -100
+wrangler tail --env production --format pretty 2>&1 | grep -E "(DISCORD|ALERT|corridor|enteredCorridor)" | head -100
 
 echo ""
 echo "=== All Recent Logs ==="
-wrangler tail --format pretty 2>&1 | head -100
+wrangler tail --env production --format pretty 2>&1 | head -100
 
 echo ""
-echo "💡 Tip: To see live logs, run: wrangler tail"
-echo "💡 To filter for specific ticker: wrangler tail | grep TICKER"
+echo "💡 Tip: To see live logs, run: wrangler tail --env production"
+echo "💡 To filter for specific ticker: wrangler tail --env production | grep TICKER"
