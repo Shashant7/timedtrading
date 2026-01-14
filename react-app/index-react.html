@@ -1356,6 +1356,19 @@
         return `$${low.toFixed(2)}–$${high.toFixed(2)}`;
       }
 
+      function formatIngestTime(ticker) {
+        const raw = ticker?.ingest_time ?? ticker?.ingest_ts ?? ticker?.ts;
+        if (raw == null) return "—";
+        const ms =
+          typeof raw === "number" ? raw : new Date(String(raw)).getTime();
+        if (!Number.isFinite(ms)) return "—";
+        try {
+          return new Date(ms).toLocaleString();
+        } catch (e) {
+          return new Date(ms).toISOString();
+        }
+      }
+
       // Compute bubble visuals (radius + color) for historical trail points.
       // NOTE: Trail points from KV/D1 may not include `rr`, so we fall back to `rank`
       // (similar to the main bubble renderers) to preserve meaningful size variation.
@@ -8825,6 +8838,10 @@
                         : Number.isFinite(tpMax) && tpMax > 0
                         ? tpMax
                         : null;
+                    const price = Number(t?.price);
+                    const staleness = String(t?.staleness || "").toUpperCase();
+                    const isStale = staleness && staleness !== "FRESH";
+                    const ingestText = formatIngestTime(t);
                     return (
                       <button
                         key={`${bucket}-${t.ticker}`}
@@ -8838,6 +8855,19 @@
                           </div>
                           <div className="text-[10px] text-[#93a4d6]">
                             Score {Number(t.dynamicRank || t.rank || 0).toFixed(1)}
+                          </div>
+                        </div>
+                        <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-[#93a4d6]">
+                          <div className="text-white">
+                            {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isStale && (
+                              <span className="px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300 border border-yellow-500/40">
+                                Delayed
+                              </span>
+                            )}
+                            <span className="text-[#6b7a9f]">{ingestText}</span>
                           </div>
                         </div>
                         <div className="mt-1 grid grid-cols-3 gap-2 text-[10px] text-[#93a4d6]">
