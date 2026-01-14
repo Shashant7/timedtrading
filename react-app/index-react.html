@@ -1332,6 +1332,16 @@
         return Number.isFinite(eta) ? eta : null;
       }
 
+      function formatEntryZone(ticker) {
+        const entry = computeEntryRef(ticker);
+        const price = Number(ticker?.price);
+        if (!Number.isFinite(entry) || !Number.isFinite(price)) return "—";
+        const low = Math.min(entry, price);
+        const high = Math.max(entry, price);
+        if (Math.abs(high - low) < 0.01) return `$${entry.toFixed(2)}`;
+        return `$${low.toFixed(2)}–$${high.toFixed(2)}`;
+      }
+
       // Compute bubble visuals (radius + color) for historical trail points.
       // NOTE: Trail points from KV/D1 may not include `rr`, so we fall back to `rank`
       // (similar to the main bubble renderers) to preserve meaningful size variation.
@@ -8791,6 +8801,9 @@
                     const retPct = computeReturnPct(t);
                     const riskPct = computeRiskPct(t);
                     const conf = getNum(t.eta_confidence);
+                    const entryZone = formatEntryZone(t);
+                    const sl = Number(t?.sl);
+                    const tp = Number(t?.tp);
                     return (
                       <button
                         key={`${bucket}-${t.ticker}`}
@@ -8823,6 +8836,24 @@
                             <span className="text-[#6b7a9f]">Risk</span>{" "}
                             <span className="text-white">
                               {riskPct != null ? `${riskPct.toFixed(1)}%` : "—"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-1 grid grid-cols-3 gap-2 text-[10px] text-[#6b7a9f]">
+                          <div>
+                            <span className="text-[#5b6890]">Entry</span>{" "}
+                            <span className="text-white">{entryZone}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#5b6890]">SL</span>{" "}
+                            <span className="text-red-400">
+                              {Number.isFinite(sl) ? `$${sl.toFixed(2)}` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#5b6890]">TP</span>{" "}
+                            <span className="text-green-400">
+                              {Number.isFinite(tp) ? `$${tp.toFixed(2)}` : "—"}
                             </span>
                           </div>
                         </div>
@@ -10332,9 +10363,58 @@
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Horizon</span>
+                    <span className="font-semibold">
+                      {(() => {
+                        const bucket = String(ticker.horizon_bucket || "")
+                          .trim()
+                          .toUpperCase();
+                        if (bucket) return bucket.replace("_", " ");
+                        const eta = computeEtaDays(ticker);
+                        if (!Number.isFinite(eta)) return "—";
+                        if (eta <= 7) return "SHORT TERM";
+                        if (eta <= 30) return "SWING";
+                        return "POSITIONAL";
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">ETA</span>
+                    <span className="font-semibold">
+                      {(() => {
+                        const eta = computeEtaDays(ticker);
+                        return Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—";
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Return %</span>
+                    <span className="font-semibold text-green-400">
+                      {(() => {
+                        const ret = computeReturnPct(ticker);
+                        return Number.isFinite(ret) ? `${ret.toFixed(1)}%` : "—";
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Risk %</span>
+                    <span className="font-semibold text-red-400">
+                      {(() => {
+                        const risk = computeRiskPct(ticker);
+                        return Number.isFinite(risk) ? `${risk.toFixed(1)}%` : "—";
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Price</span>
                     <span className="font-semibold">
                       ${ticker.price ? Number(ticker.price).toFixed(2) : "—"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                    <span className="text-[#93a4d6]">Entry Zone</span>
+                    <span className="font-semibold text-white">
+                      {formatEntryZone(ticker)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
