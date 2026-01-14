@@ -1275,6 +1275,47 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     tpArray = buildIntelligentTPArray(tickerData, entryPrice, direction);
   }
 
+  // Defensive: If an entry price was corrected after the trade was created,
+  // an older stored tpArray may no longer be on the profit side (e.g. TP < entry for LONG),
+  // which can cause "TP trims" at a loss. Filter + rebuild if needed.
+  const isLong = direction === "LONG";
+  const minDistancePct = 0.01; // keep consistent with buildIntelligentTPArray
+  const isProfitSide = (tpPrice) =>
+    isLong
+      ? tpPrice > entryPrice && (tpPrice - entryPrice) / entryPrice >= minDistancePct
+      : tpPrice < entryPrice && (entryPrice - tpPrice) / entryPrice >= minDistancePct;
+
+  const sanitizedTpArray = Array.isArray(tpArray)
+    ? tpArray
+        .map((tp) => ({
+          ...tp,
+          price: Number(tp?.price),
+          trimPct: Number(tp?.trimPct),
+          label: tp?.label,
+        }))
+        .filter(
+          (tp) =>
+            Number.isFinite(tp.price) &&
+            Number.isFinite(tp.trimPct) &&
+            tp.trimPct > 0 &&
+            tp.trimPct <= 1 &&
+            isProfitSide(tp.price)
+        )
+        .sort((a, b) => (a.trimPct || 0) - (b.trimPct || 0))
+    : [];
+
+  // If the stored TP plan becomes invalid after entry corrections, rebuild it.
+  if (sanitizedTpArray.length === 0) {
+    const rebuilt = buildIntelligentTPArray(tickerData, entryPrice, direction);
+    if (Array.isArray(rebuilt) && rebuilt.length > 0) {
+      tpArray = rebuilt;
+    } else {
+      tpArray = [];
+    }
+  } else {
+    tpArray = sanitizedTpArray;
+  }
+
   // Fallback to single TP if array is empty
   const fallbackTP =
     existingTrade?.tp || getIntelligentTP(tickerData, entryPrice, direction);
@@ -1283,7 +1324,6 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
   }
 
   const trimmedPct = existingTrade ? existingTrade.trimmedPct || 0 : 0;
-  const isLong = direction === "LONG";
 
   // Check which TP levels have been hit (sorted by trim percentage)
   const hitTPLevels = [];
@@ -2209,8 +2249,58 @@ async function processTradeSimulation(
           trimmedPct: tradeCalc.trimmedPct || existingOpenTrade.trimmedPct || 0,
           lastUpdate: new Date().toISOString(),
           sl: Number(tickerData.sl) || existingOpenTrade.sl,
-          tp: Number(tickerData.tp) || existingOpenTrade.tp,
-          rr: Number(tickerData.rr) || existingOpenTrade.rr,
+          // Prefer the trade's TP plan (may be rebuilt after entry corrections)
+          tpArray:
+            tradeCalc.tpArray && Array.isArray(tradeCalc.tpArray)
+              ? tradeCalc.tpArray
+              : existingOpenTrade.tpArray,
+          tp: (() => {
+            const arr =
+              tradeCalc.tpArray && Array.isArray(tradeCalc.tpArray)
+                ? tradeCalc.tpArray
+                : existingOpenTrade.tpArray;
+            const first =
+              Array.isArray(arr) && arr.length > 0
+                ? arr
+                    .map((x) => ({ price: Number(x?.price), trimPct: Number(x?.trimPct) }))
+                    .filter((x) => Number.isFinite(x.price) && Number.isFinite(x.trimPct))
+                    .sort((a, b) => a.trimPct - b.trimPct)[0]?.price
+                : null;
+            return Number.isFinite(first)
+              ? first
+              : Number(tickerData.tp) || existingOpenTrade.tp;
+          })(),
+          rr: (() => {
+            const slVal = Number(tickerData.sl) || existingOpenTrade.sl;
+            const risk = Math.abs(correctedEntryPrice - Number(slVal));
+            const arr =
+              tradeCalc.tpArray && Array.isArray(tradeCalc.tpArray)
+                ? tradeCalc.tpArray
+                : existingOpenTrade.tpArray;
+            const prices = Array.isArray(arr)
+              ? arr.map((x) => Number(x?.price)).filter((p) => Number.isFinite(p))
+              : [];
+            const exitTp =
+              prices.length > 0
+                ? direction === "LONG"
+                  ? Math.max(...prices)
+                  : Math.min(...prices)
+                : null;
+            const gain =
+              Number.isFinite(exitTp) && risk > 0
+                ? direction === "LONG"
+                  ? exitTp - correctedEntryPrice
+                  : correctedEntryPrice - exitTp
+                : null;
+            const rrCalc =
+              risk > 0 && gain != null && gain > 0 ? gain / risk : null;
+            return (
+              rrCalc ||
+              Number(tickerData.rr) ||
+              existingOpenTrade.rr ||
+              0
+            );
+          })(),
           rank: Number(tickerData.rank) || existingOpenTrade.rank,
           history: history,
           exitReason:
