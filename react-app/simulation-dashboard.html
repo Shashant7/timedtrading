@@ -185,6 +185,18 @@
         return "POSITIONAL";
       }
 
+      function computeHorizonKey(src) {
+        const bucket = String(src?.horizon_bucket || "")
+          .trim()
+          .toUpperCase();
+        if (bucket) return bucket;
+        const eta = computeEtaDays(src);
+        if (!Number.isFinite(eta)) return "UNKNOWN";
+        if (eta <= 7) return "SHORT_TERM";
+        if (eta <= 30) return "SWING";
+        return "POSITIONAL";
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Hooks
       // ─────────────────────────────────────────────────────────────
@@ -811,6 +823,42 @@
             return Array.isArray(hist) && hist.some((e) => e && e.type === "TRIM");
           };
 
+          const horizonKeyForTrade = (trade) => {
+            if (!trade) return "UNKNOWN";
+            return computeHorizonKey(trade);
+          };
+
+          const computeExcursions = (trade) => {
+            if (!trade) return null;
+            const entry = Number(trade.entryPrice);
+            if (!Number.isFinite(entry) || entry <= 0) return null;
+            const prices = [entry];
+            if (Array.isArray(trade.history)) {
+              trade.history.forEach((e) => {
+                if (e && Number.isFinite(Number(e.price))) {
+                  prices.push(Number(e.price));
+                }
+              });
+            }
+            const exit = Number(trade.exitPrice ?? trade.exit_price);
+            if (Number.isFinite(exit)) prices.push(exit);
+            const current = Number(trade.currentPrice);
+            if (Number.isFinite(current)) prices.push(current);
+            const maxP = Math.max(...prices);
+            const minP = Math.min(...prices);
+            const isLong = String(trade.direction || "").toUpperCase() !== "SHORT";
+            const mfe = isLong ? maxP - entry : entry - minP;
+            const mae = isLong ? entry - minP : maxP - entry;
+            const mfePct = (mfe / entry) * 100;
+            const maePct = (mae / entry) * 100;
+            return {
+              mfe: Number.isFinite(mfe) ? mfe : null,
+              mae: Number.isFinite(mae) ? mae : null,
+              mfePct: Number.isFinite(mfePct) ? mfePct : null,
+              maePct: Number.isFinite(maePct) ? maePct : null,
+            };
+          };
+
           // Helper to check if trade has remaining shares/contracts (not fully closed)
           const hasRemainingShares = (t) => {
             const tickerSym = String(t.ticker || "").toUpperCase();
@@ -913,6 +961,109 @@
             ? losingTrades.reduce((sum, t) => sum + Math.abs(t.pnl || 0), 0) / losingTrades.length
             : 0;
           const profitFactor = avgLoss > 0 ? avgWin / avgLoss : avgWin > 0 ? Infinity : 0;
+
+          const excursionStats = closed
+            .map((t) => computeExcursions(t))
+            .filter(Boolean);
+          const avgMfePct =
+            excursionStats.length > 0
+              ? excursionStats.reduce((s, x) => s + (x.mfePct || 0), 0) /
+                excursionStats.length
+              : 0;
+          const avgMaePct =
+            excursionStats.length > 0
+              ? excursionStats.reduce((s, x) => s + (x.maePct || 0), 0) /
+                excursionStats.length
+              : 0;
+
+          const capturedStats = closed
+            .map((t) => {
+              const entry = Number(t.entryPrice);
+              const exit = Number(t.exitPrice ?? t.exit_price);
+              const target = Number(t.tp_target_price ?? t.tp);
+              if (
+                !Number.isFinite(entry) ||
+                !Number.isFinite(exit) ||
+                !Number.isFinite(target)
+              )
+                return null;
+              const isLong = String(t.direction || "").toUpperCase() !== "SHORT";
+              const denom = isLong ? target - entry : entry - target;
+              const num = isLong ? exit - entry : entry - exit;
+              if (!Number.isFinite(denom) || Math.abs(denom) < EPS) return null;
+              const pct = (num / denom) * 100;
+              return Number.isFinite(pct) ? pct : null;
+            })
+            .filter((v) => Number.isFinite(v));
+          const avgCapturedPct =
+            capturedStats.length > 0
+              ? capturedStats.reduce((s, v) => s + v, 0) / capturedStats.length
+              : 0;
+
+          const horizonStats = {};
+          for (const t of closed) {
+            const key = horizonKeyForTrade(t);
+            if (!horizonStats[key]) {
+              horizonStats[key] = {
+                n: 0,
+                wins: 0,
+                losses: 0,
+                totalPnl: 0,
+                mfePct: 0,
+                maePct: 0,
+                capturedPct: 0,
+                capturedN: 0,
+              };
+            }
+            const bucket = horizonStats[key];
+            bucket.n += 1;
+            if (t.status === "WIN") bucket.wins += 1;
+            if (t.status === "LOSS") bucket.losses += 1;
+            bucket.totalPnl += Number(t.pnl || 0);
+            const ex = computeExcursions(t);
+            if (ex && Number.isFinite(ex.mfePct)) bucket.mfePct += ex.mfePct;
+            if (ex && Number.isFinite(ex.maePct)) bucket.maePct += ex.maePct;
+            const entry = Number(t.entryPrice);
+            const exit = Number(t.exitPrice ?? t.exit_price);
+            const target = Number(t.tp_target_price ?? t.tp);
+            const isLong = String(t.direction || "").toUpperCase() !== "SHORT";
+            if (
+              Number.isFinite(entry) &&
+              Number.isFinite(exit) &&
+              Number.isFinite(target)
+            ) {
+              const denom = isLong ? target - entry : entry - target;
+              const num = isLong ? exit - entry : entry - exit;
+              if (Number.isFinite(denom) && Math.abs(denom) > EPS) {
+                bucket.capturedPct += (num / denom) * 100;
+                bucket.capturedN += 1;
+              }
+            }
+          }
+
+          Object.keys(horizonStats).forEach((key) => {
+            const s = horizonStats[key];
+            const n = Math.max(1, s.n);
+            const winRateH = s.n > 0 ? (s.wins / s.n) * 100 : 0;
+            const avgWinH =
+              s.wins > 0
+                ? closed
+                    .filter((t) => horizonKeyForTrade(t) === key && t.status === "WIN")
+                    .reduce((sum, t) => sum + (t.pnl || 0), 0) / s.wins
+                : 0;
+            const avgLossH =
+              s.losses > 0
+                ? closed
+                    .filter((t) => horizonKeyForTrade(t) === key && t.status === "LOSS")
+                    .reduce((sum, t) => sum + Math.abs(t.pnl || 0), 0) / s.losses
+                : 0;
+            s.winRate = winRateH;
+            s.expectancy = winRateH / 100 * avgWinH - (1 - winRateH / 100) * avgLossH;
+            s.avgMfePct = s.mfePct / n;
+            s.avgMaePct = s.maePct / n;
+            s.avgCapturedPct =
+              s.capturedN > 0 ? s.capturedPct / s.capturedN : 0;
+          });
 
           // Analyze by signal combinations
           const signalAnalysis = {};
@@ -1159,6 +1310,10 @@
             avgWin,
             avgLoss,
             profitFactor,
+            avgMfePct,
+            avgMaePct,
+            avgCapturedPct,
+            horizonStats,
             signalAnalysis,
             rrAnalysis,
             rankAnalysis,
@@ -1885,6 +2040,8 @@
         const retPct = computeReturnPct(metricsSource);
         const riskPct = computeRiskPct(metricsSource);
         const tpTarget = computeTpTargetPrice(metricsSource);
+        const avgCorr = Number(metricsSource?.avg_corr);
+        const diversity = Number(metricsSource?.diversity_score);
         const exitPrice = Number(trade.exitPrice ?? trade.exit_price);
         const trimPrice = Number(trade.trimPrice ?? trade.trim_price);
 
@@ -2059,6 +2216,12 @@
               {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
             </td>
             <td className="p-2 text-xs text-[#93a4d6]">{horizon}</td>
+            <td className="p-2 text-sm text-[#93a4d6]">
+              {Number.isFinite(diversity) ? Math.round(diversity) : "—"}
+            </td>
+            <td className="p-2 text-sm text-[#93a4d6]">
+              {Number.isFinite(avgCorr) ? avgCorr.toFixed(2) : "—"}
+            </td>
             <td className="p-2 text-sm">{formatRR(trade.rr)}</td>
             <td className="p-2 text-sm">{trade.rank}</td>
             <td className={`p-2 text-sm font-semibold ${recalculatedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -2175,6 +2338,70 @@
                 </div>
               )}
             </div>
+
+            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+              <h3 className="text-lg font-bold mb-4">Excursion & Capture</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div>
+                  <div className="text-xs text-[#93a4d6]">Avg MFE %</div>
+                  <div className="text-lg font-bold text-green-400">
+                    {analytics.avgMfePct.toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-[#93a4d6]">Avg MAE %</div>
+                  <div className="text-lg font-bold text-red-400">
+                    {analytics.avgMaePct.toFixed(1)}%
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-[#93a4d6]">Avg Captured %</div>
+                  <div className="text-lg font-bold text-blue-400">
+                    {analytics.avgCapturedPct.toFixed(1)}%
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {analytics.horizonStats && (
+              <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                <h3 className="text-lg font-bold mb-4">Horizon Performance</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#26325f] text-left text-xs text-[#93a4d6]">
+                        <th className="p-2">Horizon</th>
+                        <th className="p-2">Trades</th>
+                        <th className="p-2">Win %</th>
+                        <th className="p-2">Expectancy</th>
+                        <th className="p-2">MFE %</th>
+                        <th className="p-2">MAE %</th>
+                        <th className="p-2">Captured %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(analytics.horizonStats).map(([key, s]) => (
+                        <tr key={key} className="border-b border-[#26325f]/50">
+                          <td className="p-2 text-xs text-[#93a4d6]">
+                            {String(key).replace("_", " ")}
+                          </td>
+                          <td className="p-2">{s.n}</td>
+                          <td className="p-2">{s.winRate.toFixed(1)}%</td>
+                          <td className="p-2">
+                            {Number.isFinite(s.expectancy)
+                              ? `$${s.expectancy.toFixed(2)}`
+                              : "—"}
+                          </td>
+                          <td className="p-2">{s.avgMfePct.toFixed(1)}%</td>
+                          <td className="p-2">{s.avgMaePct.toFixed(1)}%</td>
+                          <td className="p-2">{s.avgCapturedPct.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Self-Learning Recommendations */}
             {(() => {
@@ -3916,6 +4143,7 @@
         
         // Version filter state
         const [selectedVersion, setSelectedVersion] = useState("all");
+        const [horizonFilter, setHorizonFilter] = useState("ALL");
 
         // Unified experience: D1-backed Trade Journey (single mode)
         const trackerMode = "ledger";
@@ -3960,6 +4188,15 @@
 
         const ledgerDayGroups = useMemo(() => {
           const items = Array.isArray(ledgerTrades.items) ? ledgerTrades.items : [];
+          const filteredItems =
+            horizonFilter === "ALL"
+              ? items
+              : items.filter((t) => {
+                  const sym = String(t.ticker || "").toUpperCase();
+                  const live = data && (data[sym] || data[t.ticker]);
+                  const key = computeHorizonKey(live || t);
+                  return key === horizonFilter;
+                });
           const groups = new Map();
 
           const dayKeyFor = (ts) => {
@@ -3971,7 +4208,7 @@
             return `${yyyy}-${mm}-${dd}`;
           };
 
-          for (const t of items) {
+          for (const t of filteredItems) {
             const key = dayKeyFor(t.entry_ts);
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(t);
@@ -4159,6 +4396,17 @@
             return next;
           });
         }, [filteredTrades, data]);
+
+        const tradesForDisplay = useMemo(() => {
+          if (!Array.isArray(filteredTradesWithLivePrices)) return [];
+          if (horizonFilter === "ALL") return filteredTradesWithLivePrices;
+          return filteredTradesWithLivePrices.filter((t) => {
+            const sym = String(t.ticker || "").toUpperCase();
+            const live = data && (data[sym] || data[t.ticker]);
+            const key = computeHorizonKey(live || t);
+            return key === horizonFilter;
+          });
+        }, [filteredTradesWithLivePrices, data, horizonFilter]);
         
         const analytics = useTradeAnalytics(filteredTradesWithLivePrices);
 
@@ -4196,8 +4444,8 @@
           }
         }, []);
 
-        const openTrades = filteredTradesWithLivePrices.filter((t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM");
-        const closedTrades = filteredTradesWithLivePrices.filter(
+        const openTrades = tradesForDisplay.filter((t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM");
+        const closedTrades = tradesForDisplay.filter(
           (t) => t.status === "WIN" || t.status === "LOSS"
         );
 
@@ -4398,6 +4646,22 @@
                       )}
 
                       {ledgerTab === "trades" && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-[#93a4d6]">Horizon</span>
+                          <select
+                            value={horizonFilter}
+                            onChange={(e) => setHorizonFilter(e.target.value)}
+                            className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white"
+                          >
+                            <option value="ALL">All</option>
+                            <option value="SHORT_TERM">Short-Term</option>
+                            <option value="SWING">Swing</option>
+                            <option value="POSITIONAL">Positional</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {ledgerTab === "trades" && (
                         <label className="flex items-center gap-2 text-xs text-[#93a4d6]">
                           <input
                             type="checkbox"
@@ -4462,6 +4726,8 @@
                                             <th className="p-2 text-xs text-[#93a4d6]">RR</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Horizon</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Div</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Corr</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Status</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Outcome</th>
                                           </tr>
@@ -4475,6 +4741,8 @@
                                             const live = data && (data[sym] || data[t.ticker]);
                                             const eta = computeEtaDays(live || t);
                                             const horizon = computeHorizonBucket(live || t);
+                                            const diversity = Number(live?.diversity_score);
+                                            const avgCorr = Number(live?.avg_corr);
                                             return (
                                               <tr
                                                 key={id}
@@ -4505,6 +4773,12 @@
                                                   {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
                                                 </td>
                                                 <td className="p-2 text-xs text-[#93a4d6]">{horizon}</td>
+                                                <td className="p-2 text-sm text-[#93a4d6]">
+                                                  {Number.isFinite(diversity) ? Math.round(diversity) : "—"}
+                                                </td>
+                                                <td className="p-2 text-sm text-[#93a4d6]">
+                                                  {Number.isFinite(avgCorr) ? avgCorr.toFixed(2) : "—"}
+                                                </td>
                                                 <td className="p-2 text-sm">
                                                   {isClosed ? (
                                                     <span className={`px-2 py-0.5 rounded text-xs font-semibold ${t.status === "WIN" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
@@ -5277,6 +5551,26 @@
                       </span>
                     </div>
                   </div>
+                  <div className="flex items-center gap-2 mb-3 text-xs">
+                    {[
+                      { key: "ALL", label: "All" },
+                      { key: "SHORT_TERM", label: "Short-Term" },
+                      { key: "SWING", label: "Swing" },
+                      { key: "POSITIONAL", label: "Positional" },
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setHorizonFilter(tab.key)}
+                        className={`px-3 py-1 rounded border transition-all ${
+                          horizonFilter === tab.key
+                            ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                            : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="overflow-x-auto -mx-4 px-4">
                     <table className="w-full min-w-full">
                       <thead>
@@ -5295,6 +5589,8 @@
                           <th className="p-2 text-xs text-[#93a4d6]">Risk %</th>
                           <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
                           <th className="p-2 text-xs text-[#93a4d6]">Horizon</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Div</th>
+                          <th className="p-2 text-xs text-[#93a4d6]">Corr</th>
                           <th className="p-2 text-xs text-[#93a4d6]">RR</th>
                           <th className="p-2 text-xs text-[#93a4d6]">Score</th>
                           <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
@@ -5304,16 +5600,16 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredTradesWithLivePrices.length === 0 ? (
+                        {tradesForDisplay.length === 0 ? (
                           <tr>
-                            <td colSpan="20" className="p-8 text-center text-[#93a4d6]">
+                            <td colSpan="22" className="p-8 text-center text-[#93a4d6]">
                               {selectedVersion === "all" 
                                 ? "No trades yet. Trades will be automatically created when alerts trigger."
                                 : `No trades found for version ${selectedVersion}.`}
                             </td>
                           </tr>
                         ) : (
-                          filteredTradesWithLivePrices.map((trade) => {
+                          tradesForDisplay.map((trade) => {
                             const sym = String(trade.ticker || "").toUpperCase();
                             const tickerData = data && (data[sym] || data[trade.ticker]);
                             return (

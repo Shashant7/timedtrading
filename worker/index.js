@@ -926,6 +926,173 @@ function deriveHorizonAndMetrics(payload) {
   return out;
 }
 
+function normalizeDay(ts) {
+  const ms = Number(ts);
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(ms / 86400000);
+}
+
+function buildDailyCloseSeries(trail = [], maxDays = 20) {
+  if (!Array.isArray(trail) || trail.length === 0) return [];
+  const dayMap = new Map();
+  for (const point of trail) {
+    const day = normalizeDay(point.ts);
+    const price = Number(point.price);
+    if (!Number.isFinite(day) || !Number.isFinite(price)) continue;
+    // Keep last price of the day
+    dayMap.set(day, price);
+  }
+  const days = Array.from(dayMap.keys()).sort((a, b) => a - b);
+  const clipped = days.slice(-1 * Math.max(1, maxDays + 1));
+  return clipped.map((day) => ({ day, close: dayMap.get(day) }));
+}
+
+function buildReturnMap(series = []) {
+  const map = new Map();
+  for (let i = 1; i < series.length; i++) {
+    const prev = series[i - 1];
+    const cur = series[i];
+    if (!prev || !cur) continue;
+    const ret = (cur.close - prev.close) / Math.max(1e-9, prev.close);
+    if (!Number.isFinite(ret)) continue;
+    map.set(cur.day, ret);
+  }
+  return map;
+}
+
+function pearsonCorrelation(a = [], b = []) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return null;
+  const n = Math.min(a.length, b.length);
+  if (n < 5) return null;
+  const x = a.slice(-n);
+  const y = b.slice(-n);
+  const mean = (arr) => arr.reduce((s, v) => s + v, 0) / arr.length;
+  const meanX = mean(x);
+  const meanY = mean(y);
+  let num = 0;
+  let denX = 0;
+  let denY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i] - meanX;
+    const dy = y[i] - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+  const den = Math.sqrt(denX * denY);
+  if (!Number.isFinite(den) || den <= 0) return null;
+  return num / den;
+}
+
+async function computeOpenTradesCorrelation(env, KV, options = {}) {
+  const cacheKey = "timed:corr:open_trades";
+  const ttlSec = Number(options.ttlSec || 300);
+  const now = Date.now();
+  try {
+    const cached = await kvGetJSON(KV, cacheKey);
+    if (
+      cached &&
+      cached.computedAt &&
+      now - cached.computedAt < ttlSec * 1000
+    ) {
+      return cached;
+    }
+  } catch {
+    // ignore cache errors
+  }
+
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+
+  const trades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+  const openTickers = Array.from(
+    new Set(
+      trades
+        .filter((t) => {
+          const status = String(t?.status || "").toUpperCase();
+          return status === "OPEN" || status === "TP_HIT_TRIM" || !status;
+        })
+        .map((t) => String(t?.ticker || "").toUpperCase())
+        .filter(Boolean)
+    )
+  );
+
+  if (openTickers.length < 2) {
+    return {
+      ok: true,
+      computedAt: now,
+      tickers: openTickers,
+      avgCorrByTicker: {},
+    };
+  }
+
+  const sinceTs = now - 35 * 24 * 60 * 60 * 1000;
+  const seriesMap = new Map();
+
+  await Promise.all(
+    openTickers.map(async (ticker) => {
+      const res = await d1GetTrailRange(env, ticker, sinceTs, 8000);
+      const trail = res && Array.isArray(res.trail) ? res.trail : [];
+      const dailySeries = buildDailyCloseSeries(trail, 20);
+      seriesMap.set(ticker, dailySeries);
+    })
+  );
+
+  const returnMapByTicker = new Map();
+  for (const ticker of openTickers) {
+    const series = seriesMap.get(ticker) || [];
+    returnMapByTicker.set(ticker, buildReturnMap(series));
+  }
+
+  const avgCorrByTicker = {};
+  for (const ticker of openTickers) {
+    const baseMap = returnMapByTicker.get(ticker);
+    if (!baseMap || baseMap.size < 5) continue;
+    const corrVals = [];
+    for (const other of openTickers) {
+      if (other === ticker) continue;
+      const otherMap = returnMapByTicker.get(other);
+      if (!otherMap || otherMap.size < 5) continue;
+      const commonDays = [];
+      for (const [day, ret] of baseMap.entries()) {
+        if (otherMap.has(day)) {
+          commonDays.push([ret, otherMap.get(day)]);
+        }
+      }
+      if (commonDays.length < 5) continue;
+      const a = commonDays.map((v) => v[0]);
+      const b = commonDays.map((v) => v[1]);
+      const corr = pearsonCorrelation(a, b);
+      if (Number.isFinite(corr)) corrVals.push(Math.abs(corr));
+    }
+    if (corrVals.length > 0) {
+      const avg =
+        corrVals.reduce((sum, v) => sum + v, 0) / Math.max(1, corrVals.length);
+      const diversity = Math.round(Math.max(0, 1 - avg) * 100);
+      avgCorrByTicker[ticker] = {
+        avg_corr: Math.round(avg * 1000) / 1000,
+        diversity_score: diversity,
+        corr_count: corrVals.length,
+      };
+    }
+  }
+
+  const result = {
+    ok: true,
+    computedAt: now,
+    tickers: openTickers,
+    avgCorrByTicker,
+  };
+
+  try {
+    await kvPutJSON(KV, cacheKey, result, ttlSec);
+  } catch {
+    // ignore cache set errors
+  }
+
+  return result;
+}
+
 // ── Corridor helpers (must match UI corridors)
 function inLongCorridor(d) {
   const h = Number(d.htf_score),
@@ -4141,7 +4308,7 @@ async function d1InsertTrailPoint(env, ticker, payload) {
   }
 }
 
-async function d1CleanupOldTrail(env, ttlDays = 8) {
+async function d1CleanupOldTrail(env, ttlDays = 35) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
 
@@ -8237,8 +8404,8 @@ export default {
               console.error(`[D1 TRAIL] Insert exception for ${ticker}:`, e);
             });
 
-            // Periodic cleanup (throttled) to keep ~1 week retention
-            d1CleanupOldTrail(env, 8).catch((e) => {
+            // Periodic cleanup (throttled) to keep ~35 days retention
+            d1CleanupOldTrail(env, 35).catch((e) => {
               console.error(`[D1 TRAIL] Cleanup exception:`, e);
             });
           } catch (trailErr) {
@@ -8373,6 +8540,24 @@ export default {
           } catch (e) {
             console.error(
               `[DERIVED METRICS] /timed/latest failed for ${ticker}:`,
+              String(e)
+            );
+          }
+
+          try {
+            const corrData = await computeOpenTradesCorrelation(env, KV);
+            const corr =
+              corrData && corrData.avgCorrByTicker
+                ? corrData.avgCorrByTicker[String(ticker).toUpperCase()]
+                : null;
+            if (corr) {
+              data.avg_corr = corr.avg_corr;
+              data.diversity_score = corr.diversity_score;
+              data.corr_count = corr.corr_count;
+            }
+          } catch (e) {
+            console.error(
+              `[CORR] /timed/latest failed for ${ticker}:`,
               String(e)
             );
           }
@@ -8515,6 +8700,12 @@ export default {
         ]);
 
         const data = {};
+        let corrData = null;
+        try {
+          corrData = await computeOpenTradesCorrelation(env, KV);
+        } catch (e) {
+          console.error(`[CORR] /timed/all compute failed:`, String(e));
+        }
         let versionFilteredCount = 0;
         const versionBreakdown = {}; // Track which versions are being filtered
 
@@ -8572,6 +8763,16 @@ export default {
                   `[DERIVED METRICS] /timed/all failed for ${ticker}:`,
                   String(e)
                 );
+              }
+
+              if (corrData && corrData.avgCorrByTicker) {
+                const corr =
+                  corrData.avgCorrByTicker[String(ticker).toUpperCase()];
+                if (corr) {
+                  value.avg_corr = corr.avg_corr;
+                  value.diversity_score = corr.diversity_score;
+                  value.corr_count = corr.corr_count;
+                }
               }
 
               // Enrich with sector from SECTOR_MAP if not present in data
@@ -11358,6 +11559,121 @@ export default {
             limit: slice.length,
             tradesUpserted,
             eventsInserted,
+            errorsCount: errors.length,
+            errors: errors.slice(0, 25),
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/admin/backfill-derived?key=...&limit=...&offset=...&ticker=...&includeTrades=1
+      // Recompute derived horizon/ETA/TP fields for latest tickers (and optionally trades) and persist to KV.
+      if (
+        url.pathname === "/timed/admin/backfill-derived" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const qLimit = Number(url.searchParams.get("limit") || "0");
+        const qOffset = Number(url.searchParams.get("offset") || "0");
+        const tickerFilter = normTicker(url.searchParams.get("ticker"));
+        const includeTrades =
+          String(url.searchParams.get("includeTrades") || "") === "1";
+
+        const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const filteredTickers = Array.isArray(tickersList)
+          ? tickersList.filter((t) => {
+              if (!t) return false;
+              if (tickerFilter)
+                return String(t).toUpperCase() === String(tickerFilter);
+              return true;
+            })
+          : [];
+
+        const offset = Math.max(0, Number.isFinite(qOffset) ? qOffset : 0);
+        const limit =
+          qLimit > 0
+            ? Math.max(1, Math.min(2000, qLimit))
+            : filteredTickers.length;
+        const slice = filteredTickers.slice(offset, offset + limit);
+
+        let tickersUpdated = 0;
+        let tradesUpdated = 0;
+        const errors = [];
+
+        for (const t of slice) {
+          try {
+            const ticker = String(t || "").toUpperCase();
+            if (!ticker) continue;
+            const latestKey = `timed:latest:${ticker}`;
+            const latest = await kvGetJSON(KV, latestKey);
+            if (!latest || typeof latest !== "object") continue;
+            const derived = deriveHorizonAndMetrics(latest);
+            Object.assign(latest, derived);
+            await kvPutJSON(KV, latestKey, latest);
+            tickersUpdated += 1;
+          } catch (e) {
+            errors.push({ ticker: t || null, error: String(e) });
+          }
+        }
+
+        if (includeTrades) {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          if (Array.isArray(allTrades) && allTrades.length > 0) {
+            for (const trade of allTrades) {
+              if (!trade || !trade.ticker) continue;
+              const tradeTicker = String(trade.ticker || "").toUpperCase();
+              if (tickerFilter && tradeTicker !== tickerFilter) continue;
+              try {
+                const latest = await kvGetJSON(
+                  KV,
+                  `timed:latest:${tradeTicker}`
+                );
+                const base =
+                  latest && typeof latest === "object" ? latest : trade;
+                const source = {
+                  ...base,
+                  entry_ref:
+                    base.entry_ref != null
+                      ? base.entry_ref
+                      : trade.entryPrice ?? base.trigger_price ?? base.price,
+                  trigger_price: base.trigger_price ?? trade.entryPrice,
+                  price: base.price ?? trade.currentPrice ?? trade.entryPrice,
+                  sl: base.sl ?? trade.sl,
+                  tp: base.tp ?? trade.tp,
+                };
+                const derived = deriveHorizonAndMetrics(source);
+                trade.horizon_bucket = derived.horizon_bucket;
+                trade.eta_days_v2 = derived.eta_days_v2;
+                trade.expected_return_pct = derived.expected_return_pct;
+                trade.risk_pct = derived.risk_pct;
+                trade.tp_target_price = derived.tp_target_price;
+                trade.tp_target_pct = derived.tp_target_pct;
+                trade.tp_max_price = derived.tp_max_price;
+                trade.tp_max_pct = derived.tp_max_pct;
+                trade.entry_ref = derived.entry_ref ?? trade.entry_ref;
+                tradesUpdated += 1;
+              } catch (e) {
+                errors.push({ trade_id: trade?.id || null, error: String(e) });
+              }
+            }
+            await kvPutJSON(KV, tradesKey, allTrades);
+          }
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            ticker: tickerFilter || null,
+            totalTickers: Array.isArray(tickersList) ? tickersList.length : 0,
+            filtered: filteredTickers.length,
+            offset,
+            limit: slice.length,
+            tickersUpdated,
+            tradesUpdated: includeTrades ? tradesUpdated : 0,
             errorsCount: errors.length,
             errors: errors.slice(0, 25),
           },

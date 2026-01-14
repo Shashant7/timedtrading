@@ -11,21 +11,23 @@ groupAxes = "Axes & Timeframes"
 tfW   = input.string("W",   "HTF #1 (Weekly)", group=groupAxes)
 tfD   = input.string("D",   "HTF #2 (Daily)",  group=groupAxes)
 tf4H  = input.string("240", "HTF #3 (4H)",     group=groupAxes)
-tf1H  = input.string("60",  "HTF #4 (1H Bridge)", group=groupAxes)
+tf9H  = input.string("540", "HTF #4 (9H Bridge)", group=groupAxes)
 
 tf30  = input.string("30", "LTF #1 (30m)", group=groupAxes)
 tf10  = input.string("10", "LTF #2 (10m)", group=groupAxes)
 tf3   = input.string("3",  "LTF #3 (3m)",  group=groupAxes)
+tf1H  = input.string("60", "LTF #4 (1H Mid)", group=groupAxes)
 
 // Base weights (will be adjusted by volatility)
-wW  = input.float(0.50, "HTF Weekly base weight", group=groupAxes, minval=0, maxval=1)
-wD  = input.float(0.35, "HTF Daily base weight",  group=groupAxes, minval=0, maxval=1)
-w4H = input.float(0.10, "HTF 4H base weight",     group=groupAxes, minval=0, maxval=1)
-w1H = input.float(0.05, "HTF 1H base weight",     group=groupAxes, minval=0, maxval=1)
+wW  = input.float(0.45, "HTF Weekly base weight", group=groupAxes, minval=0, maxval=1)
+wD  = input.float(0.30, "HTF Daily base weight",  group=groupAxes, minval=0, maxval=1)
+w4H = input.float(0.15, "HTF 4H base weight",     group=groupAxes, minval=0, maxval=1)
+w9H = input.float(0.10, "HTF 9H base weight",     group=groupAxes, minval=0, maxval=1)
 
-w30 = input.float(0.60, "LTF 30m base weight", group=groupAxes, minval=0, maxval=1)
-w10 = input.float(0.30, "LTF 10m base weight", group=groupAxes, minval=0, maxval=1)
+w30 = input.float(0.45, "LTF 30m base weight", group=groupAxes, minval=0, maxval=1)
+w10 = input.float(0.25, "LTF 10m base weight", group=groupAxes, minval=0, maxval=1)
 w3  = input.float(0.10, "LTF 3m base weight",  group=groupAxes, minval=0, maxval=1)
+w1H = input.float(0.20, "LTF 1H base weight",  group=groupAxes, minval=0, maxval=1)
 
 // Adaptive features
 useVolatilityAdjust = input.bool(true, "Volatility-adjusted weights", group=groupAxes)
@@ -339,11 +341,12 @@ f_get_bundle(tf) =>
 [cW, e5W, e8W, e13W, e21W, e48W, e200W, eFastW, eSlowW, stLW, stDW, sqW, momW, momStdW, phW, phVelW, phAccW, phZoneW, compW, ggUpW, ggDnW, ggDistW, volRW, rsiW, atrRW] = f_get_bundle(tfW)
 [cD, e5D, e8D, e13D, e21D, e48D, e200D, eFastD, eSlowD, stLD, stDD, sqD, momD, momStdD, phD, phVelD, phAccD, phZoneD, compD, ggUpD, ggDnD, ggDistD, volRD, rsiD, atrRD] = f_get_bundle(tfD)
 [c4, e5H, e8H, e13H, e21H, e48H, e200H, eFast4, eSlow4, stL4, stD4, sq4, mom4, momStd4, ph4, phVel4, phAcc4, phZone4, comp4, ggUp4, ggDn4, ggDist4, volR4, rsi4, atrR4] = f_get_bundle(tf4H)
-[c1, e5_1, e8_1, e13_1, e21_1, e48_1, e200_1, eFast1, eSlow1, stL1, stD1, sq1, mom1, momStd1, ph1, phVel1, phAcc1, phZone1, comp1, ggUp1, ggDn1, ggDist1, volR1, rsi1, atrR1] = f_get_bundle(tf1H)
+[c9, e5_9, e8_9, e13_9, e21_9, e48_9, e200_9, eFast9, eSlow9, stL9, stD9, sq9, mom9, momStd9, ph9, phVel9, phAcc9, phZone9, comp9, ggUp9, ggDn9, ggDist9, volR9, rsi9, atrR9] = f_get_bundle(tf9H)
 
 [c30, e5_30, e8_30, e13_30, e21_30, e48_30, e200_30, eFast30, eSlow30, stL30, stD30, sq30, mom30, momStd30, ph30, phVel30, phAcc30, phZone30, comp30, ggUp30, ggDn30, ggDist30, volR30, rsi30, atrR30] = f_get_bundle(tf30)
 [c10, e5_10, e8_10, e13_10, e21_10, e48_10, e200_10, eFast10, eSlow10, stL10, stD10, sq10, mom10, momStd10, ph10, phVel10, phAcc10, phZone10, comp10, ggUp10, ggDn10, ggDist10, volR10, rsi10, atrR10] = f_get_bundle(tf10)
 [c3,  e5_3,  e8_3,  e13_3,  e21_3,  e48_3,  e200_3,  eFast3,  eSlow3,  stL3,  stD3,  sq3,  mom3,  momStd3,  ph3,  phVel3,  phAcc3,  phZone3,  comp3,  ggUp3,  ggDn3,  ggDist3,  volR3,  rsi3,  atrR3 ] = f_get_bundle(tf3)
+[c1, e5_1, e8_1, e13_1, e21_1, e48_1, e200_1, eFast1, eSlow1, stL1, stD1, sq1, mom1, momStd1, ph1, phVel1, phAcc1, phZone1, comp1, ggUp1, ggDn1, ggDist1, volR1, rsi1, atrR1] = f_get_bundle(tf1H)
 
 //─────────────────────────────────────────────────────────────────────────────
 // Enhanced HTF Scoring
@@ -465,57 +468,59 @@ f_ltf_from_bundle(px, sqOn, mom, momStd, ggUpCross, ggDnCross, ggDist, e21, e48,
 htfWScore  = f_htf_from_bundle(cW, e200W, stDW, e5W, e8W, e13W, e21W, e48W, compW, phW, eFastW, eSlowW, volRW, atrRW)
 htfDScore  = f_htf_from_bundle(cD, e200D, stDD, e5D, e8D, e13D, e21D, e48D, compD, phD, eFastD, eSlowD, volRD, atrRD)
 htf4HScore = f_htf_from_bundle(c4, e200H, stD4, e5H, e8H, e13H, e21H, e48H, comp4, ph4, eFast4, eSlow4, volR4, atrR4)
-htf1HScore = f_htf_from_bundle(c1, e200_1, stD1, e5_1, e8_1, e13_1, e21_1, e48_1, comp1, ph1, eFast1, eSlow1, volR1, atrR1)
+htf9HScore = f_htf_from_bundle(c9, e200_9, stD9, e5_9, e8_9, e13_9, e21_9, e48_9, comp9, ph9, eFast9, eSlow9, volR9, atrR9)
 
 // LTF scores
 ltf30Score = f_ltf_from_bundle(c30, sq30, mom30, momStd30, ggUp30, ggDn30, ggDist30, e21_30, e48_30, e5_30, e13_30, stL30, stD30, comp30, volR30, rsi30, atrR30)
 ltf10Score = f_ltf_from_bundle(c10, sq10, mom10, momStd10, ggUp10, ggDn10, ggDist10, e21_10, e48_10, e5_10, e13_10, stL10, stD10, comp10, volR10, rsi10, atrR10)
 ltf3Score  = f_ltf_from_bundle(c3,  sq3,  mom3,  momStd3,  ggUp3,  ggDn3,  ggDist3,  e21_3,  e48_3,  e5_3,  e13_3,  stL3,  stD3,  comp3,  volR3,  rsi3,  atrR3)
+ltf1HScore = f_ltf_from_bundle(c1,  sq1,  mom1,  momStd1,  ggUp1,  ggDn1,  ggDist1,  e21_1,  e48_1,  e5_1,  e13_1,  stL1,  stD1,  comp1,  volR1,  rsi1,  atrR1)
 
 //─────────────────────────────────────────────────────────────────────────────
 // Volatility-adjusted weights
 //─────────────────────────────────────────────────────────────────────────────
-f_volatility_adjusted_weights(wW_base, wD_base, w4H_base, w1H_base, atrRW, atrRD, atrR4, atrR1) =>
+f_volatility_adjusted_weights(wW_base, wD_base, w4H_base, w9H_base, atrRW, atrRD, atrR4, atrR9) =>
     if not useVolatilityAdjust
-        [wW_base, wD_base, w4H_base, w1H_base]
+        [wW_base, wD_base, w4H_base, w9H_base]
     else
-        // High vol → favor Daily/4H/1H, Low vol → favor Weekly
+        // High vol → favor Daily/4H/9H, Low vol → favor Weekly
         volW = atrRW
         volD = atrRD
         vol4H = atrR4
-        vol1H = atrR1
+        vol9H = atrR9
         
         // Adjust based on volatility ratios
         wW_adj = volW > 1.5 ? wW_base * 0.7 : wW_base * 1.2
         wD_adj = volD > 1.3 ? wD_base * 1.2 : wD_base * 0.9
         w4H_adj = vol4H > 1.2 ? w4H_base * 1.3 : w4H_base * 0.8
-        w1H_adj = vol1H > 1.1 ? w1H_base * 1.2 : w1H_base * 0.9
+        w9H_adj = vol9H > 1.1 ? w9H_base * 1.1 : w9H_base * 0.95
         
         // Normalize
-        total = wW_adj + wD_adj + w4H_adj + w1H_adj
-        [wW_adj / total, wD_adj / total, w4H_adj / total, w1H_adj / total]
+        total = wW_adj + wD_adj + w4H_adj + w9H_adj
+        [wW_adj / total, wD_adj / total, w4H_adj / total, w9H_adj / total]
 
-[wW_adj, wD_adj, w4H_adj, w1H_adj] = f_volatility_adjusted_weights(wW, wD, w4H, w1H, atrRW, atrRD, atrR4, atrR1)
+[wW_adj, wD_adj, w4H_adj, w9H_adj] = f_volatility_adjusted_weights(wW, wD, w4H, w9H, atrRW, atrRD, atrR4, atrR9)
 
 // Session-aware LTF weights
-f_session_adjusted_ltf_weights(w30_base, w10_base, w3_base) =>
+f_session_adjusted_ltf_weights(w30_base, w10_base, w3_base, w1H_base) =>
     if not useSessionAware or not f_is_rth()
-        [w30_base, w10_base, w3_base]
+        [w30_base, w10_base, w3_base, w1H_base]
     else
-        // RTH: favor 30m, reduce 3m
+        // RTH: favor 30m, reduce 3m, keep 1H as mid-anchor
         w30_adj = w30_base * 1.15
         w10_adj = w10_base * 1.0
         w3_adj = w3_base * 0.7
-        total = w30_adj + w10_adj + w3_adj
-        [w30_adj / total, w10_adj / total, w3_adj / total]
+        w1H_adj = w1H_base * 0.95
+        total = w30_adj + w10_adj + w3_adj + w1H_adj
+        [w30_adj / total, w10_adj / total, w3_adj / total, w1H_adj / total]
 
-[w30_adj, w10_adj, w3_adj] = f_session_adjusted_ltf_weights(w30, w10, w3)
+[w30_adj, w10_adj, w3_adj, w1H_adj] = f_session_adjusted_ltf_weights(w30, w10, w3, w1H)
 
 // Blend HTF
-htfScore = clamp(htfWScore*wW_adj + htfDScore*wD_adj + htf4HScore*w4H_adj + htf1HScore*w1H_adj, -50, 50)
+htfScore = clamp(htfWScore*wW_adj + htfDScore*wD_adj + htf4HScore*w4H_adj + htf9HScore*w9H_adj, -50, 50)
 
 // Blend LTF
-ltfScore = clamp(ltf30Score*w30_adj + ltf10Score*w10_adj + ltf3Score*w3_adj, -50, 50)
+ltfScore = clamp(ltf30Score*w30_adj + ltf10Score*w10_adj + ltf3Score*w3_adj + ltf1HScore*w1H_adj, -50, 50)
 
 // State
 htfBull = htfScore >= 0
@@ -1196,8 +1201,8 @@ firstBaseline = not sentBaseline
 shouldSend = barstate.isconfirmed and throttleOK and (firstBaseline or (meaningful and sessionOK) or periodicUpdateDue)
 
 // Reasons
-reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H/1H)"
-reason2 = (ltfBull ? "LTF bullish" : "LTF bearish") + " (30/10/3)"
+reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H/9H)"
+reason2 = (ltfBull ? "LTF bullish" : "LTF bearish") + " (30/10/3/1H)"
 reason3 = sq30_rel ? ("30m SQUEEZE RELEASE " + (rel30Dir==1 ? "BULL" : "BEAR")) : (sq30 ? "30m SQUEEZE ON" : "30m no squeeze")
 reason4 = phaseDot ? ("D Phase " + (usePhaseZones ? phaseZoneD : "dot/leave")) : ("D Phase " + phaseDir + " pct=" + f_fmt(phasePct,2))
 

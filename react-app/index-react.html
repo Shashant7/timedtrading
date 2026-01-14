@@ -8785,6 +8785,73 @@
           return Number.isFinite(n) ? n : null;
         };
 
+        const ACTION_GATES = {
+          minRR: 1.5,
+          maxCompletion: 0.6,
+          minReturnPct: 5,
+          minEtaConf: 0.55,
+          minRiskPct: 0.5,
+          maxAvgCorr: 0.75,
+          minDiversityScore: 25,
+        };
+
+        const isActionable = (t) => {
+          if (!t) return false;
+          const rr = Number(t.rr);
+          const completion = Number(t.completion);
+          const ret = computeReturnPct(t);
+          const risk = computeRiskPct(t);
+          const etaConf = getNum(t.eta_confidence);
+          const staleness = String(t.staleness || "").toUpperCase();
+          const avgCorr = Number(t.avg_corr);
+          const diversity = Number(t.diversity_score);
+
+          if (Number.isFinite(rr) && rr < ACTION_GATES.minRR) return false;
+          if (
+            Number.isFinite(completion) &&
+            completion > ACTION_GATES.maxCompletion
+          )
+            return false;
+          if (Number.isFinite(ret) && ret < ACTION_GATES.minReturnPct) return false;
+          if (Number.isFinite(risk) && risk < ACTION_GATES.minRiskPct) return false;
+          if (
+            Number.isFinite(etaConf) &&
+            etaConf < ACTION_GATES.minEtaConf
+          )
+            return false;
+          if (staleness && staleness !== "FRESH") return false;
+          if (
+            Number.isFinite(avgCorr) &&
+            avgCorr > ACTION_GATES.maxAvgCorr
+          )
+            return false;
+          if (
+            Number.isFinite(diversity) &&
+            diversity < ACTION_GATES.minDiversityScore
+          )
+            return false;
+          return true;
+        };
+
+        const selectWithConstraints = (list, limit) => {
+          const maxPerSector = 1;
+          const sectorCounts = new Map();
+          const picks = [];
+          for (const t of list) {
+            if (picks.length >= limit) break;
+            if (!isActionable(t)) continue;
+            const sector =
+              t.sector ||
+              (t.fundamentals && t.fundamentals.sector) ||
+              "UNKNOWN";
+            const count = sectorCounts.get(sector) || 0;
+            if (count >= maxPerSector) continue;
+            sectorCounts.set(sector, count + 1);
+            picks.push(t);
+          }
+          return picks;
+        };
+
         const normBucket = (t) => {
           const raw = t?.horizon_bucket;
           if (raw) return String(raw).toUpperCase();
@@ -8797,16 +8864,20 @@
 
         const byBucket = React.useMemo(() => {
           const list = Array.isArray(tickers) ? tickers : [];
-          const pick = (bucket, limit) =>
-            list
+          const pickWithConstraints = (bucket, limit) => {
+            const sorted = list
               .filter((t) => normBucket(t) === bucket)
               .slice()
-              .sort((a, b) => (Number(b.dynamicRank) || 0) - (Number(a.dynamicRank) || 0))
-              .slice(0, limit);
+              .sort(
+                (a, b) =>
+                  (Number(b.dynamicRank) || 0) - (Number(a.dynamicRank) || 0)
+              );
+            return selectWithConstraints(sorted, limit);
+          };
           return {
-            SHORT_TERM: pick("SHORT_TERM", 3),
-            SWING: pick("SWING", 3),
-            POSITIONAL: pick("POSITIONAL", 2),
+            SHORT_TERM: pickWithConstraints("SHORT_TERM", 3),
+            SWING: pickWithConstraints("SWING", 3),
+            POSITIONAL: pickWithConstraints("POSITIONAL", 2),
           };
         }, [tickers]);
 
@@ -8842,6 +8913,8 @@
                     const staleness = String(t?.staleness || "").toUpperCase();
                     const isStale = staleness && staleness !== "FRESH";
                     const ingestText = formatIngestTime(t);
+                    const avgCorr = Number(t?.avg_corr);
+                    const diversity = Number(t?.diversity_score);
                     return (
                       <button
                         key={`${bucket}-${t.ticker}`}
@@ -8914,6 +8987,16 @@
                         </div>
                         <div className="mt-1 text-[10px] text-[#6b7a9f]">
                           {conf != null ? `ETA conf: ${conf.toFixed(2)}` : ""}
+                          {Number.isFinite(diversity) && (
+                            <span className="ml-2 text-[#93a4d6]">
+                              Div {Math.round(diversity)}
+                            </span>
+                          )}
+                          {Number.isFinite(avgCorr) && (
+                            <span className="ml-2 text-[#93a4d6]">
+                              Corr {avgCorr.toFixed(2)}
+                            </span>
+                          )}
                         </div>
                       </button>
                     );
