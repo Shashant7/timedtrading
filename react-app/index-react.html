@@ -1258,6 +1258,80 @@
         return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
       }
 
+      function getDirectionFromState(ticker) {
+        const state = String(ticker?.state || "");
+        if (state.includes("BULL")) return "LONG";
+        if (state.includes("BEAR")) return "SHORT";
+        return null;
+      }
+
+      function computeEntryRef(ticker) {
+        const trigger = Number(ticker?.trigger_price);
+        if (Number.isFinite(trigger) && trigger > 0) return trigger;
+        const price = Number(ticker?.price);
+        return Number.isFinite(price) && price > 0 ? price : null;
+      }
+
+      function computeTpMaxPrice(ticker) {
+        const entry = computeEntryRef(ticker);
+        if (!Number.isFinite(entry)) return null;
+        const dir = getDirectionFromState(ticker);
+        const tpLevels = Array.isArray(ticker?.tp_levels)
+          ? ticker.tp_levels
+          : [];
+        const candidates = tpLevels
+          .map((tp) => {
+            const price =
+              tp && typeof tp === "object" && tp.price != null
+                ? Number(tp.price)
+                : Number(tp);
+            return Number.isFinite(price) ? price : null;
+          })
+          .filter((p) => Number.isFinite(p));
+
+        if (ticker?.tp != null) {
+          const tp = Number(ticker.tp);
+          if (Number.isFinite(tp)) candidates.push(tp);
+        }
+
+        if (candidates.length === 0) return null;
+
+        if (dir === "LONG") {
+          const valid = candidates.filter((p) => p > entry);
+          return valid.length > 0 ? Math.max(...valid) : null;
+        }
+        if (dir === "SHORT") {
+          const valid = candidates.filter((p) => p < entry);
+          return valid.length > 0 ? Math.min(...valid) : null;
+        }
+
+        return null;
+      }
+
+      function computeReturnPct(ticker) {
+        const direct =
+          Number(ticker?.expected_return_pct) || Number(ticker?.tp_max_pct);
+        if (Number.isFinite(direct)) return direct;
+        const entry = computeEntryRef(ticker);
+        const tpMax = computeTpMaxPrice(ticker);
+        if (!Number.isFinite(entry) || !Number.isFinite(tpMax)) return null;
+        return (Math.abs(tpMax - entry) / entry) * 100;
+      }
+
+      function computeRiskPct(ticker) {
+        const direct = Number(ticker?.risk_pct);
+        if (Number.isFinite(direct)) return direct;
+        const entry = computeEntryRef(ticker);
+        const sl = Number(ticker?.sl);
+        if (!Number.isFinite(entry) || !Number.isFinite(sl)) return null;
+        return (Math.abs(entry - sl) / entry) * 100;
+      }
+
+      function computeEtaDays(ticker) {
+        const eta = Number(ticker?.eta_days_v2 ?? ticker?.eta_days);
+        return Number.isFinite(eta) ? eta : null;
+      }
+
       // Compute bubble visuals (radius + color) for historical trail points.
       // NOTE: Trail points from KV/D1 may not include `rr`, so we fall back to `rank`
       // (similar to the main bubble renderers) to preserve meaningful size variation.
@@ -5058,9 +5132,7 @@
                             <span className="text-[#93a4d6]">Horizon</span>
                             <span className="font-semibold">
                               {(() => {
-                                const eta = Number(
-                                  t.eta_days_v2 ?? t.eta_days
-                                );
+                                const eta = computeEtaDays(t);
                                 const bucket = String(
                                   t.horizon_bucket || ""
                                 )
@@ -5078,9 +5150,7 @@
                             <span className="text-[#93a4d6]">ETA</span>
                             <span className="font-semibold">
                               {(() => {
-                                const eta = Number(
-                                  t.eta_days_v2 ?? t.eta_days
-                                );
+                                const eta = computeEtaDays(t);
                                 return Number.isFinite(eta)
                                   ? `${eta.toFixed(1)}d`
                                   : "—";
@@ -5091,9 +5161,7 @@
                             <span className="text-[#93a4d6]">Return %</span>
                             <span className="font-semibold">
                               {(() => {
-                                const ret =
-                                  Number(t.expected_return_pct) ||
-                                  Number(t.tp_max_pct);
+                                const ret = computeReturnPct(t);
                                 return Number.isFinite(ret)
                                   ? `${ret.toFixed(1)}%`
                                   : "—";
@@ -5104,7 +5172,7 @@
                             <span className="text-[#93a4d6]">Risk %</span>
                             <span className="font-semibold">
                               {(() => {
-                                const risk = Number(t.risk_pct);
+                                const risk = computeRiskPct(t);
                                 return Number.isFinite(risk)
                                   ? `${risk.toFixed(1)}%`
                                   : "—";
@@ -8719,9 +8787,9 @@
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
                   {items.map((t) => {
-                    const eta = getNum(t.eta_days_v2 ?? t.eta_days);
-                    const retPct = getNum(t.tp_max_pct ?? t.expected_return_pct);
-                    const riskPct = getNum(t.risk_pct);
+                    const eta = computeEtaDays(t);
+                    const retPct = computeReturnPct(t);
+                    const riskPct = computeRiskPct(t);
                     const conf = getNum(t.eta_confidence);
                     return (
                       <button
