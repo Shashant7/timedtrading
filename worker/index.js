@@ -8358,10 +8358,15 @@ export default {
           // Always recompute RR to ensure it uses the latest max TP from tp_levels
           data.rr = computeRR(data);
 
-          // Back-compat: older KV entries may not have derived horizon/ETA v2 fields yet.
-          // Compute on-the-fly so the UI can use them immediately (without waiting for next ingest).
+          // Back-compat: older KV entries may not have derived horizon/ETA v2 fields yet,
+          // or may be missing the newer target TP fields. Compute on-the-fly.
           try {
-            if (!data.horizon_bucket || data.eta_days_v2 == null) {
+            if (
+              !data.horizon_bucket ||
+              data.eta_days_v2 == null ||
+              data.tp_target_price == null ||
+              data.tp_target_pct == null
+            ) {
               const derived = deriveHorizonAndMetrics(data);
               Object.assign(data, derived);
             }
@@ -8551,9 +8556,14 @@ export default {
               // Calculate dynamicScore (for ranking) - backend calculation
               value.dynamicScore = computeDynamicScore(value);
 
-              // Back-compat: compute derived horizon/ETA v2 fields if missing
+              // Back-compat: compute derived horizon/ETA v2 + target TP fields if missing
               try {
-                if (!value.horizon_bucket || value.eta_days_v2 == null) {
+                if (
+                  !value.horizon_bucket ||
+                  value.eta_days_v2 == null ||
+                  value.tp_target_price == null ||
+                  value.tp_target_pct == null
+                ) {
                   const derived = deriveHorizonAndMetrics(value);
                   Object.assign(value, derived);
                 }
