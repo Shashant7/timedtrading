@@ -3364,12 +3364,31 @@
             const cssY = clientY - rect.top;
             setTooltipPos({ x: cssX, y: cssY });
 
-            // Convert CSS pixels → SVG viewBox units so the crosshair aligns even when the
-            // SVG is scaled (e.g., layout changes when right-rail opens).
-            const sx = rect.width ? chartWidth / rect.width : 1;
-            const sy = rect.height ? chartHeight / rect.height : 1;
-            const svgX = cssX * sx;
-            const svgY = cssY * sy;
+            // Convert screen coords → SVG viewBox units using the SVG's actual transform.
+            // This accounts for preserveAspectRatio letterboxing and any scaling caused by layout changes.
+            let svgX;
+            let svgY;
+            try {
+              if (targetEl && typeof targetEl.createSVGPoint === "function") {
+                const pt = targetEl.createSVGPoint();
+                pt.x = clientX;
+                pt.y = clientY;
+                const ctm = targetEl.getScreenCTM && targetEl.getScreenCTM();
+                if (ctm && typeof ctm.inverse === "function") {
+                  const p = pt.matrixTransform(ctm.inverse());
+                  svgX = p.x;
+                  svgY = p.y;
+                }
+              }
+            } catch {}
+
+            // Fallback if CTM isn't available
+            if (!Number.isFinite(svgX) || !Number.isFinite(svgY)) {
+              const sx = rect.width ? chartWidth / rect.width : 1;
+              const sy = rect.height ? chartHeight / rect.height : 1;
+              svgX = cssX * sx;
+              svgY = cssY * sy;
+            }
 
             // Convert SVG position to plot-area coordinates
             const chartX = svgX - offsetX;
