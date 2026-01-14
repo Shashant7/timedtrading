@@ -637,6 +637,259 @@ function computeRRAtTrigger(d) {
   return gain / risk;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Horizon + ETA v2 (Worker-derived, % based)
+// ─────────────────────────────────────────────────────────────
+
+function clampNum(x, lo, hi) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function median(values) {
+  const arr = Array.isArray(values)
+    ? values.filter((n) => Number.isFinite(Number(n))).map((n) => Number(n))
+    : [];
+  if (arr.length === 0) return null;
+  arr.sort((a, b) => a - b);
+  const mid = Math.floor(arr.length / 2);
+  if (arr.length % 2 === 1) return arr[mid];
+  return (arr[mid - 1] + arr[mid]) / 2;
+}
+
+// Infer ATR (absolute) from ATR_FIB tp_levels by solving:
+// price_i - price_j = (mult_i - mult_j) * ATR
+function inferAtrAbsFromTpLevels(tpLevels, timeframe) {
+  if (!Array.isArray(tpLevels) || tpLevels.length < 2) return null;
+  const tf = String(timeframe || "").toUpperCase();
+
+  const atrFib = tpLevels
+    .map((tp) => {
+      const type = String(tp?.type || "").toUpperCase();
+      const t = String(tp?.timeframe || "").toUpperCase();
+      const price = Number(tp?.price);
+      const mult = Number(tp?.multiplier);
+      if (type !== "ATR_FIB") return null;
+      if (t !== tf) return null;
+      if (!Number.isFinite(price) || price <= 0) return null;
+      if (!Number.isFinite(mult) || mult <= 0) return null;
+      return { price, mult };
+    })
+    .filter(Boolean);
+
+  if (atrFib.length < 2) return null;
+
+  const ests = [];
+  for (let i = 0; i < atrFib.length; i++) {
+    for (let j = i + 1; j < atrFib.length; j++) {
+      const dm = Math.abs(atrFib[i].mult - atrFib[j].mult);
+      const dp = Math.abs(atrFib[i].price - atrFib[j].price);
+      if (dm <= 1e-9) continue;
+      if (!Number.isFinite(dp) || dp <= 0) continue;
+      const atr = dp / dm;
+      if (Number.isFinite(atr) && atr > 0) ests.push(atr);
+    }
+  }
+
+  const atrMed = median(ests);
+  if (!Number.isFinite(atrMed) || atrMed <= 0) return null;
+  return atrMed;
+}
+
+function horizonBucketFromEtaDays(etaDays) {
+  const eta = Number(etaDays);
+  if (!Number.isFinite(eta) || eta <= 0) return "UNKNOWN";
+  if (eta <= 7) return "SHORT_TERM";
+  if (eta <= 30) return "SWING";
+  return "POSITIONAL";
+}
+
+function deriveHorizonAndMetrics(payload) {
+  if (!payload || typeof payload !== "object") return {};
+
+  const state = String(payload.state || "");
+  const direction = state.includes("BULL")
+    ? "LONG"
+    : state.includes("BEAR")
+    ? "SHORT"
+    : null;
+  const isLong = direction === "LONG";
+
+  const entryRef =
+    payload.trigger_price != null && Number(payload.trigger_price) > 0
+      ? Number(payload.trigger_price)
+      : Number(payload.price);
+  const sl = Number(payload.sl);
+
+  const out = {
+    entry_ref: Number.isFinite(entryRef) ? entryRef : null,
+    risk_pct: null,
+    tp_max_price: null,
+    tp_max_pct: null,
+    expected_return_pct: null,
+    eta_days_v2: null,
+    eta_days_next: null,
+    eta_days_max: null,
+    eta_confidence: 0.4,
+    horizon_bucket: "UNKNOWN",
+  };
+
+  if (!direction || !Number.isFinite(entryRef) || entryRef <= 0) {
+    const etaFallback = Number(payload.eta_days);
+    out.horizon_bucket = horizonBucketFromEtaDays(etaFallback);
+    out.eta_days_v2 = Number.isFinite(etaFallback) ? etaFallback : null;
+    out.eta_confidence = Number.isFinite(etaFallback) ? 0.35 : 0.2;
+    return out;
+  }
+
+  if (Number.isFinite(sl) && sl > 0) {
+    const riskAbs = Math.abs(entryRef - sl);
+    const riskPct = riskAbs / entryRef;
+    if (Number.isFinite(riskPct) && riskPct > 0) {
+      out.risk_pct = Math.round(riskPct * 10000) / 100;
+    }
+  }
+
+  const tpLevelsRaw = Array.isArray(payload.tp_levels) ? payload.tp_levels : [];
+  const minDistPct = 0.01;
+
+  const tpCandidates = tpLevelsRaw
+    .map((tp) => {
+      const price = Number(tp?.price);
+      if (!Number.isFinite(price) || price <= 0) return null;
+      const distancePct = Math.abs(price - entryRef) / entryRef;
+      if (!Number.isFinite(distancePct) || distancePct < minDistPct) return null;
+      if (isLong && price <= entryRef) return null;
+      if (!isLong && price >= entryRef) return null;
+      return {
+        price,
+        distancePct,
+        timeframe: String(tp?.timeframe || "D").toUpperCase(),
+        type: String(tp?.type || "ATR_FIB").toUpperCase(),
+        source: String(tp?.source || "").trim(),
+        confidence: Number(tp?.confidence),
+        multiplier: tp?.multiplier == null ? null : Number(tp?.multiplier),
+        _fused: tp?._fused || null,
+      };
+    })
+    .filter(Boolean);
+
+  if (tpCandidates.length > 0) {
+    const tpMax = isLong
+      ? Math.max(...tpCandidates.map((t) => t.price))
+      : Math.min(...tpCandidates.map((t) => t.price));
+    if (Number.isFinite(tpMax) && tpMax > 0) {
+      out.tp_max_price = tpMax;
+      const tpMaxPct = (Math.abs(tpMax - entryRef) / entryRef) * 100;
+      if (Number.isFinite(tpMaxPct) && tpMaxPct > 0) {
+        out.tp_max_pct = Math.round(tpMaxPct * 100) / 100;
+        out.expected_return_pct = out.tp_max_pct;
+      }
+    }
+  }
+
+  const atrD = inferAtrAbsFromTpLevels(tpLevelsRaw, "D");
+  const atrW = inferAtrAbsFromTpLevels(tpLevelsRaw, "W");
+  const atr4 = inferAtrAbsFromTpLevels(tpLevelsRaw, "240");
+
+  let dailyAtrPct = null;
+  if (Number.isFinite(atrD) && atrD > 0) dailyAtrPct = atrD / entryRef;
+  else if (Number.isFinite(atrW) && atrW > 0) dailyAtrPct = (atrW / entryRef) / 5;
+  else if (Number.isFinite(atr4) && atr4 > 0) dailyAtrPct = (atr4 / entryRef) * 1.8;
+
+  const htfAbs = Math.abs(Number(payload.htf_score) || 0);
+  const ltfAbs = Math.abs(Number(payload.ltf_score) || 0);
+  const momentumFactor = clampNum(
+    0.85 + (htfAbs / 50) * 0.25 + (ltfAbs / 50) * 0.25,
+    0.75,
+    1.45
+  );
+
+  let expectedDailyMovePct = null;
+  if (Number.isFinite(dailyAtrPct) && dailyAtrPct > 0) {
+    expectedDailyMovePct = clampNum(
+      dailyAtrPct * 0.35 * momentumFactor,
+      0.003,
+      dailyAtrPct * 1.1
+    );
+    out.eta_confidence += 0.25;
+  } else if (Number.isFinite(out.risk_pct) && out.risk_pct > 0) {
+    expectedDailyMovePct = clampNum(
+      (out.risk_pct / 100) * 0.25 * momentumFactor,
+      0.003,
+      0.02
+    );
+    out.eta_confidence += 0.1;
+  } else {
+    expectedDailyMovePct = 0.006;
+    out.eta_confidence += 0.05;
+  }
+
+  const qualityScore = (tp) => {
+    const tf = String(tp?.timeframe || "D").toUpperCase();
+    const type = String(tp?.type || "").toUpperCase();
+    const conf = Number(tp?.confidence);
+    const tfScore =
+      tf === "W" ? 3 : tf === "D" ? 2 : tf === "240" || tf === "4H" ? 1 : 0;
+    const typeScore = type.startsWith("FUSED")
+      ? 3
+      : type === "STRUCTURE"
+      ? 3
+      : type === "LIQUIDITY"
+      ? 2
+      : type === "FVG"
+      ? 1.5
+      : type === "GAP"
+      ? 1
+      : type === "ATR_FIB"
+      ? 1
+      : 0.5;
+    const confScore = Number.isFinite(conf)
+      ? clampNum((conf - 0.6) / 0.3, 0, 1)
+      : 0.5;
+    return tfScore + typeScore + confScore;
+  };
+
+  const scored = tpCandidates
+    .map((tp) => ({
+      ...tp,
+      _q: qualityScore(tp),
+      _eta: tp.distancePct / expectedDailyMovePct,
+    }))
+    .filter((tp) => Number.isFinite(tp._eta) && tp._eta > 0)
+    .sort((a, b) => {
+      const aScore = a._q / (1 + a.distancePct * 12);
+      const bScore = b._q / (1 + b.distancePct * 12);
+      return bScore - aScore;
+    });
+
+  const next = scored[0] || null;
+  if (next) {
+    out.eta_days_next = Math.round(clampNum(next._eta, 0.2, 180) * 100) / 100;
+    out.eta_days_v2 = out.eta_days_next;
+    out.eta_confidence += 0.2;
+  }
+
+  if (Number.isFinite(out.tp_max_price) && out.tp_max_price > 0) {
+    const distMaxPct = Math.abs(out.tp_max_price - entryRef) / entryRef;
+    const etaMax = distMaxPct / expectedDailyMovePct;
+    if (Number.isFinite(etaMax) && etaMax > 0) {
+      out.eta_days_max = Math.round(clampNum(etaMax, 0.5, 365) * 100) / 100;
+    }
+  }
+
+  out.eta_confidence = Math.round(
+    clampNum(out.eta_confidence, 0.1, 0.95) * 100
+  ) / 100;
+  const etaForBucket = Number.isFinite(out.eta_days_v2)
+    ? out.eta_days_v2
+    : Number(payload.eta_days);
+  out.horizon_bucket = horizonBucketFromEtaDays(etaForBucket);
+
+  return out;
+}
+
 // ── Corridor helpers (must match UI corridors)
 function inLongCorridor(d) {
   const h = Number(d.htf_score),
@@ -6355,6 +6608,14 @@ export default {
             payload.rr = payload.rr ?? computeRR(payload);
             if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
 
+            // Derived: horizon + % metrics (ensure these are always present)
+            try {
+              const derived = deriveHorizonAndMetrics(payload);
+              Object.assign(payload, derived);
+            } catch (e) {
+              console.error(`[DERIVED METRICS] Failed for ${ticker}:`, String(e));
+            }
+
             // Add ingestion timestamp even for deduped (track when last seen)
             const now = Date.now();
             payload.ingest_ts = now;
@@ -6431,6 +6692,14 @@ export default {
           }
 
           payload.rank = computeRank(payload);
+
+          // Derived: horizon + % metrics (ETA v2 + risk/return)
+          try {
+            const derived = deriveHorizonAndMetrics(payload);
+            Object.assign(payload, derived);
+          } catch (e) {
+            console.error(`[DERIVED METRICS] Failed for ${ticker}:`, String(e));
+          }
 
           // Auto-populate sector: PRIORITIZE SECTOR_MAP over TradingView data
           // TradingView uses industry classifications (e.g., "Electronic Technology", "Retail Trade")
