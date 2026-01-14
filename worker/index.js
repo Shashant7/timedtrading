@@ -8246,6 +8246,18 @@ export default {
         if (data) {
           // Always recompute RR to ensure it uses the latest max TP from tp_levels
           data.rr = computeRR(data);
+
+          // Back-compat: older KV entries may not have derived horizon/ETA v2 fields yet.
+          // Compute on-the-fly so the UI can use them immediately (without waiting for next ingest).
+          try {
+            if (!data.horizon_bucket || data.eta_days_v2 == null) {
+              const derived = deriveHorizonAndMetrics(data);
+              Object.assign(data, derived);
+            }
+          } catch (e) {
+            console.error(`[DERIVED METRICS] /timed/latest failed for ${ticker}:`, String(e));
+          }
+
           return sendJSON(
             { ok: true, ticker, latestData: data, data },
             200,
@@ -8424,6 +8436,19 @@ export default {
 
               // Calculate dynamicScore (for ranking) - backend calculation
               value.dynamicScore = computeDynamicScore(value);
+
+              // Back-compat: compute derived horizon/ETA v2 fields if missing
+              try {
+                if (!value.horizon_bucket || value.eta_days_v2 == null) {
+                  const derived = deriveHorizonAndMetrics(value);
+                  Object.assign(value, derived);
+                }
+              } catch (e) {
+                console.error(
+                  `[DERIVED METRICS] /timed/all failed for ${ticker}:`,
+                  String(e)
+                );
+              }
 
               // Enrich with sector from SECTOR_MAP if not present in data
               if (!value.sector && !value.fundamentals?.sector) {
