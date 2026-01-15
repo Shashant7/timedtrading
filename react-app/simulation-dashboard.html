@@ -4930,7 +4930,14 @@
                                                 className="border-b border-[#26325f]/50 hover:bg-[#121a33] cursor-pointer"
                                                 onClick={() => setLedgerSelectedTradeId(t.trade_id)}
                                               >
-                                                <td className="p-2 font-semibold">{t.ticker}</td>
+                                                <td className="p-2">
+                                                  <div className="font-semibold">{t.ticker}</div>
+                                                  <div className="text-[10px] text-[#93a4d6]">
+                                                    {Number.isFinite(metrics.current)
+                                                      ? `Current: ${fmtUsd(metrics.current)}`
+                                                      : "Current: —"}
+                                                  </div>
+                                                </td>
                                                 <td className="p-2 text-xs">
                                                   <span className="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/15 text-yellow-300">
                                                     {t.status || "OPEN"}
