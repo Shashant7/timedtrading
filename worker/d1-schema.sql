@@ -27,6 +27,25 @@ CREATE INDEX IF NOT EXISTS idx_timed_trail_ts ON timed_trail (ts);
 CREATE INDEX IF NOT EXISTS idx_timed_trail_ticker_ts ON timed_trail (ticker, ts);
 
 -- -----------------------------------------------------------------------------
+-- Ingest receipts: raw webhook capture (idempotent)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS ingest_receipts (
+  receipt_id TEXT PRIMARY KEY, -- ticker:ts:hash
+  ticker TEXT NOT NULL,
+  ts INTEGER NOT NULL, -- payload timestamp (ms UTC)
+  bucket_5m INTEGER NOT NULL, -- floor(ts/300000)*300000
+  received_ts INTEGER NOT NULL, -- server receipt time (ms UTC)
+  payload_hash TEXT NOT NULL,
+  script_version TEXT,
+  payload_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingest_receipts_ts ON ingest_receipts (ts);
+CREATE INDEX IF NOT EXISTS idx_ingest_receipts_bucket ON ingest_receipts (bucket_5m);
+CREATE INDEX IF NOT EXISTS idx_ingest_receipts_ticker_bucket ON ingest_receipts (ticker, bucket_5m);
+
+-- -----------------------------------------------------------------------------
 -- Ledger tables: alerts + trades + trade_events
 -- -----------------------------------------------------------------------------
 

@@ -4229,19 +4229,35 @@
           ledgerIncludeEvidence
         );
 
-        const ledgerDayGroups = useMemo(() => {
+        const ledgerFilteredTrades = useMemo(() => {
           const items = Array.isArray(ledgerTrades.items) ? ledgerTrades.items : [];
-          const filteredItems =
-            horizonFilter === "ALL"
-              ? items
-              : items.filter((t) => {
-                  const sym = String(t.ticker || "").toUpperCase();
-                  const live = data && (data[sym] || data[t.ticker]);
-                  const key = computeHorizonKey(live || t);
-                  return key === horizonFilter;
-                });
-          const groups = new Map();
+          if (horizonFilter === "ALL") return items;
+          return items.filter((t) => {
+            const sym = String(t.ticker || "").toUpperCase();
+            const live = data && (data[sym] || data[t.ticker]);
+            const key = computeHorizonKey(live || t);
+            return key === horizonFilter;
+          });
+        }, [ledgerTrades.items, horizonFilter, data]);
 
+        const ledgerOpenTrades = useMemo(
+          () =>
+            ledgerFilteredTrades.filter(
+              (t) => t.status !== "WIN" && t.status !== "LOSS"
+            ),
+          [ledgerFilteredTrades]
+        );
+
+        const ledgerClosedTrades = useMemo(
+          () =>
+            ledgerFilteredTrades.filter(
+              (t) => t.status === "WIN" || t.status === "LOSS"
+            ),
+          [ledgerFilteredTrades]
+        );
+
+        const ledgerActivityDays = useMemo(() => {
+          const events = [];
           const dayKeyFor = (ts) => {
             const d = new Date(Number(ts));
             if (!Number.isFinite(d.getTime())) return "unknown";
@@ -4251,20 +4267,62 @@
             return `${yyyy}-${mm}-${dd}`;
           };
 
-          for (const t of filteredItems) {
-            const key = dayKeyFor(t.entry_ts);
+          for (const t of ledgerFilteredTrades) {
+            const entryTs = Number(t.entry_ts);
+            if (Number.isFinite(entryTs)) {
+              events.push({
+                ts: entryTs,
+                type: "ENTRY",
+                trade: t,
+                price: Number(t.entry_price),
+              });
+            }
+            if (
+              (t.status === "TP_HIT_TRIM" || Number(t.trimmed_pct) > 0) &&
+              Number.isFinite(Number(t.updated_at || t.exit_ts || t.entry_ts))
+            ) {
+              const trimTs = Number(t.updated_at || t.exit_ts || t.entry_ts);
+              events.push({
+                ts: trimTs,
+                type: "TRIM",
+                trade: t,
+                price: null,
+              });
+            }
+            if (
+              (t.status === "WIN" || t.status === "LOSS") &&
+              Number.isFinite(Number(t.exit_ts))
+            ) {
+              events.push({
+                ts: Number(t.exit_ts),
+                type: "EXIT",
+                trade: t,
+                price: Number(t.exit_price),
+              });
+            }
+          }
+
+          const groups = new Map();
+          for (const ev of events) {
+            const key = dayKeyFor(ev.ts);
             if (!groups.has(key)) groups.set(key, []);
-            groups.get(key).push(t);
+            groups.get(key).push(ev);
           }
 
           const keys = Array.from(groups.keys()).sort((a, b) => (a < b ? 1 : -1));
           return keys.map((key) => {
-            const trades = groups.get(key) || [];
-            const closed = trades.filter((t) => t.status === "WIN" || t.status === "LOSS");
-            const wins = closed.filter((t) => t.status === "WIN").length;
-            const losses = closed.filter((t) => t.status === "LOSS").length;
-            const closedPnl = closed.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
-            const open = trades.length - closed.length;
+            const items = groups.get(key) || [];
+            items.sort((a, b) => b.ts - a.ts);
+            const stats = items.reduce(
+              (acc, ev) => {
+                if (ev.type === "ENTRY") acc.entries += 1;
+                if (ev.type === "TRIM") acc.trims += 1;
+                if (ev.type === "EXIT") acc.exits += 1;
+                if (ev.type === "EXIT") acc.closedPnl += Number(ev.trade.pnl || 0);
+                return acc;
+              },
+              { entries: 0, trims: 0, exits: 0, closedPnl: 0 }
+            );
             const label =
               key === "unknown"
                 ? "Unknown date"
@@ -4274,14 +4332,27 @@
                     month: "short",
                     day: "numeric",
                   });
-            return {
-              key,
-              label,
-              trades,
-              stats: { total: trades.length, open, closed: closed.length, wins, losses, closedPnl },
-            };
+            return { key, label, events: items, stats };
           });
-        }, [ledgerTrades.items]);
+        }, [ledgerFilteredTrades]);
+
+        const ledgerClosedByTicker = useMemo(() => {
+          const groups = new Map();
+          for (const t of ledgerClosedTrades) {
+            const key = String(t.ticker || "").toUpperCase();
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(t);
+          }
+          const tickers = Array.from(groups.keys()).sort((a, b) =>
+            a.localeCompare(b)
+          );
+          return tickers.map((ticker) => {
+            const trades = groups.get(ticker) || [];
+            trades.sort((a, b) => Number(b.exit_ts || 0) - Number(a.exit_ts || 0));
+            const totalPnl = trades.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+            return { ticker, trades, totalPnl };
+          });
+        }, [ledgerClosedTrades]);
         
         // Daily summary state
         const [dailySummary, setDailySummary] = useState(null);
@@ -4728,77 +4799,161 @@
                           </div>
                         ) : (
                           <>
-                            {ledgerDayGroups.length === 0 ? (
+                            {ledgerFilteredTrades.length === 0 ? (
                               <div className="p-6 text-center text-[#93a4d6]">
                                 No trades found for this filter/range.
                               </div>
                             ) : (
-                              <div className="space-y-4">
-                                {ledgerDayGroups.map((g) => (
-                                  <div key={g.key} className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
-                                    <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
-                                      <div>
-                                        <div className="text-sm font-bold">{g.label}</div>
-                                        <div className="text-xs text-[#93a4d6]">
-                                          {fmtInt(g.stats.total)} trades • {fmtInt(g.stats.open)} open • {fmtInt(g.stats.closed)} closed
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-3 text-xs">
-                                        <div className="px-2 py-1 rounded bg-[#121a33] border border-[#26325f]">
-                                          <span className="text-[#93a4d6]">W/L</span>{" "}
-                                          <span className="font-semibold text-white">
-                                            <span className="text-green-400">{g.stats.wins}</span>/
-                                            <span className="text-red-400">{g.stats.losses}</span>
-                                          </span>
-                                        </div>
-                                        <div className={`px-2 py-1 rounded bg-[#121a33] border border-[#26325f] font-semibold ${g.stats.closedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                          {fmtUsd(g.stats.closedPnl)}
-                                        </div>
+                              <div className="space-y-6">
+                                <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
+                                  <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
+                                    <div>
+                                      <div className="text-sm font-bold">By Day Activity</div>
+                                      <div className="text-xs text-[#93a4d6]">
+                                        Entries, trims, and exits logged by day.
                                       </div>
                                     </div>
+                                  </div>
+                                  {ledgerActivityDays.length === 0 ? (
+                                    <div className="p-6 text-center text-[#93a4d6]">
+                                      No activity found in this range.
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-4 p-3">
+                                      {ledgerActivityDays.map((g) => (
+                                        <div key={g.key} className="bg-[#121a33] border border-[#26325f] rounded-xl overflow-hidden">
+                                          <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
+                                            <div>
+                                              <div className="text-sm font-bold">{g.label}</div>
+                                              <div className="text-xs text-[#93a4d6]">
+                                                {fmtInt(g.stats.entries)} entries • {fmtInt(g.stats.trims)} trims • {fmtInt(g.stats.exits)} exits
+                                              </div>
+                                            </div>
+                                            <div className={`px-2 py-1 rounded bg-[#0f1630] border border-[#26325f] text-xs font-semibold ${g.stats.closedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                              {fmtUsd(g.stats.closedPnl)}
+                                            </div>
+                                          </div>
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full min-w-full">
+                                              <thead>
+                                                <tr className="border-b border-[#26325f] text-left">
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Time</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Action</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Side</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Price</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Status</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {g.events.map((ev, idx) => {
+                                                  const t = ev.trade;
+                                                  const pnl = Number(t.pnl || 0);
+                                                  const actionColor =
+                                                    ev.type === "ENTRY"
+                                                      ? "bg-green-500/20 text-green-400"
+                                                      : ev.type === "TRIM"
+                                                      ? "bg-yellow-500/20 text-yellow-300"
+                                                      : "bg-purple-500/20 text-purple-300";
+                                                  const statusLabel =
+                                                    ev.type === "EXIT"
+                                                      ? t.exit_reason || t.status || "EXIT"
+                                                      : ev.type === "TRIM"
+                                                      ? "TRIMMED"
+                                                      : t.status || "OPEN";
+                                                  return (
+                                                    <tr
+                                                      key={`${t.trade_id}-${idx}-${ev.type}`}
+                                                      className="border-b border-[#26325f]/50 hover:bg-[#0f1630] cursor-pointer"
+                                                      onClick={() => setLedgerSelectedTradeId(t.trade_id)}
+                                                    >
+                                                      <td className="p-2 text-xs text-[#93a4d6] whitespace-nowrap">
+                                                        {Number.isFinite(ev.ts) ? new Date(ev.ts).toLocaleTimeString() : "—"}
+                                                      </td>
+                                                      <td className="p-2 font-semibold">{t.ticker}</td>
+                                                      <td className="p-2 text-xs">
+                                                        <span className={`px-2 py-0.5 rounded font-semibold ${actionColor}`}>
+                                                          {ev.type}
+                                                        </span>
+                                                      </td>
+                                                      <td className="p-2">
+                                                        <span
+                                                          className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                                            t.direction === "LONG"
+                                                              ? "bg-green-500/20 text-green-400"
+                                                              : "bg-red-500/20 text-red-400"
+                                                          }`}
+                                                        >
+                                                          {t.direction}
+                                                        </span>
+                                                      </td>
+                                                      <td className="p-2 text-sm">
+                                                        {Number.isFinite(ev.price) ? fmtUsd(ev.price) : "—"}
+                                                      </td>
+                                                      <td className="p-2 text-xs text-[#93a4d6]">{statusLabel}</td>
+                                                      <td className="p-2 text-xs">
+                                                        {ev.type === "EXIT" ? (
+                                                          <span className={`font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                                            {fmtUsd(pnl)}
+                                                          </span>
+                                                        ) : (
+                                                          <span className="text-[#6b7a9f]">—</span>
+                                                        )}
+                                                      </td>
+                                                    </tr>
+                                                  );
+                                                })}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
 
+                                <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
+                                  <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
+                                    <div>
+                                      <div className="text-sm font-bold">Portfolio (Open Positions)</div>
+                                      <div className="text-xs text-[#93a4d6]">
+                                        {fmtInt(ledgerOpenTrades.length)} open positions
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {ledgerOpenTrades.length === 0 ? (
+                                    <div className="p-6 text-center text-[#93a4d6]">
+                                      No open trades in this range.
+                                    </div>
+                                  ) : (
                                     <div className="overflow-x-auto">
                                       <table className="w-full min-w-full">
                                         <thead>
                                           <tr className="border-b border-[#26325f] text-left">
-                                            <th className="p-2 text-xs text-[#93a4d6]">Time</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Side</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Current</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">TP Target</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">RR</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">SL</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Horizon</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Div</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Corr</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Status</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Outcome</th>
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {g.trades.map((t) => {
-                                            const id = t.trade_id;
-                                            const pnl = Number(t.pnl || 0);
-                                            const isClosed = t.status === "WIN" || t.status === "LOSS";
+                                          {ledgerOpenTrades.map((t) => {
                                             const sym = String(t.ticker || "").toUpperCase();
                                             const live = data && (data[sym] || data[t.ticker]);
+                                            const current = Number(live?.price);
                                             const eta = computeEtaDays(live || t);
-                                            const horizon = computeHorizonBucket(live || t);
                                             const tpTarget = computeTpTargetPrice(live || t);
-                                            const diversity = Number(live?.diversity_score);
-                                            const avgCorr = Number(live?.avg_corr);
                                             return (
                                               <tr
-                                                key={id}
-                                                className={`border-b border-[#26325f]/50 hover:bg-[#121a33] cursor-pointer ${
-                                                  ledgerSelectedTradeId === id ? "bg-[#121a33]" : ""
-                                                }`}
-                                                onClick={() => setLedgerSelectedTradeId(id)}
+                                                key={t.trade_id}
+                                                className="border-b border-[#26325f]/50 hover:bg-[#121a33] cursor-pointer"
+                                                onClick={() => setLedgerSelectedTradeId(t.trade_id)}
                                               >
-                                                <td className="p-2 text-xs text-[#93a4d6] whitespace-nowrap">
-                                                  {t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleTimeString() : "—"}
-                                                </td>
                                                 <td className="p-2 font-semibold">{t.ticker}</td>
                                                 <td className="p-2">
                                                   <span
@@ -4812,52 +4967,109 @@
                                                   </span>
                                                 </td>
                                                 <td className="p-2 text-sm">{fmtUsd(t.entry_price || 0)}</td>
+                                                <td className="p-2 text-sm text-yellow-300">
+                                                  {Number.isFinite(current) ? fmtUsd(current) : "—"}
+                                                </td>
                                                 <td className="p-2 text-sm text-green-400">
                                                   {Number.isFinite(tpTarget) ? fmtUsd(tpTarget) : "—"}
                                                 </td>
-                                                <td className="p-2 text-sm text-blue-400 font-semibold">{t.rank ?? "—"}</td>
-                                                <td className="p-2 text-sm">{t.rr != null ? Number(t.rr).toFixed(2) : "—"}</td>
+                                                <td className="p-2 text-sm text-red-400">{fmtUsd(t.sl || 0)}</td>
                                                 <td className="p-2 text-sm">
                                                   {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
                                                 </td>
-                                                <td className="p-2 text-xs text-[#93a4d6]">{horizon}</td>
-                                                <td className="p-2 text-sm text-[#93a4d6]">
-                                                  {Number.isFinite(diversity) ? Math.round(diversity) : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm text-[#93a4d6]">
-                                                  {Number.isFinite(avgCorr) ? avgCorr.toFixed(2) : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm">
-                                                  {isClosed ? (
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${t.status === "WIN" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
-                                                      {t.status}
-                                                    </span>
-                                                  ) : (
-                                                    <span className="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/15 text-yellow-300">
-                                                      {t.status || "OPEN"}
-                                                    </span>
-                                                  )}
-                                                </td>
-                                                <td className="p-2 text-xs">
-                                                  {isClosed ? (
-                                                    <div className="flex items-center justify-between gap-2">
-                                                      <span className="text-[#93a4d6]">{t.exit_reason || "—"}</span>
-                                                      <span className={`font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                                        {fmtUsd(pnl)}
-                                                      </span>
-                                                    </div>
-                                                  ) : (
-                                                    <span className="text-[#6b7a9f]">In progress</span>
-                                                  )}
-                                                </td>
+                                                <td className="p-2 text-xs text-yellow-300">{t.status || "OPEN"}</td>
                                               </tr>
                                             );
                                           })}
                                         </tbody>
                                       </table>
                                     </div>
+                                  )}
+                                </div>
+
+                                <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
+                                  <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
+                                    <div>
+                                      <div className="text-sm font-bold">Closed Trades by Ticker</div>
+                                      <div className="text-xs text-[#93a4d6]">
+                                        {fmtInt(ledgerClosedTrades.length)} closed trades
+                                      </div>
+                                    </div>
                                   </div>
-                                ))}
+                                  {ledgerClosedByTicker.length === 0 ? (
+                                    <div className="p-6 text-center text-[#93a4d6]">
+                                      No closed trades in this range.
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-3 p-3">
+                                      {ledgerClosedByTicker.map((group) => (
+                                        <div key={group.ticker} className="border border-[#26325f] rounded-lg overflow-hidden bg-[#121a33]">
+                                          <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
+                                            <div className="text-sm font-bold">{group.ticker}</div>
+                                            <div className={`text-sm font-semibold ${group.totalPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                              {fmtUsd(group.totalPnl)}
+                                            </div>
+                                          </div>
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full min-w-full">
+                                              <thead>
+                                                <tr className="border-b border-[#26325f] text-left">
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Exit</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Side</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Status</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {group.trades.map((t) => {
+                                                  const entryTs = Number(t.entry_ts);
+                                                  const exitTs = Number(t.exit_ts);
+                                                  const pnl = Number(t.pnl || 0);
+                                                  return (
+                                                    <tr
+                                                      key={t.trade_id}
+                                                      className="border-b border-[#26325f]/50 hover:bg-[#0f1630] cursor-pointer"
+                                                      onClick={() => setLedgerSelectedTradeId(t.trade_id)}
+                                                    >
+                                                      <td className="p-2 text-xs text-[#93a4d6]">
+                                                        {Number.isFinite(entryTs)
+                                                          ? new Date(entryTs).toLocaleString()
+                                                          : "—"}
+                                                      </td>
+                                                      <td className="p-2 text-xs text-[#93a4d6]">
+                                                        {Number.isFinite(exitTs)
+                                                          ? new Date(exitTs).toLocaleString()
+                                                          : "—"}
+                                                      </td>
+                                                      <td className="p-2">
+                                                        <span
+                                                          className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                                            t.direction === "LONG"
+                                                              ? "bg-green-500/20 text-green-400"
+                                                              : "bg-red-500/20 text-red-400"
+                                                          }`}
+                                                        >
+                                                          {t.direction}
+                                                        </span>
+                                                      </td>
+                                                      <td className="p-2 text-sm">
+                                                        <span className={`font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                                          {fmtUsd(pnl)}
+                                                        </span>
+                                                      </td>
+                                                      <td className="p-2 text-xs text-[#93a4d6]">{t.status}</td>
+                                                    </tr>
+                                                  );
+                                                })}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
 

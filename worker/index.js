@@ -3282,6 +3282,19 @@ async function processTradeSimulation(
           if (env) {
             const pnl = updatedTrade.pnl || 0;
             const pnlPct = updatedTrade.pnlPct || 0;
+            const findHistoryTs = (type) => {
+              if (!Array.isArray(newHistoryEvents)) return Date.now();
+              for (let i = newHistoryEvents.length - 1; i >= 0; i--) {
+                const ev = newHistoryEvents[i];
+                if (!ev || !ev.type) continue;
+                if (String(ev.type).toUpperCase() === type) {
+                  const ts =
+                    isoToMs(ev.timestamp) || Number(ev.ts) || Date.now();
+                  return Number.isFinite(ts) ? ts : Date.now();
+                }
+              }
+              return Date.now();
+            };
 
             // Send TRIM alert whenever a new TRIM event was created
             if (didTrim) {
@@ -3303,12 +3316,57 @@ async function processTradeSimulation(
                 updatedTrade,
                 trimDeltaPctRaw
               );
-              await notifyDiscord(env, embed).catch((err) => {
+              const sendRes = await notifyDiscord(env, embed).catch((err) => {
                 console.error(
                   `[TRADE SIM] ❌ Failed to send trim alert for ${ticker}:`,
                   err
                 );
+                return { ok: false, error: String(err) };
               }); // Don't let Discord errors break trade updates
+
+              const alertTs = findHistoryTs("TRIM");
+              const alertPayloadJson = (() => {
+                try {
+                  return JSON.stringify(tickerData);
+                } catch {
+                  return null;
+                }
+              })();
+              const alertMetaJson = (() => {
+                try {
+                  return JSON.stringify({
+                    type: "TRADE_TRIM",
+                    trade_id: updatedTrade.id,
+                    trimmed_pct: newTrimmedPct,
+                    trim_delta_pct: trimDeltaPctRaw,
+                  });
+                } catch {
+                  return null;
+                }
+              })();
+              d1UpsertAlert(env, {
+                alert_id: buildAlertId(ticker, alertTs, "TRADE_TRIM"),
+                ticker,
+                ts: alertTs,
+                side: direction,
+                state: tickerData.state,
+                rank: updatedTrade.rank,
+                rr_at_alert: updatedTrade.rr,
+                trigger_reason: "TRADE_TRIM",
+                dedupe_day: formatDedupDay(alertTs),
+                discord_sent: !!sendRes?.ok,
+                discord_status: sendRes?.status ?? null,
+                discord_error: sendRes?.ok
+                  ? null
+                  : sendRes?.reason ||
+                    sendRes?.statusText ||
+                    sendRes?.error ||
+                    "discord_send_failed",
+                payload_json: alertPayloadJson,
+                meta_json: alertMetaJson,
+              }).catch((e) => {
+                console.error(`[D1 LEDGER] Failed to upsert trim alert:`, e);
+              });
             }
 
             // Send EXIT alert on first transition into WIN/LOSS
@@ -3333,12 +3391,59 @@ async function processTradeSimulation(
                 tickerData,
                 updatedTrade
               );
-              await notifyDiscord(env, embed).catch((err) => {
+              const sendRes = await notifyDiscord(env, embed).catch((err) => {
                 console.error(
                   `[TRADE SIM] ❌ Failed to send exit alert for ${ticker}:`,
                   err
                 );
+                return { ok: false, error: String(err) };
               }); // Don't let Discord errors break trade updates
+
+              const exitTs = findHistoryTs("EXIT");
+              const exitPayloadJson = (() => {
+                try {
+                  return JSON.stringify(tickerData);
+                } catch {
+                  return null;
+                }
+              })();
+              const exitMetaJson = (() => {
+                try {
+                  return JSON.stringify({
+                    type: "TRADE_EXIT",
+                    trade_id: updatedTrade.id,
+                    status: newStatus,
+                    exit_reason: updatedTrade.exitReason || null,
+                    pnl,
+                    pnlPct,
+                  });
+                } catch {
+                  return null;
+                }
+              })();
+              d1UpsertAlert(env, {
+                alert_id: buildAlertId(ticker, exitTs, "TRADE_EXIT"),
+                ticker,
+                ts: exitTs,
+                side: direction,
+                state: tickerData.state,
+                rank: updatedTrade.rank,
+                rr_at_alert: updatedTrade.rr,
+                trigger_reason: updatedTrade.exitReason || "TRADE_EXIT",
+                dedupe_day: formatDedupDay(exitTs),
+                discord_sent: !!sendRes?.ok,
+                discord_status: sendRes?.status ?? null,
+                discord_error: sendRes?.ok
+                  ? null
+                  : sendRes?.reason ||
+                    sendRes?.statusText ||
+                    sendRes?.error ||
+                    "discord_send_failed",
+                payload_json: exitPayloadJson,
+                meta_json: exitMetaJson,
+              }).catch((e) => {
+                console.error(`[D1 LEDGER] Failed to upsert exit alert:`, e);
+              });
 
               // If this was a TD exit, send additional TD9/TD13 alert
               if (shouldExitFromTDSeq) {
@@ -3356,10 +3461,40 @@ async function processTradeSimulation(
                   tdSeq,
                   tickerData
                 );
-                await notifyDiscord(env, td9Embed).catch((err) => {
+                const td9Res = await notifyDiscord(env, td9Embed).catch(
+                  (err) => {
+                    console.error(
+                      `[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`,
+                      err
+                    );
+                    return { ok: false, error: String(err) };
+                  }
+                );
+                const td9Ts = exitTs || findHistoryTs("EXIT");
+                d1UpsertAlert(env, {
+                  alert_id: buildAlertId(ticker, td9Ts, "TD9_EXIT"),
+                  ticker,
+                  ts: td9Ts,
+                  side: direction,
+                  state: tickerData.state,
+                  rank: updatedTrade.rank,
+                  rr_at_alert: updatedTrade.rr,
+                  trigger_reason: "TDSEQ_EXIT",
+                  dedupe_day: formatDedupDay(td9Ts),
+                  discord_sent: !!td9Res?.ok,
+                  discord_status: td9Res?.status ?? null,
+                  discord_error: td9Res?.ok
+                    ? null
+                    : td9Res?.reason ||
+                      td9Res?.statusText ||
+                      td9Res?.error ||
+                      "discord_send_failed",
+                  payload_json: exitPayloadJson,
+                  meta_json: exitMetaJson,
+                }).catch((e) => {
                   console.error(
-                    `[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`,
-                    err
+                    `[D1 LEDGER] Failed to upsert TD9 exit alert:`,
+                    e
                   );
                 });
               }
@@ -3964,12 +4099,61 @@ async function processTradeSimulation(
                 isBackfill,
                 tickerData // Pass full ticker data for comprehensive embed
               );
-              await notifyDiscord(env, embed).catch((err) => {
+              const sendRes = await notifyDiscord(env, embed).catch((err) => {
                 console.error(
                   `[TRADE SIM] ❌ Failed to send entry alert for ${ticker}:`,
                   err
                 );
+                return { ok: false, error: String(err) };
               }); // Don't let Discord errors break trade creation
+
+              const entryTs =
+                isoToMs(trade.entryTime) ||
+                Number(trade.entry_ts) ||
+                Date.now();
+              const entryPayloadJson = (() => {
+                try {
+                  return JSON.stringify(tickerData);
+                } catch {
+                  return null;
+                }
+              })();
+              const entryMetaJson = (() => {
+                try {
+                  return JSON.stringify({
+                    type: "TRADE_ENTRY",
+                    trade_id: trade.id,
+                    entry_price: entryPrice,
+                    sl: Number(tickerData.sl),
+                    tp: validTP,
+                  });
+                } catch {
+                  return null;
+                }
+              })();
+              d1UpsertAlert(env, {
+                alert_id: buildAlertId(ticker, entryTs, "TRADE_ENTRY"),
+                ticker,
+                ts: entryTs,
+                side: direction,
+                state: tickerData.state,
+                rank: trade.rank || 0,
+                rr_at_alert: entryRR || 0,
+                trigger_reason: "TRADE_ENTRY",
+                dedupe_day: formatDedupDay(entryTs),
+                discord_sent: !!sendRes?.ok,
+                discord_status: sendRes?.status ?? null,
+                discord_error: sendRes?.ok
+                  ? null
+                  : sendRes?.reason ||
+                    sendRes?.statusText ||
+                    sendRes?.error ||
+                    "discord_send_failed",
+                payload_json: entryPayloadJson,
+                meta_json: entryMetaJson,
+              }).catch((e) => {
+                console.error(`[D1 LEDGER] Failed to upsert entry alert:`, e);
+              });
 
               // Log trade entry to activity feed
               try {
@@ -4573,6 +4757,55 @@ async function d1InsertTrailPoint(env, ticker, payload) {
   }
 }
 
+async function d1InsertIngestReceipt(env, ticker, payload, rawPayload) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+
+  const ts = Number(payload?.ts);
+  if (!Number.isFinite(ts))
+    return { ok: false, skipped: true, reason: "bad_ts" };
+
+  let raw = typeof rawPayload === "string" ? rawPayload : "";
+  if (!raw) {
+    try {
+      raw = JSON.stringify(payload);
+    } catch {
+      raw = "";
+    }
+  }
+  const hash = stableHash(raw || "");
+  const receiptId = `${String(ticker || "").toUpperCase()}:${ts}:${hash}`;
+  const bucket5m = Math.floor(ts / (5 * 60 * 1000)) * (5 * 60 * 1000);
+  const receivedTs = Date.now();
+  const scriptVersion = payload?.script_version || null;
+
+  try {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO ingest_receipts
+          (receipt_id, ticker, ts, bucket_5m, received_ts, payload_hash, script_version, payload_json)
+         VALUES
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+      )
+      .bind(
+        receiptId,
+        String(ticker || "").toUpperCase(),
+        ts,
+        bucket5m,
+        receivedTs,
+        hash,
+        scriptVersion,
+        raw || null
+      )
+      .run();
+
+    return { ok: true };
+  } catch (err) {
+    console.error(`[D1 INGEST] Receipt insert failed for ${ticker}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
 async function d1CleanupOldTrail(env, ttlDays = 35) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -4769,6 +5002,17 @@ function isoToMs(v) {
   const s = String(v);
   const ms = Date.parse(s);
   return Number.isFinite(ms) ? ms : null;
+}
+
+function formatDedupDay(ts) {
+  if (!Number.isFinite(ts)) return null;
+  return new Date(ts).toISOString().split("T")[0];
+}
+
+function buildAlertId(ticker, ts, type) {
+  const t = String(ticker || "").toUpperCase();
+  const kind = String(type || "ALERT").toUpperCase();
+  return `${t}:${ts}:${kind}`;
 }
 
 async function d1UpsertAlert(env, alert) {
@@ -6973,6 +7217,43 @@ export default {
           const ticker = v.ticker;
           const payload = v.payload;
 
+          const rawPayload =
+            typeof raw === "string"
+              ? raw
+              : (() => {
+                  try {
+                    return JSON.stringify(body);
+                  } catch {
+                    return "";
+                  }
+                })();
+
+          // Store raw webhook receipt (KV + D1) before any filtering or derived logic
+          try {
+            if (rawPayload) {
+              await kvPutText(
+                KV,
+                `timed:ingest:raw:${ticker}`,
+                rawPayload,
+                2 * 24 * 60 * 60
+              );
+            }
+          } catch (rawErr) {
+            console.error(
+              `[INGEST RAW] KV store failed for ${ticker}:`,
+              rawErr
+            );
+          }
+
+          d1InsertIngestReceipt(env, ticker, payload, rawPayload).catch(
+            (err) => {
+              console.error(
+                `[D1 INGEST] Receipt insert exception for ${ticker}:`,
+                err
+              );
+            }
+          );
+
           // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
           // Check BEFORE normalization to catch BRK.B from TradingView
           const rawTicker = body?.ticker;
@@ -7200,6 +7481,47 @@ export default {
             Object.assign(payload, derived);
           } catch (e) {
             console.error(`[DERIVED METRICS] Failed for ${ticker}:`, String(e));
+          }
+
+          // Trail (light) - store immediately after derived metrics
+          try {
+            const trailPoint = {
+              ts: payload.ts,
+              price: payload.price, // Add price to trail for momentum calculations
+              htf_score: payload.htf_score,
+              ltf_score: payload.ltf_score,
+              completion: payload.completion,
+              phase_pct: payload.phase_pct,
+              state: payload.state,
+              rank: payload.rank,
+              flags: payload.flags || {},
+              momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
+              trigger_reason: payload.trigger_reason,
+              trigger_dir: payload.trigger_dir,
+            };
+
+            await appendTrail(KV, ticker, trailPoint, 20); // Increased to 20 points for better history
+
+            // Also store into D1 (if configured) for 7-day history.
+            // Don't let D1 failures affect ingestion.
+            d1InsertTrailPoint(env, ticker, payload).catch((e) => {
+              console.error(`[D1 TRAIL] Insert exception for ${ticker}:`, e);
+            });
+
+            // Periodic cleanup (throttled) to keep ~35 days retention
+            d1CleanupOldTrail(env, 35).catch((e) => {
+              console.error(`[D1 TRAIL] Cleanup exception:`, e);
+            });
+          } catch (trailErr) {
+            console.error(
+              `[TRAIL ERROR] Failed to append trail for ${ticker}:`,
+              {
+                error: String(trailErr),
+                message: trailErr.message,
+                stack: trailErr.stack,
+              }
+            );
+            // Don't throw - continue with ingestion even if trail fails
           }
 
           // Auto-populate sector: PRIORITIZE SECTOR_MAP over TradingView data
@@ -8645,48 +8967,6 @@ export default {
             // Don't throw - continue with ingestion even if alert evaluation fails
           }
 
-          // Trail (light)
-          // Wrap in try-catch to prevent trail errors from breaking ingestion
-          try {
-            const trailPoint = {
-              ts: payload.ts,
-              price: payload.price, // Add price to trail for momentum calculations
-              htf_score: payload.htf_score,
-              ltf_score: payload.ltf_score,
-              completion: payload.completion,
-              phase_pct: payload.phase_pct,
-              state: payload.state,
-              rank: payload.rank,
-              flags: payload.flags || {},
-              momentum_elite: !!(payload.flags && payload.flags.momentum_elite),
-              trigger_reason: payload.trigger_reason,
-              trigger_dir: payload.trigger_dir,
-            };
-
-            await appendTrail(KV, ticker, trailPoint, 20); // Increased to 20 points for better history
-
-            // Also store into D1 (if configured) for 7-day history.
-            // Don't let D1 failures affect ingestion.
-            d1InsertTrailPoint(env, ticker, payload).catch((e) => {
-              console.error(`[D1 TRAIL] Insert exception for ${ticker}:`, e);
-            });
-
-            // Periodic cleanup (throttled) to keep ~35 days retention
-            d1CleanupOldTrail(env, 35).catch((e) => {
-              console.error(`[D1 TRAIL] Cleanup exception:`, e);
-            });
-          } catch (trailErr) {
-            console.error(
-              `[TRAIL ERROR] Failed to append trail for ${ticker}:`,
-              {
-                error: String(trailErr),
-                message: trailErr.message,
-                stack: trailErr.stack,
-              }
-            );
-            // Don't throw - continue with ingestion even if trail fails
-          }
-
           // Store version-specific snapshot for historical access
           const version = payload.script_version || "unknown";
           if (version !== "unknown") {
@@ -9796,154 +10076,11 @@ export default {
 
       // GET /timed/activity
       if (url.pathname === "/timed/activity" && req.method === "GET") {
-        // Rate limiting - aligned with 5-minute refresh interval (generous limit)
-        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        const rateLimit = await checkRateLimit(
-          KV,
-          ip,
-          "/timed/activity",
-          1000, // Increased for single-user (plenty of headroom)
-          3600
-        );
-
-        if (!rateLimit.allowed) {
-          return sendJSON(
-            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
-            429,
-            corsHeaders(env, req)
-          );
-        }
-
         const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
 
-        // Also generate events from current ticker states (for historical display)
-        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const now = Date.now();
         const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
         const currentEvents = [];
-
-        // Generate events from current state (only if not already in feed)
-        for (const ticker of tickers) {
-          const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
-          if (!latest) continue;
-
-          const flags = latest.flags || {};
-          const side = corridorSide(latest);
-          const inCorridor = !!side;
-          const state = String(latest.state || "");
-          const alignedLong = state === "HTF_BULL_LTF_BULL";
-          const alignedShort = state === "HTF_BEAR_LTF_BEAR";
-
-          // Check if we already have recent events for this ticker+type combination
-          const hasRecentEventOfType = (type) => {
-            return feed.some(
-              (e) => e.ticker === ticker && e.type === type && e.ts > oneWeekAgo
-            );
-          };
-
-          // Generate corridor entry event if in corridor
-          if (inCorridor && !hasRecentEventOfType("corridor_entry")) {
-            currentEvents.push({
-              type: "corridor_entry",
-              ticker: ticker,
-              side: side,
-              price: latest.price,
-              state: latest.state,
-              rank: latest.rank,
-              sl: latest.sl,
-              tp: latest.tp,
-              tp_levels: latest.tp_levels,
-              rr: latest.rr,
-              phase_pct: latest.phase_pct,
-              completion: latest.completion,
-              ts: latest.ts || now,
-              id: `current-${ticker}-corridor-${now}`,
-            });
-          }
-
-          // Generate squeeze start event if squeeze is on
-          if (flags.sq30_on && !hasRecentEventOfType("squeeze_start")) {
-            currentEvents.push({
-              type: "squeeze_start",
-              ticker: ticker,
-              price: latest.price,
-              state: latest.state,
-              rank: latest.rank,
-              sl: latest.sl,
-              tp: latest.tp,
-              tp_levels: latest.tp_levels,
-              rr: latest.rr,
-              phase_pct: latest.phase_pct,
-              completion: latest.completion,
-              ts: latest.ts || now,
-              id: `current-${ticker}-squeeze-${now}`,
-            });
-          }
-
-          // Generate squeeze release event if squeeze released
-          if (flags.sq30_release && !hasRecentEventOfType("squeeze_release")) {
-            currentEvents.push({
-              type: "squeeze_release",
-              ticker: ticker,
-              side:
-                side || (alignedLong ? "LONG" : alignedShort ? "SHORT" : null),
-              price: latest.price,
-              state: latest.state,
-              rank: latest.rank,
-              trigger_dir: latest.trigger_dir,
-              sl: latest.sl,
-              tp: latest.tp,
-              tp_levels: latest.tp_levels,
-              rr: latest.rr,
-              phase_pct: latest.phase_pct,
-              completion: latest.completion,
-              ts: latest.ts || now,
-              id: `current-${ticker}-squeeze-rel-${now}`,
-            });
-          }
-
-          // Generate aligned state event
-          if (
-            (alignedLong || alignedShort) &&
-            !hasRecentEventOfType("state_aligned")
-          ) {
-            currentEvents.push({
-              type: "state_aligned",
-              ticker: ticker,
-              side: alignedLong ? "LONG" : "SHORT",
-              price: latest.price,
-              state: latest.state,
-              rank: latest.rank,
-              sl: latest.sl,
-              tp: latest.tp,
-              tp_levels: latest.tp_levels,
-              rr: latest.rr,
-              phase_pct: latest.phase_pct,
-              completion: latest.completion,
-              ts: latest.ts || now,
-              id: `current-${ticker}-aligned-${now}`,
-            });
-          }
-
-          // Generate Momentum Elite event
-          if (flags.momentum_elite && !hasRecentEventOfType("momentum_elite")) {
-            currentEvents.push({
-              type: "momentum_elite",
-              ticker: ticker,
-              price: latest.price,
-              state: latest.state,
-              rank: latest.rank,
-              sl: latest.sl,
-              tp: latest.tp,
-              tp_levels: latest.tp_levels,
-              rr: latest.rr,
-              phase_pct: latest.phase_pct,
-              completion: latest.completion,
-              ts: latest.ts || now,
-              id: `current-${ticker}-momentum-${now}`,
-            });
-          }
-        }
 
         // Merge feed events with current events, deduplicate by ticker+type
         const allEvents = [...feed, ...currentEvents];
@@ -10031,6 +10168,161 @@ export default {
             corsHeaders(env, req)
           );
         }
+      }
+
+      // GET /timed/ingest-audit?since&until&bucket&ticker&includeKv
+      if (url.pathname === "/timed/ingest-audit" && req.method === "GET") {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const sinceRaw = url.searchParams.get("since");
+        const untilRaw = url.searchParams.get("until");
+        const bucketRaw = url.searchParams.get("bucket");
+        const tickerParam = normTicker(url.searchParams.get("ticker"));
+        const includeKv = url.searchParams.get("includeKv") === "1";
+
+        const now = Date.now();
+        const since =
+          sinceRaw != null && sinceRaw !== ""
+            ? Number(sinceRaw)
+            : now - 6 * 60 * 60 * 1000;
+        const until =
+          untilRaw != null && untilRaw !== "" ? Number(untilRaw) : now;
+        const bucketMin = Math.max(1, Number(bucketRaw) || 5);
+        const bucketMs = bucketMin * 60 * 1000;
+
+        if (
+          !Number.isFinite(since) ||
+          !Number.isFinite(until) ||
+          until <= since
+        ) {
+          return sendJSON(
+            { ok: false, error: "invalid_since_until" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickers = tickerParam
+          ? [tickerParam]
+          : (await kvGetJSON(KV, "timed:tickers")) || [];
+
+        const expectedBuckets = [];
+        for (let t = since; t <= until; t += bucketMs) {
+          expectedBuckets.push(Math.floor(t / bucketMs) * bucketMs);
+        }
+
+        const receiptRows = await db
+          .prepare(
+            `SELECT
+              ticker,
+              (ts / ?1) * ?1 AS bucket,
+              COUNT(*) AS cnt
+             FROM ingest_receipts
+             WHERE ts >= ?2 AND ts <= ?3
+             ${tickerParam ? "AND ticker = ?4" : ""}
+             GROUP BY ticker, bucket`
+          )
+          .bind(bucketMs, since, until, ...(tickerParam ? [tickerParam] : []))
+          .all();
+
+        const trailRows = await db
+          .prepare(
+            `SELECT
+              ticker,
+              (ts / ?1) * ?1 AS bucket,
+              COUNT(*) AS cnt
+             FROM timed_trail
+             WHERE ts >= ?2 AND ts <= ?3
+             ${tickerParam ? "AND ticker = ?4" : ""}
+             GROUP BY ticker, bucket`
+          )
+          .bind(bucketMs, since, until, ...(tickerParam ? [tickerParam] : []))
+          .all();
+
+        const receiptMap = new Map();
+        for (const row of receiptRows?.results || []) {
+          const t = String(row.ticker || "").toUpperCase();
+          if (!receiptMap.has(t)) receiptMap.set(t, new Set());
+          receiptMap.get(t).add(Number(row.bucket));
+        }
+
+        const trailMap = new Map();
+        for (const row of trailRows?.results || []) {
+          const t = String(row.ticker || "").toUpperCase();
+          if (!trailMap.has(t)) trailMap.set(t, new Set());
+          trailMap.get(t).add(Number(row.bucket));
+        }
+
+        const kvMap = new Map();
+        if (includeKv && tickerParam) {
+          try {
+            let kvTrail =
+              (await kvGetJSON(KV, `timed:trail:${tickerParam}`)) || [];
+            if (!Array.isArray(kvTrail)) kvTrail = [];
+            const buckets = new Set();
+            for (const point of kvTrail) {
+              const ts = Number(point?.ts);
+              if (!Number.isFinite(ts)) continue;
+              if (ts < since || ts > until) continue;
+              buckets.add(Math.floor(ts / bucketMs) * bucketMs);
+            }
+            kvMap.set(tickerParam, buckets);
+          } catch (err) {
+            console.error(`[INGEST AUDIT] KV trail read failed:`, err);
+          }
+        }
+
+        const perTicker = tickers.map((t) => {
+          const ticker = String(t || "").toUpperCase();
+          const receiptBuckets = receiptMap.get(ticker) || new Set();
+          const trailBuckets = trailMap.get(ticker) || new Set();
+          const kvBuckets = kvMap.get(ticker) || null;
+
+          const missingReceipts = expectedBuckets.filter(
+            (b) => !receiptBuckets.has(b)
+          );
+          const missingTrail = expectedBuckets.filter(
+            (b) => !trailBuckets.has(b)
+          );
+          const missingKv = kvBuckets
+            ? expectedBuckets.filter((b) => !kvBuckets.has(b))
+            : null;
+
+          return {
+            ticker,
+            expectedBuckets: expectedBuckets.length,
+            receiptBuckets: receiptBuckets.size,
+            trailBucketsD1: trailBuckets.size,
+            trailBucketsKV: kvBuckets ? kvBuckets.size : null,
+            missingReceipts: missingReceipts.length,
+            missingTrailD1: missingTrail.length,
+            missingTrailKV: missingKv ? missingKv.length : null,
+            missingReceiptSamples: missingReceipts.slice(0, 20),
+            missingTrailSamples: missingTrail.slice(0, 20),
+            missingTrailKvSamples: missingKv ? missingKv.slice(0, 20) : null,
+          };
+        });
+
+        return sendJSON(
+          {
+            ok: true,
+            since,
+            until,
+            bucketMinutes: bucketMin,
+            tickers: tickers.length,
+            includeKv: includeKv && !!tickerParam,
+            perTicker,
+          },
+          200,
+          corsHeaders(env, req)
+        );
       }
 
       // GET /timed/health
@@ -11889,6 +12181,178 @@ export default {
             errorsCount: errors.length,
             errors: errors.slice(0, 25),
           },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // POST /timed/admin/backfill-alerts?key=...&limit=...&offset=...&ticker=...&source=trades|activity|all
+      // Backfill KV activity + trades into D1 alerts ledger (idempotent via upserts).
+      if (
+        url.pathname === "/timed/admin/backfill-alerts" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const source = String(
+          url.searchParams.get("source") || "all"
+        ).toLowerCase();
+        const qLimit = Number(url.searchParams.get("limit") || "0");
+        const qOffset = Number(url.searchParams.get("offset") || "0");
+        const tickerFilter = normTicker(url.searchParams.get("ticker"));
+
+        let alertsUpserted = 0;
+        const errors = [];
+
+        const upsertAlertSafe = async (payload) => {
+          try {
+            const r = await d1UpsertAlert(env, payload);
+            if (r.ok) alertsUpserted += 1;
+          } catch (err) {
+            errors.push(String(err));
+          }
+        };
+
+        if (source === "activity" || source === "all") {
+          try {
+            const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
+            const activityAlerts = feed.filter((e) => {
+              if (!e || !e.ticker) return false;
+              if (
+                tickerFilter &&
+                String(e.ticker).toUpperCase() !== tickerFilter
+              )
+                return false;
+              return (
+                e.type === "discord_alert" ||
+                e.type === "trade_entry" ||
+                e.type === "td9_exit"
+              );
+            });
+            for (const ev of activityAlerts) {
+              const ts = Number(ev.ts) || Date.now();
+              const side =
+                ev.direction || ev.side || ev.trigger_dir || ev.action || null;
+              const alertType =
+                ev.type === "discord_alert"
+                  ? "ALERT_ENTRY"
+                  : ev.type === "trade_entry"
+                  ? "TRADE_ENTRY"
+                  : "TD9_EXIT";
+              const payloadJson = (() => {
+                try {
+                  return JSON.stringify(ev);
+                } catch {
+                  return null;
+                }
+              })();
+              const metaJson = (() => {
+                try {
+                  return JSON.stringify({ source: "activity", type: ev.type });
+                } catch {
+                  return null;
+                }
+              })();
+              await upsertAlertSafe({
+                alert_id: buildAlertId(ev.ticker, ts, alertType),
+                ticker: ev.ticker,
+                ts,
+                side,
+                state: ev.state,
+                rank: ev.rank,
+                rr_at_alert: ev.rr,
+                trigger_reason: ev.trigger_reason || ev.action || alertType,
+                dedupe_day: formatDedupDay(ts),
+                discord_sent: true,
+                discord_status: 200,
+                discord_error: null,
+                payload_json: payloadJson,
+                meta_json: metaJson,
+              });
+            }
+          } catch (err) {
+            errors.push(String(err));
+          }
+        }
+
+        if (source === "trades" || source === "all") {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const filtered = Array.isArray(allTrades)
+            ? allTrades.filter((t) => {
+                if (!t || !t.id) return false;
+                if (tickerFilter)
+                  return String(t.ticker || "").toUpperCase() === tickerFilter;
+                return true;
+              })
+            : [];
+
+          const offset = Math.max(0, Number.isFinite(qOffset) ? qOffset : 0);
+          const limit =
+            qLimit > 0 ? Math.max(1, Math.min(5000, qLimit)) : filtered.length;
+          const slice = filtered.slice(offset, offset + limit);
+
+          for (const trade of slice) {
+            if (!Array.isArray(trade.history)) continue;
+            for (const ev of trade.history) {
+              if (!ev || !ev.type) continue;
+              const ts = isoToMs(ev.timestamp) || Number(ev.ts) || Date.now();
+              const type = String(ev.type).toUpperCase();
+              const reason =
+                ev.reason ||
+                (type === "EXIT"
+                  ? trade.exitReason || trade.exit_reason
+                  : type);
+              const payloadJson = (() => {
+                try {
+                  return JSON.stringify({
+                    trade_id: trade.id,
+                    trade,
+                    event: ev,
+                  });
+                } catch {
+                  return null;
+                }
+              })();
+              const metaJson = (() => {
+                try {
+                  return JSON.stringify({ source: "trade_history", type });
+                } catch {
+                  return null;
+                }
+              })();
+              await upsertAlertSafe({
+                alert_id: buildAlertId(trade.ticker, ts, type),
+                ticker: trade.ticker,
+                ts,
+                side: trade.direction,
+                state: trade.state,
+                rank: trade.rank,
+                rr_at_alert: trade.rr,
+                trigger_reason: reason,
+                dedupe_day: formatDedupDay(ts),
+                discord_sent: false,
+                discord_status: null,
+                discord_error: null,
+                payload_json: payloadJson,
+                meta_json: metaJson,
+              });
+            }
+          }
+        }
+
+        return sendJSON(
+          { ok: true, alertsUpserted, errors },
           200,
           corsHeaders(env, req)
         );
