@@ -5022,9 +5022,11 @@
                                               <thead>
                                                 <tr className="border-b border-[#26325f] text-left">
                                                   <th className="p-2 text-xs text-[#93a4d6]">Time</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Entry Date/Time</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Action</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Side</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Entry Price</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Qty</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Price</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Exit Price</th>
@@ -5036,10 +5038,25 @@
                                                 {g.events.map((ev, idx) => {
                                                   const t = ev.trade;
                                                   const pnl = Number(t.pnl || 0);
+                                                  const entryTs = Number(t.entry_ts);
+                                                  const entryPrice = Number(t.entry_price);
+                                                  const exitPrice = Number(t.exit_price);
+                                                  const trimPrice = Number(
+                                                    t.trimPrice ?? t.trim_price ?? t.trim_price
+                                                  );
+                                                  const isTrimExit =
+                                                    ev.type === "TRIM" &&
+                                                    Number.isFinite(exitPrice) &&
+                                                    Number.isFinite(trimPrice) &&
+                                                    Math.abs(exitPrice - trimPrice) <= 0.01;
+                                                  const actionLabel =
+                                                    ev.type === "TRIM" && isTrimExit
+                                                      ? "EXIT"
+                                                      : ev.type;
                                                   const actionColor =
-                                                    ev.type === "ENTRY"
+                                                    actionLabel === "ENTRY"
                                                       ? "bg-green-500/20 text-green-400"
-                                                      : ev.type === "TRIM"
+                                                      : actionLabel === "TRIM"
                                                       ? "bg-yellow-500/20 text-yellow-300"
                                                       : "bg-purple-500/20 text-purple-300";
                                                   const statusLabel =
@@ -5058,10 +5075,15 @@
                                                       <td className="p-2 text-xs text-[#93a4d6] whitespace-nowrap">
                                                         {Number.isFinite(ev.ts) ? new Date(ev.ts).toLocaleTimeString() : "—"}
                                                       </td>
+                                                      <td className="p-2 text-xs text-[#93a4d6] whitespace-nowrap">
+                                                        {Number.isFinite(entryTs)
+                                                          ? new Date(entryTs).toLocaleString()
+                                                          : "—"}
+                                                      </td>
                                                       <td className="p-2 font-semibold">{t.ticker}</td>
                                                       <td className="p-2 text-xs">
                                                         <span className={`px-2 py-0.5 rounded font-semibold ${actionColor}`}>
-                                                          {ev.type}
+                                                          {actionLabel}
                                                         </span>
                                                       </td>
                                                       <td className="p-2">
@@ -5075,6 +5097,9 @@
                                                           {t.direction}
                                                         </span>
                                                       </td>
+                                                      <td className="p-2 text-sm">
+                                                        {Number.isFinite(entryPrice) ? fmtUsd(entryPrice) : "—"}
+                                                      </td>
                                                       <td className="p-2 text-xs">
                                                         {metrics.isFutures
                                                           ? metrics.shares.toFixed(0)
@@ -5084,8 +5109,8 @@
                                                         {Number.isFinite(ev.price) ? fmtUsd(ev.price) : "—"}
                                                       </td>
                                                       <td className="p-2 text-sm">
-                                                        {ev.type === "EXIT" && Number.isFinite(ev.price)
-                                                          ? fmtUsd(ev.price)
+                                                        {(actionLabel === "EXIT" || ev.type === "EXIT") && Number.isFinite(exitPrice)
+                                                          ? fmtUsd(exitPrice)
                                                           : "—"}
                                                       </td>
                                                       <td className="p-2 text-xs text-[#93a4d6]">{statusLabel}</td>
