@@ -1522,6 +1522,22 @@
         const retPct = computeReturnPct(metricsSource);
         const riskPct = computeRiskPct(metricsSource);
         const tpTarget = computeTpTargetPrice(metricsSource);
+        const tpLevels = Array.isArray(metricsSource?.tp_levels)
+          ? metricsSource.tp_levels
+              .map((tp) =>
+                typeof tp === "object" && tp?.price != null
+                  ? Number(tp.price)
+                  : Number(tp)
+              )
+              .filter((p) => Number.isFinite(p))
+          : [];
+        const tpList =
+          tpLevels.length > 0
+            ? tpLevels
+                .slice(0, 6)
+                .map((p) => p.toFixed(2))
+                .join(", ")
+            : null;
         const tpMax = computeTpMaxPrice(metricsSource);
 
         return (
@@ -2227,7 +2243,10 @@
               )}
             </td>
             <td className="p-2 text-sm">${trade.sl.toFixed(2)}</td>
-            <td className="p-2 text-sm">
+            <td
+              className="p-2 text-sm"
+              title={tpList ? `TP Levels: ${tpList}` : ""}
+            >
               ${Number.isFinite(tpTarget) ? tpTarget.toFixed(2) : trade.tp.toFixed(2)}
             </td>
             <td className="p-2 text-sm text-green-400">
@@ -4746,6 +4765,7 @@
                                             <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Side</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">TP Target</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">Rank</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">RR</th>
                                             <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
@@ -4765,6 +4785,7 @@
                                             const live = data && (data[sym] || data[t.ticker]);
                                             const eta = computeEtaDays(live || t);
                                             const horizon = computeHorizonBucket(live || t);
+                                            const tpTarget = computeTpTargetPrice(live || t);
                                             const diversity = Number(live?.diversity_score);
                                             const avgCorr = Number(live?.avg_corr);
                                             return (
@@ -4791,6 +4812,9 @@
                                                   </span>
                                                 </td>
                                                 <td className="p-2 text-sm">{fmtUsd(t.entry_price || 0)}</td>
+                                                <td className="p-2 text-sm text-green-400">
+                                                  {Number.isFinite(tpTarget) ? fmtUsd(tpTarget) : "—"}
+                                                </td>
                                                 <td className="p-2 text-sm text-blue-400 font-semibold">{t.rank ?? "—"}</td>
                                                 <td className="p-2 text-sm">{t.rr != null ? Number(t.rr).toFixed(2) : "—"}</td>
                                                 <td className="p-2 text-sm">
