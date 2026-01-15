@@ -391,21 +391,46 @@ function marketType(ticker) {
   return "EQUITY_RTH";
 }
 
+function getEasternParts(date = new Date()) {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(date);
+  const obj = {};
+  for (const p of parts) obj[p.type] = p.value;
+  return {
+    weekday: obj.weekday || "",
+    hour: Number(obj.hour || 0),
+    minute: Number(obj.minute || 0),
+  };
+}
+
+function isMarketHoursET(date = new Date()) {
+  const { weekday, hour, minute } = getEasternParts(date);
+  if (["Sat", "Sun"].includes(weekday)) return false;
+  const mins = hour * 60 + minute;
+  return mins >= 9 * 60 + 30 && mins <= 16 * 60;
+}
+
 function minutesSince(ts) {
   if (!ts || typeof ts !== "number") return null;
   return (Date.now() - ts) / 60000;
 }
 
-function formatUtcMinuteBucket(ts) {
+function formatUtcHourBucket(ts) {
   if (!Number.isFinite(ts)) return null;
-  return new Date(ts).toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm (UTC)
+  return new Date(ts).toISOString().slice(0, 13); // YYYY-MM-DDTHH (UTC)
 }
 
 function buildAlertDedupeKey({ ticker, action, side, ts }) {
   const t = String(ticker || "").toUpperCase();
   const act = String(action || "").toUpperCase();
   const dir = String(side || "").toUpperCase();
-  const bucket = formatUtcMinuteBucket(ts);
+  const bucket = formatUtcHourBucket(ts);
   const day = bucket ? bucket.slice(0, 10) : null;
   if (!t || !act || !bucket) {
     return { key: null, bucket: null, day };
@@ -1282,6 +1307,74 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
   return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
+}
+
+function isOpenTradeStatus(status) {
+  const s = String(status || "").toUpperCase();
+  return s === "OPEN" || s === "TP_HIT_TRIM" || !s;
+}
+
+async function findOpenTradeForTicker(KV, ticker, direction = null) {
+  const trades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+  const t = String(ticker || "").toUpperCase();
+  const dir = direction ? String(direction).toUpperCase() : null;
+  return (
+    trades.find((trade) => {
+      if (!trade) return false;
+      if (String(trade.ticker || "").toUpperCase() !== t) return false;
+      if (dir && String(trade.direction || "").toUpperCase() !== dir)
+        return false;
+      return isOpenTradeStatus(trade.status);
+    }) || null
+  );
+}
+
+async function checkIngestCoverage(KV, now = new Date()) {
+  if (!isMarketHoursET(now)) return { ok: true, skipped: true };
+  const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+  const missing = [];
+  const maxAgeMin = 10;
+
+  for (const ticker of tickers) {
+    if (marketType(ticker) !== "EQUITY_RTH") continue;
+    const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+    const lastTsRaw = latest?.ingest_ts ?? latest?.ts ?? null;
+    const lastTs = Number(lastTsRaw);
+    const ageMin = Number.isFinite(lastTs)
+      ? (now.getTime() - lastTs) / 60000
+      : null;
+
+    if (!Number.isFinite(ageMin) || ageMin > maxAgeMin) {
+      missing.push({
+        ticker: String(ticker).toUpperCase(),
+        ageMin,
+        lastTs,
+        state: latest?.state,
+        rank: latest?.rank,
+        price: latest?.price,
+      });
+      const missKey = `timed:ingest:missing:${String(ticker).toUpperCase()}`;
+      const already = await KV.get(missKey);
+      if (!already) {
+        await kvPutText(KV, missKey, "1", 60 * 60);
+        await appendActivity(KV, {
+          type: "ingest_missing",
+          ticker: String(ticker).toUpperCase(),
+          action: "missing_ingest",
+          age_min: Number.isFinite(ageMin) ? Math.round(ageMin) : null,
+          last_ingest_ts: Number.isFinite(lastTs) ? lastTs : null,
+          state: latest?.state,
+          rank: latest?.rank,
+          price: latest?.price,
+        });
+      }
+    } else {
+      const missKey = `timed:ingest:missing:${String(ticker).toUpperCase()}`;
+      await KV.delete(missKey);
+    }
+  }
+
+  return { ok: true, missing, checked: tickers.length };
 }
 
 function buildEntryDecision(ticker, tickerData, prevState) {
@@ -7043,65 +7136,23 @@ export default {
           const hash = stableHash(basis);
           const dedupeKey = `timed:dedupe:${ticker}:${hash}`;
           const alreadyDeduped = await KV.get(dedupeKey);
-          if (alreadyDeduped) {
+          const isRapidDeduped = !!alreadyDeduped;
+          if (isRapidDeduped) {
             console.log(
               `[INGEST DEDUPED] ${ticker} - same data within 60s (hash: ${hash.substring(
                 0,
                 8
               )})`
             );
-            // Still update the ticker data and ensure it's in index (for Force Baseline broadcasts)
-            // Recompute RR to ensure it's current (uses latest TP levels)
-            payload.rr = payload.rr ?? computeRR(payload);
-            if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
-
-            // Derived: horizon + % metrics (ensure these are always present)
-            try {
-              const derived = deriveHorizonAndMetrics(payload);
-              Object.assign(payload, derived);
-            } catch (e) {
-              console.error(
-                `[DERIVED METRICS] Failed for ${ticker}:`,
-                String(e)
-              );
-            }
-
-            // Add ingestion timestamp even for deduped (track when last seen)
-            const now = Date.now();
-            payload.ingest_ts = now;
-            payload.ingest_time = new Date(now).toISOString();
-
-            await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
-
-            // Store version-specific snapshot for historical access
-            const snapshotVersion = payload.script_version || "unknown";
-            if (snapshotVersion !== "unknown") {
-              await kvPutJSON(
-                KV,
-                `timed:snapshot:${ticker}:${snapshotVersion}`,
-                payload
-              );
-              // Also store timestamp of when this version was last seen
-              await kvPutText(
-                KV,
-                `timed:version:${ticker}:${snapshotVersion}:last_seen`,
-                String(payload.ts || Date.now())
-              );
-            }
-
-            await ensureTickerIndex(KV, ticker);
+          } else {
+            await kvPutText(KV, dedupeKey, "1", 60);
             console.log(
-              `[INGEST DEDUPED BUT STORED] ${ticker} - updated latest data and ensured in index`
+              `[INGEST NOT DEDUPED] ${ticker} - new or changed data (hash: ${hash.substring(
+                0,
+                8
+              )})`
             );
-            return ackJSON(env, { ok: true, deduped: true, ticker }, 200, req);
           }
-          await kvPutText(KV, dedupeKey, "1", 60);
-          console.log(
-            `[INGEST NOT DEDUPED] ${ticker} - new or changed data (hash: ${hash.substring(
-              0,
-              8
-            )})`
-          );
 
           // Derived: staleness
           const stale = stalenessBucket(ticker, payload.ts);
@@ -7452,24 +7503,27 @@ export default {
           // Track corridor entry
           // Wrap activity tracking in try-catch to prevent errors from breaking ingestion
           try {
+            const actionableOnly = true;
             const enteredCorridor = inCorridor && prevInCorridor !== "true";
             const exitedCorridor = !inCorridor && prevInCorridor === "true";
 
             if (enteredCorridor) {
-              await appendActivity(KV, {
-                type: "corridor_entry",
-                ticker: ticker,
-                side: side,
-                price: payload.price,
-                state: payload.state,
-                rank: payload.rank,
-                sl: payload.sl,
-                tp: payload.tp,
-                tp_levels: payload.tp_levels,
-                rr: payload.rr,
-                phase_pct: payload.phase_pct,
-                completion: payload.completion,
-              });
+              if (!actionableOnly) {
+                await appendActivity(KV, {
+                  type: "corridor_entry",
+                  ticker: ticker,
+                  side: side,
+                  price: payload.price,
+                  state: payload.state,
+                  rank: payload.rank,
+                  sl: payload.sl,
+                  tp: payload.tp,
+                  tp_levels: payload.tp_levels,
+                  rr: payload.rr,
+                  phase_pct: payload.phase_pct,
+                  completion: payload.completion,
+                });
+              }
               await kvPutText(KV, prevCorridorKey, "true", 7 * 24 * 60 * 60);
             } else if (exitedCorridor) {
               await kvPutText(KV, prevCorridorKey, "false", 7 * 24 * 60 * 60);
@@ -7477,19 +7531,21 @@ export default {
 
             // Track squeeze start
             if (flags.sq30_on && prevSqueezeOn !== "true") {
-              await appendActivity(KV, {
-                type: "squeeze_start",
-                ticker: ticker,
-                price: payload.price,
-                state: payload.state,
-                rank: payload.rank,
-                sl: payload.sl,
-                tp: payload.tp,
-                tp_levels: payload.tp_levels,
-                rr: payload.rr,
-                phase_pct: payload.phase_pct,
-                completion: payload.completion,
-              });
+              if (!actionableOnly) {
+                await appendActivity(KV, {
+                  type: "squeeze_start",
+                  ticker: ticker,
+                  price: payload.price,
+                  state: payload.state,
+                  rank: payload.rank,
+                  sl: payload.sl,
+                  tp: payload.tp,
+                  tp_levels: payload.tp_levels,
+                  rr: payload.rr,
+                  phase_pct: payload.phase_pct,
+                  completion: payload.completion,
+                });
+              }
               await kvPutText(KV, prevSqueezeKey, "true", 7 * 24 * 60 * 60);
             } else if (!flags.sq30_on && prevSqueezeOn === "true") {
               await kvPutText(KV, prevSqueezeKey, "false", 7 * 24 * 60 * 60);
@@ -7521,20 +7577,22 @@ export default {
 
             // Track state change to aligned
             if (enteredAligned) {
-              await appendActivity(KV, {
-                type: "state_aligned",
-                ticker: ticker,
-                side: alignedLong ? "LONG" : "SHORT",
-                price: payload.price,
-                state: payload.state,
-                rank: payload.rank,
-                sl: payload.sl,
-                tp: payload.tp,
-                tp_levels: payload.tp_levels,
-                rr: payload.rr,
-                phase_pct: payload.phase_pct,
-                completion: payload.completion,
-              });
+              if (!actionableOnly) {
+                await appendActivity(KV, {
+                  type: "state_aligned",
+                  ticker: ticker,
+                  side: alignedLong ? "LONG" : "SHORT",
+                  price: payload.price,
+                  state: payload.state,
+                  rank: payload.rank,
+                  sl: payload.sl,
+                  tp: payload.tp,
+                  tp_levels: payload.tp_levels,
+                  rr: payload.rr,
+                  phase_pct: payload.phase_pct,
+                  completion: payload.completion,
+                });
+              }
             }
 
             // Track Momentum Elite status change
@@ -7542,19 +7600,21 @@ export default {
               payload.flags && payload.flags.momentum_elite
             );
             if (currentMomentumElite && prevMomentumElite !== "true") {
-              await appendActivity(KV, {
-                type: "momentum_elite",
-                ticker: ticker,
-                price: payload.price,
-                state: payload.state,
-                rank: payload.rank,
-                sl: payload.sl,
-                tp: payload.tp,
-                tp_levels: payload.tp_levels,
-                rr: payload.rr,
-                phase_pct: payload.phase_pct,
-                completion: payload.completion,
-              });
+              if (!actionableOnly) {
+                await appendActivity(KV, {
+                  type: "momentum_elite",
+                  ticker: ticker,
+                  price: payload.price,
+                  state: payload.state,
+                  rank: payload.rank,
+                  sl: payload.sl,
+                  tp: payload.tp,
+                  tp_levels: payload.tp_levels,
+                  rr: payload.rr,
+                  phase_pct: payload.phase_pct,
+                  completion: payload.completion,
+                });
+              }
               await kvPutText(
                 KV,
                 prevMomentumEliteKey,
@@ -7635,8 +7695,65 @@ export default {
             console.log(`[ETHT DEBUG] Indexing completed`);
           }
 
-          // CRITICAL: Alert evaluation runs IMMEDIATELY after storing data
-          // This ensures alerts fire even if request is canceled during trade simulation
+          // CRITICAL: Trade simulation runs BEFORE alert evaluation
+          // If a trade is entered, we suppress the alert for this ticker.
+          // Wrap in try-catch to prevent trade simulation errors from breaking ingestion
+          try {
+            // Pre-check: Calculate entry RR first to avoid unnecessary processing
+            // Use trigger_price if available, otherwise use current price
+            const entryPriceForCheck = payload.trigger_price
+              ? Number(payload.trigger_price)
+              : payload.price
+              ? Number(payload.price)
+              : null;
+
+            if (entryPriceForCheck && entryPriceForCheck > 0) {
+              const entryRRForCheck = computeRRAtTrigger(payload);
+              const payloadWithEntryRR = {
+                ...payload,
+                rr: entryRRForCheck || payload.rr || 0,
+              };
+
+              // Only proceed if initial check passes
+              if (
+                shouldTriggerTradeSimulation(
+                  ticker,
+                  payloadWithEntryRR,
+                  prevLatest
+                )
+              ) {
+                await processTradeSimulation(
+                  KV,
+                  ticker,
+                  payload,
+                  prevLatest,
+                  env
+                );
+              } else {
+                console.log(
+                  `[TRADE SIM] ${ticker}: Pre-check failed - entryRR=${
+                    entryRRForCheck?.toFixed(2) || "null"
+                  }, rank=${payload.rank || 0}, state=${payload.state || "N/A"}`
+                );
+              }
+            } else {
+              console.log(
+                `[TRADE SIM] ${ticker}: Skipping - no valid entry price (trigger_price=${payload.trigger_price}, price=${payload.price})`
+              );
+            }
+          } catch (tradeSimErr) {
+            console.error(
+              `[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`,
+              {
+                error: String(tradeSimErr),
+                message: tradeSimErr.message,
+                stack: tradeSimErr.stack,
+              }
+            );
+            // Don't throw - continue with ingestion even if trade simulation fails
+          }
+
+          // CRITICAL: Alert evaluation runs after trade simulation
           // Alert evaluation uses corridor state variables loaded above (prevInCorridor, etc.)
           // Wrap in try-catch to prevent alert errors from breaking ingestion
           try {
@@ -7801,7 +7918,17 @@ export default {
               );
             }
 
-            if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
+            const tradeSide = side || getTradeDirection(payload.state);
+            const openTrade = tradeSide
+              ? await findOpenTradeForTicker(KV, ticker, tradeSide)
+              : await findOpenTradeForTicker(KV, ticker, null);
+            if (openTrade) {
+              console.log(
+                `[ALERT SKIPPED] ${ticker}: Trade already open (${
+                  openTrade.direction || "UNKNOWN"
+                })`
+              );
+            } else if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
               // Smart dedupe: action + direction + UTC minute bucket (prevents duplicates but allows valid re-alerts)
               const action = "ENTRY";
               const alertEventTs = Number(
@@ -8516,64 +8643,6 @@ export default {
               }
             );
             // Don't throw - continue with ingestion even if alert evaluation fails
-          }
-
-          // CRITICAL: Trade simulation runs AFTER alert evaluation
-          // This creates "Trade Entered" events when conditions are met
-          // Wrap in try-catch to prevent trade simulation errors from breaking ingestion
-          try {
-            // Pre-check: Calculate entry RR first to avoid unnecessary processing
-            // Use trigger_price if available, otherwise use current price
-            const entryPriceForCheck = payload.trigger_price
-              ? Number(payload.trigger_price)
-              : payload.price
-              ? Number(payload.price)
-              : null;
-
-            if (entryPriceForCheck && entryPriceForCheck > 0) {
-              const entryRRForCheck = computeRRAtTrigger(payload);
-              const payloadWithEntryRR = {
-                ...payload,
-                rr: entryRRForCheck || payload.rr || 0,
-              };
-
-              // Only proceed if initial check passes
-              if (
-                shouldTriggerTradeSimulation(
-                  ticker,
-                  payloadWithEntryRR,
-                  prevLatest
-                )
-              ) {
-                await processTradeSimulation(
-                  KV,
-                  ticker,
-                  payload,
-                  prevLatest,
-                  env
-                );
-              } else {
-                console.log(
-                  `[TRADE SIM] ${ticker}: Pre-check failed - entryRR=${
-                    entryRRForCheck?.toFixed(2) || "null"
-                  }, rank=${payload.rank || 0}, state=${payload.state || "N/A"}`
-                );
-              }
-            } else {
-              console.log(
-                `[TRADE SIM] ${ticker}: Skipping - no valid entry price (trigger_price=${payload.trigger_price}, price=${payload.price})`
-              );
-            }
-          } catch (tradeSimErr) {
-            console.error(
-              `[TRADE SIM ERROR] Failed to process trade simulation for ${ticker}:`,
-              {
-                error: String(tradeSimErr),
-                message: tradeSimErr.message,
-                stack: tradeSimErr.stack,
-              }
-            );
-            // Don't throw - continue with ingestion even if trade simulation fails
           }
 
           // Trail (light)
@@ -9938,6 +10007,30 @@ export default {
           200,
           corsHeaders(env, req)
         );
+      }
+
+      // GET /timed/ingest-status
+      if (url.pathname === "/timed/ingest-status" && req.method === "GET") {
+        try {
+          const now = new Date();
+          const result = await checkIngestCoverage(KV, now);
+          return sendJSON(
+            {
+              ok: true,
+              marketHoursET: isMarketHoursET(now),
+              checked: result.checked || 0,
+              missing: result.missing || [],
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: String(err?.message || err) },
+            500,
+            corsHeaders(env, req)
+          );
+        }
       }
 
       // GET /timed/health
@@ -14828,6 +14921,13 @@ Provide 3-5 actionable next steps:
       }
     } catch (error) {
       console.error("[TRADE UPDATE CRON ERROR]", error);
+    }
+
+    // Ingest coverage check (every 5 min during market hours)
+    try {
+      await checkIngestCoverage(KV, now);
+    } catch (err) {
+      console.error("[INGEST COVERAGE ERROR]", err);
     }
 
     // Proactive Alerts & Pattern Recognition (every 15 minutes during market hours)

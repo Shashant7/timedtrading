@@ -6281,6 +6281,8 @@
               return "📢";
             case "trade_entry":
               return "✅";
+            case "ingest_missing":
+              return "⏱️";
             default:
               return "📊";
           }
@@ -6306,6 +6308,8 @@
               return "text-indigo-400";
             case "trade_entry":
               return "text-green-400";
+            case "ingest_missing":
+              return "text-red-400";
             default:
               return "text-gray-400";
           }
@@ -6330,12 +6334,16 @@
             case "td9_entry":
               return `${event.ticker} TD9 Entry ${event.direction || ""}`;
             case "discord_alert":
-              return `📢 Discord Alert: ${event.ticker} ${
+              return `📢 Alert Fired: ${event.ticker} ${
                 event.direction || event.action || ""
               } ${event.action === "entry" ? "Entry" : ""}`;
             case "trade_entry":
               return `✅ Trade Entered: ${event.ticker} ${
                 event.direction || ""
+              }`;
+            case "ingest_missing":
+              return `⏱️ Missing ingest: ${event.ticker} ${
+                event.age_min != null ? `(${event.age_min}m)` : ""
               }`;
             default:
               return `${event.ticker} event`;
@@ -6400,10 +6408,9 @@
                 {[
                   { label: "All", type: null },
                   { label: "Trade Entered", type: "trade_entry" },
-                  { label: "Discord Alert", type: "discord_alert" },
-                  { label: "Corridor", type: "corridor_entry" },
+                  { label: "Alerts", type: "discord_alert" },
                   { label: "Squeeze", type: "squeeze_release" },
-                  { label: "Momentum Elite", type: "momentum_elite" },
+                  { label: "Ingest Missing", type: "ingest_missing" },
                 ].map((filter) => (
                   <button
                     key={filter.label}
@@ -13053,6 +13060,30 @@
         });
 
         const [showWelcomeTracker, setShowWelcomeTracker] = useState(false);
+        const [missingIngest, setMissingIngest] = useState([]);
+        const [missingIngestLoading, setMissingIngestLoading] = useState(false);
+        const [missingIngestError, setMissingIngestError] = useState(null);
+        const [missingIngestOpen, setMissingIngestOpen] = useState(false);
+
+        const fetchMissingIngest = useCallback(async () => {
+          try {
+            setMissingIngestLoading(true);
+            setMissingIngestError(null);
+            const res = await fetch(`${API_BASE}/timed/ingest-status`, {
+              cache: "no-store",
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "ingest_status_failed");
+            const missing = Array.isArray(json.missing) ? json.missing : [];
+            setMissingIngest(missing);
+          } catch (e) {
+            setMissingIngest([]);
+            setMissingIngestError(String(e.message || e));
+          } finally {
+            setMissingIngestLoading(false);
+          }
+        }, []);
 
         // Fetch trail data when ticker is selected
         useEffect(() => {
@@ -13427,6 +13458,19 @@
                         </span>
                       </div>
                     )}
+                    <button
+                      onClick={() => {
+                        fetchMissingIngest();
+                        setMissingIngestOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors"
+                      title="Show tickers missing ingest in last 10 minutes"
+                    >
+                      <span className="text-red-400">Missing Ingest: </span>
+                      <span className="font-bold text-red-300">
+                        {missingIngest.length}
+                      </span>
+                    </button>
                     {tickersWithoutScores.length > 0 && (
                       <div className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 relative group">
                         <span className="text-yellow-400">⚠️ No Scores: </span>
@@ -13468,6 +13512,80 @@
                       </div>
                     )}
                   </div>
+
+                  {missingIngestOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+                      <div className="w-full max-w-2xl bg-[#0f1630] border border-[#26325f] rounded-xl shadow-2xl p-5">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <div className="text-lg font-bold text-white">
+                              Missing Ingests
+                            </div>
+                            <div className="text-xs text-[#93a4d6]">
+                              Tickers missing data in the last ~10 minutes
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setMissingIngestOpen(false)}
+                            className="px-2 py-1 text-sm text-[#93a4d6] hover:text-white"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="text-sm text-[#93a4d6]">
+                            Count:{" "}
+                            <span className="text-white font-semibold">
+                              {missingIngest.length}
+                            </span>
+                          </div>
+                          <button
+                            onClick={fetchMissingIngest}
+                            className="px-3 py-1.5 rounded bg-[#1a2550] border border-[#26325f] text-xs hover:bg-[#26325f]"
+                          >
+                            Refresh
+                          </button>
+                        </div>
+                        {missingIngestLoading && (
+                          <div className="text-sm text-[#93a4d6]">
+                            Loading…
+                          </div>
+                        )}
+                        {missingIngestError && (
+                          <div className="text-sm text-red-400">
+                            {missingIngestError}
+                          </div>
+                        )}
+                        {!missingIngestLoading && !missingIngestError && (
+                          <div className="max-h-96 overflow-y-auto border border-[#26325f] rounded-lg p-3">
+                            {missingIngest.length === 0 ? (
+                              <div className="text-sm text-[#93a4d6]">
+                                All tickers are up to date.
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+                                {missingIngest.map((item) => (
+                                  <div
+                                    key={item.ticker}
+                                    className="px-2 py-1 rounded bg-[#121a33] border border-[#26325f]"
+                                  >
+                                    <div className="text-white font-semibold">
+                                      {item.ticker}
+                                    </div>
+                                    <div className="text-[10px] text-[#93a4d6]">
+                                      {item.ageMin != null
+                                        ? `${Math.round(item.ageMin)}m ago`
+                                        : "Unknown age"}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Filters */}
                   <div className="mt-4">
