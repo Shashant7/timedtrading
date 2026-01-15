@@ -4686,6 +4686,14 @@ async function appendTrail(KV, ticker, point, maxN = 8) {
   await kvPutJSON(KV, key, keep);
 }
 
+async function appendCaptureTrail(KV, ticker, point, maxN = 48) {
+  const key = `timed:capture:trail:${ticker}`;
+  const cur = (await kvGetJSON(KV, key)) || [];
+  cur.push(point);
+  const keep = cur.length > maxN ? cur.slice(cur.length - maxN) : cur;
+  await kvPutJSON(KV, key, keep);
+}
+
 // ─────────────────────────────────────────────────────────────
 // D1 Trail Storage (7-day historical)
 // ─────────────────────────────────────────────────────────────
@@ -5482,6 +5490,22 @@ async function purgeOldData(KV) {
   await Promise.all(deletePromises);
 
   return { purged: tickerCount, tickerCount };
+}
+
+async function ensureCaptureIndex(KV, ticker) {
+  try {
+    const key = "timed:capture:tickers";
+    const existing = (await kvGetJSON(KV, key)) || [];
+    const upper = String(ticker || "").toUpperCase();
+    if (!upper) return;
+    if (!existing.includes(upper)) {
+      existing.push(upper);
+      existing.sort();
+      await kvPutJSON(KV, key, existing);
+    }
+  } catch (err) {
+    console.error(`[CAPTURE INDEX] Failed to update index:`, err);
+  }
 }
 
 // Send Discord notification with embed card styling
@@ -6556,6 +6580,37 @@ function validateTimedPayload(body) {
     ok: true,
     ticker,
     payload: { ...body, ticker, ts, htf_score: htf, ltf_score: ltf },
+  };
+}
+
+function validateCapturePayload(body) {
+  const ticker = normTicker(body?.ticker);
+  if (!ticker) return { ok: false, error: "missing ticker" };
+
+  const ts = Number(body?.ts);
+  if (!isNum(ts)) {
+    return {
+      ok: false,
+      error: "missing/invalid ts",
+      details: { received: body?.ts, type: typeof body?.ts },
+    };
+  }
+
+  const price =
+    body?.price != null && Number.isFinite(Number(body?.price))
+      ? Number(body?.price)
+      : null;
+
+  return {
+    ok: true,
+    ticker,
+    payload: {
+      ...body,
+      ticker,
+      ts,
+      price,
+      ingest_kind: "capture",
+    },
   };
 }
 
@@ -9040,6 +9095,105 @@ export default {
         }
       }
 
+      // POST /timed/ingest-capture (capture-only heartbeat)
+      if (url.pathname === "/timed/ingest-capture" && req.method === "POST") {
+        let body = null;
+        try {
+          const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+          console.log(
+            `[CAPTURE INGEST RECEIVED] IP: ${ip}, User-Agent: ${
+              req.headers.get("User-Agent") || "none"
+            }`
+          );
+
+          const authFail = requireKeyOr401(req, env);
+          if (authFail) return authFail;
+
+          const { obj: bodyData, raw, err } = await readBodyAsJSON(req);
+          body = bodyData;
+          if (!body) {
+            return ackJSON(
+              env,
+              {
+                ok: false,
+                error: "bad_json",
+                sample: String(raw || "").slice(0, 200),
+                parseError: String(err || ""),
+              },
+              400,
+              req
+            );
+          }
+
+          const v = validateCapturePayload(body);
+          if (!v.ok) return ackJSON(env, v, 400, req);
+
+          const ticker = v.ticker;
+          const payload = v.payload;
+          const rawPayload =
+            typeof raw === "string"
+              ? raw
+              : (() => {
+                  try {
+                    return JSON.stringify(body);
+                  } catch {
+                    return "";
+                  }
+                })();
+
+          // Store raw capture payload separately for audit
+          try {
+            if (rawPayload) {
+              await kvPutText(
+                KV,
+                `timed:capture:raw:${ticker}`,
+                rawPayload,
+                2 * 24 * 60 * 60
+              );
+            }
+          } catch (rawErr) {
+            console.error(
+              `[CAPTURE RAW] KV store failed for ${ticker}:`,
+              rawErr
+            );
+          }
+
+          d1InsertIngestReceipt(env, ticker, payload, rawPayload).catch(
+            (err) => {
+              console.error(
+                `[D1 CAPTURE] Receipt insert exception for ${ticker}:`,
+                err
+              );
+            }
+          );
+
+          const now = Date.now();
+          payload.ingest_ts = now;
+          payload.ingest_time = new Date(now).toISOString();
+
+          await kvPutJSON(KV, `timed:capture:latest:${ticker}`, payload);
+          await appendCaptureTrail(KV, ticker, {
+            ts: payload.ts,
+            price: payload.price,
+            bar_index: payload.bar_index,
+            time_close: payload.time_close,
+          });
+          await ensureCaptureIndex(KV, ticker);
+
+          await kvPutText(KV, "timed:capture:last_ingest_ms", String(now));
+
+          return ackJSON(env, { ok: true, ticker, capture: true }, 200, req);
+        } catch (err) {
+          console.error(`[CAPTURE INGEST ERROR]`, err);
+          return ackJSON(
+            env,
+            { ok: false, error: String(err?.message || err) },
+            500,
+            req
+          );
+        }
+      }
+
       // GET /timed/latest?ticker=
       if (url.pathname === "/timed/latest" && req.method === "GET") {
         // Rate limiting
@@ -10170,7 +10324,7 @@ export default {
         }
       }
 
-      // GET /timed/ingest-audit?since&until&bucket&ticker&includeKv
+      // GET /timed/ingest-audit?since&until&bucket&ticker&includeKv&scriptVersion
       if (url.pathname === "/timed/ingest-audit" && req.method === "GET") {
         const db = env?.DB;
         if (!db) {
@@ -10186,6 +10340,7 @@ export default {
         const bucketRaw = url.searchParams.get("bucket");
         const tickerParam = normTicker(url.searchParams.get("ticker"));
         const includeKv = url.searchParams.get("includeKv") === "1";
+        const scriptVersion = url.searchParams.get("scriptVersion");
 
         const now = Date.now();
         const since =
@@ -10226,10 +10381,17 @@ export default {
               COUNT(*) AS cnt
              FROM ingest_receipts
              WHERE ts >= ?2 AND ts <= ?3
-             ${tickerParam ? "AND ticker = ?4" : ""}
+             ${scriptVersion ? "AND script_version = ?4" : ""}
+             ${tickerParam ? `AND ticker = ?${scriptVersion ? 5 : 4}` : ""}
              GROUP BY ticker, bucket`
           )
-          .bind(bucketMs, since, until, ...(tickerParam ? [tickerParam] : []))
+          .bind(
+            bucketMs,
+            since,
+            until,
+            ...(scriptVersion ? [scriptVersion] : []),
+            ...(tickerParam ? [tickerParam] : [])
+          )
           .all();
 
         const trailRows = await db
@@ -10318,6 +10480,7 @@ export default {
             bucketMinutes: bucketMin,
             tickers: tickers.length,
             includeKv: includeKv && !!tickerParam,
+            scriptVersion: scriptVersion || null,
             perTicker,
           },
           200,

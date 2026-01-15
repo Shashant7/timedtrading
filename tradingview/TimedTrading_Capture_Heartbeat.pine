@@ -1,0 +1,31 @@
+//@version=5
+indicator("TimedTrading Capture Heartbeat", overlay=false, max_labels_count=500)
+
+// Focused capture-only script for watchlist alerts.
+// Sends a minimal payload on every bar close.
+
+groupCapture = "Capture Settings"
+scriptVersion = input.string("capture_1.0.0", "Script Version", group=groupCapture)
+includeOHLC = input.bool(false, "Include OHLC", group=groupCapture)
+includeVolume = input.bool(false, "Include Volume", group=groupCapture)
+
+payload = "{" +
+  "\"script_version\":\"" + scriptVersion + "\"," +
+  "\"ts\":" + str.tostring(time) + "," +
+  "\"time_close\":" + str.tostring(time_close) + "," +
+  "\"bar_index\":" + str.tostring(bar_index) + "," +
+  "\"ticker\":\"" + syminfo.ticker + "\"," +
+  "\"tf_hint\":\"" + timeframe.period + "\"," +
+  "\"price\":" + str.tostring(close) +
+  (includeOHLC
+    ? ",\"o\":" + str.tostring(open) +
+      ",\"h\":" + str.tostring(high) +
+      ",\"l\":" + str.tostring(low)
+    : ""
+  ) +
+  (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") +
+  ",\"ingest_kind\":\"capture\"" +
+  "}"
+
+if barstate.isconfirmed
+    alert(payload, alert.freq_once_per_bar_close)
