@@ -4353,6 +4353,58 @@
             return { ticker, trades, totalPnl };
           });
         }, [ledgerClosedTrades]);
+
+        const portfolioSummary = useMemo(() => {
+          let netPnl = 0;
+          let totalGain = 0;
+          let totalLoss = 0;
+          for (const t of ledgerFilteredTrades) {
+            const pnl = Number(t.pnl);
+            if (!Number.isFinite(pnl)) continue;
+            netPnl += pnl;
+            if (pnl >= 0) totalGain += pnl;
+            else totalLoss += pnl;
+          }
+          return {
+            netPnl,
+            totalGain,
+            totalLoss,
+            totalTrades: ledgerFilteredTrades.length,
+          };
+        }, [ledgerFilteredTrades]);
+
+        const getPositionMetrics = (trade, live) => {
+          const sym = String(trade.ticker || "").toUpperCase();
+          const isFutures = FUTURES_SPECS[sym] || sym.endsWith("1!");
+          const pointValue =
+            isFutures && FUTURES_SPECS[sym] ? FUTURES_SPECS[sym].pointValue : 1;
+          const entryPrice = Number(
+            trade.entry_price ?? trade.entryPrice ?? 0
+          );
+          const shares =
+            trade.shares ||
+            (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
+          const current = Number(live?.price);
+          const direction = String(trade.direction || "").toUpperCase();
+          const signed = direction === "SHORT" ? -1 : 1;
+          const pnlOpen =
+            Number.isFinite(current) && Number.isFinite(entryPrice) && entryPrice
+              ? (current - entryPrice) * shares * pointValue * signed
+              : null;
+          const retOpenPct =
+            Number.isFinite(current) && Number.isFinite(entryPrice) && entryPrice
+              ? ((current - entryPrice) / entryPrice) * 100 * signed
+              : null;
+          return {
+            isFutures,
+            pointValue,
+            entryPrice,
+            shares,
+            current,
+            pnlOpen,
+            retOpenPct,
+          };
+        };
         
         // Daily summary state
         const [dailySummary, setDailySummary] = useState(null);
@@ -4808,6 +4860,138 @@
                                 <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
                                   <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
                                     <div>
+                                      <div className="text-sm font-bold">Portfolio</div>
+                                      <div className="text-xs text-[#93a4d6]">
+                                        {fmtInt(ledgerOpenTrades.length)} open positions
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs">
+                                      <div className={`px-2 py-1 rounded bg-[#121a33] border border-[#26325f] font-semibold ${portfolioSummary.netPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                        Net P&L: {fmtUsd(portfolioSummary.netPnl)}
+                                      </div>
+                                      <div className="px-2 py-1 rounded bg-[#121a33] border border-[#26325f] text-green-400 font-semibold">
+                                        Gain: {fmtUsd(portfolioSummary.totalGain)}
+                                      </div>
+                                      <div className="px-2 py-1 rounded bg-[#121a33] border border-[#26325f] text-red-400 font-semibold">
+                                        Loss: {fmtUsd(Math.abs(portfolioSummary.totalLoss))}
+                                      </div>
+                                      <div className="px-2 py-1 rounded bg-[#121a33] border border-[#26325f] text-[#93a4d6] font-semibold">
+                                        Trades: {fmtInt(portfolioSummary.totalTrades)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {ledgerOpenTrades.length === 0 ? (
+                                    <div className="p-6 text-center text-[#93a4d6]">
+                                      No open trades in this range.
+                                    </div>
+                                  ) : (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full min-w-full">
+                                        <thead>
+                                          <tr className="border-b border-[#26325f] text-left">
+                                            <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Action</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Entry Date</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Entry Price</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Qty</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Current Return %</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Open P&L</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Closed P&L (Trim)</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">TP Max</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">SL</th>
+                                            <th className="p-2 text-xs text-[#93a4d6]">Exit Price</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {ledgerOpenTrades.map((t) => {
+                                            const sym = String(t.ticker || "").toUpperCase();
+                                            const live = data && (data[sym] || data[t.ticker]);
+                                            const metrics = getPositionMetrics(t, live);
+                                            const eta = computeEtaDays(live || t);
+                                            const tpMax = computeTpMaxPrice(live || t);
+                                            const entryTs = Number(t.entry_ts);
+                                            const trimmedPct = Number(t.trimmed_pct || 0);
+                                            const sl = Number(live?.sl ?? t.sl ?? t.sl_price);
+                                            const trimPnl =
+                                              Number.isFinite(tpMax) &&
+                                              Number.isFinite(metrics.entryPrice) &&
+                                              metrics.entryPrice &&
+                                              trimmedPct > 0
+                                                ? (tpMax - metrics.entryPrice) *
+                                                  metrics.shares *
+                                                  metrics.pointValue *
+                                                  trimmedPct *
+                                                  (String(t.direction || "").toUpperCase() === "SHORT" ? -1 : 1)
+                                                : null;
+                                            return (
+                                              <tr
+                                                key={t.trade_id}
+                                                className="border-b border-[#26325f]/50 hover:bg-[#121a33] cursor-pointer"
+                                                onClick={() => setLedgerSelectedTradeId(t.trade_id)}
+                                              >
+                                                <td className="p-2 font-semibold">{t.ticker}</td>
+                                                <td className="p-2 text-xs">
+                                                  <span className="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/15 text-yellow-300">
+                                                    {t.status || "OPEN"}
+                                                  </span>
+                                                </td>
+                                                <td className="p-2 text-xs text-[#93a4d6]">
+                                                  {Number.isFinite(entryTs)
+                                                    ? new Date(entryTs).toLocaleString()
+                                                    : "—"}
+                                                </td>
+                                                <td className="p-2 text-sm">{fmtUsd(metrics.entryPrice || 0)}</td>
+                                                <td className="p-2 text-sm">
+                                                  {metrics.isFutures
+                                                    ? metrics.shares.toFixed(0)
+                                                    : metrics.shares.toFixed(4)}
+                                                </td>
+                                                <td className="p-2 text-sm text-green-400">
+                                                  {Number.isFinite(metrics.retOpenPct)
+                                                    ? `${metrics.retOpenPct.toFixed(2)}%`
+                                                    : "—"}
+                                                </td>
+                                                <td className="p-2 text-sm">
+                                                  {Number.isFinite(metrics.pnlOpen) ? (
+                                                    <span className={`font-semibold ${metrics.pnlOpen >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                                      {fmtUsd(metrics.pnlOpen)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-[#6b7a9f]">—</span>
+                                                  )}
+                                                </td>
+                                                <td className="p-2 text-sm">
+                                                  {Number.isFinite(trimPnl) ? (
+                                                    <span className={`font-semibold ${trimPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                                      {fmtUsd(trimPnl)}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-[#6b7a9f]">—</span>
+                                                  )}
+                                                </td>
+                                                <td className="p-2 text-sm text-green-400">
+                                                  {Number.isFinite(tpMax) ? fmtUsd(tpMax) : "—"}
+                                                </td>
+                                                <td className="p-2 text-sm">
+                                                  {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
+                                                </td>
+                                                <td className="p-2 text-sm text-red-400">
+                                                  {Number.isFinite(sl) ? fmtUsd(sl) : "—"}
+                                                </td>
+                                                <td className="p-2 text-sm text-[#93a4d6]">—</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
+                                  <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
+                                    <div>
                                       <div className="text-sm font-bold">By Day Activity</div>
                                       <div className="text-xs text-[#93a4d6]">
                                         Entries, trims, and exits logged by day.
@@ -4841,7 +5025,9 @@
                                                   <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Action</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Side</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Qty</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Price</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Exit Price</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Status</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
                                                 </tr>
@@ -4862,6 +5048,7 @@
                                                       : ev.type === "TRIM"
                                                       ? "TRIMMED"
                                                       : t.status || "OPEN";
+                                                  const metrics = getPositionMetrics(t, data && (data[String(t.ticker || "").toUpperCase()] || data[t.ticker]));
                                                   return (
                                                     <tr
                                                       key={`${t.trade_id}-${idx}-${ev.type}`}
@@ -4888,8 +5075,18 @@
                                                           {t.direction}
                                                         </span>
                                                       </td>
+                                                      <td className="p-2 text-xs">
+                                                        {metrics.isFutures
+                                                          ? metrics.shares.toFixed(0)
+                                                          : metrics.shares.toFixed(4)}
+                                                      </td>
                                                       <td className="p-2 text-sm">
                                                         {Number.isFinite(ev.price) ? fmtUsd(ev.price) : "—"}
+                                                      </td>
+                                                      <td className="p-2 text-sm">
+                                                        {ev.type === "EXIT" && Number.isFinite(ev.price)
+                                                          ? fmtUsd(ev.price)
+                                                          : "—"}
                                                       </td>
                                                       <td className="p-2 text-xs text-[#93a4d6]">{statusLabel}</td>
                                                       <td className="p-2 text-xs">
@@ -4909,80 +5106,6 @@
                                           </div>
                                         </div>
                                       ))}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
-                                  <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
-                                    <div>
-                                      <div className="text-sm font-bold">Portfolio (Open Positions)</div>
-                                      <div className="text-xs text-[#93a4d6]">
-                                        {fmtInt(ledgerOpenTrades.length)} open positions
-                                      </div>
-                                    </div>
-                                  </div>
-                                  {ledgerOpenTrades.length === 0 ? (
-                                    <div className="p-6 text-center text-[#93a4d6]">
-                                      No open trades in this range.
-                                    </div>
-                                  ) : (
-                                    <div className="overflow-x-auto">
-                                      <table className="w-full min-w-full">
-                                        <thead>
-                                          <tr className="border-b border-[#26325f] text-left">
-                                            <th className="p-2 text-xs text-[#93a4d6]">Ticker</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Side</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Current</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">TP Target</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">SL</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">ETA</th>
-                                            <th className="p-2 text-xs text-[#93a4d6]">Status</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {ledgerOpenTrades.map((t) => {
-                                            const sym = String(t.ticker || "").toUpperCase();
-                                            const live = data && (data[sym] || data[t.ticker]);
-                                            const current = Number(live?.price);
-                                            const eta = computeEtaDays(live || t);
-                                            const tpTarget = computeTpTargetPrice(live || t);
-                                            return (
-                                              <tr
-                                                key={t.trade_id}
-                                                className="border-b border-[#26325f]/50 hover:bg-[#121a33] cursor-pointer"
-                                                onClick={() => setLedgerSelectedTradeId(t.trade_id)}
-                                              >
-                                                <td className="p-2 font-semibold">{t.ticker}</td>
-                                                <td className="p-2">
-                                                  <span
-                                                    className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                                      t.direction === "LONG"
-                                                        ? "bg-green-500/20 text-green-400"
-                                                        : "bg-red-500/20 text-red-400"
-                                                    }`}
-                                                  >
-                                                    {t.direction}
-                                                  </span>
-                                                </td>
-                                                <td className="p-2 text-sm">{fmtUsd(t.entry_price || 0)}</td>
-                                                <td className="p-2 text-sm text-yellow-300">
-                                                  {Number.isFinite(current) ? fmtUsd(current) : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm text-green-400">
-                                                  {Number.isFinite(tpTarget) ? fmtUsd(tpTarget) : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm text-red-400">{fmtUsd(t.sl || 0)}</td>
-                                                <td className="p-2 text-sm">
-                                                  {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
-                                                </td>
-                                                <td className="p-2 text-xs text-yellow-300">{t.status || "OPEN"}</td>
-                                              </tr>
-                                            );
-                                          })}
-                                        </tbody>
-                                      </table>
                                     </div>
                                   )}
                                 </div>
@@ -5015,8 +5138,11 @@
                                               <thead>
                                                 <tr className="border-b border-[#26325f] text-left">
                                                   <th className="p-2 text-xs text-[#93a4d6]">Entry</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Action</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Exit</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Side</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Qty</th>
+                                                  <th className="p-2 text-xs text-[#93a4d6]">Exit Price</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">P&L</th>
                                                   <th className="p-2 text-xs text-[#93a4d6]">Status</th>
                                                 </tr>
@@ -5026,6 +5152,13 @@
                                                   const entryTs = Number(t.entry_ts);
                                                   const exitTs = Number(t.exit_ts);
                                                   const pnl = Number(t.pnl || 0);
+                                                  const metrics = getPositionMetrics(
+                                                    t,
+                                                    data &&
+                                                      (data[String(t.ticker || "").toUpperCase()] ||
+                                                        data[t.ticker])
+                                                  );
+                                                  const exitPrice = Number(t.exit_price);
                                                   return (
                                                     <tr
                                                       key={t.trade_id}
@@ -5036,6 +5169,11 @@
                                                         {Number.isFinite(entryTs)
                                                           ? new Date(entryTs).toLocaleString()
                                                           : "—"}
+                                                      </td>
+                                                      <td className="p-2 text-xs">
+                                                        <span className="px-2 py-0.5 rounded text-xs font-semibold bg-purple-500/20 text-purple-300">
+                                                          EXIT
+                                                        </span>
                                                       </td>
                                                       <td className="p-2 text-xs text-[#93a4d6]">
                                                         {Number.isFinite(exitTs)
@@ -5052,6 +5190,16 @@
                                                         >
                                                           {t.direction}
                                                         </span>
+                                                      </td>
+                                                      <td className="p-2 text-xs">
+                                                        {metrics.isFutures
+                                                          ? metrics.shares.toFixed(0)
+                                                          : metrics.shares.toFixed(4)}
+                                                      </td>
+                                                      <td className="p-2 text-xs text-[#93a4d6]">
+                                                        {Number.isFinite(exitPrice)
+                                                          ? fmtUsd(exitPrice)
+                                                          : "—"}
                                                       </td>
                                                       <td className="p-2 text-sm">
                                                         <span className={`font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
