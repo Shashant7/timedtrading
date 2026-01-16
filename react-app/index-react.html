@@ -8892,6 +8892,7 @@
         const horizon = String(filters.horizonBucket || "ALL");
         const opp = String(filters.opportunities || "ALL");
         const quadrants = Array.isArray(filters.quadrants) ? filters.quadrants : null;
+        const sector = String(filters.sector || "ALL");
 
         const QUAD = {
           Q1: "HTF_BULL_LTF_BULL",
@@ -8950,6 +8951,23 @@
               {pill("GRNI", group === "GRNI", () => onChange({ group: "GRNI" }))}
               {pill("Social", group === "Social", () => onChange({ group: "Social" }))}
               {pill("No Group", group === "UNGROUPED", () => onChange({ group: "UNGROUPED" }))}
+            </div>
+
+            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">S&amp;P Sectors</div>
+            <div className="flex gap-2 flex-wrap items-center">
+              {pill("All", sector === "ALL", () => onChange({ sector: undefined }))}
+              {pill("S&P Sectors", group === "SP_Sectors", () => onChange({ group: "SP_Sectors" }))}
+              {pill("Comm", sector === "Communication Services", () => onChange({ sector: "Communication Services" }))}
+              {pill("Cons Disc", sector === "Consumer Discretionary", () => onChange({ sector: "Consumer Discretionary" }))}
+              {pill("Cons Staples", sector === "Consumer Staples", () => onChange({ sector: "Consumer Staples" }))}
+              {pill("Energy", sector === "Energy", () => onChange({ sector: "Energy" }))}
+              {pill("Financials", sector === "Financials", () => onChange({ sector: "Financials" }))}
+              {pill("Health", sector === "Health Care", () => onChange({ sector: "Health Care" }))}
+              {pill("Industrials", sector === "Industrials", () => onChange({ sector: "Industrials" }))}
+              {pill("Tech", sector === "Information Technology", () => onChange({ sector: "Information Technology" }))}
+              {pill("Materials", sector === "Materials", () => onChange({ sector: "Materials" }))}
+              {pill("Real Estate", sector === "Real Estate", () => onChange({ sector: "Real Estate" }))}
+              {pill("Utilities", sector === "Utilities", () => onChange({ sector: "Utilities" }))}
             </div>
 
             <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">Horizon</div>
