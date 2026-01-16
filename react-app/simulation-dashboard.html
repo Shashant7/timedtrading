@@ -5611,7 +5611,23 @@
                         )}
                       </div>
 
-                      {/* Legacy "Trade Detail" right rail removed (use unified ticker right rail) */}
+                      {/* Right Rail - Unified Detail View */}
+                      {(selectedTicker || selectedTrade) && (
+                        <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
+                          <TickerDetailsLoader
+                            tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
+                            trade={selectedTrade}
+                            onClose={() => {
+                              setSelectedTrade(null);
+                              setSelectedTicker(null);
+                            }}
+                            allLoadedData={data}
+                            sectors={sectors}
+                            rankedTickers={rankedTickers}
+                            rankedTickerPositions={rankedTickerPositions}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
