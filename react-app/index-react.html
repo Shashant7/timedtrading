@@ -1995,6 +1995,16 @@
           return true;
         };
 
+        const guidanceCategoryForAction = (action) => {
+          const a = String(action || "").toLowerCase();
+          if (!a) return "OTHER";
+          if (a.includes("exit") || a.includes("trim")) return "EXIT_TRIM";
+          if (a.startsWith("initiate")) return "INITIATE";
+          if (a.startsWith("consider")) return "CONSIDER";
+          if (a.startsWith("wait")) return "WAIT";
+          return "OTHER";
+        };
+
         // Create a set of tickers that have trades (normalize ticker names)
         const tickersWithTrades = new Set();
         if (Array.isArray(trades)) {
@@ -2236,6 +2246,17 @@
             } else if (mode === "WATCH") {
               if (prime || eligible) continue;
             }
+          }
+
+          // Guidance filter (based on natural-language decision)
+          if (
+            effectiveFilters.guidanceCategory &&
+            typeof effectiveFilters.guidanceCategory === "string"
+          ) {
+            const actionInfo = getActionDescription(d);
+            const cat = guidanceCategoryForAction(actionInfo?.action);
+            const want = String(effectiveFilters.guidanceCategory).toUpperCase();
+            if (cat !== want) continue;
           }
           if (effectiveFilters.minPriceChange !== undefined) {
             // Calculate price change from trigger price to current price
@@ -8893,6 +8914,7 @@
         const opp = String(filters.opportunities || "ALL");
         const quadrants = Array.isArray(filters.quadrants) ? filters.quadrants : null;
         const sector = String(filters.sector || "ALL");
+        const guidance = String(filters.guidanceCategory || "ALL");
 
         const sectorRatingMap = React.useMemo(() => {
           const map = {};
@@ -9015,6 +9037,15 @@
                 {pill(`${sectorEmoji("Materials")} Materials`, sector === "Materials", () => onChange({ sector: "Materials" }))}
                 {pill(`${sectorEmoji("Real Estate")} Real Estate`, sector === "Real Estate", () => onChange({ sector: "Real Estate" }))}
                 {pill(`${sectorEmoji("Utilities")} Utilities`, sector === "Utilities", () => onChange({ sector: "Utilities" }))}
+              </div>
+
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Guidance</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", guidance === "ALL", () => onChange({ guidanceCategory: undefined }))}
+                {pill("Initiate", guidance === "INITIATE", () => onChange({ guidanceCategory: "INITIATE" }))}
+                {pill("Consider Entry", guidance === "CONSIDER", () => onChange({ guidanceCategory: "CONSIDER" }))}
+                {pill("Wait", guidance === "WAIT", () => onChange({ guidanceCategory: "WAIT" }))}
+                {pill("Exit/Trim", guidance === "EXIT_TRIM", () => onChange({ guidanceCategory: "EXIT_TRIM" }))}
               </div>
             </div>
           </div>
