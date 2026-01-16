@@ -8959,6 +8959,35 @@
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
             <div className="space-y-2">
+              <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", horizon === "ALL", () => onChange({ horizonBucket: undefined }))}
+                {pill("Short-Term", horizon === "SHORT_TERM", () => onChange({ horizonBucket: "SHORT_TERM" }))}
+                {pill("Swing", horizon === "SWING", () => onChange({ horizonBucket: "SWING" }))}
+                {pill("Positional", horizon === "POSITIONAL", () => onChange({ horizonBucket: "POSITIONAL" }))}
+              </div>
+
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Opportunities</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", opp === "ALL", () => onChange({ opportunities: undefined }))}
+                {pill("Eligible", opp === "ELIGIBLE", () => onChange({ opportunities: "ELIGIBLE" }))}
+                {pill("Prime", opp === "PRIME", () => onChange({ opportunities: "PRIME" }))}
+                {pill("Watch", opp === "WATCH", () => onChange({ opportunities: "WATCH" }))}
+                {pill("Q1", isQuadActive("Q1"), () => toggleQuadrant("Q1"))}
+                {pill("Q2", isQuadActive("Q2"), () => toggleQuadrant("Q2"))}
+                {pill("Q3", isQuadActive("Q3"), () => toggleQuadrant("Q3"))}
+                {pill("Q4", isQuadActive("Q4"), () => toggleQuadrant("Q4"))}
+              </div>
+
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
+                {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
+                {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Groups</div>
               <div className="flex gap-2 flex-wrap items-center">
                 {pill("All", group === "ALL", () => onChange({ group: "ALL" }))}
@@ -8986,35 +9015,6 @@
                 {pill(`${sectorEmoji("Materials")} Materials`, sector === "Materials", () => onChange({ sector: "Materials" }))}
                 {pill(`${sectorEmoji("Real Estate")} Real Estate`, sector === "Real Estate", () => onChange({ sector: "Real Estate" }))}
                 {pill(`${sectorEmoji("Utilities")} Utilities`, sector === "Utilities", () => onChange({ sector: "Utilities" }))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", horizon === "ALL", () => onChange({ horizonBucket: undefined }))}
-                {pill("Short-Term", horizon === "SHORT_TERM", () => onChange({ horizonBucket: "SHORT_TERM" }))}
-                {pill("Swing", horizon === "SWING", () => onChange({ horizonBucket: "SWING" }))}
-                {pill("Positional", horizon === "POSITIONAL", () => onChange({ horizonBucket: "POSITIONAL" }))}
-              </div>
-
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Opportunities</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", opp === "ALL", () => onChange({ opportunities: undefined }))}
-                {pill("Eligible", opp === "ELIGIBLE", () => onChange({ opportunities: "ELIGIBLE" }))}
-                {pill("Prime", opp === "PRIME", () => onChange({ opportunities: "PRIME" }))}
-                {pill("Watch", opp === "WATCH", () => onChange({ opportunities: "WATCH" }))}
-                {pill("Q1", isQuadActive("Q1"), () => toggleQuadrant("Q1"))}
-                {pill("Q2", isQuadActive("Q2"), () => toggleQuadrant("Q2"))}
-                {pill("Q3", isQuadActive("Q3"), () => toggleQuadrant("Q3"))}
-                {pill("Q4", isQuadActive("Q4"), () => toggleQuadrant("Q4"))}
-              </div>
-
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
-                {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
-                {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
               </div>
             </div>
           </div>
@@ -13444,7 +13444,7 @@
         const [hoveredTicker, setHoveredTicker] = useState(null);
         const [journeyHoverPoint, setJourneyHoverPoint] = useState(null);
         const [journeySelectedPoint, setJourneySelectedPoint] = useState(null);
-        const [chatOpen, setChatOpen] = useState(false);
+        // AI Assistant removed (unused)
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(() => {
           // Check if user has seen dashboard welcome page before
           const hasSeenWelcome = localStorage.getItem(
@@ -13893,14 +13893,6 @@
                         </div>
                       )}
                       <button
-                        onClick={() => setChatOpen(true)}
-                        className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 border border-blue-400/30 rounded-lg text-white font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
-                        title="Open AI Assistant"
-                      >
-                        <span>🤖</span>
-                        <span>AI Assistant</span>
-                      </button>
-                      <button
                         onClick={refetch}
                         className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
                       >
@@ -14263,14 +14255,6 @@
               </div>
             </div>
 
-            {/* AI Chat Interface */}
-            {chatOpen && (
-              <AIChatInterface
-                isOpen={chatOpen}
-                onClose={() => setChatOpen(false)}
-                tickerData={data}
-              />
-            )}
           </>
         );
       }
