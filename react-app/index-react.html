@@ -8981,6 +8981,15 @@
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
             <div className="space-y-2">
+              <div className="text-[10px] text-[#6b7a9f] font-semibold">Guidance</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", guidance === "ALL", () => onChange({ guidanceCategory: undefined }))}
+                {pill("Initiate", guidance === "INITIATE", () => onChange({ guidanceCategory: "INITIATE" }))}
+                {pill("Consider Entry", guidance === "CONSIDER", () => onChange({ guidanceCategory: "CONSIDER" }))}
+                {pill("Wait", guidance === "WAIT", () => onChange({ guidanceCategory: "WAIT" }))}
+                {pill("Exit/Trim", guidance === "EXIT_TRIM", () => onChange({ guidanceCategory: "EXIT_TRIM" }))}
+              </div>
+
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
               <div className="flex gap-2 flex-wrap items-center">
                 {pill("All", horizon === "ALL", () => onChange({ horizonBucket: undefined }))}
@@ -9039,14 +9048,6 @@
                 {pill(`${sectorEmoji("Utilities")} Utilities`, sector === "Utilities", () => onChange({ sector: "Utilities" }))}
               </div>
 
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Guidance</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", guidance === "ALL", () => onChange({ guidanceCategory: undefined }))}
-                {pill("Initiate", guidance === "INITIATE", () => onChange({ guidanceCategory: "INITIATE" }))}
-                {pill("Consider Entry", guidance === "CONSIDER", () => onChange({ guidanceCategory: "CONSIDER" }))}
-                {pill("Wait", guidance === "WAIT", () => onChange({ guidanceCategory: "WAIT" }))}
-                {pill("Exit/Trim", guidance === "EXIT_TRIM", () => onChange({ guidanceCategory: "EXIT_TRIM" }))}
-              </div>
             </div>
           </div>
         );
@@ -12768,6 +12769,9 @@
       // ─────────────────────────────────────────────────────────────
       // AI Chat Interface Component
       // ─────────────────────────────────────────────────────────────
+      // AI Assistant removed (unused). Keep a no-op stub.
+      const AIChatInterface = () => null;
+      /*
       const AIChatInterface = ({ isOpen, onClose, tickerData }) => {
         const [messages, setMessages] = useState([
           {
@@ -13193,6 +13197,7 @@
           </div>
         );
       };
+      */
 
       // ─────────────────────────────────────────────────────────────
       // TickerDetailsLoader - must be defined before App
