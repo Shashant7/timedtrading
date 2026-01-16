@@ -1596,6 +1596,9 @@
           Number.isFinite(Number(tickerData.rank_total)) && Number(tickerData.rank_total) > 0
             ? Number(tickerData.rank_total)
             : totalTickersRaw;
+        // Back-compat / crash-proofing: some UI sections referenced `totalTickers`
+        // (should be `rankTotal`). Keep an alias to avoid runtime ReferenceError.
+        const totalTickers = rankTotal;
         const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
         // Determine if this is a futures contract
