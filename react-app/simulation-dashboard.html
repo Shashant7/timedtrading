@@ -1579,6 +1579,9 @@
         })();
 
         const baseScore = Number(tickerData.rank) || 0;
+        // Crash-proofing: right rail renders "Dynamic Score" and expects `dynamicRank`.
+        // Use the shared rank-score helper (prefers backend rank_score/dynamicScore).
+        const dynamicRank = rankScoreForTicker(tickerData);
         const sortedByRank =
           rankedTickers && rankedTickers.length > 0
             ? rankedTickers
