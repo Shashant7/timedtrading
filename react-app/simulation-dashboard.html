@@ -1966,11 +1966,11 @@
                   <span className="text-[#93a4d6]">Score</span>
                   <span className="font-semibold text-blue-400 text-lg">{baseScore}</span>
                 </div>
-                {totalTickers > 0 && (
+                {rankTotal > 0 && (
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Rank</span>
                     <span className="font-semibold">
-                      {rankPosition > 0 ? `#${rankPosition} of ${totalTickers}` : "—"}
+                      {rankPosition > 0 ? `#${rankPosition} of ${rankTotal}` : "—"}
                     </span>
                   </div>
                 )}
