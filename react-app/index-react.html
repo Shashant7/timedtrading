@@ -1970,6 +1970,31 @@
           return "POSITIONAL";
         };
 
+        // Opportunity classification used by Viewport + Bubble Chart filtering
+        const isEligibleOpportunity = (t) => {
+          if (!t) return false;
+          const rr = Number(t.rr);
+          const completion = Number(t.completion);
+          const ret = computeReturnPct(t);
+          const risk = computeRiskPct(t);
+          const etaConf = Number(t.eta_confidence);
+          const staleness = String(t.staleness || "").toUpperCase();
+          const avgCorr = Number(t.avg_corr);
+          const diversity = Number(t.diversity_score);
+          const ent = entryType(t);
+
+          if (!ent?.corridor) return false;
+          if (Number.isFinite(rr) && rr < 1.5) return false;
+          if (Number.isFinite(completion) && completion > 0.6) return false;
+          if (Number.isFinite(ret) && ret < 5) return false;
+          if (Number.isFinite(risk) && risk < 0.5) return false;
+          if (Number.isFinite(etaConf) && etaConf < 0.55) return false;
+          if (staleness && staleness !== "FRESH") return false;
+          if (Number.isFinite(avgCorr) && avgCorr > 0.75) return false;
+          if (Number.isFinite(diversity) && diversity < 25) return false;
+          return true;
+        };
+
         // Create a set of tickers that have trades (normalize ticker names)
         const tickersWithTrades = new Set();
         if (Array.isArray(trades)) {
@@ -2194,6 +2219,23 @@
           }
           if (effectiveFilters.prime === true) {
             if (!isPrimeBubble(d)) continue;
+          }
+
+          // Opportunities filter (Viewport row 3)
+          if (
+            effectiveFilters.opportunities &&
+            typeof effectiveFilters.opportunities === "string"
+          ) {
+            const mode = String(effectiveFilters.opportunities).toUpperCase();
+            const prime = isPrimeBubble(d);
+            const eligible = isEligibleOpportunity(d);
+            if (mode === "PRIME") {
+              if (!prime) continue;
+            } else if (mode === "ELIGIBLE") {
+              if (!eligible) continue;
+            } else if (mode === "WATCH") {
+              if (prime || eligible) continue;
+            }
           }
           if (effectiveFilters.minPriceChange !== undefined) {
             // Calculate price change from trigger price to current price
@@ -8843,6 +8885,104 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // Viewport Filter Tags (controls Viewport + Bubble Chart)
+      // ─────────────────────────────────────────────────────────────
+      function ViewportFilterTags({ filters, onChange }) {
+        const group = String(filters.group || "ALL");
+        const horizon = String(filters.horizonBucket || "ALL");
+        const opp = String(filters.opportunities || "ALL");
+        const quadrants = Array.isArray(filters.quadrants) ? filters.quadrants : null;
+
+        const QUAD = {
+          Q1: "HTF_BULL_LTF_BULL",
+          Q2: "HTF_BULL_LTF_PULLBACK",
+          Q3: "HTF_BEAR_LTF_PULLBACK",
+          Q4: "HTF_BEAR_LTF_BEAR",
+        };
+        const ALL_QUADS = Object.values(QUAD);
+
+        const isQuadActive = (qKey) => {
+          const s = QUAD[qKey];
+          if (!s) return false;
+          if (!quadrants) return false;
+          return quadrants.includes(s);
+        };
+
+        const toggleQuadrant = (qKey) => {
+          const s = QUAD[qKey];
+          if (!s) return;
+          const current = Array.isArray(quadrants) ? quadrants.slice() : ALL_QUADS.slice();
+          const has = current.includes(s);
+          const next = has ? current.filter((x) => x !== s) : current.concat([s]);
+          // If empty or all selected, clear quadrants filter (show all)
+          const normalized =
+            next.length === 0 || next.length === ALL_QUADS.length ? undefined : next;
+          onChange({ quadrants: normalized });
+        };
+
+        const pill = (label, active, onClick) => (
+          <button
+            onClick={onClick}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+              active
+                ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+            }`}
+          >
+            {label}
+          </button>
+        );
+
+        const toggleBool = (key) => {
+          const cur = filters[key] === true;
+          onChange({ [key]: cur ? undefined : true });
+        };
+
+        return (
+          <div className="space-y-2 mb-4">
+            <div className="text-[10px] text-[#6b7a9f] font-semibold">Groups</div>
+            <div className="flex gap-2 flex-wrap items-center">
+              {pill("All", group === "ALL", () => onChange({ group: "ALL" }))}
+              {pill("Upticks", group === "Upticks", () => onChange({ group: "Upticks" }))}
+              {pill("Super Granny", group === "Super Granny", () => onChange({ group: "Super Granny" }))}
+              {pill("GRNY", group === "GRNY", () => onChange({ group: "GRNY" }))}
+              {pill("GRNJ", group === "GRNJ", () => onChange({ group: "GRNJ" }))}
+              {pill("GRNI", group === "GRNI", () => onChange({ group: "GRNI" }))}
+              {pill("Social", group === "Social", () => onChange({ group: "Social" }))}
+              {pill("No Group", group === "UNGROUPED", () => onChange({ group: "UNGROUPED" }))}
+            </div>
+
+            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">Horizon</div>
+            <div className="flex gap-2 flex-wrap items-center">
+              {pill("All", horizon === "ALL", () => onChange({ horizonBucket: undefined }))}
+              {pill("Short-Term", horizon === "SHORT_TERM", () => onChange({ horizonBucket: "SHORT_TERM" }))}
+              {pill("Swing", horizon === "SWING", () => onChange({ horizonBucket: "SWING" }))}
+              {pill("Positional", horizon === "POSITIONAL", () => onChange({ horizonBucket: "POSITIONAL" }))}
+            </div>
+
+            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">Opportunities</div>
+            <div className="flex gap-2 flex-wrap items-center">
+              {pill("All", opp === "ALL", () => onChange({ opportunities: undefined }))}
+              {pill("Eligible", opp === "ELIGIBLE", () => onChange({ opportunities: "ELIGIBLE" }))}
+              {pill("Prime", opp === "PRIME", () => onChange({ opportunities: "PRIME" }))}
+              {pill("Watch", opp === "WATCH", () => onChange({ opportunities: "WATCH" }))}
+              {pill("Q1", isQuadActive("Q1"), () => toggleQuadrant("Q1"))}
+              {pill("Q2", isQuadActive("Q2"), () => toggleQuadrant("Q2"))}
+              {pill("Q3", isQuadActive("Q3"), () => toggleQuadrant("Q3"))}
+              {pill("Q4", isQuadActive("Q4"), () => toggleQuadrant("Q4"))}
+            </div>
+
+            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">Specials</div>
+            <div className="flex gap-2 flex-wrap items-center">
+              {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
+              {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
+              {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
+            </div>
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // Opportunities Panel: unified (Prime/Eligible/Watch)
       // ─────────────────────────────────────────────────────────────
       function OpportunitiesPanel({
@@ -8853,6 +8993,7 @@
         title = "✨ Opportunities",
         maxHeightClass = "max-h-[520px]",
         onFilteredTickersChange = null,
+        showControls = true,
       }) {
         const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
@@ -8948,6 +9089,7 @@
             })
             .filter(({ t, c, status }) => {
               if (!t?.ticker) return false;
+              if (!showControls) return true;
               if (view !== "all" && status !== view) return false;
               if (dir !== "ALL" && c.dir !== dir) return false;
               if (horizon !== "ALL" && c.bucket !== horizon) return false;
@@ -9100,31 +9242,35 @@
                   Prime {counts.prime} • Eligible {counts.eligible} • Total {counts.all}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Ticker…"
-                  className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white w-[110px]"
-                />
-              </div>
+              {showControls && (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Ticker…"
+                    className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white w-[110px]"
+                  />
+                </div>
+              )}
             </div>
 
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              {pill("Prime", view === "prime", () => setView("prime"))}
-              {pill("Eligible", view === "eligible", () => setView("eligible"))}
-              {pill("Watch", view === "watch", () => setView("watch"))}
-              {pill("All", view === "all", () => setView("all"))}
-              <div className="w-px h-6 bg-[#26325f] mx-1" />
-              {pill("All", dir === "ALL", () => setDir("ALL"))}
-              {pill("Long", dir === "LONG", () => setDir("LONG"))}
-              {pill("Short", dir === "SHORT", () => setDir("SHORT"))}
-              <div className="w-px h-6 bg-[#26325f] mx-1" />
-              {pill("Any horizon", horizon === "ALL", () => setHorizon("ALL"))}
-              {pill("≤7d", horizon === "SHORT_TERM", () => setHorizon("SHORT_TERM"))}
-              {pill("8–30d", horizon === "SWING", () => setHorizon("SWING"))}
-              {pill("31d+", horizon === "POSITIONAL", () => setHorizon("POSITIONAL"))}
-            </div>
+            {showControls && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                {pill("Prime", view === "prime", () => setView("prime"))}
+                {pill("Eligible", view === "eligible", () => setView("eligible"))}
+                {pill("Watch", view === "watch", () => setView("watch"))}
+                {pill("All", view === "all", () => setView("all"))}
+                <div className="w-px h-6 bg-[#26325f] mx-1" />
+                {pill("All", dir === "ALL", () => setDir("ALL"))}
+                {pill("Long", dir === "LONG", () => setDir("LONG"))}
+                {pill("Short", dir === "SHORT", () => setDir("SHORT"))}
+                <div className="w-px h-6 bg-[#26325f] mx-1" />
+                {pill("Any horizon", horizon === "ALL", () => setHorizon("ALL"))}
+                {pill("≤7d", horizon === "SHORT_TERM", () => setHorizon("SHORT_TERM"))}
+                {pill("8–30d", horizon === "SWING", () => setHorizon("SWING"))}
+                {pill("31d+", horizon === "POSITIONAL", () => setHorizon("POSITIONAL"))}
+              </div>
+            )}
 
             <div className={`mt-3 ${maxHeightClass} overflow-y-auto space-y-2 pr-1`}>
               {filtered.length === 0 ? (
@@ -13466,7 +13612,6 @@
         const effectiveFilters = { ...filters, search: debouncedSearch };
 
         const [timeTravelTickers, setTimeTravelTickers] = useState(null);
-        const [viewportTickers, setViewportTickers] = useState(null);
 
         const tickers = useMemo(() => {
           // If time travel is active, use time travel tickers, otherwise use filtered tickers
@@ -13811,10 +13956,9 @@
                         </span>
                       </div>
                     </div>
-                    <QuickFilters
+                    <ViewportFilterTags
                       filters={filters}
-                      onFilterChange={handleFilterChange}
-                      sectors={sectors}
+                      onChange={handleFilterChange}
                     />
                   </div>
                 </header>
@@ -13859,9 +14003,7 @@
                           onSelectTicker={handleTickerSelect}
                           title="🔭 Viewport"
                           maxHeightClass="max-h-[900px]"
-                          onFilteredTickersChange={(list) => {
-                            setViewportTickers(Array.isArray(list) ? list : null);
-                          }}
+                          showControls={false}
                         />
                       </div>
 
@@ -13871,21 +14013,13 @@
                           selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
-                        {(() => {
-                          const bubbleTickers =
-                            Array.isArray(viewportTickers) && viewportTickers.length > 0
-                              ? viewportTickers
-                              : tickers;
-                          return (
                         <TimeTravelSlider
-                          tickers={bubbleTickers}
+                          tickers={timeTravelBaseTickers}
                           allTickers={data}
                           data={data}
                           onTimeChange={setTimeTravelTickers}
                           tickerFilter={filters.tickerFilter}
                         />
-                          );
-                        })()}
                         {/* Bubble Chart Legend - Compact Horizontal */}
                         <div className="w-full bg-[#0f1630] border border-[#26325f] rounded-lg px-4 py-2 mb-2">
                           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-[#93a4d6]">
@@ -13966,14 +14100,8 @@
                               </div>
                             </div>
                           ) : (
-                            (() => {
-                              const bubbleTickers =
-                                Array.isArray(viewportTickers) && viewportTickers.length > 0
-                                  ? viewportTickers
-                                  : tickers;
-                              return (
                             <BubbleChart
-                              tickers={bubbleTickers}
+                              tickers={tickers}
                               onBubbleClick={handleTickerSelect}
                               hoveredTicker={hoveredTicker}
                               onHover={setHoveredTicker}
@@ -13986,8 +14114,6 @@
                               rankedTickers={rankedTickers}
                               rankedTickerPositions={rankedTickerPositions}
                             />
-                              );
-                            })()
                           )}
                         </div>
                       </div>
