@@ -1999,9 +1999,11 @@
           const a = String(action || "").toLowerCase();
           if (!a) return "OTHER";
           if (a.includes("exit") || a.includes("trim")) return "EXIT_TRIM";
+          if (a.startsWith("monitor") || a.includes("monitor closely")) return "MONITOR";
           if (a.startsWith("initiate")) return "INITIATE";
           if (a.startsWith("consider")) return "CONSIDER";
           if (a.startsWith("wait")) return "WAIT";
+          if (a.includes("blocked")) return "BLOCKED";
           return "OTHER";
         };
 
@@ -8986,8 +8988,10 @@
                 {pill("All", guidance === "ALL", () => onChange({ guidanceCategory: undefined }))}
                 {pill("Initiate", guidance === "INITIATE", () => onChange({ guidanceCategory: "INITIATE" }))}
                 {pill("Consider Entry", guidance === "CONSIDER", () => onChange({ guidanceCategory: "CONSIDER" }))}
+                {pill("Monitor Closely", guidance === "MONITOR", () => onChange({ guidanceCategory: "MONITOR" }))}
                 {pill("Wait", guidance === "WAIT", () => onChange({ guidanceCategory: "WAIT" }))}
                 {pill("Exit/Trim", guidance === "EXIT_TRIM", () => onChange({ guidanceCategory: "EXIT_TRIM" }))}
+                {pill("Other", guidance === "OTHER", () => onChange({ guidanceCategory: "OTHER" }))}
               </div>
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
@@ -9211,6 +9215,47 @@
               ? tpMax
               : null;
 
+          const pickNum = (obj, keys) => {
+            for (const k of keys) {
+              const v = Number(obj?.[k]);
+              if (Number.isFinite(v)) return v;
+            }
+            return null;
+          };
+          let dayChg = pickNum(t, [
+            "day_change",
+            "daily_change",
+            "change",
+            "session_change",
+            "chg",
+            "ch",
+          ]);
+          let dayPct = pickNum(t, [
+            "day_change_pct",
+            "daily_change_pct",
+            "change_pct",
+            "pct_change",
+            "session_change_pct",
+            "chp",
+          ]);
+
+          // If only one of (abs, pct) is present, compute the other using current price
+          if (!Number.isFinite(dayChg) && Number.isFinite(dayPct) && Number.isFinite(price) && price > 0) {
+            const p = dayPct / 100;
+            if (Number.isFinite(p) && Math.abs(p) < 5) {
+              const prev = price / (1 + p);
+              const abs = price - prev;
+              dayChg = Number.isFinite(abs) ? abs : null;
+            }
+          }
+          if (!Number.isFinite(dayPct) && Number.isFinite(dayChg) && Number.isFinite(price) && price > 0) {
+            const prev = price - dayChg;
+            if (Number.isFinite(prev) && Math.abs(prev) > 1e-9) {
+              dayPct = (dayChg / prev) * 100;
+            }
+          }
+          const chgColor = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
+
           const statusPill =
             item.status === "prime"
               ? { label: "Prime", cls: "bg-yellow-500/15 text-yellow-300 border-yellow-500/40" }
@@ -9256,6 +9301,10 @@
                 <div className="flex-shrink-0 text-right text-[11px]">
                   <div className="text-white">
                     {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
+                  </div>
+                  <div className={`mt-0.5 ${chgColor}`}>
+                    {Number.isFinite(dayPct) ? `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%` : "—"}{" "}
+                    {Number.isFinite(dayChg) ? `(${dayChg >= 0 ? "+" : ""}${fmtUsd(dayChg)})` : ""}
                   </div>
                   <div className="text-[#6b7a9f]">{ingestText}</div>
                 </div>
