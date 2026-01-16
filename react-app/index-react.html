@@ -8887,12 +8887,29 @@
       // ─────────────────────────────────────────────────────────────
       // Viewport Filter Tags (controls Viewport + Bubble Chart)
       // ─────────────────────────────────────────────────────────────
-      function ViewportFilterTags({ filters, onChange }) {
+      function ViewportFilterTags({ filters, onChange, sectors = [] }) {
         const group = String(filters.group || "ALL");
         const horizon = String(filters.horizonBucket || "ALL");
         const opp = String(filters.opportunities || "ALL");
         const quadrants = Array.isArray(filters.quadrants) ? filters.quadrants : null;
         const sector = String(filters.sector || "ALL");
+
+        const sectorRatingMap = React.useMemo(() => {
+          const map = {};
+          if (Array.isArray(sectors)) {
+            sectors.forEach((s) => {
+              const name = s?.sector || s?.name;
+              if (!name) return;
+              map[String(name)] = String(s?.rating || "neutral").toLowerCase();
+            });
+          }
+          return map;
+        }, [sectors]);
+
+        const sectorEmoji = (sectorName) => {
+          const rating = sectorRatingMap[String(sectorName)] || "neutral";
+          return rating === "overweight" ? "💪" : rating === "underweight" ? "👎" : "😒";
+        };
 
         const QUAD = {
           Q1: "HTF_BULL_LTF_BULL",
@@ -8940,61 +8957,65 @@
         };
 
         return (
-          <div className="space-y-2 mb-4">
-            <div className="text-[10px] text-[#6b7a9f] font-semibold">Groups</div>
-            <div className="flex gap-2 flex-wrap items-center">
-              {pill("All", group === "ALL", () => onChange({ group: "ALL" }))}
-              {pill("Upticks", group === "UPTICKS", () => onChange({ group: "UPTICKS" }))}
-              {pill("Super Granny", group === "SuperGranny", () => onChange({ group: "SuperGranny" }))}
-              {pill("GRNY", group === "GRNY", () => onChange({ group: "GRNY" }))}
-              {pill("GRNJ", group === "GRNJ", () => onChange({ group: "GRNJ" }))}
-              {pill("GRNI", group === "GRNI", () => onChange({ group: "GRNI" }))}
-              {pill("Social", group === "Social", () => onChange({ group: "Social" }))}
-              {pill("No Group", group === "UNGROUPED", () => onChange({ group: "UNGROUPED" }))}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+            <div className="space-y-2">
+              <div className="text-[10px] text-[#6b7a9f] font-semibold">Groups</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", group === "ALL", () => onChange({ group: "ALL" }))}
+                {pill("Upticks", group === "UPTICKS", () => onChange({ group: "UPTICKS" }))}
+                {pill("Super Granny", group === "SuperGranny", () => onChange({ group: "SuperGranny" }))}
+                {pill("GRNY", group === "GRNY", () => onChange({ group: "GRNY" }))}
+                {pill("GRNJ", group === "GRNJ", () => onChange({ group: "GRNJ" }))}
+                {pill("GRNI", group === "GRNI", () => onChange({ group: "GRNI" }))}
+                {pill("Social", group === "Social", () => onChange({ group: "Social" }))}
+                {pill("No Group", group === "UNGROUPED", () => onChange({ group: "UNGROUPED" }))}
+              </div>
+
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">S&amp;P Sectors</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", sector === "ALL", () => onChange({ sector: undefined }))}
+                {pill("S&P Sectors", group === "SP_Sectors", () => onChange({ group: "SP_Sectors" }))}
+                {pill(`${sectorEmoji("Communication Services")} Comm`, sector === "Communication Services", () => onChange({ sector: "Communication Services" }))}
+                {pill(`${sectorEmoji("Consumer Discretionary")} Cons Disc`, sector === "Consumer Discretionary", () => onChange({ sector: "Consumer Discretionary" }))}
+                {pill(`${sectorEmoji("Consumer Staples")} Cons Staples`, sector === "Consumer Staples", () => onChange({ sector: "Consumer Staples" }))}
+                {pill(`${sectorEmoji("Energy")} Energy`, sector === "Energy", () => onChange({ sector: "Energy" }))}
+                {pill(`${sectorEmoji("Financials")} Financials`, sector === "Financials", () => onChange({ sector: "Financials" }))}
+                {pill(`${sectorEmoji("Health Care")} Health`, sector === "Health Care", () => onChange({ sector: "Health Care" }))}
+                {pill(`${sectorEmoji("Industrials")} Industrials`, sector === "Industrials", () => onChange({ sector: "Industrials" }))}
+                {pill(`${sectorEmoji("Information Technology")} Tech`, sector === "Information Technology", () => onChange({ sector: "Information Technology" }))}
+                {pill(`${sectorEmoji("Materials")} Materials`, sector === "Materials", () => onChange({ sector: "Materials" }))}
+                {pill(`${sectorEmoji("Real Estate")} Real Estate`, sector === "Real Estate", () => onChange({ sector: "Real Estate" }))}
+                {pill(`${sectorEmoji("Utilities")} Utilities`, sector === "Utilities", () => onChange({ sector: "Utilities" }))}
+              </div>
             </div>
 
-            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">S&amp;P Sectors</div>
-            <div className="flex gap-2 flex-wrap items-center">
-              {pill("All", sector === "ALL", () => onChange({ sector: undefined }))}
-              {pill("S&P Sectors", group === "SP_Sectors", () => onChange({ group: "SP_Sectors" }))}
-              {pill("Comm", sector === "Communication Services", () => onChange({ sector: "Communication Services" }))}
-              {pill("Cons Disc", sector === "Consumer Discretionary", () => onChange({ sector: "Consumer Discretionary" }))}
-              {pill("Cons Staples", sector === "Consumer Staples", () => onChange({ sector: "Consumer Staples" }))}
-              {pill("Energy", sector === "Energy", () => onChange({ sector: "Energy" }))}
-              {pill("Financials", sector === "Financials", () => onChange({ sector: "Financials" }))}
-              {pill("Health", sector === "Health Care", () => onChange({ sector: "Health Care" }))}
-              {pill("Industrials", sector === "Industrials", () => onChange({ sector: "Industrials" }))}
-              {pill("Tech", sector === "Information Technology", () => onChange({ sector: "Information Technology" }))}
-              {pill("Materials", sector === "Materials", () => onChange({ sector: "Materials" }))}
-              {pill("Real Estate", sector === "Real Estate", () => onChange({ sector: "Real Estate" }))}
-              {pill("Utilities", sector === "Utilities", () => onChange({ sector: "Utilities" }))}
-            </div>
+            <div className="space-y-2">
+              <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", horizon === "ALL", () => onChange({ horizonBucket: undefined }))}
+                {pill("Short-Term", horizon === "SHORT_TERM", () => onChange({ horizonBucket: "SHORT_TERM" }))}
+                {pill("Swing", horizon === "SWING", () => onChange({ horizonBucket: "SWING" }))}
+                {pill("Positional", horizon === "POSITIONAL", () => onChange({ horizonBucket: "POSITIONAL" }))}
+              </div>
 
-            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">Horizon</div>
-            <div className="flex gap-2 flex-wrap items-center">
-              {pill("All", horizon === "ALL", () => onChange({ horizonBucket: undefined }))}
-              {pill("Short-Term", horizon === "SHORT_TERM", () => onChange({ horizonBucket: "SHORT_TERM" }))}
-              {pill("Swing", horizon === "SWING", () => onChange({ horizonBucket: "SWING" }))}
-              {pill("Positional", horizon === "POSITIONAL", () => onChange({ horizonBucket: "POSITIONAL" }))}
-            </div>
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Opportunities</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("All", opp === "ALL", () => onChange({ opportunities: undefined }))}
+                {pill("Eligible", opp === "ELIGIBLE", () => onChange({ opportunities: "ELIGIBLE" }))}
+                {pill("Prime", opp === "PRIME", () => onChange({ opportunities: "PRIME" }))}
+                {pill("Watch", opp === "WATCH", () => onChange({ opportunities: "WATCH" }))}
+                {pill("Q1", isQuadActive("Q1"), () => toggleQuadrant("Q1"))}
+                {pill("Q2", isQuadActive("Q2"), () => toggleQuadrant("Q2"))}
+                {pill("Q3", isQuadActive("Q3"), () => toggleQuadrant("Q3"))}
+                {pill("Q4", isQuadActive("Q4"), () => toggleQuadrant("Q4"))}
+              </div>
 
-            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">Opportunities</div>
-            <div className="flex gap-2 flex-wrap items-center">
-              {pill("All", opp === "ALL", () => onChange({ opportunities: undefined }))}
-              {pill("Eligible", opp === "ELIGIBLE", () => onChange({ opportunities: "ELIGIBLE" }))}
-              {pill("Prime", opp === "PRIME", () => onChange({ opportunities: "PRIME" }))}
-              {pill("Watch", opp === "WATCH", () => onChange({ opportunities: "WATCH" }))}
-              {pill("Q1", isQuadActive("Q1"), () => toggleQuadrant("Q1"))}
-              {pill("Q2", isQuadActive("Q2"), () => toggleQuadrant("Q2"))}
-              {pill("Q3", isQuadActive("Q3"), () => toggleQuadrant("Q3"))}
-              {pill("Q4", isQuadActive("Q4"), () => toggleQuadrant("Q4"))}
-            </div>
-
-            <div className="text-[10px] text-[#6b7a9f] font-semibold mt-2">Specials</div>
-            <div className="flex gap-2 flex-wrap items-center">
-              {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
-              {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
-              {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
+                {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
+                {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
+              </div>
             </div>
           </div>
         );
@@ -13825,7 +13846,45 @@
                 {/* Header */}
                 <header className="mb-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h1 className="text-3xl font-bold">Timed Trading</h1>
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <h1 className="text-3xl font-bold">Timed Trading</h1>
+                      <div className="flex gap-3 text-sm items-center flex-wrap">
+                        <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
+                          <span className="text-[#93a4d6]">Tickers: </span>
+                          <span className="font-bold text-white">
+                            {tickers.length}
+                          </span>
+                        </div>
+                        <div className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30">
+                          <span className="text-green-400">Prime: </span>
+                          <span className="font-bold text-green-400">
+                            {primeTickers.length}
+                          </span>
+                        </div>
+                        {versionInfo && (
+                          <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
+                            <span className="text-[#93a4d6]">Version: </span>
+                            <span className="font-bold text-blue-400">
+                              {versionInfo.currentDataVersion ||
+                                versionInfo.storedVersion}
+                            </span>
+                            {versionInfo.versionFiltered > 0 && (
+                              <span className="text-yellow-400 ml-2 text-xs">
+                                ({versionInfo.versionFiltered} filtered)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {tickers.length > 0 && (
+                          <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
+                            <span className="text-[#93a4d6]">In Corridor: </span>
+                            <span className="font-bold text-white">
+                              {tickers.filter((t) => entryType(t).corridor).length}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     <div className="flex items-center gap-4">
                       {loading && <div className="loading-spinner"></div>}
                       {error && (
@@ -13854,91 +13913,6 @@
                       )}
                     </div>
                   </div>
-
-                  {/* Quick Stats */}
-                  <div className="flex gap-4 text-sm items-center flex-wrap">
-                    <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
-                      <span className="text-[#93a4d6]">Tickers: </span>
-                      <span className="font-bold text-white">
-                        {tickers.length}
-                      </span>
-                    </div>
-                    <div className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30">
-                      <span className="text-green-400">Prime: </span>
-                      <span className="font-bold text-green-400">
-                        {primeTickers.length}
-                      </span>
-                    </div>
-                    {versionInfo && (
-                      <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
-                        <span className="text-[#93a4d6]">Version: </span>
-                        <span className="font-bold text-blue-400">
-                          {versionInfo.currentDataVersion ||
-                            versionInfo.storedVersion}
-                        </span>
-                        {versionInfo.versionsSeen &&
-                          versionInfo.versionsSeen.length > 0 && (
-                            <span className="text-[#93a4d6] ml-2 text-xs">
-                              ({versionInfo.versionsSeen.join(", ")})
-                            </span>
-                          )}
-                        {versionInfo.versionFiltered > 0 && (
-                          <span className="text-yellow-400 ml-2 text-xs">
-                            ({versionInfo.versionFiltered} filtered)
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {tickers.length > 0 && (
-                      <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
-                        <span className="text-[#93a4d6]">In Corridor: </span>
-                        <span className="font-bold text-white">
-                          {tickers.filter((t) => entryType(t).corridor).length}
-                        </span>
-                      </div>
-                    )}
-                    {tickersWithoutScores.length > 0 && (
-                      <div className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 relative group">
-                        <span className="text-yellow-400">⚠️ No Scores: </span>
-                        <span className="font-bold text-yellow-400">
-                          {tickersWithoutScores.length}
-                        </span>
-                        <div className="absolute left-0 top-full mt-2 w-80 bg-[#0f1630] border border-yellow-500/30 rounded-lg p-3 shadow-xl z-50 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
-                          <div className="text-xs text-yellow-400 font-semibold mb-2">
-                            Tickers without scores:
-                          </div>
-                          <div className="text-xs text-[#93a4d6] space-y-1 max-h-48 overflow-y-auto mb-2">
-                            {tickersWithoutScores.slice(0, 20).map((t) => (
-                              <div
-                                key={t.ticker}
-                                className="flex items-center justify-between"
-                              >
-                                <span>{t.ticker}</span>
-                                <span className="text-[#6b7a9f] text-[10px]">
-                                  {t.version || "unknown"}
-                                </span>
-                              </div>
-                            ))}
-                            {tickersWithoutScores.length > 20 && (
-                              <div className="text-[#6b7a9f] text-[10px] pt-1 border-t border-[#26325f]">
-                                +{tickersWithoutScores.length - 20} more
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-xs text-yellow-400 pt-2 border-t border-[#26325f]">
-                            These tickers are in the index but haven't received
-                            data from TradingView yet.
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {error && (
-                      <div className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/30">
-                        <span className="text-red-400">Error: {error}</span>
-                      </div>
-                    )}
-                  </div>
-
 
                   {/* Filters */}
                   <div className="mt-4">
@@ -13977,6 +13951,7 @@
                     <ViewportFilterTags
                       filters={filters}
                       onChange={handleFilterChange}
+                      sectors={sectors}
                     />
                   </div>
                 </header>
