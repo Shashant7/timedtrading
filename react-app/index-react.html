@@ -1693,6 +1693,92 @@
       // Alias for backward compatibility (but rename internally)
       const computeDynamicRank = computeDynamicScore;
 
+      function toTickerArray(source) {
+        if (!source) return [];
+        if (Array.isArray(source)) {
+          return source.filter((t) => t && typeof t === "object" && t.ticker);
+        }
+        if (typeof source === "object") {
+          return Object.values(source).filter(
+            (t) => t && typeof t === "object" && t.ticker
+          );
+        }
+        return [];
+      }
+
+      function rankScoreForTicker(ticker) {
+        const rankScore = Number(ticker?.rank_score);
+        if (Number.isFinite(rankScore)) return rankScore;
+        const dynamicRank = Number(ticker?.dynamicRank);
+        if (Number.isFinite(dynamicRank)) return dynamicRank;
+        const dynamicScore = Number(ticker?.dynamicScore);
+        if (Number.isFinite(dynamicScore)) return dynamicScore;
+        return Number(computeDynamicRank(ticker)) || 0;
+      }
+
+      function getRankedTickers(source) {
+        const list = toTickerArray(source);
+        const withScores = list.map((t) => ({
+          ...t,
+          __rankPos: Number(t?.rank_position),
+          __rankScore: rankScoreForTicker(t),
+        }));
+        withScores.sort((a, b) => {
+          const rankA = Number(a.__rankPos);
+          const rankB = Number(b.__rankPos);
+          const hasRankA = Number.isFinite(rankA) && rankA > 0;
+          const hasRankB = Number.isFinite(rankB) && rankB > 0;
+          if (hasRankA && hasRankB) return rankA - rankB;
+          if (hasRankA) return -1;
+          if (hasRankB) return 1;
+          const scoreA = Number(a.__rankScore) || 0;
+          const scoreB = Number(b.__rankScore) || 0;
+          return scoreB - scoreA;
+        });
+        return withScores;
+      }
+
+      function getRankPosition(sortedTickers, tickerSymbol) {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) return null;
+        const index = sortedTickers.findIndex(
+          (t) =>
+            String(t.ticker || "")
+              .trim()
+              .toUpperCase() === sym
+        );
+        return index >= 0 ? index + 1 : null;
+      }
+
+      function getRankPositionFromMap(rankPositions, tickerSymbol) {
+        if (!rankPositions) return null;
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) return null;
+        const pos = Number(rankPositions[sym]);
+        return Number.isFinite(pos) && pos > 0 ? pos : null;
+      }
+
+      function downsampleByInterval(points, intervalMs) {
+        if (!Array.isArray(points) || points.length === 0) return [];
+        const buckets = new Map();
+        points.forEach((p) => {
+          const tsRaw = p.__ts_ms ?? p.ts ?? p.ingest_ts ?? p.ingest_time;
+          const ts =
+            typeof tsRaw === "string"
+              ? new Date(tsRaw).getTime()
+              : Number(tsRaw);
+          if (!Number.isFinite(ts)) return;
+          const bucket = Math.floor(ts / intervalMs) * intervalMs;
+          const prev = buckets.get(bucket);
+          if (!prev || ts > prev.__ts_ms) {
+            buckets.set(bucket, { ...p, __ts_ms: ts, __bucket: bucket });
+          }
+        });
+        return Array.from(buckets.values()).sort(
+          (a, b) => a.__ts_ms - b.__ts_ms
+        );
+      }
+
       // Debug: Verify function is loaded correctly
       console.log(
         "🔍 [RANKING SYSTEM] computeDynamicScore function loaded (no 100 cap)"
@@ -3271,7 +3357,8 @@
         selectedTrail,
         highlightTrailPoint = null,
         allData,
-        allTickersWithRanksForComparison,
+        rankedTickers,
+        rankedTickerPositions,
       }) {
         // Debug: Log props received
         React.useEffect(() => {
@@ -3348,104 +3435,14 @@
         const containerRef = React.useRef(null);
 
         // Calculate #1 ranked ticker using SAME data source as Ranked List
-        // IMPORTANT: Use allTickersWithRanksForComparison (has API dynamicScore) instead of recalculating
         const topRankedTicker = React.useMemo(() => {
-          // Use allTickersWithRanksForComparison if available (same as Ranked List uses)
-          if (
-            allTickersWithRanksForComparison &&
-            allTickersWithRanksForComparison.length > 0
-          ) {
-            // Sort by dynamicRank (descending) - same as Ranked List
-            const sorted = [...allTickersWithRanksForComparison].sort(
-              (a, b) => {
-                const scoreA = Number(a.dynamicRank) || 0;
-                const scoreB = Number(b.dynamicRank) || 0;
-                // Descending order: higher score = better position
-                // NO alphabetical tie-breaker - pure score sorting
-                return scoreB - scoreA;
-              }
-            );
-
-            if (sorted.length > 0) {
-              const topTicker = sorted[0];
-              console.log(
-                "🔍 [BUBBLE CHART] Using allTickersWithRanksForComparison:",
-                {
-                  topTicker: topTicker.ticker,
-                  score: topTicker.dynamicRank,
-                  fromAPI: topTicker.dynamicScore !== undefined,
-                  totalTickers: sorted.length,
-                  top5: sorted.slice(0, 5).map((t) => ({
-                    ticker: t.ticker,
-                    score: t.dynamicRank,
-                    fromAPI: t.dynamicScore !== undefined,
-                  })),
-                }
-              );
-
-              // Verify sorting is correct - check if scores are in descending order
-              if (sorted.length > 1) {
-                const firstScore = Number(sorted[0].dynamicRank) || 0;
-                const secondScore = Number(sorted[1].dynamicRank) || 0;
-                if (firstScore < secondScore) {
-                  console.error(
-                    `[RANKING ERROR] Bubble Chart sorting failed! First score (${firstScore}) < Second score (${secondScore})`
-                  );
-                }
-              }
-
-              return topTicker.ticker;
-            }
+          if (rankedTickers && rankedTickers.length > 0) {
+            return rankedTickers[0].ticker;
           }
-
-          // Fallback: Use allData if allTickersWithRanksForComparison not available
           if (!allData || typeof allData !== "object") return null;
-
-          const allTickersArray = Object.values(allData).filter(
-            (t) =>
-              t &&
-              typeof t === "object" &&
-              t.ticker &&
-              t.rank !== undefined &&
-              t.rank !== null
-          );
-
-          if (allTickersArray.length === 0) return null;
-
-          // Use API dynamicScore if available, otherwise calculate
-          const tickersWithDynamicRank = allTickersArray.map((t) => ({
-            ...t,
-            dynamicRank: t.dynamicScore || computeDynamicRank(t),
-          }));
-
-          // Sort by dynamicRank (descending)
-          const sorted = [...tickersWithDynamicRank].sort((a, b) => {
-            const scoreA = Number(a.dynamicRank) || 0;
-            const scoreB = Number(b.dynamicRank) || 0;
-            return scoreB - scoreA;
-          });
-
-          // Debug logging
-          if (sorted.length > 0) {
-            const topTicker = sorted[0];
-            console.log("🔍 [BUBBLE CHART] #1 Ranked Ticker (fallback):", {
-              ticker: topTicker.ticker,
-              dynamicRank: topTicker.dynamicRank,
-              baseRank: topTicker.rank,
-              fromAPI: topTicker.dynamicScore !== undefined,
-              top5: sorted.slice(0, 5).map((t) => ({
-                ticker: t.ticker,
-                dynamicRank: t.dynamicRank,
-                baseRank: t.rank,
-              })),
-              totalTickers: sorted.length,
-              dataSource: "allData (fallback)",
-            });
-          }
-
-          // Return the ticker symbol of #1 ranked ticker
+          const sorted = getRankedTickers(allData);
           return sorted.length > 0 ? sorted[0].ticker : null;
-        }, [allTickersWithRanksForComparison, allData]);
+        }, [rankedTickers, allData]);
         const [dimensions, setDimensions] = React.useState({
           width: 1600,
           height: 1000,
@@ -4355,59 +4352,22 @@
                   // This matches the ranking system used throughout the platform
                   let rankPosition = null;
                   let totalTickers = 0;
-                  if (allData && typeof allData === "object") {
-                    // Use same filtering logic as detail card and Top 40 filter for consistency
-                    const allTickersArray = Object.values(allData).filter(
-                      (t) =>
-                        t &&
-                        typeof t === "object" &&
-                        t.ticker &&
-                        t.rank !== undefined &&
-                        t.rank !== null
-                    );
-                    // Compute dynamicRank for all tickers (same as Ranked List)
-                    const tickersWithDynamicRank = allTickersArray.map((t) => ({
-                      ...t,
-                      dynamicRank: computeDynamicRank(t),
-                    }));
-                    totalTickers = tickersWithDynamicRank.length;
-                    // Sort by dynamicRank (descending) - same as Ranked List
-                    const sortedByRank = [...tickersWithDynamicRank].sort(
-                      (a, b) => {
-                        const scoreA = Number(a.dynamicRank) || 0;
-                        const scoreB = Number(b.dynamicRank) || 0;
-                        // Descending order: higher score = better position
-                        // NO alphabetical tie-breaker - pure score sorting
-                        return scoreB - scoreA;
-                      }
-                    );
-                    // Find position (1-indexed) - use trim() for consistency with detail card and Top 40 filter
-                    const tooltipTickerUpper = String(tooltip.ticker || "")
-                      .trim()
-                      .toUpperCase();
-                    const index = sortedByRank.findIndex(
-                      (t) =>
-                        String(t.ticker || "")
-                          .trim()
-                          .toUpperCase() === tooltipTickerUpper
-                    );
-                    if (index >= 0) {
-                      rankPosition = index + 1;
-                      // Debug: Log XLK rank calculation if it's the hovered ticker
-                      if (tooltipTickerUpper === "XLK") {
-                        const xlkData = sortedByRank[index];
-                        console.log("[HOVER OVERLAY] XLK rank calculation:", {
-                          rankPosition,
-                          totalTickers,
-                          xlkRank: xlkData?.rank,
-                          top5Ranks: sortedByRank
-                            .slice(0, 5)
-                            .map((t) => ({ ticker: t.ticker, rank: t.rank })),
-                          xlkIndex: index,
-                        });
-                      }
-                    }
-                  }
+                  const sortedByRank =
+                    rankedTickers && rankedTickers.length > 0
+                      ? rankedTickers
+                      : getRankedTickers(allData);
+                  totalTickers = sortedByRank.length;
+                  rankPosition =
+                    getRankPositionFromMap(
+                      rankedTickerPositions,
+                      tooltip.ticker
+                    ) ?? getRankPosition(sortedByRank, tooltip.ticker);
+                  const rankTotal =
+                    Number.isFinite(Number(tooltip.rank_total)) &&
+                    Number(tooltip.rank_total) > 0
+                      ? Number(tooltip.rank_total)
+                      : totalTickers;
+                  totalTickers = rankTotal;
                   return (
                     <div
                       className="absolute bg-[#121a33] border-2 border-[#26325f] rounded-lg p-3 text-sm pointer-events-none z-10 shadow-xl fade-in"
@@ -4562,8 +4522,8 @@
         const [rechartsCrosshair, setRechartsCrosshair] = useState(null);
         const chartContainerRef = React.useRef(null);
 
-        // Store allTickersWithRanksForComparison for tooltip access
-        const allTickersForRanking = allTickersWithRanksForComparison;
+        // Store ranked tickers for tooltip access
+        const allTickersForRanking = rankedTickers;
 
         // Filter data based on selectedTicker - if selected, only show that ticker
         const data = useMemo(() => {
@@ -5055,31 +5015,22 @@
                     // Calculate rank position (same logic as native SVG tooltip)
                     let rankPosition = null;
                     let totalTickers = 0;
-                    if (
-                      allTickersForRanking &&
-                      Array.isArray(allTickersForRanking)
-                    ) {
-                      const sortedByRank = [...allTickersForRanking].sort(
-                        (a, b) => {
-                          const scoreA = Number(a.dynamicRank) || 0;
-                          const scoreB = Number(b.dynamicRank) || 0;
-                          return scoreB - scoreA;
-                        }
-                      );
-                      totalTickers = sortedByRank.length;
-                      const tickerUpper = String(t.ticker || "")
-                        .trim()
-                        .toUpperCase();
-                      const index = sortedByRank.findIndex(
-                        (ticker) =>
-                          String(ticker.ticker || "")
-                            .trim()
-                            .toUpperCase() === tickerUpper
-                      );
-                      if (index >= 0) {
-                        rankPosition = index + 1;
-                      }
-                    }
+                    const sortedByRank =
+                      allTickersForRanking && Array.isArray(allTickersForRanking)
+                        ? allTickersForRanking
+                        : getRankedTickers(allData);
+                    totalTickers = sortedByRank.length;
+                    rankPosition =
+                      getRankPositionFromMap(
+                        rankedTickerPositions,
+                        t.ticker
+                      ) ?? getRankPosition(sortedByRank, t.ticker);
+                    const rankTotal =
+                      Number.isFinite(Number(t.rank_total)) &&
+                      Number(t.rank_total) > 0
+                        ? Number(t.rank_total)
+                        : totalTickers;
+                    totalTickers = rankTotal;
 
                     return (
                       <div className="bg-[#121a33] border-2 border-[#26325f] rounded-lg p-3 text-sm pointer-events-none z-10 shadow-xl">
@@ -9517,16 +9468,21 @@
           }
         }, [ticker?.ticker, hasLoaded]);
 
-        const patterns = detectPatterns(trail, flags || {});
+        const sampledTrail = React.useMemo(
+          () => downsampleByInterval(trail, 15 * 60 * 1000),
+          [trail]
+        );
+
+        const patterns = detectPatterns(sampledTrail, flags || {});
         const currentQuad = getQuadrantFromState(ticker.state);
-        const quadHistory = trail
+        const quadHistory = sampledTrail
           .map((p) => getQuadrantFromState(p.state))
           .filter(Boolean);
 
         return (
           <div className="mb-4 p-4 bg-[#0f1630] rounded-lg border border-[#26325f]">
             <div className="text-sm font-bold mb-3 text-[#93a4d6]">
-              Quadrant Progression
+              Quadrant Progression (15m increments)
             </div>
 
             {/* Quadrant Map */}
@@ -9709,6 +9665,8 @@
         trade = null,
         onClose,
         allLoadedData = null,
+        rankedTickers = null,
+        rankedTickerPositions = null,
         sectors = [],
         onJourneyHover = null,
         onJourneySelect = null,
@@ -9838,56 +9796,24 @@
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(ticker);
         const decisionSummary = summarizeEntryDecision(ticker);
-
-        // Convert allLoadedData to array for ranking calculations
-        // Use same logic as Top 40 filter for consistency
-        const allTickersWithRank = (() => {
-          if (allLoadedData && typeof allLoadedData === "object") {
-            if (Array.isArray(allLoadedData)) {
-              return allLoadedData.filter(
-                (t) =>
-                  t &&
-                  typeof t === "object" &&
-                  t.ticker &&
-                  t.rank !== undefined &&
-                  t.rank !== null
-              );
-            }
-            // Object format: { "GOOGL": {...}, "MSFT": {...} }
-            return Object.values(allLoadedData).filter(
-              (t) =>
-                t &&
-                typeof t === "object" &&
-                t.ticker &&
-                t.rank !== undefined &&
-                t.rank !== null
-            );
-          }
-          return [];
-        })();
+        const detectedPatterns = React.useMemo(
+          () => detectPatterns(bubbleJourney, flags || {}),
+          [bubbleJourney, flags]
+        );
 
         const baseScore = Number(ticker.rank) || 0;
-        // Calculate rank position using dynamicRank (same as Ranked List)
-        // Compute dynamicRank for all tickers to ensure consistency
-        const tickersWithDynamicRank = allTickersWithRank.map((t) => ({
-          ...t,
-          dynamicRank: computeDynamicRank(t),
-        }));
-        const sortedByRank = [...tickersWithDynamicRank].sort((a, b) => {
-          const scoreA = Number(a.dynamicRank) || 0;
-          const scoreB = Number(b.dynamicRank) || 0;
-          // Descending order: higher score = better position
-          // NO alphabetical tie-breaker - pure score sorting
-          return scoreB - scoreA;
-        });
+        const sortedByRank =
+          rankedTickers && rankedTickers.length > 0
+            ? rankedTickers
+            : getRankedTickers(allLoadedData);
         const rankPosition =
-          sortedByRank.findIndex(
-            (t) =>
-              String(t.ticker || "")
-                .trim()
-                .toUpperCase() === String(tickerSymbol).trim().toUpperCase()
-          ) + 1;
-        const totalTickers = tickersWithDynamicRank.length;
+          getRankPositionFromMap(rankedTickerPositions, tickerSymbol) ??
+          getRankPosition(sortedByRank, tickerSymbol);
+        const totalTickers = sortedByRank.length;
+        const rankTotal =
+          Number.isFinite(Number(ticker.rank_total)) && Number(ticker.rank_total) > 0
+            ? Number(ticker.rank_total)
+            : totalTickers;
 
         return (
           <div className="w-full h-full flex flex-col">
@@ -9897,113 +9823,49 @@
             >
               {/* Scrollable Content Area */}
               <div className="flex-1 overflow-y-auto p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-xl font-bold">{tickerSymbol}</h3>
-                    {ticker.price && (
-                      <div className="text-sm text-white mt-1">
-                        ${Number(ticker.price).toFixed(2)}
-                        {(() => {
-                          // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
-                          const ingestTime =
-                            ticker.ingest_ts || ticker.ingest_time || ticker.ts;
-                          if (ingestTime) {
-                            try {
-                              const timeValue =
-                                typeof ingestTime === "string"
-                                  ? new Date(ingestTime)
-                                  : new Date(Number(ingestTime));
-                              if (!isNaN(timeValue.getTime())) {
-                                const ageMs = Date.now() - timeValue.getTime();
-                                const ageMinutes = Math.floor(ageMs / 60000);
-                                const ageHours = Math.floor(ageMinutes / 60);
-
-                                // Warn if data is stale (older than 30 minutes)
-                                const isStale = ageMinutes > 30;
-
-                                const displayTime =
-                                  timeValue.toLocaleTimeString("en-US", {
-                                    hour: "numeric",
-                                    minute: "2-digit",
-                                    hour12: true,
-                                  });
-                                const displayDate =
-                                  timeValue.toLocaleDateString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                  });
-                                return (
-                                  <span
-                                    className={`text-xs ml-2 ${
-                                      isStale
-                                        ? "text-yellow-400"
-                                        : "text-[#93a4d6]"
-                                    }`}
-                                  >
-                                    {displayDate} {displayTime}
-                                    {isStale && (
-                                      <span
-                                        className="ml-1"
-                                        title={`Data is ${
-                                          ageHours > 0 ? `${ageHours}h ` : ""
-                                        }${ageMinutes % 60}m old`}
-                                      >
-                                        ⚠️
-                                      </span>
-                                    )}
-                                  </span>
-                                );
-                              }
-                            } catch (e) {}
-                          }
-                          return null;
-                        })()}
-                      </div>
-                    )}
+                <div className="sticky top-0 z-30 bg-[#121a33] border-b border-[#26325f] px-6 py-4 -mx-6 -mt-6 mb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-bold">{tickerSymbol}</h3>
+                      {ticker.price && (
+                        <div className="text-sm text-white mt-1">
+                          ${Number(ticker.price).toFixed(2)}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={onClose}
+                      className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f]"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <button
-                    onClick={onClose}
-                    className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
-                  >
-                    ✕
-                  </button>
-                </div>
 
-                {/* Last Ingest Data Timestamp */}
-                {(() => {
-                  // Prioritize ingest_ts (when data was ingested) over ingest_time (ISO string)
-                  const ingestTime = ticker.ingest_ts || ticker.ingest_time;
-                  if (ingestTime) {
-                    let displayTime;
-                    let displayDate;
+                  {/* Last Ingest Date/Time */}
+                  {(() => {
+                    const ingestTime =
+                      ticker.ingest_ts || ticker.ingest_time || ticker.ts;
+                    if (!ingestTime) return null;
                     try {
-                      // Handle both ISO string and timestamp formats
                       const timeValue =
                         typeof ingestTime === "string"
                           ? new Date(ingestTime)
                           : new Date(Number(ingestTime));
-
-                      if (isNaN(timeValue.getTime())) {
-                        return null; // Invalid date
-                      }
-
-                      displayDate = timeValue.toLocaleDateString("en-US", {
+                      if (isNaN(timeValue.getTime())) return null;
+                      const displayDate = timeValue.toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
                         year: "numeric",
                       });
-                      displayTime = timeValue.toLocaleTimeString("en-US", {
+                      const displayTime = timeValue.toLocaleTimeString("en-US", {
                         hour: "numeric",
                         minute: "2-digit",
                         hour12: true,
                       });
-
-                      // Calculate age
                       const ageMs = Date.now() - timeValue.getTime();
                       const ageMinutes = Math.floor(ageMs / 60000);
                       const ageHours = Math.floor(ageMinutes / 60);
                       const ageDays = Math.floor(ageHours / 24);
-
                       let ageText;
                       let ageColor = "text-green-400";
                       if (ageMinutes < 5) {
@@ -10020,30 +9882,24 @@
                         ageText = `${ageDays}d ago`;
                         ageColor = "text-red-400";
                       }
-
                       return (
-                        <div className="mb-4 p-2 bg-[#0f1630] border border-[#26325f] rounded-lg">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-[#93a4d6]">
-                              Last Ingest Data:
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-white font-semibold">
-                                {displayDate} {displayTime}
-                              </span>
-                              <span className={`font-bold ${ageColor}`}>
-                                ({ageText})
-                              </span>
-                            </div>
-                          </div>
+                        <div className="mt-2 text-xs flex items-center gap-2">
+                          <span className="text-[#93a4d6]">
+                            Last Ingest:
+                          </span>
+                          <span className="text-white font-semibold">
+                            {displayDate} {displayTime}
+                          </span>
+                          <span className={`font-semibold ${ageColor}`}>
+                            ({ageText})
+                          </span>
                         </div>
                       );
-                    } catch (e) {
+                    } catch {
                       return null;
                     }
-                  }
-                  return null;
-                })()}
+                  })()}
+                </div>
 
                 {flags.momentum_elite && (
                   <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 border-2 border-purple-400 rounded-lg momentum-elite-glow">
@@ -10136,12 +9992,18 @@
                 {/* Sector and Rating */}
                 {(() => {
                   const tickerSector =
-                    ticker.sector || ticker.fundamentals?.sector;
+                    getTickerSector(ticker.ticker) ||
+                    ticker.sector ||
+                    ticker.fundamentals?.sector;
                   if (tickerSector && sectors.length > 0) {
                     const sectorInfo = sectors.find(
                       (s) => (s.sector || s.name) === tickerSector
                     );
                     const rating = sectorInfo?.rating || "neutral";
+                    const boost =
+                      sectorInfo?.boost != null
+                        ? Number(sectorInfo.boost)
+                        : null;
                     const emoji =
                       rating === "overweight"
                         ? "📈"
@@ -10153,7 +10015,7 @@
                         <div className="text-sm text-[#93a4d6] mb-2">
                           Sector
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-lg">{emoji}</span>
                           <span className="font-semibold text-white">
                             {tickerSector}
@@ -10169,6 +10031,11 @@
                           >
                             {rating.charAt(0).toUpperCase() + rating.slice(1)}
                           </span>
+                          {Number.isFinite(boost) && boost !== 0 && (
+                            <span className="text-[10px] text-[#93a4d6]">
+                              Boost {boost > 0 ? `+${boost}` : boost}
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
@@ -10245,220 +10112,7 @@
                   </div>
                 </div>
 
-                {/* Bubble Journey (last 20 plots) */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-[#93a4d6]">Bubble Journey (last 20)</div>
-                    <a
-                      href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
-                      className="text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
-                      title="Open Time Travel (if supported)"
-                    >
-                      Time Travel
-                    </a>
-                  </div>
 
-                  {bubbleJourneyLoading ? (
-                    <div className="text-xs text-[#93a4d6] flex items-center gap-2">
-                      <div className="loading-spinner"></div>
-                      Loading trail…
-                    </div>
-                  ) : bubbleJourneyError ? (
-                    <div className="text-xs text-red-400">Trail unavailable: {bubbleJourneyError}</div>
-                  ) : bubbleJourney.length === 0 ? (
-                    <div className="text-xs text-[#93a4d6]">No trail points found for this ticker.</div>
-                  ) : (
-                    <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                      {bubbleJourney
-                        .slice()
-                        .reverse()
-                        .map((p, idx) => {
-                          const ts = Number(p.__ts_ms);
-                          const state = p.state || p.quadrant || p.zone || "—";
-                          const phasePct =
-                            p.phase_pct != null ? `${Math.round(Number(p.phase_pct) * 100)}%` : "—";
-                          const htf =
-                            p.htf_score != null && Number.isFinite(Number(p.htf_score))
-                              ? Number(p.htf_score).toFixed(1)
-                              : "—";
-                          const ltf =
-                            p.ltf_score != null && Number.isFinite(Number(p.ltf_score))
-                              ? Number(p.ltf_score).toFixed(1)
-                              : "—";
-                          const rank = p.rank != null ? String(p.rank) : "—";
-                          const rr =
-                            p.rr != null && Number.isFinite(Number(p.rr))
-                              ? Number(p.rr).toFixed(2)
-                              : p.rr_at_alert != null && Number.isFinite(Number(p.rr_at_alert))
-                              ? Number(p.rr_at_alert).toFixed(2)
-                              : "—";
-                          const isSelected =
-                            selectedJourneyTs != null &&
-                            Number.isFinite(ts) &&
-                            Number(ts) === Number(selectedJourneyTs);
-
-                          const pointForChart = {
-                            ts: Number.isFinite(ts) ? ts : null,
-                            htf_score:
-                              p.htf_score != null ? Number(p.htf_score) : null,
-                            ltf_score:
-                              p.ltf_score != null ? Number(p.ltf_score) : null,
-                            phase_pct:
-                              p.phase_pct != null ? Number(p.phase_pct) : null,
-                            completion:
-                              p.completion != null ? Number(p.completion) : null,
-                            rank: p.rank != null ? Number(p.rank) : null,
-                            rr: p.rr != null ? Number(p.rr) : null,
-                            state: p.state || null,
-                          };
-                          return (
-                            <div
-                              key={`${ts}-${idx}`}
-                              className={`px-2 py-1 bg-[#121a33] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${
-                                isSelected
-                                  ? "border-cyan-400/80 bg-cyan-500/10"
-                                  : "border-[#26325f] hover:border-cyan-400/40 hover:bg-[#16224a]"
-                              }`}
-                              onMouseEnter={() => {
-                                if (onJourneyHover) onJourneyHover(pointForChart);
-                              }}
-                              onMouseLeave={() => {
-                                if (onJourneyHover) onJourneyHover(null);
-                              }}
-                              onClick={() => {
-                                if (onJourneySelect) onJourneySelect(pointForChart);
-                              }}
-                            >
-                              <div className="min-w-0">
-                                <div className="text-[10px] text-[#93a4d6]">
-                                  {Number.isFinite(ts) ? new Date(ts).toLocaleString() : "—"}
-                                </div>
-                                <div className="text-xs text-white truncate">
-                                  {state}
-                                  <span className="text-[#6b7a9f]"> • </span>
-                                  <span className="text-[#93a4d6]">Phase</span> {phasePct}
-                                </div>
-                                <div className="text-[10px] text-[#93a4d6]">
-                                  <span className="text-[#6b7a9f]">HTF</span>{" "}
-                                  <span className="text-white font-semibold">{htf}</span>
-                                  <span className="text-[#6b7a9f]"> • </span>
-                                  <span className="text-[#6b7a9f]">LTF</span>{" "}
-                                  <span className="text-white font-semibold">{ltf}</span>
-                                </div>
-                              </div>
-                              <div className="text-right text-[10px] text-[#93a4d6] whitespace-nowrap">
-                                <div>
-                                  <span className="text-[#6b7a9f]">Rank</span>{" "}
-                                  <span className="text-white font-semibold">{rank}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[#6b7a9f]">RR</span>{" "}
-                                  <span className="text-white font-semibold">{rr}</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Trade Journey (Ledger trades) */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm text-[#93a4d6]">Trade Journey (Ledger)</div>
-                    <a
-                      href={`simulation-dashboard.html?ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`}
-                      className="text-xs px-2 py-1 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 hover:bg-blue-500/30"
-                      title="Open full Trade Tracker"
-                    >
-                      Open
-                    </a>
-                  </div>
-                  {ledgerTradesLoading ? (
-                    <div className="text-xs text-[#93a4d6] flex items-center gap-2">
-                      <div className="loading-spinner"></div>
-                      Loading ledger trades…
-                    </div>
-                  ) : ledgerTradesError ? (
-                    <div className="text-xs text-red-400">Ledger unavailable: {ledgerTradesError}</div>
-                  ) : ledgerTrades.length === 0 ? (
-                    <div className="text-xs text-[#93a4d6]">No ledger trades found for this ticker.</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {ledgerTrades.slice(0, 5).map((t) => {
-                        const isClosed = t.status === "WIN" || t.status === "LOSS";
-                        const pnl = Number(t.pnl || 0);
-                        return (
-                          <div
-                            key={t.trade_id}
-                            className="p-2 bg-[#121a33] border border-[#26325f] rounded flex items-center justify-between gap-2"
-                          >
-                            <div className="min-w-0">
-                              <div className="text-xs text-[#93a4d6]">
-                                {t.entry_ts ? new Date(Number(t.entry_ts)).toLocaleString() : "—"}
-                              </div>
-                              <div className="text-sm font-semibold text-white truncate">
-                                {t.ticker}{" "}
-                                <span className={`text-xs font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
-                                  {t.direction}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-xs">
-                                {isClosed ? (
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${t.status === "WIN" ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
-                                    {t.status}
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-yellow-500/15 text-yellow-300">
-                                    {t.status || "OPEN"}
-                                  </span>
-                                )}
-                              </div>
-                              <div className={`text-xs font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                {isClosed ? `$${pnl.toFixed(2)}` : "—"}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {ledgerTrades.length > 5 && (
-                        <div className="text-[10px] text-[#6b7a9f]">
-                          Showing 5 of {ledgerTrades.length} recent trades.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Quadrant Progression */}
-                <QuadrantProgression ticker={ticker} flags={flags} />
-
-                {/* Phase indicator */}
-                <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-[#93a4d6]">Phase</span>
-                    <span
-                      className="text-sm font-semibold"
-                      style={{ color: phaseColor }}
-                    >
-                      {(phase * 100).toFixed(2)}%
-                      {ticker.phase_zone && ` (${ticker.phase_zone})`}
-                    </span>
-                  </div>
-                  <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${phase * 100}%`,
-                        backgroundColor: phaseColor,
-                        boxShadow: `0 0 8px ${phaseColor}40`,
-                      }}
-                    />
-                  </div>
-                </div>
 
                 {/* Score and Ranking */}
                 <div className="space-y-2.5 text-sm">
@@ -10468,12 +10122,12 @@
                       {baseScore}
                     </span>
                   </div>
-                  {totalTickers > 0 && (
+                  {rankTotal > 0 && (
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                       <span className="text-[#93a4d6]">Rank</span>
                       <span className="font-semibold">
                         {rankPosition > 0
-                          ? `#${rankPosition} of ${totalTickers}`
+                          ? `#${rankPosition} of ${rankTotal}`
                           : "—"}
                       </span>
                     </div>
@@ -10625,89 +10279,6 @@
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">State</span>
-                    <span className="font-semibold">{ticker.state || "—"}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">HTF Score</span>
-                    <span className="font-semibold">
-                      {ticker.htf_score != null
-                        ? Number(ticker.htf_score).toFixed(2)
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">LTF Score</span>
-                    <span className="font-semibold">
-                      {ticker.ltf_score != null
-                        ? Number(ticker.ltf_score).toFixed(2)
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Completion</span>
-                    <span className="font-semibold">
-                      {ticker.completion != null
-                        ? `${(Number(ticker.completion) * 100).toFixed(2)}%`
-                        : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Horizon</span>
-                    <span className="font-semibold">
-                      {(() => {
-                        const bucket = String(ticker.horizon_bucket || "")
-                          .trim()
-                          .toUpperCase();
-                        if (bucket) return bucket.replace("_", " ");
-                        const eta = computeEtaDays(ticker);
-                        if (!Number.isFinite(eta)) return "—";
-                        if (eta <= 7) return "SHORT TERM";
-                        if (eta <= 30) return "SWING";
-                        return "POSITIONAL";
-                      })()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">ETA</span>
-                    <span className="font-semibold">
-                      {(() => {
-                        const eta = computeEtaDays(ticker);
-                        return Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—";
-                      })()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Return %</span>
-                    <span className="font-semibold text-green-400">
-                      {(() => {
-                        const ret = computeReturnPct(ticker);
-                        return Number.isFinite(ret) ? `${ret.toFixed(1)}%` : "—";
-                      })()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Risk %</span>
-                    <span className="font-semibold text-red-400">
-                      {(() => {
-                        const risk = computeRiskPct(ticker);
-                        return Number.isFinite(risk) ? `${risk.toFixed(1)}%` : "—";
-                      })()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Price</span>
-                    <span className="font-semibold">
-                      ${ticker.price ? Number(ticker.price).toFixed(2) : "—"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Entry Zone</span>
-                    <span className="font-semibold text-white">
-                      {formatEntryZone(ticker)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Stop Loss (SL)</span>
                     <span className="font-semibold text-red-400">
                       {ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}
@@ -10716,18 +10287,18 @@
                   {(() => {
                     const tpTarget = computeTpTargetPrice(ticker);
                     const tpMax = computeTpMaxPrice(ticker);
+                    const tpTargetSource = String(
+                      ticker.tp_target_source ||
+                        ticker.tp_target_kind ||
+                        ticker.tp_target_label ||
+                        ""
+                    ).trim();
                     const targetValid = Number.isFinite(tpTarget) && tpTarget > 0;
                     const maxValid = Number.isFinite(tpMax) && tpMax > 0;
                     const showMax =
                       maxValid && (!targetValid || Math.abs(tpMax - tpTarget) > 0.01);
                     return (
                       <>
-                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                          <span className="text-[#93a4d6]">TP (Target)</span>
-                          <span className="font-semibold text-green-400">
-                            {targetValid ? `$${tpTarget.toFixed(2)}` : "—"}
-                          </span>
-                        </div>
                         {showMax && (
                           <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                             <span className="text-[#93a4d6]">TP (Max)</span>
@@ -10736,6 +10307,19 @@
                             </span>
                           </div>
                         )}
+                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                          <span className="text-[#93a4d6]">TP (Target)</span>
+                          <div className="text-right">
+                            <div className="font-semibold text-green-400">
+                              {targetValid ? `$${tpTarget.toFixed(2)}` : "—"}
+                            </div>
+                            {tpTargetSource && (
+                              <div className="text-[10px] text-[#93a4d6]">
+                                {tpTargetSource}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </>
                     );
                   })()}
@@ -11189,6 +10773,66 @@
                       </div>
                     );
                   })()}
+
+                {/* State, Horizon, Detected Patterns */}
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="text-sm text-[#93a4d6] mb-2">
+                    State & Horizon
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#93a4d6]">State</span>
+                      <span className="font-semibold">
+                        {ticker.state || "—"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#93a4d6]">Horizon</span>
+                      <span className="font-semibold">
+                        {(() => {
+                          const bucket = String(ticker.horizon_bucket || "")
+                            .trim()
+                            .toUpperCase();
+                          if (bucket) return bucket.replace("_", " ");
+                          const eta = computeEtaDays(ticker);
+                          if (!Number.isFinite(eta)) return "—";
+                          if (eta <= 7) return "SHORT TERM";
+                          if (eta <= 30) return "SWING";
+                          return "POSITIONAL";
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+                  {detectedPatterns && detectedPatterns.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-[#26325f]">
+                      <div className="text-xs font-semibold text-yellow-400 mb-2">
+                        Detected Patterns
+                      </div>
+                      <div className="space-y-2">
+                        {detectedPatterns.map((pattern, idx) => (
+                          <div
+                            key={`pattern-${idx}`}
+                            className="p-2 rounded border bg-[#121a33] border-[#26325f]"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-white font-semibold">
+                                {pattern.description}
+                              </div>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">
+                                {pattern.confidence}
+                              </span>
+                            </div>
+                            {pattern.quadrant && (
+                              <div className="text-[10px] text-[#93a4d6] mt-0.5">
+                                {pattern.quadrant}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* EMA Cloud Positions */}
                 {(ticker.daily_ema_cloud ||
@@ -11701,6 +11345,290 @@
                       </div>
                     );
                   })()}
+
+                {/* Trade Journey (Ledger trades) */}
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm text-[#93a4d6]">Trade Journey</div>
+                    <a
+                      href={`simulation-dashboard.html?ticker=${encodeURIComponent(
+                        String(tickerSymbol).toUpperCase()
+                      )}`}
+                      className="text-xs px-2 py-1 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300 hover:bg-blue-500/30"
+                      title="Open full Trade Tracker"
+                    >
+                      Open
+                    </a>
+                  </div>
+                  {ledgerTradesLoading ? (
+                    <div className="text-xs text-[#93a4d6] flex items-center gap-2">
+                      <div className="loading-spinner"></div>
+                      Loading ledger trades…
+                    </div>
+                  ) : ledgerTradesError ? (
+                    <div className="text-xs text-red-400">
+                      Ledger unavailable: {ledgerTradesError}
+                    </div>
+                  ) : ledgerTrades.length === 0 ? (
+                    <div className="text-xs text-[#93a4d6]">
+                      No ledger trades found for this ticker.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {ledgerTrades.slice(0, 5).map((t) => {
+                        const isClosed =
+                          t.status === "WIN" || t.status === "LOSS";
+                        const pnl = Number(t.pnl || 0);
+                        return (
+                          <div
+                            key={t.trade_id}
+                            className="p-2 bg-[#121a33] border border-[#26325f] rounded flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-xs text-[#93a4d6]">
+                                {t.entry_ts
+                                  ? new Date(Number(t.entry_ts)).toLocaleString()
+                                  : "—"}
+                              </div>
+                              <div className="text-sm font-semibold text-white truncate">
+                                {t.ticker}{" "}
+                                <span
+                                  className={`text-xs font-semibold ${
+                                    t.direction === "LONG"
+                                      ? "text-green-400"
+                                      : "text-red-400"
+                                  }`}
+                                >
+                                  {t.direction}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs">
+                                {isClosed ? (
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                      t.status === "WIN"
+                                        ? "bg-green-500/20 text-green-400"
+                                        : "bg-red-500/20 text-red-400"
+                                    }`}
+                                  >
+                                    {t.status}
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-yellow-500/15 text-yellow-300">
+                                    {t.status || "OPEN"}
+                                  </span>
+                                )}
+                              </div>
+                              <div
+                                className={`text-xs font-semibold ${
+                                  pnl >= 0 ? "text-green-400" : "text-red-400"
+                                }`}
+                              >
+                                {isClosed ? `$${pnl.toFixed(2)}` : "—"}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {ledgerTrades.length > 5 && (
+                        <div className="text-[10px] text-[#6b7a9f]">
+                          Showing 5 of {ledgerTrades.length} recent trades.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Completion, Phase, Dynamic ETA */}
+                <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-[#93a4d6]">Phase</span>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: phaseColor }}
+                    >
+                      {(phase * 100).toFixed(2)}%
+                      {ticker.phase_zone && ` (${ticker.phase_zone})`}
+                    </span>
+                  </div>
+                  <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${phase * 100}%`,
+                        backgroundColor: phaseColor,
+                        boxShadow: `0 0 8px ${phaseColor}40`,
+                      }}
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-xs">
+                    <span className="text-[#93a4d6]">Completion</span>
+                    <span className="font-semibold text-white">
+                      {ticker.completion != null
+                        ? `${(Number(ticker.completion) * 100).toFixed(2)}%`
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs">
+                    <span className="text-[#93a4d6]">Dynamic ETA</span>
+                    <span className="font-semibold text-white">
+                      {(() => {
+                        const eta = computeEtaDays(ticker);
+                        return Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—";
+                      })()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bubble Journey (15m increments) */}
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm text-[#93a4d6]">
+                      Bubble Journey (15m increments)
+                    </div>
+                    <a
+                      href={`index-react.html?timeTravel=1&ticker=${encodeURIComponent(
+                        String(tickerSymbol).toUpperCase()
+                      )}`}
+                      className="text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30"
+                      title="Open Time Travel (if supported)"
+                    >
+                      Time Travel
+                    </a>
+                  </div>
+
+                  {bubbleJourneyLoading ? (
+                    <div className="text-xs text-[#93a4d6] flex items-center gap-2">
+                      <div className="loading-spinner"></div>
+                      Loading trail…
+                    </div>
+                  ) : bubbleJourneyError ? (
+                    <div className="text-xs text-red-400">
+                      Trail unavailable: {bubbleJourneyError}
+                    </div>
+                  ) : bubbleJourney.length === 0 ? (
+                    <div className="text-xs text-[#93a4d6]">
+                      No trail points found for this ticker.
+                    </div>
+                  ) : (
+                    <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                      {downsampleByInterval(bubbleJourney, 15 * 60 * 1000)
+                        .slice()
+                        .reverse()
+                        .slice(0, 40)
+                        .map((p, idx) => {
+                          const ts = Number(p.__ts_ms);
+                          const state = p.state || p.quadrant || p.zone || "—";
+                          const phasePct =
+                            p.phase_pct != null
+                              ? `${Math.round(Number(p.phase_pct) * 100)}%`
+                              : "—";
+                          const htf =
+                            p.htf_score != null &&
+                            Number.isFinite(Number(p.htf_score))
+                              ? Number(p.htf_score).toFixed(1)
+                              : "—";
+                          const ltf =
+                            p.ltf_score != null &&
+                            Number.isFinite(Number(p.ltf_score))
+                              ? Number(p.ltf_score).toFixed(1)
+                              : "—";
+                          const rank = p.rank != null ? String(p.rank) : "—";
+                          const rr =
+                            p.rr != null && Number.isFinite(Number(p.rr))
+                              ? Number(p.rr).toFixed(2)
+                              : p.rr_at_alert != null &&
+                                Number.isFinite(Number(p.rr_at_alert))
+                              ? Number(p.rr_at_alert).toFixed(2)
+                              : "—";
+                          const isSelected =
+                            selectedJourneyTs != null &&
+                            Number.isFinite(ts) &&
+                            Number(ts) === Number(selectedJourneyTs);
+
+                          const pointForChart = {
+                            ts: Number.isFinite(ts) ? ts : null,
+                            htf_score:
+                              p.htf_score != null ? Number(p.htf_score) : null,
+                            ltf_score:
+                              p.ltf_score != null ? Number(p.ltf_score) : null,
+                            phase_pct:
+                              p.phase_pct != null ? Number(p.phase_pct) : null,
+                            completion:
+                              p.completion != null ? Number(p.completion) : null,
+                            rank: p.rank != null ? Number(p.rank) : null,
+                            rr: p.rr != null ? Number(p.rr) : null,
+                            state: p.state || null,
+                          };
+                          return (
+                            <div
+                              key={`${ts}-${idx}`}
+                              className={`px-2 py-1 bg-[#121a33] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                                isSelected
+                                  ? "border-cyan-400/80 bg-cyan-500/10"
+                                  : "border-[#26325f] hover:border-cyan-400/40 hover:bg-[#16224a]"
+                              }`}
+                              onMouseEnter={() => {
+                                if (onJourneyHover)
+                                  onJourneyHover(pointForChart);
+                              }}
+                              onMouseLeave={() => {
+                                if (onJourneyHover) onJourneyHover(null);
+                              }}
+                              onClick={() => {
+                                if (onJourneySelect)
+                                  onJourneySelect(pointForChart);
+                              }}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-[10px] text-[#93a4d6]">
+                                  {Number.isFinite(ts)
+                                    ? new Date(ts).toLocaleString()
+                                    : "—"}
+                                </div>
+                                <div className="text-xs text-white truncate">
+                                  {state}
+                                  <span className="text-[#6b7a9f]"> • </span>
+                                  <span className="text-[#93a4d6]">Phase</span>{" "}
+                                  {phasePct}
+                                </div>
+                                <div className="text-[10px] text-[#93a4d6]">
+                                  <span className="text-[#6b7a9f]">HTF</span>{" "}
+                                  <span className="text-white font-semibold">
+                                    {htf}
+                                  </span>
+                                  <span className="text-[#6b7a9f]"> • </span>
+                                  <span className="text-[#6b7a9f]">LTF</span>{" "}
+                                  <span className="text-white font-semibold">
+                                    {ltf}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-right text-[10px] text-[#93a4d6] whitespace-nowrap">
+                                <div>
+                                  <span className="text-[#6b7a9f]">Rank</span>{" "}
+                                  <span className="text-white font-semibold">
+                                    {rank}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[#6b7a9f]">RR</span>{" "}
+                                  <span className="text-white font-semibold">
+                                    {rr}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Quadrant Progression */}
+                <QuadrantProgression ticker={ticker} flags={flags} />
               </div>
 
               {/* Fixed Footer */}
@@ -11924,41 +11852,17 @@
                 <div className="space-y-2.5 text-sm">
                   {(() => {
                     const baseScore = Number(ticker.rank) || 0; // Base Score from worker
-                    // Calculate rank position using dynamicRank (same as Ranked List)
-                    // This ensures consistency across all rank displays
-                    const allTickersWithRank = allLoadedTickersArray.filter(
-                      (t) =>
-                        t &&
-                        typeof t === "object" &&
-                        t.ticker &&
-                        t.rank !== undefined &&
-                        t.rank !== null
+                    const sortedByRank = getRankedTickers(allLoadedTickersArray);
+                    const rankPosition = getRankPosition(
+                      sortedByRank,
+                      ticker.ticker
                     );
-                    // Compute dynamicRank for all tickers (same as Ranked List)
-                    const tickersWithDynamicRank = allTickersWithRank.map(
-                      (t) => ({
-                        ...t,
-                        dynamicRank: computeDynamicRank(t),
-                      })
-                    );
-                    const sortedByRank = [...tickersWithDynamicRank].sort(
-                      (a, b) => {
-                        const scoreA = Number(a.dynamicRank) || 0;
-                        const scoreB = Number(b.dynamicRank) || 0;
-                        // Descending order: higher score = better position
-                        // NO alphabetical tie-breaker - pure score sorting
-                        return scoreB - scoreA;
-                      }
-                    );
-                    const rankPosition =
-                      sortedByRank.findIndex((t) => {
-                        if (!t || !t.ticker) return false;
-                        return (
-                          String(t.ticker).toUpperCase() ===
-                          String(ticker.ticker).toUpperCase()
-                        );
-                      }) + 1;
-                    const totalTickers = tickersWithDynamicRank.length;
+                    const totalTickersRaw = sortedByRank.length;
+                    const totalTickers =
+                      Number.isFinite(Number(ticker.rank_total)) &&
+                      Number(ticker.rank_total) > 0
+                        ? Number(ticker.rank_total)
+                        : totalTickersRaw;
 
                     return (
                       <>
@@ -12785,6 +12689,8 @@
       const TickerDetailsLoader = ({
         tickerSymbol,
         onClose,
+        rankedTickers = null,
+        rankedTickerPositions = null,
         sectors = [],
         onJourneyHover = null,
         onJourneySelect = null,
@@ -12895,6 +12801,8 @@
             trade={null}
             onClose={onClose}
             allLoadedData={allLoadedData}
+            rankedTickers={rankedTickers}
+            rankedTickerPositions={rankedTickerPositions}
             sectors={sectors}
             onJourneyHover={onJourneyHover}
             onJourneySelect={onJourneySelect}
@@ -12911,6 +12819,8 @@
         tickers,
         data,
         onClose,
+        rankedTickers = null,
+        rankedTickerPositions = null,
         sectors = [],
         onJourneyHover = null,
         onJourneySelect = null,
@@ -12964,6 +12874,8 @@
                 tickerSymbol={tickerUpper}
                 onClose={onClose}
                 allLoadedData={data}
+                rankedTickers={rankedTickers}
+                rankedTickerPositions={rankedTickerPositions}
                 sectors={sectors}
                 onJourneyHover={onJourneyHover}
                 onJourneySelect={onJourneySelect}
@@ -12980,6 +12892,8 @@
               trade={null}
               onClose={onClose}
               allLoadedData={data}
+              rankedTickers={rankedTickers}
+              rankedTickerPositions={rankedTickerPositions}
               sectors={sectors}
               onJourneyHover={onJourneyHover}
               onJourneySelect={onJourneySelect}
@@ -13346,6 +13260,24 @@
 
           return withRanks;
         }, [allTickersForRanking]);
+
+        const rankedTickers = useMemo(() => {
+          return getRankedTickers(allTickersWithRanks);
+        }, [allTickersWithRanks]);
+
+        const rankedTickerPositions = useMemo(() => {
+          const map = {};
+          rankedTickers.forEach((t, idx) => {
+            const sym = String(t.ticker || "").trim().toUpperCase();
+            const pos = Number(t?.rank_position);
+            const rankPos =
+              Number.isFinite(pos) && pos > 0 ? pos : idx + 1;
+            if (sym && map[sym] == null) {
+              map[sym] = rankPos;
+            }
+          });
+          return map;
+        }, [rankedTickers]);
 
         // Use dynamicScore from API (backend calculation) - no frontend calculation needed
         const tickersWithRanks = useMemo(() => {
@@ -13736,9 +13668,8 @@
                                 journeyHoverPoint || journeySelectedPoint
                               }
                               allData={data}
-                              allTickersWithRanksForComparison={
-                                allTickersWithRanks
-                              }
+                              rankedTickers={rankedTickers}
+                              rankedTickerPositions={rankedTickerPositions}
                             />
                           )}
                         </div>
@@ -13753,6 +13684,8 @@
                           tickers={tickers}
                           data={data}
                           onClose={() => handleTickerSelect(null)}
+                            rankedTickers={rankedTickers}
+                            rankedTickerPositions={rankedTickerPositions}
                           sectors={sectors}
                           onJourneyHover={setJourneyHoverPoint}
                           onJourneySelect={(p) => {
@@ -13775,26 +13708,14 @@
                           {(() => {
                             // CRITICAL: Sort by dynamicRank (score) to determine Rank (position)
                             // MUST sort - do not use original order!
-                            if (
-                              !allTickersWithRanks ||
-                              allTickersWithRanks.length === 0
-                            ) {
+                            if (!rankedTickers || rankedTickers.length === 0) {
                               console.warn(
-                                "⚠️ [RANKED LIST] allTickersWithRanks is empty!"
+                                "⚠️ [RANKED LIST] rankedTickers is empty!"
                               );
                               return [];
                             }
 
-                            // Create a copy and sort by score (descending)
-                            const sorted = [...allTickersWithRanks].sort(
-                              (a, b) => {
-                                const scoreA = Number(a.dynamicRank) || 0;
-                                const scoreB = Number(b.dynamicRank) || 0;
-                                // Descending order: higher score = better Rank (lower position number)
-                                // NO alphabetical tie-breaker - pure score sorting only
-                                return scoreB - scoreA;
-                              }
-                            );
+                            const sorted = rankedTickers;
 
                             // Verify sorting worked
                             if (sorted.length > 1) {

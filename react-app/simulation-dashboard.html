@@ -566,6 +566,42 @@
         return { data, loading, error, refetch: fetchDetail };
       }
 
+      function useSectors() {
+        const [sectors, setSectors] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+
+        const fetchSectors = useCallback(async () => {
+          try {
+            setLoading(true);
+            setError(null);
+            const res = await fetch(`${API_BASE}/timed/sectors`, {
+              cache: "no-store",
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok && Array.isArray(json.sectors)) {
+              setSectors(json.sectors);
+            } else {
+              setSectors([]);
+            }
+          } catch (err) {
+            setError(err.message);
+            setSectors([]);
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => {
+          fetchSectors();
+          const interval = setInterval(fetchSectors, 300000);
+          return () => clearInterval(interval);
+        }, [fetchSectors]);
+
+        return { sectors, loading, error, refetch: fetchSectors };
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Trade Simulation Logic
       // ─────────────────────────────────────────────────────────────
@@ -1459,7 +1495,7 @@
       // Reusable component that shows comprehensive ticker information
       // and optionally trade history if a trade is associated
       // ─────────────────────────────────────────────────────────────
-      function TickerDetailRightRail({ ticker, trade = null, onClose, allLoadedData = null }) {
+      function TickerDetailRightRail({ ticker, trade = null, onClose, allLoadedData = null, sectors = [], rankedTickers = null, rankedTickerPositions = null }) {
         if (!ticker) return null;
 
         // Helper to get ticker data - prefer trade's ticker data if available, otherwise use ticker prop
@@ -1474,6 +1510,62 @@
         const phase = Number(tickerData.phase_pct) || 0;
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(tickerData);
+        const [bubbleJourney, setBubbleJourney] = useState([]);
+        const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
+        const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) {
+            setBubbleJourney([]);
+            setBubbleJourneyError(null);
+            setBubbleJourneyLoading(false);
+            return;
+          }
+          let cancelled = false;
+          const fetchTrail = async () => {
+            try {
+              setBubbleJourneyLoading(true);
+              setBubbleJourneyError(null);
+              const res = await fetch(
+                `${API_BASE}/timed/trail?ticker=${encodeURIComponent(sym)}`,
+                { cache: "no-store" }
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              const raw = Array.isArray(json.trail) ? json.trail : [];
+              const withTs = raw
+                .map((p) => {
+                  const tsRaw = p.ts ?? p.timestamp ?? p.ingest_ts ?? p.ingest_time;
+                  const ts =
+                    typeof tsRaw === "string"
+                      ? new Date(tsRaw).getTime()
+                      : Number(tsRaw);
+                  if (!Number.isFinite(ts)) return null;
+                  return { ...p, __ts_ms: ts };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.__ts_ms - b.__ts_ms);
+              if (!cancelled) setBubbleJourney(withTs);
+            } catch (e) {
+              if (!cancelled) {
+                setBubbleJourney([]);
+                setBubbleJourneyError(String(e.message || e));
+              }
+            } finally {
+              if (!cancelled) setBubbleJourneyLoading(false);
+            }
+          };
+          fetchTrail();
+          return () => {
+            cancelled = true;
+          };
+        }, [tickerSymbol]);
+
+        const detectedPatterns = useMemo(
+          () => detectPatterns(bubbleJourney, flags || {}),
+          [bubbleJourney, flags]
+        );
 
         // Convert allLoadedData to array for ranking calculations
         const allLoadedTickersArray = (() => {
@@ -1487,11 +1579,23 @@
         })();
 
         const baseScore = Number(tickerData.rank) || 0;
-        const dynamicRank = computeDynamicRank(tickerData);
-        const allTickersWithRank = allLoadedTickersArray.map(t => ({ ...t, dynamicRank: computeDynamicRank(t) }));
-        const sortedByDynamic = [...allTickersWithRank].sort((a, b) => b.dynamicRank - a.dynamicRank);
-        const rankPosition = sortedByDynamic.findIndex(t => String(t.ticker || "").toUpperCase() === String(tickerSymbol).toUpperCase()) + 1;
-        const totalTickers = allLoadedTickersArray.length;
+        const sortedByRank =
+          rankedTickers && rankedTickers.length > 0
+            ? rankedTickers
+            : getRankedTickers(allLoadedData);
+        const rankPosition =
+          getRankPositionFromMap(rankedTickerPositions, tickerSymbol) ??
+          getRankPositionFromMap(
+            Object.fromEntries(
+              sortedByRank.map((t, idx) => [String(t.ticker || "").toUpperCase(), idx + 1])
+            ),
+            tickerSymbol
+          );
+        const totalTickersRaw = sortedByRank.length;
+        const rankTotal =
+          Number.isFinite(Number(tickerData.rank_total)) && Number(tickerData.rank_total) > 0
+            ? Number(tickerData.rank_total)
+            : totalTickersRaw;
         const isInTop40 = rankPosition > 0 && rankPosition <= 40;
 
         // Determine if this is a futures contract
@@ -1544,163 +1648,72 @@
           <div className="w-full h-full flex flex-col bg-[#0f1630]">
             {/* Scrollable Content Area */}
             <div className="flex-1 overflow-y-auto p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold">{tickerSymbol}{trade ? ` ${trade.direction}` : ''}</h3>
-                <button
-                  onClick={onClose}
-                  className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Trade Summary - Only show if trade exists */}
-              {trade && (
-                <>
-                  <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4 mb-4">
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
-                        <div className="font-semibold text-white text-lg">${trade.entryPrice?.toFixed(2) || "—"}</div>
-                        {trade.entryTime && (
-                          <div className="text-[#6b7a9f] text-[10px] mt-1">
-                            {new Date(trade.entryTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{' '}
-                            {new Date(trade.entryTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
-                        <div className="font-semibold text-yellow-400 text-lg">${currentPrice?.toFixed(2) || "—"}</div>
-                      </div>
-                      <div>
-                        <div className="text-[#93a4d6] text-xs mb-1">P&L</div>
-                        <div className={`font-semibold text-lg ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                          ${trade.pnl?.toFixed(2) || "0.00"}
-                        </div>
-                        <div className={`text-xs ${trade.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                          {trade.pnlPct?.toFixed(2) || "0.00"}%
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[#93a4d6] text-xs mb-1">Status</div>
-                        <div className={`font-semibold text-lg ${
-                          trade.status === "WIN" ? "text-green-400" :
-                          trade.status === "LOSS" ? "text-red-400" :
-                          trade.status === "TP_HIT_TRIM" ? "text-blue-400" :
-                          "text-yellow-400"
-                        }`}>
-                          {trade.status || "OPEN"}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Trade Details */}
-                  <div className="space-y-2.5 text-sm mb-4">
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">{isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? "Contracts" : "Shares"} {trimmedShares > 0 ? "(remaining)" : ""}</span>
-                      <span className="font-semibold text-white">
-                        {isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? (
-                          <>
-                            {shares?.toFixed(0)} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares?.toFixed(2)} remaining)</span>}
-                          </>
-                        ) : (
-                          <>
-                            {shares?.toFixed(4)} {trimmedShares > 0 && <span className="text-blue-400">({remainingShares?.toFixed(4)} remaining)</span>}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Stop Loss</span>
-                      <span className="font-semibold text-red-400">${trade.sl?.toFixed(2) || "—"}</span>
-                    </div>
-                    {trade.status === "TP_HIT_TRIM" && Number.isFinite(trade.trimPrice ?? trade.trim_price) && (
-                      <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                        <span className="text-[#93a4d6]">Trim Price</span>
-                        <span className="font-semibold text-yellow-300">
-                          ${Number(trade.trimPrice ?? trade.trim_price).toFixed(2)}
-                        </span>
+              {/* Floating Header */}
+              <div className="sticky top-0 z-30 bg-[#121a33] border-b border-[#26325f] px-6 py-4 -mx-6 -mt-6 mb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold">
+                      {tickerSymbol}{trade ? ` ${trade.direction}` : ''}
+                    </h3>
+                    {tickerData.price && (
+                      <div className="text-sm text-white mt-1">
+                        ${Number(tickerData.price).toFixed(2)}
                       </div>
                     )}
-                    {(trade.status === "WIN" || trade.status === "LOSS") &&
-                      Number.isFinite(trade.exitPrice ?? trade.exit_price) && (
-                        <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                          <span className="text-[#93a4d6]">Exit Price</span>
-                          <span className="font-semibold text-purple-300">
-                            ${Number(trade.exitPrice ?? trade.exit_price).toFixed(2)}
-                          </span>
-                        </div>
-                      )}
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">TP (Target)</span>
-                      <span className="font-semibold text-green-400">
-                        {Number.isFinite(tpTarget) ? `$${tpTarget.toFixed(2)}` : trade.tp?.toFixed(2) || "—"}
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f]"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {(() => {
+                  const ingestTime = tickerData.ingest_ts || tickerData.ingest_time || tickerData.ts;
+                  if (!ingestTime) return null;
+                  try {
+                    const timeValue = typeof ingestTime === "string" ? new Date(ingestTime) : new Date(Number(ingestTime));
+                    if (isNaN(timeValue.getTime())) return null;
+                    const displayDate = timeValue.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                    const displayTime = timeValue.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+                    return (
+                      <div className="mt-2 text-xs flex items-center gap-2">
+                        <span className="text-[#93a4d6]">Last Ingest:</span>
+                        <span className="text-white font-semibold">{displayDate} {displayTime}</span>
+                      </div>
+                    );
+                  } catch {
+                    return null;
+                  }
+                })()}
+              </div>
+
+              {/* Sector, Sector Rating */}
+              {(() => {
+                const tickerSector = tickerData.sector || tickerData.fundamentals?.sector;
+                if (!tickerSector || !sectors.length) return null;
+                const sectorInfo = sectors.find((s) => (s.sector || s.name) === tickerSector);
+                const rating = sectorInfo?.rating || "neutral";
+                const emoji = rating === "overweight" ? "📈" : rating === "underweight" ? "📉" : "➡️";
+                return (
+                  <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                    <div className="text-sm text-[#93a4d6] mb-2">Sector</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-lg">{emoji}</span>
+                      <span className="font-semibold text-white">{tickerSector}</span>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        rating === "overweight" ? "bg-green-500/20 text-green-400" :
+                        rating === "underweight" ? "bg-red-500/20 text-red-400" :
+                        "bg-[#26325f] text-[#93a4d6]"
+                      }`}>
+                        {rating.charAt(0).toUpperCase() + rating.slice(1)}
                       </span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">TP (Max)</span>
-                      <span className="font-semibold text-green-400">
-                        {Number.isFinite(tpMax) ? `$${tpMax.toFixed(2)}` : "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Return %</span>
-                      <span className="font-semibold text-green-400">
-                        {Number.isFinite(retPct) ? `${retPct.toFixed(1)}%` : "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Risk %</span>
-                      <span className="font-semibold text-red-400">
-                        {Number.isFinite(riskPct) ? `${riskPct.toFixed(1)}%` : "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">ETA</span>
-                      <span className="font-semibold">
-                        {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Horizon</span>
-                      <span className="font-semibold">{horizon}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Risk/Reward</span>
-                      <span className="font-semibold text-white">{trade.rr?.toFixed(2) || "—"}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Score</span>
-                      <span className="font-semibold text-blue-400">{trade.rank || baseScore || "—"}</span>
                     </div>
                   </div>
+                );
+              })()}
 
-                  {/* Trade History Timeline */}
-                  {trade.history && trade.history.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-[#26325f]">
-                      <h3 className="text-lg font-bold mb-3">📊 Trade Journey</h3>
-                      <TradeHistory history={trade.history} />
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* Ticker Details Section */}
-              {flags.momentum_elite && (
-                <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 border-2 border-purple-400 rounded-lg">
-                  <div className="text-center font-bold text-purple-300 mb-2">🚀 MOMENTUM ELITE 🚀</div>
-                </div>
-              )}
-
-              {prime && (
-                <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500">
-                  ⭐ PRIME SETUP ⭐
-                </div>
-              )}
-
-              {/* Bias/Direction */}
+              {/* Bias / Direction */}
               {(() => {
                 const dir = getDirection(tickerData);
                 return (
@@ -1712,6 +1725,218 @@
                   </div>
                 );
               })()}
+
+              {/* System Decision + Guidance */}
+              <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                <div className="text-sm text-[#93a4d6] mb-2">System Decision</div>
+                <div className={`text-sm font-bold ${actionInfo.color}`}>{actionInfo.action}</div>
+                <div className="text-xs text-[#93a4d6] mt-1">{actionInfo.description}</div>
+              </div>
+
+              {/* Score, Rank, Breakdown */}
+              <div className="space-y-2.5 text-sm mb-4">
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Score</span>
+                  <span className="font-semibold text-blue-400 text-lg">{baseScore}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">Rank</span>
+                  <span className="font-semibold">
+                    {rankPosition > 0 ? `#${rankPosition} of ${rankTotal}` : "—"}
+                  </span>
+                </div>
+                {(() => {
+                  const breakdown = calculateScoreBreakdown(tickerData);
+                  const breakdownComponents = [
+                    { label: "Base Score", value: breakdown.base, color: "text-blue-400" },
+                    breakdown.aligned > 0 ? { label: "Aligned State", value: `+${breakdown.aligned}`, color: "text-green-400" } : null,
+                    breakdown.setup > 0 ? { label: "Setup State", value: `+${breakdown.setup}`, color: "text-green-400" } : null,
+                    breakdown.htf > 0 ? { label: "HTF Score", value: `+${breakdown.htf.toFixed(2)}`, color: "text-cyan-400" } : null,
+                    breakdown.ltf > 0 ? { label: "LTF Score", value: `+${breakdown.ltf.toFixed(2)}`, color: "text-cyan-400" } : null,
+                    breakdown.completion > 0 ? { label: "Completion Bonus", value: `+${breakdown.completion}`, color: "text-yellow-400" } : null,
+                    breakdown.phase !== 0 ? { label: "Phase", value: breakdown.phase > 0 ? `+${breakdown.phase.toFixed(2)}` : breakdown.phase.toFixed(2), color: breakdown.phase > 0 ? "text-green-400" : "text-red-400" } : null,
+                    breakdown.squeezeRelease > 0 ? { label: "Squeeze Release", value: `+${breakdown.squeezeRelease}`, color: "text-cyan-400" } : null,
+                    breakdown.squeezeOn > 0 ? { label: "Squeeze On", value: `+${breakdown.squeezeOn}`, color: "text-yellow-400" } : null,
+                    breakdown.rr > 0 ? { label: "Risk/Reward", value: `+${breakdown.rr}`, color: "text-green-400" } : null,
+                  ].filter(Boolean);
+                  return breakdownComponents.length > 0 ? (
+                    <div className="border-t border-[#26325f] my-3 pt-3">
+                      <div className="text-xs text-[#93a4d6] mb-3 font-semibold">Score Breakdown</div>
+                      <div className="space-y-1.5">
+                        {breakdownComponents.map((comp, idx) => (
+                          <div key={idx} className="flex justify-between items-center text-xs">
+                            <span className="text-[#93a4d6]">{comp.label}</span>
+                            <span className={`font-semibold ${comp.color}`}>{comp.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* RR, SL, Max TP, TP Target, TP Levels */}
+              <div className="space-y-2.5 text-sm mb-4">
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">RR</span>
+                  <span className="font-semibold">{tickerData.rr ? Number(tickerData.rr).toFixed(2) : "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">SL</span>
+                  <span className="font-semibold text-red-400">{metricsSource.sl ? `$${Number(metricsSource.sl).toFixed(2)}` : "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">TP Max</span>
+                  <span className="font-semibold text-green-400">{Number.isFinite(tpMax) ? `$${tpMax.toFixed(2)}` : "—"}</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                  <span className="text-[#93a4d6]">TP Target</span>
+                  <span className="font-semibold text-green-400">{Number.isFinite(tpTarget) ? `$${tpTarget.toFixed(2)}` : "—"}</span>
+                </div>
+                {tpLevels.length > 0 && (
+                  <div className="text-xs text-[#93a4d6]">
+                    TP Levels: {tpLevels.slice(0, 6).map((p) => p.toFixed(2)).join(", ")}
+                  </div>
+                )}
+              </div>
+
+              {/* Trade Journey */}
+              <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                <div className="text-sm text-[#93a4d6] mb-2">Trade Journey</div>
+                {trade ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                      <div>
+                        <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
+                        <div className="font-semibold text-white text-lg">${trade.entryPrice?.toFixed(2) || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
+                        <div className="font-semibold text-yellow-400 text-lg">${currentPrice?.toFixed(2) || "—"}</div>
+                      </div>
+                    </div>
+                    {trade.history && trade.history.length > 0 && (
+                      <TradeHistory history={trade.history} />
+                    )}
+                  </>
+                ) : (
+                  <div className="text-xs text-[#93a4d6]">No trade history for this ticker.</div>
+                )}
+              </div>
+
+              {/* Completion, Phase, Dynamic ETA */}
+              <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-[#93a4d6]">Phase</span>
+                  <span className="text-sm font-semibold" style={{ color: phaseColor }}>
+                    {(phase * 100).toFixed(2)}%
+                  </span>
+                </div>
+                <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${phase * 100}%`, backgroundColor: phaseColor }} />
+                </div>
+                <div className="mt-2 flex items-center justify-between text-xs">
+                  <span className="text-[#93a4d6]">Completion</span>
+                  <span className="font-semibold text-white">
+                    {tickerData.completion != null ? `${(Number(tickerData.completion) * 100).toFixed(2)}%` : "—"}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-xs">
+                  <span className="text-[#93a4d6]">Dynamic ETA</span>
+                  <span className="font-semibold text-white">{Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}</span>
+                </div>
+              </div>
+
+              {/* EMA Cloud Position */}
+              {(tickerData.daily_ema_cloud || tickerData.fourh_ema_cloud || tickerData.oneh_ema_cloud) && (
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="text-sm text-[#93a4d6] mb-2">EMA Cloud Position</div>
+                  {["daily_ema_cloud", "fourh_ema_cloud", "oneh_ema_cloud"].map((key) => {
+                    const cloud = tickerData[key];
+                    if (!cloud) return null;
+                    return (
+                      <div key={key} className="text-xs text-[#93a4d6] flex justify-between">
+                        <span>{key.replace("_ema_cloud", "").toUpperCase()}</span>
+                        <span className="text-white font-semibold">{cloud.position || "—"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* TD Sequential */}
+              {tickerData.td_sequential && (
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="text-sm text-[#93a4d6] mb-2">TD Sequential</div>
+                  <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <span>Bullish Prep</span>
+                    <span className="text-white font-semibold">{tickerData.td_sequential.bullish_prep_count || 0}/9</span>
+                  </div>
+                  <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <span>Bearish Prep</span>
+                    <span className="text-white font-semibold">{tickerData.td_sequential.bearish_prep_count || 0}/9</span>
+                  </div>
+                </div>
+              )}
+
+              {/* RSI & Divergence */}
+              {tickerData.rsi && (
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="text-sm text-[#93a4d6] mb-2">RSI & Divergence</div>
+                  <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <span>RSI</span>
+                    <span className="text-white font-semibold">{Number(tickerData.rsi.value || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <span>Divergence</span>
+                    <span className="text-white font-semibold">{tickerData.rsi.divergence?.type || "none"}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* State, Horizon, Detected Patterns */}
+              <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                <div className="text-sm text-[#93a4d6] mb-2">State & Horizon</div>
+                <div className="text-xs text-[#93a4d6] flex justify-between">
+                  <span>State</span>
+                  <span className="text-white font-semibold">{tickerData.state || "—"}</span>
+                </div>
+                <div className="text-xs text-[#93a4d6] flex justify-between">
+                  <span>Horizon</span>
+                  <span className="text-white font-semibold">{horizon}</span>
+                </div>
+                {detectedPatterns && detectedPatterns.length > 0 && (
+                  <div className="mt-2 text-[10px] text-yellow-300">
+                    {detectedPatterns.map((p) => p.description).slice(0, 3).join(" • ")}
+                  </div>
+                )}
+              </div>
+
+              {/* Bubble Journey (15m increments) */}
+              <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                <div className="text-sm text-[#93a4d6] mb-2">Bubble Journey (15m)</div>
+                {bubbleJourneyLoading ? (
+                  <div className="text-xs text-[#93a4d6]">Loading trail…</div>
+                ) : bubbleJourneyError ? (
+                  <div className="text-xs text-red-400">{bubbleJourneyError}</div>
+                ) : (
+                  <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {downsampleByInterval(bubbleJourney, 15 * 60 * 1000)
+                      .slice()
+                      .reverse()
+                      .slice(0, 24)
+                      .map((p, idx) => (
+                        <div key={`${p.__bucket || p.__ts_ms}-${idx}`} className="text-[10px] text-[#93a4d6] flex justify-between">
+                          <span>{Number.isFinite(p.__ts_ms) ? new Date(p.__ts_ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}</span>
+                          <span className="text-white">{p.state || "—"}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Quadrant Progression */}
+              <QuadrantProgression ticker={tickerData} flags={flags} />
 
               {/* Action Description */}
               <div className={`mb-4 p-4 rounded-lg border ${actionInfo.bg} border-current/30`}>
@@ -2971,6 +3196,80 @@
         return Math.max(0, Math.min(100, Math.round(dynamicScore)));
       }
 
+      function toTickerArray(source) {
+        if (!source) return [];
+        if (Array.isArray(source)) {
+          return source.filter((t) => t && typeof t === "object" && t.ticker);
+        }
+        if (typeof source === "object") {
+          return Object.values(source).filter(
+            (t) => t && typeof t === "object" && t.ticker
+          );
+        }
+        return [];
+      }
+
+      function rankScoreForTicker(ticker) {
+        const rankScore = Number(ticker?.rank_score);
+        if (Number.isFinite(rankScore)) return rankScore;
+        const dynamicRank = Number(ticker?.dynamicRank);
+        if (Number.isFinite(dynamicRank)) return dynamicRank;
+        const dynamicScore = Number(ticker?.dynamicScore);
+        if (Number.isFinite(dynamicScore)) return dynamicScore;
+        return Number(computeDynamicRank(ticker)) || 0;
+      }
+
+      function getRankedTickers(source) {
+        const list = toTickerArray(source);
+        const withScores = list.map((t) => ({
+          ...t,
+          __rankPos: Number(t?.rank_position),
+          __rankScore: rankScoreForTicker(t),
+        }));
+        withScores.sort((a, b) => {
+          const rankA = Number(a.__rankPos);
+          const rankB = Number(b.__rankPos);
+          const hasRankA = Number.isFinite(rankA) && rankA > 0;
+          const hasRankB = Number.isFinite(rankB) && rankB > 0;
+          if (hasRankA && hasRankB) return rankA - rankB;
+          if (hasRankA) return -1;
+          if (hasRankB) return 1;
+          const scoreA = Number(a.__rankScore) || 0;
+          const scoreB = Number(b.__rankScore) || 0;
+          return scoreB - scoreA;
+        });
+        return withScores;
+      }
+
+      function getRankPositionFromMap(rankPositions, tickerSymbol) {
+        if (!rankPositions) return null;
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) return null;
+        const pos = Number(rankPositions[sym]);
+        return Number.isFinite(pos) && pos > 0 ? pos : null;
+      }
+
+      function downsampleByInterval(points, intervalMs) {
+        if (!Array.isArray(points) || points.length === 0) return [];
+        const buckets = new Map();
+        points.forEach((p) => {
+          const tsRaw = p.__ts_ms ?? p.ts ?? p.ingest_ts ?? p.ingest_time;
+          const ts =
+            typeof tsRaw === "string"
+              ? new Date(tsRaw).getTime()
+              : Number(tsRaw);
+          if (!Number.isFinite(ts)) return;
+          const bucket = Math.floor(ts / intervalMs) * intervalMs;
+          const prev = buckets.get(bucket);
+          if (!prev || ts > prev.__ts_ms) {
+            buckets.set(bucket, { ...p, __ts_ms: ts, __bucket: bucket });
+          }
+        });
+        return Array.from(buckets.values()).sort(
+          (a, b) => a.__ts_ms - b.__ts_ms
+        );
+      }
+
       function getActionDescription(ticker) {
         const state = String(ticker.state || "");
         const phase = Number(ticker.phase_pct) || 0;
@@ -3053,12 +3352,13 @@
             return () => clearTimeout(timeoutId);
           }
         }, [ticker?.ticker, hasLoaded]);
-        const patterns = detectPatterns(trail, flags || {});
+        const sampledTrail = useMemo(() => downsampleByInterval(trail, 15 * 60 * 1000), [trail]);
+        const patterns = detectPatterns(sampledTrail, flags || {});
         const currentQuad = getQuadrantFromState(ticker.state);
-        const quadHistory = trail.map(p => getQuadrantFromState(p.state)).filter(Boolean);
+        const quadHistory = sampledTrail.map(p => getQuadrantFromState(p.state)).filter(Boolean);
         return (
           <div className="mb-4 p-4 bg-[#0f1630] rounded-lg border border-[#26325f]">
-            <div className="text-sm font-bold mb-3 text-[#93a4d6]">Quadrant Progression</div>
+            <div className="text-sm font-bold mb-3 text-[#93a4d6]">Quadrant Progression (15m increments)</div>
             <div className="grid grid-cols-2 gap-2 mb-4">
               {[1, 2, 4, 3].map(q => {
                 const quad = q === 1 ? { q: 1, name: "Q1", label: "Bull Setup", color: "blue" } :
@@ -3258,7 +3558,7 @@
       // ─────────────────────────────────────────────────────────────
       // TickerDetailsLoader - Loads ticker data and passes to unified component
       // ─────────────────────────────────────────────────────────────
-      const TickerDetailsLoader = ({ tickerSymbol, trade = null, onClose, allLoadedData = null }) => {
+      const TickerDetailsLoader = ({ tickerSymbol, trade = null, onClose, allLoadedData = null, sectors = [], rankedTickers = null, rankedTickerPositions = null }) => {
         const [tickerData, setTickerData] = useState(null);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
@@ -3307,7 +3607,17 @@
           );
         }
         
-        return <TickerDetailRightRail ticker={tickerData} trade={trade} onClose={onClose} allLoadedData={allLoadedData} />;
+        return (
+          <TickerDetailRightRail
+            ticker={tickerData}
+            trade={trade}
+            onClose={onClose}
+            allLoadedData={allLoadedData}
+            sectors={sectors}
+            rankedTickers={rankedTickers}
+            rankedTickerPositions={rankedTickerPositions}
+          />
+        );
       };
 
       // ─────────────────────────────────────────────────────────────
@@ -4167,6 +4477,7 @@
       function App() {
         const { data, loading, refreshing, error, lastUpdate, refetch } = useTickerData();
         const { trades, loading: tradesLoading, refreshing: tradesRefreshing, error: tradesError, addTrade, updateTrade, refetch: refetchTrades } = useSimulatedTrades();
+        const { sectors } = useSectors();
         
         // Welcome Guide state
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(false);
@@ -4228,6 +4539,24 @@
           ledgerSelectedTradeId,
           ledgerIncludeEvidence
         );
+
+        const rankedTickers = useMemo(() => {
+          return getRankedTickers(data);
+        }, [data]);
+
+        const rankedTickerPositions = useMemo(() => {
+          const map = {};
+          rankedTickers.forEach((t, idx) => {
+            const sym = String(t.ticker || "").trim().toUpperCase();
+            const pos = Number(t?.rank_position);
+            const rankPos =
+              Number.isFinite(pos) && pos > 0 ? pos : idx + 1;
+            if (sym && map[sym] == null) {
+              map[sym] = rankPos;
+            }
+          });
+          return map;
+        }, [rankedTickers]);
 
         const ledgerFilteredTrades = useMemo(() => {
           const items = Array.isArray(ledgerTrades.items) ? ledgerTrades.items : [];
@@ -4928,7 +5257,11 @@
                                               <tr
                                                 key={t.trade_id}
                                                 className="border-b border-[#26325f]/50 hover:bg-[#121a33] cursor-pointer"
-                                                onClick={() => setLedgerSelectedTradeId(t.trade_id)}
+                                                onClick={() => {
+                                                  setSelectedTicker(t.ticker);
+                                                  setSelectedTrade(t);
+                                                  setLedgerSelectedTradeId(null);
+                                                }}
                                               >
                                                 <td className="p-2">
                                                   <div className="font-semibold">{t.ticker}</div>
@@ -6086,6 +6419,9 @@
                         setSelectedTicker(null);
                       }}
                       allLoadedData={data}
+                      sectors={sectors}
+                      rankedTickers={rankedTickers}
+                      rankedTickerPositions={rankedTickerPositions}
                     />
                   </div>
                 )}

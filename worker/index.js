@@ -1282,8 +1282,6 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const baseMinRR = 1.5;
   const baseMaxComp = 0.4;
   const baseMaxPhase = 0.6;
-  const baseMinRank = 70;
-
   const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
   const maxComp = momentumElite
     ? Math.min(0.5, baseMaxComp * 1.25)
@@ -1291,22 +1289,19 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const maxPhase = momentumElite
     ? Math.min(0.7, baseMaxPhase * 1.17)
     : baseMaxPhase;
-  const minRank = momentumElite ? Math.max(60, baseMinRank - 10) : baseMinRank;
 
   const rr = Number(tickerData.rr) || 0;
   const comp = Number(tickerData.completion) || 0;
   const phase = Number(tickerData.phase_pct) || 0;
-  const rank = Number(tickerData.rank) || 0;
 
   const rrOk = rr >= minRR;
   const compOk = comp <= maxComp;
   const phaseOk = phase <= maxPhase;
-  const rankOk = rank >= minRank;
 
   const momentumEliteTrigger = momentumElite && inCorridor && corridorAlignedOK;
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-  return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
+  return enhancedTrigger && rrOk && compOk && phaseOk;
 }
 
 function isOpenTradeStatus(status) {
@@ -1418,8 +1413,6 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const baseMinRR = 1.5;
   const baseMaxComp = 0.4;
   const baseMaxPhase = 0.6;
-  const baseMinRank = 70;
-
   const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
   const maxComp = momentumElite
     ? Math.min(0.5, baseMaxComp * 1.25)
@@ -1427,7 +1420,6 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const maxPhase = momentumElite
     ? Math.min(0.7, baseMaxPhase * 1.17)
     : baseMaxPhase;
-  const minRank = momentumElite ? Math.max(60, baseMinRank - 10) : baseMinRank;
 
   const price = Number(tickerData.price);
   const triggerPrice = Number(tickerData.trigger_price);
@@ -1448,12 +1440,10 @@ function buildEntryDecision(ticker, tickerData, prevState) {
     entryPrice != null ? calculateRRAtEntry(tickerData, entryPrice) : null;
   const comp = Number(tickerData.completion) || 0;
   const phase = Number(tickerData.phase_pct) || 0;
-  const rank = Number(tickerData.rank) || 0;
 
   const rrOk = (rrAtEntry || 0) >= minRR;
   const compOk = comp <= maxComp;
   const phaseOk = phase <= maxPhase;
-  const rankOk = rank >= minRank;
 
   if (FUTURES_TICKERS.has(tickerUpper)) blockers.push("futures_disabled");
   if (!Number.isFinite(entryPrice) || !tickerData.sl || !tickerData.tp)
@@ -1464,7 +1454,6 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   if (!rrOk) blockers.push("rr_below_min");
   if (!compOk) blockers.push("completion_high");
   if (!phaseOk) blockers.push("phase_high");
-  if (!rankOk) blockers.push("rank_low");
 
   const staleness = String(tickerData.staleness || "").toUpperCase();
   if (staleness && staleness !== "FRESH") warnings.push("stale_data");
@@ -1491,8 +1480,6 @@ function buildEntryDecision(ticker, tickerData, prevState) {
       completion_max: maxComp,
       phase,
       phase_max: maxPhase,
-      rank,
-      rank_min: minRank,
     },
   };
 }
@@ -3612,18 +3599,13 @@ async function processTradeSimulation(
       const flags = tickerData.flags || {};
       const momentumElite = !!flags.momentum_elite;
       const baseMinRR = 1.5;
-      const baseMinRank = 70;
       const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
-      const minRank = momentumElite
-        ? Math.max(60, baseMinRank - 10)
-        : baseMinRank;
 
       const rrOk = (entryRR || 0) >= minRR;
       const compOk =
         (Number(tickerData.completion) || 0) <= (momentumElite ? 0.5 : 0.4);
       const phaseOk =
         (Number(tickerData.phase_pct) || 0) <= (momentumElite ? 0.7 : 0.6);
-      const rankOk = (Number(tickerData.rank) || 0) >= minRank;
 
       console.log(
         `[TRADE SIM] ${ticker} ${direction}: shouldTrigger=${shouldTrigger}, entryRR=${
@@ -3635,9 +3617,7 @@ async function processTradeSimulation(
       console.log(
         `[TRADE SIM] ${ticker} checks: inCorridor=${inCorridor}, corridorAlignedOK=${corridorAlignedOK}, rrOk=${rrOk} (${
           entryRR?.toFixed(2) || "null"
-        } >= ${minRR}), compOk=${compOk}, phaseOk=${phaseOk}, rankOk=${rankOk} (${
-          tickerData.rank || 0
-        } >= ${minRank})`
+        } >= ${minRR}), compOk=${compOk}, phaseOk=${phaseOk}`
       );
 
       if (!shouldTrigger) {
@@ -8141,8 +8121,6 @@ export default {
             const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
             const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
             const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
-            const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
-
             // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
             const minRR = momentumElite
               ? Math.max(1.2, baseMinRR * 0.9)
@@ -8153,9 +8131,6 @@ export default {
             const maxPhase = momentumElite
               ? Math.min(0.7, baseMaxPhase * 1.17)
               : baseMaxPhase; // Allow higher phase
-            const minRank = momentumElite
-              ? Math.max(60, baseMinRank - 10)
-              : baseMinRank; // Lower rank requirement
 
             // Use current price for dynamic RR calculation (real-time risk/reward)
             // This shows the current R:R based on where price is now, not where it was at trigger
@@ -8176,7 +8151,6 @@ export default {
               payload.phase_pct == null
                 ? true
                 : Number(payload.phase_pct) <= maxPhase;
-            const rankOk = Number(payload.rank || 0) >= minRank;
 
             // Also consider Momentum Elite as a trigger condition (quality signal)
             // Momentum Elite can trigger even if not fully aligned, as long as in corridor
@@ -8213,9 +8187,6 @@ export default {
                 phaseOk,
                 phase: payload.phase_pct,
                 maxPhase,
-                rankOk,
-                rank: payload.rank,
-                minRank,
                 momentumElite,
                 flags: payload.flags,
               });
@@ -8232,16 +8203,14 @@ export default {
               completion: payload.completion,
               phaseOk,
               phase: payload.phase_pct,
-              rankOk,
-              rank: payload.rank,
               allConditionsMet:
-                enhancedTrigger && rrOk && compOk && phaseOk && rankOk,
+                enhancedTrigger && rrOk && compOk && phaseOk,
             });
 
             // Enhanced logging for alert conditions - log what's blocking alerts
             if (
               inCorridor &&
-              !(enhancedTrigger && rrOk && compOk && phaseOk && rankOk)
+              !(enhancedTrigger && rrOk && compOk && phaseOk)
             ) {
               const blockers = [];
               if (!enhancedTrigger) blockers.push("trigger conditions");
@@ -8265,8 +8234,6 @@ export default {
                     payload.phase_pct?.toFixed(2) || "null"
                   } > ${maxPhase})`
                 );
-              if (!rankOk)
-                blockers.push(`Rank (${payload.rank || 0} < ${minRank})`);
 
               console.log(
                 `[ALERT BLOCKED] ${ticker}: Alert blocked by: ${blockers.join(
@@ -8305,7 +8272,7 @@ export default {
                   openTrade.direction || "UNKNOWN"
                 })`
               );
-            } else if (enhancedTrigger && rrOk && compOk && phaseOk && rankOk) {
+            } else if (enhancedTrigger && rrOk && compOk && phaseOk) {
               // Smart dedupe: action + direction + UTC minute bucket (prevents duplicates but allows valid re-alerts)
               const action = "ENTRY";
               const alertEventTs = Number(
@@ -8327,7 +8294,6 @@ export default {
                 rrOk,
                 compOk,
                 phaseOk,
-                rankOk,
                 allConditionsMet: true,
                 today,
                 akey,
@@ -8378,7 +8344,7 @@ export default {
                       rr: rrToUse,
                       rrFromPayload: payload.rr,
                       calculatedAtCurrentPrice: currentRR,
-                      thresholds: { minRR, maxComp, maxPhase, minRank },
+                      thresholds: { minRR, maxComp, maxPhase },
                       checks: {
                         inCorridor,
                         enteredCorridor,
@@ -8394,7 +8360,6 @@ export default {
                         rrOk,
                         compOk,
                         phaseOk,
-                        rankOk,
                       },
                       discordConfigured,
                     });
@@ -8878,7 +8843,7 @@ export default {
                       rr: rrToUse,
                       rrFromPayload: payload.rr,
                       calculatedAtCurrentPrice: currentRR,
-                      thresholds: { minRR, maxComp, maxPhase, minRank },
+                      thresholds: { minRR, maxComp, maxPhase },
                       checks: {
                         inCorridor,
                         enteredCorridor,
@@ -8894,7 +8859,6 @@ export default {
                         rrOk,
                         compOk,
                         phaseOk,
-                        rankOk,
                       },
                       discordConfigured,
                     });
@@ -8937,7 +8901,6 @@ export default {
                 reasons.push(`Completion ${payload.completion} > ${maxComp}`);
               if (!phaseOk)
                 reasons.push(`Phase ${payload.phase_pct} > ${maxPhase}`);
-              if (!rankOk) reasons.push(`Rank ${payload.rank} < ${minRank}`);
               console.log(`[ALERT SKIPPED] ${ticker}: ${reasons.join(", ")}`);
             }
 
@@ -9534,6 +9497,26 @@ export default {
             versionBreakdown
           );
         }
+
+        // Compute rank positions once (server-authoritative)
+        const ranked = Object.entries(data)
+          .map(([ticker, value]) => {
+            const score = Number(value?.dynamicScore);
+            const safeScore = Number.isFinite(score)
+              ? score
+              : computeDynamicScore(value || {});
+            return { ticker, score: safeScore };
+          })
+          .sort((a, b) => b.score - a.score);
+        const rankTotal = ranked.length;
+        ranked.forEach((item, idx) => {
+          const entry = data[item.ticker];
+          if (!entry) return;
+          entry.rank_position = idx + 1;
+          entry.rank_total = rankTotal;
+          entry.rank_score = item.score;
+        });
+
         return sendJSON(
           {
             ok: true,
@@ -11317,8 +11300,6 @@ export default {
         const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
         const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
         const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
-        const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
-
         // Adjust thresholds for Momentum Elite (more lenient for quality stocks)
         const minRR = momentumElite
           ? Math.max(1.2, baseMinRR * 0.9)
@@ -11329,9 +11310,6 @@ export default {
         const maxPhase = momentumElite
           ? Math.min(0.7, baseMaxPhase * 1.17)
           : baseMaxPhase; // Allow higher phase
-        const minRank = momentumElite
-          ? Math.max(60, baseMinRank - 10)
-          : baseMinRank; // Lower rank requirement
 
         // Use current price for dynamic RR calculation (matches actual alert logic)
         const currentRR = computeRR(data);
@@ -11342,7 +11320,6 @@ export default {
           data.completion == null ? true : Number(data.completion) <= maxComp;
         const phaseOk =
           data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
-        const rankOk = Number(data.rank || 0) >= minRank;
 
         // Also consider Momentum Elite as a trigger condition (quality signal)
         const momentumEliteTrigger =
@@ -11359,7 +11336,6 @@ export default {
           rrOk &&
           compOk &&
           phaseOk &&
-          rankOk &&
           discordEnabled &&
           discordUrlSet;
 
@@ -11404,28 +11380,20 @@ export default {
                 adjustedRequired: maxPhase,
                 ok: phaseOk,
               },
-              rankOk: {
-                value: data.rank,
-                baseRequired: baseMinRank,
-                adjustedRequired: minRank,
-                ok: rankOk,
-              },
             },
             thresholds: {
               base: {
                 minRR: baseMinRR,
                 maxComp: baseMaxComp,
                 maxPhase: baseMaxPhase,
-                minRank: baseMinRank,
               },
-              adjusted: { minRR, maxComp, maxPhase, minRank },
+              adjusted: { minRR, maxComp, maxPhase },
               momentumEliteAdjustments: momentumElite,
             },
             data: {
               state,
               htf_score: data.htf_score,
               ltf_score: data.ltf_score,
-              rank: data.rank,
               rr: data.rr,
               completion: data.completion,
               phase_pct: data.phase_pct,
@@ -11528,7 +11496,6 @@ export default {
         const baseMinRR = Number(env.ALERT_MIN_RR || "1.5");
         const baseMaxComp = Number(env.ALERT_MAX_COMPLETION || "0.4");
         const baseMaxPhase = Number(env.ALERT_MAX_PHASE || "0.6");
-        const baseMinRank = Number(env.ALERT_MIN_RANK || "70");
 
         let prevState = null;
         const results = [];
@@ -11572,9 +11539,6 @@ export default {
           const maxPhase = momentumElite
             ? Math.min(0.7, baseMaxPhase * 1.17)
             : baseMaxPhase;
-          const minRank = momentumElite
-            ? Math.max(60, baseMinRank - 10)
-            : baseMinRank;
 
           const currentRR = computeRR(data);
           const rrToUse =
@@ -11588,14 +11552,13 @@ export default {
             data.completion == null ? true : Number(data.completion) <= maxComp;
           const phaseOk =
             data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
-          const rankOk = Number(data.rank || 0) >= minRank;
 
           const momentumEliteTrigger =
             momentumElite && inCorridor && corridorAlignedOK;
           const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
           const wouldAlertLogic =
-            enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
+            enhancedTrigger && rrOk && compOk && phaseOk;
           const wouldAlert = wouldAlertLogic && discordEnabled && discordUrlSet;
 
           const action = "ENTRY";
@@ -11631,7 +11594,6 @@ export default {
               phase_pct: data.phase_pct,
               phaseOk,
               rank: data.rank,
-              rankOk,
               enhancedTrigger,
               wouldAlertLogic,
               wouldAlert, // includes discord configured
@@ -11688,7 +11650,6 @@ export default {
                 minRR: baseMinRR,
                 maxComp: baseMaxComp,
                 maxPhase: baseMaxPhase,
-                minRank: baseMinRank,
               },
             },
             results: enriched,
