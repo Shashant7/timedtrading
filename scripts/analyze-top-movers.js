@@ -22,6 +22,10 @@ function argValue(name, fallback) {
 
 const DAYS = Number(argValue("--days", "120"));
 const TOP = Number(argValue("--top", "25"));
+const INCLUDE = String(argValue("--include", "") || "")
+  .split(",")
+  .map((s) => s.trim().toUpperCase())
+  .filter(Boolean);
 
 const NY_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
@@ -269,6 +273,9 @@ function summarizeCommonTraits(items) {
 
 function toMarkdown(results, topN) {
   const top = results.slice(0, topN);
+  const included = INCLUDE.length
+    ? INCLUDE.map((sym) => results.find((r) => r.ticker === sym)).filter(Boolean)
+    : [];
   const traits = summarizeCommonTraits(top);
 
   const lines = [];
@@ -323,9 +330,61 @@ function toMarkdown(results, topN) {
     lines.push(``);
   });
 
-  lines.push(`## Notes / Next improvements`);
+  if (included.length > 0) {
+    lines.push(`## Included deep dives`);
+    lines.push(``);
+    lines.push(
+      `Requested tickers: ${INCLUDE.map((s) => `**${s}**`).join(", ")}`
+    );
+    lines.push(``);
+    included.forEach((r) => {
+      const s = r.maxRunup?.start;
+      const e = r.maxRunup?.end;
+      lines.push(`### ${r.ticker}`);
+      lines.push(
+        `- **Max run-up**: ${fmtPct(r.maxRunup?.pct)} (${fmtTs(
+          r.maxRunup?.from
+        )} → ${fmtTs(r.maxRunup?.to)})`
+      );
+      if (s && e) {
+        lines.push(
+          `- **Start**: $${Number(s.price).toFixed(
+            2
+          )} | state=${s.state || "—"} | HTF=${s.htf ?? "—"} LTF=${
+            s.ltf ?? "—"
+          } | phase=${
+            s.phase_pct != null
+              ? Math.round(Number(s.phase_pct) * 100) + "%"
+              : "—"
+          } | completion=${
+            s.completion != null
+              ? Math.round(Number(s.completion) * 100) + "%"
+              : "—"
+          } | RR=${s.rr ?? "—"}`
+        );
+        lines.push(
+          `- **End**: $${Number(e.price).toFixed(
+            2
+          )} | state=${e.state || "—"} | HTF=${e.htf ?? "—"} LTF=${
+            e.ltf ?? "—"
+          } | phase=${
+            e.phase_pct != null
+              ? Math.round(Number(e.phase_pct) * 100) + "%"
+              : "—"
+          } | completion=${
+            e.completion != null
+              ? Math.round(Number(e.completion) * 100) + "%"
+              : "—"
+          } | RR=${e.rr ?? "—"}`
+        );
+      }
+      lines.push(``);
+    });
+  }
+
+  lines.push(`## Next improvements`);
+  lines.push(`- **Tag trail points with explicit event markers** (Prime/Eligible transition, corridor entry/exit, squeeze on/release, TD9/TD13, EMA cross, entry/trim/exit) so we can sequence-mine “winner paths” vs “loser paths”.`);
   lines.push(`- This analysis uses the recorded trail points we store (not full market data).`);
-  lines.push(`- If you want this to be *golden-pattern grade*, the next step is to tag trail points with explicit event markers (e.g., Prime entry, corridor entry, squeeze release, TD9/TD13) and run sequence mining across winners vs losers.`);
   lines.push(``);
 
   return lines.join("\n");

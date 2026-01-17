@@ -7926,6 +7926,19 @@
         const [isPlaying, setIsPlaying] = useState(false);
         const [playSpeedMs, setPlaySpeedMs] = useState(600); // ms per 5-min step
         const [loopPlayback, setLoopPlayback] = useState(true);
+        const STEP_OPTIONS = React.useMemo(
+          () => [
+            { label: "5m", ms: 5 * 60 * 1000 },
+            { label: "15m", ms: 15 * 60 * 1000 },
+            { label: "30m", ms: 30 * 60 * 1000 },
+            { label: "1H", ms: 60 * 60 * 1000 },
+            { label: "4H", ms: 4 * 60 * 60 * 1000 },
+            { label: "1D", ms: 24 * 60 * 60 * 1000 },
+            { label: "1W", ms: 7 * 24 * 60 * 60 * 1000 },
+          ],
+          []
+        );
+        const [stepMs, setStepMs] = useState(5 * 60 * 1000);
 
         // Prevent render loops when parent passes unstable callbacks/arrays.
         // (This was causing "Maximum update depth exceeded" and breaking Play.)
@@ -7937,16 +7950,16 @@
         const tickersRef = React.useRef(tickers);
         tickersRef.current = tickers;
 
-        // Round timestamp to nearest 5 minutes (stable reference for effects)
-        const roundTo5Minutes = React.useCallback((ts) => {
-          const date = new Date(ts);
-          const minutes = date.getMinutes();
-          const roundedMinutes = Math.floor(minutes / 5) * 5;
-          date.setMinutes(roundedMinutes);
-          date.setSeconds(0);
-          date.setMilliseconds(0);
-          return date.getTime();
-        }, []);
+        // Bucket timestamp to selected step (stable reference for effects)
+        const roundToStep = React.useCallback(
+          (ts) => {
+            const ms = Number(ts);
+            const step = Number(stepMs);
+            if (!Number.isFinite(ms) || !Number.isFinite(step) || step <= 0) return ms;
+            return Math.floor(ms / step) * step;
+          },
+          [stepMs]
+        );
 
         // Get available timestamps from ALL tickers (not just filtered) for stable range
         // This prevents the slider from jumping around when search filters change
@@ -7962,7 +7975,7 @@
           sourceTickers.forEach((t) => {
             if (!t || typeof t !== "object") return;
             if (t.ts) {
-              const rounded = roundTo5Minutes(Number(t.ts));
+              const rounded = roundToStep(Number(t.ts));
               timestamps.add(rounded);
             }
             if (t.ingest_ts) {
@@ -7971,24 +7984,24 @@
                   ? new Date(t.ingest_ts).getTime()
                   : Number(t.ingest_ts);
               if (ts) {
-                const rounded = roundTo5Minutes(ts);
+                const rounded = roundToStep(ts);
                 timestamps.add(rounded);
               }
             }
           });
           return Array.from(timestamps).sort((a, b) => a - b);
-        }, [allTickers, tickers, roundTo5Minutes]);
+        }, [allTickers, tickers, roundToStep]);
 
         const minTimestamp =
           availableTimestamps.length > 0
             ? availableTimestamps[0]
-            : roundTo5Minutes(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            : roundToStep(Date.now() - 7 * 24 * 60 * 60 * 1000);
         const maxTimestamp =
           availableTimestamps.length > 0
             ? availableTimestamps[availableTimestamps.length - 1]
-            : roundTo5Minutes(Date.now());
+            : roundToStep(Date.now());
 
-        const STEP_MS = 5 * 60 * 1000;
+        const STEP_MS = stepMs;
 
         const buildSnapshotTickers = React.useCallback(
           (sourceTickers, trails, roundedTimestamp) => {
@@ -8011,7 +8024,7 @@
                         return {
                           point,
                           pointTs,
-                          roundedPointTs: roundTo5Minutes(pointTs),
+                          roundedPointTs: roundToStep(pointTs),
                         };
                       })
                       .filter(Boolean)
@@ -8077,7 +8090,7 @@
               })
               .filter(Boolean);
           },
-          [roundTo5Minutes]
+          [roundToStep]
         );
 
         // Fetch trail data and filter by timestamp
@@ -8210,7 +8223,7 @@
         useEffect(() => {
           if (!isActive) return;
           if (!selectedTimestamp) return;
-          const roundedTimestamp = roundTo5Minutes(selectedTimestamp);
+          const roundedTimestamp = roundToStep(selectedTimestamp);
           const snapshot = buildSnapshotTickers(
             tickersRef.current,
             trailData,
@@ -8223,7 +8236,7 @@
           trailData,
           tickerSymbols,
           buildSnapshotTickers,
-          roundTo5Minutes,
+          roundToStep,
         ]);
 
         // Animation: advance by 5 minutes at a configurable speed.
@@ -8234,12 +8247,12 @@
             setSelectedTimestamp((prev) => {
               const cur =
                 prev !== null && prev !== undefined
-                  ? roundTo5Minutes(prev)
-                  : roundTo5Minutes(maxTimestamp);
+                  ? roundToStep(prev)
+                  : roundToStep(maxTimestamp);
               const next = cur + STEP_MS;
               if (next > maxTimestamp) {
                 if (loopPlayback) {
-                  return roundTo5Minutes(minTimestamp);
+                  return roundToStep(minTimestamp);
                 }
                 setIsPlaying(false);
                 return cur;
@@ -8256,13 +8269,14 @@
           loopPlayback,
           minTimestamp,
           maxTimestamp,
-          roundTo5Minutes,
+          roundToStep,
+          STEP_MS,
         ]);
 
         const handleTimestampChange = (e) => {
           const ts = Number(e.target.value);
-          // Round to nearest 5 minutes
-          const rounded = roundTo5Minutes(ts);
+          // Round to selected step
+          const rounded = roundToStep(ts);
           setSelectedTimestamp(rounded);
           setIsPlaying(false);
         };
@@ -8280,8 +8294,8 @@
         };
 
         const currentValue = selectedTimestamp
-          ? roundTo5Minutes(selectedTimestamp)
-          : roundTo5Minutes(maxTimestamp);
+          ? roundToStep(selectedTimestamp)
+          : roundToStep(maxTimestamp);
         const progress =
           maxTimestamp > minTimestamp
             ? ((currentValue - minTimestamp) / (maxTimestamp - minTimestamp)) *
@@ -8313,7 +8327,7 @@
                         onTimeChangeRef.current?.(null);
                       } else {
                         // Round to 5 minutes when activating
-                        setSelectedTimestamp(roundTo5Minutes(maxTimestamp));
+                        setSelectedTimestamp(roundToStep(maxTimestamp));
                       }
                     }}
                     className="w-4 h-4"
@@ -8341,6 +8355,26 @@
                     >
                       {isPlaying ? "⏸ Pause" : "▶️ Play"}
                     </button>
+                    <select
+                      value={String(stepMs)}
+                      onChange={(e) => {
+                        const next = Number(e.target.value);
+                        if (!Number.isFinite(next) || next <= 0) return;
+                        setStepMs(next);
+                        setIsPlaying(false);
+                        setSelectedTimestamp((prev) =>
+                          prev != null ? Math.floor(Number(prev) / next) * next : Math.floor(Number(maxTimestamp) / next) * next
+                        );
+                      }}
+                      className="bg-[#0f1630] border border-[#26325f] rounded px-2 py-1 text-xs text-[#e7ecff]"
+                      title="Time step"
+                    >
+                      {STEP_OPTIONS.map((opt) => (
+                        <option key={opt.label} value={opt.ms}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
                     <select
                       value={playSpeedMs}
                       onChange={(e) => setPlaySpeedMs(Number(e.target.value))}
@@ -8401,7 +8435,7 @@
                   type="range"
                   min={minTimestamp}
                   max={maxTimestamp}
-                  step={5 * 60 * 1000}
+                  step={STEP_MS}
                   value={currentValue}
                   onChange={handleTimestampChange}
                   className="w-full h-2 bg-[#0f1630] rounded-lg appearance-none cursor-pointer slider-thumb"

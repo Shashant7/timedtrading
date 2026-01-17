@@ -2,7 +2,7 @@
 
 Source: `https://timed-trading-ingest.shashant.workers.dev`
 Window: last **180** days
-Generated: 2026-01-17T18:16:25.477Z
+Generated: 2026-01-17T19:11:23.950Z
 
 ## Summary (Top 25 by max run-up)
 
@@ -95,6 +95,20 @@ Common traits at the start of the max run-up window:
 - **Start**: $1409.34 | state=HTF_BULL_LTF_PULLBACK | HTF=24.89 LTF=-7.96 | phase=76% | completion=5% | RR=—
 - **End**: $1578.38 | state=HTF_BULL_LTF_BULL | HTF=39.13 LTF=21.05 | phase=100% | completion=27% | RR=—
 
-## Notes / Next improvements
+## Included deep dives
+
+Requested tickers: **AMD**, **MP**
+
+### AMD
+- **Max run-up**: +7.45% (2026-01-14T20:15:00Z → 2026-01-15T18:05:00Z)
+- **Start**: $221.63 | state=HTF_BULL_LTF_BULL | HTF=23.15 LTF=4.82 | phase=19% | completion=10% | RR=—
+- **End**: $238.14 | state=HTF_BULL_LTF_BULL | HTF=43.38 LTF=16.77 | phase=45% | completion=2% | RR=—
+
+### MP
+- **Max run-up**: +5.65% (2026-01-16T14:39:00Z → 2026-01-16T18:13:00Z)
+- **Start**: $65.86 | state=HTF_BULL_LTF_PULLBACK | HTF=18.78 LTF=-5.34 | phase=43% | completion=5% | RR=—
+- **End**: $69.58 | state=HTF_BULL_LTF_BULL | HTF=23.45 LTF=21.09 | phase=52% | completion=3% | RR=—
+
+## Next improvements
+- **Tag trail points with explicit event markers** (Prime/Eligible transition, corridor entry/exit, squeeze on/release, TD9/TD13, EMA cross, entry/trim/exit) so we can sequence-mine “winner paths” vs “loser paths”.
 - This analysis uses the recorded trail points we store (not full market data).
-- If you want this to be *golden-pattern grade*, the next step is to tag trail points with explicit event markers (e.g., Prime entry, corridor entry, squeeze release, TD9/TD13) and run sequence mining across winners vs losers.
