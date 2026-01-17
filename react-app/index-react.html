@@ -1232,6 +1232,46 @@
         );
       }
 
+      // Winner Signature (early-run high-probability pattern)
+      // Note: UI classification uses only the *current* snapshot (no sequence mining yet).
+      function winnerSignatureScore(ticker) {
+        if (!ticker) return 0;
+        const flags = ticker.flags || {};
+        const state = String(ticker.state || "");
+        const ent = entryType(ticker);
+        const comp = completionForSize(ticker);
+        const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : NaN;
+
+        const isSetup = state.includes("PULLBACK");
+        const inCorridor = !!ent?.corridor;
+        const lowCompletion = Number.isFinite(comp) && comp < 0.15;
+        const earlyPhase = Number.isFinite(phase) && phase < 0.6;
+        const inSqueeze = !!flags.sq30_on && !flags.sq30_release;
+
+        return [isSetup, inCorridor, lowCompletion, earlyPhase, inSqueeze].filter(Boolean).length;
+      }
+
+      function isWinnerSignature(ticker) {
+        if (!ticker) return false;
+        const flags = ticker.flags || {};
+        const state = String(ticker.state || "");
+        const ent = entryType(ticker);
+        const comp = completionForSize(ticker);
+        const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : NaN;
+
+        const isSetup = state.includes("PULLBACK");
+        const inCorridor = !!ent?.corridor;
+        const lowCompletion = Number.isFinite(comp) && comp < 0.15;
+        const earlyPhase = Number.isFinite(phase) && phase < 0.6;
+        const inSqueeze = !!flags.sq30_on && !flags.sq30_release;
+
+        // Core: setup + corridor + low completion
+        // Plus: early phase OR in squeeze (pressure build marker)
+        if (!(isSetup && inCorridor && lowCompletion)) return false;
+        if (!(earlyPhase || inSqueeze)) return false;
+        return true;
+      }
+
       function entryType(ticker) {
         const h = Number(ticker.htf_score);
         const l = Number(ticker.ltf_score);
@@ -2295,6 +2335,9 @@
           if (effectiveFilters.prime === true) {
             if (!isPrimeBubble(d)) continue;
           }
+          if (effectiveFilters.winnerSignature === true) {
+            if (!isWinnerSignature(d)) continue;
+          }
 
           // Opportunities filter (Viewport row 3)
           if (
@@ -2573,6 +2616,7 @@
           const finalSize = Math.max(baseSize, size + sizeVariation); // Add variation, ensure minimum baseSize
 
           const prime = isPrimeBubble(ticker);
+          const winnerSig = isWinnerSignature(ticker);
           const flags = ticker.flags || {};
           const ent = entryType(ticker);
 
@@ -2626,11 +2670,15 @@
             ? 1
             : prime
             ? 0.95
+            : winnerSig
+            ? 0.95
             : 0.85; // Increased from 0.7 to 0.85 for better visibility
 
           const borderWidth = waitingForData
             ? 2
             : prime
+            ? 3
+            : winnerSig
             ? 3
             : flags.sq30_release
             ? 2
@@ -2642,6 +2690,8 @@
             ? "#93a4d6"
             : prime
             ? "#2ecc71"
+            : winnerSig
+            ? "#a855f7"
             : flags.sq30_release
             ? "#00ffff"
             : flags.sq30_on
@@ -2751,6 +2801,8 @@
             ? "⏳"
             : prime
             ? "⭐"
+            : winnerSig
+            ? "🏆"
             : flags.sq30_release
             ? "⚡"
             : flags.sq30_on
@@ -4478,6 +4530,11 @@
                           ⭐ PRIME SETUP
                         </div>
                       )}
+                      {isWinnerSignature(tooltip) && (
+                        <div className="mb-2 px-2 py-1 rounded bg-purple-500/20 text-purple-300 text-xs font-semibold text-center border border-purple-500/30">
+                          🏆 WINNER SIGNATURE
+                        </div>
+                      )}
                         <div className="space-y-1">
                         <div className="flex justify-between">
                           <span className="text-[#93a4d6]">Score</span>
@@ -4624,6 +4681,7 @@
 
             const flags = ticker.flags || {};
             const prime = isPrimeBubble(ticker);
+            const winnerSig = isWinnerSignature(ticker);
             const isTopRanked = topRankedTicker === ticker.ticker;
             const isBubbleHovered = hoveredTicker === ticker.ticker;
             const hasSqueeze = flags.sq30_release || flags.sq30_on;
@@ -4635,6 +4693,8 @@
               ? "⏳"
               : prime
               ? "⭐"
+              : winnerSig
+              ? "🏆"
               : flags.sq30_release
               ? "⚡"
               : flags.sq30_on
@@ -4645,6 +4705,8 @@
               ? "#93a4d6"
               : prime
               ? "#2ecc71"
+              : winnerSig
+              ? "#a855f7"
               : flags.sq30_release
               ? "#00ffff"
               : flags.sq30_on
@@ -4657,10 +4719,14 @@
               ? 1
               : prime
               ? 0.95
+              : winnerSig
+              ? 0.95
               : 0.85;
             const borderWidth = waitingForData
               ? 2
               : prime
+              ? 3
+              : winnerSig
               ? 3
               : flags.sq30_release || flags.sq30_on
               ? 2
@@ -8573,6 +8639,11 @@
             icon: "🚀",
           },
           {
+            label: "Winner Signature",
+            filter: { winnerSignature: true },
+            icon: "🏆",
+          },
+          {
             label: "Q1: Bull Setup",
             filter: { quadrants: ["HTF_BULL_LTF_PULLBACK"] },
             icon: "📈",
@@ -8826,6 +8897,7 @@
             squeezeRelease: undefined,
             inSqueeze: undefined,
             momentumElite: undefined,
+            winnerSignature: undefined,
             top40: undefined,
             hasTrades: undefined,
             td9Setup: undefined,
@@ -9034,6 +9106,7 @@
                 {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
                 {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
                 {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
+                {pill("Winner Signature", filters.winnerSignature === true, () => toggleBool("winnerSignature"))}
               </div>
             </div>
 
@@ -9216,6 +9289,7 @@
         const Row = ({ item }) => {
           const t = item.t;
           const c = item.c;
+          const winnerSig = isWinnerSignature(t);
           const actionInfo = getActionDescription(t);
           const price = Number(t?.price);
           const rr = Number(t?.rr);
@@ -9290,13 +9364,22 @@
             <button
               key={t.ticker}
               onClick={() => onSelectTicker && onSelectTicker(t.ticker)}
-              className="w-full text-left px-3 py-2 rounded-lg border border-[#26325f] bg-[#121a33] hover:bg-[#16224a] hover:border-[#3a4aa0] transition-all"
+              className={`w-full text-left px-3 py-2 rounded-lg border bg-[#121a33] hover:bg-[#16224a] transition-all ${
+                winnerSig
+                  ? "border-purple-500/50 hover:border-purple-400 shadow-[0_0_0_1px_rgba(168,85,247,0.15)]"
+                  : "border-[#26325f] hover:border-[#3a4aa0]"
+              }`}
               title="Open in right rail"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="font-bold text-white">{t.ticker}</div>
+                    {winnerSig && (
+                      <span className="px-2 py-0.5 rounded border border-purple-500/40 bg-purple-500/15 text-[10px] font-semibold text-purple-200">
+                        🏆 Winner
+                      </span>
+                    )}
                     <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${statusPill.cls}`}>
                       {statusPill.label}
                     </span>

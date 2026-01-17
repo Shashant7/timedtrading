@@ -2,7 +2,7 @@
 
 Source: `https://timed-trading-ingest.shashant.workers.dev`
 Window: last **180** days
-Generated: 2026-01-17T19:11:23.950Z
+Generated: 2026-01-17T20:52:14.970Z
 
 ## Summary (Top 25 by max run-up)
 
@@ -12,6 +12,16 @@ Common traits at the start of the max run-up window:
 - Low Completion (<15%): **76%**
 - High RR (≥2.0): **0%**
 - Setup quadrant (PULLBACK): **92%**
+- Squeeze on (sq30_on) within prior 24h: **16%**
+- Squeeze release (sq30_release) within prior 24h: **0%**
+- Squeeze release within prior 3h: **0%**
+- Setup→Momentum transition within 6h: **64%**
+
+Winner signature checklist (early, high-probability):
+- Start state is a setup quadrant (often *LTF_PULLBACK*) **and** flips into LTF momentum within hours
+- Low completion at run start (typically <15%)
+- Phase tends to be early-to-mid at run start
+- If squeeze release occurs within a few hours of run start, it’s a strong “go-time” marker
 
 ## Table
 
@@ -49,51 +59,71 @@ Common traits at the start of the max run-up window:
 - **Max run-up**: +27.37% (2026-01-14T15:45:00Z → 2026-01-16T18:55:00Z)
 - **Start**: $27.26 | state=HTF_BULL_LTF_BULL | HTF=8.62 LTF=20.01 | phase=19% | completion=8% | RR=—
 - **End**: $34.72 | state=HTF_BULL_LTF_BULL | HTF=19.14 LTF=15.14 | phase=75% | completion=39% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 0m → HTF_BULL_LTF_BULL
 
 ### AVAV
 - **Max run-up**: +17.19% (2026-01-14T14:40:00Z → 2026-01-16T19:14:00Z)
 - **Start**: $348.09 | state=HTF_BULL_LTF_PULLBACK | HTF=27.49 LTF=-11.15 | phase=75% | completion=53% | RR=—
 - **End**: $407.91 | state=HTF_BULL_LTF_BULL | HTF=42.43 LTF=22.17 | phase=92% | completion=83% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 55m → HTF_BULL_LTF_BULL
 
 ### RIOT
 - **Max run-up**: +17.03% (2026-01-15T20:59:00Z → 2026-01-16T20:57:00Z)
 - **Start**: $16.56 | state=HTF_BULL_LTF_PULLBACK | HTF=18.1 LTF=-4.05 | phase=44% | completion=6% | RR=—
 - **End**: $19.38 | state=HTF_BULL_LTF_BULL | HTF=33.5 LTF=20.17 | phase=65% | completion=29% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 17.5h → HTF_BULL_LTF_BULL
 
 ### RKLB
 - **Max run-up**: +15.12% (2026-01-14T15:30:00Z → 2026-01-16T16:03:00Z)
 - **Start**: $86.37 | state=HTF_BULL_LTF_PULLBACK | HTF=28.31 LTF=-8.99 | phase=72% | completion=1% | RR=—
 - **End**: $99.43 | state=HTF_BULL_LTF_BULL | HTF=38.32 LTF=17.77 | phase=88% | completion=12% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=yes | sq30_release<=24h=no
+- **Setup→Momentum**: 1.9h → HTF_BULL_LTF_BULL
 
 ### TLN
 - **Max run-up**: +14.84% (2026-01-14T15:35:00Z → 2026-01-15T20:37:00Z)
 - **Start**: $369.52 | state=HTF_BEAR_LTF_BEAR | HTF=-0.26 LTF=-14.01 | phase=4% | completion=0% | RR=—
 - **End**: $424.37 | state=HTF_BULL_LTF_BULL | HTF=24.48 LTF=18.72 | phase=27% | completion=44% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 0m → HTF_BEAR_LTF_BEAR
 
 ### STRL
 - **Max run-up**: +14.38% (2026-01-14T18:30:00Z → 2026-01-16T16:42:00Z)
 - **Start**: $312.17 | state=HTF_BULL_LTF_PULLBACK | HTF=12.19 LTF=-13.9 | phase=0% | completion=2% | RR=—
 - **End**: $357.07 | state=HTF_BULL_LTF_BULL | HTF=31.14 LTF=14.15 | phase=36% | completion=27% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 30m → HTF_BULL_LTF_BULL
 
 ### BE
 - **Max run-up**: +14.04% (2026-01-14T20:45:00Z → 2026-01-16T20:20:00Z)
 - **Start**: $131.86 | state=HTF_BULL_LTF_PULLBACK | HTF=27.37 LTF=-7.55 | phase=63% | completion=39% | RR=—
 - **End**: $150.37 | state=HTF_BULL_LTF_BULL | HTF=30.5 LTF=25.44 | phase=71% | completion=17% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 18h → HTF_BULL_LTF_BULL
 
 ### KTOS
 - **Max run-up**: +13.32% (2026-01-14T15:00:00Z → 2026-01-16T18:37:00Z)
 - **Start**: $116.42 | state=HTF_BULL_LTF_PULLBACK | HTF=38.67 LTF=-0.54 | phase=100% | completion=2% | RR=—
 - **End**: $131.93 | state=HTF_BULL_LTF_BULL | HTF=38.1 LTF=18.85 | phase=100% | completion=12% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 20m → HTF_BULL_LTF_BULL
 
 ### MTZ
 - **Max run-up**: +12.89% (2026-01-14T17:45:00Z → 2026-01-16T16:42:00Z)
 - **Start**: $220.76 | state=HTF_BULL_LTF_PULLBACK | HTF=37.83 LTF=-9 | phase=2% | completion=9% | RR=—
 - **End**: $249.21 | state=HTF_BULL_LTF_BULL | HTF=42.41 LTF=23.07 | phase=40% | completion=18% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=yes | sq30_release<=24h=no
+- **Setup→Momentum**: 20.9h → HTF_BULL_LTF_BULL
 
 ### KLAC
 - **Max run-up**: +11.99% (2026-01-14T16:45:00Z → 2026-01-16T20:22:00Z)
 - **Start**: $1409.34 | state=HTF_BULL_LTF_PULLBACK | HTF=24.89 LTF=-7.96 | phase=76% | completion=5% | RR=—
 - **End**: $1578.38 | state=HTF_BULL_LTF_BULL | HTF=39.13 LTF=21.05 | phase=100% | completion=27% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 60m → HTF_BULL_LTF_BULL
 
 ## Included deep dives
 
@@ -103,11 +133,15 @@ Requested tickers: **AMD**, **MP**
 - **Max run-up**: +7.45% (2026-01-14T20:15:00Z → 2026-01-15T18:05:00Z)
 - **Start**: $221.63 | state=HTF_BULL_LTF_BULL | HTF=23.15 LTF=4.82 | phase=19% | completion=10% | RR=—
 - **End**: $238.14 | state=HTF_BULL_LTF_BULL | HTF=43.38 LTF=16.77 | phase=45% | completion=2% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=yes | sq30_release<=24h=no
+- **Setup→Momentum**: 0m → HTF_BULL_LTF_BULL
 
 ### MP
 - **Max run-up**: +5.65% (2026-01-16T14:39:00Z → 2026-01-16T18:13:00Z)
 - **Start**: $65.86 | state=HTF_BULL_LTF_PULLBACK | HTF=18.78 LTF=-5.34 | phase=43% | completion=5% | RR=—
 - **End**: $69.58 | state=HTF_BULL_LTF_BULL | HTF=23.45 LTF=21.09 | phase=52% | completion=3% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: 4m → HTF_BULL_LTF_BULL
 
 ## Next improvements
 - **Tag trail points with explicit event markers** (Prime/Eligible transition, corridor entry/exit, squeeze on/release, TD9/TD13, EMA cross, entry/trim/exit) so we can sequence-mine “winner paths” vs “loser paths”.

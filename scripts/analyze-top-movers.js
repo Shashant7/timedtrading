@@ -52,6 +52,41 @@ function toMs(v) {
   return Number.isFinite(ms) ? ms : NaN;
 }
 
+function normalizeFlags(flags) {
+  if (flags == null) return null;
+  if (typeof flags === "object") return flags;
+  if (typeof flags === "string") {
+    const s = flags.trim();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function boolish(v) {
+  if (v === true) return true;
+  if (v === false) return false;
+  if (v == null) return false;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (!s) return false;
+    return s === "true" || s === "1" || s === "yes" || s === "y";
+  }
+  return false;
+}
+
+function flagOn(flags, key) {
+  const f = normalizeFlags(flags);
+  if (!f) return false;
+  return boolish(f?.[key]);
+}
+
 function pickNum(o, keys) {
   for (const k of keys) {
     const v = Number(o?.[k]);
@@ -75,6 +110,16 @@ function fmtPct(v) {
 function fmtTs(ms) {
   if (!Number.isFinite(ms)) return "—";
   return new Date(ms).toISOString().replace(".000Z", "Z");
+}
+
+function fmtMins(ms) {
+  const m = Number(ms) / 60000;
+  if (!Number.isFinite(m)) return "—";
+  if (m < 90) return `${Math.round(m)}m`;
+  const h = m / 60;
+  if (h < 48) return `${Math.round(h * 10) / 10}h`;
+  const d = h / 24;
+  return `${Math.round(d * 10) / 10}d`;
 }
 
 async function fetchJson(url) {
@@ -101,7 +146,7 @@ async function getTrail(ticker, sinceMs) {
       const ts = toMs(p?.ts ?? p?.timestamp ?? p?.ingest_ts ?? p?.ingest_time);
       const price = Number(p?.price);
       if (!Number.isFinite(ts) || !Number.isFinite(price) || price <= 0) return null;
-      return { ...p, __ts: ts, __price: price };
+      return { ...p, __ts: ts, __price: price, __flags: normalizeFlags(p?.flags) };
     })
     .filter(Boolean)
     .sort((a, b) => a.__ts - b.__ts);
@@ -211,12 +256,73 @@ function computeStats(ticker, pts) {
       completion: pickNum(best, ["completion"]),
       rr: pickNum(best, ["rr"]),
       trigger_reason: best.trigger_reason || null,
-      flags: best.flags || null,
+      flags: best.__flags || null,
     };
   };
 
   const start = snapAt(maxRunFrom);
   const end = snapAt(maxRunTo);
+
+  // Event alignment around max run-up start (squeeze + setup→momentum timing)
+  const LOOKBACK_MS = 24 * 60 * 60 * 1000;
+  const FORWARD_MS = 24 * 60 * 60 * 1000;
+  const startTs = start?.ts;
+
+  const journey = (() => {
+    if (!Number.isFinite(startTs)) return null;
+    const fromTs = startTs - LOOKBACK_MS;
+    const toTs = startTs + FORWARD_MS;
+
+    let lastSqReleaseTs = null;
+    let anySqOn = false;
+    let anySqRelease = false;
+
+    let firstMomentumTs = null;
+    let firstMomentumState = null;
+
+    for (const p of pts) {
+      const ts = p.__ts;
+      if (!Number.isFinite(ts)) continue;
+
+      // lookback scan
+      if (ts >= fromTs && ts <= startTs) {
+        const on = flagOn(p.__flags, "sq30_on");
+        const rel = flagOn(p.__flags, "sq30_release");
+        if (on) anySqOn = true;
+        if (rel) {
+          anySqRelease = true;
+          if (lastSqReleaseTs == null || ts > lastSqReleaseTs) lastSqReleaseTs = ts;
+        }
+      }
+
+      // forward scan for first momentum (after start)
+      if (firstMomentumTs == null && ts >= startTs && ts <= toTs) {
+        const st = String(p.state || "");
+        const isPullback = st.includes("PULLBACK");
+        const isMomentum = (st.includes("LTF_BULL") || st.includes("LTF_BEAR")) && !isPullback;
+        if (isMomentum) {
+          firstMomentumTs = ts;
+          firstMomentumState = st || null;
+        }
+      }
+    }
+
+    return {
+      lookback_ms: LOOKBACK_MS,
+      forward_ms: FORWARD_MS,
+      sq30_on_lookback: anySqOn,
+      sq30_release_lookback: anySqRelease,
+      sq30_on_at_start: flagOn(start?.flags, "sq30_on"),
+      sq30_release_at_start: flagOn(start?.flags, "sq30_release"),
+      sq30_last_release_ts: lastSqReleaseTs,
+      sq30_release_to_start_ms:
+        Number.isFinite(lastSqReleaseTs) && Number.isFinite(startTs) ? startTs - lastSqReleaseTs : null,
+      first_momentum_ts: firstMomentumTs,
+      first_momentum_state: firstMomentumState,
+      start_to_momentum_ms:
+        Number.isFinite(firstMomentumTs) && Number.isFinite(startTs) ? firstMomentumTs - startTs : null,
+    };
+  })();
 
   return {
     ticker,
@@ -229,6 +335,7 @@ function computeStats(ticker, pts) {
       start,
       end,
     },
+    journey,
     maxIntradaySwing: { pct: maxIntraday, day: maxIntradayDay },
     maxCloseToCloseAbs: { pct: maxCloseToClose, day: maxCloseToCloseDay },
   };
@@ -241,6 +348,10 @@ function summarizeCommonTraits(items) {
     startLowCompletion: 0,
     startHighRR: 0,
     startInSetupQuadrant: 0,
+    startSqOnLookback: 0,
+    startSqReleaseLookback: 0,
+    startSqReleaseNear: 0,
+    startTransitionsToMomentum: 0,
   };
   const n = items.length || 1;
   for (const it of items) {
@@ -264,6 +375,16 @@ function summarizeCommonTraits(items) {
       phase < 0.6
     ) {
       traits.startPrimeLike++;
+    }
+
+    const j = it?.journey;
+    if (j?.sq30_on_lookback) traits.startSqOnLookback++;
+    if (j?.sq30_release_lookback) traits.startSqReleaseLookback++;
+    if (Number.isFinite(j?.sq30_release_to_start_ms) && j.sq30_release_to_start_ms <= 3 * 60 * 60 * 1000) {
+      traits.startSqReleaseNear++;
+    }
+    if (Number.isFinite(j?.start_to_momentum_ms) && j.start_to_momentum_ms <= 6 * 60 * 60 * 1000) {
+      traits.startTransitionsToMomentum++;
     }
   }
   return Object.fromEntries(
@@ -294,6 +415,16 @@ function toMarkdown(results, topN) {
   lines.push(`- Low Completion (<15%): **${traits.startLowCompletion.pct}%**`);
   lines.push(`- High RR (≥2.0): **${traits.startHighRR.pct}%**`);
   lines.push(`- Setup quadrant (PULLBACK): **${traits.startInSetupQuadrant.pct}%**`);
+  lines.push(`- Squeeze on (sq30_on) within prior 24h: **${traits.startSqOnLookback.pct}%**`);
+  lines.push(`- Squeeze release (sq30_release) within prior 24h: **${traits.startSqReleaseLookback.pct}%**`);
+  lines.push(`- Squeeze release within prior 3h: **${traits.startSqReleaseNear.pct}%**`);
+  lines.push(`- Setup→Momentum transition within 6h: **${traits.startTransitionsToMomentum.pct}%**`);
+  lines.push(``);
+  lines.push(`Winner signature checklist (early, high-probability):`);
+  lines.push(`- Start state is a setup quadrant (often *LTF_PULLBACK*) **and** flips into LTF momentum within hours`);
+  lines.push(`- Low completion at run start (typically <15%)`);
+  lines.push(`- Phase tends to be early-to-mid at run start`);
+  lines.push(`- If squeeze release occurs within a few hours of run start, it’s a strong “go-time” marker`);
   lines.push(``);
 
   lines.push(`## Table`);
@@ -317,6 +448,7 @@ function toMarkdown(results, topN) {
   top.slice(0, Math.min(10, topN)).forEach((r) => {
     const s = r.maxRunup?.start;
     const e = r.maxRunup?.end;
+    const j = r.journey;
     lines.push(`### ${r.ticker}`);
     lines.push(`- **Max run-up**: ${fmtPct(r.maxRunup?.pct)} (${fmtTs(r.maxRunup?.from)} → ${fmtTs(r.maxRunup?.to)})`);
     if (s && e) {
@@ -325,6 +457,14 @@ function toMarkdown(results, topN) {
       );
       lines.push(
         `- **End**: $${Number(e.price).toFixed(2)} | state=${e.state || "—"} | HTF=${e.htf ?? "—"} LTF=${e.ltf ?? "—"} | phase=${e.phase_pct != null ? Math.round(Number(e.phase_pct) * 100) + "%" : "—"} | completion=${e.completion != null ? Math.round(Number(e.completion) * 100) + "%" : "—"} | RR=${e.rr ?? "—"}`
+      );
+    }
+    if (j) {
+      lines.push(
+        `- **Squeeze alignment**: sq30_on<=24h=${j.sq30_on_lookback ? "yes" : "no"} | sq30_release<=24h=${j.sq30_release_lookback ? "yes" : "no"}${Number.isFinite(j.sq30_release_to_start_ms) ? ` (Δ=${fmtMins(j.sq30_release_to_start_ms)})` : ""}`
+      );
+      lines.push(
+        `- **Setup→Momentum**: ${Number.isFinite(j.start_to_momentum_ms) ? `${fmtMins(j.start_to_momentum_ms)} → ${j.first_momentum_state || "—"}` : "—"}`
       );
     }
     lines.push(``);
@@ -340,6 +480,7 @@ function toMarkdown(results, topN) {
     included.forEach((r) => {
       const s = r.maxRunup?.start;
       const e = r.maxRunup?.end;
+      const j = r.journey;
       lines.push(`### ${r.ticker}`);
       lines.push(
         `- **Max run-up**: ${fmtPct(r.maxRunup?.pct)} (${fmtTs(
@@ -376,6 +517,14 @@ function toMarkdown(results, topN) {
               ? Math.round(Number(e.completion) * 100) + "%"
               : "—"
           } | RR=${e.rr ?? "—"}`
+        );
+      }
+      if (j) {
+        lines.push(
+          `- **Squeeze alignment**: sq30_on<=24h=${j.sq30_on_lookback ? "yes" : "no"} | sq30_release<=24h=${j.sq30_release_lookback ? "yes" : "no"}${Number.isFinite(j.sq30_release_to_start_ms) ? ` (Δ=${fmtMins(j.sq30_release_to_start_ms)})` : ""}`
+        );
+        lines.push(
+          `- **Setup→Momentum**: ${Number.isFinite(j.start_to_momentum_ms) ? `${fmtMins(j.start_to_momentum_ms)} → ${j.first_momentum_state || "—"}` : "—"}`
         );
       }
       lines.push(``);
