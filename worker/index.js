@@ -148,6 +148,10 @@ const NY_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
   month: "2-digit",
   day: "2-digit",
 });
+const NY_WD_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  weekday: "short",
+});
 function nyTradingDayKey(tsMs) {
   const ms = Number(tsMs);
   if (!Number.isFinite(ms)) return null;
@@ -155,6 +159,16 @@ function nyTradingDayKey(tsMs) {
     return NY_DAY_FMT.format(new Date(ms)); // YYYY-MM-DD
   } catch {
     return null;
+  }
+}
+function isNyWeekend(tsMs) {
+  const ms = Number(tsMs);
+  if (!Number.isFinite(ms)) return false;
+  try {
+    const wd = String(NY_WD_FMT.format(new Date(ms))).toLowerCase();
+    return wd.startsWith("sat") || wd.startsWith("sun");
+  } catch {
+    return false;
   }
 }
 
@@ -1792,7 +1806,8 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
       tooFarPct: 0.25,
       minDistanceBetweenTPs: 0.03,
       maxTPs: 3,
-      trimLevels: [0.35, 0.7, 1.0],
+      // Let winners run: smaller early trims
+      trimLevels: [0.2, 0.5, 1.0],
       fallbackMultipliers: [0.7, 1.0, 1.4],
     },
     SWING: {
@@ -1804,7 +1819,8 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
       tooFarPct: 0.45,
       minDistanceBetweenTPs: 0.05,
       maxTPs: 4,
-      trimLevels: [0.2, 0.45, 0.7, 1.0],
+      // Let winners run: smaller early trims
+      trimLevels: [0.1, 0.25, 0.5, 1.0],
       fallbackMultipliers: [0.6, 1.0, 1.6],
     },
     POSITIONAL: {
@@ -2235,6 +2251,10 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     return null;
   }
 
+  // Market is closed on weekends — never execute TP trims/exits on Sat/Sun.
+  // (We still allow SL evaluation to be conservative.)
+  const weekendNow = isNyWeekend(Date.now());
+
   const ticker = String(tickerData.ticker || "").toUpperCase();
   const isFutures = FUTURES_SPECS[ticker] || ticker.endsWith("1!");
 
@@ -2372,7 +2392,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
       exitPrice: sl,
       exitReason: "SL",
     };
-  } else if (hitTPLevels.length > 0) {
+  } else if (hitTPLevels.length > 0 && !weekendNow) {
     // One or more TP levels hit - determine next trim action
     // Find the highest TP level hit that we haven't trimmed yet
     let nextTrimTP = null;
@@ -2991,6 +3011,13 @@ async function processTradeSimulation(
         (direction === "SHORT" && tdSeqExitShort);
 
       let tradeCalc;
+      if (shouldExitFromTDSeq) {
+        // Market is closed on weekends — do not exit/defend based on TDSEQ on Sat/Sun.
+        if (isNyWeekend(Date.now())) {
+          shouldExitFromTDSeq = false;
+        }
+      }
+
       if (shouldExitFromTDSeq) {
         // Defensive rule: if price is still on the right side of the Daily 5–8 EMA cloud,
         // do NOT exit immediately. Tighten SL to the opposite band of the cloud instead.

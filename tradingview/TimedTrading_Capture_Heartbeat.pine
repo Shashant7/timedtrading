@@ -9,6 +9,14 @@ scriptVersion = input.string("capture_1.0.0", "Script Version", group=groupCaptu
 includeOHLC = input.bool(false, "Include OHLC", group=groupCapture)
 includeVolume = input.bool(false, "Include Volume", group=groupCapture)
 
+// Daily change vs previous close (watchlist style)
+prevCloseD = request.security(syminfo.tickerid, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
+dayChange = not na(prevCloseD) and prevCloseD > 0 ? (close - prevCloseD) : na
+dayChangePct = not na(dayChange) and prevCloseD > 0 ? ((dayChange / prevCloseD) * 100.0) : na
+prevCloseStr = not na(prevCloseD) ? (",\"prev_close\":" + str.tostring(prevCloseD)) : ""
+chgStr = not na(dayChange) ? (",\"day_change\":" + str.tostring(dayChange) + ",\"change\":" + str.tostring(dayChange)) : ""
+pctStr = not na(dayChangePct) ? (",\"day_change_pct\":" + str.tostring(dayChangePct) + ",\"change_pct\":" + str.tostring(dayChangePct)) : ""
+
 payload = "{" +
   "\"script_version\":\"" + scriptVersion + "\"," +
   "\"ts\":" + str.tostring(time) + "," +
@@ -17,6 +25,7 @@ payload = "{" +
   "\"ticker\":\"" + syminfo.ticker + "\"," +
   "\"tf_hint\":\"" + timeframe.period + "\"," +
   "\"price\":" + str.tostring(close) +
+  prevCloseStr + chgStr + pctStr +
   (includeOHLC
     ? ",\"o\":" + str.tostring(open) +
       ",\"h\":" + str.tostring(high) +
