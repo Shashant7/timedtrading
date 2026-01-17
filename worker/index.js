@@ -9825,73 +9825,96 @@ export default {
 
         // Backfill daily change fields (watchlist-style) if missing.
         // Many tickers do not include prev close / session change from TradingView,
-        // so we derive yesterday's close from D1 timed_trail (single query for all tickers)
-        // and cache it in KV for future ingests.
+        // so we derive prev_close from D1 timed_trail and cache it in KV.
+        //
+        // IMPORTANT: We anchor "current day" to each ticker's own last timestamp.
+        // This makes weekends behave like a trading platform watchlist:
+        // - Sat/Sun: compare Friday close vs Thursday close (since ticker ts is Friday)
+        // - Mon: compare current vs Friday close
+        // - Tue: compare current vs Monday close, etc.
         try {
           const db = env?.DB;
           if (db) {
-            const nowMs = Date.now();
-            const curDay = nyTradingDayKey(nowMs);
-            const nyTodayStart = nyWallMidnightToUtcMs(curDay);
-            const prevDay = nyTradingDayKey((Number(nyTodayStart) || nowMs) - 1);
-            const nyPrevStart = nyWallMidnightToUtcMs(prevDay);
+            const needs = [];
+            const byDay = new Map(); // dayKey -> Set(ticker)
 
-            if (
-              Number.isFinite(nyTodayStart) &&
-              Number.isFinite(nyPrevStart) &&
-              nyPrevStart < nyTodayStart
-            ) {
-              const rows = await db
-                .prepare(
-                  `SELECT t1.ticker AS ticker, t1.price AS price
-                   FROM timed_trail t1
-                   JOIN (
-                     SELECT ticker, MAX(ts) AS tsMax
-                     FROM timed_trail
-                     WHERE ts >= ?1 AND ts < ?2 AND price IS NOT NULL
-                     GROUP BY ticker
-                   ) t2
-                   ON t1.ticker = t2.ticker AND t1.ts = t2.tsMax`
-                )
-                .bind(nyPrevStart, nyTodayStart)
-                .all();
-
-              const closeMap = new Map();
-              for (const r of rows?.results || []) {
-                const sym = String(r.ticker || "").toUpperCase();
-                const p = Number(r.price);
-                if (sym && Number.isFinite(p) && p > 0 && !closeMap.has(sym)) {
-                  closeMap.set(sym, p);
-                }
+            for (const [sym, v] of Object.entries(data)) {
+              if (!v || typeof v !== "object") continue;
+              const price = Number(v.price);
+              if (!Number.isFinite(price) || price <= 0) continue;
+              if (
+                v.prev_close != null ||
+                v.day_change != null ||
+                v.day_change_pct != null
+              ) {
+                continue;
               }
+              const ts = Number(v.ts ?? v.ingest_ts);
+              const dayKey = nyTradingDayKey(ts);
+              if (!dayKey) continue;
+              needs.push(sym);
+              if (!byDay.has(dayKey)) byDay.set(dayKey, new Set());
+              byDay.get(dayKey).add(String(sym).toUpperCase());
+            }
 
+            if (needs.length > 0 && byDay.size > 0) {
               const cachePromises = [];
-              for (const [sym, v] of Object.entries(data)) {
-                if (!v || typeof v !== "object") continue;
-                const price = Number(v.price);
-                if (!Number.isFinite(price) || price <= 0) continue;
-                if (
-                  v.prev_close != null ||
-                  v.day_change != null ||
-                  v.day_change_pct != null
-                ) {
-                  continue;
-                }
-                const prevClose = closeMap.get(String(sym).toUpperCase());
-                if (!Number.isFinite(prevClose) || prevClose <= 0) continue;
-                v.prev_close = prevClose;
-                v.day_change = price - prevClose;
-                v.day_change_pct = ((price - prevClose) / prevClose) * 100;
 
-                // Cache for the current day (yesterday close for today)
-                cachePromises.push(
-                  kvPutJSON(
-                    KV,
-                    `timed:prev_close:${String(sym).toUpperCase()}`,
-                    { day: prevDay, close: prevClose },
-                    14 * 24 * 60 * 60
+              for (const [dayKey, tickSet] of byDay.entries()) {
+                const nyStart = nyWallMidnightToUtcMs(dayKey);
+                if (!Number.isFinite(nyStart)) continue;
+                const lookbackStart = nyStart - 14 * 24 * 60 * 60 * 1000;
+
+                // For this "current day", prev_close is the last known price before nyStart.
+                const rows = await db
+                  .prepare(
+                    `SELECT t1.ticker AS ticker, t1.price AS price, t1.ts AS ts
+                     FROM timed_trail t1
+                     JOIN (
+                       SELECT ticker, MAX(ts) AS tsMax
+                       FROM timed_trail
+                       WHERE ts >= ?1 AND ts < ?2 AND price IS NOT NULL
+                       GROUP BY ticker
+                     ) t2
+                     ON t1.ticker = t2.ticker AND t1.ts = t2.tsMax`
                   )
-                );
+                  .bind(lookbackStart, nyStart)
+                  .all();
+
+                const closeMap = new Map();
+                for (const r of rows?.results || []) {
+                  const sym = String(r.ticker || "").toUpperCase();
+                  const p = Number(r.price);
+                  if (sym && Number.isFinite(p) && p > 0 && !closeMap.has(sym)) {
+                    closeMap.set(sym, { close: p, ts: Number(r.ts) });
+                  }
+                }
+
+                for (const sym of tickSet.values()) {
+                  const v = data[sym];
+                  if (!v) continue;
+                  const price = Number(v.price);
+                  const rec = closeMap.get(sym);
+                  const prevClose = Number(rec?.close);
+                  if (!Number.isFinite(price) || price <= 0) continue;
+                  if (!Number.isFinite(prevClose) || prevClose <= 0) continue;
+
+                  v.prev_close = prevClose;
+                  v.day_change = price - prevClose;
+                  v.day_change_pct = ((price - prevClose) / prevClose) * 100;
+
+                  const prevDayKey = nyTradingDayKey(Number(rec?.ts));
+                  if (prevDayKey) {
+                    cachePromises.push(
+                      kvPutJSON(
+                        KV,
+                        `timed:prev_close:${sym}`,
+                        { day: prevDayKey, close: prevClose },
+                        14 * 24 * 60 * 60
+                      )
+                    );
+                  }
+                }
               }
 
               if (cachePromises.length > 0) {
