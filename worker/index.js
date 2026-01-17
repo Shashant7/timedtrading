@@ -158,6 +158,54 @@ function nyTradingDayKey(tsMs) {
   }
 }
 
+// Convert a wall-clock time in a TZ (YYYY-MM-DD at 00:00:00) to a UTC ms timestamp.
+// We use a small fixed-point iteration to handle DST correctly.
+const NY_TS_PARTS_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  hour12: false,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+function tzOffsetMs(ts, timeZone) {
+  const d = new Date(Number(ts));
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(d);
+  const map = {};
+  for (const p of parts) if (p.type !== "literal") map[p.type] = p.value;
+  const asIso = `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}:${map.second}Z`;
+  const wallAsUtc = Date.parse(asIso);
+  return wallAsUtc - Number(ts);
+}
+function nyWallMidnightToUtcMs(dayKey) {
+  if (!dayKey) return null;
+  const t0 = Date.parse(`${dayKey}T00:00:00Z`); // wall time interpreted as UTC
+  if (!Number.isFinite(t0)) return null;
+  let ts = t0;
+  for (let i = 0; i < 3; i++) {
+    const off = tzOffsetMs(ts, "America/New_York");
+    const next = t0 - off;
+    if (!Number.isFinite(next)) break;
+    if (Math.abs(next - ts) < 1000) {
+      ts = next;
+      break;
+    }
+    ts = next;
+  }
+  return ts;
+}
+
 async function kvGetJSON(KV, key) {
   const t = await KV.get(key);
   if (!t) return null;
@@ -9773,6 +9821,86 @@ export default {
               );
             }
           }
+        }
+
+        // Backfill daily change fields (watchlist-style) if missing.
+        // Many tickers do not include prev close / session change from TradingView,
+        // so we derive yesterday's close from D1 timed_trail (single query for all tickers)
+        // and cache it in KV for future ingests.
+        try {
+          const db = env?.DB;
+          if (db) {
+            const nowMs = Date.now();
+            const curDay = nyTradingDayKey(nowMs);
+            const nyTodayStart = nyWallMidnightToUtcMs(curDay);
+            const prevDay = nyTradingDayKey((Number(nyTodayStart) || nowMs) - 1);
+            const nyPrevStart = nyWallMidnightToUtcMs(prevDay);
+
+            if (
+              Number.isFinite(nyTodayStart) &&
+              Number.isFinite(nyPrevStart) &&
+              nyPrevStart < nyTodayStart
+            ) {
+              const rows = await db
+                .prepare(
+                  `SELECT t1.ticker AS ticker, t1.price AS price
+                   FROM timed_trail t1
+                   JOIN (
+                     SELECT ticker, MAX(ts) AS tsMax
+                     FROM timed_trail
+                     WHERE ts >= ?1 AND ts < ?2 AND price IS NOT NULL
+                     GROUP BY ticker
+                   ) t2
+                   ON t1.ticker = t2.ticker AND t1.ts = t2.tsMax`
+                )
+                .bind(nyPrevStart, nyTodayStart)
+                .all();
+
+              const closeMap = new Map();
+              for (const r of rows?.results || []) {
+                const sym = String(r.ticker || "").toUpperCase();
+                const p = Number(r.price);
+                if (sym && Number.isFinite(p) && p > 0 && !closeMap.has(sym)) {
+                  closeMap.set(sym, p);
+                }
+              }
+
+              const cachePromises = [];
+              for (const [sym, v] of Object.entries(data)) {
+                if (!v || typeof v !== "object") continue;
+                const price = Number(v.price);
+                if (!Number.isFinite(price) || price <= 0) continue;
+                if (
+                  v.prev_close != null ||
+                  v.day_change != null ||
+                  v.day_change_pct != null
+                ) {
+                  continue;
+                }
+                const prevClose = closeMap.get(String(sym).toUpperCase());
+                if (!Number.isFinite(prevClose) || prevClose <= 0) continue;
+                v.prev_close = prevClose;
+                v.day_change = price - prevClose;
+                v.day_change_pct = ((price - prevClose) / prevClose) * 100;
+
+                // Cache for the current day (yesterday close for today)
+                cachePromises.push(
+                  kvPutJSON(
+                    KV,
+                    `timed:prev_close:${String(sym).toUpperCase()}`,
+                    { day: prevDay, close: prevClose },
+                    14 * 24 * 60 * 60
+                  )
+                );
+              }
+
+              if (cachePromises.length > 0) {
+                await Promise.allSettled(cachePromises);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`[DAILY CHANGE] /timed/all backfill failed:`, String(e?.message || e));
         }
 
         // Log summary if any data was filtered
