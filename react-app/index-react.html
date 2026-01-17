@@ -1335,6 +1335,13 @@
           }
           return null;
         };
+        const prevClose = pickNum(t, [
+          "prev_close",
+          "previous_close",
+          "prior_close",
+          "yclose",
+          "close_prev",
+        ]);
         let dayChg = pickNum(t, [
           "day_change",
           "daily_change",
@@ -1351,6 +1358,12 @@
           "session_change_pct",
           "chp",
         ]);
+
+        // If we have prev close but no change fields, compute them like a watchlist.
+        if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct) && Number.isFinite(price) && price > 0 && Number.isFinite(prevClose) && prevClose > 0) {
+          dayChg = price - prevClose;
+          dayPct = (dayChg / prevClose) * 100;
+        }
 
         // If only one of (abs, pct) is present, compute the other using current price
         if (!Number.isFinite(dayChg) && Number.isFinite(dayPct) && Number.isFinite(price) && price > 0) {
@@ -4566,11 +4579,14 @@
                           ⭐ PRIME SETUP
                         </div>
                       )}
-                      <div className="space-y-1">
+                        <div className="space-y-1">
                         <div className="flex justify-between">
                           <span className="text-[#93a4d6]">Score</span>
                           <span className="font-semibold">
-                            {tooltip.rank || "—"}
+                            {(() => {
+                              const s = rankScoreForTicker(tooltip);
+                              return Number.isFinite(s) ? s.toFixed(1) : "—";
+                            })()}
                           </span>
                         </div>
                         {rankPosition !== null && totalTickers > 0 && (
@@ -5219,7 +5235,10 @@
                           <div className="flex justify-between">
                             <span className="text-[#93a4d6]">Score</span>
                             <span className="font-semibold">
-                              {t.rank || "—"}
+                              {(() => {
+                                const s = rankScoreForTicker(t);
+                                return Number.isFinite(s) ? s.toFixed(1) : "—";
+                              })()}
                             </span>
                           </div>
                           {rankPosition !== null && totalTickers > 0 && (
@@ -8998,10 +9017,12 @@
         };
 
         const QUAD = {
-          Q1: "HTF_BULL_LTF_BULL",
-          Q2: "HTF_BULL_LTF_PULLBACK",
-          Q3: "HTF_BEAR_LTF_PULLBACK",
-          Q4: "HTF_BEAR_LTF_BEAR",
+          // Match quadrant presets used elsewhere in the UI
+          // Q1: Bull Setup (pullback), Q2: Bull Momentum, Q3: Bear Momentum, Q4: Bear Setup (pullback)
+          Q1: "HTF_BULL_LTF_PULLBACK",
+          Q2: "HTF_BULL_LTF_BULL",
+          Q3: "HTF_BEAR_LTF_BEAR",
+          Q4: "HTF_BEAR_LTF_PULLBACK",
         };
         const ALL_QUADS = Object.values(QUAD);
 
@@ -9012,16 +9033,15 @@
           return quadrants.includes(s);
         };
 
+        // Single-select quadrant behavior:
+        // - click Qx => show only that quadrant
+        // - click same Qx again => clear quadrant filter (show all)
         const toggleQuadrant = (qKey) => {
           const s = QUAD[qKey];
           if (!s) return;
-          const current = Array.isArray(quadrants) ? quadrants.slice() : ALL_QUADS.slice();
-          const has = current.includes(s);
-          const next = has ? current.filter((x) => x !== s) : current.concat([s]);
-          // If empty or all selected, clear quadrants filter (show all)
-          const normalized =
-            next.length === 0 || next.length === ALL_QUADS.length ? undefined : next;
-          onChange({ quadrants: normalized });
+          const cur = Array.isArray(quadrants) ? quadrants : null;
+          const isOnlyThis = cur && cur.length === 1 && cur[0] === s;
+          onChange({ quadrants: isOnlyThis ? undefined : [s] });
         };
 
         const pill = (label, active, onClick) => (
@@ -9375,7 +9395,12 @@
               <div className="mt-1 grid grid-cols-6 gap-2 text-[10px] text-[#93a4d6]">
                 <div>
                   <span className="text-[#6b7a9f]">Score</span>{" "}
-                  <span className="text-white font-semibold">{Number(item.score || 0).toFixed(1)}</span>
+                  <span className="text-white font-semibold">
+                    {(() => {
+                      const s = rankScoreForTicker(item);
+                      return Number.isFinite(s) ? s.toFixed(1) : "—";
+                    })()}
+                  </span>
                 </div>
                 <div>
                   <span className="text-[#6b7a9f]">Rank</span>{" "}
@@ -9398,6 +9423,28 @@
                   <span className="text-white font-semibold">{eta != null ? `${eta.toFixed(1)}d` : "—"}</span>
                 </div>
               </div>
+
+              {(() => {
+                const phaseP = Math.max(0, Math.min(1, Number(t?.phase_pct) || 0));
+                const compP = completionForSize(t);
+                const phaseColor = phaseToColor(phaseP);
+                const compColor = phaseToColor(compP);
+                const Bar = ({ label, p, color }) => (
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 text-[10px] text-[#6b7a9f]">{label}</div>
+                    <div className="flex-1 h-1.5 rounded bg-[#0f1630] border border-[#26325f] overflow-hidden">
+                      <div className="h-full" style={{ width: `${Math.round(p * 100)}%`, background: color }} />
+                    </div>
+                    <div className="w-10 text-right text-[10px] text-[#93a4d6]">{Math.round(p * 100)}%</div>
+                  </div>
+                );
+                return (
+                  <div className="mt-2 space-y-1">
+                    <Bar label="Phase" p={phaseP} color={phaseColor} />
+                    <Bar label="Completion" p={compP} color={compColor} />
+                  </div>
+                );
+              })()}
             </button>
           );
         };
@@ -9613,7 +9660,7 @@
                             {t.ticker}
                           </div>
                           <div className="text-[10px] text-[#93a4d6]">
-                            Score {Number(t.dynamicRank || t.rank || 0).toFixed(1)}
+                            Score {rankScoreForTicker(t).toFixed(1)}
                           </div>
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-[#93a4d6]">
@@ -10422,6 +10469,7 @@
         );
 
         const baseScore = Number(ticker.rank) || 0;
+        const displayScore = rankScoreForTicker(ticker);
         const sortedByRank =
           rankedTickers && rankedTickers.length > 0
             ? rankedTickers
@@ -10753,7 +10801,7 @@
                   <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                     <span className="text-[#93a4d6]">Score</span>
                     <span className="font-semibold text-blue-400 text-lg">
-                      {baseScore}
+                      {Number.isFinite(displayScore) ? displayScore.toFixed(1) : "—"}
                     </span>
                   </div>
                   {rankTotal > 0 && (
@@ -13822,7 +13870,7 @@
         }, [data, effectiveFilters, trades]);
 
         // Compute dynamic ranks once for all tickers to ensure consistency
-        // IMPORTANT: Use ALL tickers from data, not filtered tickers, for Ranked List
+        // IMPORTANT: Use ALL tickers from data, not filtered tickers, for ranking
         const allTickersForRanking = useMemo(() => {
           if (!data || typeof data !== "object") return [];
           return Object.values(data).filter(
@@ -13841,57 +13889,6 @@
             ...t,
             dynamicRank: t.dynamicScore || computeDynamicRank(t), // Use API value, fallback to calculation if missing
           }));
-
-          // Debug: Check if we're using API scores or calculating
-          const usingApiScores = withRanks.filter(
-            (t) => t.dynamicScore !== undefined
-          ).length;
-          console.log(
-            `🔍 [RANKED LIST] Using API dynamicScore: ${usingApiScores}/${withRanks.length} tickers`
-          );
-
-          // Debug: Log top 5 BEFORE sorting to see original order
-          const beforeSort = [...withRanks].slice(0, 5);
-          console.log(
-            "🔍 [RANKED LIST] Before sort (first 5):",
-            beforeSort.map((t) => ({
-              ticker: t.ticker,
-              dynamicRank: t.dynamicRank,
-              dynamicScore: t.dynamicScore,
-              baseRank: t.rank,
-            }))
-          );
-
-          // Debug: Log top 5 AFTER sorting
-          const sorted = [...withRanks].sort((a, b) => {
-            const scoreA = Number(a.dynamicRank) || 0;
-            const scoreB = Number(b.dynamicRank) || 0;
-            // NO alphabetical tie-breaker - pure score sorting
-            return scoreB - scoreA;
-          });
-
-          if (sorted.length > 0) {
-            console.log(
-              "🔍 [RANKED LIST] After sort (Top 5):",
-              sorted.slice(0, 5).map((t, i) => ({
-                rank: i + 1,
-                ticker: t.ticker,
-                dynamicRank: t.dynamicRank,
-                dynamicScore: t.dynamicScore,
-                baseRank: t.rank,
-              }))
-            );
-            console.log(
-              "🔍 [RANKED LIST] #1 Ticker:",
-              sorted[0].ticker,
-              "Score:",
-              sorted[0].dynamicRank,
-              "From API:",
-              sorted[0].dynamicScore !== undefined
-                ? "YES ✅"
-                : "NO ❌ (calculated)"
-            );
-          }
 
           return withRanks;
         }, [allTickersForRanking]);
@@ -14279,132 +14276,6 @@
                       </div>
                     )}
 
-                    {/* Lists - All five side by side in columns */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                      {/* Ranked List - All tickers sorted by rank */}
-                      <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-3">
-                        <h2 className="text-sm font-bold mb-1">📊 Ranked</h2>
-                        <div className="text-[9px] text-[#93a4d6] mb-2">
-                          All tickers sorted by rank
-                        </div>
-                        <div className="space-y-1">
-                          {(() => {
-                            // CRITICAL: Sort by dynamicRank (score) to determine Rank (position)
-                            // MUST sort - do not use original order!
-                            if (!rankedTickers || rankedTickers.length === 0) {
-                              console.warn(
-                                "⚠️ [RANKED LIST] rankedTickers is empty!"
-                              );
-                              return [];
-                            }
-
-                            const sorted = rankedTickers;
-
-                            // Verify sorting worked
-                            if (sorted.length > 1) {
-                              const firstScore =
-                                Number(sorted[0].dynamicRank) || 0;
-                              const secondScore =
-                                Number(sorted[1].dynamicRank) || 0;
-                              if (firstScore < secondScore) {
-                                console.error(
-                                  "❌ [RANKED LIST] SORTING FAILED! First score < Second score!"
-                                );
-                              }
-                            }
-
-                            // Debug: Log what Ranked List will show
-                            if (sorted.length > 0) {
-                              console.log(
-                                "🔍 [RANKED LIST RENDER] Top 5 by Score (Rank 1-5):",
-                                sorted.slice(0, 5).map((t, i) => ({
-                                  rank: i + 1,
-                                  ticker: t.ticker,
-                                  score: t.dynamicRank,
-                                  baseScore: t.rank,
-                                  fromAPI: t.dynamicScore !== undefined,
-                                }))
-                              );
-                              console.log(
-                                "🔍 [RANKED LIST RENDER] #1 Ticker:",
-                                sorted[0].ticker,
-                                "Score:",
-                                sorted[0].dynamicRank,
-                                "From API:",
-                                sorted[0].dynamicScore !== undefined
-                                  ? "YES"
-                                  : "NO"
-                              );
-
-                              // Check if AWI is incorrectly at top
-                              if (sorted[0].ticker === "AWI") {
-                                console.warn(
-                                  "⚠️ [RANKING ISSUE] AWI is showing as #1!"
-                                );
-                                console.warn(
-                                  "   Expected #1: QQQ (score ~129.51)"
-                                );
-                                console.warn(
-                                  "   AWI score:",
-                                  sorted[0].dynamicRank
-                                );
-                                console.warn(
-                                  "   QQQ score:",
-                                  sorted.find((t) => t.ticker === "QQQ")
-                                    ?.dynamicRank || "NOT FOUND"
-                                );
-                                console.warn(
-                                  "   Top 10:",
-                                  sorted
-                                    .slice(0, 10)
-                                    .map((t) => `${t.ticker}:${t.dynamicRank}`)
-                                );
-                              }
-                            }
-
-                            return sorted.map((ticker, idx) => {
-                              const rank = idx + 1; // Rank is position (1, 2, 3...)
-                              const score = ticker.dynamicRank; // Score is the numeric value
-                              return (
-                                <div
-                                  key={ticker.ticker}
-                                  className="flex items-center gap-1"
-                                >
-                                  <div className="w-5 text-center flex-shrink-0">
-                                    <span
-                                      className={`text-[10px] font-bold ${
-                                        rank <= 3
-                                          ? "text-yellow-400"
-                                          : rank <= 10
-                                          ? "text-green-400"
-                                          : "text-[#93a4d6]"
-                                      }`}
-                                    >
-                                      #{rank}
-                                    </span>
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <SetupCard
-                                      ticker={{
-                                        ...ticker,
-                                        rank: score, // Pass score, not rank position
-                                      }}
-                                      isSelected={
-                                        selectedTicker === ticker.ticker
-                                      }
-                                      onClick={() =>
-                                        handleTickerSelect(ticker.ticker)
-                                      }
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-                      </div>
-
-                    </div>
                   </div>
                 )}
               </div>

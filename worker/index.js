@@ -141,6 +141,23 @@ const normTicker = (t) => {
 };
 const isNum = (x) => Number.isFinite(Number(x));
 
+// Trading day key in US/Eastern (for daily change vs yesterday close)
+const NY_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+function nyTradingDayKey(tsMs) {
+  const ms = Number(tsMs);
+  if (!Number.isFinite(ms)) return null;
+  try {
+    return NY_DAY_FMT.format(new Date(ms)); // YYYY-MM-DD
+  } catch {
+    return null;
+  }
+}
+
 async function kvGetJSON(KV, key) {
   const t = await KV.get(key);
   if (!t) return null;
@@ -2921,11 +2938,138 @@ async function processTradeSimulation(
         tdSeq.exit_short === true || tdSeq.exit_short === "true";
 
       // Check if TD Sequential signals an exit for this trade direction
-      const shouldExitFromTDSeq =
+      let shouldExitFromTDSeq =
         (direction === "LONG" && tdSeqExitLong) ||
         (direction === "SHORT" && tdSeqExitShort);
 
       let tradeCalc;
+      if (shouldExitFromTDSeq) {
+        // Defensive rule: if price is still on the right side of the Daily 5–8 EMA cloud,
+        // do NOT exit immediately. Tighten SL to the opposite band of the cloud instead.
+        const daily = tickerData?.daily_ema_cloud || null;
+        const cloudPos = String(daily?.position || "").toLowerCase();
+        const cloudUpper = Number(daily?.upper);
+        const cloudLower = Number(daily?.lower);
+        const priceNow = Number(tickerData.price || 0);
+
+        const canDefendLong =
+          direction === "LONG" &&
+          cloudPos &&
+          cloudPos !== "below" &&
+          Number.isFinite(cloudLower) &&
+          cloudLower > 0;
+        const canDefendShort =
+          direction === "SHORT" &&
+          cloudPos &&
+          cloudPos !== "above" &&
+          Number.isFinite(cloudUpper) &&
+          cloudUpper > 0;
+
+        if (canDefendLong || canDefendShort) {
+          const suggestedSl = canDefendLong ? cloudLower : cloudUpper;
+          const oldSlRaw =
+            existingOpenTrade?.sl != null
+              ? Number(existingOpenTrade.sl)
+              : Number(tickerData?.sl);
+          const oldSl = Number.isFinite(oldSlRaw) ? oldSlRaw : null;
+
+          const tighten =
+            oldSl == null
+              ? true
+              : direction === "LONG"
+              ? suggestedSl > oldSl
+              : suggestedSl < oldSl;
+
+          if (tighten) {
+            existingOpenTrade.sl = suggestedSl;
+          }
+
+          // Add activity feed event (even if no tighten, it documents the decision)
+          await appendActivity(KV, {
+            ticker,
+            type: "tdseq_defense",
+            direction,
+            price: priceNow,
+            old_sl: oldSl,
+            new_sl: tighten ? suggestedSl : oldSl,
+            cloud_pos: cloudPos,
+            cloud_upper: Number.isFinite(cloudUpper) ? cloudUpper : null,
+            cloud_lower: Number.isFinite(cloudLower) ? cloudLower : null,
+            td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+            td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+            td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+            td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+          });
+
+          // Discord + D1 alert (deduped hourly)
+          try {
+            const discordEnable = env?.DISCORD_ENABLE || "false";
+            const discordWebhook = env?.DISCORD_WEBHOOK_URL;
+            const discordConfigured = discordEnable === "true" && !!discordWebhook;
+
+            const nowMs = Date.now();
+            const hourBucket = new Date(nowMs).toISOString().slice(0, 13); // YYYY-MM-DDTHH
+            const dedupeKey = `timed:dedupe:tdseq_defense:${ticker}:${direction}:${hourBucket}`;
+            const already = await KV.get(dedupeKey);
+
+            if (!already) {
+              await KV.put(dedupeKey, "1", { expirationTtl: 60 * 60 });
+
+              if (discordConfigured) {
+                const embed = createTDSeqDefenseEmbed(
+                  ticker,
+                  direction,
+                  correctedEntryPrice,
+                  priceNow,
+                  oldSl,
+                  tighten ? suggestedSl : oldSl,
+                  tdSeq,
+                  tickerData
+                );
+                const sendRes = await notifyDiscord(env, embed).catch((err) => {
+                  console.error(`[TRADE SIM] ❌ Failed to send TDSEQ defense alert for ${ticker}:`, err);
+                  return { ok: false, error: String(err) };
+                });
+
+                d1UpsertAlert(env, {
+                  alert_id: buildAlertId(ticker, nowMs, "TDSEQ_DEFENSE"),
+                  ticker,
+                  ts: nowMs,
+                  side: direction,
+                  state: tickerData.state,
+                  rank: Number(existingOpenTrade.rank) || 0,
+                  rr_at_alert: Number(existingOpenTrade.rr) || 0,
+                  trigger_reason: "TDSEQ_DEFENSE",
+                  dedupe_day: formatDedupDay(nowMs),
+                  discord_sent: !!sendRes?.ok,
+                  discord_status: sendRes?.status ?? null,
+                  discord_error: sendRes?.ok
+                    ? null
+                    : sendRes?.reason || sendRes?.statusText || sendRes?.error || "discord_send_failed",
+                  payload_json: JSON.stringify({
+                    ticker,
+                    direction,
+                    price: priceNow,
+                    old_sl: oldSl,
+                    new_sl: tighten ? suggestedSl : oldSl,
+                    cloud: daily,
+                    td_sequential: tdSeq,
+                  }),
+                  meta_json: JSON.stringify({ kind: "tdseq_defense" }),
+                }).catch((e) => {
+                  console.error(`[D1 LEDGER] Failed to upsert TDSEQ defense alert:`, e);
+                });
+              }
+            }
+          } catch (e) {
+            console.error(`[TRADE SIM] TDSEQ defense alert error:`, e);
+          }
+
+          // Do not exit; continue with normal TP/SL evaluation using updated SL.
+          shouldExitFromTDSeq = false;
+        }
+      }
+
       if (shouldExitFromTDSeq) {
         console.log(
           `[TRADE SIM] 🚨 TD Sequential exit signal for ${ticker} ${direction}: ` +
@@ -3169,7 +3313,10 @@ async function processTradeSimulation(
           status: newStatus,
           trimmedPct: tradeCalc.trimmedPct || existingOpenTrade.trimmedPct || 0,
           lastUpdate: new Date().toISOString(),
-          sl: Number(tickerData.sl) || existingOpenTrade.sl,
+          // Prefer the trade's current SL (may be tightened defensively)
+          sl: Number.isFinite(Number(existingOpenTrade.sl))
+            ? Number(existingOpenTrade.sl)
+            : Number(tickerData.sl) || existingOpenTrade.sl,
           // Prefer the trade's TP plan (may be rebuilt after entry corrections)
           tpArray:
             tradeCalc.tpArray && Array.isArray(tradeCalc.tpArray)
@@ -3198,7 +3345,9 @@ async function processTradeSimulation(
               : Number(tickerData.tp) || existingOpenTrade.tp;
           })(),
           rr: (() => {
-            const slVal = Number(tickerData.sl) || existingOpenTrade.sl;
+            const slVal = Number.isFinite(Number(existingOpenTrade.sl))
+              ? Number(existingOpenTrade.sl)
+              : Number(tickerData.sl) || existingOpenTrade.sl;
             const risk = Math.abs(correctedEntryPrice - Number(slVal));
             const arr =
               tradeCalc.tpArray && Array.isArray(tradeCalc.tpArray)
@@ -6386,6 +6535,88 @@ function createTD9ExitEmbed(
   };
 }
 
+// Helper: Create Discord embed for TD Sequential defensive hold (tighten SL to Daily 5-8 EMA cloud)
+function createTDSeqDefenseEmbed(
+  ticker,
+  direction,
+  entryPrice,
+  currentPrice,
+  oldSl,
+  newSl,
+  tdSeq,
+  tickerData = null
+) {
+  const daily = tickerData?.daily_ema_cloud || {};
+  const cloudPos = String(daily?.position || "").toUpperCase() || "UNKNOWN";
+  const upper = Number(daily?.upper);
+  const lower = Number(daily?.lower);
+  const signalType =
+    (tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true" ||
+      tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true")
+      ? "TD13"
+      : "TD9";
+
+  const fields = [
+    {
+      name: "🛡️ Decision",
+      value: `**Hold ${direction}** (TD Sequential signal detected)\n**Reason:** Price still ${cloudPos} the **Daily 5–8 EMA cloud**`,
+      inline: false,
+    },
+    {
+      name: "💰 Price / Risk",
+      value: `**Current:** $${Number(currentPrice || 0).toFixed(2)}\n**Entry:** $${Number(entryPrice || 0).toFixed(2)}\n**SL:** ${
+        Number.isFinite(oldSl) ? `$${Number(oldSl).toFixed(2)}` : "—"
+      } → ${Number.isFinite(newSl) ? `$${Number(newSl).toFixed(2)}` : "—"}`,
+      inline: true,
+    },
+    {
+      name: "☁️ Daily EMA Cloud (5–8)",
+      value: `**Position:** ${cloudPos}\n**Upper:** ${
+        Number.isFinite(upper) ? `$${upper.toFixed(2)}` : "—"
+      }\n**Lower:** ${Number.isFinite(lower) ? `$${lower.toFixed(2)}` : "—"}`,
+      inline: true,
+    },
+  ];
+
+  // TD signal detail
+  const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
+  const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
+  const td13Bullish =
+    tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true";
+  const td13Bearish =
+    tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true";
+
+  fields.push({
+    name: "🔢 TD Sequential",
+    value: `**Signal:** ${signalType}\n**TD9 Bullish:** ${
+      td9Bullish ? "✅" : "—"
+    }\n**TD9 Bearish:** ${td9Bearish ? "✅" : "—"}\n**TD13 Bullish:** ${
+      td13Bullish ? "✅" : "—"
+    }\n**TD13 Bearish:** ${td13Bearish ? "✅" : "—"}`,
+    inline: true,
+  });
+
+  if (tickerData) {
+    const htfScore = Number(tickerData.htf_score || 0);
+    const ltfScore = Number(tickerData.ltf_score || 0);
+    fields.push({
+      name: "📈 Current Scores",
+      value: `**HTF:** ${htfScore.toFixed(2)}\n**LTF:** ${ltfScore.toFixed(2)}`,
+      inline: true,
+    });
+  }
+
+  return {
+    title: `🛡️ ${signalType} Defense: Hold ${ticker} ${direction} (Tighten SL)`,
+    description:
+      "TD Sequential signal detected, but trend is still supported by the Daily EMA cloud. Tighten stop loss defensively instead of exiting.",
+    color: 0x4ade80, // green
+    fields,
+    timestamp: new Date().toISOString(),
+    footer: { text: "TD Sequential Defensive Rule" },
+  };
+}
+
 // Helper: Create Discord embed for TD9 entry signal
 function createTD9EntryEmbed(
   ticker,
@@ -8009,6 +8240,60 @@ export default {
 
           // Get previous data BEFORE storing new data (for trade simulation comparison)
           const prevLatest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+
+          // ─────────────────────────────────────────────────────────────
+          // Daily change support (watchlist-style)
+          // We persist a "yesterday close" per ticker in KV and compute day_change/day_change_pct.
+          // ─────────────────────────────────────────────────────────────
+          try {
+            const curTs = Number(payload.ts ?? now);
+            const curDay = nyTradingDayKey(curTs);
+            const price = Number(payload.price);
+
+            let prevClose = null;
+            const prevCloseKey = `timed:prev_close:${ticker}`;
+            const storedPrev = await kvGetJSON(KV, prevCloseKey);
+            if (
+              storedPrev &&
+              storedPrev.day &&
+              storedPrev.day !== curDay &&
+              Number.isFinite(Number(storedPrev.close)) &&
+              Number(storedPrev.close) > 0
+            ) {
+              prevClose = Number(storedPrev.close);
+            }
+
+            // If no stored prev close, derive it on day-boundary from the last stored tick
+            if (!Number.isFinite(prevClose) && prevLatest) {
+              const prevTs = Number(prevLatest.ts ?? prevLatest.ingest_ts ?? prevLatest.ingest_time);
+              const prevDay = nyTradingDayKey(prevTs);
+              const prevPrice = Number(prevLatest.price);
+              if (
+                curDay &&
+                prevDay &&
+                prevDay !== curDay &&
+                Number.isFinite(prevPrice) &&
+                prevPrice > 0
+              ) {
+                prevClose = prevPrice;
+                // Store for up to ~2 weeks
+                await kvPutJSON(KV, prevCloseKey, { day: prevDay, close: prevPrice }, 14 * 24 * 60 * 60);
+              }
+            }
+
+            if (
+              Number.isFinite(price) &&
+              price > 0 &&
+              Number.isFinite(prevClose) &&
+              prevClose > 0
+            ) {
+              payload.prev_close = prevClose;
+              payload.day_change = price - prevClose;
+              payload.day_change_pct = ((price - prevClose) / prevClose) * 100;
+            }
+          } catch (e) {
+            console.warn(`[DAILY CHANGE] Failed to compute daily change for ${ticker}:`, String(e?.message || e));
+          }
 
           if (ticker === "ETHT") {
             console.log(
