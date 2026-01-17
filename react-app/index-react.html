@@ -1320,6 +1320,56 @@
         return null;
       }
 
+      function fmtUsdAbs(n) {
+        const x = Number(n);
+        if (!Number.isFinite(x)) return "—";
+        return `$${Math.abs(x).toFixed(2)}`;
+      }
+
+      function getDailyChange(t) {
+        const price = Number(t?.price);
+        const pickNum = (obj, keys) => {
+          for (const k of keys) {
+            const v = Number(obj?.[k]);
+            if (Number.isFinite(v)) return v;
+          }
+          return null;
+        };
+        let dayChg = pickNum(t, [
+          "day_change",
+          "daily_change",
+          "change",
+          "session_change",
+          "chg",
+          "ch",
+        ]);
+        let dayPct = pickNum(t, [
+          "day_change_pct",
+          "daily_change_pct",
+          "change_pct",
+          "pct_change",
+          "session_change_pct",
+          "chp",
+        ]);
+
+        // If only one of (abs, pct) is present, compute the other using current price
+        if (!Number.isFinite(dayChg) && Number.isFinite(dayPct) && Number.isFinite(price) && price > 0) {
+          const p = dayPct / 100;
+          if (Number.isFinite(p) && Math.abs(p) < 5) {
+            const prev = price / (1 + p);
+            const abs = price - prev;
+            dayChg = Number.isFinite(abs) ? abs : null;
+          }
+        }
+        if (!Number.isFinite(dayPct) && Number.isFinite(dayChg) && Number.isFinite(price) && price > 0) {
+          const prev = price - dayChg;
+          if (Number.isFinite(prev) && Math.abs(prev) > 1e-9) {
+            dayPct = (dayChg / prev) * 100;
+          }
+        }
+        return { dayChg, dayPct };
+      }
+
       function computeReturnPct(ticker) {
         const direct =
           Number(ticker?.expected_return_pct) ||
@@ -5667,6 +5717,18 @@
                       ${Number(ticker.price).toFixed(2)}
                     </span>
                     {(() => {
+                      const { dayChg, dayPct } = getDailyChange(ticker);
+                      if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
+                      const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
+                      const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
+                      return (
+                        <div className={`text-[10px] ${cls}`}>
+                          {Number.isFinite(dayPct) ? `${sign}${Math.abs(dayPct).toFixed(2)}%` : "—"}{" "}
+                          {Number.isFinite(dayChg) ? `(${sign}${fmtUsdAbs(dayChg)})` : ""}
+                        </div>
+                      );
+                    })()}
+                    {(() => {
                       // Prioritize ingest_ts (when data was ingested) over ts (TradingView timestamp)
                       const ingestTime =
                         ticker.ingest_ts || ticker.ingest_time || ticker.ts;
@@ -9304,7 +9366,7 @@
                   </div>
                   <div className={`mt-0.5 ${chgColor}`}>
                     {Number.isFinite(dayPct) ? `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%` : "—"}{" "}
-                    {Number.isFinite(dayChg) ? `(${dayChg >= 0 ? "+" : ""}${fmtUsd(dayChg)})` : ""}
+                    {Number.isFinite(dayChg) ? `(${dayChg >= 0 ? "+" : ""}${fmtUsdAbs(dayChg)})` : ""}
                   </div>
                   <div className="text-[#6b7a9f]">{ingestText}</div>
                 </div>
@@ -10390,6 +10452,18 @@
                           ${Number(ticker.price).toFixed(2)}
                         </div>
                       )}
+                      {(() => {
+                        const { dayChg, dayPct } = getDailyChange(ticker);
+                        if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
+                        const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
+                        const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
+                        return (
+                          <div className={`text-xs mt-0.5 ${cls}`}>
+                            {Number.isFinite(dayPct) ? `${sign}${Math.abs(dayPct).toFixed(2)}%` : "—"}{" "}
+                            {Number.isFinite(dayChg) ? `(${sign}${fmtUsdAbs(dayChg)})` : ""}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <button
                       onClick={onClose}
