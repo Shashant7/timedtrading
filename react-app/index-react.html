@@ -2502,6 +2502,8 @@
           scaleY,
           offsetX,
           offsetY,
+          layoutX = null,
+          layoutY = null,
           showLabels,
           isTopRanked = false,
         }) => {
@@ -2787,10 +2789,12 @@
           const htfScore = Number(ticker.htf_score) || 0;
 
           // X: LTF score * scaleX + offsetX (offsetX already centered)
-          const x = ltfScore * scaleX + offsetX;
+          const x =
+            Number.isFinite(Number(layoutX)) ? Number(layoutX) : ltfScore * scaleX + offsetX;
 
           // Y: HTF score * scaleY + offsetY (scaleY is negative, offsetY already centered)
-          const y = htfScore * scaleY + offsetY;
+          const y =
+            Number.isFinite(Number(layoutY)) ? Number(layoutY) : htfScore * scaleY + offsetY;
 
           // Determine emoji and label position
           const hasSqueeze = flags.sq30_release || flags.sq30_on;
@@ -3692,9 +3696,28 @@
           const plotWidth = chartWidth - 2 * margin;
           const plotHeight = chartHeight - 2 * margin;
 
-          // More precise scaling for better granularity
-          const scaleX = plotWidth / 100; // -50 to 50 range
-          const scaleY = plotHeight / 100;
+          // Auto-zoom: set domains based on active tickers (symmetric around 0)
+          const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+          const axisDomain = (arr, key, fallback = 50) => {
+            let min = Infinity;
+            let max = -Infinity;
+            for (const t of arr) {
+              const v = Number(t?.[key]);
+              if (!Number.isFinite(v)) continue;
+              if (v < min) min = v;
+              if (v > max) max = v;
+            }
+            if (!Number.isFinite(min) || !Number.isFinite(max)) return fallback;
+            const maxAbs = Math.max(Math.abs(min), Math.abs(max), 5);
+            // Pad a bit, but keep within canonical -50..50 score space
+            return clamp(maxAbs * 1.15, 10, 50);
+          };
+          const domainXMax = axisDomain(displayTickers, "ltf_score", 50);
+          const domainYMax = axisDomain(displayTickers, "htf_score", 50);
+
+          // Scaling based on dynamic domains
+          const scaleX = plotWidth / (2 * domainXMax);
+          const scaleY = plotHeight / (2 * domainYMax);
           const offsetX = margin;
           const offsetY = margin;
 
@@ -3744,8 +3767,8 @@
               chartY <= plotHeight
             ) {
               // Convert to LTF/HTF scores
-              const ltfValue = chartX / scaleX - 50; // -50 to 50 range
-              const htfValue = 50 - chartY / scaleY; // Inverted: top is +50, bottom is -50
+              const ltfValue = chartX / scaleX - domainXMax; // -domainXMax..domainXMax
+              const htfValue = domainYMax - chartY / scaleY; // Inverted: top is +domainYMax
 
               setCrosshairPos({
                 x: svgX,
@@ -3768,6 +3791,99 @@
             setTooltip(null);
             setCrosshairPos(null);
           };
+
+          // Collision avoidance: lightly repel overlapping bubbles while anchoring to true score position
+          const layoutPositions = (() => {
+            const list = Array.isArray(displayTickers) ? displayTickers : [];
+            if (list.length === 0) return {};
+
+            const hash = (s) =>
+              String(s || "")
+                .split("")
+                .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+
+            const bubbleRadius = (t) => {
+              const waiting = t?.waitingForData === true;
+              const compRaw = t?.completion != null ? Number(t.completion) : 0;
+              const comp = Number.isFinite(compRaw) ? clamp(compRaw, 0, 1) : 0;
+              const rrRaw = t?.rr != null ? Number(t.rr) : 0.5;
+              const rr = Number.isFinite(rrRaw) && rrRaw > 0 ? rrRaw : 0.5;
+              const cappedRR = Math.min(rr, 5);
+              const baseSize = 4;
+              const rrMultiplier = 2;
+              const size = waiting
+                ? baseSize * 0.7
+                : baseSize + cappedRR * rrMultiplier * (1 - comp);
+              const v = (hash(t?.ticker) % 5) * 0.8;
+              const finalSize = Math.max(baseSize, size + v);
+              return clamp(finalSize, 3, 30);
+            };
+
+            const nodes = list.map((t) => {
+              const ltf = Number(t?.ltf_score) || 0;
+              const htf = Number(t?.htf_score) || 0;
+              const x0 = offsetX + (ltf + domainXMax) * scaleX;
+              const y0 = offsetY + (domainYMax - htf) * scaleY;
+              const r = bubbleRadius(t);
+              const j = (hash(t?.ticker) % 7) - 3; // deterministic tiny offset
+              return {
+                ticker: String(t?.ticker || ""),
+                x0,
+                y0,
+                x: x0 + j * 0.15,
+                y: y0 + j * 0.15,
+                r,
+              };
+            });
+
+            const PAD = 1.0;
+            const ITER = 12;
+            const ANCHOR = 0.18;
+            const REPULSE = 0.6;
+            const minX = offsetX + 2;
+            const maxX = offsetX + plotWidth - 2;
+            const minY = offsetY + 2;
+            const maxY = offsetY + plotHeight - 2;
+
+            for (let it = 0; it < ITER; it++) {
+              for (let i = 0; i < nodes.length; i++) {
+                const a = nodes[i];
+                for (let j = i + 1; j < nodes.length; j++) {
+                  const b = nodes[j];
+                  let dx = b.x - a.x;
+                  let dy = b.y - a.y;
+                  let dist = Math.hypot(dx, dy);
+                  const minDist = a.r + b.r + PAD;
+                  if (!Number.isFinite(dist) || dist === 0) {
+                    const n = ((hash(a.ticker + b.ticker) % 10) - 5) * 0.02;
+                    dx = n;
+                    dy = -n;
+                    dist = Math.hypot(dx, dy) || 1;
+                  }
+                  if (dist < minDist) {
+                    const push = ((minDist - dist) / dist) * 0.5 * REPULSE;
+                    a.x -= dx * push;
+                    a.y -= dy * push;
+                    b.x += dx * push;
+                    b.y += dy * push;
+                  }
+                }
+              }
+              for (const n of nodes) {
+                n.x += (n.x0 - n.x) * ANCHOR;
+                n.y += (n.y0 - n.y) * ANCHOR;
+                n.x = clamp(n.x, minX + n.r, maxX - n.r);
+                n.y = clamp(n.y, minY + n.r, maxY - n.r);
+              }
+            }
+
+            const out = {};
+            for (const n of nodes) {
+              if (!n.ticker) continue;
+              out[n.ticker] = { x: n.x, y: n.y };
+            }
+            return out;
+          })();
 
           return (
             <div
@@ -3850,9 +3966,9 @@
                 {/* Axes - Zero lines (X=0 and Y=0) - Make them very visible */}
                 {/* Vertical center line (X=0) */}
                 <line
-                  x1={offsetX + 50 * scaleX}
+                  x1={offsetX + domainXMax * scaleX}
                   y1={offsetY}
-                  x2={offsetX + 50 * scaleX}
+                  x2={offsetX + domainXMax * scaleX}
                   y2={offsetY + plotHeight}
                   stroke="#ffffff"
                   strokeWidth="2"
@@ -3905,8 +4021,8 @@
                 </text>
 
                 {/* Axis scale markers */}
-                {[-50, -25, 0, 25, 50].map((val) => {
-                  const x = offsetX + (val + 50) * scaleX;
+                {[-domainXMax, -domainXMax / 2, 0, domainXMax / 2, domainXMax].map((val) => {
+                  const x = offsetX + (val + domainXMax) * scaleX;
                   const y = offsetY + plotHeight / 2;
                   return (
                     <g key={`x-${val}`}>
@@ -3925,14 +4041,14 @@
                         textAnchor="middle"
                         fontSize="10"
                       >
-                        {val}
+                        {Math.round(val)}
                       </text>
                     </g>
                   );
                 })}
-                {[-50, -25, 0, 25, 50].map((val) => {
+                {[-domainYMax, -domainYMax / 2, 0, domainYMax / 2, domainYMax].map((val) => {
                   const x = offsetX;
-                  const y = offsetY + plotHeight - (val + 50) * scaleY;
+                  const y = offsetY + plotHeight - (val + domainYMax) * scaleY;
                   return (
                     <g key={`y-${val}`}>
                       <line
@@ -3950,7 +4066,7 @@
                         textAnchor="end"
                         fontSize="10"
                       >
-                        {val}
+                        {Math.round(val)}
                       </text>
                     </g>
                   );
@@ -4000,7 +4116,7 @@
 
                 {/* Corridors - More pronounced */}
                 <rect
-                  x={offsetX + (LONG_CORRIDOR.ltfMin + 50) * scaleX}
+                  x={offsetX + (LONG_CORRIDOR.ltfMin + domainXMax) * scaleX}
                   y={offsetY}
                   width={(LONG_CORRIDOR.ltfMax - LONG_CORRIDOR.ltfMin) * scaleX}
                   height={plotHeight / 2}
@@ -4010,7 +4126,7 @@
                   strokeDasharray="4 4"
                 />
                 <rect
-                  x={offsetX + (SHORT_CORRIDOR.ltfMin + 50) * scaleX}
+                  x={offsetX + (SHORT_CORRIDOR.ltfMin + domainXMax) * scaleX}
                   y={offsetY + plotHeight / 2}
                   width={
                     (SHORT_CORRIDOR.ltfMax - SHORT_CORRIDOR.ltfMin) * scaleX
@@ -4341,8 +4457,8 @@
                             isHovered={true}
                             scaleX={scaleX}
                             scaleY={-scaleY}
-                            offsetX={offsetX + 50 * scaleX}
-                            offsetY={offsetY + plotHeight - 50 * scaleY}
+                            offsetX={offsetX + domainXMax * scaleX}
+                            offsetY={offsetY + plotHeight - domainYMax * scaleY}
                             showLabels={true}
                             isTopRanked={topRankedTicker === selectedTicker}
                           />
@@ -4411,8 +4527,10 @@
                               isHovered={hoveredTicker === ticker.ticker}
                               scaleX={scaleX}
                               scaleY={-scaleY}
-                              offsetX={offsetX + 50 * scaleX}
-                              offsetY={offsetY + plotHeight - 50 * scaleY}
+                              offsetX={offsetX + domainXMax * scaleX}
+                              offsetY={offsetY + plotHeight - domainYMax * scaleY}
+                              layoutX={layoutPositions?.[ticker.ticker]?.x}
+                              layoutY={layoutPositions?.[ticker.ticker]?.y}
                               showLabels={showLabels}
                               isTopRanked={topRankedTicker === ticker.ticker}
                             />
@@ -6875,6 +6993,61 @@
             ),
           },
           {
+            title: "Viewport + Filter Tags 🧭",
+            content: (
+              <div className="space-y-4">
+                <p className="text-[#e7ecff]">
+                  The dashboard is built for <strong>fast scanning</strong>. The{" "}
+                  <strong className="text-white">Viewport</strong> (left) and{" "}
+                  <strong className="text-white">Bubble Chart</strong> (center) are always
+                  kept in sync by the filter tags.
+                </p>
+
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">🎛️ Filter Tags (controls Viewport + Bubble Chart)</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li>
+                      <strong className="text-white">Guidance</strong>: Initiate / Consider / Monitor / Wait / Exit
+                    </li>
+                    <li>
+                      <strong className="text-white">Horizon</strong>: Short-Term / Swing / Positional
+                    </li>
+                    <li>
+                      <strong className="text-white">Opportunities</strong>: Eligible / Prime / Watch + Q1–Q4
+                    </li>
+                    <li>
+                      <strong className="text-white">Specials</strong>: In Squeeze 🧨 / Squeeze Release ⚡ / Momentum Elite 🚀 / Winner Signature 🏆
+                    </li>
+                    <li>
+                      <strong className="text-white">Groups</strong>: Upticks / Super Granny / GRN* / Social / No Group
+                    </li>
+                    <li>
+                      <strong className="text-white">S&amp;P Sectors</strong>: filter by sector (with rating)
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">🔭 Viewport (left panel)</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li>Shows the most actionable tickers first (Prime / Eligible / Watch).</li>
+                    <li><strong className="text-white">Scrolls inside the panel</strong> and stays the same height as the Bubble Chart.</li>
+                    <li>Click any row to open the <strong className="text-white">Right Rail detail</strong>.</li>
+                  </ul>
+                </div>
+
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <h3 className="text-yellow-400 font-semibold mb-2">🏆 Winner Signature</h3>
+                  <p className="text-sm text-[#93a4d6]">
+                    Winner Signature highlights <strong className="text-white">early-run</strong> candidates that match
+                    the current “winner-like” pattern (setup + corridor + low completion, plus early phase or squeeze build).
+                    Use it to narrow the universe, then confirm direction in Q1/Q4 and check SL/TP in the Right Rail.
+                  </p>
+                </div>
+              </div>
+            ),
+          },
+          {
             title: "Prime Setups ⭐",
             content: (
               <div className="space-y-4">
@@ -7091,6 +7264,14 @@
                   indicator shows when volatility is building up, like a spring
                   being compressed before release.
                 </p>
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    Find these under <strong className="text-white">Specials</strong> in the filter tags.
+                    On the chart, you’ll also see icons on bubbles:
+                    <span className="text-white"> 🧨 (In Squeeze)</span> and{" "}
+                    <span className="text-white">⚡ (Squeeze Release)</span>.
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
                     <h3 className="text-yellow-400 font-semibold mb-2 flex items-center gap-2">
@@ -7161,6 +7342,13 @@
                       have strong momentum - combine with Prime filter for best
                       results.
                     </div>
+                    <div>
+                      <strong className="text-white">
+                        "Winner Signature" Filter:
+                      </strong>{" "}
+                      A focused list of early-run candidates (often setup + corridor + low completion).
+                      Use it as your “shortlist”, then confirm direction and risk.
+                    </div>
                   </div>
                 </div>
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
@@ -7203,6 +7391,18 @@
                   </strong>{" "}
                   to find great setups:
                 </p>
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <h3 className="text-[#e7ecff] font-semibold mb-2">🧠 Quick mental model</h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                    <li><strong className="text-white">Position</strong> = scores (HTF trend + LTF timing).</li>
+                    <li><strong className="text-white">Size</strong> = RR adjusted by completion (earlier = bigger).</li>
+                    <li><strong className="text-white">Color</strong> = phase (green → yellow → red).</li>
+                    <li><strong className="text-white">Badges/icons</strong> = Prime ⭐, Squeeze 🧨/⚡, Winner Signature 🏆.</li>
+                  </ul>
+                  <p className="text-xs text-[#93a4d6] mt-2">
+                    The chart auto-zooms to your current filtered universe and applies light spacing so overlaps separate while staying near true score.
+                  </p>
+                </div>
                 <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
                   <h3 className="text-blue-400 font-semibold mb-3">
                     📋 Your Trading Workflow:
@@ -7250,6 +7450,10 @@
                       <span className="text-xs ml-4">
                         • Momentum Elite 🚀: Best fundamentals
                       </span>
+                      <br />
+                      <span className="text-xs ml-4">
+                        • Winner Signature 🏆: Winner-like early-run shortlist
+                      </span>
                     </li>
                     <li>
                       <strong className="text-white">
@@ -7266,6 +7470,23 @@
                       <br />
                       <span className="text-xs ml-4">
                         • Verify entry price, stop loss, and take profit levels
+                      </span>
+                      <br />
+                      <span className="text-xs ml-4">
+                        • Use the Viewport + Right Rail to compare multiple candidates quickly
+                      </span>
+                    </li>
+                    <li>
+                      <strong className="text-white">
+                        Bonus: Use Time Travel
+                      </strong>
+                      <br />
+                      <span className="text-xs ml-4">
+                        • Toggle Time Travel to replay the Bubble Chart over time
+                      </span>
+                      <br />
+                      <span className="text-xs ml-4">
+                        • Use the Time step selector (5m → 1W) to zoom from intraday to multi-day structure
                       </span>
                     </li>
                     <li>
@@ -7302,6 +7523,7 @@
                     <div>
                       ✅ TD9 signal OR Squeeze Release (bonus confirmation)
                     </div>
+                    <div>✅ Winner Signature 🏆 (optional shortlist accelerator)</div>
                   </div>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
@@ -7417,6 +7639,14 @@
                   alerts from the main dashboard, helping you learn which setups
                   work best.
                 </p>
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    It’s organized into <strong className="text-white">By Day Activity</strong>,{" "}
+                    <strong className="text-white">Portfolio</strong> (open trades), and{" "}
+                    <strong className="text-white">Closed Trades by Ticker</strong>. Click any row to open the{" "}
+                    <strong className="text-white">Right Rail detail</strong>.
+                  </p>
+                </div>
                 <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
                   <h3 className="text-blue-400 font-semibold mb-2">
                     🎯 How It Works:
