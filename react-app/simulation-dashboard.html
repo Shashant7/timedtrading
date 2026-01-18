@@ -3106,90 +3106,51 @@
       // Helper Functions for TickerDetails
       // ─────────────────────────────────────────────────────────────
       
-      // Calculate score breakdown (mirrors worker computeRank logic)
+      // Calculate score breakdown (mirrors computeDynamicScore / backend-style scoring)
       function calculateScoreBreakdown(ticker) {
-        const htf = Number(ticker.htf_score) || 0;
-        const ltf = Number(ticker.ltf_score) || 0;
-        const comp = Number(ticker.completion) || 0;
-        const phase = Number(ticker.phase_pct) || 0;
-        const rr = ticker.rr != null ? Number(ticker.rr) : 0;
-        
-        const flags = ticker.flags || {};
+        const htf = Number(ticker?.htf_score) || 0;
+        const ltf = Number(ticker?.ltf_score) || 0;
+        const phase = Number(ticker?.phase_pct) || 0;
+        const rr = Number(ticker?.rr) || 0;
+        const comp = completionForSize(ticker);
+        const flags = ticker?.flags || {};
+        const state = String(ticker?.state || "");
+        const ent = entryType(ticker || {});
+        const inCorridor = !!ent?.corridor;
+        const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
         const sqRel = !!flags.sq30_release;
         const sqOn = !!flags.sq30_on;
         const phaseZoneChange = !!flags.phase_zone_change;
-        const momentumElite = !!flags.momentum_elite;
-        
-        const state = String(ticker.state || "");
-        const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-        const setup = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
-        
+
         const breakdown = {
-          base: 30,
-          aligned: aligned ? 12 : 0,
-          setup: setup ? 4 : 0,
-          htf: 0,
-          ltf: 0,
-          completion: 0,
-          phase: 0,
-          squeezeRelease: sqRel ? 12 : 0,
-          squeezeOn: (sqOn && !sqRel) ? 4 : 0,
-          phaseZoneChange: phaseZoneChange ? 2 : 0,
-          rr: 0,
-          momentumElite: momentumElite ? 15 : 0,
+          base: Number(ticker?.rank) || 50,
+          corridor: inCorridor ? 12 : 0,
+          corridorAligned: inCorridor && aligned ? 8 : 0,
+          squeezeRelease: sqRel && inCorridor ? 10 : 0,
+          squeezeOn: sqOn && inCorridor && !sqRel ? 5 : 0,
+          rr: rr >= 2.0 ? 8 : rr >= 1.5 ? 5 : rr >= 1.0 ? 2 : 0,
+          phase: phase < 0.3 ? 6 : phase < 0.5 ? 3 : phase > 0.7 ? -5 : 0,
+          completion: comp < 0.3 ? 5 : comp > 0.8 ? -8 : 0,
+          htfStrength: Math.min(8, Math.abs(htf) * 0.15),
+          ltfStrength: Math.min(6, Math.abs(ltf) * 0.12),
+          phaseZoneChange: phaseZoneChange ? 4 : 0,
         };
-        
-        // HTF contribution
-        if (Number.isFinite(htf)) {
-          const htfAbs = Math.abs(htf);
-          if (htfAbs >= 25) breakdown.htf = Math.min(10, htfAbs * 0.4);
-          else if (htfAbs >= 15) breakdown.htf = Math.min(7, htfAbs * 0.35);
-          else breakdown.htf = Math.min(4, htfAbs * 0.25);
-        }
-        
-        // LTF contribution
-        if (Number.isFinite(ltf)) {
-          const ltfAbs = Math.abs(ltf);
-          if (ltfAbs >= 20) breakdown.ltf = Math.min(10, ltfAbs * 0.3);
-          else if (ltfAbs >= 12) breakdown.ltf = Math.min(6, ltfAbs * 0.25);
-          else breakdown.ltf = Math.min(3, ltfAbs * 0.2);
-        }
-        
-        // Completion bonus
-        if (Number.isFinite(comp)) {
-          if (comp <= 0.2) breakdown.completion = 15;
-          else if (comp <= 0.4) breakdown.completion = 10;
-          else if (comp <= 0.6) breakdown.completion = 5;
-        }
-        
-        // Phase penalty/bonus
-        if (Number.isFinite(phase)) {
-          if (phase > 0.5) breakdown.phase = -Math.max(0, (phase - 0.5) * 30);
-          if (phase <= 0.3) breakdown.phase = 3;
-        }
-        
-        // RR contribution
-        if (Number.isFinite(rr)) {
-          if (rr >= 2.0) breakdown.rr = 10;
-          else if (rr >= 1.5) breakdown.rr = 7;
-          else if (rr >= 1.2) breakdown.rr = 4;
-        }
-        
-        breakdown.total = Math.max(0, Math.min(100, 
+
+        breakdown.total = Math.max(
+          0,
           breakdown.base +
-          breakdown.aligned +
-          breakdown.setup +
-          breakdown.htf +
-          breakdown.ltf +
-          breakdown.completion +
-          breakdown.phase +
-          breakdown.squeezeRelease +
-          breakdown.squeezeOn +
-          breakdown.phaseZoneChange +
-          breakdown.rr +
-          breakdown.momentumElite
-        ));
-        
+            breakdown.corridor +
+            breakdown.corridorAligned +
+            breakdown.squeezeRelease +
+            breakdown.squeezeOn +
+            breakdown.rr +
+            breakdown.phase +
+            breakdown.completion +
+            breakdown.htfStrength +
+            breakdown.ltfStrength +
+            breakdown.phaseZoneChange
+        );
+
         return breakdown;
       }
       

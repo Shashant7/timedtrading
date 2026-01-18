@@ -1597,112 +1597,49 @@
         return d;
       }
 
-      // Calculate score breakdown (mirrors worker computeRank logic)
+      // Calculate score breakdown (mirrors computeDynamicScore / backend-style scoring)
       function calculateScoreBreakdown(ticker) {
-        const htf = Number(ticker.htf_score) || 0;
-        const ltf = Number(ticker.ltf_score) || 0;
-        const comp = Number(ticker.completion) || 0;
-        const phase = Number(ticker.phase_pct) || 0;
-        const rr = ticker.rr != null ? Number(ticker.rr) : 0;
-
-        const flags = ticker.flags || {};
+        const htf = Number(ticker?.htf_score) || 0;
+        const ltf = Number(ticker?.ltf_score) || 0;
+        const phase = Number(ticker?.phase_pct) || 0;
+        const rr = Number(ticker?.rr) || 0;
+        const comp = completionForSize(ticker);
+        const flags = ticker?.flags || {};
+        const state = String(ticker?.state || "");
+        const ent = entryType(ticker || {});
+        const inCorridor = !!ent?.corridor;
+        const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
         const sqRel = !!flags.sq30_release;
         const sqOn = !!flags.sq30_on;
         const phaseZoneChange = !!flags.phase_zone_change;
-        const momentumElite = !!flags.momentum_elite;
-
-        const state = String(ticker.state || "");
-        const aligned =
-          state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-        const setup =
-          state === "HTF_BULL_LTF_PULLBACK" ||
-          state === "HTF_BEAR_LTF_PULLBACK";
 
         const breakdown = {
-          base: 30,
-          aligned: aligned ? 12 : 0,
-          setup: setup ? 4 : 0,
-          htf: 0,
-          ltf: 0,
-          completion: 0,
-          phase: 0,
-          squeezeRelease: sqRel ? 12 : 0,
-          squeezeOn: sqOn && !sqRel ? 4 : 0,
-          phaseZoneChange: phaseZoneChange ? 2 : 0,
-          rr: 0,
-          momentumElite: momentumElite ? 15 : 0,
+          base: Number(ticker?.rank) || 50, // worker base score
+          corridor: inCorridor ? 12 : 0,
+          corridorAligned: inCorridor && aligned ? 8 : 0,
+          squeezeRelease: sqRel && inCorridor ? 10 : 0,
+          squeezeOn: sqOn && inCorridor && !sqRel ? 5 : 0,
+          rr: rr >= 2.0 ? 8 : rr >= 1.5 ? 5 : rr >= 1.0 ? 2 : 0,
+          phase: phase < 0.3 ? 6 : phase < 0.5 ? 3 : phase > 0.7 ? -5 : 0,
+          completion: comp < 0.3 ? 5 : comp > 0.8 ? -8 : 0,
+          htfStrength: Math.min(8, Math.abs(htf) * 0.15),
+          ltfStrength: Math.min(6, Math.abs(ltf) * 0.12),
+          phaseZoneChange: phaseZoneChange ? 4 : 0,
         };
-
-        // HTF contribution
-        if (Number.isFinite(htf)) {
-          const htfAbs = Math.abs(htf);
-          if (htfAbs >= 25) breakdown.htf = Math.min(10, htfAbs * 0.4);
-          else if (htfAbs >= 15) breakdown.htf = Math.min(7, htfAbs * 0.35);
-          else breakdown.htf = Math.min(4, htfAbs * 0.25);
-        }
-
-        // LTF contribution
-        if (Number.isFinite(ltf)) {
-          const ltfAbs = Math.abs(ltf);
-          if (ltfAbs >= 20) breakdown.ltf = Math.min(10, ltfAbs * 0.3);
-          else if (ltfAbs >= 12) breakdown.ltf = Math.min(6, ltfAbs * 0.25);
-          else breakdown.ltf = Math.min(3, ltfAbs * 0.2);
-        }
-
-        // Completion bonus
-        if (Number.isFinite(comp)) {
-          if (comp <= 0.2) breakdown.completion = 15;
-          else if (comp <= 0.4) breakdown.completion = 10;
-          else if (comp <= 0.6) breakdown.completion = 5;
-        }
-
-        // Phase penalty/bonus
-        if (Number.isFinite(phase)) {
-          if (phase > 0.5) breakdown.phase = -Math.max(0, (phase - 0.5) * 30);
-          if (phase <= 0.3) breakdown.phase = 3;
-        }
-
-        // RR contribution
-        if (Number.isFinite(rr)) {
-          if (rr >= 2.0) breakdown.rr = 10;
-          else if (rr >= 1.5) breakdown.rr = 7;
-          else if (rr >= 1.2) breakdown.rr = 4;
-        }
-
-        // RSI Divergence boost/penalty
-        const rsi = ticker.rsi;
-        if (rsi && rsi.divergence) {
-          const divType = String(rsi.divergence.type || "none");
-          const divStrength = Number(rsi.divergence.strength || 0);
-          if (divType === "bullish") {
-            breakdown.rsiDivergence = 3 + Math.min(2, divStrength * 0.1);
-          } else if (divType === "bearish") {
-            breakdown.rsiDivergence = -(3 - Math.min(2, divStrength * 0.1));
-          } else {
-            breakdown.rsiDivergence = 0;
-          }
-        } else {
-          breakdown.rsiDivergence = 0;
-        }
 
         breakdown.total = Math.max(
           0,
-          Math.min(
-            100,
-            breakdown.base +
-              breakdown.aligned +
-              breakdown.setup +
-              breakdown.htf +
-              breakdown.ltf +
-              breakdown.completion +
-              breakdown.phase +
-              breakdown.squeezeRelease +
-              breakdown.squeezeOn +
-              breakdown.phaseZoneChange +
-              breakdown.rr +
-              breakdown.momentumElite +
-              breakdown.rsiDivergence
-          )
+          breakdown.base +
+            breakdown.corridor +
+            breakdown.corridorAligned +
+            breakdown.squeezeRelease +
+            breakdown.squeezeOn +
+            breakdown.rr +
+            breakdown.phase +
+            breakdown.completion +
+            breakdown.htfStrength +
+            breakdown.ltfStrength +
+            breakdown.phaseZoneChange
         );
 
         return breakdown;
@@ -4209,29 +4146,11 @@
                   </>
                 )}
 
-                {/* Bubbles - Show only selected ticker with trail if selected, otherwise show all */}
-                {(() => {
-                  // Debug: Log which branch we're taking (always log, not just once)
-                  console.log(`[BUBBLE BRANCH]`, {
-                    hasSelectedTicker: !!selectedTicker,
-                    selectedTickerValue: selectedTicker,
-                    hasSelectedTrail: !!selectedTrail,
-                    selectedTrailLength: selectedTrail
-                      ? selectedTrail.length
-                      : 0,
-                    tickersCount: tickers ? tickers.length : 0,
-                    willShowSelected: !!selectedTicker,
-                    willShowAll: !selectedTicker,
-                  });
-                  return null;
-                })()}
-                {selectedTicker ? (
+                {/* Bubble Journey overlay (selection does NOT hide other bubbles) */}
+                {selectedTicker && selectedTrail && selectedTrail.length > 1 && (
                   <>
-                    {console.log(
-                      `[SELECTED BRANCH] Rendering selected ticker: ${selectedTicker}`
-                    )}
-                    {/* Trail path - comet effect */}
-                    {selectedTrail && selectedTrail.length > 1 && (() => {
+                    {/* Trail path */}
+                    {(() => {
                       const GAP_MS = 30 * 60 * 1000; // break across big gaps (e.g., overnight)
                       const segments = splitTrailByGaps(selectedTrail, GAP_MS);
                       return segments
@@ -4250,12 +4169,10 @@
                           }));
                           const d = catmullRomPath(pts);
                           if (!d) return null;
-                          const isLast =
-                            segIdx === segments.length - 1 &&
-                            seg &&
-                            seg.length > 1;
-                          // Keep the path readable (less “busy” than animated dashes).
-                          const opacity = 0.35 + (segIdx / Math.max(1, segments.length - 1)) * 0.25;
+                          const isLast = segIdx === segments.length - 1;
+                          const opacity =
+                            0.35 +
+                            (segIdx / Math.max(1, segments.length - 1)) * 0.25;
                           return (
                             <path
                               key={`trail-path-${segIdx}`}
@@ -4271,52 +4188,37 @@
                           );
                         });
                     })()}
-                    {/* Trail points (smaller bubbles) - show historical positions */}
-                    {selectedTrail &&
-                      selectedTrail.length > 1 &&
-                      selectedTrail.slice(0, -1).map((point, idx) => {
-                        // Create a ticker-like object from trail point
-                        const tickerData = {
-                          ticker: selectedTicker,
-                          htf_score: point.htf_score || 0,
-                          ltf_score: point.ltf_score || 0,
-                          phase_pct: point.phase_pct || 0,
-                          completion: point.completion || 0,
-                          flags: {},
-                          state: point.state || "",
-                        };
-                        const x =
-                          (Number(tickerData.ltf_score) || 0) * scaleX +
-                          offsetX +
-                          domainXMax * scaleX;
-                        const y =
-                          (Number(tickerData.htf_score) || 0) * -scaleY +
-                          offsetY +
-                          plotHeight -
-                          domainYMax * scaleY;
-                        const visual = bubbleVisualForTrailPoint(
-                          point,
-                          selectedTicker
-                        );
-                        const size = visual.radius; // historical size (scaled down, proportional)
-                        const opacity =
-                          0.3 + (idx / selectedTrail.length) * 0.4; // Fade in from past to present
 
-                        return (
-                          <circle
-                            key={`trail-point-${idx}`}
-                            cx={x}
-                            cy={y}
-                            r={size}
-                            fill={visual.color}
-                            fillOpacity={opacity}
-                            stroke={visual.color}
-                            strokeWidth="1"
-                            strokeOpacity={opacity * 0.5}
-                          />
-                        );
-                      })}
-                    {/* Highlight a specific historical point (from Bubble Journey hover/click) */}
+                    {/* Trail points */}
+                    {selectedTrail.slice(0, -1).map((point, idx) => {
+                      const x =
+                        (Number(point?.ltf_score) || 0) * scaleX +
+                        offsetX +
+                        domainXMax * scaleX;
+                      const y =
+                        (Number(point?.htf_score) || 0) * -scaleY +
+                        offsetY +
+                        plotHeight -
+                        domainYMax * scaleY;
+                      const visual = bubbleVisualForTrailPoint(point, selectedTicker);
+                      const size = visual.radius;
+                      const opacity = 0.3 + (idx / selectedTrail.length) * 0.4;
+                      return (
+                        <circle
+                          key={`trail-point-${idx}`}
+                          cx={x}
+                          cy={y}
+                          r={size}
+                          fill={visual.color}
+                          fillOpacity={opacity}
+                          stroke={visual.color}
+                          strokeWidth="1"
+                          strokeOpacity={opacity * 0.5}
+                        />
+                      );
+                    })}
+
+                    {/* Highlight a specific historical point */}
                     {highlightTrailPoint &&
                       Number.isFinite(Number(highlightTrailPoint?.ltf_score)) &&
                       Number.isFinite(Number(highlightTrailPoint?.htf_score)) &&
@@ -4377,145 +4279,35 @@
                           </g>
                         );
                       })()}
-                    {/* Current position (larger, highlighted) */}
-                    {(() => {
-                      console.log(
-                        `[SELECTED BRANCH] Looking for ticker: ${selectedTicker} in tickers array (${
-                          tickers ? tickers.length : 0
-                        } items)`
-                      );
-                      // Try to find ticker in filtered list first
-                      let currentTicker = displayTickers.find((t) => {
-                        if (!t || typeof t !== "object") return false;
-                        const tTicker = String(t.ticker || "").toUpperCase();
-                        return tTicker === String(selectedTicker).toUpperCase();
-                      });
-                      console.log(
-                        `[SELECTED BRANCH] Found in tickers array:`,
-                        !!currentTicker
-                      );
-
-                      // If not in filtered list, try to get from allData (for tickers filtered out but selected)
-                      if (
-                        !currentTicker &&
-                        allData &&
-                        typeof allData === "object"
-                      ) {
-                        const tickerUpper =
-                          String(selectedTicker).toUpperCase();
-                        if (allData[tickerUpper]) {
-                          currentTicker = allData[tickerUpper];
-                        } else {
-                          // Search through values
-                          const dataArray = Object.values(allData);
-                          currentTicker = dataArray.find((t) => {
-                            if (!t || typeof t !== "object") return false;
-                            const tTicker = String(
-                              t.ticker || ""
-                            ).toUpperCase();
-                            return tTicker === tickerUpper;
-                          });
-                        }
-                      }
-
-                      // Only render if we have valid scores to position the bubble
-                      if (
-                        currentTicker &&
-                        (currentTicker.htf_score !== undefined ||
-                          currentTicker.ltf_score !== undefined)
-                      ) {
-                        return (
-                          <SVGBubble
-                            key={selectedTicker}
-                            ticker={currentTicker}
-                            onClick={() => {}}
-                            onHover={() => {}}
-                            isHovered={true}
-                            scaleX={scaleX}
-                            scaleY={-scaleY}
-                            offsetX={offsetX + domainXMax * scaleX}
-                            offsetY={offsetY + plotHeight - domainYMax * scaleY}
-                            showLabels={true}
-                            isTopRanked={topRankedTicker === selectedTicker}
-                          />
-                        );
-                      }
-                      return null;
-                    })()}
                   </>
-                ) : (
-                  (() => {
-                    // CRITICAL DEBUG: Log what we're about to render
-                    console.log(`[ALL BUBBLES BRANCH] Rendering all bubbles`, {
-                      hasTickers: !!tickers,
-                      tickersLength: tickers ? tickers.length : 0,
-                      isArray: Array.isArray(tickers),
-                      selectedTicker: selectedTicker,
-                      selectedTrail: selectedTrail,
-                      willRenderAll: !selectedTicker,
-                    });
-
-                    if (!tickers || tickers.length === 0) {
-                      console.error(`[BUBBLE ERROR] No tickers to render!`, {
-                        tickers,
-                        selectedTicker,
-                        selectedTrail,
-                      });
-                      return null;
-                    }
-
-                    return (
-                      <>
-                        {/* Current bubbles */}
-                        {displayTickers.map((ticker, index) => {
-                          // Log first few bubbles
-                          if (index < 5) {
-                            console.log(
-                              `[BUBBLE RENDER] ${ticker.ticker} (${index}):`,
-                              {
-                                hasTicker: !!ticker,
-                                tickerKeys: ticker
-                                  ? Object.keys(ticker).slice(0, 15)
-                                  : [],
-                                hasPhasePct: ticker
-                                  ? "phase_pct" in ticker
-                                  : false,
-                                phasePct: ticker ? ticker.phase_pct : undefined,
-                                hasCompletion: ticker
-                                  ? "completion" in ticker
-                                  : false,
-                                hasRR: ticker ? "rr" in ticker : false,
-                              }
-                            );
-                          }
-                          return (
-                            <SVGBubble
-                              key={ticker.ticker}
-                              ticker={ticker}
-                              onClick={onBubbleClick}
-                              onHover={(t) => {
-                                onHover(t);
-                                if (t)
-                                  setTooltip(
-                                    tickers.find((tt) => tt.ticker === t)
-                                  );
-                              }}
-                              isHovered={hoveredTicker === ticker.ticker}
-                              scaleX={scaleX}
-                              scaleY={-scaleY}
-                              offsetX={offsetX + domainXMax * scaleX}
-                              offsetY={offsetY + plotHeight - domainYMax * scaleY}
-                              layoutX={layoutPositions?.[ticker.ticker]?.x}
-                              layoutY={layoutPositions?.[ticker.ticker]?.y}
-                              showLabels={showLabels}
-                              isTopRanked={topRankedTicker === ticker.ticker}
-                            />
-                          );
-                        })}
-                      </>
-                    );
-                  })()
                 )}
+
+                {/* Current bubbles (always render full universe) */}
+                {displayTickers.map((ticker) => (
+                  <SVGBubble
+                    key={ticker.ticker}
+                    ticker={ticker}
+                    onClick={onBubbleClick}
+                    onHover={(t) => {
+                      onHover(t);
+                      if (t) setTooltip(tickers.find((tt) => tt.ticker === t));
+                    }}
+                    isHovered={
+                      hoveredTicker === ticker.ticker ||
+                      (selectedTicker &&
+                        String(selectedTicker).toUpperCase() ===
+                          String(ticker.ticker || "").toUpperCase())
+                    }
+                    scaleX={scaleX}
+                    scaleY={-scaleY}
+                    offsetX={offsetX + domainXMax * scaleX}
+                    offsetY={offsetY + plotHeight - domainYMax * scaleY}
+                    layoutX={layoutPositions?.[ticker.ticker]?.x}
+                    layoutY={layoutPositions?.[ticker.ticker]?.y}
+                    showLabels={showLabels}
+                    isTopRanked={topRankedTicker === ticker.ticker}
+                  />
+                ))}
               </svg>
 
               {/* Tooltip */}
@@ -11055,39 +10847,45 @@
                         value: breakdown.base,
                         color: "text-blue-400",
                       },
-                      breakdown.aligned > 0
+                      breakdown.corridor > 0
                         ? {
-                            label: "Aligned State",
-                            value: `+${breakdown.aligned}`,
-                            color: "text-green-400",
-                          }
-                        : null,
-                      breakdown.setup > 0
-                        ? {
-                            label: "Setup State",
-                            value: `+${breakdown.setup}`,
-                            color: "text-green-400",
-                          }
-                        : null,
-                      breakdown.htf > 0
-                        ? {
-                            label: "HTF Score",
-                            value: `+${breakdown.htf.toFixed(2)}`,
+                            label: "In Corridor",
+                            value: `+${breakdown.corridor}`,
                             color: "text-cyan-400",
                           }
                         : null,
-                      breakdown.ltf > 0
+                      breakdown.corridorAligned > 0
                         ? {
-                            label: "LTF Score",
-                            value: `+${breakdown.ltf.toFixed(2)}`,
+                            label: "Aligned + Corridor",
+                            value: `+${breakdown.corridorAligned}`,
+                            color: "text-green-400",
+                          }
+                        : null,
+                      breakdown.htfStrength > 0
+                        ? {
+                            label: "HTF Strength",
+                            value: `+${breakdown.htfStrength.toFixed(2)}`,
                             color: "text-cyan-400",
                           }
                         : null,
-                      breakdown.completion > 0
+                      breakdown.ltfStrength > 0
                         ? {
-                            label: "Completion Bonus",
-                            value: `+${breakdown.completion}`,
-                            color: "text-yellow-400",
+                            label: "LTF Strength",
+                            value: `+${breakdown.ltfStrength.toFixed(2)}`,
+                            color: "text-cyan-400",
+                          }
+                        : null,
+                      breakdown.completion !== 0
+                        ? {
+                            label: "Completion",
+                            value:
+                              breakdown.completion > 0
+                                ? `+${breakdown.completion}`
+                                : `${breakdown.completion}`,
+                            color:
+                              breakdown.completion > 0
+                                ? "text-yellow-400"
+                                : "text-red-400",
                           }
                         : null,
                       breakdown.phase !== 0
@@ -11095,8 +10893,8 @@
                             label: "Phase",
                             value:
                               breakdown.phase > 0
-                                ? `+${breakdown.phase.toFixed(2)}`
-                                : breakdown.phase.toFixed(2),
+                                ? `+${breakdown.phase}`
+                                : `${breakdown.phase}`,
                             color:
                               breakdown.phase > 0
                                 ? "text-green-400"
@@ -11105,14 +10903,14 @@
                         : null,
                       breakdown.squeezeRelease > 0
                         ? {
-                            label: "Squeeze Release",
+                            label: "Squeeze Release (Corridor)",
                             value: `+${breakdown.squeezeRelease}`,
                             color: "text-purple-400",
                           }
                         : null,
                       breakdown.squeezeOn > 0
                         ? {
-                            label: "Squeeze On",
+                            label: "Squeeze On (Corridor)",
                             value: `+${breakdown.squeezeOn}`,
                             color: "text-yellow-400",
                           }
@@ -11124,31 +10922,11 @@
                             color: "text-blue-400",
                           }
                         : null,
-                      breakdown.rr > 0
+                      breakdown.rr !== 0
                         ? {
                             label: "Risk/Reward",
                             value: `+${breakdown.rr}`,
                             color: "text-green-400",
-                          }
-                        : null,
-                      breakdown.momentumElite > 0
-                        ? {
-                            label: "Momentum Elite",
-                            value: `+${breakdown.momentumElite}`,
-                            color: "text-purple-400",
-                          }
-                        : null,
-                      breakdown.rsiDivergence !== 0
-                        ? {
-                            label: "RSI Divergence",
-                            value:
-                              breakdown.rsiDivergence > 0
-                                ? `+${breakdown.rsiDivergence.toFixed(1)}`
-                                : breakdown.rsiDivergence.toFixed(1),
-                            color:
-                              breakdown.rsiDivergence > 0
-                                ? "text-green-400"
-                                : "text-red-400",
                           }
                         : null,
                     ].filter(Boolean);
@@ -11177,7 +10955,7 @@
                               Total Score
                             </span>
                             <span className="text-blue-400 font-bold text-base">
-                              {Math.round(breakdown.total)}
+                              {Number.isFinite(breakdown.total) ? breakdown.total.toFixed(1) : "—"}
                             </span>
                           </div>
                         </div>
