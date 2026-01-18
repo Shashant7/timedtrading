@@ -3556,34 +3556,10 @@
           });
         }, [selectedTicker, selectedTrail, tickers]);
 
-        // Filter tickers to only show selected one if a ticker is selected
+        // Keep the full universe visible when selecting a ticker.
+        // Selection should highlight + show Bubble Journey, not re-filter or "zoom" the chart by shrinking the dataset.
         const displayTickers = React.useMemo(() => {
-          console.log(
-            `[DISPLAY TICKERS] Computing with selectedTicker:`,
-            selectedTicker,
-            {
-              hasSelectedTicker: !!selectedTicker,
-              tickersCount: tickers ? tickers.length : 0,
-            }
-          );
-          if (selectedTicker) {
-            // Only show the selected ticker
-            const filtered = tickers.filter((t) => {
-              if (!t || typeof t !== "object") return false;
-              const tTicker = String(t.ticker || "").toUpperCase();
-              return tTicker === String(selectedTicker).toUpperCase();
-            });
-            console.log(
-              `[BUBBLE FILTER] selectedTicker=${selectedTicker}, filtered from ${tickers.length} to ${filtered.length} tickers`,
-              { filteredTickers: filtered.map((t) => t.ticker) }
-            );
-            return filtered;
-          }
-          // Show all tickers when nothing is selected
-          console.log(
-            `[BUBBLE FILTER] No selectedTicker, showing all ${tickers.length} tickers`
-          );
-          return tickers;
+          return Array.isArray(tickers) ? tickers : [];
         }, [tickers, selectedTicker]);
 
         // Time Travel mode is snapshot-only: BubbleChart does NOT render trails for all bubbles.
