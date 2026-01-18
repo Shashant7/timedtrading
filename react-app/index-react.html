@@ -4265,12 +4265,12 @@
                             x:
                               (Number(p?.ltf_score) || 0) * scaleX +
                               offsetX +
-                              50 * scaleX,
+                              domainXMax * scaleX,
                             y:
                               (Number(p?.htf_score) || 0) * -scaleY +
                               offsetY +
                               plotHeight -
-                              50 * scaleY,
+                              domainYMax * scaleY,
                           }));
                           const d = catmullRomPath(pts);
                           if (!d) return null;
@@ -4312,12 +4312,12 @@
                         const x =
                           (Number(tickerData.ltf_score) || 0) * scaleX +
                           offsetX +
-                          50 * scaleX;
+                          domainXMax * scaleX;
                         const y =
                           (Number(tickerData.htf_score) || 0) * -scaleY +
                           offsetY +
                           plotHeight -
-                          50 * scaleY;
+                          domainYMax * scaleY;
                         const visual = bubbleVisualForTrailPoint(
                           point,
                           selectedTicker
@@ -4348,13 +4348,13 @@
                         const hx =
                           (Number(highlightTrailPoint.ltf_score) || 0) * scaleX +
                           offsetX +
-                          50 * scaleX;
+                          domainXMax * scaleX;
                         const hy =
                           (Number(highlightTrailPoint.htf_score) || 0) *
                             -scaleY +
                           offsetY +
                           plotHeight -
-                          50 * scaleY;
+                          domainYMax * scaleY;
                         const visual = bubbleVisualForTrailPoint(
                           highlightTrailPoint,
                           selectedTicker
