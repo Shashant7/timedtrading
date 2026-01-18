@@ -3493,10 +3493,15 @@
           });
         }, [selectedTicker, selectedTrail, tickers]);
 
-        // Keep the full universe visible when selecting a ticker.
-        // Selection should highlight + show Bubble Journey, not re-filter or "zoom" the chart by shrinking the dataset.
+        // When a ticker is selected, "solo" it (show only that bubble + journey).
+        // IMPORTANT: chart zoom should remain stable (domain is computed from the full loaded universe, not this filtered list).
         const displayTickers = React.useMemo(() => {
-          return Array.isArray(tickers) ? tickers : [];
+          const list = Array.isArray(tickers) ? tickers : [];
+          if (!selectedTicker) return list;
+          const sym = String(selectedTicker).toUpperCase();
+          const solo = list.filter((t) => String(t?.ticker || "").toUpperCase() === sym);
+          // If selection is no longer in the filtered universe, fall back to showing the current universe.
+          return solo.length > 0 ? solo : list;
         }, [tickers, selectedTicker]);
 
         // Time Travel mode is snapshot-only: BubbleChart does NOT render trails for all bubbles.
@@ -3625,8 +3630,15 @@
             // Pad a bit, but keep within canonical -50..50 score space
             return clamp(maxAbs * 1.15, 10, 50);
           };
-          const domainXMax = axisDomain(displayTickers, "ltf_score", 50);
-          const domainYMax = axisDomain(displayTickers, "htf_score", 50);
+          // Domain base: full loaded universe (stable across filter clicks), fallback to current tickers list.
+          const domainBase = (() => {
+            if (allData && typeof allData === "object") {
+              return Object.values(allData).filter((t) => t && typeof t === "object");
+            }
+            return Array.isArray(tickers) ? tickers : [];
+          })();
+          const domainXMax = axisDomain(domainBase, "ltf_score", 50);
+          const domainYMax = axisDomain(domainBase, "htf_score", 50);
 
           // Scaling based on dynamic domains
           const scaleX = plotWidth / (2 * domainXMax);
@@ -4146,7 +4158,7 @@
                   </>
                 )}
 
-                {/* Bubble Journey overlay (selection does NOT hide other bubbles) */}
+                {/* Bubble Journey overlay */}
                 {selectedTicker && selectedTrail && selectedTrail.length > 1 && (
                   <>
                     {/* Trail path */}
@@ -4282,7 +4294,7 @@
                   </>
                 )}
 
-                {/* Current bubbles (always render full universe) */}
+                {/* Current bubbles */}
                 {displayTickers.map((ticker) => (
                   <SVGBubble
                     key={ticker.ticker}
