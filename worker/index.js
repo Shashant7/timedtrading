@@ -9512,6 +9512,53 @@ export default {
 
           await kvPutText(KV, "timed:capture:last_ingest_ms", String(now));
 
+          // Promote capture payload into main latest/trail when it contains full score fields.
+          // This fixes the “stale latest despite fresh receipts” issue when some alerts are wired to /ingest-capture.
+          try {
+            const hasScores =
+              isNum(payload?.htf_score) &&
+              isNum(payload?.ltf_score) &&
+              isNum(payload?.ts);
+            if (hasScores) {
+              // Ensure RR is present (used widely by UI/alerts)
+              if (!isNum(payload?.rr)) {
+                try {
+                  payload.rr = computeRR(payload);
+                } catch {
+                  // ignore
+                }
+              }
+
+              // Store latest and trail (KV) and write to D1 trail, but do NOT run alert/discord logic here.
+              await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+              await appendTrail(
+                KV,
+                ticker,
+                {
+                  ts: payload.ts,
+                  price: payload.price,
+                  htf_score: payload.htf_score,
+                  ltf_score: payload.ltf_score,
+                  completion: payload.completion,
+                  phase_pct: payload.phase_pct,
+                  state: payload.state,
+                  rank: payload.rank,
+                  flags: payload.flags,
+                  trigger_reason: payload.trigger_reason,
+                  trigger_dir: payload.trigger_dir,
+                },
+                20
+              );
+              d1InsertTrailPoint(env, ticker, payload).catch((e) => {
+                console.error(`[D1 CAPTURE→TRAIL] Insert failed for ${ticker}:`, String(e));
+              });
+              await ensureTickerIndex(KV, ticker);
+              await kvPutText(KV, "timed:last_ingest_ms", String(now));
+            }
+          } catch (promoteErr) {
+            console.error(`[CAPTURE PROMOTE] Failed for ${ticker}:`, String(promoteErr));
+          }
+
           return ackJSON(env, { ok: true, ticker, capture: true }, 200, req);
         } catch (err) {
           console.error(`[CAPTURE INGEST ERROR]`, err);
