@@ -1586,6 +1586,13 @@
         // Helper to get ticker data - prefer trade's ticker data if available, otherwise use ticker prop
         const tickerData = trade && trade.tickerData ? trade.tickerData : ticker;
         const tickerSymbol = tickerData.ticker || ticker.ticker || (trade ? trade.ticker : null);
+        const selectedActivity =
+          trade && trade.__activity && typeof trade.__activity === "object"
+            ? trade.__activity
+            : null;
+        const selectedActivityType = selectedActivity ? String(selectedActivity.type || "").toUpperCase() : null;
+        const selectedActivityTs = selectedActivity && selectedActivity.ts != null ? Number(selectedActivity.ts) : null;
+        const tradeId = trade ? String(trade.trade_id || trade.id || "").trim() : "";
         
         if (!tickerSymbol) return null;
 
@@ -1598,6 +1605,51 @@
         const [bubbleJourney, setBubbleJourney] = useState([]);
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
+
+        // Discord-style decision card (ENTRY/TRIM/EXIT) for selected activity rows.
+        const [decisionCard, setDecisionCard] = useState(null);
+        const [decisionCardLoading, setDecisionCardLoading] = useState(false);
+        const [decisionCardError, setDecisionCardError] = useState(null);
+
+        useEffect(() => {
+          const type = selectedActivityType;
+          const ts = selectedActivityTs;
+          if (!tradeId || !type || !Number.isFinite(ts)) {
+            setDecisionCard(null);
+            setDecisionCardError(null);
+            setDecisionCardLoading(false);
+            return;
+          }
+          let cancelled = false;
+          const fetchCard = async () => {
+            try {
+              setDecisionCardLoading(true);
+              setDecisionCardError(null);
+              const qs = new URLSearchParams();
+              qs.set("type", type);
+              qs.set("ts", String(ts));
+              const res = await fetch(
+                `${API_BASE}/timed/ledger/trades/${encodeURIComponent(tradeId)}/decision-card?${qs.toString()}`,
+                { cache: "no-store" }
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "decision_card_failed");
+              if (!cancelled) setDecisionCard(json);
+            } catch (e) {
+              if (!cancelled) {
+                setDecisionCard(null);
+                setDecisionCardError(String(e.message || e));
+              }
+            } finally {
+              if (!cancelled) setDecisionCardLoading(false);
+            }
+          };
+          fetchCard();
+          return () => {
+            cancelled = true;
+          };
+        }, [tradeId, selectedActivityType, selectedActivityTs]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "").trim().toUpperCase();
@@ -1695,11 +1747,21 @@
         const pointValueDetail = isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? FUTURES_SPECS[tickerSymbol].pointValue : 1;
         
         // Trade-specific calculations
-        // For futures: shares = contracts (always 1), for stocks: calculate from TRADE_SIZE
-        const shares = trade 
-          ? (trade.shares || (isFuturesDetail && FUTURES_SPECS[tickerSymbol] ? 1 : TRADE_SIZE / (trade.entryPrice || 1)))
+        const tradeEntryPrice = trade
+          ? Number(trade.entryPrice ?? trade.entry_price ?? trade.entryPrice ?? 0)
           : null;
-        const currentPrice = trade ? (trade.currentPrice || trade.entryPrice) : (tickerData.price || tickerData.currentPrice);
+        const tradeSl = trade ? Number(trade.sl ?? trade.sl_price ?? trade.slPrice ?? 0) : null;
+        const tradeTp = trade ? Number(trade.tp ?? trade.tp_price ?? trade.tpPrice ?? 0) : null;
+        // For futures: shares = contracts (always 1), for stocks: calculate from TRADE_SIZE
+        const shares = trade
+          ? (trade.shares ||
+              (isFuturesDetail && FUTURES_SPECS[tickerSymbol]
+                ? 1
+                : TRADE_SIZE / (tradeEntryPrice || 1)))
+          : null;
+        const currentPrice = trade
+          ? Number(trade.currentPrice ?? trade.current_price ?? tradeEntryPrice)
+          : Number(tickerData.price || tickerData.currentPrice);
         const trimmedPct = trade ? (trade.trimmedPct || 0) : 0;
         const trimmedShares = trade ? (shares * trimmedPct) : 0;
         const remainingShares = trade ? (shares - trimmedShares) : null;
@@ -1707,9 +1769,9 @@
         const metricsSource = trade
           ? {
               ...tickerData,
-              entryPrice: trade.entryPrice,
-              tp: trade.tp ?? tickerData.tp,
-              sl: trade.sl ?? tickerData.sl,
+              entryPrice: tradeEntryPrice,
+              tp: Number.isFinite(tradeTp) && tradeTp > 0 ? tradeTp : (trade.tp ?? tickerData.tp),
+              sl: Number.isFinite(tradeSl) && tradeSl > 0 ? tradeSl : (trade.sl ?? tickerData.sl),
               direction: trade.direction,
             }
           : tickerData;
@@ -1806,6 +1868,49 @@
 
               {/* Padded body content (keeps header top-aligned) */}
               <div className="p-6 pt-4">
+              {/* Discord-style Decision Card (from ledger snapshot at event time) */}
+              {trade && selectedActivityType && Number.isFinite(selectedActivityTs) && (
+                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-bold">Decision Card</div>
+                      <div className="text-xs text-[#93a4d6] mt-0.5">
+                        {selectedActivityType} •{" "}
+                        {new Date(Number(selectedActivityTs)).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="text-xs text-[#6b7a9f]">
+                      {tradeId ? `Trade ${tradeId}` : ""}
+                    </div>
+                  </div>
+
+                  {decisionCardLoading ? (
+                    <div className="mt-3 text-xs text-[#93a4d6]">Loading reasoning…</div>
+                  ) : decisionCardError ? (
+                    <div className="mt-3 text-xs text-red-400">
+                      Failed to load reasoning: {decisionCardError}
+                    </div>
+                  ) : decisionCard && decisionCard.card ? (
+                    <div className="mt-3 space-y-2">
+                      {decisionCard.card.action && (
+                        <div className="text-sm font-semibold text-white whitespace-pre-line">
+                          {String(decisionCard.card.action)}
+                        </div>
+                      )}
+                      {decisionCard.card.reasons && (
+                        <div className="text-xs text-[#e7ecff] whitespace-pre-line">
+                          {String(decisionCard.card.reasons)}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-xs text-[#93a4d6]">
+                      No reasoning snapshot found for this event.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Sector, Sector Rating */}
               {(() => {
                 const tickerSector = tickerData.sector || tickerData.fundamentals?.sector;
@@ -1928,11 +2033,15 @@
                     <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                       <div>
                         <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
-                        <div className="font-semibold text-white text-lg">${trade.entryPrice?.toFixed(2) || "—"}</div>
+                        <div className="font-semibold text-white text-lg">
+                          {Number.isFinite(tradeEntryPrice) ? `$${tradeEntryPrice.toFixed(2)}` : "—"}
+                        </div>
                       </div>
                       <div>
                         <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
-                        <div className="font-semibold text-yellow-400 text-lg">${currentPrice?.toFixed(2) || "—"}</div>
+                        <div className="font-semibold text-yellow-400 text-lg">
+                          {Number.isFinite(currentPrice) ? `$${Number(currentPrice).toFixed(2)}` : "—"}
+                        </div>
                       </div>
                     </div>
                     {trade.history && trade.history.length > 0 && (
@@ -5784,7 +5893,16 @@
                                                       className="border-b border-[#26325f]/50 hover:bg-[#0f1630] cursor-pointer"
                                                       onClick={() => {
                                                         setSelectedTicker(t.ticker);
-                                                        setSelectedTrade(t);
+                                                        // Preserve which lifecycle event/day row was clicked so the right rail
+                                                        // can show a Discord-style "decision card" for that moment.
+                                                        setSelectedTrade({
+                                                          ...t,
+                                                          __activity: {
+                                                            type: actionLabel, // ENTRY | TRIM | EXIT (note: TRIM rows can be shown as EXIT)
+                                                            ts: Number(ev.ts),
+                                                            dayKey: g.key,
+                                                          },
+                                                        });
                                                       }}
                                                     >
                                                       <td className="p-2 text-xs text-[#93a4d6] whitespace-nowrap">

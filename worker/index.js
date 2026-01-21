@@ -10793,6 +10793,15 @@ export default {
         const captureLatest = await kvGetJSON(KV, `timed:capture:latest:${tickerUpper}`);
         const captureTrail = await kvGetJSON(KV, `timed:capture:trail:${tickerUpper}`);
 
+        // Raw payload breadcrumbs (last seen) to identify which endpoint is receiving data.
+        // NOTE: truncated for safety/size.
+        const ingestRawKey = `timed:ingest:raw:${tickerUpper}`;
+        const captureRawKey = `timed:capture:raw:${tickerUpper}`;
+        const ingestRaw = await KV.get(ingestRawKey);
+        const captureRaw = await KV.get(captureRawKey);
+        const ingestRawSample = ingestRaw ? String(ingestRaw).slice(0, 500) : null;
+        const captureRawSample = captureRaw ? String(captureRaw).slice(0, 500) : null;
+
         const latestTs = latest?.ingest_ts ?? latest?.ingest_time ?? latest?.ts ?? null;
         const captureTs = captureLatest?.ingest_ts ?? captureLatest?.ingest_time ?? captureLatest?.ts ?? null;
         const likelyCaptureOnly =
@@ -10818,6 +10827,12 @@ export default {
               latestTs,
               captureTs,
               likelyCaptureOnly,
+              raw: {
+                ingestRawPresent: !!ingestRaw,
+                captureRawPresent: !!captureRaw,
+                ingestRawSample,
+                captureRawSample,
+              },
             },
           },
           200,
@@ -12502,8 +12517,186 @@ export default {
       }
 
       // GET /timed/ledger/trades/:tradeId
+      // GET /timed/ledger/trades/:tradeId/decision-card?type=ENTRY|TRIM|EXIT&ts=...
+      // Returns a Discord-style "Action & Reasoning" card using the nearest trail snapshot.
       if (
         url.pathname.startsWith("/timed/ledger/trades/") &&
+        url.pathname.endsWith("/decision-card") &&
+        req.method === "GET"
+      ) {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const raw = url.pathname.split("/timed/ledger/trades/")[1] || "";
+        const tradeId = decodeURIComponent(
+          raw.replace(/\/decision-card$/, "")
+        ).trim();
+        if (!tradeId) {
+          return sendJSON(
+            { ok: false, error: "missing trade_id" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const typeRaw = String(url.searchParams.get("type") || url.searchParams.get("event") || "")
+          .trim()
+          .toUpperCase();
+        const type =
+          typeRaw === "CLOSE"
+            ? "EXIT"
+            : typeRaw === "ENTRY" || typeRaw === "TRIM" || typeRaw === "EXIT"
+            ? typeRaw
+            : null;
+        if (!type) {
+          return sendJSON(
+            { ok: false, error: "missing_or_invalid_type", allowed: ["ENTRY", "TRIM", "EXIT"] },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tsParam = url.searchParams.get("ts");
+        const ts = tsParam != null && tsParam !== "" ? Number(tsParam) : null;
+
+        const tradeRow = await db
+          .prepare(
+            `SELECT
+              trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+              exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+              script_version, created_at, updated_at
+             FROM trades WHERE trade_id = ?1 LIMIT 1`
+          )
+          .bind(tradeId)
+          .first();
+
+        if (!tradeRow) {
+          return sendJSON(
+            { ok: false, error: "not_found", trade_id: tradeId },
+            404,
+            corsHeaders(env, req)
+          );
+        }
+
+        const ticker = String(tradeRow.ticker || "").toUpperCase();
+        if (!ticker) {
+          return sendJSON(
+            { ok: false, error: "missing_ticker", trade_id: tradeId },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const evRow = await (async () => {
+          if (Number.isFinite(ts)) {
+            // Find closest event in time (best for "By Day Activity" clicks)
+            const r = await db
+              .prepare(
+                `SELECT
+                  event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
+                 FROM trade_events
+                 WHERE trade_id = ?1 AND type = ?2
+                 ORDER BY ABS(ts - ?3) ASC
+                 LIMIT 1`
+              )
+              .bind(tradeId, type, Number(ts))
+              .first();
+            return r || null;
+          }
+          // Default: entry -> earliest; others -> latest
+          const order = type === "ENTRY" ? "ASC" : "DESC";
+          const r = await db
+            .prepare(
+              `SELECT
+                event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
+               FROM trade_events
+               WHERE trade_id = ?1 AND type = ?2
+               ORDER BY ts ${order}
+               LIMIT 1`
+            )
+            .bind(tradeId, type)
+            .first();
+          return r || null;
+        })();
+
+        if (!evRow || !Number.isFinite(Number(evRow.ts))) {
+          return sendJSON(
+            { ok: false, error: "event_not_found", trade_id: tradeId, type },
+            404,
+            corsHeaders(env, req)
+          );
+        }
+
+        const evTs = Number(evRow.ts);
+        const snapWindowMs = type === "ENTRY" ? 3 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+        const snap = await d1GetNearestTrailPayload(db, ticker, evTs, snapWindowMs);
+
+        const tickerData = snap && snap.payload ? snap.payload : null;
+        if (!tickerData) {
+          return sendJSON(
+            {
+              ok: false,
+              error: "missing_snapshot",
+              trade_id: tradeId,
+              type,
+              ts: evTs,
+            },
+            404,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tradeLite = {
+          direction: tradeRow.direction,
+          rank: Number(tradeRow.rank) || 0,
+          rr: Number(tradeRow.rr) || 0,
+          status: tradeRow.status,
+          exitReason: tradeRow.exit_reason || null,
+          pnl: Number(tradeRow.pnl) || 0,
+          pnlPct: Number(tradeRow.pnl_pct) || 0,
+        };
+
+        const trimPct = (() => {
+          const v = evRow.qty_pct_total != null ? Number(evRow.qty_pct_total) : null;
+          if (Number.isFinite(v)) return v;
+          const fromMeta = parseTrimPctFromText(evRow.meta_json);
+          return Number.isFinite(fromMeta) ? fromMeta : null;
+        })();
+
+        const actionKey = type === "EXIT" ? "CLOSE" : type;
+        const interpretation = generateTradeActionInterpretation(
+          actionKey,
+          tickerData,
+          tradeLite,
+          trimPct
+        );
+
+        return sendJSON(
+          {
+            ok: true,
+            trade: tradeRow,
+            event: evRow,
+            snapshot: { ts: Number(snap.ts), payload: tickerData },
+            card: {
+              title: `${ticker} ${String(tradeLite.direction || "").toUpperCase()}`.trim(),
+              action: interpretation?.action || null,
+              reasons: interpretation?.reasons || null,
+            },
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      if (
+        url.pathname.startsWith("/timed/ledger/trades/") &&
+        !url.pathname.endsWith("/decision-card") &&
         req.method === "GET"
       ) {
         const db = env?.DB;
