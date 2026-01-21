@@ -10738,6 +10738,21 @@ export default {
         const latest = await kvGetJSON(KV, `timed:latest:${tickerUpper}`);
         const trail = await kvGetJSON(KV, `timed:trail:${tickerUpper}`);
 
+        // Capture-only channel (some TV alerts may be wired to /timed/ingest-capture)
+        const captureTickers = (await kvGetJSON(KV, "timed:capture:tickers")) || [];
+        const inCaptureIndex = Array.isArray(captureTickers)
+          ? captureTickers.includes(tickerUpper)
+          : false;
+        const captureLatest = await kvGetJSON(KV, `timed:capture:latest:${tickerUpper}`);
+        const captureTrail = await kvGetJSON(KV, `timed:capture:trail:${tickerUpper}`);
+
+        const latestTs = latest?.ingest_ts ?? latest?.ingest_time ?? latest?.ts ?? null;
+        const captureTs = captureLatest?.ingest_ts ?? captureLatest?.ingest_time ?? captureLatest?.ts ?? null;
+        const likelyCaptureOnly =
+          !!captureLatest &&
+          !latest &&
+          inCaptureIndex;
+
         return sendJSON(
           {
             ok: true,
@@ -10747,6 +10762,16 @@ export default {
             hasTrail: !!trail,
             latestData: latest || null,
             trailLength: trail ? trail.length : 0,
+            inCaptureIndex,
+            hasCaptureLatest: !!captureLatest,
+            hasCaptureTrail: !!captureTrail,
+            captureLatestData: captureLatest || null,
+            captureTrailLength: captureTrail ? captureTrail.length : 0,
+            debug: {
+              latestTs,
+              captureTs,
+              likelyCaptureOnly,
+            },
           },
           200,
           corsHeaders(env, req)
