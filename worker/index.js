@@ -10824,7 +10824,7 @@ export default {
 
         const distinctPairsRow = await db
           .prepare(
-            `SELECT COUNT(DISTINCT ticker || ':' || (CAST(bucket_5m / ?1 AS INTEGER) * ?1)) AS n
+            `SELECT COUNT(DISTINCT ticker || ':' || (CAST(ts / ?1 AS INTEGER) * ?1)) AS n
              FROM ingest_receipts
              WHERE received_ts >= ?2 AND received_ts <= ?3`
           )
@@ -10893,7 +10893,7 @@ export default {
           .prepare(
             `SELECT
               ticker,
-              COUNT(DISTINCT (CAST(bucket_5m / ?1 AS INTEGER) * ?1)) AS seen_buckets
+              COUNT(DISTINCT (CAST(ts / ?1 AS INTEGER) * ?1)) AS seen_buckets
              FROM ingest_receipts
              WHERE received_ts >= ?2 AND received_ts <= ?3
              GROUP BY ticker`

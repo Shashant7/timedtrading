@@ -15,7 +15,7 @@ set -euo pipefail
 
 API_BASE="${API_BASE:-https://timed-trading-ingest.shashant.workers.dev}"
 WINDOW="${1:-6h}"
-BUCKET_MIN="${2:-5}"
+BUCKET_MIN="${2:-1}"
 THRESHOLD="${3:-0.90}"
 
 parse_window_ms() {

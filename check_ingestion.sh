@@ -23,14 +23,14 @@ echo ""
 echo ""
 
 # Coverage stats (D1-based)
-echo "4. Ingestion Coverage (last 6h, 5m buckets):"
-curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ingestion/stats" | python3 -m json.tool 2>/dev/null || curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ingestion/stats"
+echo "4. Ingestion Coverage (last 6h, 1m buckets):"
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ingestion/stats?bucketMin=1" | python3 -m json.tool 2>/dev/null || curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ingestion/stats?bucketMin=1"
 echo ""
 echo ""
 
 # Watchlist coverage (D1-based)
 echo "5. Watchlist Coverage (last 6h, per-ticker):"
-curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/watchlist/coverage" | python3 -m json.tool 2>/dev/null || curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/watchlist/coverage"
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/watchlist/coverage?bucketMin=1" | python3 -m json.tool 2>/dev/null || curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/watchlist/coverage?bucketMin=1"
 echo ""
 echo ""
 
