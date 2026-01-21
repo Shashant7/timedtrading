@@ -10795,6 +10795,9 @@ export default {
         const bucketMin = Math.max(1, Math.floor(numParam(url, "bucketMin", 5)));
         const bucketMs = bucketMin * 60 * 1000;
         const threshold = Math.max(0, Math.min(1, numParam(url, "threshold", 0.9)));
+        const basis = String(url.searchParams.get("basis") || "payload")
+          .trim()
+          .toLowerCase(); // payload|received
 
         if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) {
           return sendJSON(
@@ -10824,9 +10827,13 @@ export default {
 
         const distinctPairsRow = await db
           .prepare(
-            `SELECT COUNT(DISTINCT ticker || ':' || (CAST(ts / ?1 AS INTEGER) * ?1)) AS n
-             FROM ingest_receipts
-             WHERE received_ts >= ?2 AND received_ts <= ?3`
+            basis === "received"
+              ? `SELECT COUNT(DISTINCT ticker || ':' || (CAST(received_ts / ?1 AS INTEGER) * ?1)) AS n
+                 FROM ingest_receipts
+                 WHERE received_ts >= ?2 AND received_ts <= ?3`
+              : `SELECT COUNT(DISTINCT ticker || ':' || (CAST(ts / ?1 AS INTEGER) * ?1)) AS n
+                 FROM ingest_receipts
+                 WHERE received_ts >= ?2 AND received_ts <= ?3`
           )
           .bind(bucketMs, since, until)
           .first();
@@ -10839,6 +10846,7 @@ export default {
           {
             ok: true,
             window: { since, until, bucketMin, bucketMs, bucketStart, bucketEnd, bucketCount },
+            basis,
             watchlistCount,
             expectedPairs,
             receiptsTotal,
@@ -10870,6 +10878,9 @@ export default {
         const bucketMin = Math.max(1, Math.floor(numParam(url, "bucketMin", 5)));
         const bucketMs = bucketMin * 60 * 1000;
         const threshold = Math.max(0, Math.min(1, numParam(url, "threshold", 0.9)));
+        const basis = String(url.searchParams.get("basis") || "payload")
+          .trim()
+          .toLowerCase(); // payload|received
 
         if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) {
           return sendJSON(
@@ -10891,12 +10902,19 @@ export default {
 
         const rows = await db
           .prepare(
-            `SELECT
-              ticker,
-              COUNT(DISTINCT (CAST(ts / ?1 AS INTEGER) * ?1)) AS seen_buckets
-             FROM ingest_receipts
-             WHERE received_ts >= ?2 AND received_ts <= ?3
-             GROUP BY ticker`
+            basis === "received"
+              ? `SELECT
+                  ticker,
+                  COUNT(DISTINCT (CAST(received_ts / ?1 AS INTEGER) * ?1)) AS seen_buckets
+                 FROM ingest_receipts
+                 WHERE received_ts >= ?2 AND received_ts <= ?3
+                 GROUP BY ticker`
+              : `SELECT
+                  ticker,
+                  COUNT(DISTINCT (CAST(ts / ?1 AS INTEGER) * ?1)) AS seen_buckets
+                 FROM ingest_receipts
+                 WHERE received_ts >= ?2 AND received_ts <= ?3
+                 GROUP BY ticker`
           )
           .bind(bucketMs, since, until)
           .all();
@@ -10931,6 +10949,7 @@ export default {
           {
             ok: true,
             window: { since, until, bucketMin, bucketMs, bucketStart, bucketEnd, bucketCount },
+            basis,
             thresholdPct: Math.round(threshold * 10000) / 100,
             summary: {
               tickersTotal,
