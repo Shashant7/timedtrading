@@ -237,6 +237,13 @@ async function kvPutJSON(KV, key, val, ttlSec = null) {
   await KV.put(key, JSON.stringify(val), opts);
 }
 
+function numParam(url, key, fallback) {
+  const v = url?.searchParams?.get(key);
+  if (v == null || v === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // Retry KV write with verification (for critical operations like trade saving)
 async function kvPutJSONWithRetry(KV, key, val, ttlSec = null, maxRetries = 3) {
   const opts = {};
@@ -10768,6 +10775,175 @@ export default {
             corsHeaders(env, req)
           );
         }
+      }
+
+      // GET /timed/ingestion/stats?since&until&bucketMin
+      // Coverage = distinct(ticker,bucket) / (watchlist_count * bucket_count)
+      if (url.pathname === "/timed/ingestion/stats" && req.method === "GET") {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const now = Date.now();
+        const since = numParam(url, "since", now - 6 * 60 * 60 * 1000);
+        const until = numParam(url, "until", now);
+        const bucketMin = Math.max(1, Math.floor(numParam(url, "bucketMin", 5)));
+        const bucketMs = bucketMin * 60 * 1000;
+        const threshold = Math.max(0, Math.min(1, numParam(url, "threshold", 0.9)));
+
+        if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) {
+          return sendJSON(
+            { ok: false, error: "invalid_since_until" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const watchlistCount = Array.isArray(tickers) ? tickers.length : 0;
+
+        const bucketStart = Math.floor(since / bucketMs) * bucketMs;
+        const bucketEnd = Math.floor(until / bucketMs) * bucketMs;
+        const bucketCount =
+          bucketEnd >= bucketStart ? Math.floor((bucketEnd - bucketStart) / bucketMs) + 1 : 0;
+        const expectedPairs = watchlistCount * bucketCount;
+
+        const receiptsTotalRow = await db
+          .prepare(
+            `SELECT COUNT(*) AS n
+             FROM ingest_receipts
+             WHERE received_ts >= ?1 AND received_ts <= ?2`
+          )
+          .bind(since, until)
+          .first();
+
+        const distinctPairsRow = await db
+          .prepare(
+            `SELECT COUNT(DISTINCT ticker || ':' || (CAST(bucket_5m / ?1 AS INTEGER) * ?1)) AS n
+             FROM ingest_receipts
+             WHERE received_ts >= ?2 AND received_ts <= ?3`
+          )
+          .bind(bucketMs, since, until)
+          .first();
+
+        const receiptsTotal = Number(receiptsTotalRow?.n) || 0;
+        const distinctPairs = Number(distinctPairsRow?.n) || 0;
+        const coverage = expectedPairs > 0 ? distinctPairs / expectedPairs : null;
+
+        return sendJSON(
+          {
+            ok: true,
+            window: { since, until, bucketMin, bucketMs, bucketStart, bucketEnd, bucketCount },
+            watchlistCount,
+            expectedPairs,
+            receiptsTotal,
+            distinctPairs,
+            coveragePct: coverage == null ? null : Math.round(coverage * 10000) / 100,
+            meetsThreshold: coverage == null ? null : coverage >= threshold,
+            thresholdPct: Math.round(threshold * 10000) / 100,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/watchlist/coverage?since&until&bucketMin&threshold
+      // Per-ticker coverage across expected buckets (uses ingest_receipts)
+      if (url.pathname === "/timed/watchlist/coverage" && req.method === "GET") {
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req)
+          );
+        }
+
+        const now = Date.now();
+        const since = numParam(url, "since", now - 6 * 60 * 60 * 1000);
+        const until = numParam(url, "until", now);
+        const bucketMin = Math.max(1, Math.floor(numParam(url, "bucketMin", 5)));
+        const bucketMs = bucketMin * 60 * 1000;
+        const threshold = Math.max(0, Math.min(1, numParam(url, "threshold", 0.9)));
+
+        if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) {
+          return sendJSON(
+            { ok: false, error: "invalid_since_until" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const list = Array.isArray(tickers)
+          ? tickers.map((t) => String(t || "").trim().toUpperCase()).filter(Boolean)
+          : [];
+
+        const bucketStart = Math.floor(since / bucketMs) * bucketMs;
+        const bucketEnd = Math.floor(until / bucketMs) * bucketMs;
+        const bucketCount =
+          bucketEnd >= bucketStart ? Math.floor((bucketEnd - bucketStart) / bucketMs) + 1 : 0;
+
+        const rows = await db
+          .prepare(
+            `SELECT
+              ticker,
+              COUNT(DISTINCT (CAST(bucket_5m / ?1 AS INTEGER) * ?1)) AS seen_buckets
+             FROM ingest_receipts
+             WHERE received_ts >= ?2 AND received_ts <= ?3
+             GROUP BY ticker`
+          )
+          .bind(bucketMs, since, until)
+          .all();
+
+        const seenByTicker = new Map();
+        for (const r of rows?.results || []) {
+          const t = String(r.ticker || "").toUpperCase();
+          const n = Number(r.seen_buckets) || 0;
+          if (t) seenByTicker.set(t, n);
+        }
+
+        const perTicker = list.map((t) => {
+          const seen = seenByTicker.get(t) || 0;
+          const pct = bucketCount > 0 ? seen / bucketCount : 0;
+          return {
+            ticker: t,
+            seenBuckets: seen,
+            expectedBuckets: bucketCount,
+            coveragePct: bucketCount > 0 ? Math.round(pct * 10000) / 100 : null,
+            meetsThreshold: bucketCount > 0 ? pct >= threshold : null,
+          };
+        });
+
+        const tickersTotal = perTicker.length;
+        const tickersAny = perTicker.filter((t) => (t.seenBuckets || 0) > 0).length;
+        const tickersMeet = perTicker.filter((t) => t.meetsThreshold === true).length;
+
+        // Sort “worst first” to make it easy to spot dropouts
+        perTicker.sort((a, b) => (a.coveragePct ?? 0) - (b.coveragePct ?? 0));
+
+        return sendJSON(
+          {
+            ok: true,
+            window: { since, until, bucketMin, bucketMs, bucketStart, bucketEnd, bucketCount },
+            thresholdPct: Math.round(threshold * 10000) / 100,
+            summary: {
+              tickersTotal,
+              tickersAny,
+              pctTickersAny: tickersTotal > 0 ? Math.round((tickersAny / tickersTotal) * 10000) / 100 : null,
+              tickersMeet,
+              pctTickersMeet: tickersTotal > 0 ? Math.round((tickersMeet / tickersTotal) * 10000) / 100 : null,
+            },
+            worst: perTicker.slice(0, 25),
+          },
+          200,
+          corsHeaders(env, req)
+        );
       }
 
       // GET /timed/ingest-audit?since&until&bucket&ticker&includeKv&scriptVersion

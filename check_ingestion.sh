@@ -22,12 +22,25 @@ curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/tickers" | pyth
 echo ""
 echo ""
 
+# Coverage stats (D1-based)
+echo "4. Ingestion Coverage (last 6h, 5m buckets):"
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ingestion/stats" | python3 -m json.tool 2>/dev/null || curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ingestion/stats"
+echo ""
+echo ""
+
+# Watchlist coverage (D1-based)
+echo "5. Watchlist Coverage (last 6h, per-ticker):"
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/watchlist/coverage" | python3 -m json.tool 2>/dev/null || curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/watchlist/coverage"
+echo ""
+echo ""
+
 # Instructions
 echo "=== Next Steps ==="
 echo "1. Check Cloudflare Worker Logs for [INGEST...] messages"
 echo "2. If no [INGEST REQUEST RECEIVED] logs, alerts aren't reaching the worker"
 echo "3. If you see [INGEST AUTH FAILED], check API key"
 echo "4. If you see [INGEST ERROR], check the error details"
+echo "5. If /timed/ingestion/stats coveragePct is low, identify worst tickers via /timed/watchlist/coverage"
 echo ""
 echo "To view live logs: wrangler tail --format pretty"
 
