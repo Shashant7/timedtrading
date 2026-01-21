@@ -12593,7 +12593,7 @@ export default {
           );
         }
 
-        const evRow = await (async () => {
+        const evRowFromDb = await (async () => {
           if (Number.isFinite(ts)) {
             // Find closest event in time (best for "By Day Activity" clicks)
             const r = await db
@@ -12624,6 +12624,39 @@ export default {
             .first();
           return r || null;
         })();
+
+        // Resilience: some environments may not have trade_events populated.
+        // In that case, fall back to the timestamp passed by the client (preferred),
+        // or use the trade's own lifecycle timestamps.
+        const fallbackTs = (() => {
+          if (Number.isFinite(ts)) return Number(ts);
+          if (type === "ENTRY") return Number(tradeRow.entry_ts);
+          if (type === "EXIT") return Number(tradeRow.exit_ts);
+          // TRIM: best available fallback is updated_at when trim status is present
+          const trimmed = Number(tradeRow.trimmed_pct || 0);
+          if (type === "TRIM" && trimmed > 0) return Number(tradeRow.updated_at);
+          return null;
+        })();
+
+        const evRow = evRowFromDb
+          ? evRowFromDb
+          : Number.isFinite(Number(fallbackTs))
+          ? {
+              event_id: null,
+              trade_id: String(tradeId),
+              ts: Number(fallbackTs),
+              type,
+              price: null,
+              qty_pct_delta: null,
+              qty_pct_total:
+                type === "TRIM"
+                  ? Number(tradeRow.trimmed_pct || 0) || null
+                  : null,
+              pnl_realized: null,
+              reason: null,
+              meta_json: null,
+            }
+          : null;
 
         if (!evRow || !Number.isFinite(Number(evRow.ts))) {
           return sendJSON(
