@@ -1921,6 +1921,37 @@
           conditions.top40 = true;
         }
 
+        // Top N (rank-position) shortcuts:
+        // - "top 2" / "top2" → topN=2
+        // - "rank less than 3" / "rank under 3" / "rank < 3" → topN=2 (i.e., #1 and #2)
+        // - "rank at most 3" / "rank <= 3" → topN=3
+        const topNMatch = queryLower.match(/\btop\s*(\d+)\b/);
+        if (topNMatch) {
+          const n = parseInt(topNMatch[1], 10);
+          if (Number.isFinite(n) && n > 0) {
+            conditions.topN = n;
+          }
+        }
+        const rankPosStrictMatch = queryLower.match(
+          /\brank(?:ed)?\s*(?:<|less\s+than|under|below)\s*(\d+)\b/i
+        );
+        if (rankPosStrictMatch) {
+          const raw = parseInt(rankPosStrictMatch[1], 10);
+          const n = Number.isFinite(raw) ? raw - 1 : NaN;
+          if (Number.isFinite(n) && n > 0) {
+            conditions.topN = n;
+          }
+        }
+        const rankPosLteMatch = queryLower.match(
+          /\brank(?:ed)?\s*(?:<=|at\s+most)\s*(\d+)\b/i
+        );
+        if (rankPosLteMatch) {
+          const n = parseInt(rankPosLteMatch[1], 10);
+          if (Number.isFinite(n) && n > 0) {
+            conditions.topN = n;
+          }
+        }
+
         // Top Long Setup
         if (queryLower.match(/\btop\s*long\s*setup\b|\btop\s*long\b/)) {
           conditions.topLongSetup = true;
@@ -1992,7 +2023,8 @@
           return null;
         };
 
-        // Rank conditions: "rank > 75", "rank above 75", "rank over 75", "rank below 50", "rank under 50"
+        // Rank conditions (score threshold): "rank > 75", "rank above 75", "rank over 75"
+        // NOTE: rank-position queries (e.g. "rank < 3") are handled above via `topN`.
         const rankCondition = extractNumericCondition("rank", "rank");
         if (rankCondition) {
           if (rankCondition.type === "min") {
@@ -2441,9 +2473,12 @@
           out.push({ ticker, ...d });
         }
 
-        // Apply Ranked filter if active (using worker's rank field)
-        // Shows ALL tickers sorted by rank (1 to whatever), not just top 40
-        if (effectiveFilters.top40 === true) {
+        // Apply Ranked / Top-N filter (rank position).
+        // - `top40` shows ALL ranked tickers sorted by score (misnamed historically).
+        // - `topN` limits that ranked list to the top N.
+        const topN = Math.floor(Number(effectiveFilters.topN));
+        const hasTopN = Number.isFinite(topN) && topN > 0;
+        if (effectiveFilters.top40 === true || hasTopN) {
           // Get ALL tickers from dataObj (not filtered 'out' array)
           const allTickersWithRank = Object.values(dataObj).filter(
             (t) =>
@@ -2462,29 +2497,35 @@
             return scoreB - scoreA;
           });
 
-          // Get all ticker symbols sorted by rank (normalize to uppercase for comparison)
-          const rankedTickers = new Set(
-            allTickersWithRank.map((t) =>
-              String(t.ticker || "")
-                .trim()
-                .toUpperCase()
-            )
-          );
+          // Ranked order lookup (ticker -> index) based on the sorted list above.
+          const rankedSymbols = allTickersWithRank
+            .map((t) => String(t.ticker || "").trim().toUpperCase())
+            .filter(Boolean);
+          const rankIndex = {};
+          rankedSymbols.forEach((sym, idx) => {
+            if (rankIndex[sym] == null) rankIndex[sym] = idx;
+          });
 
           // Filter 'out' to only include tickers that have ranks, maintaining rank order
-          return out
+          const rankedOut = out
             .filter((t) => {
               const tickerUpper = String(t.ticker || "")
                 .trim()
                 .toUpperCase();
-              return rankedTickers.has(tickerUpper);
+              return rankIndex[tickerUpper] != null;
             })
             .sort((a, b) => {
-              // Re-sort filtered results by rank to maintain order
-              const rankA = Number(a.rank) || 0;
-              const rankB = Number(b.rank) || 0;
-              return rankB - rankA;
+              // Maintain the same ranked order as `allTickersWithRank`
+              const aSym = String(a.ticker || "").trim().toUpperCase();
+              const bSym = String(b.ticker || "").trim().toUpperCase();
+              const ia = rankIndex[aSym];
+              const ib = rankIndex[bSym];
+              if (ia != null && ib != null) return ia - ib; // lower index = better rank
+              if (ia != null) return -1;
+              if (ib != null) return 1;
+              return 0;
             });
+          return hasTopN ? rankedOut.slice(0, topN) : rankedOut;
         }
 
         return out;
@@ -9545,13 +9586,15 @@
               return true;
             })
             .sort((a, b) => {
-              const pri = (x) => (x.status === "prime" ? 0 : x.status === "eligible" ? 1 : 2);
-              const dp = pri(a) - pri(b);
-              if (dp !== 0) return dp;
+              // Default Viewport ordering: Rank-position first (stable + intuitive).
+              // If rank position isn't available, fall back to score.
+              const ar = a.rp;
+              const br = b.rp;
+              if (ar != null && br != null) return ar - br;
+              if (ar != null) return -1;
+              if (br != null) return 1;
               const ds = (b.score || 0) - (a.score || 0);
               if (ds !== 0) return ds;
-              // prefer better (lower) rank position if present
-              if (a.rp != null && b.rp != null) return a.rp - b.rp;
               return String(a.t.ticker).localeCompare(String(b.t.ticker));
             });
 
