@@ -8023,6 +8023,7 @@
         data,
         onTimeChange,
         tickerFilter,
+        selectedTicker,
       }) {
         const [isActive, setIsActive] = useState(false);
         const [selectedTimestamp, setSelectedTimestamp] = useState(null);
@@ -8396,6 +8397,7 @@
           return date.toLocaleString("en-US", {
             month: "short",
             day: "numeric",
+            year: "numeric",
             hour: "numeric",
             minute: "2-digit",
             hour12: true,
@@ -8419,6 +8421,52 @@
             .map((t) => t.trim().toUpperCase())
             .filter(Boolean);
         }, [tickerFilter]);
+
+        const selectedSym = useMemo(() => {
+          const s = String(selectedTicker || "").trim().toUpperCase();
+          return s || null;
+        }, [selectedTicker]);
+
+        const selectedSnapshotInfo = useMemo(() => {
+          if (!isActive) return null;
+          if (!selectedSym) return null;
+          if (!Number.isFinite(currentValue)) return null;
+          const trail = trailData?.[selectedSym] || [];
+          if (!Array.isArray(trail) || trail.length === 0) return null;
+
+          const pointsWithTs = trail
+            .map((point) => {
+              const pointTs =
+                point.ts ||
+                (point.timestamp ? new Date(point.timestamp).getTime() : null);
+              if (!pointTs) return null;
+              return {
+                point,
+                pointTs: Number(pointTs),
+                roundedPointTs: roundToStep(pointTs),
+              };
+            })
+            .filter(Boolean);
+
+          if (pointsWithTs.length === 0) return null;
+          const closest = pointsWithTs.reduce((best, cur) => {
+            if (!best) return cur;
+            const bestDist = Math.abs(best.roundedPointTs - currentValue);
+            const curDist = Math.abs(cur.roundedPointTs - currentValue);
+            return curDist < bestDist ? cur : best;
+          }, null);
+
+          const px = Number(closest?.point?.price);
+          return {
+            ts: Number.isFinite(closest?.pointTs) ? closest.pointTs : null,
+            price: Number.isFinite(px) ? px : null,
+          };
+        }, [isActive, selectedSym, currentValue, trailData, roundToStep]);
+
+        const fmtPrice = (p) => {
+          const n = Number(p);
+          return Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
+        };
 
         return (
           <div className="mb-4 bg-[#121a33] border border-[#26325f] rounded-xl p-4">
@@ -8531,9 +8579,25 @@
                   </div>
                 )}
               </div>
-              {isActive && selectedTimestamp && (
-                <div className="text-xs text-[#00ffff] font-semibold">
-                  {formatTimestamp(selectedTimestamp)}
+              {isActive && (
+                <div className="text-xs text-[#00ffff] font-semibold text-right">
+                  <div>
+                    {formatTimestamp(currentValue)}
+                  </div>
+                  {selectedSym && (
+                    <div className="mt-0.5 text-[11px] text-[#93a4d6] font-normal">
+                      {selectedSym}:{" "}
+                      <span className="text-white font-semibold">
+                        {fmtPrice(selectedSnapshotInfo?.price)}
+                      </span>
+                      {Number.isFinite(selectedSnapshotInfo?.ts) &&
+                        selectedSnapshotInfo.ts !== currentValue && (
+                          <span className="text-[#6b7a9f]">
+                            {` (data @ ${formatTimestamp(selectedSnapshotInfo.ts)})`}
+                          </span>
+                        )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -14313,6 +14377,7 @@
                           data={data}
                           onTimeChange={setTimeTravelTickers}
                           tickerFilter={filters.tickerFilter}
+                          selectedTicker={selectedTicker}
                         />
                         <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
                           {loading && tickers.length === 0 ? (
