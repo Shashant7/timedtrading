@@ -4676,40 +4676,53 @@ async function computeMomentumElite(KV, ticker, payload) {
     }
   }
 
-  // 3. Average Daily Range > 2% (cached for 1 hour, calculated from recent data)
-  // Note: We'd need historical daily data. For now, use current bar's range as proxy
-  // In production, you'd fetch last 50 days of daily data
+  // 3. Average Daily Range (ADR) > $2 (cached for 1 hour)
+  // Prefer TradingView heartbeat fields when present (most accurate).
   const adrKey = `timed:momentum:adr:${ticker}`;
-  let adrOver2Pct = false;
+  let adrOver2 = false;
   const adrCache = await kvGetJSON(KV, adrKey);
   if (adrCache && now - adrCache.timestamp < 60 * 60 * 1000) {
-    adrOver2Pct = adrCache.value;
+    adrOver2 = adrCache.value;
   } else {
-    // Calculate ADR from current data (simplified - in production, use 50-day average)
-    // For now, we'll use a placeholder that checks if we have high/low data
-    // TODO: Implement proper 50-day ADR calculation with historical data
-    const high = Number(payload.high) || price;
-    const low = Number(payload.low) || price;
-    const adr = calculateADR(price, high, low);
-    adrOver2Pct = adr !== null && adr >= 0.02;
+    // Prefer ADR from payload (Heartbeat sends `adr_14` as an absolute $ range)
+    const adrAbs = Number(payload.adr_14);
+    if (Number.isFinite(adrAbs) && adrAbs > 0) {
+      adrOver2 = adrAbs >= 2.0;
+    } else {
+      // Fallback: if only OHLC is available, estimate ADR as a percent of price (legacy).
+      const high = Number(payload.high ?? payload.h) || price;
+      const low = Number(payload.low ?? payload.l) || price;
+      const adrPct = calculateADR(price, high, low); // fraction of price
+      // Convert to an approximate $ADR using current price; then compare to $2
+      const adrApproxAbs =
+        adrPct != null && Number.isFinite(adrPct) && price > 0 ? adrPct * price : null;
+      adrOver2 = adrApproxAbs != null && adrApproxAbs >= 2.0;
+    }
     await kvPutJSON(
       KV,
       adrKey,
-      { value: adrOver2Pct, timestamp: now },
+      { value: adrOver2, timestamp: now },
       60 * 60
     );
   }
 
-  // 4. Average Volume (50 days) > 2M (cached for 1 hour)
+  // 4. Average Volume (30 days) > 2M (cached for 1 hour)
+  // Prefer TradingView heartbeat fields when present (most accurate).
   const volumeKey = `timed:momentum:volume:${ticker}`;
   let volumeOver2M = false;
   const volumeCache = await kvGetJSON(KV, volumeKey);
   if (volumeCache && now - volumeCache.timestamp < 60 * 60 * 1000) {
     volumeOver2M = volumeCache.value;
   } else {
-    // Use current volume as proxy (in production, calculate 50-day average)
-    const volume = Number(payload.volume) || 0;
-    volumeOver2M = volume >= 2000000;
+    const avgVol30 = Number(payload.avg_vol_30);
+    const avgVol50 = Number(payload.avg_vol_50);
+    const avgVol =
+      (Number.isFinite(avgVol30) && avgVol30 > 0
+        ? avgVol30
+        : Number.isFinite(avgVol50) && avgVol50 > 0
+        ? avgVol50
+        : Number(payload.volume) || 0);
+    volumeOver2M = avgVol >= 2000000;
     await kvPutJSON(
       KV,
       volumeKey,
@@ -4720,7 +4733,7 @@ async function computeMomentumElite(KV, ticker, payload) {
 
   // All base criteria
   const allBaseCriteria =
-    priceOver4 && marketCapOver1B && adrOver2Pct && volumeOver2M;
+    priceOver4 && marketCapOver1B && adrOver2 && volumeOver2M;
 
   // Any momentum criteria (cached for 15 minutes):
   // Prefer TradingView payload data (most accurate), fallback to trail history
@@ -4849,7 +4862,7 @@ async function computeMomentumElite(KV, ticker, payload) {
     criteria: {
       priceOver4,
       marketCapOver1B,
-      adrOver2Pct,
+      adrOver2,
       volumeOver2M,
       allBaseCriteria,
       anyMomentumCriteria,
@@ -9592,6 +9605,19 @@ export default {
           payload.ingest_ts = now;
           payload.ingest_time = new Date(now).toISOString();
 
+          // Compute Momentum Elite for capture payload too (display-only enrichment).
+          // This lets the UI show 🚀 + criteria even if the ticker's scoring feed is separate.
+          try {
+            payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+            const m = await computeMomentumElite(KV, ticker, payload);
+            if (m) {
+              payload.flags.momentum_elite = !!m.momentum_elite;
+              payload.momentum_elite_criteria = m.criteria;
+            }
+          } catch (e) {
+            console.error(`[CAPTURE MOMENTUM] Failed for ${ticker}:`, String(e));
+          }
+
           await kvPutJSON(KV, `timed:capture:latest:${ticker}`, payload);
           await appendCaptureTrail(KV, ticker, {
             ts: payload.ts,
@@ -9690,7 +9716,34 @@ export default {
             corsHeaders(env, req)
           );
         const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
         if (data) {
+          // Merge capture-only enrichment fields when present (non-destructive).
+          // This helps after-hours analytics + Momentum Elite metadata even if heartbeat is wired to /ingest-capture.
+          if (capture && typeof capture === "object") {
+            for (const k of [
+              "prev_close",
+              "day_change",
+              "day_change_pct",
+              "change",
+              "change_pct",
+              "session",
+              "is_rth",
+              "avg_vol_30",
+              "avg_vol_50",
+              "adr_14",
+              "momentum_pct",
+              "momentum_elite_criteria",
+            ]) {
+              if (data[k] == null && capture[k] != null) data[k] = capture[k];
+            }
+            if (capture.flags && typeof capture.flags === "object") {
+              data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+              if (data.flags.momentum_elite == null && capture.flags.momentum_elite != null) {
+                data.flags.momentum_elite = !!capture.flags.momentum_elite;
+              }
+            }
+          }
           // Always recompute RR to ensure it uses the latest max TP from tp_levels
           data.rr = computeRR(data);
 
@@ -9846,6 +9899,38 @@ export default {
           } else {
             // Default: get latest data
             value = await kvGetJSON(KV, `timed:latest:${t}`);
+
+            // Merge capture-only enrichment fields when present (non-destructive).
+            // This helps after-hours analytics + Momentum Elite metadata even if heartbeat is wired to /ingest-capture.
+            try {
+              const capture = await kvGetJSON(KV, `timed:capture:latest:${t}`);
+              if (value && capture && typeof capture === "object") {
+                for (const k of [
+                  "prev_close",
+                  "day_change",
+                  "day_change_pct",
+                  "change",
+                  "change_pct",
+                  "session",
+                  "is_rth",
+                  "avg_vol_30",
+                  "avg_vol_50",
+                  "adr_14",
+                  "momentum_pct",
+                  "momentum_elite_criteria",
+                ]) {
+                  if (value[k] == null && capture[k] != null) value[k] = capture[k];
+                }
+                if (capture.flags && typeof capture.flags === "object") {
+                  value.flags = value.flags && typeof value.flags === "object" ? value.flags : {};
+                  if (value.flags.momentum_elite == null && capture.flags.momentum_elite != null) {
+                    value.flags.momentum_elite = !!capture.flags.momentum_elite;
+                  }
+                }
+              }
+            } catch (e) {
+              // ignore merge failures
+            }
 
             // Debug: Check if BMNR data exists in KV
             if (t === "BMNR" || t === "BABA") {

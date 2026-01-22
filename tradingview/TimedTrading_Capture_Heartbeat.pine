@@ -41,26 +41,7 @@ mom3MJson = not na(mom3M) ? str.tostring(mom3M) : "null"
 mom6MJson = not na(mom6M) ? str.tostring(mom6M) : "null"
 momStr = ",\"momentum_pct\":{\"week\":" + momWJson + ",\"month\":" + momMJson + ",\"three_months\":" + mom3MJson + ",\"six_months\":" + mom6MJson + "}"
 
-payload = "{" +
-  "\"script_version\":\"" + scriptVersion + "\"," +
-  "\"ts\":" + str.tostring(time) + "," +
-  "\"time_close\":" + str.tostring(time_close) + "," +
-  "\"bar_index\":" + str.tostring(bar_index) + "," +
-  "\"ticker\":\"" + syminfo.ticker + "\"," +
-  "\"tf_hint\":\"" + timeframe.period + "\"," +
-  "\"price\":" + str.tostring(close) +
-  sessionJson +
-  prevCloseStr + chgStr + pctStr +
-  avgVolStr + adrStr + momStr +
-  (includeOHLC
-    ? ",\"o\":" + str.tostring(open) +
-      ",\"h\":" + str.tostring(high) +
-      ",\"l\":" + str.tostring(low)
-    : ""
-  ) +
-  (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") +
-  ",\"ingest_kind\":\"capture\"" +
-  "}"
+payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"price\":" + str.tostring(close) + sessionJson + prevCloseStr + chgStr + pctStr + avgVolStr + adrStr + momStr + (includeOHLC ? ",\"o\":" + str.tostring(open) + ",\"h\":" + str.tostring(high) + ",\"l\":" + str.tostring(low) : "" ) + (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") + ",\"ingest_kind\":\"capture\"" + "}"
 
 if barstate.isconfirmed
     alert(payload, alert.freq_once_per_bar_close)
