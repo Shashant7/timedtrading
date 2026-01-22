@@ -9110,26 +9110,29 @@
           onChange({ [key]: cur ? undefined : true });
         };
 
+        // Thesis: a safe “quality gate” that should not zero out the dashboard.
+        // Keep it broad; users can layer Corridor / Winner Signature on top if desired.
         const THESIS_PRESET = {
-          inCorridor: true,
-          winnerSignature: true,
           minRank: 70,
           minRR: 1.5,
-          maxCompletion: 0.4,
+          maxCompletion: 0.6,
+          maxPhase: 0.6,
         };
         const isThesisActive = () => {
           const maxCompletion = Number(filters.maxCompletion);
           const minRR = Number(filters.minRR);
           const minRank = Number(filters.minRank);
+          const maxPhase = Number(filters.maxPhase);
           return (
-            filters.inCorridor === true &&
-            filters.winnerSignature === true &&
             Number.isFinite(minRank) &&
             minRank >= THESIS_PRESET.minRank &&
             Number.isFinite(minRR) &&
             minRR >= THESIS_PRESET.minRR &&
             Number.isFinite(maxCompletion) &&
-            maxCompletion <= THESIS_PRESET.maxCompletion + 1e-9
+            maxCompletion <= THESIS_PRESET.maxCompletion + 1e-9 &&
+            (filters.maxPhase === undefined ||
+              (Number.isFinite(maxPhase) &&
+                maxPhase <= THESIS_PRESET.maxPhase + 1e-9))
           );
         };
         const toggleThesis = () => {
@@ -9140,11 +9143,10 @@
           if (active) {
             // Reset only the preset fields (leave other filters intact)
             onChange({
-              inCorridor: undefined,
-              winnerSignature: undefined,
               minRank: 0,
               minRR: 0,
               maxCompletion: 1.01,
+              maxPhase: undefined,
             });
           } else {
             onChange({ ...THESIS_PRESET });
@@ -14087,11 +14089,10 @@
           if (thesisAppliedRef.current) return;
           thesisAppliedRef.current = true;
           handleFilterChange({
-            inCorridor: true,
-            winnerSignature: true,
             minRank: 70,
             minRR: 1.5,
-            maxCompletion: 0.4,
+            maxCompletion: 0.6,
+            maxPhase: 0.6,
           });
         }, [handleFilterChange]);
 
