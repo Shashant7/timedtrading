@@ -1354,15 +1354,22 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
 
   // Check for trigger conditions
   const enteredAligned = prevData && prevData.state !== state && aligned;
+  const prevH = prevData ? Number(prevData.htf_score) : NaN;
+  const prevL = prevData ? Number(prevData.ltf_score) : NaN;
+  const prevInCorridor =
+    Number.isFinite(prevH) &&
+    Number.isFinite(prevL) &&
+    ((prevH > 0 && prevL >= -8 && prevL <= 12) ||
+      (prevH < 0 && prevL >= -12 && prevL <= 8));
+  const justEnteredCorridor = !!prevData && !prevInCorridor && inCorridor;
   const trigReason = String(tickerData.trigger_reason || "");
   const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
   const sqRelease = !!flags.sq30_release;
-  const hasTrigger = !!tickerData.trigger_price && !!tickerData.trigger_ts;
 
   const shouldConsiderAlert =
     inCorridor &&
     corridorAlignedOK &&
-    (enteredAligned || trigOk || sqRelease || hasTrigger);
+    (justEnteredCorridor || enteredAligned || trigOk || sqRelease);
 
   const momentumElite = !!flags.momentum_elite;
   const baseMinRR = 1.5;
@@ -1376,6 +1383,12 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
     ? Math.min(0.7, baseMaxPhase * 1.17)
     : baseMaxPhase;
 
+  // Be more selective: require a minimum rank threshold for simulated entries.
+  // This reduces over-trading in noisy regimes.
+  const rank = Number(tickerData.rank) || 0;
+  const minRank = 75;
+  const rankOk = rank >= minRank;
+
   const rr = Number(tickerData.rr) || 0;
   const comp = Number(tickerData.completion) || 0;
   const phase = Number(tickerData.phase_pct) || 0;
@@ -1384,10 +1397,11 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const compOk = comp <= maxComp;
   const phaseOk = phase <= maxPhase;
 
-  const momentumEliteTrigger = momentumElite && inCorridor && corridorAlignedOK;
+  const momentumEliteTrigger =
+    momentumElite && inCorridor && corridorAlignedOK && (trigOk || sqRelease || justEnteredCorridor);
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-  return enhancedTrigger && rrOk && compOk && phaseOk;
+  return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
 }
 
 function isOpenTradeStatus(status) {
@@ -1488,7 +1502,9 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const trigReason = String(tickerData.trigger_reason || "");
   const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
   const sqRelease = !!flags.sq30_release;
-  const hasTrigger = !!tickerData.trigger_price && !!tickerData.trigger_ts;
+  // Note: do NOT treat mere presence of trigger_price/trigger_ts as a trigger.
+  // Many payloads include those fields continuously, causing over-trading.
+  const hasTrigger = false;
 
   const shouldConsiderAlert =
     inCorridor &&
@@ -1531,12 +1547,17 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const compOk = comp <= maxComp;
   const phaseOk = phase <= maxPhase;
 
+  const rank = Number(tickerData.rank) || 0;
+  const minRank = 75;
+  const rankOk = rank >= minRank;
+
   if (FUTURES_TICKERS.has(tickerUpper)) blockers.push("futures_disabled");
   if (!Number.isFinite(entryPrice) || !tickerData.sl || !tickerData.tp)
     blockers.push("missing_levels");
   if (!inCorridor) blockers.push("not_in_corridor");
   if (inCorridor && !corridorAlignedOK) blockers.push("corridor_misaligned");
   if (!shouldConsiderAlert) blockers.push("no_trigger");
+  if (!rankOk) blockers.push("rank_below_min");
   if (!rrOk) blockers.push("rr_below_min");
   if (!compOk) blockers.push("completion_high");
   if (!phaseOk) blockers.push("phase_high");
@@ -1560,6 +1581,8 @@ function buildEntryDecision(ticker, tickerData, prevState) {
       trigger_ok: trigOk,
       squeeze_release: sqRelease,
       has_trigger: hasTrigger,
+      rank,
+      rank_min: minRank,
       rr_at_entry: rrAtEntry,
       rr_min: minRR,
       completion: comp,
@@ -3025,30 +3048,93 @@ async function processTradeSimulation(
         }
       }
 
+      // Avoid instant churn: ignore TDSEQ exits shortly after entry.
       if (shouldExitFromTDSeq) {
-        // Defensive rule: if price is still on the right side of the Daily 5–8 EMA cloud,
-        // do NOT exit immediately. Tighten SL to the opposite band of the cloud instead.
+        const entryMs =
+          isoToMs(existingOpenTrade?.entryTime) ||
+          Number(existingOpenTrade?.entry_ts) ||
+          isoToMs(existingOpenTrade?.entry_time) ||
+          null;
+        const ageMs = Number.isFinite(entryMs) ? Date.now() - entryMs : null;
+        const MIN_TDSEQ_HOLD_MS = 90 * 60 * 1000; // 90 minutes
+        if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < MIN_TDSEQ_HOLD_MS) {
+          shouldExitFromTDSeq = false;
+          // Breadcrumb for debugging / review
+          await appendActivity(KV, {
+            ticker,
+            type: "tdseq_ignored_early",
+            direction,
+            age_min: Math.round(ageMs / 60000),
+            min_age_min: Math.round(MIN_TDSEQ_HOLD_MS / 60000),
+            td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+            td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+            td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+            td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+          });
+        }
+      }
+
+      if (shouldExitFromTDSeq) {
+        // Higher-TF confirmation: only allow TDSEQ exits when DAILY structure confirms.
+        // If DAILY doesn't confirm (or is missing), defend by tightening SL and keep holding.
         const daily = tickerData?.daily_ema_cloud || null;
-        const cloudPos = String(daily?.position || "").toLowerCase();
-        const cloudUpper = Number(daily?.upper);
-        const cloudLower = Number(daily?.lower);
+        const fourH = tickerData?.fourh_ema_cloud || null;
+
+        const dailyPos = String(daily?.position || "").toLowerCase();
+        const dailyUpper = Number(daily?.upper);
+        const dailyLower = Number(daily?.lower);
+
+        const fourHPos = String(fourH?.position || "").toLowerCase();
+        const fourHUpper = Number(fourH?.upper);
+        const fourHLower = Number(fourH?.lower);
+
         const priceNow = Number(tickerData.price || 0);
+
+        const dailyExists =
+          dailyPos ||
+          (Number.isFinite(dailyUpper) && dailyUpper > 0) ||
+          (Number.isFinite(dailyLower) && dailyLower > 0);
+
+        const dailyConfirmsExit =
+          direction === "LONG"
+            ? dailyExists &&
+              (dailyPos === "below" ||
+                (Number.isFinite(dailyLower) && dailyLower > 0 && priceNow < dailyLower))
+            : dailyExists &&
+              (dailyPos === "above" ||
+                (Number.isFinite(dailyUpper) && dailyUpper > 0 && priceNow > dailyUpper));
+
+        // If daily doesn't confirm the reversal, prefer defending (tighten SL) over exiting.
+        const shouldDefend = !dailyConfirmsExit;
+
+        const defendUpper =
+          dailyExists && Number.isFinite(dailyUpper) && dailyUpper > 0
+            ? dailyUpper
+            : Number.isFinite(fourHUpper) && fourHUpper > 0
+            ? fourHUpper
+            : null;
+        const defendLower =
+          dailyExists && Number.isFinite(dailyLower) && dailyLower > 0
+            ? dailyLower
+            : Number.isFinite(fourHLower) && fourHLower > 0
+            ? fourHLower
+            : null;
 
         const canDefendLong =
           direction === "LONG" &&
-          cloudPos &&
-          cloudPos !== "below" &&
-          Number.isFinite(cloudLower) &&
-          cloudLower > 0;
+          shouldDefend &&
+          (dailyPos ? dailyPos !== "below" : true) &&
+          Number.isFinite(defendLower) &&
+          defendLower > 0;
         const canDefendShort =
           direction === "SHORT" &&
-          cloudPos &&
-          cloudPos !== "above" &&
-          Number.isFinite(cloudUpper) &&
-          cloudUpper > 0;
+          shouldDefend &&
+          (dailyPos ? dailyPos !== "above" : true) &&
+          Number.isFinite(defendUpper) &&
+          defendUpper > 0;
 
         if (canDefendLong || canDefendShort) {
-          const suggestedSl = canDefendLong ? cloudLower : cloudUpper;
+          const suggestedSl = canDefendLong ? defendLower : defendUpper;
           const oldSlRaw =
             existingOpenTrade?.sl != null
               ? Number(existingOpenTrade.sl)
@@ -3074,9 +3160,9 @@ async function processTradeSimulation(
             price: priceNow,
             old_sl: oldSl,
             new_sl: tighten ? suggestedSl : oldSl,
-            cloud_pos: cloudPos,
-            cloud_upper: Number.isFinite(cloudUpper) ? cloudUpper : null,
-            cloud_lower: Number.isFinite(cloudLower) ? cloudLower : null,
+            cloud_pos: dailyPos || fourHPos || null,
+            cloud_upper: Number.isFinite(defendUpper) ? defendUpper : null,
+            cloud_lower: Number.isFinite(defendLower) ? defendLower : null,
             td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
             td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
             td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
@@ -3134,7 +3220,7 @@ async function processTradeSimulation(
                     price: priceNow,
                     old_sl: oldSl,
                     new_sl: tighten ? suggestedSl : oldSl,
-                    cloud: daily,
+                    cloud: dailyExists ? daily : fourH,
                     td_sequential: tdSeq,
                   }),
                   meta_json: JSON.stringify({ kind: "tdseq_defense" }),
@@ -3148,6 +3234,11 @@ async function processTradeSimulation(
           }
 
           // Do not exit; continue with normal TP/SL evaluation using updated SL.
+          shouldExitFromTDSeq = false;
+        }
+
+        // If DAILY doesn't confirm, do not exit (even if we couldn't tighten).
+        if (shouldDefend && shouldExitFromTDSeq) {
           shouldExitFromTDSeq = false;
         }
       }

@@ -37,6 +37,8 @@ const MIN_GAP_MIN = Number(argValue("--minGapMin", "30"));
 const COMBO_MAX_K = Number(argValue("--comboMaxK", "2"));
 const COMBO_MIN_N = Number(argValue("--comboMinN", "75"));
 const COMBO_TOP = Number(argValue("--comboTop", "15"));
+const SINCE_RAW = argValue("--since", "");
+const UNTIL_RAW = argValue("--until", "");
 
 function toMs(v) {
   if (v == null) return NaN;
@@ -759,13 +761,24 @@ async function main() {
   if (horizons.length === 0) throw new Error("bad --horizons (use like 4h,1d)");
 
   const minGapMs = Math.max(0, (Number.isFinite(MIN_GAP_MIN) ? MIN_GAP_MIN : 30) * 60 * 1000);
-  const sinceMs = Date.now() - DAYS * 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const untilMs = Number.isFinite(toMs(UNTIL_RAW)) ? toMs(UNTIL_RAW) : nowMs;
+  const sinceMs = Number.isFinite(toMs(SINCE_RAW))
+    ? toMs(SINCE_RAW)
+    : nowMs - DAYS * 24 * 60 * 60 * 1000;
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || sinceMs >= untilMs) {
+    throw new Error("bad --since/--until window");
+  }
   const LOOKBACK_4H = 4 * 60 * 60 * 1000;
   const LOOKBACK_1D = 24 * 60 * 60 * 1000;
   const H1 = 60 * 60 * 1000;
 
   const tickers = await getTickers();
-  console.log(`[best-setups] tickers=${tickers.length} days=${DAYS} horizons=${horizons.map((h) => h.raw).join(",")}`);
+  console.log(
+    `[best-setups] tickers=${tickers.length} window=${fmtTs(sinceMs)}..${fmtTs(untilMs)} horizons=${horizons
+      .map((h) => h.raw)
+      .join(",")}`
+  );
 
   const allRowsByHorizon = new Map(); // raw -> rows[]
   horizons.forEach((h) => allRowsByHorizon.set(h.raw, []));
@@ -778,6 +791,8 @@ async function main() {
 
       const candidates = buildCandidatesForTicker(sym, pts, minGapMs);
       for (const c of candidates) {
+        // Restrict candidates to the requested analysis window.
+        if (!Number.isFinite(c.ts) || c.ts < sinceMs || c.ts > untilMs) continue;
         const p = pts[c.idx];
         const ent = entryTypeFromScores(p?.htf_score, p?.ltf_score);
         const dir = directionForPoint(p);
@@ -898,6 +913,8 @@ async function main() {
   const meta = {
     apiBase: API_BASE,
     days: DAYS,
+    sinceMs,
+    untilMs,
     horizons: horizons.map((h) => h.raw),
     minGapMin: MIN_GAP_MIN,
     targetPctGlobal: Number.isFinite(TARGET_PCT_GLOBAL) ? TARGET_PCT_GLOBAL : null,

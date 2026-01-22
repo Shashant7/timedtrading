@@ -9110,6 +9110,47 @@
           onChange({ [key]: cur ? undefined : true });
         };
 
+        const THESIS_PRESET = {
+          inCorridor: true,
+          winnerSignature: true,
+          minRank: 70,
+          minRR: 1.5,
+          maxCompletion: 0.4,
+        };
+        const isThesisActive = () => {
+          const maxCompletion = Number(filters.maxCompletion);
+          const minRR = Number(filters.minRR);
+          const minRank = Number(filters.minRank);
+          return (
+            filters.inCorridor === true &&
+            filters.winnerSignature === true &&
+            Number.isFinite(minRank) &&
+            minRank >= THESIS_PRESET.minRank &&
+            Number.isFinite(minRR) &&
+            minRR >= THESIS_PRESET.minRR &&
+            Number.isFinite(maxCompletion) &&
+            maxCompletion <= THESIS_PRESET.maxCompletion + 1e-9
+          );
+        };
+        const toggleThesis = () => {
+          const active = isThesisActive();
+          try {
+            localStorage.setItem("timedTrading_thesisAuto", active ? "0" : "1");
+          } catch {}
+          if (active) {
+            // Reset only the preset fields (leave other filters intact)
+            onChange({
+              inCorridor: undefined,
+              winnerSignature: undefined,
+              minRank: 0,
+              minRR: 0,
+              maxCompletion: 1.01,
+            });
+          } else {
+            onChange({ ...THESIS_PRESET });
+          }
+        };
+
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
             <div className="space-y-2">
@@ -9146,6 +9187,7 @@
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
               <div className="flex gap-2 flex-wrap items-center">
+                {pill("Thesis", isThesisActive(), () => toggleThesis())}
                 {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
                 {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
                 {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
@@ -13731,18 +13773,6 @@
           sector: null, // Filter by sector name
           td9Setup: null, // Filter by TD9 setup: "bullish", "bearish", or null for all
         });
-        // Auto-apply a "thesis" preset on initial load (can be disabled).
-        // This aligns with our BEST_SETUPS learnings: focus on early-run, corridor + squeeze pressure patterns.
-        const [thesisAuto, setThesisAuto] = useState(() => {
-          try {
-            const raw = localStorage.getItem("timedTrading_thesisAuto");
-            // Default ON if unset
-            if (raw == null) return true;
-            return raw === "1" || String(raw).toLowerCase() === "true";
-          } catch {
-            return true;
-          }
-        });
         const thesisAppliedRef = useRef(false);
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [selectedTrail, setSelectedTrail] = useState(null);
@@ -14045,13 +14075,25 @@
 
         // Apply thesis preset once per page-load if enabled.
         useEffect(() => {
-          if (!thesisAuto) return;
+          try {
+            const raw = localStorage.getItem("timedTrading_thesisAuto");
+            // Default ON if unset
+            const enabled =
+              raw == null ? true : raw === "1" || String(raw).toLowerCase() === "true";
+            if (!enabled) return;
+          } catch {
+            // If storage is blocked, still apply once (better UX for first-load)
+          }
           if (thesisAppliedRef.current) return;
           thesisAppliedRef.current = true;
-          // Winner Signature is our current best "shortlist-ready" proxy in the UI.
-          // It captures: setup pullback + corridor + very low completion + early phase OR squeeze-on.
-          handleFilterChange({ winnerSignature: true });
-        }, [thesisAuto, handleFilterChange]);
+          handleFilterChange({
+            inCorridor: true,
+            winnerSignature: true,
+            minRank: 70,
+            minRR: 1.5,
+            maxCompletion: 0.4,
+          });
+        }, [handleFilterChange]);
 
         const handleWelcomeDashboardClose = () => {
           setShowWelcomeDashboard(false);
@@ -14204,47 +14246,7 @@
                         </span>
                       </div>
                     </div>
-                    {/* Thesis preset controls + quick presets */}
-                    <div className="flex items-center gap-2 flex-wrap mb-2">
-                      <button
-                        onClick={() => {
-                          const next = !thesisAuto;
-                          setThesisAuto(next);
-                          try {
-                            localStorage.setItem(
-                              "timedTrading_thesisAuto",
-                              next ? "1" : "0"
-                            );
-                          } catch {}
-                          // If enabling, apply immediately so it's obvious.
-                          if (next) handleFilterChange({ winnerSignature: true });
-                        }}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-                          thesisAuto
-                            ? "border-purple-500 bg-purple-500/20 text-purple-300"
-                            : "border-[#26325f] bg-[#0f1630] hover:bg-[#1a2550] text-[#93a4d6]"
-                        }`}
-                        title="Auto-apply Thesis preset on load"
-                      >
-                        🧠 Thesis Auto: {thesisAuto ? "ON" : "OFF"}
-                      </button>
-                      <button
-                        onClick={() => handleFilterChange({ winnerSignature: true })}
-                        className="px-3 py-1.5 rounded-lg border border-purple-500/50 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 text-xs font-semibold transition-all"
-                        title="Apply Thesis preset now (Winner Signature)"
-                      >
-                        Apply Thesis
-                      </button>
-                      <span className="text-xs text-[#6b7a9f]">
-                        Thesis = <span className="text-[#93a4d6]">Winner Signature</span>{" "}
-                        (setup + corridor + early-run pressure)
-                      </span>
-                    </div>
-                    <QuickFilters
-                      filters={filters}
-                      onFilterChange={handleFilterChange}
-                      sectors={sectors}
-                    />
+                    {/* Filters live in the compact tag panel below (no duplicate button rows). */}
                     <ViewportFilterTags
                       filters={filters}
                       onChange={handleFilterChange}
