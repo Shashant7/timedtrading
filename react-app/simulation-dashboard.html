@@ -150,8 +150,51 @@
       function getIngestMs(src) {
         const raw = src?.ingest_ts ?? src?.ingest_time ?? src?.ts;
         if (raw == null) return null;
-        const ms = typeof raw === "number" ? raw : new Date(String(raw)).getTime();
+        const msRaw = typeof raw === "number" ? raw : new Date(String(raw)).getTime();
+        // Heuristic: if seconds, convert to ms
+        const ms =
+          typeof msRaw === "number" && msRaw > 0 && msRaw < 1e12 ? msRaw * 1000 : msRaw;
         return Number.isFinite(ms) ? ms : null;
+      }
+
+      function getNyClock(now = new Date()) {
+        try {
+          const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York",
+            weekday: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }).formatToParts(now);
+          const get = (type) => parts.find((p) => p.type === type)?.value;
+          const weekday = get("weekday") || "";
+          const hour = Number(get("hour"));
+          const minute = Number(get("minute"));
+          return {
+            weekday,
+            hour: Number.isFinite(hour) ? hour : null,
+            minute: Number.isFinite(minute) ? minute : null,
+          };
+        } catch {
+          return { weekday: "", hour: null, minute: null };
+        }
+      }
+
+      function isNyRegularMarketOpen(now = new Date()) {
+        const { weekday, hour, minute } = getNyClock(now);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return true; // fail open
+        const wd = String(weekday || "").toLowerCase();
+        const isWeekday =
+          wd.startsWith("mon") ||
+          wd.startsWith("tue") ||
+          wd.startsWith("wed") ||
+          wd.startsWith("thu") ||
+          wd.startsWith("fri");
+        if (!isWeekday) return false;
+        const mins = hour * 60 + minute;
+        const open = 9 * 60 + 30;
+        const close = 16 * 60;
+        return mins >= open && mins <= close;
       }
 
       function ageLabelFromMinutes(ageMin) {
@@ -175,11 +218,19 @@
           ingestMs,
           ageMin: Number.isFinite(ageMin) ? ageMin : null,
           ageLabel: ageLabelFromMinutes(ageMin),
+          staleByFlag: !!staleByFlag,
+          staleByAge: !!staleByAge,
           isStale,
         };
       }
 
       function getDailyChange(t) {
+        const marketOpen = isNyRegularMarketOpen();
+        const maxAgeMin = marketOpen ? 90 : 72 * 60;
+        const stale = getStaleInfo(t, { maxAgeMin });
+        if (stale.isStale && (marketOpen || stale.staleByFlag)) {
+          return { dayChg: null, dayPct: null, stale, marketOpen };
+        }
         const price = Number(t?.price);
         const pickNum = (obj, keys) => {
           for (const k of keys) {
@@ -229,7 +280,7 @@
             dayPct = (dayChg / prev) * 100;
           }
         }
-        return { dayChg, dayPct };
+        return { dayChg, dayPct, stale, marketOpen };
       }
 
       function computeReturnPct(src) {
@@ -1815,10 +1866,11 @@
                       </div>
                     )}
                     {(() => {
-                      const stale = getStaleInfo(tickerData, { maxAgeMin: 90 });
-                      const { dayChg, dayPct } = getDailyChange(tickerData);
-                      // Never show actionable daily-change numbers on stale data
-                      if (stale.isStale) {
+                      const { dayChg, dayPct, stale, marketOpen } =
+                        getDailyChange(tickerData);
+                      // During market hours: never show actionable daily change on stale data.
+                      // After-hours: show last-known daily change to help analysis, but keep a clear "AH/as of" label.
+                      if (stale?.isStale && (marketOpen || stale?.staleByFlag)) {
                         return (
                           <div className="text-xs mt-0.5 text-yellow-300">
                             —{" "}
@@ -1835,6 +1887,11 @@
                         <div className={`text-xs mt-0.5 ${cls}`}>
                           {Number.isFinite(dayPct) ? `${sign}${Math.abs(dayPct).toFixed(2)}%` : "—"}{" "}
                           {Number.isFinite(dayChg) ? `(${sign}${fmtUsd(Math.abs(dayChg))})` : ""}
+                          {!marketOpen && (
+                            <span className="ml-2 text-[10px] text-[#93a4d6]">
+                              AH{stale?.ageLabel ? ` • as of ${stale.ageLabel}` : ""}
+                            </span>
+                          )}
                         </div>
                       );
                     })()}

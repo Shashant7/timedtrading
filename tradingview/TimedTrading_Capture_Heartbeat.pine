@@ -5,9 +5,10 @@ indicator("TimedTrading Capture Heartbeat", overlay=false, max_labels_count=500)
 // Sends a minimal payload on every bar close.
 
 groupCapture = "Capture Settings"
-scriptVersion = input.string("capture_1.0.0", "Script Version", group=groupCapture)
+scriptVersion = input.string("capture_1.1.0", "Script Version", group=groupCapture)
 includeOHLC = input.bool(false, "Include OHLC", group=groupCapture)
 includeVolume = input.bool(false, "Include Volume", group=groupCapture)
+volLookbackD = input.int(30, "Avg Volume Lookback (D)", minval=5, maxval=200, group=groupCapture)
 
 // Daily change vs previous close (watchlist style)
 prevCloseD = request.security(syminfo.tickerid, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
@@ -17,6 +18,29 @@ prevCloseStr = not na(prevCloseD) ? (",\"prev_close\":" + str.tostring(prevClose
 chgStr = not na(dayChange) ? (",\"day_change\":" + str.tostring(dayChange) + ",\"change\":" + str.tostring(dayChange)) : ""
 pctStr = not na(dayChangePct) ? (",\"day_change_pct\":" + str.tostring(dayChangePct) + ",\"change_pct\":" + str.tostring(dayChangePct)) : ""
 
+// Session flag (exchange time). Useful so the UI can explicitly label after-hours.
+isRth = not na(time(timeframe.period, "0930-1600"))
+sessionStr = isRth ? "RTH" : "EXT"
+sessionJson = ",\"session\":\"" + sessionStr + "\",\"is_rth\":" + str.tostring(isRth)
+
+// Momentum Elite helpers (computed on Daily timeframe).
+// These are *inputs* to Momentum Elite, not hard filters in this capture script.
+avgVol30D = request.security(syminfo.tickerid, "D", ta.sma(volume, volLookbackD), barmerge.gaps_off, barmerge.lookahead_off)
+adr14D = request.security(syminfo.tickerid, "D", ta.sma(high - low, 14), barmerge.gaps_off, barmerge.lookahead_off)
+
+momW = request.security(syminfo.tickerid, "D", close[5] != 0 ? ((close / close[5] - 1) * 100.0) : na, barmerge.gaps_off, barmerge.lookahead_off)
+momM = request.security(syminfo.tickerid, "D", close[21] != 0 ? ((close / close[21] - 1) * 100.0) : na, barmerge.gaps_off, barmerge.lookahead_off)
+mom3M = request.security(syminfo.tickerid, "D", close[63] != 0 ? ((close / close[63] - 1) * 100.0) : na, barmerge.gaps_off, barmerge.lookahead_off)
+mom6M = request.security(syminfo.tickerid, "D", close[126] != 0 ? ((close / close[126] - 1) * 100.0) : na, barmerge.gaps_off, barmerge.lookahead_off)
+
+avgVolStr = not na(avgVol30D) ? (",\"avg_vol_" + str.tostring(volLookbackD) + "\":" + str.tostring(avgVol30D)) : ""
+adrStr = not na(adr14D) ? (",\"adr_14\":" + str.tostring(adr14D)) : ""
+momWJson = not na(momW) ? str.tostring(momW) : "null"
+momMJson = not na(momM) ? str.tostring(momM) : "null"
+mom3MJson = not na(mom3M) ? str.tostring(mom3M) : "null"
+mom6MJson = not na(mom6M) ? str.tostring(mom6M) : "null"
+momStr = ",\"momentum_pct\":{\"week\":" + momWJson + ",\"month\":" + momMJson + ",\"three_months\":" + mom3MJson + ",\"six_months\":" + mom6MJson + "}"
+
 payload = "{" +
   "\"script_version\":\"" + scriptVersion + "\"," +
   "\"ts\":" + str.tostring(time) + "," +
@@ -25,7 +49,9 @@ payload = "{" +
   "\"ticker\":\"" + syminfo.ticker + "\"," +
   "\"tf_hint\":\"" + timeframe.period + "\"," +
   "\"price\":" + str.tostring(close) +
+  sessionJson +
   prevCloseStr + chgStr + pctStr +
+  avgVolStr + adrStr + momStr +
   (includeOHLC
     ? ",\"o\":" + str.tostring(open) +
       ",\"h\":" + str.tostring(high) +
