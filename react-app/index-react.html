@@ -1089,7 +1089,39 @@
           "NFLX",
           "MSTR",
         ]),
-        Social: new Set(["CSCO", "BA", "NKE", "AAPL", "PI", "APLD", "MU"]),
+        Social: new Set([
+          "CSCO",
+          "BA",
+          "NKE",
+          "AAPL",
+          "PI",
+          "APLD",
+          "MU",
+          // Social group (added)
+          "SWK",
+          "AEHR",
+          "SLV",
+          "SNDK",
+          "INTC",
+          "SOXL",
+          "IREN",
+          "RKLB",
+          "CRWV",
+          "BE",
+          "ONDS",
+          "ASTS",
+          "LITE",
+          "AGQ",
+          "IBRX",
+          "LRCX",
+          "WDC",
+          "CRVS",
+          "GDXJ",
+          "HL",
+          "STX",
+          "MP",
+          "B",
+        ]),
         SP_Sectors: new Set([
           "XLK",
           "XLF",
@@ -2766,24 +2798,21 @@
           const y =
             Number.isFinite(Number(layoutY)) ? Number(layoutY) : htfScore * scaleY + offsetY;
 
-          // Determine emoji and label position
-          const hasSqueeze = flags.sq30_release || flags.sq30_on;
-          // #1 Ranked gets priority emoji (huge!)
-          const emoji = isTopRanked
-            ? "👑"
-            : waitingForData
-            ? "⏳"
-            : prime
-            ? "⭐"
-            : winnerSig
-            ? "🏆"
-            : flags.sq30_release
-            ? "⚡"
-            : flags.sq30_on
-            ? "🧨"
-            : "";
+          // Determine emojis and label position (show all applicable emojis)
+          const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
+          const emojis = [];
+          if (isTopRanked) emojis.push("👑");
+          if (waitingForData) emojis.push("⏳");
+          if (!waitingForData) {
+            if (!!flags.momentum_elite) emojis.push("🚀");
+            if (prime) emojis.push("⭐");
+            if (winnerSig) emojis.push("🏆");
+            if (flags.sq30_release) emojis.push("⚡");
+            if (isInSqueeze) emojis.push("🧨");
+          }
+          const emojiText = emojis.join("");
           // For #1 ranked, position emoji higher (reduced from 50 to 20 for smaller crown)
-          const labelY = y - bubbleSize - (emoji ? (isTopRanked ? 20 : 12) : 8);
+          const labelY = y - bubbleSize - (emojiText ? (isTopRanked ? 20 : 12) : 8);
 
           // FINAL SAFETY CHECK - ensure all values are valid before rendering
           // CRITICAL: Double-check color is valid before using
@@ -2865,8 +2894,8 @@
                 stroke={finalBorderColor}
                 strokeWidth={finalBorderWidth}
               />
-              {/* Emoji above bubble - #1 ranked gets special treatment */}
-              {emoji && (
+              {/* Emoji above bubble - show multiple when applicable */}
+              {emojiText && (
                 <g style={{ pointerEvents: "none" }}>
                   {/* Background circle for #1 ranked - reduced size */}
                   {isTopRanked && (
@@ -2934,8 +2963,12 @@
                         ? "#93a4d6"
                         : prime
                         ? "#2ecc71"
+                        : winnerSig
+                        ? "#a855f7"
                         : flags.sq30_release
                         ? "#00ffff"
+                        : flags.momentum_elite
+                        ? "#a855f7"
                         : "#ffd700"
                     }
                     fontWeight="bold"
@@ -2949,7 +2982,7 @@
                       pointerEvents: "none",
                     }}
                   >
-                    {emoji}
+                    {emojiText}
                   </text>
                   {/* Additional sparkle effects for #1 - reduced size */}
                   {isTopRanked && (
@@ -3032,7 +3065,7 @@
               {(showLabels || isHovered) && (
                 <text
                   x={x}
-                  y={labelY - (emoji ? 14 : 8)}
+                  y={labelY - (emojiText ? 14 : 8)}
                   textAnchor="middle"
                   fontSize="10"
                   fill={waitingForData ? "#93a4d6" : "#e7ecff"}
@@ -3509,6 +3542,7 @@
         onHover,
         selectedTicker,
         selectedTrail,
+        isTimeTravelActive = false,
         highlightTrailPoint = null,
         allData,
         rankedTickers,
@@ -4353,6 +4387,103 @@
                     isTopRanked={topRankedTicker === ticker.ticker}
                   />
                 ))}
+
+                {/* Time Travel floating label near the selected bubble */}
+                {isTimeTravelActive &&
+                  selectedTicker &&
+                  (() => {
+                    const sym = String(selectedTicker || "").trim().toUpperCase();
+                    if (!sym) return null;
+                    const selectedObj = (Array.isArray(tickers) ? tickers : []).find(
+                      (t) =>
+                        t &&
+                        String(t.ticker || "")
+                          .trim()
+                          .toUpperCase() === sym
+                    );
+                    if (!selectedObj) return null;
+
+                    const ltf = Number(selectedObj?.ltf_score) || 0;
+                    const htf = Number(selectedObj?.htf_score) || 0;
+                    const lx = layoutPositions?.[selectedObj.ticker]?.x;
+                    const ly = layoutPositions?.[selectedObj.ticker]?.y;
+
+                    const ox = offsetX + domainXMax * scaleX;
+                    const oy = offsetY + plotHeight - domainYMax * scaleY;
+                    const sx = scaleX;
+                    const sy = -scaleY;
+
+                    const x = Number.isFinite(Number(lx))
+                      ? Number(lx)
+                      : ltf * sx + ox;
+                    const y = Number.isFinite(Number(ly))
+                      ? Number(ly)
+                      : htf * sy + oy;
+
+                    const toMs = (v) => {
+                      if (v == null) return NaN;
+                      if (typeof v === "number") {
+                        const n = v;
+                        // Heuristic: if seconds, convert to ms
+                        return n > 0 && n < 1e12 ? n * 1000 : n;
+                      }
+                      const n = Number(v);
+                      if (Number.isFinite(n)) return n > 0 && n < 1e12 ? n * 1000 : n;
+                      const d = new Date(String(v));
+                      const ms = d.getTime();
+                      return Number.isFinite(ms) ? ms : NaN;
+                    };
+
+                    const tsMs = toMs(selectedObj.ts ?? selectedObj.ingest_ts ?? selectedObj.ingest_time);
+                    const price = Number(selectedObj.price);
+
+                    const tsText = Number.isFinite(tsMs)
+                      ? new Date(tsMs).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : "—";
+                    const pxText = Number.isFinite(price) ? `$${price.toFixed(2)}` : "—";
+                    const labelText = `${tsText} • ${pxText}`;
+
+                    // Position the label near the bubble; clamp inside the SVG viewport.
+                    const pad = 8;
+                    const approxW = Math.min(260, Math.max(140, labelText.length * 6.2));
+                    const w = approxW;
+                    const h = 22;
+                    let lx0 = x + 14;
+                    let ly0 = y - 34;
+                    lx0 = Math.max(pad, Math.min(chartWidth - w - pad, lx0));
+                    ly0 = Math.max(pad, Math.min(chartHeight - h - pad, ly0));
+
+                    return (
+                      <g pointerEvents="none" opacity="0.98">
+                        <rect
+                          x={lx0}
+                          y={ly0}
+                          width={w}
+                          height={h}
+                          rx="6"
+                          fill="#0b1020"
+                          stroke="#00ffff"
+                          strokeWidth="1"
+                          fillOpacity="0.85"
+                        />
+                        <text
+                          x={lx0 + w / 2}
+                          y={ly0 + 15}
+                          fill="#e7ecff"
+                          textAnchor="middle"
+                          fontSize="11"
+                          fontWeight="700"
+                        >
+                          {labelText}
+                        </text>
+                      </g>
+                    );
+                  })()}
               </svg>
 
               {/* Tooltip */}
@@ -4615,22 +4746,20 @@
             const winnerSig = isWinnerSignature(ticker);
             const isTopRanked = topRankedTicker === ticker.ticker;
             const isBubbleHovered = hoveredTicker === ticker.ticker;
-            const hasSqueeze = flags.sq30_release || flags.sq30_on;
+            const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
 
-            // Determine emoji
-            const emoji = isTopRanked
-              ? "👑"
-              : waitingForData
-              ? "⏳"
-              : prime
-              ? "⭐"
-              : winnerSig
-              ? "🏆"
-              : flags.sq30_release
-              ? "⚡"
-              : flags.sq30_on
-              ? "🧨"
-              : "";
+            // Determine emojis (show all applicable)
+            const emojis = [];
+            if (isTopRanked) emojis.push("👑");
+            if (waitingForData) emojis.push("⏳");
+            if (!waitingForData) {
+              if (!!flags.momentum_elite) emojis.push("🚀");
+              if (prime) emojis.push("⭐");
+              if (winnerSig) emojis.push("🏆");
+              if (flags.sq30_release) emojis.push("⚡");
+              if (isInSqueeze) emojis.push("🧨");
+            }
+            const emojiText = emojis.join("");
 
             const borderColor = waitingForData
               ? "#93a4d6"
@@ -4664,7 +4793,7 @@
               : 1.5;
             const bubbleSize = isBubbleHovered ? finalSize * 1.2 : finalSize;
             const labelY =
-              cy - bubbleSize - (emoji ? (isTopRanked ? 20 : 12) : 8);
+              cy - bubbleSize - (emojiText ? (isTopRanked ? 20 : 12) : 8);
 
             return (
               <g
@@ -4761,7 +4890,7 @@
                   strokeWidth={borderWidth}
                 />
                 {/* Emoji above bubble */}
-                {emoji && (
+                {emojiText && (
                   <g style={{ pointerEvents: "none" }}>
                     {/* Background circle for #1 ranked - reduced size */}
                     {isTopRanked && (
@@ -4829,8 +4958,12 @@
                           ? "#93a4d6"
                           : prime
                           ? "#2ecc71"
+                          : winnerSig
+                          ? "#a855f7"
                           : flags.sq30_release
                           ? "#00ffff"
+                          : flags.momentum_elite
+                          ? "#a855f7"
                           : "#ffd700"
                       }
                       fontWeight="bold"
@@ -4844,7 +4977,7 @@
                         pointerEvents: "none",
                       }}
                     >
-                      {emoji}
+                      {emojiText}
                     </text>
                     {/* Sparkle effects for #1 - reduced size */}
                     {isTopRanked && (
@@ -4881,7 +5014,7 @@
                 {(showLabels || isBubbleHovered) && (
                   <text
                     x={cx}
-                    y={labelY - (emoji ? 14 : 8)}
+                    y={labelY - (emojiText ? 14 : 8)}
                     textAnchor="middle"
                     fontSize="10"
                     fill={waitingForData ? "#93a4d6" : "#e7ecff"}
@@ -9441,6 +9574,14 @@
           const t = item.t;
           const c = item.c;
           const winnerSig = isWinnerSignature(t);
+          const flags = t?.flags || {};
+          const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
+          const badgeEmojis = [
+            flags.momentum_elite ? "🚀" : null,
+            winnerSig ? "🏆" : null,
+            flags.sq30_release ? "⚡" : null,
+            isInSqueeze ? "🧨" : null,
+          ].filter(Boolean);
           const actionInfo = getActionDescription(t);
           const price = Number(t?.price);
           const rr = Number(t?.rr);
@@ -9556,9 +9697,9 @@
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="font-bold text-white">{t.ticker}</div>
-                    {winnerSig && (
-                      <span className="px-2 py-0.5 rounded border border-purple-500/40 bg-purple-500/15 text-[10px] font-semibold text-purple-200">
-                        🏆 Winner
+                    {badgeEmojis.length > 0 && (
+                      <span className="px-2 py-0.5 rounded border border-[#26325f] bg-[#0f1630] text-[10px] font-semibold text-[#e7ecff]">
+                        {badgeEmojis.join("")}
                       </span>
                     )}
                     <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${statusPill.cls}`}>
@@ -10545,6 +10686,7 @@
         allLoadedData = null,
         rankedTickers = null,
         rankedTickerPositions = null,
+        rankAsOfMs = null,
         sectors = [],
         onJourneyHover = null,
         onJourneySelect = null,
@@ -10693,6 +10835,20 @@
           Number.isFinite(Number(ticker.rank_total)) && Number(ticker.rank_total) > 0
             ? Number(ticker.rank_total)
             : totalTickers;
+
+        const rankAsOfText = (() => {
+          const ms = Number(rankAsOfMs);
+          if (!Number.isFinite(ms)) return null;
+          try {
+            return new Date(ms).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            });
+          } catch {
+            return null;
+          }
+        })();
 
         return (
           <div className="w-full h-full flex flex-col">
@@ -10936,6 +11092,45 @@
                   return null;
                 })()}
 
+                {/* Groups */}
+                {(() => {
+                  try {
+                    const gs = groupsForTicker(tickerSymbol);
+                    if (!Array.isArray(gs) || gs.length === 0) return null;
+                    const ordered = Array.isArray(GROUP_ORDER)
+                      ? [...gs].sort(
+                          (a, b) =>
+                            GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b)
+                        )
+                      : gs;
+                    return (
+                      <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                        <div className="text-sm text-[#93a4d6] mb-2">Groups</div>
+                        <div className="flex flex-wrap gap-2">
+                          {ordered.map((g) => {
+                            const label = GROUP_LABELS[g] || g;
+                            const isSocial = g === "Social";
+                            return (
+                              <span
+                                key={`group-${g}`}
+                                className={`text-[11px] px-2 py-1 rounded border ${
+                                  isSocial
+                                    ? "bg-purple-500/15 border-purple-500/40 text-purple-200"
+                                    : "bg-[#121a33] border-[#26325f] text-[#e7ecff]"
+                                }`}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  } catch {
+                    return null;
+                  }
+                })()}
+
                 {/* Bias/Direction */}
                 {(() => {
                   const dir = getDirection(ticker);
@@ -11022,6 +11217,11 @@
                         {rankPosition > 0
                           ? `#${rankPosition} of ${rankTotal}`
                           : "—"}
+                        {rankAsOfText && (
+                          <span className="ml-2 text-[10px] text-[#93a4d6] font-normal">
+                            (as of {rankAsOfText})
+                          </span>
+                        )}
                       </span>
                     </div>
                   )}
@@ -13569,6 +13769,7 @@
       const TickerDetailsLoader = ({
         tickerSymbol,
         onClose,
+        rankAsOfMs = null,
         rankedTickers = null,
         rankedTickerPositions = null,
         sectors = [],
@@ -13683,6 +13884,7 @@
             allLoadedData={allLoadedData}
             rankedTickers={rankedTickers}
             rankedTickerPositions={rankedTickerPositions}
+            rankAsOfMs={rankAsOfMs}
             sectors={sectors}
             onJourneyHover={onJourneyHover}
             onJourneySelect={onJourneySelect}
@@ -13701,6 +13903,7 @@
         onClose,
         rankedTickers = null,
         rankedTickerPositions = null,
+        rankAsOfMs = null,
         sectors = [],
         onJourneyHover = null,
         onJourneySelect = null,
@@ -13753,9 +13956,9 @@
               <TickerDetailsLoader
                 tickerSymbol={tickerUpper}
                 onClose={onClose}
-                allLoadedData={data}
                 rankedTickers={rankedTickers}
                 rankedTickerPositions={rankedTickerPositions}
+                rankAsOfMs={rankAsOfMs}
                 sectors={sectors}
                 onJourneyHover={onJourneyHover}
                 onJourneySelect={onJourneySelect}
@@ -13774,6 +13977,7 @@
               allLoadedData={data}
               rankedTickers={rankedTickers}
               rankedTickerPositions={rankedTickerPositions}
+              rankAsOfMs={rankAsOfMs}
               sectors={sectors}
               onJourneyHover={onJourneyHover}
               onJourneySelect={onJourneySelect}
@@ -14091,23 +14295,49 @@
           return withRanks;
         }, [allTickersForRanking]);
 
-        const rankedTickers = useMemo(() => {
-          return getRankedTickers(allTickersWithRanks);
-        }, [allTickersWithRanks]);
+        // Stabilize Rank display using 15-minute buckets.
+        // Goal: keep ranks consistent across 1m ingests, and only refresh every 15m.
+        const RANK_BUCKET_MS = 15 * 60 * 1000;
+        const rankAsOfMs = useMemo(() => {
+          const baseMs =
+            lastUpdate && typeof lastUpdate.getTime === "function"
+              ? lastUpdate.getTime()
+              : Date.now();
+          return Math.floor(baseMs / RANK_BUCKET_MS) * RANK_BUCKET_MS;
+        }, [lastUpdate]);
 
-        const rankedTickerPositions = useMemo(() => {
-          const map = {};
-          rankedTickers.forEach((t, idx) => {
-            const sym = String(t.ticker || "").trim().toUpperCase();
-            const pos = Number(t?.rank_position);
-            const rankPos =
-              Number.isFinite(pos) && pos > 0 ? pos : idx + 1;
-            if (sym && map[sym] == null) {
-              map[sym] = rankPos;
+        const rankSnapshotRef = React.useRef({
+          asOfMs: null,
+          ranked: [],
+          positions: {},
+        });
+
+        const { ranked: rankedTickers, positions: rankedTickerPositions } =
+          useMemo(() => {
+            const prev = rankSnapshotRef.current;
+            if (
+              prev &&
+              prev.asOfMs === rankAsOfMs &&
+              Array.isArray(prev.ranked) &&
+              prev.ranked.length > 0
+            ) {
+              return { ranked: prev.ranked, positions: prev.positions || {} };
             }
-          });
-          return map;
-        }, [rankedTickers]);
+
+            const ranked = getRankedTickers(allTickersWithRanks);
+            const positions = {};
+            ranked.forEach((t, idx) => {
+              const sym = String(t.ticker || "").trim().toUpperCase();
+              const pos = Number(t?.rank_position);
+              const rankPos = Number.isFinite(pos) && pos > 0 ? pos : idx + 1;
+              if (sym && positions[sym] == null) {
+                positions[sym] = rankPos;
+              }
+            });
+
+            rankSnapshotRef.current = { asOfMs: rankAsOfMs, ranked, positions };
+            return { ranked, positions };
+          }, [allTickersWithRanks, rankAsOfMs]);
 
         // Use dynamicScore from API (backend calculation) - no frontend calculation needed
         const tickersWithRanks = useMemo(() => {
@@ -14397,6 +14627,7 @@
                               onHover={setHoveredTicker}
                               selectedTicker={selectedTicker}
                               selectedTrail={selectedTrail}
+                              isTimeTravelActive={timeTravelTickers !== null}
                               highlightTrailPoint={
                                 journeyHoverPoint || journeySelectedPoint
                               }
@@ -14419,6 +14650,7 @@
                           onClose={() => handleTickerSelect(null)}
                             rankedTickers={rankedTickers}
                             rankedTickerPositions={rankedTickerPositions}
+                          rankAsOfMs={rankAsOfMs}
                           sectors={sectors}
                           onJourneyHover={setJourneyHoverPoint}
                           onJourneySelect={(p) => {
