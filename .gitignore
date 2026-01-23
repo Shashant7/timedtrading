@@ -34,6 +34,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Cloudflare Pages asset limit (25 MiB/file)
+docs/BEST_SETUPS_ANALYSIS.json
+
 # CloudFlare
 .wrangler/
 wrangler.toml.local
