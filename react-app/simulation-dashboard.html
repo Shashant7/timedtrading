@@ -2004,24 +2004,117 @@
 
               {/* Sector, Sector Rating */}
               {(() => {
-                const tickerSector = tickerData.sector || tickerData.fundamentals?.sector;
-                if (!tickerSector || !sectors.length) return null;
-                const sectorInfo = sectors.find((s) => (s.sector || s.name) === tickerSector);
-                const rating = sectorInfo?.rating || "neutral";
-                const emoji = rating === "overweight" ? "📈" : rating === "underweight" ? "📉" : "➡️";
+                const normalizeSectorKey = (sectorName) => {
+                  const raw = String(sectorName || "")
+                    .trim()
+                    .toLowerCase()
+                    .replace(/&/g, "and")
+                    .replace(/\s+/g, " ");
+                  if (!raw) return "";
+                  const ALIASES = {
+                    "health care": "healthcare",
+                    healthcare: "healthcare",
+                    materials: "basic materials",
+                    "basic materials": "basic materials",
+                    "consumer cyclical": "consumer discretionary",
+                    "consumer discretionary": "consumer discretionary",
+                    "consumer defensive": "consumer staples",
+                    "consumer staples": "consumer staples",
+                    "financial services": "financials",
+                    finance: "financials",
+                    financials: "financials",
+                    technology: "information technology",
+                    "information technology": "information technology",
+                    communications: "communication services",
+                    "communication services": "communication services",
+                    "energy minerals": "energy",
+                    energy: "energy",
+                    industrials: "industrials",
+                    utilities: "utilities",
+                    "real estate": "real estate",
+                  };
+                  return ALIASES[raw] || raw;
+                };
+
+                const sectorKeyToCanonicalName = (key) => {
+                  const K = String(key || "").trim().toLowerCase();
+                  const CANON = {
+                    "consumer discretionary": "Consumer Discretionary",
+                    industrials: "Industrials",
+                    "information technology": "Information Technology",
+                    "communication services": "Communication Services",
+                    "basic materials": "Basic Materials",
+                    energy: "Energy",
+                    financials: "Financials",
+                    "real estate": "Real Estate",
+                    "consumer staples": "Consumer Staples",
+                    healthcare: "Healthcare",
+                    utilities: "Utilities",
+                  };
+                  return CANON[K] || key;
+                };
+
+                const SECTOR_ETF_MAP = {
+                  XLK: "Information Technology",
+                  XLF: "Financials",
+                  XLY: "Consumer Discretionary",
+                  XLP: "Consumer Staples",
+                  XLC: "Communication Services",
+                  XLI: "Industrials",
+                  XLB: "Basic Materials",
+                  XLE: "Energy",
+                  XLRE: "Real Estate",
+                  XLU: "Utilities",
+                  XLV: "Healthcare",
+                };
+
+                const sym = String(tickerSymbol || tickerData?.ticker || "").trim().toUpperCase();
+                const tickerSectorRaw =
+                  SECTOR_ETF_MAP[sym] || tickerData.sector || tickerData.fundamentals?.sector || "";
+                const sectorKey = normalizeSectorKey(tickerSectorRaw);
+                if (!sectorKey || !sectors.length) return null;
+
+                const sectorInfo = sectors.find((s) => {
+                  const name = s?.sector || s?.name || "";
+                  return normalizeSectorKey(name) === sectorKey;
+                });
+
+                const displaySector =
+                  sectorInfo?.sector ||
+                  sectorInfo?.name ||
+                  sectorKeyToCanonicalName(sectorKey);
+                const rating = String(sectorInfo?.rating || "neutral").toLowerCase();
+                const boost =
+                  sectorInfo?.boost != null ? Number(sectorInfo.boost) : null;
+                const emoji =
+                  rating === "overweight"
+                    ? "📈"
+                    : rating === "underweight"
+                    ? "📉"
+                    : "➡️";
+
                 return (
                   <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
                     <div className="text-sm text-[#93a4d6] mb-2">Sector</div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-lg">{emoji}</span>
-                      <span className="font-semibold text-white">{tickerSector}</span>
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        rating === "overweight" ? "bg-green-500/20 text-green-400" :
-                        rating === "underweight" ? "bg-red-500/20 text-red-400" :
-                        "bg-[#26325f] text-[#93a4d6]"
-                      }`}>
+                      <span className="font-semibold text-white">{displaySector}</span>
+                      <span
+                        className={`text-xs px-2 py-1 rounded ${
+                          rating === "overweight"
+                            ? "bg-green-500/20 text-green-400"
+                            : rating === "underweight"
+                            ? "bg-red-500/20 text-red-400"
+                            : "bg-[#26325f] text-[#93a4d6]"
+                        }`}
+                      >
                         {rating.charAt(0).toUpperCase() + rating.slice(1)}
                       </span>
+                      {Number.isFinite(boost) && boost !== 0 && (
+                        <span className="text-[10px] text-[#93a4d6]">
+                          Boost {boost > 0 ? `+${boost}` : boost}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );

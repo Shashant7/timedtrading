@@ -738,6 +738,18 @@
         // This mapping should match worker/sector-mapping.js
         // For now, we'll fetch from API, but provide a fallback lookup
         const SECTOR_MAP = {
+          // S&P Sector ETFs (SPDR) - map ETF ticker -> underlying sector
+          XLK: "Information Technology",
+          XLF: "Financials",
+          XLY: "Consumer Discretionary",
+          XLP: "Consumer Staples",
+          XLC: "Communication Services",
+          XLI: "Industrials",
+          XLB: "Basic Materials",
+          XLE: "Energy",
+          XLRE: "Real Estate",
+          XLU: "Utilities",
+          XLV: "Healthcare",
           // Consumer Discretionary
           AMZN: "Consumer Discretionary",
           TSLA: "Consumer Discretionary",
@@ -915,6 +927,58 @@
         const sector = SECTOR_MAP[T] || null;
         // Return empty string instead of null for easier filtering
         return sector || "";
+      }
+
+      // Normalize sector names to match worker sector ratings.
+      // TradingView sector/industry labels can differ ("Health Care" vs "Healthcare", "Materials" vs "Basic Materials", etc).
+      function normalizeSectorKey(sectorName) {
+        const raw = String(sectorName || "")
+          .trim()
+          .toLowerCase()
+          .replace(/&/g, "and")
+          .replace(/\s+/g, " ");
+        if (!raw) return "";
+        const ALIASES = {
+          "health care": "healthcare",
+          healthcare: "healthcare",
+          materials: "basic materials",
+          "basic materials": "basic materials",
+          "consumer cyclical": "consumer discretionary",
+          "consumer discretionary": "consumer discretionary",
+          "consumer defensive": "consumer staples",
+          "consumer staples": "consumer staples",
+          "financial services": "financials",
+          finance: "financials",
+          financials: "financials",
+          technology: "information technology",
+          "information technology": "information technology",
+          communications: "communication services",
+          "communication services": "communication services",
+          "energy minerals": "energy",
+          energy: "energy",
+          industrials: "industrials",
+          utilities: "utilities",
+          "real estate": "real estate",
+        };
+        return ALIASES[raw] || raw;
+      }
+
+      function sectorKeyToCanonicalName(key) {
+        const K = String(key || "").trim().toLowerCase();
+        const CANON = {
+          "consumer discretionary": "Consumer Discretionary",
+          industrials: "Industrials",
+          "information technology": "Information Technology",
+          "communication services": "Communication Services",
+          "basic materials": "Basic Materials",
+          energy: "Energy",
+          financials: "Financials",
+          "real estate": "Real Estate",
+          "consumer staples": "Consumer Staples",
+          healthcare: "Healthcare",
+          utilities: "Utilities",
+        };
+        return CANON[K] || key;
       }
 
       // ─────────────────────────────────────────────────────────────
@@ -2496,14 +2560,11 @@
               d.sector ||
               d.fundamentals?.sector ||
               "";
-            // Normalize both for case-insensitive comparison
-            const normalizedTickerSector = String(tickerSector).trim();
-            const normalizedFilterSector = String(
-              effectiveFilters.sector
-            ).trim();
+            // Normalize for resilient comparison (handles aliases like Health Care vs Healthcare)
+            const normalizedTickerSector = normalizeSectorKey(tickerSector);
+            const normalizedFilterSector = normalizeSectorKey(effectiveFilters.sector);
             const matches =
-              normalizedTickerSector.toLowerCase() ===
-              normalizedFilterSector.toLowerCase();
+              normalizedTickerSector && normalizedTickerSector === normalizedFilterSector;
 
             // Debug logging for first few tickers when sector filter is active
             if (out.length < 3 && normalizedTickerSector) {
@@ -9387,14 +9448,14 @@
             sectors.forEach((s) => {
               const name = s?.sector || s?.name;
               if (!name) return;
-              map[String(name)] = String(s?.rating || "neutral").toLowerCase();
+              map[normalizeSectorKey(name)] = String(s?.rating || "neutral").toLowerCase();
             });
           }
           return map;
         }, [sectors]);
 
         const sectorEmoji = (sectorName) => {
-          const rating = sectorRatingMap[String(sectorName)] || "neutral";
+          const rating = sectorRatingMap[normalizeSectorKey(sectorName)] || "neutral";
           return rating === "overweight" ? "💪" : rating === "underweight" ? "👎" : "😒";
         };
 
@@ -9556,10 +9617,10 @@
                 {pill(`${sectorEmoji("Consumer Staples")} Cons Staples`, sector === "Consumer Staples", () => onChange({ sector: "Consumer Staples" }))}
                 {pill(`${sectorEmoji("Energy")} Energy`, sector === "Energy", () => onChange({ sector: "Energy" }))}
                 {pill(`${sectorEmoji("Financials")} Financials`, sector === "Financials", () => onChange({ sector: "Financials" }))}
-                {pill(`${sectorEmoji("Health Care")} Health`, sector === "Health Care", () => onChange({ sector: "Health Care" }))}
+                {pill(`${sectorEmoji("Healthcare")} Health`, sector === "Healthcare", () => onChange({ sector: "Healthcare" }))}
                 {pill(`${sectorEmoji("Industrials")} Industrials`, sector === "Industrials", () => onChange({ sector: "Industrials" }))}
                 {pill(`${sectorEmoji("Information Technology")} Tech`, sector === "Information Technology", () => onChange({ sector: "Information Technology" }))}
-                {pill(`${sectorEmoji("Materials")} Materials`, sector === "Materials", () => onChange({ sector: "Materials" }))}
+                {pill(`${sectorEmoji("Basic Materials")} Materials`, sector === "Basic Materials", () => onChange({ sector: "Basic Materials" }))}
                 {pill(`${sectorEmoji("Real Estate")} Real Estate`, sector === "Real Estate", () => onChange({ sector: "Real Estate" }))}
                 {pill(`${sectorEmoji("Utilities")} Utilities`, sector === "Utilities", () => onChange({ sector: "Utilities" }))}
               </div>
@@ -11350,15 +11411,22 @@
 
                 {/* Sector and Rating */}
                 {(() => {
-                  const tickerSector =
+                  const tickerSectorRaw =
                     getTickerSector(ticker.ticker) ||
                     ticker.sector ||
-                    ticker.fundamentals?.sector;
-                  if (tickerSector && sectors.length > 0) {
-                    const sectorInfo = sectors.find(
-                      (s) => (s.sector || s.name) === tickerSector
-                    );
-                    const rating = sectorInfo?.rating || "neutral";
+                    ticker.fundamentals?.sector ||
+                    "";
+                  const sectorKey = normalizeSectorKey(tickerSectorRaw);
+                  if (sectorKey && sectors.length > 0) {
+                    const sectorInfo = sectors.find((s) => {
+                      const name = s?.sector || s?.name || "";
+                      return normalizeSectorKey(name) === sectorKey;
+                    });
+                    const displaySector =
+                      sectorInfo?.sector ||
+                      sectorInfo?.name ||
+                      sectorKeyToCanonicalName(sectorKey);
+                    const rating = String(sectorInfo?.rating || "neutral").toLowerCase();
                     const boost =
                       sectorInfo?.boost != null
                         ? Number(sectorInfo.boost)
@@ -11377,7 +11445,7 @@
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-lg">{emoji}</span>
                           <span className="font-semibold text-white">
-                            {tickerSector}
+                            {displaySector}
                           </span>
                           <span
                             className={`text-xs px-2 py-1 rounded ${
