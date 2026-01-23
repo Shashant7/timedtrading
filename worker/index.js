@@ -10188,6 +10188,23 @@ export default {
               }
             }
           }
+
+          // Context enrichment is now delivered via /timed/ingest-capture (throttled in Pine).
+          // Merge it opportunistically when present (non-blocking).
+          try {
+            if (capture && typeof capture === "object") {
+              const ctx =
+                capture.context && typeof capture.context === "object"
+                  ? capture.context
+                  : null;
+              if (ctx) data.context = ctx;
+            }
+          } catch (e) {
+            console.error(
+              `[CONTEXT] /timed/latest capture merge failed for ${ticker}:`,
+              String(e)
+            );
+          }
           // Always recompute RR to ensure it uses the latest max TP from tp_levels
           data.rr = computeRR(data);
 
@@ -10404,6 +10421,11 @@ export default {
                   if (value.flags.momentum_elite == null && capture.flags.momentum_elite != null) {
                     value.flags.momentum_elite = !!capture.flags.momentum_elite;
                   }
+                }
+
+                // Context enrichment rides along on capture payload (throttled in Pine).
+                if (capture.context && typeof capture.context === "object") {
+                  value.context = capture.context;
                 }
               }
             } catch (e) {

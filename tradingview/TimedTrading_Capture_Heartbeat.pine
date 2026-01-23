@@ -1,14 +1,22 @@
-//@version=5
+//@version=6
 indicator("TimedTrading Capture Heartbeat", overlay=false, max_labels_count=500)
 
 // Focused capture-only script for watchlist alerts.
 // Sends a minimal payload on every bar close.
 
 groupCapture = "Capture Settings"
-scriptVersion = input.string("capture_1.1.0", "Script Version", group=groupCapture)
+scriptVersion = input.string("capture_1.2.0", "Script Version", group=groupCapture)
 includeOHLC = input.bool(false, "Include OHLC", group=groupCapture)
 includeVolume = input.bool(false, "Include Volume", group=groupCapture)
 volLookbackD = input.int(30, "Avg Volume Lookback (D)", minval=5, maxval=200, group=groupCapture)
+
+// Context enrichment (optional): include a context block only every N hours to avoid noise.
+groupContext = "Context (Optional)"
+includeContext = input.bool(true, "Include Context (throttled)", group=groupContext)
+contextEveryHours = input.int(4, "Context cadence (hours)", minval=1, maxval=24, group=groupContext)
+
+// TradingView Technical Rating library (proxy “sentiment”)
+import TradingView/TechnicalRating/3 as TR
 
 // Daily change vs previous close (watchlist style)
 prevCloseD = request.security(syminfo.tickerid, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
@@ -41,7 +49,49 @@ mom3MJson = not na(mom3M) ? str.tostring(mom3M) : "null"
 mom6MJson = not na(mom6M) ? str.tostring(mom6M) : "null"
 momStr = ",\"momentum_pct\":{\"week\":" + momWJson + ",\"month\":" + momMJson + ",\"three_months\":" + mom3MJson + ",\"six_months\":" + mom6MJson + "}"
 
-payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"price\":" + str.tostring(close) + sessionJson + prevCloseStr + chgStr + pctStr + avgVolStr + adrStr + momStr + (includeOHLC ? ",\"o\":" + str.tostring(open) + ",\"h\":" + str.tostring(high) + ",\"l\":" + str.tostring(low) : "" ) + (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") + ",\"ingest_kind\":\"capture\"" + "}"
+f_json_escape(s) =>
+    // Basic JSON string escaping
+    x = str.tostring(s)
+    x := str.replace_all(x, "\\", "\\\\")
+    x := str.replace_all(x, "\"", "\\\"")
+    x := str.replace_all(x, "\n", "\\n")
+    x := str.replace_all(x, "\r", "\\r")
+    x
+
+// Context throttle state (per-ticker instance)
+var int lastContextSentTs = na
+contextCadenceMs = contextEveryHours * 60 * 60 * 1000
+shouldSendContext = includeContext and (na(lastContextSentTs) or (time - lastContextSentTs >= contextCadenceMs))
+
+// Build optional context block (only appended to JSON when shouldSendContext)
+companyName = f_json_escape(syminfo.description)
+sector = f_json_escape(syminfo.sector)
+industry = f_json_escape(syminfo.industry)
+country = f_json_escape(syminfo.country)
+
+[ratingTotal, ratingOther, ratingMA] = TR.calcRatingAll()
+ratingStatus = TR.ratingStatus(ratingTotal)
+ratingTotalJson = str.tostring(ratingTotal)
+ratingStatusJson = "\"" + f_json_escape(ratingStatus) + "\""
+
+earnActual = request.earnings(syminfo.tickerid, earnings.actual)
+earnEstimate = request.earnings(syminfo.tickerid, earnings.estimate)
+divGross = request.dividends(syminfo.tickerid, dividends.gross)
+
+lastEarnTs = ta.valuewhen(not na(earnActual) or not na(earnEstimate), time, 0)
+lastDivTs = ta.valuewhen(not na(divGross), time, 0)
+
+lastEarnTsJson = not na(lastEarnTs) ? str.tostring(lastEarnTs) : "null"
+lastDivTsJson = not na(lastDivTs) ? str.tostring(lastDivTs) : "null"
+earnActualJson = not na(earnActual) ? str.tostring(earnActual) : "null"
+earnEstimateJson = not na(earnEstimate) ? str.tostring(earnEstimate) : "null"
+divGrossJson = not na(divGross) ? str.tostring(divGross) : "null"
+
+contextStr = shouldSendContext ? ",\"context\":{" + "\"name\":\"" + companyName + "\"," + "\"sector\":\"" + sector + "\"," + "\"industry\":\"" + industry + "\"," + "\"country\":\"" + country + "\"," + "\"technical_rating\":{" + "\"value\":" + ratingTotalJson + "," + "\"status\":" + ratingStatusJson + "}," + "\"events\":{" + "\"last_earnings_ts\":" + lastEarnTsJson + "," + "\"last_earnings_actual\":" + earnActualJson + "," + "\"last_earnings_estimate\":" + earnEstimateJson + "," + "\"last_dividend_ts\":" + lastDivTsJson + "," + "\"last_dividend_gross\":" + divGrossJson + "}" + "}" : ""
+
+payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"price\":" + str.tostring(close) + sessionJson + prevCloseStr + chgStr + pctStr + avgVolStr + adrStr + momStr + (includeOHLC ? ",\"o\":" + str.tostring(open) + ",\"h\":" + str.tostring(high) + ",\"l\":" + str.tostring(low) : "") + (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") + contextStr + ",\"ingest_kind\":\"capture\"" + "}"
 
 if barstate.isconfirmed
+    if shouldSendContext
+        lastContextSentTs := time
     alert(payload, alert.freq_once_per_bar_close)

@@ -9426,18 +9426,43 @@
           onChange({ quadrants: isOnlyThis ? undefined : [s] });
         };
 
-        const pill = (label, active, onClick) => (
-          <button
-            onClick={onClick}
-            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-              active
-                ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
-            }`}
-          >
-            {label}
-          </button>
-        );
+        const PILL_TOOLTIPS = {
+          "🧠 Thesis":
+            "Thesis preset (Rank≥74, RR≥1.5, Completion≤0.6, Phase≤0.6) plus requires a richer winner pattern (computed live in the Worker).",
+          "🧨 In Squeeze":
+            "Currently in squeeze (sq30_on=true and sq30_release=false).",
+          "⚡ Squeeze Release":
+            "Squeeze release just fired (sq30_release=true).",
+          "🚀 Momentum Elite":
+            "Fundamental/momentum overlay: Momentum Elite flag is on.",
+          "🏆 Winner Signature":
+            "High-quality setup snapshot signature (tight, selective).",
+        };
+
+        const pill = (label, active, onClick) => {
+          const tip = PILL_TOOLTIPS[String(label)] || null;
+          return (
+            <div className="relative group">
+              <button
+                onClick={onClick}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                  active
+                    ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                    : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+                }`}
+              >
+                {label}
+              </button>
+              {tip ? (
+                <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden -translate-x-1/2 group-hover:block">
+                  <div className="max-w-[280px] rounded-lg border border-[#26325f] bg-[#0b1024] px-3 py-2 text-[11px] leading-snug text-[#c8d2ff] shadow-lg">
+                    {tip}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        };
 
         const toggleBool = (key) => {
           const cur = filters[key] === true;
@@ -10796,6 +10821,13 @@
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
 
+        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | JOURNEY | TRADE_HISTORY
+
+        // Default to Analysis when switching tickers
+        useEffect(() => {
+          setRailTab("ANALYSIS");
+        }, [tickerSymbol]);
+
         useEffect(() => {
           const sym = String(tickerSymbol || "").trim().toUpperCase();
           if (!sym) {
@@ -11045,10 +11077,140 @@
                       return null;
                     }
                   })()}
+
+                  {/* Right Rail Tabs */}
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    {[
+                      { k: "ANALYSIS", label: "Analysis" },
+                      { k: "TECHNICALS", label: "Technicals" },
+                      { k: "JOURNEY", label: "Journey" },
+                      {
+                        k: "TRADE_HISTORY",
+                        label: `Trade History (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
+                      },
+                    ].map((t) => {
+                      const active = railTab === t.k;
+                      return (
+                        <button
+                          key={`rail-tab-${t.k}`}
+                          onClick={() => setRailTab(t.k)}
+                          className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
+                            active
+                              ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                              : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Padded body content (keeps header top-aligned) */}
                 <div className="p-6 pt-4">
+                {railTab === "ANALYSIS" ? (
+                  <>
+                    {/* Context (optional enrichment from /timed/ingest-context) */}
+                    {(() => {
+                      const ctx =
+                        ticker?.context && typeof ticker.context === "object"
+                          ? ticker.context
+                          : null;
+                      if (!ctx) return null;
+                      const name = ctx.name ? String(ctx.name).trim() : "";
+                      const sector = ctx.sector ? String(ctx.sector).trim() : "";
+                      const industry = ctx.industry ? String(ctx.industry).trim() : "";
+                      const country = ctx.country ? String(ctx.country).trim() : "";
+                      const tr =
+                        ctx.technical_rating &&
+                        typeof ctx.technical_rating === "object"
+                          ? ctx.technical_rating
+                          : null;
+                      const trStatus = tr && tr.status ? String(tr.status) : null;
+                      const trValue =
+                        tr && Number.isFinite(Number(tr.value))
+                          ? Number(tr.value)
+                          : null;
+                      const events =
+                        ctx.events && typeof ctx.events === "object"
+                          ? ctx.events
+                          : null;
+                      const lastEarnTs =
+                        events && Number.isFinite(Number(events.last_earnings_ts))
+                          ? Number(events.last_earnings_ts)
+                          : null;
+                      const lastDivTs =
+                        events && Number.isFinite(Number(events.last_dividend_ts))
+                          ? Number(events.last_dividend_ts)
+                          : null;
+
+                      const fmtDate = (ms) => {
+                        if (!Number.isFinite(Number(ms))) return "—";
+                        try {
+                          return new Date(Number(ms)).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          });
+                        } catch {
+                          return "—";
+                        }
+                      };
+
+                      return (
+                        <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                          <div className="text-sm text-[#93a4d6] mb-2">
+                            Context
+                          </div>
+                          {name ? (
+                            <div className="text-sm font-semibold text-white leading-snug">
+                              {name}
+                            </div>
+                          ) : null}
+                          <div className="mt-1 text-[11px] text-[#93a4d6]">
+                            {[sector, industry, country].filter(Boolean).join(" • ") || "—"}
+                          </div>
+
+                          {(trStatus || trValue != null) ? (
+                            <div className="mt-2 p-2 bg-[#121a33] border border-[#26325f] rounded">
+                              <div className="text-[10px] text-[#93a4d6] mb-1">
+                                Technical Rating (proxy)
+                              </div>
+                              <div className="text-xs font-semibold text-white">
+                                {trStatus || "—"}
+                                {trValue != null ? (
+                                  <span className="ml-2 text-[10px] text-[#6b7a9f]">
+                                    ({trValue.toFixed(2)})
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {(lastEarnTs || lastDivTs) ? (
+                            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                              <div className="p-2 bg-[#121a33] border border-[#26325f] rounded">
+                                <div className="text-[10px] text-[#93a4d6] mb-1">
+                                  Last Earnings
+                                </div>
+                                <div className="text-xs font-semibold text-white">
+                                  {fmtDate(lastEarnTs)}
+                                </div>
+                              </div>
+                              <div className="p-2 bg-[#121a33] border border-[#26325f] rounded">
+                                <div className="text-[10px] text-[#93a4d6] mb-1">
+                                  Last Dividend
+                                </div>
+                                <div className="text-xs font-semibold text-white">
+                                  {fmtDate(lastDivTs)}
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                 {(() => {
                   const mp = ticker?.momentum_pct || {};
                   const hasMomentumData =
@@ -11674,6 +11836,11 @@
                 </div>
 
                 {/* TD Sequential */}
+                  </>
+                ) : null}
+
+                {railTab === "TECHNICALS" ? (
+                  <>
                 {ticker.td_sequential &&
                   (() => {
                     const tdSeq = ticker.td_sequential;
@@ -12574,6 +12741,11 @@
                   })()}
 
                 {/* Trade Journey (Ledger trades) */}
+                  </>
+                ) : null}
+
+                {railTab === "TRADE_HISTORY" ? (
+                  <>
                 <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <div className="text-sm text-[#93a4d6]">Trade Journey</div>
@@ -12669,6 +12841,11 @@
                 </div>
 
                 {/* Completion, Phase, Dynamic ETA */}
+                  </>
+                ) : null}
+
+                {railTab === "JOURNEY" ? (
+                  <>
                 <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm text-[#93a4d6]">Phase</span>
@@ -12856,6 +13033,8 @@
 
                 {/* Quadrant Progression */}
                 <QuadrantProgression ticker={ticker} flags={flags} />
+                  </>
+                ) : null}
                 </div>
               </div>
 
