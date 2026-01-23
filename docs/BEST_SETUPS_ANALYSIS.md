@@ -1,9 +1,9 @@
 # Best Setups Analysis
 
 Source: `https://timed-trading-ingest.shashant.workers.dev`
-Window: last **180** days
+Window: last **14** days
 Candidates: **event moments** (corridor entry, squeeze, TD9, setup→momentum) deduped by 30m
-Generated: 2026-01-19T19:37:35.504Z
+Generated: 2026-01-23T02:33:14.921Z
 
 ## What this is
 This report scores which **signals** (events + snapshot rules) best predict a “winner” outcome over forward horizons.
@@ -11,60 +11,60 @@ A “winner” means **target% move happens before stop% adverse move** within t
 Sequence context is included via **time-since-event** and **HTF/LTF delta** features (4h + 1d lookbacks).
 
 ## Horizon: 4h
-- Baseline win rate: **52.7%** (1238/2348)
+- Baseline win rate: **53.0%** (3392/6406)
 
 | Signal | N | Coverage | Win rate | Lift | Recall |
 |:--|--:|--:|--:|--:|--:|
-| Pattern: squeeze release → momentum (≤6h) | 198 | 8.4% | 59.1% | 1.12 | 9.5% |
-| Squeeze on (event) | 146 | 6.2% | 58.9% | 1.12 | 6.9% |
-| Q4 (setup bear) | 68 | 2.9% | 58.8% | 1.12 | 3.2% |
-| Pattern: corridor → squeeze on (≤6h) | 231 | 9.8% | 58.4% | 1.11 | 10.9% |
-| Prime-like (snapshot) | 47 | 2.0% | 57.4% | 1.09 | 2.2% |
-| Recent squeeze on (≤6h) | 735 | 31.3% | 57.4% | 1.09 | 34.1% |
-| Recent squeeze release (≤6h) | 428 | 18.2% | 57.2% | 1.09 | 19.8% |
-| Squeeze release (event) | 75 | 3.2% | 56.0% | 1.06 | 3.4% |
-| Pattern: squeeze on → release (≤24h) | 401 | 17.1% | 55.6% | 1.05 | 18.0% |
-| Corridor entry (event) | 1301 | 55.4% | 54.0% | 1.02 | 56.7% |
-| Recent corridor entry (≤60m) | 1950 | 83.0% | 53.4% | 1.01 | 84.2% |
-| In Corridor (snapshot) | 1964 | 83.6% | 53.2% | 1.01 | 84.4% |
+| Prime-like (snapshot) | 117 | 1.8% | 59.8% | 1.13 | 2.1% |
+| Q4 (setup bear) | 173 | 2.7% | 59.0% | 1.11 | 3.0% |
+| Pattern: squeeze release → momentum (≤6h) | 856 | 13.4% | 55.3% | 1.04 | 13.9% |
+| Squeeze on (event) | 360 | 5.6% | 54.7% | 1.03 | 5.8% |
+| Recent squeeze on (≤6h) | 1919 | 30.0% | 54.6% | 1.03 | 30.9% |
+| Recent squeeze release (≤6h) | 1589 | 24.8% | 54.1% | 1.02 | 25.4% |
+| Pattern: corridor → squeeze on (≤6h) | 598 | 9.3% | 53.7% | 1.01 | 9.5% |
+| Pattern: squeeze on → release (≤24h) | 2192 | 34.2% | 53.6% | 1.01 | 34.6% |
+| In Corridor (snapshot) | 5433 | 84.8% | 53.5% | 1.01 | 85.7% |
+| Recent corridor entry (≤60m) | 5509 | 86.0% | 53.4% | 1.01 | 86.8% |
+| HTF improving (dir-aware, 4h) | 3439 | 53.7% | 53.3% | 1.01 | 54.0% |
+| Corridor entry (event) | 3584 | 55.9% | 53.3% | 1.01 | 56.3% |
 
 ### Top combos (k=2, minN=50, top=15)
 | Combo | N | Coverage | Win rate | Lift | Recall |
 |:--|--:|--:|--:|--:|--:|
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 98 | 4.2% | 65.3% | 1.24 | 5.2% |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze release (≤24h) | 59 | 2.5% | 64.4% | 1.22 | 3.1% |
-| Squeeze on (event) + LTF improving (dir-aware, 4h) | 61 | 2.6% | 63.9% | 1.21 | 3.2% |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) | 142 | 6.0% | 63.4% | 1.20 | 7.3% |
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 120 | 5.1% | 63.3% | 1.20 | 6.1% |
-| Squeeze on (event) + |ΔLTF| ≥ 5 (4h) | 100 | 4.3% | 62.0% | 1.18 | 5.0% |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) | 90 | 3.8% | 61.1% | 1.16 | 4.4% |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) | 90 | 3.8% | 61.1% | 1.16 | 4.4% |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 174 | 7.4% | 60.9% | 1.16 | 8.6% |
-| Squeeze on (event) + In Corridor (snapshot) | 66 | 2.8% | 60.6% | 1.15 | 3.2% |
-| Squeeze on (event) + Pattern: corridor → squeeze on (≤6h) | 124 | 5.3% | 60.5% | 1.15 | 6.1% |
-| Squeeze on (event) + Recent corridor entry (≤60m) | 91 | 3.9% | 60.4% | 1.15 | 4.4% |
-| Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 169 | 7.2% | 60.4% | 1.14 | 8.2% |
-| Q4 (setup bear) + Recent corridor entry (≤60m) | 60 | 2.6% | 60.0% | 1.14 | 2.9% |
-| In Corridor (snapshot) + Pattern: corridor → squeeze on (≤6h) | 126 | 5.4% | 59.5% | 1.13 | 6.1% |
+| Q4 (setup bear) + HTF improving (dir-aware, 1d) | 88 | 1.4% | 67.0% | 1.27 | 1.7% |
+| Prime-like (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 1.0% | 65.2% | 1.23 | 1.3% |
+| Q4 (setup bear) + Pattern: squeeze on → release (≤24h) | 80 | 1.2% | 63.7% | 1.20 | 1.5% |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) | 96 | 1.5% | 62.5% | 1.18 | 1.8% |
+| Q4 (setup bear) + LTF improving (dir-aware, 4h) | 68 | 1.1% | 61.8% | 1.17 | 1.2% |
+| Prime-like (snapshot) + HTF improving (dir-aware, 1d) | 64 | 1.0% | 60.9% | 1.15 | 1.1% |
+| Prime-like (snapshot) + In Corridor (snapshot) | 117 | 1.8% | 59.8% | 1.13 | 2.1% |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) | 90 | 1.4% | 58.9% | 1.11 | 1.6% |
+| Prime-like (snapshot) + Recent squeeze on (≤6h) | 91 | 1.4% | 58.2% | 1.10 | 1.6% |
+| Q4 (setup bear) + Recent corridor entry (≤60m) | 158 | 2.5% | 58.2% | 1.10 | 2.7% |
+| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 414 | 6.5% | 58.2% | 1.10 | 7.1% |
+| Prime-like (snapshot) + |ΔLTF| ≥ 5 (4h) | 91 | 1.4% | 57.1% | 1.08 | 1.5% |
+| Corridor entry (event) + Q4 (setup bear) | 135 | 2.1% | 57.0% | 1.08 | 2.3% |
+| Q4 (setup bear) + |ΔHTF| ≥ 5 (4h) | 86 | 1.3% | 57.0% | 1.08 | 1.4% |
+| Squeeze on (event) + Recent squeeze release (≤6h) | 158 | 2.5% | 57.0% | 1.08 | 2.7% |
 
 ### Top combos (k=3, minN=50, top=15)
 | Combo | N | Coverage | Win rate | Lift | Recall |
 |:--|--:|--:|--:|--:|--:|
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 57 | 2.4% | 71.9% | 1.36 | 3.3% |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 88 | 3.7% | 67.0% | 1.27 | 4.8% |
-| Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 100 | 4.3% | 67.0% | 1.27 | 5.4% |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Recent squeeze release (≤6h) | 69 | 2.9% | 66.7% | 1.26 | 3.7% |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 69 | 2.9% | 66.7% | 1.26 | 3.7% |
-| Pattern: squeeze release → momentum (≤6h) + HTF + LTF improving (dir-aware, 4h) + HTF improving (dir-aware, 1d) | 57 | 2.4% | 66.7% | 1.26 | 3.1% |
-| Recent corridor entry (≤60m) + Recent squeeze on (≤6h) + Pattern: corridor → squeeze release (≤24h) | 51 | 2.2% | 66.7% | 1.26 | 2.7% |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) + HTF improving (dir-aware, 4h) | 65 | 2.8% | 66.2% | 1.25 | 3.5% |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) | 65 | 2.8% | 66.2% | 1.25 | 3.5% |
-| Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) + |ΔHTF| ≥ 5 (4h) | 73 | 3.1% | 65.8% | 1.25 | 3.9% |
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) + |ΔLTF| ≥ 5 (4h) | 73 | 3.1% | 65.8% | 1.25 | 3.9% |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 105 | 4.5% | 65.7% | 1.25 | 5.6% |
-| Pattern: corridor → squeeze on (≤6h) + LTF improving (dir-aware, 4h) + |ΔLTF| ≥ 5 (4h) | 70 | 3.0% | 65.7% | 1.25 | 3.7% |
-| In Corridor (snapshot) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 93 | 4.0% | 65.6% | 1.24 | 4.9% |
-| Pattern: squeeze release → momentum (≤6h) + LTF improving (dir-aware, 4h) + |ΔHTF| ≥ 5 (4h) | 61 | 2.6% | 65.6% | 1.24 | 3.2% |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) + |ΔHTF| ≥ 5 (4h) | 57 | 0.9% | 68.4% | 1.29 | 1.1% |
+| Prime-like (snapshot) + Recent squeeze on (≤6h) + |ΔHTF| ≥ 5 (4h) | 52 | 0.8% | 67.3% | 1.27 | 1.0% |
+| Winner Signature (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 66 | 1.0% | 66.7% | 1.26 | 1.3% |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) + HTF improving (dir-aware, 1d) | 57 | 0.9% | 66.7% | 1.26 | 1.1% |
+| In Corridor (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 80 | 1.2% | 66.3% | 1.25 | 1.6% |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + HTF improving (dir-aware, 1d) | 82 | 1.3% | 65.9% | 1.24 | 1.6% |
+| Corridor entry (event) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 75 | 1.2% | 65.3% | 1.23 | 1.4% |
+| Prime-like (snapshot) + In Corridor (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 1.0% | 65.2% | 1.23 | 1.3% |
+| Q4 (setup bear) + |ΔLTF| ≥ 5 (4h) + HTF improving (dir-aware, 1d) | 65 | 1.0% | 64.6% | 1.22 | 1.2% |
+| Squeeze on (event) + In Corridor (snapshot) + Recent squeeze release (≤6h) | 67 | 1.0% | 64.2% | 1.21 | 1.3% |
+| In Corridor (snapshot) + Q4 (setup bear) + Pattern: squeeze on → release (≤24h) | 64 | 1.0% | 64.1% | 1.21 | 1.2% |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) + HTF improving (dir-aware, 1d) | 55 | 0.9% | 63.6% | 1.20 | 1.0% |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) | 71 | 1.1% | 63.4% | 1.20 | 1.3% |
+| Prime-like (snapshot) + |ΔHTF| ≥ 5 (4h) + |ΔLTF| ≥ 5 (4h) | 57 | 0.9% | 63.2% | 1.19 | 1.1% |
+| Prime-like (snapshot) + In Corridor (snapshot) + Recent corridor entry (≤60m) | 96 | 1.5% | 62.5% | 1.18 | 1.8% |
 
 ### Shortlist-ready (balances lift + recall)
 Ranked by **incremental winners vs baseline**: ΔWins = Winners − N×BaselineWinRate (higher means more actionable yield).
@@ -72,106 +72,106 @@ Ranked by **incremental winners vs baseline**: ΔWins = Winners − N×BaselineW
 #### Singles (top by ΔWins)
 | Signal | N | Win rate | Lift | Recall | ΔWins |
 |:--|--:|--:|--:|--:|--:|
-| Recent squeeze on (≤6h) | 735 | 57.4% | 1.09 | 34.1% | 34.5 |
-| Recent squeeze release (≤6h) | 428 | 57.2% | 1.09 | 19.8% | 19.3 |
-| Corridor entry (event) | 1301 | 54.0% | 1.02 | 56.7% | 16.0 |
-| Recent corridor entry (≤60m) | 1950 | 53.4% | 1.01 | 84.2% | 13.8 |
-| Pattern: corridor → squeeze on (≤6h) | 231 | 58.4% | 1.11 | 10.9% | 13.2 |
-| Pattern: squeeze release → momentum (≤6h) | 198 | 59.1% | 1.12 | 9.5% | 12.6 |
-| Pattern: squeeze on → release (≤24h) | 401 | 55.6% | 1.05 | 18.0% | 11.6 |
-| In Corridor (snapshot) | 1964 | 53.2% | 1.01 | 84.4% | 9.5 |
-| Squeeze on (event) | 146 | 58.9% | 1.12 | 6.9% | 9.0 |
-| |ΔLTF| ≥ 5 (4h) | 1640 | 53.0% | 1.00 | 70.2% | 4.3 |
-| Q4 (setup bear) | 68 | 58.8% | 1.12 | 3.2% | 4.1 |
-| Squeeze release (event) | 75 | 56.0% | 1.06 | 3.4% | 2.5 |
+| Recent squeeze on (≤6h) | 1919 | 54.6% | 1.03 | 30.9% | 30.9 |
+| In Corridor (snapshot) | 5433 | 53.5% | 1.01 | 85.7% | 30.2 |
+| Recent corridor entry (≤60m) | 5509 | 53.4% | 1.01 | 86.8% | 26.0 |
+| Pattern: squeeze release → momentum (≤6h) | 856 | 55.3% | 1.04 | 13.9% | 19.7 |
+| Recent squeeze release (≤6h) | 1589 | 54.1% | 1.02 | 25.4% | 18.6 |
+| Pattern: squeeze on → release (≤24h) | 2192 | 53.6% | 1.01 | 34.6% | 13.3 |
+| HTF improving (dir-aware, 4h) | 3439 | 53.3% | 1.01 | 54.0% | 12.0 |
+| Corridor entry (event) | 3584 | 53.3% | 1.01 | 56.3% | 11.3 |
+| Q4 (setup bear) | 173 | 59.0% | 1.11 | 3.0% | 10.4 |
+| HTF improving (dir-aware, 1d) | 3486 | 53.2% | 1.00 | 54.7% | 8.2 |
+| Prime-like (snapshot) | 117 | 59.8% | 1.13 | 2.1% | 8.0 |
+| Squeeze on (event) | 360 | 54.7% | 1.03 | 5.8% | 6.4 |
 
 #### Combos k=2 (top by ΔWins)
 | Combo | N | Win rate | Lift | Recall | ΔWins |
 |:--|--:|--:|--:|--:|--:|
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) | 142 | 63.4% | 1.20 | 7.3% | 15.1 |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 174 | 60.9% | 1.16 | 8.6% | 14.3 |
-| Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 169 | 60.4% | 1.14 | 8.2% | 12.9 |
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 120 | 63.3% | 1.20 | 6.1% | 12.7 |
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 98 | 65.3% | 1.24 | 5.2% | 12.3 |
-| Squeeze on (event) + Pattern: corridor → squeeze on (≤6h) | 124 | 60.5% | 1.15 | 6.1% | 9.6 |
-| Squeeze on (event) + |ΔLTF| ≥ 5 (4h) | 100 | 62.0% | 1.18 | 5.0% | 9.3 |
-| In Corridor (snapshot) + Pattern: corridor → squeeze on (≤6h) | 126 | 59.5% | 1.13 | 6.1% | 8.6 |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) | 90 | 61.1% | 1.16 | 4.4% | 7.5 |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) | 90 | 61.1% | 1.16 | 4.4% | 7.5 |
-| Squeeze on (event) + Recent corridor entry (≤60m) | 91 | 60.4% | 1.15 | 4.4% | 7.0 |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze release (≤24h) | 59 | 64.4% | 1.22 | 3.1% | 6.9 |
+| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 414 | 58.2% | 1.10 | 7.1% | 21.8 |
+| Q4 (setup bear) + HTF improving (dir-aware, 1d) | 88 | 67.0% | 1.27 | 1.7% | 12.4 |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) | 96 | 62.5% | 1.18 | 1.8% | 9.2 |
+| Q4 (setup bear) + Pattern: squeeze on → release (≤24h) | 80 | 63.7% | 1.20 | 1.5% | 8.6 |
+| Q4 (setup bear) + Recent corridor entry (≤60m) | 158 | 58.2% | 1.10 | 2.7% | 8.3 |
+| Prime-like (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 65.2% | 1.23 | 1.3% | 8.1 |
+| Prime-like (snapshot) + In Corridor (snapshot) | 117 | 59.8% | 1.13 | 2.1% | 8.0 |
+| Squeeze on (event) + Recent squeeze release (≤6h) | 158 | 57.0% | 1.08 | 2.7% | 6.3 |
+| Q4 (setup bear) + LTF improving (dir-aware, 4h) | 68 | 61.8% | 1.17 | 1.2% | 6.0 |
+| Corridor entry (event) + Q4 (setup bear) | 135 | 57.0% | 1.08 | 2.3% | 5.5 |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) | 90 | 58.9% | 1.11 | 1.6% | 5.3 |
+| Prime-like (snapshot) + HTF improving (dir-aware, 1d) | 64 | 60.9% | 1.15 | 1.1% | 5.1 |
 
 #### Combos k=3 (top by ΔWins)
 | Combo | N | Win rate | Lift | Recall | ΔWins |
 |:--|--:|--:|--:|--:|--:|
-| Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 100 | 67.0% | 1.27 | 5.4% | 14.3 |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 105 | 65.7% | 1.25 | 5.6% | 13.6 |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 88 | 67.0% | 1.27 | 4.8% | 12.6 |
-| In Corridor (snapshot) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 93 | 65.6% | 1.24 | 4.9% | 12.0 |
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 57 | 71.9% | 1.36 | 3.3% | 10.9 |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Recent squeeze release (≤6h) | 69 | 66.7% | 1.26 | 3.7% | 9.6 |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 69 | 66.7% | 1.26 | 3.7% | 9.6 |
-| Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) + |ΔHTF| ≥ 5 (4h) | 73 | 65.8% | 1.25 | 3.9% | 9.5 |
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) + |ΔLTF| ≥ 5 (4h) | 73 | 65.8% | 1.25 | 3.9% | 9.5 |
-| Pattern: corridor → squeeze on (≤6h) + LTF improving (dir-aware, 4h) + |ΔLTF| ≥ 5 (4h) | 70 | 65.7% | 1.25 | 3.7% | 9.1 |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) + HTF improving (dir-aware, 4h) | 65 | 66.2% | 1.25 | 3.5% | 8.7 |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) | 65 | 66.2% | 1.25 | 3.5% | 8.7 |
+| In Corridor (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 80 | 66.3% | 1.25 | 1.6% | 10.6 |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + HTF improving (dir-aware, 1d) | 82 | 65.9% | 1.24 | 1.6% | 10.6 |
+| Corridor entry (event) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 75 | 65.3% | 1.23 | 1.4% | 9.3 |
+| Prime-like (snapshot) + In Corridor (snapshot) + Recent corridor entry (≤60m) | 96 | 62.5% | 1.18 | 1.8% | 9.2 |
+| Winner Signature (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 66 | 66.7% | 1.26 | 1.3% | 9.1 |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) + |ΔHTF| ≥ 5 (4h) | 57 | 68.4% | 1.29 | 1.1% | 8.8 |
+| Prime-like (snapshot) + In Corridor (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 65.2% | 1.23 | 1.3% | 8.1 |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) + HTF improving (dir-aware, 1d) | 57 | 66.7% | 1.26 | 1.1% | 7.8 |
+| Q4 (setup bear) + |ΔLTF| ≥ 5 (4h) + HTF improving (dir-aware, 1d) | 65 | 64.6% | 1.22 | 1.2% | 7.6 |
+| Squeeze on (event) + In Corridor (snapshot) + Recent squeeze release (≤6h) | 67 | 64.2% | 1.21 | 1.3% | 7.5 |
+| Prime-like (snapshot) + Recent squeeze on (≤6h) + |ΔHTF| ≥ 5 (4h) | 52 | 67.3% | 1.27 | 1.0% | 7.5 |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) | 71 | 63.4% | 1.20 | 1.3% | 7.4 |
 
 ## Horizon: 1d
-- Baseline win rate: **53.7%** (1262/2348)
+- Baseline win rate: **53.4%** (3422/6406)
 
 | Signal | N | Coverage | Win rate | Lift | Recall |
 |:--|--:|--:|--:|--:|--:|
-| Q4 (setup bear) | 68 | 2.9% | 60.3% | 1.12 | 3.2% |
-| Pattern: squeeze release → momentum (≤6h) | 198 | 8.4% | 59.1% | 1.10 | 9.3% |
-| Squeeze on (event) | 146 | 6.2% | 58.9% | 1.10 | 6.8% |
-| Pattern: corridor → squeeze on (≤6h) | 231 | 9.8% | 58.9% | 1.10 | 10.8% |
-| Recent squeeze on (≤6h) | 735 | 31.3% | 57.8% | 1.08 | 33.7% |
-| Recent squeeze release (≤6h) | 428 | 18.2% | 57.5% | 1.07 | 19.5% |
-| Prime-like (snapshot) | 47 | 2.0% | 57.4% | 1.07 | 2.1% |
-| Squeeze release (event) | 75 | 3.2% | 57.3% | 1.07 | 3.4% |
-| Pattern: squeeze on → release (≤24h) | 401 | 17.1% | 55.9% | 1.04 | 17.7% |
-| Corridor entry (event) | 1301 | 55.4% | 55.1% | 1.03 | 56.8% |
-| Recent corridor entry (≤60m) | 1950 | 83.0% | 54.5% | 1.01 | 84.2% |
-| In Corridor (snapshot) | 1964 | 83.6% | 54.2% | 1.01 | 84.4% |
+| Prime-like (snapshot) | 117 | 1.8% | 59.8% | 1.12 | 2.0% |
+| Q4 (setup bear) | 173 | 2.7% | 59.5% | 1.11 | 3.0% |
+| Pattern: squeeze release → momentum (≤6h) | 856 | 13.4% | 55.5% | 1.04 | 13.9% |
+| Recent squeeze on (≤6h) | 1919 | 30.0% | 54.8% | 1.03 | 30.7% |
+| Squeeze on (event) | 360 | 5.6% | 54.7% | 1.02 | 5.8% |
+| Recent squeeze release (≤6h) | 1589 | 24.8% | 54.2% | 1.02 | 25.2% |
+| In Corridor (snapshot) | 5433 | 84.8% | 54.0% | 1.01 | 85.7% |
+| HTF improving (dir-aware, 4h) | 3439 | 53.7% | 53.9% | 1.01 | 54.1% |
+| Recent corridor entry (≤60m) | 5509 | 86.0% | 53.9% | 1.01 | 86.7% |
+| Pattern: corridor → squeeze on (≤6h) | 598 | 9.3% | 53.8% | 1.01 | 9.4% |
+| HTF improving (dir-aware, 1d) | 3486 | 54.4% | 53.8% | 1.01 | 54.8% |
+| Corridor entry (event) | 3584 | 55.9% | 53.8% | 1.01 | 56.3% |
 
 ### Top combos (k=2, minN=50, top=15)
 | Combo | N | Coverage | Win rate | Lift | Recall |
 |:--|--:|--:|--:|--:|--:|
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 98 | 4.2% | 65.3% | 1.22 | 5.1% |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze release (≤24h) | 59 | 2.5% | 64.4% | 1.20 | 3.0% |
-| Squeeze on (event) + LTF improving (dir-aware, 4h) | 61 | 2.6% | 63.9% | 1.19 | 3.1% |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) | 142 | 6.0% | 63.4% | 1.18 | 7.1% |
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 120 | 5.1% | 63.3% | 1.18 | 6.0% |
-| Squeeze on (event) + |ΔLTF| ≥ 5 (4h) | 100 | 4.3% | 62.0% | 1.15 | 4.9% |
-| Q4 (setup bear) + Recent corridor entry (≤60m) | 60 | 2.6% | 61.7% | 1.15 | 2.9% |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) | 90 | 3.8% | 61.1% | 1.14 | 4.4% |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) | 90 | 3.8% | 61.1% | 1.14 | 4.4% |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 174 | 7.4% | 60.9% | 1.13 | 8.4% |
-| Q1 (setup bull) + Pattern: corridor → squeeze release (≤24h) | 56 | 2.4% | 60.7% | 1.13 | 2.7% |
-| Squeeze on (event) + In Corridor (snapshot) | 66 | 2.8% | 60.6% | 1.13 | 3.2% |
-| Squeeze on (event) + Pattern: corridor → squeeze on (≤6h) | 124 | 5.3% | 60.5% | 1.13 | 5.9% |
-| Squeeze on (event) + Recent corridor entry (≤60m) | 91 | 3.9% | 60.4% | 1.12 | 4.4% |
-| Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 169 | 7.2% | 60.4% | 1.12 | 8.1% |
+| Q4 (setup bear) + HTF improving (dir-aware, 1d) | 88 | 1.4% | 68.2% | 1.28 | 1.8% |
+| Prime-like (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 1.0% | 65.2% | 1.22 | 1.3% |
+| Q4 (setup bear) + Pattern: squeeze on → release (≤24h) | 80 | 1.2% | 63.7% | 1.19 | 1.5% |
+| Q4 (setup bear) + LTF improving (dir-aware, 4h) | 68 | 1.1% | 63.2% | 1.18 | 1.3% |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) | 96 | 1.5% | 62.5% | 1.17 | 1.8% |
+| Prime-like (snapshot) + HTF improving (dir-aware, 1d) | 64 | 1.0% | 60.9% | 1.14 | 1.1% |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) | 90 | 1.4% | 60.0% | 1.12 | 1.6% |
+| Prime-like (snapshot) + In Corridor (snapshot) | 117 | 1.8% | 59.8% | 1.12 | 2.0% |
+| Q4 (setup bear) + Recent corridor entry (≤60m) | 158 | 2.5% | 58.9% | 1.10 | 2.7% |
+| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 414 | 6.5% | 58.7% | 1.10 | 7.1% |
+| Prime-like (snapshot) + Recent squeeze on (≤6h) | 91 | 1.4% | 58.2% | 1.09 | 1.5% |
+| Q4 (setup bear) + |ΔHTF| ≥ 5 (4h) | 86 | 1.3% | 58.1% | 1.09 | 1.5% |
+| Corridor entry (event) + Q4 (setup bear) | 135 | 2.1% | 57.8% | 1.08 | 2.3% |
+| In Corridor (snapshot) + Q4 (setup bear) | 148 | 2.3% | 57.4% | 1.08 | 2.5% |
+| Prime-like (snapshot) + |ΔLTF| ≥ 5 (4h) | 91 | 1.4% | 57.1% | 1.07 | 1.5% |
 
 ### Top combos (k=3, minN=50, top=15)
 | Combo | N | Coverage | Win rate | Lift | Recall |
 |:--|--:|--:|--:|--:|--:|
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 57 | 2.4% | 71.9% | 1.34 | 3.2% |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 88 | 3.7% | 67.0% | 1.25 | 4.7% |
-| Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 100 | 4.3% | 67.0% | 1.25 | 5.3% |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Recent squeeze release (≤6h) | 69 | 2.9% | 66.7% | 1.24 | 3.6% |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 69 | 2.9% | 66.7% | 1.24 | 3.6% |
-| Pattern: squeeze release → momentum (≤6h) + HTF + LTF improving (dir-aware, 4h) + HTF improving (dir-aware, 1d) | 57 | 2.4% | 66.7% | 1.24 | 3.0% |
-| Recent corridor entry (≤60m) + Recent squeeze on (≤6h) + Pattern: corridor → squeeze release (≤24h) | 51 | 2.2% | 66.7% | 1.24 | 2.7% |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) + HTF improving (dir-aware, 4h) | 65 | 2.8% | 66.2% | 1.23 | 3.4% |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) | 65 | 2.8% | 66.2% | 1.23 | 3.4% |
-| Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) + |ΔHTF| ≥ 5 (4h) | 73 | 3.1% | 65.8% | 1.22 | 3.8% |
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) + |ΔLTF| ≥ 5 (4h) | 73 | 3.1% | 65.8% | 1.22 | 3.8% |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 105 | 4.5% | 65.7% | 1.22 | 5.5% |
-| Pattern: corridor → squeeze on (≤6h) + LTF improving (dir-aware, 4h) + |ΔLTF| ≥ 5 (4h) | 70 | 3.0% | 65.7% | 1.22 | 3.6% |
-| In Corridor (snapshot) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 93 | 4.0% | 65.6% | 1.22 | 4.8% |
-| Pattern: squeeze release → momentum (≤6h) + LTF improving (dir-aware, 4h) + |ΔHTF| ≥ 5 (4h) | 61 | 2.6% | 65.6% | 1.22 | 3.2% |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) + |ΔHTF| ≥ 5 (4h) | 57 | 0.9% | 68.4% | 1.28 | 1.1% |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) + HTF improving (dir-aware, 1d) | 57 | 0.9% | 68.4% | 1.28 | 1.1% |
+| Winner Signature (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 66 | 1.0% | 68.2% | 1.28 | 1.3% |
+| In Corridor (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 80 | 1.2% | 67.5% | 1.26 | 1.6% |
+| Prime-like (snapshot) + Recent squeeze on (≤6h) + |ΔHTF| ≥ 5 (4h) | 52 | 0.8% | 67.3% | 1.26 | 1.0% |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + HTF improving (dir-aware, 1d) | 82 | 1.3% | 67.1% | 1.26 | 1.6% |
+| Corridor entry (event) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 75 | 1.2% | 66.7% | 1.25 | 1.5% |
+| Q4 (setup bear) + |ΔLTF| ≥ 5 (4h) + HTF improving (dir-aware, 1d) | 65 | 1.0% | 66.2% | 1.24 | 1.3% |
+| Prime-like (snapshot) + In Corridor (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 1.0% | 65.2% | 1.22 | 1.3% |
+| Squeeze on (event) + In Corridor (snapshot) + Recent squeeze release (≤6h) | 67 | 1.0% | 64.2% | 1.20 | 1.3% |
+| In Corridor (snapshot) + Q4 (setup bear) + Pattern: squeeze on → release (≤24h) | 64 | 1.0% | 64.1% | 1.20 | 1.2% |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) + HTF improving (dir-aware, 1d) | 55 | 0.9% | 63.6% | 1.19 | 1.0% |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) | 71 | 1.1% | 63.4% | 1.19 | 1.3% |
+| Prime-like (snapshot) + |ΔHTF| ≥ 5 (4h) + |ΔLTF| ≥ 5 (4h) | 57 | 0.9% | 63.2% | 1.18 | 1.1% |
+| Prime-like (snapshot) + In Corridor (snapshot) + Recent corridor entry (≤60m) | 96 | 1.5% | 62.5% | 1.17 | 1.8% |
 
 ### Shortlist-ready (balances lift + recall)
 Ranked by **incremental winners vs baseline**: ΔWins = Winners − N×BaselineWinRate (higher means more actionable yield).
@@ -179,50 +179,50 @@ Ranked by **incremental winners vs baseline**: ΔWins = Winners − N×BaselineW
 #### Singles (top by ΔWins)
 | Signal | N | Win rate | Lift | Recall | ΔWins |
 |:--|--:|--:|--:|--:|--:|
-| Recent squeeze on (≤6h) | 735 | 57.8% | 1.08 | 33.7% | 30.0 |
-| Corridor entry (event) | 1301 | 55.1% | 1.03 | 56.8% | 17.7 |
-| Recent squeeze release (≤6h) | 428 | 57.5% | 1.07 | 19.5% | 16.0 |
-| Recent corridor entry (≤60m) | 1950 | 54.5% | 1.01 | 84.2% | 13.9 |
-| Pattern: corridor → squeeze on (≤6h) | 231 | 58.9% | 1.10 | 10.8% | 11.8 |
-| Pattern: squeeze release → momentum (≤6h) | 198 | 59.1% | 1.10 | 9.3% | 10.6 |
-| In Corridor (snapshot) | 1964 | 54.2% | 1.01 | 84.4% | 9.4 |
-| Pattern: squeeze on → release (≤24h) | 401 | 55.9% | 1.04 | 17.7% | 8.5 |
-| Squeeze on (event) | 146 | 58.9% | 1.10 | 6.8% | 7.5 |
-| |ΔLTF| ≥ 5 (4h) | 1640 | 54.1% | 1.01 | 70.4% | 6.5 |
-| Q4 (setup bear) | 68 | 60.3% | 1.12 | 3.2% | 4.5 |
-| Squeeze release (event) | 75 | 57.3% | 1.07 | 3.4% | 2.7 |
+| In Corridor (snapshot) | 5433 | 54.0% | 1.01 | 85.7% | 30.8 |
+| Recent squeeze on (≤6h) | 1919 | 54.8% | 1.03 | 30.7% | 26.9 |
+| Recent corridor entry (≤60m) | 5509 | 53.9% | 1.01 | 86.7% | 25.2 |
+| Pattern: squeeze release → momentum (≤6h) | 856 | 55.5% | 1.04 | 13.9% | 17.7 |
+| HTF improving (dir-aware, 4h) | 3439 | 53.9% | 1.01 | 54.1% | 15.9 |
+| Recent squeeze release (≤6h) | 1589 | 54.2% | 1.02 | 25.2% | 13.2 |
+| HTF improving (dir-aware, 1d) | 3486 | 53.8% | 1.01 | 54.8% | 12.8 |
+| Corridor entry (event) | 3584 | 53.8% | 1.01 | 56.3% | 12.5 |
+| Q4 (setup bear) | 173 | 59.5% | 1.11 | 3.0% | 10.6 |
+| Prime-like (snapshot) | 117 | 59.8% | 1.12 | 2.0% | 7.5 |
+| Pattern: squeeze on → release (≤24h) | 2192 | 53.7% | 1.01 | 34.4% | 7.1 |
+| Squeeze on (event) | 360 | 54.7% | 1.02 | 5.8% | 4.7 |
 
 #### Combos k=2 (top by ΔWins)
 | Combo | N | Win rate | Lift | Recall | ΔWins |
 |:--|--:|--:|--:|--:|--:|
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) | 142 | 63.4% | 1.18 | 7.1% | 13.7 |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 174 | 60.9% | 1.13 | 8.4% | 12.5 |
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 120 | 63.3% | 1.18 | 6.0% | 11.5 |
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 98 | 65.3% | 1.22 | 5.1% | 11.3 |
-| Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 169 | 60.4% | 1.12 | 8.1% | 11.2 |
-| Squeeze on (event) + Pattern: corridor → squeeze on (≤6h) | 124 | 60.5% | 1.13 | 5.9% | 8.4 |
-| Squeeze on (event) + |ΔLTF| ≥ 5 (4h) | 100 | 62.0% | 1.15 | 4.9% | 8.3 |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) | 90 | 61.1% | 1.14 | 4.4% | 6.6 |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) | 90 | 61.1% | 1.14 | 4.4% | 6.6 |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze release (≤24h) | 59 | 64.4% | 1.20 | 3.0% | 6.3 |
-| Squeeze on (event) + LTF improving (dir-aware, 4h) | 61 | 63.9% | 1.19 | 3.1% | 6.2 |
-| Squeeze on (event) + Recent corridor entry (≤60m) | 91 | 60.4% | 1.12 | 4.4% | 6.1 |
+| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 414 | 58.7% | 1.10 | 7.1% | 21.8 |
+| Q4 (setup bear) + HTF improving (dir-aware, 1d) | 88 | 68.2% | 1.28 | 1.8% | 13.0 |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) | 96 | 62.5% | 1.17 | 1.8% | 8.7 |
+| Q4 (setup bear) + Recent corridor entry (≤60m) | 158 | 58.9% | 1.10 | 2.7% | 8.6 |
+| Q4 (setup bear) + Pattern: squeeze on → release (≤24h) | 80 | 63.7% | 1.19 | 1.5% | 8.3 |
+| Prime-like (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 65.2% | 1.22 | 1.3% | 7.7 |
+| Prime-like (snapshot) + In Corridor (snapshot) | 117 | 59.8% | 1.12 | 2.0% | 7.5 |
+| Q4 (setup bear) + LTF improving (dir-aware, 4h) | 68 | 63.2% | 1.18 | 1.3% | 6.7 |
+| In Corridor (snapshot) + Q4 (setup bear) | 148 | 57.4% | 1.08 | 2.5% | 5.9 |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) | 90 | 60.0% | 1.12 | 1.6% | 5.9 |
+| Corridor entry (event) + Q4 (setup bear) | 135 | 57.8% | 1.08 | 2.3% | 5.9 |
+| Prime-like (snapshot) + HTF improving (dir-aware, 1d) | 64 | 60.9% | 1.14 | 1.1% | 4.8 |
 
 #### Combos k=3 (top by ΔWins)
 | Combo | N | Win rate | Lift | Recall | ΔWins |
 |:--|--:|--:|--:|--:|--:|
-| Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) | 100 | 67.0% | 1.25 | 5.3% | 13.3 |
-| Recent corridor entry (≤60m) + Pattern: corridor → squeeze on (≤6h) + |ΔLTF| ≥ 5 (4h) | 105 | 65.7% | 1.22 | 5.5% | 12.6 |
-| Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 88 | 67.0% | 1.25 | 4.7% | 11.7 |
-| In Corridor (snapshot) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 93 | 65.6% | 1.22 | 4.8% | 11.0 |
-| Pattern: squeeze on → release (≤24h) + Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) | 57 | 71.9% | 1.34 | 3.2% | 10.4 |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Recent squeeze release (≤6h) | 69 | 66.7% | 1.24 | 3.6% | 8.9 |
-| Setup → Momentum (event) + Recent corridor entry (≤60m) + Pattern: squeeze release → momentum (≤6h) | 69 | 66.7% | 1.24 | 3.6% | 8.9 |
-| Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) + |ΔHTF| ≥ 5 (4h) | 73 | 65.8% | 1.22 | 3.8% | 8.8 |
-| Pattern: squeeze release → momentum (≤6h) + |ΔHTF| ≥ 5 (4h) + |ΔLTF| ≥ 5 (4h) | 73 | 65.8% | 1.22 | 3.8% | 8.8 |
-| Pattern: corridor → squeeze on (≤6h) + LTF improving (dir-aware, 4h) + |ΔLTF| ≥ 5 (4h) | 70 | 65.7% | 1.22 | 3.6% | 8.4 |
-| Setup → Momentum (event) + Recent squeeze release (≤6h) + HTF improving (dir-aware, 4h) | 65 | 66.2% | 1.23 | 3.4% | 8.1 |
-| Setup → Momentum (event) + Pattern: squeeze release → momentum (≤6h) + HTF improving (dir-aware, 4h) | 65 | 66.2% | 1.23 | 3.4% | 8.1 |
+| In Corridor (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 80 | 67.5% | 1.26 | 1.6% | 11.3 |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + HTF improving (dir-aware, 1d) | 82 | 67.1% | 1.26 | 1.6% | 11.2 |
+| Corridor entry (event) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 75 | 66.7% | 1.25 | 1.5% | 9.9 |
+| Winner Signature (snapshot) + Q4 (setup bear) + HTF improving (dir-aware, 1d) | 66 | 68.2% | 1.28 | 1.3% | 9.7 |
+| Prime-like (snapshot) + In Corridor (snapshot) + Recent corridor entry (≤60m) | 96 | 62.5% | 1.17 | 1.8% | 8.7 |
+| Prime-like (snapshot) + Recent corridor entry (≤60m) + |ΔHTF| ≥ 5 (4h) | 57 | 68.4% | 1.28 | 1.1% | 8.6 |
+| Q4 (setup bear) + HTF improving (dir-aware, 4h) + HTF improving (dir-aware, 1d) | 57 | 68.4% | 1.28 | 1.1% | 8.6 |
+| Q4 (setup bear) + |ΔLTF| ≥ 5 (4h) + HTF improving (dir-aware, 1d) | 65 | 66.2% | 1.24 | 1.3% | 8.3 |
+| Prime-like (snapshot) + In Corridor (snapshot) + |ΔHTF| ≥ 5 (4h) | 66 | 65.2% | 1.22 | 1.3% | 7.7 |
+| Prime-like (snapshot) + Recent squeeze on (≤6h) + |ΔHTF| ≥ 5 (4h) | 52 | 67.3% | 1.26 | 1.0% | 7.2 |
+| Squeeze on (event) + In Corridor (snapshot) + Recent squeeze release (≤6h) | 67 | 64.2% | 1.20 | 1.3% | 7.2 |
+| Q4 (setup bear) + Recent corridor entry (≤60m) + Pattern: squeeze on → release (≤24h) | 71 | 63.4% | 1.19 | 1.3% | 7.1 |
 
 ## Notes / Next upgrades
 - Add richer **sequence mining** (multi-event combos, e.g. corridor entry → squeeze on → release within (X) hours).
