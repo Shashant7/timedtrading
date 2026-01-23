@@ -943,6 +943,7 @@
           healthcare: "healthcare",
           materials: "basic materials",
           "basic materials": "basic materials",
+          "consumer durables": "consumer discretionary",
           "consumer cyclical": "consumer discretionary",
           "consumer discretionary": "consumer discretionary",
           "consumer defensive": "consumer staples",
@@ -11431,12 +11432,13 @@
                       sectorInfo?.boost != null
                         ? Number(sectorInfo.boost)
                         : null;
+                    // Match emojis used in the filter pills
                     const emoji =
                       rating === "overweight"
-                        ? "📈"
+                        ? "💪"
                         : rating === "underweight"
-                        ? "📉"
-                        : "➡️";
+                        ? "👎"
+                        : "😒";
                     return (
                       <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
                         <div className="text-sm text-[#93a4d6] mb-2">
