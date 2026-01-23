@@ -9721,12 +9721,11 @@ export default {
           // Merge capture-only enrichment fields when present (non-destructive).
           // This helps after-hours analytics + Momentum Elite metadata even if heartbeat is wired to /ingest-capture.
           if (capture && typeof capture === "object") {
+            // Prefer capture for daily-change fields (more reliable for UI/analysis).
+            for (const k of ["prev_close", "day_change", "day_change_pct"]) {
+              if (capture[k] != null) data[k] = capture[k];
+            }
             for (const k of [
-              "prev_close",
-              "day_change",
-              "day_change_pct",
-              "change",
-              "change_pct",
               "session",
               "is_rth",
               "avg_vol_30",
@@ -9905,12 +9904,11 @@ export default {
             try {
               const capture = await kvGetJSON(KV, `timed:capture:latest:${t}`);
               if (value && capture && typeof capture === "object") {
+                // Prefer capture for daily-change fields (more reliable for UI/analysis).
+                for (const k of ["prev_close", "day_change", "day_change_pct"]) {
+                  if (capture[k] != null) value[k] = capture[k];
+                }
                 for (const k of [
-                  "prev_close",
-                  "day_change",
-                  "day_change_pct",
-                  "change",
-                  "change_pct",
                   "session",
                   "is_rth",
                   "avg_vol_30",
