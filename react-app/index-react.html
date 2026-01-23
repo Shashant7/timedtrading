@@ -9546,6 +9546,7 @@
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
         const [horizon, setHorizon] = React.useState("ALL"); // ALL | SHORT_TERM | SWING | POSITIONAL
         const [query, setQuery] = React.useState("");
+        const [sortBy, setSortBy] = React.useState("RANK"); // RANK | ABC | DCHG
 
         const getNum = (x) => {
           const n = Number(x);
@@ -9632,6 +9633,8 @@
               const rp =
                 getRankPositionFromMap(rankPositions, String(t?.ticker || "").toUpperCase()) ??
                 Number(t?.rank_position);
+              const dc = getDailyChange(t);
+              const dayPct = Number(dc?.dayPct);
               return { t, c, status, score, rp: Number.isFinite(rp) ? rp : null };
             })
             .filter(({ t, c, status }) => {
@@ -9644,7 +9647,22 @@
               return true;
             })
             .sort((a, b) => {
-              // Default Viewport ordering: Rank-position first (stable + intuitive).
+              const mode = String(sortBy || "RANK").toUpperCase();
+              if (mode === "ABC") {
+                return String(a.t.ticker).localeCompare(String(b.t.ticker));
+              }
+              if (mode === "DCHG") {
+                const ad = Number(getDailyChange(a.t)?.dayPct);
+                const bd = Number(getDailyChange(b.t)?.dayPct);
+                const aOk = Number.isFinite(ad);
+                const bOk = Number.isFinite(bd);
+                if (aOk && bOk) return bd - ad; // highest % first
+                if (aOk) return -1;
+                if (bOk) return 1;
+                // fallback to rank
+              }
+
+              // Default: Rank-position first (stable + intuitive).
               // If rank position isn't available, fall back to score.
               const ar = a.rp;
               const br = b.rp;
@@ -9657,7 +9675,7 @@
             });
 
           return items;
-        }, [tickers, view, dir, horizon, query, rankPositions]);
+        }, [tickers, view, dir, horizon, query, rankPositions, sortBy]);
 
         React.useEffect(() => {
           if (!onFilteredTickersChange) return;
@@ -9698,76 +9716,18 @@
               ? tpMax
               : null;
 
-          const pickNum = (obj, keys) => {
-            for (const k of keys) {
-              const v = Number(obj?.[k]);
-              if (Number.isFinite(v)) return v;
-            }
-            return null;
-          };
-          const staleness = String(t?.staleness || "").toUpperCase();
-          const ingestRaw = t?.ingest_time ?? t?.ingest_ts ?? t?.ts;
-          const ingestMs =
-            typeof ingestRaw === "number"
-              ? ingestRaw
-              : ingestRaw != null
-              ? new Date(String(ingestRaw)).getTime()
-              : NaN;
-          const ageMin = Number.isFinite(ingestMs)
-            ? (Date.now() - ingestMs) / 60000
-            : null;
-          const ageLabel = (() => {
-            const m = Number(ageMin);
-            if (!Number.isFinite(m) || m < 0) return null;
-            if (m >= 60 * 24) return `${Math.round(m / (60 * 24))}d`;
-            if (m >= 120) return `${Math.round(m / 60)}h`;
-            return `${Math.round(m)}m`;
-          })();
-          const isStale =
-            (staleness && staleness !== "FRESH") ||
-            (Number.isFinite(ageMin) && ageMin > 90);
-          let dayChg = pickNum(t, [
-            "day_change",
-            "daily_change",
-            "change",
-            "session_change",
-            "chg",
-            "ch",
-          ]);
-          let dayPct = pickNum(t, [
-            "day_change_pct",
-            "daily_change_pct",
-            "change_pct",
-            "pct_change",
-            "session_change_pct",
-            "chp",
-          ]);
-
-          // If only one of (abs, pct) is present, compute the other using current price
-          if (!Number.isFinite(dayChg) && Number.isFinite(dayPct) && Number.isFinite(price) && price > 0) {
-            const p = dayPct / 100;
-            if (Number.isFinite(p) && Math.abs(p) < 5) {
-              const prev = price / (1 + p);
-              const abs = price - prev;
-              dayChg = Number.isFinite(abs) ? abs : null;
-            }
-          }
-          if (!Number.isFinite(dayPct) && Number.isFinite(dayChg) && Number.isFinite(price) && price > 0) {
-            const prev = price - dayChg;
-            if (Number.isFinite(prev) && Math.abs(prev) > 1e-9) {
-              dayPct = (dayChg / prev) * 100;
-            }
-          }
-          // Never show actionable daily-change numbers on stale data
-          if (isStale) {
-            dayChg = null;
-            dayPct = null;
-          }
-          const chgColor = isStale
-            ? "text-yellow-300"
-            : Number(dayChg || dayPct || 0) >= 0
-            ? "text-green-400"
-            : "text-red-400";
+          const dc = getDailyChange(t);
+          const dayChg = dc?.dayChg;
+          const dayPct = dc?.dayPct;
+          const stale = dc?.stale;
+          const marketOpen = dc?.marketOpen;
+          const isStale = !!stale?.isStale;
+          const chgColor =
+            isStale && marketOpen
+              ? "text-yellow-300"
+              : Number(dayChg || dayPct || 0) >= 0
+              ? "text-green-400"
+              : "text-red-400";
 
           const statusPill =
             item.status === "prime"
@@ -9827,9 +9787,14 @@
                   <div className={`mt-0.5 ${chgColor}`}>
                     {Number.isFinite(dayPct) ? `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%` : "—"}{" "}
                     {Number.isFinite(dayChg) ? `(${dayChg >= 0 ? "+" : ""}${fmtUsdAbs(dayChg)})` : ""}
-                    {isStale && (
+                    {isStale && marketOpen && (
                       <span className="text-yellow-200/80">
-                        {` (stale${ageLabel ? ` ${ageLabel}` : ""})`}
+                        {` (stale${stale?.ageLabel ? ` ${stale.ageLabel}` : ""})`}
+                      </span>
+                    )}
+                    {!marketOpen && (
+                      <span className="text-[#93a4d6] text-[10px]">
+                        {stale?.ageLabel ? ` AH • as of ${stale.ageLabel}` : " AH"}
                       </span>
                     )}
                   </div>
@@ -9928,6 +9893,16 @@
                     placeholder="Ticker…"
                     className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white w-[110px]"
                   />
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white"
+                    title="Sort Viewport"
+                  >
+                    <option value="RANK">Sort: Rank</option>
+                    <option value="ABC">Sort: ABC</option>
+                    <option value="DCHG">Sort: Daily %</option>
+                  </select>
                 </div>
               )}
             </div>
