@@ -935,6 +935,7 @@
         const raw = String(sectorName || "")
           .trim()
           .toLowerCase()
+          .replace(/[-_/]+/g, " ")
           .replace(/&/g, "and")
           .replace(/\s+/g, " ");
         if (!raw) return "";
@@ -944,6 +945,7 @@
           materials: "basic materials",
           "basic materials": "basic materials",
           "consumer durables": "consumer discretionary",
+          "consumer non durables": "consumer staples",
           "consumer cyclical": "consumer discretionary",
           "consumer discretionary": "consumer discretionary",
           "consumer defensive": "consumer staples",
