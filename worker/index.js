@@ -528,6 +528,27 @@ function buildAlertDedupeKey({ ticker, action, side, ts }) {
   };
 }
 
+async function shouldSendTradeDiscordEvent(KV, { tradeId, type, ts }, ttlSec = 48 * 60 * 60) {
+  try {
+    const id = String(tradeId || "").trim();
+    const t = String(type || "").trim().toUpperCase();
+    const ms = Number(ts);
+    if (!id || !t || !Number.isFinite(ms)) {
+      return { ok: true, key: null, deduped: false };
+    }
+    // Minute-bucketed idempotency. Prevents duplicate Discord posts caused by concurrent ingests/races.
+    const bucket = Math.floor(ms / 60000);
+    const key = `timed:dedupe:trade_event:${id}:${t}:${bucket}`;
+    const already = await KV.get(key);
+    if (already) return { ok: true, key, deduped: true };
+    await kvPutText(KV, key, "1", ttlSec);
+    return { ok: true, key, deduped: false };
+  } catch (e) {
+    // Fail open: better to alert than silently drop.
+    return { ok: false, key: null, deduped: false, error: String(e?.message || e) };
+  }
+}
+
 function stalenessBucket(ticker, ts) {
   const mt = marketType(ticker);
   const age = minutesSince(ts);
@@ -3052,11 +3073,13 @@ async function processTradeSimulation(
       if (shouldExitFromTDSeq) {
         const entryMs =
           isoToMs(existingOpenTrade?.entryTime) ||
+          Number(existingOpenTrade?.entryTs) ||
           Number(existingOpenTrade?.entry_ts) ||
           isoToMs(existingOpenTrade?.entry_time) ||
           null;
-        const ageMs = Number.isFinite(entryMs) ? Date.now() - entryMs : null;
-        const MIN_TDSEQ_HOLD_MS = 90 * 60 * 1000; // 90 minutes
+        const nowMs = Number(tickerData?.ts) || Date.now();
+        const ageMs = Number.isFinite(entryMs) ? nowMs - entryMs : null;
+        const MIN_TDSEQ_HOLD_MS = 4 * 60 * 60 * 1000; // 4 hours (TD9 is usually a pullback; don't flinch early)
         if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < MIN_TDSEQ_HOLD_MS) {
           shouldExitFromTDSeq = false;
           // Breadcrumb for debugging / review
@@ -3066,6 +3089,67 @@ async function processTradeSimulation(
             direction,
             age_min: Math.round(ageMs / 60000),
             min_age_min: Math.round(MIN_TDSEQ_HOLD_MS / 60000),
+            td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+            td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+            td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+            td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+          });
+        }
+      }
+
+      // TDSEQ should protect gains, not force exits at a loss.
+      // Require (a) some profit buffer and (b) meaningful progress (phase/completion/TP progress) before allowing a TDSEQ exit.
+      if (shouldExitFromTDSeq) {
+        const priceNow = Number(tickerData?.price);
+        const entryPx =
+          Number(existingOpenTrade?.entryPrice) ||
+          Number(existingOpenTrade?.entry_price) ||
+          Number(tickerData?.trigger_price) ||
+          Number(tickerData?.price);
+        const tpPx =
+          Number(existingOpenTrade?.tp) ||
+          Number(existingOpenTrade?.tp_price) ||
+          Number(tickerData?.tp);
+        const completion = Number(tickerData?.completion);
+        const phasePct = Number(tickerData?.phase_pct);
+
+        const pnlPctNow =
+          Number.isFinite(priceNow) && Number.isFinite(entryPx) && entryPx > 0
+            ? direction === "LONG"
+              ? ((priceNow - entryPx) / entryPx) * 100
+              : ((entryPx - priceNow) / entryPx) * 100
+            : null;
+
+        let tpProgress = null;
+        if (
+          Number.isFinite(priceNow) &&
+          Number.isFinite(entryPx) &&
+          Number.isFinite(tpPx) &&
+          tpPx !== entryPx
+        ) {
+          const raw =
+            direction === "LONG"
+              ? (priceNow - entryPx) / (tpPx - entryPx)
+              : (entryPx - priceNow) / (entryPx - tpPx);
+          tpProgress = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : null;
+        }
+
+        const hasProfitBuffer = Number.isFinite(pnlPctNow) ? pnlPctNow >= 0.35 : false; // ~35 bps
+        const hasMeaningfulProgress =
+          (Number.isFinite(completion) && completion >= 0.7) ||
+          (Number.isFinite(phasePct) && phasePct >= 0.7) ||
+          (Number.isFinite(tpProgress) && tpProgress >= 0.35);
+
+        if (!(hasProfitBuffer && hasMeaningfulProgress)) {
+          shouldExitFromTDSeq = false;
+          await appendActivity(KV, {
+            ticker,
+            type: "tdseq_ignored_not_ready",
+            direction,
+            pnl_pct: Number.isFinite(pnlPctNow) ? pnlPctNow : null,
+            completion: Number.isFinite(completion) ? completion : null,
+            phase_pct: Number.isFinite(phasePct) ? phasePct : null,
+            tp_progress: Number.isFinite(tpProgress) ? tpProgress : null,
             td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
             td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
             td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
@@ -3610,6 +3694,17 @@ async function processTradeSimulation(
               console.log(
                 `[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction} (trimmedPct ${oldTrimmedPct} -> ${newTrimmedPct})`
               );
+              const alertTs = findHistoryTs("TRIM");
+              const dedupe = await shouldSendTradeDiscordEvent(KV, {
+                tradeId: updatedTrade.id,
+                type: "TRADE_TRIM",
+                ts: alertTs,
+              });
+              if (dedupe.deduped) {
+                console.log(
+                  `[TRADE SIM] 🔁 Deduped TRIM alert for ${ticker} ${direction} (${dedupe.key})`
+                );
+              } else {
               const embed = createTradeTrimmedEmbed(
                 ticker,
                 direction,
@@ -3632,8 +3727,7 @@ async function processTradeSimulation(
                 );
                 return { ok: false, error: String(err) };
               }); // Don't let Discord errors break trade updates
-
-              const alertTs = findHistoryTs("TRIM");
+              // persist alert (best-effort)
               const alertPayloadJson = (() => {
                 try {
                   return JSON.stringify(tickerData);
@@ -3676,6 +3770,7 @@ async function processTradeSimulation(
               }).catch((e) => {
                 console.error(`[D1 LEDGER] Failed to upsert trim alert:`, e);
               });
+              }
             }
 
             // Send EXIT alert on first transition into WIN/LOSS
@@ -3687,6 +3782,17 @@ async function processTradeSimulation(
               console.log(
                 `[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`
               );
+              const exitTs = findHistoryTs("EXIT");
+              const exitDedupe = await shouldSendTradeDiscordEvent(KV, {
+                tradeId: updatedTrade.id,
+                type: "TRADE_EXIT",
+                ts: exitTs,
+              });
+              if (exitDedupe.deduped) {
+                console.log(
+                  `[TRADE SIM] 🔁 Deduped EXIT alert for ${ticker} ${direction} (${exitDedupe.key})`
+                );
+              } else {
               const embed = createTradeClosedEmbed(
                 ticker,
                 direction,
@@ -3707,8 +3813,7 @@ async function processTradeSimulation(
                 );
                 return { ok: false, error: String(err) };
               }); // Don't let Discord errors break trade updates
-
-              const exitTs = findHistoryTs("EXIT");
+              // persist alert (best-effort)
               const exitPayloadJson = (() => {
                 try {
                   return JSON.stringify(tickerData);
@@ -3759,6 +3864,17 @@ async function processTradeSimulation(
                 console.log(
                   `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`
                 );
+                const td9Ts = exitTs || findHistoryTs("EXIT");
+                const td9Dedupe = await shouldSendTradeDiscordEvent(KV, {
+                  tradeId: updatedTrade.id,
+                  type: "TD9_EXIT",
+                  ts: td9Ts,
+                });
+                if (td9Dedupe.deduped) {
+                  console.log(
+                    `[TRADE SIM] 🔁 Deduped TD9_EXIT alert for ${ticker} ${direction} (${td9Dedupe.key})`
+                  );
+                } else {
                 const tdSeq = tickerData.td_sequential || {};
                 const td9Embed = createTD9ExitEmbed(
                   ticker,
@@ -3779,7 +3895,6 @@ async function processTradeSimulation(
                     return { ok: false, error: String(err) };
                   }
                 );
-                const td9Ts = exitTs || findHistoryTs("EXIT");
                 d1UpsertAlert(env, {
                   alert_id: buildAlertId(ticker, td9Ts, "TD9_EXIT"),
                   ticker,
@@ -3806,6 +3921,8 @@ async function processTradeSimulation(
                     e
                   );
                 });
+                }
+              }
               }
             }
           } else {
