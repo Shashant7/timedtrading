@@ -1656,6 +1656,12 @@
         const [bubbleJourney, setBubbleJourney] = useState([]);
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
+        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | JOURNEY | TRADE_HISTORY
+
+        // Default to Analysis when switching tickers
+        useEffect(() => {
+          setRailTab("ANALYSIS");
+        }, [tickerSymbol]);
 
         // Discord-style decision card (ENTRY/TRIM/EXIT) for selected activity rows.
         const [decisionCard, setDecisionCard] = useState(null);
@@ -1921,6 +1927,34 @@
                     return null;
                   }
                 })()}
+
+                {/* Right Rail Tabs */}
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  {[
+                    { k: "ANALYSIS", label: "Analysis" },
+                    { k: "TECHNICALS", label: "Technicals" },
+                    { k: "JOURNEY", label: "Journey" },
+                    {
+                      k: "TRADE_HISTORY",
+                      label: `Trade History (${trade?.history?.length ? trade.history.length : 0})`,
+                    },
+                  ].map((t) => {
+                    const active = railTab === t.k;
+                    return (
+                      <button
+                        key={`rail-tab-${t.k}`}
+                        onClick={() => setRailTab(t.k)}
+                        className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
+                          active
+                            ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                            : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Padded body content (keeps header top-aligned) */}
