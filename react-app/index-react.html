@@ -2402,6 +2402,12 @@
             completionForSize(d) > effectiveFilters.maxCompletion
           )
             continue;
+          // Thesis preset gate: base thresholds (preset) + requires richer winner patterns from Worker
+          // (still one pill; Worker computes `flags.thesis_match`)
+          if (isThesisModeActive(effectiveFilters)) {
+            const flags = d.flags || {};
+            if (flags.thesis_match !== true) continue;
+          }
           if (effectiveFilters.inCorridor === true) {
             const ent = entryType(d);
             if (!ent.corridor) continue;
@@ -2584,6 +2590,33 @@
         return out;
       }
 
+      // Thesis preset (used by filter pill + auto-apply + UI badges)
+      // Derived from latest best-setups analysis + self-learning.
+      const THESIS_PRESET = {
+        minRank: 74,
+        minRR: 1.5,
+        maxCompletion: 0.6,
+        maxPhase: 0.6,
+      };
+
+      function isThesisModeActive(filters) {
+        const f = filters || {};
+        const maxCompletion = Number(f.maxCompletion);
+        const minRR = Number(f.minRR);
+        const minRank = Number(f.minRank);
+        const maxPhase = Number(f.maxPhase);
+        return (
+          Number.isFinite(minRank) &&
+          minRank >= THESIS_PRESET.minRank &&
+          Number.isFinite(minRR) &&
+          minRR >= THESIS_PRESET.minRR &&
+          Number.isFinite(maxCompletion) &&
+          maxCompletion <= THESIS_PRESET.maxCompletion + 1e-9 &&
+          (f.maxPhase === undefined ||
+            (Number.isFinite(maxPhase) && maxPhase <= THESIS_PRESET.maxPhase + 1e-9))
+        );
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Components
       // ─────────────────────────────────────────────────────────────
@@ -2602,6 +2635,7 @@
           layoutY = null,
           showLabels,
           isTopRanked = false,
+          thesisMode = false,
         }) => {
           // CRITICAL DEBUG: Log EVERY bubble call immediately
           if (!window._svgBubbleCallCount) {
@@ -2896,6 +2930,7 @@
           const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
           const emojis = [];
           if (isTopRanked) emojis.push("👑");
+          if (flags.thesis_match === true && !waitingForData) emojis.push("🧠");
           if (waitingForData) emojis.push("⏳");
           if (!waitingForData) {
             if (!!flags.momentum_elite) emojis.push("🚀");
@@ -3641,6 +3676,7 @@
         allData,
         rankedTickers,
         rankedTickerPositions,
+        thesisMode = false,
       }) {
         // Debug: Log props received
         React.useEffect(() => {
@@ -4479,6 +4515,7 @@
                     layoutY={layoutPositions?.[ticker.ticker]?.y}
                     showLabels={showLabels}
                     isTopRanked={topRankedTicker === ticker.ticker}
+                    thesisMode={thesisMode}
                   />
                 ))}
 
@@ -4845,6 +4882,7 @@
             // Determine emojis (show all applicable)
             const emojis = [];
             if (isTopRanked) emojis.push("👑");
+            if (flags.thesis_match === true && !waitingForData) emojis.push("🧠");
             if (waitingForData) emojis.push("⏳");
             if (!waitingForData) {
               if (!!flags.momentum_elite) emojis.push("🚀");
@@ -9406,30 +9444,8 @@
           onChange({ [key]: cur ? undefined : true });
         };
 
-        // Thesis: a safe “quality gate” that should not zero out the dashboard.
-        // Keep it broad; users can layer Corridor / Winner Signature on top if desired.
-        const THESIS_PRESET = {
-          minRank: 70,
-          minRR: 1.5,
-          maxCompletion: 0.6,
-          maxPhase: 0.6,
-        };
         const isThesisActive = () => {
-          const maxCompletion = Number(filters.maxCompletion);
-          const minRR = Number(filters.minRR);
-          const minRank = Number(filters.minRank);
-          const maxPhase = Number(filters.maxPhase);
-          return (
-            Number.isFinite(minRank) &&
-            minRank >= THESIS_PRESET.minRank &&
-            Number.isFinite(minRR) &&
-            minRR >= THESIS_PRESET.minRR &&
-            Number.isFinite(maxCompletion) &&
-            maxCompletion <= THESIS_PRESET.maxCompletion + 1e-9 &&
-            (filters.maxPhase === undefined ||
-              (Number.isFinite(maxPhase) &&
-                maxPhase <= THESIS_PRESET.maxPhase + 1e-9))
-          );
+          return isThesisModeActive(filters);
         };
         const toggleThesis = () => {
           const active = isThesisActive();
@@ -9485,11 +9501,11 @@
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill("Thesis", isThesisActive(), () => toggleThesis())}
-                {pill("In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
-                {pill("Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
-                {pill("Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
-                {pill("Winner Signature", filters.winnerSignature === true, () => toggleBool("winnerSignature"))}
+                {pill("🧠 Thesis", isThesisActive(), () => toggleThesis())}
+                {pill("🧨 In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
+                {pill("⚡ Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
+                {pill("🚀 Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
+                {pill("🏆 Winner Signature", filters.winnerSignature === true, () => toggleBool("winnerSignature"))}
               </div>
             </div>
 
@@ -9541,6 +9557,7 @@
         fillHeight = false,
         onFilteredTickersChange = null,
         showControls = true,
+        thesisMode = false,
       }) {
         const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
@@ -9696,6 +9713,7 @@
           const flags = t?.flags || {};
           const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
           const badgeEmojis = [
+            flags.thesis_match === true ? "🧠" : null,
             flags.momentum_elite ? "🚀" : null,
             winnerSig ? "🏆" : null,
             flags.sq30_release ? "⚡" : null,
@@ -14512,12 +14530,7 @@
           }
           if (thesisAppliedRef.current) return;
           thesisAppliedRef.current = true;
-          handleFilterChange({
-            minRank: 70,
-            minRR: 1.5,
-            maxCompletion: 0.6,
-            maxPhase: 0.6,
-          });
+          handleFilterChange({ ...THESIS_PRESET });
         }, [handleFilterChange]);
 
         const handleWelcomeDashboardClose = () => {
@@ -14722,6 +14735,7 @@
                           maxHeightClass="max-h-[900px]"
                           fillHeight={true}
                           showControls={false}
+                          thesisMode={isThesisModeActive(filters)}
                         />
                       </div>
 
@@ -14764,6 +14778,7 @@
                               allData={data}
                               rankedTickers={rankedTickers}
                               rankedTickerPositions={rankedTickerPositions}
+                              thesisMode={isThesisModeActive(filters)}
                             />
                           )}
                         </div>

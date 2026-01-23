@@ -5110,12 +5110,318 @@ function computeRank(d) {
   return Math.round(score);
 }
 
+// ─────────────────────────────────────────────────────────────
+// Live Thesis features (seq + deltas) computed from trail
+// Mirrors feature families used in scripts/analyze-best-setups.js
+// ─────────────────────────────────────────────────────────────
+
+function clamp01(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function flagOn(flags, k) {
+  if (!flags || typeof flags !== "object") return false;
+  const v = flags[k];
+  return v === true || v === 1 || v === "true";
+}
+
+function orderedWithin(a, b, maxMs) {
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(maxMs))
+    return false;
+  return b >= a && b - a <= maxMs;
+}
+
+function normalizeTrailPoint(p) {
+  if (!p || typeof p !== "object") return null;
+  const ts = Number(p.ts ?? p.timestamp ?? p.ingest_ts ?? p.ingest_time);
+  const price = Number(p.price ?? p.__price);
+  return {
+    __ts: Number.isFinite(ts) ? ts : null,
+    __price: Number.isFinite(price) ? price : null,
+    htf_score: p.htf_score != null ? Number(p.htf_score) : null,
+    ltf_score: p.ltf_score != null ? Number(p.ltf_score) : null,
+    completion: p.completion != null ? Number(p.completion) : null,
+    phase_pct: p.phase_pct != null ? Number(p.phase_pct) : null,
+    state: p.state != null ? String(p.state) : "",
+    rank: p.rank != null ? Number(p.rank) : null,
+    trigger_reason: p.trigger_reason != null ? String(p.trigger_reason) : null,
+    trigger_dir:
+      p.trigger_dir != null ? String(p.trigger_dir).trim().toUpperCase() : null,
+    __flags: p.flags && typeof p.flags === "object" ? p.flags : {},
+  };
+}
+
+function directionForThesis(p, fallbackPayload = null) {
+  const fromTrig =
+    (fallbackPayload && fallbackPayload.trigger_dir) || (p && p.trigger_dir);
+  const td = String(fromTrig || "").trim().toUpperCase();
+  if (td === "LONG" || td === "SHORT") return td;
+
+  const st = String(
+    (fallbackPayload && fallbackPayload.state) || (p && p.state) || ""
+  );
+  if (st.includes("BEAR")) return "SHORT";
+  if (st.includes("BULL")) return "LONG";
+
+  const htf = Number(
+    (fallbackPayload && fallbackPayload.htf_score) || (p && p.htf_score)
+  );
+  if (Number.isFinite(htf) && htf < 0) return "SHORT";
+  if (Number.isFinite(htf) && htf > 0) return "LONG";
+  return null;
+}
+
+function lowerBoundTs(points, tsTarget, idxHiExclusive) {
+  let lo = 0;
+  let hi = Math.max(
+    0,
+    Number.isFinite(idxHiExclusive) ? idxHiExclusive : points.length
+  );
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const ts = Number(points[mid]?.__ts);
+    if (!Number.isFinite(ts) || ts < tsTarget) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function lookbackDeltas(points, idx0, lookbackMs) {
+  const p0 = points[idx0];
+  const t0 = Number(p0?.__ts);
+  if (!Number.isFinite(t0) || !Number.isFinite(lookbackMs) || lookbackMs <= 0)
+    return null;
+  const idxHi = Math.max(0, idx0);
+  if (idxHi <= 0) return null;
+  const tsTarget = t0 - lookbackMs;
+  const idx = lowerBoundTs(points, tsTarget, idxHi);
+  const p1 = points[Math.min(idx, idxHi - 1)];
+  if (!p1) return null;
+
+  const htf0 = Number(p0?.htf_score);
+  const ltf0 = Number(p0?.ltf_score);
+  const px0 = Number(p0?.__price);
+  const t1 = Number(p1?.__ts);
+  const htf1 = Number(p1?.htf_score);
+  const ltf1 = Number(p1?.ltf_score);
+  const px1 = Number(p1?.__price);
+
+  const dtMs = Number.isFinite(t1) ? t0 - t1 : null;
+  const dHtf =
+    Number.isFinite(htf0) && Number.isFinite(htf1) ? htf0 - htf1 : null;
+  const dLtf =
+    Number.isFinite(ltf0) && Number.isFinite(ltf1) ? ltf0 - ltf1 : null;
+  const dPxPct =
+    Number.isFinite(px0) && Number.isFinite(px1) && px1 > 0
+      ? (px0 - px1) / px1
+      : null;
+
+  return {
+    lookbackMs,
+    t1: Number.isFinite(t1) ? t1 : null,
+    dtMs,
+    deltaHtf: dHtf,
+    deltaLtf: dLtf,
+    deltaPricePct: dPxPct,
+  };
+}
+
+function isWinnerSignatureSnapshotForThesis(p) {
+  const flags = p?.__flags || {};
+  const state = String(p?.state || "");
+  const isSetup = state.includes("PULLBACK");
+  const inCorridor = corridorSide(p) != null;
+  const completion = clamp01(p?.completion);
+  const phasePct = clamp01(p?.phase_pct);
+  const inSqueeze = flagOn(flags, "sq30_on") && !flagOn(flags, "sq30_release");
+  return (
+    isSetup && inCorridor && completion < 0.15 && (phasePct < 0.6 || inSqueeze)
+  );
+}
+
+function isPrimeLikeSnapshotForThesis(p) {
+  const flags = p?.__flags || {};
+  const state = String(p?.state || "");
+  const inCorridor = corridorSide(p) != null;
+  const rank = Number(p?.rank);
+  const completion = clamp01(p?.completion);
+  const phase = clamp01(p?.phase_pct);
+  const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  const sqRel = flagOn(flags, "sq30_release");
+  const phaseZoneChange = flagOn(flags, "phase_zone_change");
+  return (
+    inCorridor &&
+    (Number.isFinite(rank) ? rank >= 75 : false) &&
+    completion < 0.4 &&
+    phase < 0.6 &&
+    (aligned || sqRel || phaseZoneChange)
+  );
+}
+
+function computeLiveThesisFeaturesFromTrail(trailPoints, payload) {
+  const H1 = 60 * 60 * 1000;
+  const LOOKBACK_4H = 4 * H1;
+  const LOOKBACK_1D = 24 * H1;
+
+  const raw = Array.isArray(trailPoints) ? trailPoints : [];
+  const pts = raw
+    .map(normalizeTrailPoint)
+    .filter((x) => x && Number.isFinite(x.__ts))
+    .sort((a, b) => Number(a.__ts) - Number(b.__ts));
+
+  const empty = {
+    seq: {
+      recentSqueezeRelease_6h: false,
+      recentSqueezeOn_6h: false,
+      corridorEntry_60m: false,
+      pattern: { squeezeReleaseToMomentum_6h: false, squeezeOnToRelease_24h: false },
+    },
+    deltas: { htf_4h: null, ltf_4h: null, htf_1d: null },
+    flags: {
+      htf_improving_4h: false,
+      htf_improving_1d: false,
+      htf_move_4h_ge_5: false,
+      thesis_match: false,
+    },
+  };
+  if (pts.length < 2) return empty;
+
+  let lastCorridorEntryTs = null;
+  let lastSqueezeOnTs = null;
+  let lastSqueezeReleaseTs = null;
+  let lastSetupToMomentumTs = null;
+
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i];
+    const prev = pts[i - 1];
+    const ts = Number(p.__ts);
+    if (!Number.isFinite(ts)) continue;
+
+    const ent = corridorSide(p) != null;
+    const entPrev = corridorSide(prev) != null;
+
+    const flags = p.__flags || {};
+    const flagsPrev = prev.__flags || {};
+
+    const st = String(p.state || "");
+    const stPrev = String(prev.state || "");
+    const isPullback = st.includes("PULLBACK");
+    const wasPullback = stPrev.includes("PULLBACK");
+    const isMomentum =
+      (st.includes("LTF_BULL") || st.includes("LTF_BEAR")) && !isPullback;
+
+    if (!entPrev && ent) lastCorridorEntryTs = ts;
+    if (flagOn(flags, "sq30_on") && !flagOn(flagsPrev, "sq30_on"))
+      lastSqueezeOnTs = ts;
+    if (flagOn(flags, "sq30_release") && !flagOn(flagsPrev, "sq30_release"))
+      lastSqueezeReleaseTs = ts;
+    if (wasPullback && isMomentum) lastSetupToMomentumTs = ts;
+  }
+
+  const latest = pts[pts.length - 1];
+  const nowTs = Number(latest.__ts);
+  const since = {
+    corridorEntryMs: Number.isFinite(lastCorridorEntryTs)
+      ? Math.max(0, nowTs - lastCorridorEntryTs)
+      : null,
+    squeezeOnMs: Number.isFinite(lastSqueezeOnTs)
+      ? Math.max(0, nowTs - lastSqueezeOnTs)
+      : null,
+    squeezeReleaseMs: Number.isFinite(lastSqueezeReleaseTs)
+      ? Math.max(0, nowTs - lastSqueezeReleaseTs)
+      : null,
+  };
+
+  const deltas4h = lookbackDeltas(pts, pts.length - 1, LOOKBACK_4H);
+  const deltas1d = lookbackDeltas(pts, pts.length - 1, LOOKBACK_1D);
+
+  const dir = directionForThesis(latest, payload);
+  const htf_4h = deltas4h ? deltas4h.deltaHtf : null;
+  const ltf_4h = deltas4h ? deltas4h.deltaLtf : null;
+  const htf_1d = deltas1d ? deltas1d.deltaHtf : null;
+
+  const htf_improving_4h =
+    !!dir &&
+    Number.isFinite(htf_4h) &&
+    ((dir === "LONG" && htf_4h > 0) || (dir === "SHORT" && htf_4h < 0));
+  const htf_improving_1d =
+    !!dir &&
+    Number.isFinite(htf_1d) &&
+    ((dir === "LONG" && htf_1d > 0) || (dir === "SHORT" && htf_1d < 0));
+  const htf_move_4h_ge_5 = Number.isFinite(htf_4h) && Math.abs(htf_4h) >= 5;
+
+  const seq = {
+    recentSqueezeRelease_6h:
+      since.squeezeReleaseMs != null && since.squeezeReleaseMs <= 6 * H1,
+    recentSqueezeOn_6h:
+      since.squeezeOnMs != null && since.squeezeOnMs <= 6 * H1,
+    corridorEntry_60m:
+      since.corridorEntryMs != null && since.corridorEntryMs <= 60 * 60 * 1000,
+    pattern: {
+      squeezeReleaseToMomentum_6h: orderedWithin(
+        lastSqueezeReleaseTs,
+        lastSetupToMomentumTs,
+        6 * H1
+      ),
+      squeezeOnToRelease_24h: orderedWithin(
+        lastSqueezeOnTs,
+        lastSqueezeReleaseTs,
+        24 * H1
+      ),
+    },
+  };
+
+  const primeLike = isPrimeLikeSnapshotForThesis(latest);
+  const winnerSignature = isWinnerSignatureSnapshotForThesis(latest);
+
+  const rank = Number(payload?.rank ?? latest?.rank);
+  const completion = clamp01(payload?.completion ?? latest?.completion);
+  const phase = clamp01(payload?.phase_pct ?? latest?.phase_pct);
+  const rr = (() => {
+    const n = Number(payload?.rr);
+    if (Number.isFinite(n)) return n;
+    const v = computeRR(payload);
+    return Number.isFinite(v) ? Number(v) : null;
+  })();
+
+  const baseGate =
+    Number.isFinite(rank) &&
+    rank >= 74 &&
+    Number.isFinite(rr) &&
+    rr >= 1.5 &&
+    Number.isFinite(completion) &&
+    completion <= 0.6 + 1e-9 &&
+    Number.isFinite(phase) &&
+    phase <= 0.6 + 1e-9;
+
+  const A = seq.pattern.squeezeReleaseToMomentum_6h && htf_move_4h_ge_5;
+  const B = seq.recentSqueezeRelease_6h && htf_improving_4h;
+  const C =
+    (primeLike && htf_move_4h_ge_5) ||
+    (winnerSignature && htf_improving_4h);
+  const thesis_match = !!baseGate && (A || B || C);
+
+  return {
+    seq,
+    deltas: { htf_4h, ltf_4h, htf_1d },
+    flags: {
+      htf_improving_4h,
+      htf_improving_1d,
+      htf_move_4h_ge_5,
+      thesis_match,
+    },
+  };
+}
+
 async function appendTrail(KV, ticker, point, maxN = 8) {
   const key = `timed:trail:${ticker}`;
   const cur = (await kvGetJSON(KV, key)) || [];
   cur.push(point);
   const keep = cur.length > maxN ? cur.slice(cur.length - maxN) : cur;
   await kvPutJSON(KV, key, keep);
+  return keep;
 }
 
 async function appendCaptureTrail(KV, ticker, point, maxN = 48) {
@@ -8069,7 +8375,29 @@ export default {
               trigger_dir: payload.trigger_dir,
             };
 
-            await appendTrail(KV, ticker, trailPoint, 20); // Increased to 20 points for better history
+            const trail = await appendTrail(KV, ticker, trailPoint, 320); // ~26h at 5m cadence (enables 4h/1d deltas)
+
+            // Compute live thesis features from the updated trail
+            try {
+              const computed = computeLiveThesisFeaturesFromTrail(trail, payload);
+              if (computed && typeof computed === "object") {
+                payload.seq = computed.seq;
+                payload.deltas = computed.deltas;
+                payload.flags =
+                  payload.flags && typeof payload.flags === "object"
+                    ? payload.flags
+                    : {};
+                payload.flags.htf_improving_4h = !!computed.flags?.htf_improving_4h;
+                payload.flags.htf_improving_1d = !!computed.flags?.htf_improving_1d;
+                payload.flags.htf_move_4h_ge_5 = !!computed.flags?.htf_move_4h_ge_5;
+                payload.flags.thesis_match = !!computed.flags?.thesis_match;
+              }
+            } catch (e) {
+              console.error(
+                `[THESIS FEATURES] Compute failed for ${ticker}:`,
+                String(e)
+              );
+            }
 
             // Also store into D1 (if configured) for 7-day history.
             // Don't let D1 failures affect ingestion.
@@ -9889,6 +10217,41 @@ export default {
           } catch (e) {
             console.error(
               `[ENTRY DECISION] /timed/latest failed for ${ticker}:`,
+              String(e)
+            );
+          }
+
+          // Back-compat: compute thesis features if missing (older KV entries)
+          try {
+            const hasThesisMatch =
+              data?.flags &&
+              typeof data.flags === "object" &&
+              data.flags.thesis_match != null;
+            const hasSeq = data?.seq && typeof data.seq === "object";
+            const hasDeltas = data?.deltas && typeof data.deltas === "object";
+            if (!hasThesisMatch || !hasSeq || !hasDeltas) {
+              const trail =
+                (await kvGetJSON(KV, `timed:trail:${ticker}`)) || null;
+              if (trail && Array.isArray(trail) && trail.length >= 2) {
+                const computed = computeLiveThesisFeaturesFromTrail(trail, data);
+                if (computed && typeof computed === "object") {
+                  data.seq = computed.seq;
+                  data.deltas = computed.deltas;
+                  data.flags =
+                    data.flags && typeof data.flags === "object" ? data.flags : {};
+                  data.flags.htf_improving_4h = !!computed.flags?.htf_improving_4h;
+                  data.flags.htf_improving_1d = !!computed.flags?.htf_improving_1d;
+                  data.flags.htf_move_4h_ge_5 = !!computed.flags?.htf_move_4h_ge_5;
+                  data.flags.thesis_match = !!computed.flags?.thesis_match;
+
+                  // Persist backfill so future reads don’t need to recompute.
+                  await kvPutJSON(KV, `timed:latest:${ticker}`, data);
+                }
+              }
+            }
+          } catch (e) {
+            console.error(
+              `[THESIS FEATURES] /timed/latest failed for ${ticker}:`,
               String(e)
             );
           }
