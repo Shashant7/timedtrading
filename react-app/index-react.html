@@ -9885,26 +9885,26 @@
                   Prime {counts.prime} • Eligible {counts.eligible} • Total {counts.all}
                 </div>
               </div>
-              {showControls && (
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                {showControls && (
                   <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Ticker…"
                     className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white w-[110px]"
                   />
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white"
-                    title="Sort Viewport"
-                  >
-                    <option value="RANK">Sort: Rank</option>
-                    <option value="ABC">Sort: ABC</option>
-                    <option value="DCHG">Sort: Daily %</option>
-                  </select>
-                </div>
-              )}
+                )}
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white"
+                  title="Sort Viewport"
+                >
+                  <option value="RANK">Sort: Rank</option>
+                  <option value="ABC">Sort: ABC</option>
+                  <option value="DCHG">Sort: Daily %</option>
+                </select>
+              </div>
             </div>
 
             {showControls && (
