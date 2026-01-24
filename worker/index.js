@@ -4968,8 +4968,8 @@ async function computeMomentumElite(KV, ticker, payload) {
     await kvPutJSON(KV, historyKey, trimmedHistory);
   }
 
-  // Cache result
-  await kvPutJSON(KV, cacheKey, result, 5 * 60);
+  // Cache result (keep long enough for UI filtering between bar closes)
+  await kvPutJSON(KV, cacheKey, result, 6 * 60 * 60);
 
   return result;
 }
@@ -10029,6 +10029,17 @@ export default {
             console.error(`[CAPTURE MOMENTUM] Failed for ${ticker}:`, String(e));
           }
 
+          // Persist context separately so it survives bars where context is omitted.
+          // The capture heartbeat throttles context and otherwise sends a minimal payload;
+          // without this, `timed:capture:latest:*` gets overwritten and context disappears.
+          try {
+            if (payload.context && typeof payload.context === "object") {
+              await kvPutJSON(KV, `timed:context:${ticker}`, payload.context, 30 * 24 * 60 * 60);
+            }
+          } catch (e) {
+            console.error(`[CAPTURE CONTEXT] KV store failed for ${ticker}:`, String(e));
+          }
+
           await kvPutJSON(KV, `timed:capture:latest:${ticker}`, payload);
           await appendCaptureTrail(KV, ticker, {
             ts: payload.ts,
@@ -10149,9 +10160,8 @@ export default {
             }
             if (capture.flags && typeof capture.flags === "object") {
               data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
-              if (data.flags.momentum_elite == null && capture.flags.momentum_elite != null) {
-                data.flags.momentum_elite = !!capture.flags.momentum_elite;
-              }
+              // Override from capture: score payloads don't compute Momentum Elite reliably.
+              if (capture.flags.momentum_elite != null) data.flags.momentum_elite = !!capture.flags.momentum_elite;
             }
           }
 
@@ -10170,6 +10180,16 @@ export default {
               `[CONTEXT] /timed/latest capture merge failed for ${ticker}:`,
               String(e)
             );
+          }
+
+          // If capture doesn't include context on this bar, fall back to the persisted context blob.
+          try {
+            if (!data.context) {
+              const saved = await kvGetJSON(KV, `timed:context:${ticker}`);
+              if (saved && typeof saved === "object") data.context = saved;
+            }
+          } catch (e) {
+            console.error(`[CONTEXT] /timed/latest persisted context read failed for ${ticker}:`, String(e));
           }
           // Always recompute RR to ensure it uses the latest max TP from tp_levels
           data.rr = computeRR(data);
@@ -10384,9 +10404,8 @@ export default {
                 }
                 if (capture.flags && typeof capture.flags === "object") {
                   value.flags = value.flags && typeof value.flags === "object" ? value.flags : {};
-                  if (value.flags.momentum_elite == null && capture.flags.momentum_elite != null) {
-                    value.flags.momentum_elite = !!capture.flags.momentum_elite;
-                  }
+                  // Override from capture: score payloads don't compute Momentum Elite reliably.
+                  if (capture.flags.momentum_elite != null) value.flags.momentum_elite = !!capture.flags.momentum_elite;
                 }
 
                 // Context enrichment rides along on capture payload (throttled in Pine).
@@ -10396,6 +10415,16 @@ export default {
               }
             } catch (e) {
               // ignore merge failures
+            }
+
+            // If capture doesn't include context on this bar, fall back to persisted context.
+            try {
+              if (value && !value.context) {
+                const saved = await kvGetJSON(KV, `timed:context:${t}`);
+                if (saved && typeof saved === "object") value.context = saved;
+              }
+            } catch {
+              // ignore
             }
 
             // Debug: Check if BMNR data exists in KV
@@ -10898,7 +10927,25 @@ export default {
             400,
             corsHeaders(env, req)
           );
-        const data = await kvGetJSON(KV, `timed:momentum:${ticker}`);
+        let data = await kvGetJSON(KV, `timed:momentum:${ticker}`);
+        if (!data) {
+          // On-demand compute using latest + capture enrichment (avoids waiting for next cache fill).
+          try {
+            const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
+            const base = latest && typeof latest === "object" ? { ...latest } : {};
+            if (capture && typeof capture === "object") {
+              for (const k of ["avg_vol_30", "avg_vol_50", "adr_14", "momentum_pct", "price"]) {
+                if (base[k] == null && capture[k] != null) base[k] = capture[k];
+              }
+            }
+            if (base && Object.keys(base).length > 0) {
+              data = await computeMomentumElite(KV, ticker, base);
+            }
+          } catch {
+            // ignore
+          }
+        }
         return sendJSON({ ok: true, ticker, data }, 200, corsHeaders(env, req));
       }
 
