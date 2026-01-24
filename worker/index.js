@@ -4774,6 +4774,8 @@ async function computeMomentumElite(KV, ticker, payload) {
   const priceOver4 = price >= 4.0;
 
   // 2. Market Cap > $1B (cached for 24 hours)
+  // NOTE: Market cap is not enforced for Momentum Elite in this build (UI expectation),
+  // but we still compute it for informational/debug purposes.
   const marketCapKey = `timed:momentum:marketcap:${ticker}`;
   let marketCapOver1B = true; // Default to true if we can't check
   const marketCapCache = await kvGetJSON(KV, marketCapKey);
@@ -4849,8 +4851,7 @@ async function computeMomentumElite(KV, ticker, payload) {
   }
 
   // All base criteria
-  const allBaseCriteria =
-    priceOver4 && marketCapOver1B && adrOver2 && volumeOver2M;
+  const allBaseCriteria = priceOver4 && adrOver2 && volumeOver2M;
 
   // Any momentum criteria (cached for 15 minutes):
   // Prefer TradingView payload data (most accurate), fallback to trail history
@@ -4872,24 +4873,9 @@ async function computeMomentumElite(KV, ticker, payload) {
     const sixMonthsPct =
       momentumPct.six_months != null ? Number(momentumPct.six_months) : null;
 
-    if (
-      weekPct != null ||
-      monthPct != null ||
-      threeMonthsPct != null ||
-      sixMonthsPct != null
-    ) {
-      // Use TradingView data (percentages are already in % form, e.g., 10.5 means 10.5%)
-      const weekOver10Pct = weekPct != null && weekPct >= 10.0;
-      const monthOver25Pct = monthPct != null && monthPct >= 25.0;
-      const threeMonthOver50Pct =
-        threeMonthsPct != null && threeMonthsPct >= 50.0;
-      const sixMonthOver100Pct = sixMonthsPct != null && sixMonthsPct >= 100.0;
-
-      anyMomentumCriteria =
-        weekOver10Pct ||
-        monthOver25Pct ||
-        threeMonthOver50Pct ||
-        sixMonthOver100Pct;
+    if (monthPct != null) {
+      // Align to TradingView screener-style filter: 1M change >= 25%
+      anyMomentumCriteria = Number.isFinite(monthPct) && monthPct >= 25.0;
     } else {
       // Fallback: Calculate from trail history (for older data or if TradingView doesn't send it)
       const trailKey = `timed:trail:${ticker}`;
@@ -4931,31 +4917,11 @@ async function computeMomentumElite(KV, ticker, payload) {
         const price6MonthsAgo = findClosestPrice(sixMonthsAgo);
 
         // Calculate percentage changes
-        const weekOver10Pct =
-          priceWeekAgo && priceWeekAgo > 0
-            ? (currentPrice - priceWeekAgo) / priceWeekAgo >= 0.1
-            : false;
-
         const monthOver25Pct =
           priceMonthAgo && priceMonthAgo > 0
             ? (currentPrice - priceMonthAgo) / priceMonthAgo >= 0.25
             : false;
-
-        const threeMonthOver50Pct =
-          price3MonthsAgo && price3MonthsAgo > 0
-            ? (currentPrice - price3MonthsAgo) / price3MonthsAgo >= 0.5
-            : false;
-
-        const sixMonthOver100Pct =
-          price6MonthsAgo && price6MonthsAgo > 0
-            ? (currentPrice - price6MonthsAgo) / price6MonthsAgo >= 1.0
-            : false;
-
-        anyMomentumCriteria =
-          weekOver10Pct ||
-          monthOver25Pct ||
-          threeMonthOver50Pct ||
-          sixMonthOver100Pct;
+        anyMomentumCriteria = !!monthOver25Pct;
       } else {
         // No trail data yet, default to false
         anyMomentumCriteria = false;
@@ -11913,7 +11879,9 @@ export default {
         }
 
         const last = Number(await KV.get("timed:last_ingest_ms")) || 0;
+        const captureLast = Number(await KV.get("timed:capture:last_ingest_ms")) || 0;
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const captureTickers = (await kvGetJSON(KV, "timed:capture:tickers")) || [];
         const storedVersion = await getStoredVersion(KV);
         return sendJSON(
           {
@@ -11921,7 +11889,10 @@ export default {
             now: Date.now(),
             lastIngestMs: last,
             minutesSinceLast: last ? (Date.now() - last) / 60000 : null,
+            captureLastIngestMs: captureLast,
+            captureMinutesSinceLast: captureLast ? (Date.now() - captureLast) / 60000 : null,
             tickers: tickers.length,
+            captureTickers: Array.isArray(captureTickers) ? captureTickers.length : 0,
             dataVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
           },
