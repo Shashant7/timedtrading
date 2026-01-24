@@ -10191,6 +10191,21 @@ export default {
           } catch (e) {
             console.error(`[CONTEXT] /timed/latest persisted context read failed for ${ticker}:`, String(e));
           }
+
+          // Ensure Momentum Elite reflects the most recent computed status.
+          // Score payloads often default flags.momentum_elite=false; use cached momentum computation when available.
+          try {
+            const m = await kvGetJSON(KV, `timed:momentum:${ticker}`);
+            if (m && typeof m === "object" && m.momentum_elite != null) {
+              data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+              data.flags.momentum_elite = !!m.momentum_elite;
+              if (data.momentum_elite_criteria == null && m.criteria) {
+                data.momentum_elite_criteria = m.criteria;
+              }
+            }
+          } catch {
+            // ignore
+          }
           // Always recompute RR to ensure it uses the latest max TP from tp_levels
           data.rr = computeRR(data);
 
@@ -10422,6 +10437,22 @@ export default {
               if (value && !value.context) {
                 const saved = await kvGetJSON(KV, `timed:context:${t}`);
                 if (saved && typeof saved === "object") value.context = saved;
+              }
+            } catch {
+              // ignore
+            }
+
+            // Ensure Momentum Elite reflects the most recent computed status.
+            try {
+              if (value) {
+                const m = await kvGetJSON(KV, `timed:momentum:${t}`);
+                if (m && typeof m === "object" && m.momentum_elite != null) {
+                  value.flags = value.flags && typeof value.flags === "object" ? value.flags : {};
+                  value.flags.momentum_elite = !!m.momentum_elite;
+                  if (value.momentum_elite_criteria == null && m.criteria) {
+                    value.momentum_elite_criteria = m.criteria;
+                  }
+                }
               }
             } catch {
               // ignore
