@@ -34,7 +34,7 @@ stLen   = input.int(10, "ST ATR Length", group=groupST, minval=1)
 stFac   = input.float(3.0, "ST Factor",  group=groupST, minval=0.1, step=0.1)
 
 groupEMA = "EMAs (Phoenix default)"
-emaFastLen = input.int(5,  "Fast EMA", group=groupEMA, minval=1)
+emaFastLen = input.int(13,  "Fast EMA", group=groupEMA, minval=1)
 emaSlowLen = input.int(48, "Slow EMA", group=groupEMA, minval=1)
 
 groupSqueeze = "TTM Squeeze"
@@ -449,7 +449,9 @@ if barstate.isconfirmed and goEvent
 // Dynamic expected move
 expectedMove = useDynamicTP ? expMoveATRx * math.max(ATRw, recentSwingW * 0.5) : expMoveATRx * ATRw
 
-completion = na(triggerPrice) or expectedMove <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / expectedMove, 0, 1)
+// Completion%: refined later (after TP is known). Keep an "extension" view here for reference.
+completionExpected = na(triggerPrice) or expectedMove <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / expectedMove, 0, 1)
+float completion = completionExpected
 
 //─────────────────────────────────────────────────────────────────────────────
 // Enhanced TP/SL Calculation (Multi-Timeframe, Multiple Targets)
@@ -600,6 +602,13 @@ if not na(tp) and usePivotSR
     if dir == -1 and not na(nearestSupport) and nearestSupport > tp
         tp := nearestSupport * 1.02  // 2% above support
 
+// Refined Completion% (TP-based):
+// Completion% should represent progress from trigger → primary TP (0–100% at TP).
+// If TP/trigger is missing, fall back to expectedMove as a best-effort proxy.
+tpMove = (not na(tp) and not na(triggerPrice)) ? math.abs(tp - triggerPrice) : na
+denom = (not na(tpMove) and tpMove > 0) ? tpMove : expectedMove
+completion := na(triggerPrice) or denom <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / denom, 0, 1)
+
 // VOLATILITY-ADJUSTED SL
 atrStopBase = ATRw * 0.35
 atrStop = useVolatilitySL ? (atrStopBase * math.max(0.8, math.min(1.5, atrRD > 0 ? atrRD : 1.0))) : atrStopBase
@@ -700,7 +709,12 @@ var int[] barHistory = array.new_int(0)
 
 // Only add new quarterly data when it changes (new quarter reported)
 if not na(epsQuarterly) and epsQuarterly != 0
-    lastEPS = array.size(epsHistory) > 0 ? array.get(epsHistory, array.size(epsHistory) - 1) : 0.0
+    // NOTE: Avoid conditional operator with array.get() here.
+    // Pine can evaluate both branches in some contexts, which can cause
+    // `array.get(..., array.size(...) - 1)` to run when size == 0 (index -1).
+    float lastEPS = 0.0
+    if array.size(epsHistory) > 0
+        lastEPS := array.get(epsHistory, array.size(epsHistory) - 1)
     // Only add if value changed (new quarterly data)
     if epsQuarterly != lastEPS
         array.push(epsHistory, epsQuarterly)
