@@ -621,9 +621,78 @@ function computeRR(d) {
 }
 
 // Helper function: completionForSize (normalize completion to 0-1)
+// NOTE: Pine computes completion, but we keep a worker-side fallback for safety.
 function completionForSize(ticker) {
-  const c = Number(ticker.completion);
-  return Number.isFinite(c) ? Math.max(0, Math.min(1, c)) : 0;
+  const c = Number(ticker?.completion);
+  if (Number.isFinite(c)) return Math.max(0, Math.min(1, c));
+
+  const price = Number(ticker?.price);
+  const triggerPrice = Number(ticker?.trigger_price);
+  const tp = Number(ticker?.tp);
+  if (!Number.isFinite(price) || !Number.isFinite(triggerPrice) || !Number.isFinite(tp))
+    return 0;
+
+  const denom = Math.abs(tp - triggerPrice);
+  if (!(denom > 0)) return 0;
+
+  const raw = Math.abs(price - triggerPrice) / denom;
+  return Math.max(0, Math.min(1, raw));
+}
+
+function sideFromStateOrScores(tickerData) {
+  const state = String(tickerData?.state || "");
+  if (state.includes("BULL")) return "LONG";
+  if (state.includes("BEAR")) return "SHORT";
+  const h = Number(tickerData?.htf_score);
+  const l = Number(tickerData?.ltf_score);
+  if (Number.isFinite(h) && Number.isFinite(l)) {
+    if (h > 0) return "LONG";
+    if (h < 0) return "SHORT";
+  }
+  return null;
+}
+
+function dailyEmaRegimeOk(tickerData, side) {
+  const cloud = tickerData?.daily_ema_cloud;
+  const pos = cloud?.position != null ? String(cloud.position).toLowerCase() : "";
+  if (!pos) return true;
+  if (side === "LONG") return pos !== "below";
+  if (side === "SHORT") return pos !== "above";
+  return true;
+}
+
+function ichimokuRegimeOk(tickerData, side) {
+  const dPos =
+    tickerData?.ichimoku_d?.position != null
+      ? String(tickerData.ichimoku_d.position).toLowerCase()
+      : "";
+  const wPos =
+    tickerData?.ichimoku_w?.position != null
+      ? String(tickerData.ichimoku_w.position).toLowerCase()
+      : "";
+
+  // If we don't have Ichimoku in the payload yet, don't block.
+  if (!dPos && !wPos) return true;
+
+  const dBadLong = dPos === "below";
+  const wBadLong = wPos === "below";
+  const dBadShort = dPos === "above";
+  const wBadShort = wPos === "above";
+
+  // Block only when BOTH HTFs disagree with the trade direction.
+  if (side === "LONG") return !(dBadLong && wBadLong);
+  if (side === "SHORT") return !(dBadShort && wBadShort);
+  return true;
+}
+
+function isLateCycle(tickerData) {
+  const z = String(tickerData?.phase_zone || "").toUpperCase();
+  const phase = Number(tickerData?.phase_pct) || 0;
+  // Zones are: LOW / MEDIUM / HIGH / EXTREME (from Pine).
+  if (z === "EXTREME") return true;
+  if (z === "HIGH") return true;
+  // Additional safety for legacy payloads without zones.
+  return phase >= 0.7;
 }
 
 // Helper function: entryType (check if ticker is in corridor)
@@ -656,6 +725,7 @@ function computeDynamicScore(ticker) {
   const rr = Number(ticker.rr) || 0;
   const flags = ticker.flags || {};
   const state = String(ticker.state || "");
+  const holdIntent = String(ticker.hold_intent || ticker.horizon_bucket || "").toUpperCase();
 
   const sqRel = !!flags.sq30_release;
   const sqOn = !!flags.sq30_on;
@@ -710,6 +780,15 @@ function computeDynamicScore(ticker) {
     dynamicScore += 5; // Early in move
   } else if (comp > 0.8) {
     dynamicScore -= 8; // Near completion penalty
+  }
+
+  // Phase 2: Hold-intent scoring (small nudge; only when HTF strength supports it)
+  // Goal: favor longer-duration setups when HTF strength is high, without overpowering other gates.
+  const htfAbs = Math.abs(htf);
+  if (holdIntent === "POSITION" && htfAbs >= 15) {
+    dynamicScore += 2;
+  } else if (holdIntent === "SWING" && htfAbs >= 10) {
+    dynamicScore += 1;
   }
 
   // Score strength bonus (strong HTF/LTF scores)
@@ -888,6 +967,8 @@ function deriveHorizonAndMetrics(payload) {
     eta_days_max: null,
     eta_confidence: 0.4,
     horizon_bucket: "UNKNOWN",
+    // Alias for downstream clarity (Phase 2: hold-intent scoring/labeling)
+    hold_intent: "UNKNOWN",
   };
 
   if (!direction || !Number.isFinite(entryRef) || entryRef <= 0) {
@@ -895,6 +976,7 @@ function deriveHorizonAndMetrics(payload) {
     out.horizon_bucket = horizonBucketFromEtaDays(etaFallback);
     out.eta_days_v2 = Number.isFinite(etaFallback) ? etaFallback : null;
     out.eta_confidence = Number.isFinite(etaFallback) ? 0.35 : 0.2;
+    out.hold_intent = out.horizon_bucket;
     return out;
   }
 
@@ -1075,6 +1157,7 @@ function deriveHorizonAndMetrics(payload) {
     ? out.eta_days_v2
     : Number(payload.eta_days);
   out.horizon_bucket = horizonBucketFromEtaDays(etaForBucket);
+  out.hold_intent = out.horizon_bucket;
 
   return out;
 }
@@ -1411,7 +1494,7 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const rankOk = rank >= minRank;
 
   const rr = Number(tickerData.rr) || 0;
-  const comp = Number(tickerData.completion) || 0;
+  const comp = completionForSize(tickerData);
   const phase = Number(tickerData.phase_pct) || 0;
 
   const rrOk = rr >= minRR;
@@ -1421,6 +1504,18 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const momentumEliteTrigger =
     momentumElite && inCorridor && corridorAlignedOK && (trigOk || sqRelease || justEnteredCorridor);
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+
+  // Phase 1/3 gates applied to simulation entries too.
+  const inferredSide = side || sideFromStateOrScores(tickerData);
+  if (!dailyEmaRegimeOk(tickerData, inferredSide)) return false;
+  if (!ichimokuRegimeOk(tickerData, inferredSide)) return false;
+  if (isLateCycle(tickerData) && !momentumElite) return false;
+  // Pullback-only entry: require a pullback→re-alignment transition OR a squeeze release.
+  // This avoids chasing late/extended moves that are merely "in corridor".
+  const prevStateStr = prevData ? String(prevData.state || "") : "";
+  const enteredFromPullback = !!enteredAligned && prevStateStr.includes("PULLBACK");
+  const freshPullbackOk = enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
+  if (!freshPullbackOk) return false;
 
   return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
 }
@@ -1561,7 +1656,7 @@ function buildEntryDecision(ticker, tickerData, prevState) {
 
   const rrAtEntry =
     entryPrice != null ? calculateRRAtEntry(tickerData, entryPrice) : null;
-  const comp = Number(tickerData.completion) || 0;
+  const comp = completionForSize(tickerData);
   const phase = Number(tickerData.phase_pct) || 0;
 
   const rrOk = (rrAtEntry || 0) >= minRR;
@@ -1578,6 +1673,24 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   if (!inCorridor) blockers.push("not_in_corridor");
   if (inCorridor && !corridorAlignedOK) blockers.push("corridor_misaligned");
   if (!shouldConsiderAlert) blockers.push("no_trigger");
+
+  // Phase 1: HTF regime gate + late-cycle disqualifier + pullback-only entry constraint
+  const inferredSide = side || sideFromStateOrScores(tickerData);
+  if (!dailyEmaRegimeOk(tickerData, inferredSide)) blockers.push("htf_regime_gate");
+  if (!ichimokuRegimeOk(tickerData, inferredSide))
+    blockers.push("ichimoku_regime_gate");
+
+  const lateCycle = isLateCycle(tickerData);
+  if (lateCycle && !momentumElite) blockers.push("late_cycle");
+  else if (lateCycle && momentumElite) warnings.push("late_cycle");
+
+  // Pullback-only entry: require a pullback→re-alignment transition OR a squeeze release.
+  // (Entered-aligned alone can also happen on regime flips; we explicitly require pullback.)
+  const enteredFromPullback =
+    !!enteredAligned && String(prevState || "").includes("PULLBACK");
+  const freshPullbackOk = enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
+  if (!freshPullbackOk) blockers.push("no_fresh_pullback");
+
   if (!rankOk) blockers.push("rank_below_min");
   if (!rrOk) blockers.push("rr_below_min");
   if (!compOk) blockers.push("completion_high");
@@ -2442,6 +2555,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
       tpArray,
       exitPrice: sl,
       exitReason: "SL",
+      exitCategory: "INVALIDATION",
     };
   } else if (hitTPLevels.length > 0 && !weekendNow) {
     // One or more TP levels hit - determine next trim action
@@ -2495,6 +2609,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
           tpArray,
           exitPrice: nextTrimTP.price,
           exitReason: "TP_FULL",
+          exitCategory: "PROFIT_MANAGEMENT",
           trimPrice: nextTrimTP.price,
           trimTargetPct: targetTrimPct,
           trimDeltaPct: trimAmount,
@@ -2510,6 +2625,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
         currentPrice,
         trimmedPct: targetTrimPct,
         tpArray, // Store TP array for next check
+        decisionCategory: "PROFIT_MANAGEMENT",
         trimPrice: nextTrimTP.price,
         trimTargetPct: targetTrimPct,
         trimDeltaPct: trimAmount,
@@ -2575,6 +2691,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
           trimmedPct,
           tpArray,
           exitReason: null,
+          decisionCategory: "PROFIT_MANAGEMENT",
         };
       }
 
@@ -2591,6 +2708,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
         trimmedPct,
         tpArray,
         exitReason: null,
+        decisionCategory: "PROFIT_MANAGEMENT",
       };
     }
   } else {
@@ -3361,6 +3479,7 @@ async function processTradeSimulation(
           trimmedPct: existingOpenTrade.trimmedPct || 0,
           exitPrice: currentPrice,
           exitReason: "TDSEQ",
+          exitCategory: "INVALIDATION",
         };
 
         // Add activity feed event for TD9 exit
@@ -3493,6 +3612,13 @@ async function processTradeSimulation(
             : newStatus === "LOSS"
             ? "SL"
             : "TP_FULL");
+        const exitCategory =
+          tradeCalc.exitCategory ||
+          (exitReason === "SL" || exitReason === "TDSEQ"
+            ? "INVALIDATION"
+            : exitReason === "TP_FULL"
+            ? "PROFIT_MANAGEMENT"
+            : null);
 
         // Add TRIM event whenever trimmedPct increases (supports progressive trims)
         if (didTrim) {
@@ -3524,6 +3650,10 @@ async function processTradeSimulation(
               trimPct: newTrimmedPct, // total trimmed
               trimDeltaPct: trimDeltaPctRaw, // this trim step
               remainingPct: Math.max(0, 1 - newTrimmedPct),
+              category:
+                tradeCalc.decisionCategory ||
+                tradeCalc.exitCategory ||
+                "PROFIT_MANAGEMENT",
               note: `Trimmed ${Math.round(trimDeltaPctRaw * 100)}% at TP ${
                 Number.isFinite(trimPrice)
                   ? `$${Number(trimPrice).toFixed(2)}`
@@ -3551,6 +3681,7 @@ async function processTradeSimulation(
             shares: remainingShares,
             value: exitPrice * remainingShares,
             reason: exitReason,
+            category: exitCategory,
             note: `Closed ${
               newStatus === "WIN" ? "profitably" : "at loss"
             } at $${Number(exitPrice).toFixed(2)} (${exitReason})`,
@@ -3635,6 +3766,8 @@ async function processTradeSimulation(
           history: history,
           exitReason:
             newStatus === "WIN" || newStatus === "LOSS" ? exitReason : null,
+          exitCategory:
+            newStatus === "WIN" || newStatus === "LOSS" ? exitCategory : null,
           exitPrice:
             newStatus === "WIN" || newStatus === "LOSS" ? exitPrice : null,
         };
@@ -4986,6 +5119,8 @@ function computeRank(d) {
   const sqOn = !!flags.sq30_on;
   const phaseZoneChange = !!flags.phase_zone_change;
   const momentumElite = !!flags.momentum_elite;
+  const emaCross1H1348 = !!flags.ema_cross_1h_13_48;
+  const buyableDip1H1348 = !!flags.buyable_dip_1h_13_48;
 
   const state = String(d.state || "");
   const aligned =
@@ -5052,6 +5187,12 @@ function computeRank(d) {
 
   // Momentum Elite boost (reduced but still significant)
   if (momentumElite) score += 15; // Reduced from 20
+
+  // 1H 13/48 cross + buyable-dip nuance
+  // - Cross is a pivot/confirmation marker
+  // - Dip-after-cross is a higher-quality entry context
+  if (emaCross1H1348) score += 2;
+  if (buyableDip1H1348) score += 5;
 
   // RSI Divergence boost/penalty
   const rsi = d.rsi;
