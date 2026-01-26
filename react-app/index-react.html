@@ -1660,18 +1660,18 @@
       }
 
       function computeEntryRef(ticker) {
-        const entryRef = Number(ticker?.entry_ref);
+        const entryRef = numFromAny(ticker?.entry_ref);
         if (Number.isFinite(entryRef) && entryRef > 0) return entryRef;
-        const trigger = Number(ticker?.trigger_price);
+        const trigger = numFromAny(ticker?.trigger_price);
         if (Number.isFinite(trigger) && trigger > 0) return trigger;
-        const price = Number(ticker?.price);
+        const price = numFromAny(ticker?.price ?? ticker?.close ?? ticker?.c ?? ticker?.last);
         return Number.isFinite(price) && price > 0 ? price : null;
       }
 
       function computeTpMaxPrice(ticker) {
         const entry = computeEntryRef(ticker);
         if (!Number.isFinite(entry)) return null;
-        const directMax = Number(ticker?.tp_max_price ?? ticker?.tp_max);
+        const directMax = numFromAny(ticker?.tp_max_price ?? ticker?.tp_max);
         if (Number.isFinite(directMax) && directMax > 0) return directMax;
         const dir = getDirectionFromState(ticker);
         const tpLevels = Array.isArray(ticker?.tp_levels)
@@ -1679,16 +1679,14 @@
           : [];
         const candidates = tpLevels
           .map((tp) => {
-            const price =
-              tp && typeof tp === "object" && tp.price != null
-                ? Number(tp.price)
-                : Number(tp);
+            const px = tp && typeof tp === "object" && tp.price != null ? tp.price : tp;
+            const price = numFromAny(px);
             return Number.isFinite(price) ? price : null;
           })
           .filter((p) => Number.isFinite(p));
 
         if (ticker?.tp != null) {
-          const tp = Number(ticker.tp);
+          const tp = numFromAny(ticker.tp);
           if (Number.isFinite(tp)) candidates.push(tp);
         }
 
@@ -1707,15 +1705,32 @@
       }
 
       function computeTpTargetPrice(ticker) {
-        const directTarget = Number(ticker?.tp_target_price ?? ticker?.tp_target);
+        const directTarget = numFromAny(ticker?.tp_target_price ?? ticker?.tp_target);
         if (Number.isFinite(directTarget) && directTarget > 0) return directTarget;
-        const primary = Number(ticker?.tp);
+        const primary = numFromAny(ticker?.tp);
         if (Number.isFinite(primary) && primary > 0) return primary;
         return null;
       }
 
+      function numFromAny(v) {
+        if (v == null) return null;
+        if (typeof v === "number") return Number.isFinite(v) ? v : null;
+        if (typeof v === "string") {
+          const s = v.trim();
+          if (!s) return null;
+          // Accept things like "$77.16", "77.16 USD", "1,234.50"
+          const m = s.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+          if (!m) return null;
+          const n = Number(m[0]);
+          return Number.isFinite(n) ? n : null;
+        }
+        // Common object formats: { price }, etc.
+        if (typeof v === "object" && v.price != null) return numFromAny(v.price);
+        return null;
+      }
+
       function fmtUsdAbs(n) {
-        const x = Number(n);
+        const x = numFromAny(n);
         if (!Number.isFinite(x)) return "—";
         return `$${Math.abs(x).toFixed(2)}`;
       }
@@ -1865,9 +1880,9 @@
 
       function computeReturnPct(ticker) {
         const direct =
-          Number(ticker?.expected_return_pct) ||
-          Number(ticker?.tp_target_pct) ||
-          Number(ticker?.tp_max_pct);
+          numFromAny(ticker?.expected_return_pct) ||
+          numFromAny(ticker?.tp_target_pct) ||
+          numFromAny(ticker?.tp_max_pct);
         if (Number.isFinite(direct)) return direct;
         const entry = computeEntryRef(ticker);
         const tpTarget = computeTpTargetPrice(ticker) ?? computeTpMaxPrice(ticker);
@@ -1876,10 +1891,17 @@
       }
 
       function computeRiskPct(ticker) {
-        const direct = Number(ticker?.risk_pct);
+        const direct = numFromAny(ticker?.risk_pct);
         if (Number.isFinite(direct)) return direct;
         const entry = computeEntryRef(ticker);
-        const sl = Number(ticker?.sl);
+        const sl = numFromAny(
+          ticker?.sl ??
+            ticker?.sl_price ??
+            ticker?.stop_loss ??
+            ticker?.stop ??
+            ticker?.trade?.sl ??
+            ticker?.trade?.sl_price
+        );
         if (!Number.isFinite(entry) || !Number.isFinite(sl)) return null;
         return (Math.abs(entry - sl) / entry) * 100;
       }
@@ -1887,12 +1909,12 @@
       function computeEtaDays(ticker) {
         const staleness = String(ticker?.staleness || "").toUpperCase();
         if (staleness && staleness !== "FRESH") return null;
-        const baseEta = Number(ticker?.eta_days_v2 ?? ticker?.eta_days);
+        const baseEta = numFromAny(ticker?.eta_days_v2 ?? ticker?.eta_days);
         if (!Number.isFinite(baseEta) || baseEta <= 0) return null;
         const dir = getDirectionFromState(ticker);
         const entry = computeEntryRef(ticker);
         const target = computeTpTargetPrice(ticker);
-        const current = Number(ticker?.price);
+        const current = numFromAny(ticker?.price ?? ticker?.close ?? ticker?.c ?? ticker?.last);
         if (
           !Number.isFinite(entry) ||
           !Number.isFinite(target) ||
@@ -1915,7 +1937,7 @@
 
       function formatEntryZone(ticker) {
         const entry = computeEntryRef(ticker);
-        const price = Number(ticker?.price);
+        const price = numFromAny(ticker?.price ?? ticker?.close ?? ticker?.c ?? ticker?.last);
         if (!Number.isFinite(entry) || !Number.isFinite(price)) return "—";
         const low = Math.min(entry, price);
         const high = Math.max(entry, price);
