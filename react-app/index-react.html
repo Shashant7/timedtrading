@@ -11220,10 +11220,19 @@
 
           const dirPill =
             c.dir === "LONG"
-              ? { label: "LONG", cls: "bg-green-500/10 text-green-400 border-green-500/30" }
+              ? {
+                  label: "📈 LONG",
+                  cls: "bg-gradient-to-r from-green-500/35 to-emerald-500/10 text-green-200 border-green-400/70 ring-1 ring-green-400/30 shadow-[0_0_0_1px_rgba(34,197,94,0.15)]",
+                }
               : c.dir === "SHORT"
-              ? { label: "SHORT", cls: "bg-red-500/10 text-red-400 border-red-500/30" }
-              : { label: c.dir, cls: "bg-[#26325f] text-[#93a4d6] border-[#26325f]" };
+              ? {
+                  label: "📉 SHORT",
+                  cls: "bg-gradient-to-r from-red-500/35 to-rose-500/10 text-red-200 border-red-400/70 ring-1 ring-red-400/30 shadow-[0_0_0_1px_rgba(239,68,68,0.15)]",
+                }
+              : {
+                  label: c.dir,
+                  cls: "bg-[#26325f] text-[#93a4d6] border-[#26325f]",
+                };
 
           const moveStatus = String(c?.moveStatus || "ACTIVE").toUpperCase();
           const moveEmoji =
@@ -11276,7 +11285,10 @@
                     <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${statusPill.cls}`}>
                       {statusPill.label}
                     </span>
-                    <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${dirPill.cls}`}>
+                    <span
+                      className={`px-3 py-1 rounded-md border text-xs font-extrabold tracking-wide ${dirPill.cls}`}
+                      title="Directional bias (makes LONG/SHORT stand out)"
+                    >
                       {dirPill.label}
                     </span>
                     {c.bucket && c.bucket !== "UNKNOWN" && (
@@ -12483,10 +12495,17 @@
             const trigDir = String(ticker.trigger_dir || "").trim();
             const trigTf = String(ticker.trigger_tf || "").trim();
             if (trigReason) {
+              const uncorroborated =
+                ticker.trigger_reason_corroborated === false &&
+                (trigReason === "EMA_CROSS_1H_13_48" || trigReason === "EMA_CROSS_30M_13_48");
               items.push(
                 trigTf
-                  ? `${trigReason}${trigDir ? " (" + trigDir + ")" : ""} [${trigTf}]`
-                  : `${trigReason}${trigDir ? " (" + trigDir + ")" : ""}`
+                  ? `${trigReason}${trigDir ? " (" + trigDir + ")" : ""} [${trigTf}]${
+                      uncorroborated ? " ⚠️ unconfirmed" : ""
+                    }`
+                  : `${trigReason}${trigDir ? " (" + trigDir + ")" : ""}${
+                      uncorroborated ? " ⚠️ unconfirmed" : ""
+                    }`
               );
             }
             if (flags.sq30_release) items.push("SQUEEZE_RELEASE_30M");
@@ -16641,8 +16660,8 @@
               <TrackerWelcomeModal onClose={handleWelcomeTrackerClose} />
             )}
 
-            <div className="min-h-screen p-4">
-              <div className="w-full max-w-[1600px] mx-auto">
+            <div className="min-h-screen p-0">
+              <div className="w-full">
                 {/* Navigation */}
                 <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                   <div className="flex items-center gap-3 flex-wrap">

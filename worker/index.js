@@ -776,6 +776,41 @@ function triggerSummaryAndScore(tickerData) {
   };
 }
 
+function triggerReasonCorroboration(tickerData) {
+  const rawReason = tickerData?.trigger_reason != null ? String(tickerData.trigger_reason).trim() : "";
+  const rawDir = tickerData?.trigger_dir != null ? String(tickerData.trigger_dir).trim() : "";
+  if (!rawReason) return { corroborated: true, note: "" };
+
+  const triggers = Array.isArray(tickerData?.triggers)
+    ? tickerData.triggers.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim())
+    : [];
+  const flags = tickerData?.flags && typeof tickerData.flags === "object" ? tickerData.flags : {};
+
+  const hasAny = (...xs) => xs.some((x) => triggers.includes(x));
+
+  // Only guard the noisy categories that can "stick" on HTF series.
+  if (rawReason === "EMA_CROSS_1H_13_48") {
+    const ok =
+      hasAny("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR") ||
+      !!flags.ema_cross_1h_13_48;
+    return {
+      corroborated: ok,
+      note: ok ? "" : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
+    };
+  }
+  if (rawReason === "EMA_CROSS_30M_13_48") {
+    const ok =
+      hasAny("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR") ||
+      !!flags.ema_cross_30m_13_48;
+    return {
+      corroborated: ok,
+      note: ok ? "" : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
+    };
+  }
+
+  return { corroborated: true, note: "" };
+}
+
 function computeMoveStatus(tickerData) {
   const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
   const flags = tickerData?.flags || {};
@@ -8747,6 +8782,9 @@ export default {
             payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
             payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
             payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+            const trigCorr = triggerReasonCorroboration(payload);
+            payload.trigger_reason_corroborated = !!trigCorr.corroborated;
+            payload.trigger_reason_note = trigCorr.note || "";
           } catch (e) {
             console.error(`[ENRICH] Failed for ${ticker}:`, String(e?.message || e));
           }
