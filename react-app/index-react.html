@@ -9660,6 +9660,7 @@
         const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all | today
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
         const [horizon, setHorizon] = React.useState("ALL"); // ALL | SHORT_TERM | SWING | POSITIONAL
+        const [moveFilter, setMoveFilter] = React.useState("ALL"); // ALL | ACTIVE | INVALIDATED | COMPLETED
         const [query, setQuery] = React.useState("");
         const [sortBy, setSortBy] = React.useState("RANK"); // RANK | ABC | DCHG
         const [todaySnapshot, setTodaySnapshot] = React.useState(null); // { createdAt, tickers: [], rpBy: {} }
@@ -9726,11 +9727,14 @@
         const classify = (t) => {
           const prime = isPrimeBubble(t);
           const eligible = isEligible(t);
+          const ms = t?.move_status && typeof t.move_status === "object" ? t.move_status : null;
+          const moveStatus = ms && ms.status ? String(ms.status).toUpperCase() : "ACTIVE";
           return {
             prime,
             eligible,
             bucket: toBucket(t),
             dir: getDirection(t)?.text || "NEUTRAL",
+            moveStatus,
           };
         };
 
@@ -9821,12 +9825,18 @@
           const list = Array.isArray(tickers) ? tickers : [];
           let prime = 0;
           let eligible = 0;
+          let active = 0;
+          let invalidated = 0;
+          let completed = 0;
           for (const t of list) {
             const c = classify(t);
             if (c.prime) prime++;
             if (c.eligible) eligible++;
+            if (c.moveStatus === "INVALIDATED") invalidated++;
+            else if (c.moveStatus === "COMPLETED") completed++;
+            else active++;
           }
-          return { prime, eligible, all: list.length };
+          return { prime, eligible, all: list.length, active, invalidated, completed };
         }, [tickers]);
 
         const filtered = React.useMemo(() => {
@@ -9884,6 +9894,10 @@
               out.push({ ...it, snapRp: null, dropped: false, isNew: true });
             }
 
+            // Apply move filter to Today list too (optional, but matches user intent).
+            if (moveFilter !== "ALL") {
+              return out.filter((it) => it?.c?.moveStatus === moveFilter);
+            }
             return out;
           }
 
@@ -9892,6 +9906,7 @@
               if (!showControls) return true;
               if (view !== "all" && status !== view) return false;
               if (dir !== "ALL" && c.dir !== dir) return false;
+              if (moveFilter !== "ALL" && c.moveStatus !== moveFilter) return false;
               if (horizon !== "ALL" && c.bucket !== horizon) return false;
               if (q && !String(t.ticker).toUpperCase().includes(q)) return false;
               return true;
@@ -9925,7 +9940,7 @@
             });
 
           return items;
-        }, [tickers, view, dir, horizon, query, rankPositions, sortBy, todaySnapshot, bestLiveForToday]);
+        }, [tickers, view, dir, moveFilter, horizon, query, rankPositions, sortBy, todaySnapshot, bestLiveForToday]);
 
         React.useEffect(() => {
           if (!onFilteredTickersChange) return;
@@ -9996,6 +10011,27 @@
               ? { label: "SHORT", cls: "bg-red-500/10 text-red-400 border-red-500/30" }
               : { label: c.dir, cls: "bg-[#26325f] text-[#93a4d6] border-[#26325f]" };
 
+          const moveStatus = String(c?.moveStatus || "ACTIVE").toUpperCase();
+          const moveEmoji =
+            moveStatus === "INVALIDATED"
+              ? "⛔"
+              : moveStatus === "COMPLETED"
+              ? "✅"
+              : "🟢";
+          const moveTitle = (() => {
+            const ms =
+              t?.move_status && typeof t.move_status === "object" ? t.move_status : null;
+            if (!ms) return `Move: ${moveStatus}`;
+            const reasons = Array.isArray(ms.reasons) ? ms.reasons : [];
+            const r = reasons
+              .filter((x) => x != null)
+              .map((x) => String(x))
+              .filter((x) => x.trim())
+              .slice(0, 6)
+              .join(", ");
+            return r ? `Move: ${moveStatus} — ${r}` : `Move: ${moveStatus}`;
+          })();
+
           return (
             <button
               key={t.ticker}
@@ -10010,6 +10046,13 @@
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="text-[12px]"
+                      title={moveTitle}
+                      aria-label={`Move status ${moveStatus}`}
+                    >
+                      {moveEmoji}
+                    </span>
                     <div className="font-bold text-white">{t.ticker}</div>
                     {badgeEmojis.length > 0 && (
                       <span className="px-2 py-0.5 rounded border border-[#26325f] bg-[#0f1630] text-[10px] font-semibold text-[#e7ecff]">
@@ -10147,6 +10190,9 @@
                 <div className="text-sm font-bold text-white">{title}</div>
                 <div className="text-[10px] text-[#93a4d6] mt-0.5">
                   Prime {counts.prime} • Eligible {counts.eligible} • Total {counts.all}
+                  <span className="ml-2 text-[#6b7a9f]">
+                    • 🟢 {counts.active} ⛔ {counts.invalidated} ✅ {counts.completed}
+                  </span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -10191,6 +10237,11 @@
                 {pill("All", dir === "ALL", () => setDir("ALL"))}
                 {pill("Long", dir === "LONG", () => setDir("LONG"))}
                 {pill("Short", dir === "SHORT", () => setDir("SHORT"))}
+                <div className="w-px h-6 bg-[#26325f] mx-1" />
+                {pill("Move: All", moveFilter === "ALL", () => setMoveFilter("ALL"))}
+                {pill("🟢 Active", moveFilter === "ACTIVE", () => setMoveFilter("ACTIVE"))}
+                {pill("⛔ Invalid", moveFilter === "INVALIDATED", () => setMoveFilter("INVALIDATED"))}
+                {pill("✅ Done", moveFilter === "COMPLETED", () => setMoveFilter("COMPLETED"))}
                 <div className="w-px h-6 bg-[#26325f] mx-1" />
                 {pill("Any horizon", horizon === "ALL", () => setHorizon("ALL"))}
                 {pill("≤7d", horizon === "SHORT_TERM", () => setHorizon("SHORT_TERM"))}
