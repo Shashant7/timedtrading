@@ -11371,6 +11371,91 @@
                     }
                   })()}
 
+                  {/* Move status (Active / Invalidated / Completed) */}
+                  {(() => {
+                    const ms =
+                      ticker?.move_status && typeof ticker.move_status === "object"
+                        ? ticker.move_status
+                        : null;
+                    if (!ms || !ms.status) return null;
+
+                    const status = String(ms.status || "").toUpperCase();
+                    const severity = String(ms.severity || "").toUpperCase();
+                    const reasonsRaw = Array.isArray(ms.reasons) ? ms.reasons : [];
+
+                    const pretty = (r) => {
+                      const key = String(r || "").trim();
+                      const map = {
+                        sl_breached: "SL breached",
+                        tp_reached: "TP reached",
+                        daily_ema_regime_break: "Daily EMA regime break",
+                        ichimoku_regime_break: "Ichimoku regime break",
+                        late_cycle: "Late-cycle",
+                        overextended: "Overextended",
+                        left_entry_corridor: "Left entry corridor",
+                      };
+                      return map[key] || key.replace(/_/g, " ");
+                    };
+
+                    const pill =
+                      status === "INVALIDATED"
+                        ? "bg-red-500/15 text-red-300 border-red-500/40"
+                        : status === "COMPLETED"
+                        ? "bg-purple-500/15 text-purple-300 border-purple-500/40"
+                        : "bg-green-500/10 text-green-300 border-green-500/30";
+
+                    const icon =
+                      status === "INVALIDATED"
+                        ? "⛔"
+                        : status === "COMPLETED"
+                        ? "✅"
+                        : "🟢";
+
+                    const reasons = reasonsRaw
+                      .filter((x) => x != null)
+                      .map((x) => String(x))
+                      .filter((x) => x.trim())
+                      .slice(0, 8);
+
+                    return (
+                      <div className="mt-2">
+                        <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                          <span className="text-[#93a4d6]">Move:</span>
+                          <span className={`px-2 py-0.5 rounded border font-semibold ${pill}`}>
+                            {icon} {status}
+                            {severity ? (
+                              <span className="ml-1 text-[10px] opacity-80">({severity})</span>
+                            ) : null}
+                          </span>
+                        </div>
+                        {status === "INVALIDATED" && reasons.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {reasons.map((r, idx) => (
+                              <span
+                                key={`inv-reason-${idx}`}
+                                className="px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-[10px] text-red-200"
+                              >
+                                {pretty(r)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        {status === "COMPLETED" && reasons.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {reasons.map((r, idx) => (
+                              <span
+                                key={`comp-reason-${idx}`}
+                                className="px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/10 text-[10px] text-purple-200"
+                              >
+                                {pretty(r)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+
                   {/* Right Rail Tabs */}
                   <div className="mt-3 flex items-center gap-2 flex-wrap">
                     {[
