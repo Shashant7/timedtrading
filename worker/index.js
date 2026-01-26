@@ -776,6 +776,72 @@ function triggerSummaryAndScore(tickerData) {
   };
 }
 
+function computeMoveStatus(tickerData) {
+  const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
+  const flags = tickerData?.flags || {};
+  const momentumElite = !!flags.momentum_elite;
+
+  const price = Number(tickerData?.price);
+  const sl = Number(tickerData?.sl);
+  const tp = Number(tickerData?.tp);
+  const triggerTs = Number(tickerData?.trigger_ts);
+
+  const reasons = [];
+
+  // If we can't infer direction, don't mark invalidated.
+  if (!side) {
+    return {
+      status: "ACTIVE",
+      side: null,
+      severity: "NONE",
+      reasons: [],
+    };
+  }
+
+  // Hard invalidation: SL breach
+  if (Number.isFinite(price) && Number.isFinite(sl) && sl > 0) {
+    if (side === "LONG" && price <= sl) reasons.push("sl_breached");
+    if (side === "SHORT" && price >= sl) reasons.push("sl_breached");
+  }
+
+  // Completion: TP reached/exceeded (move is "done" from entry standpoint)
+  if (Number.isFinite(price) && Number.isFinite(tp) && tp > 0) {
+    if (side === "LONG" && price >= tp) reasons.push("tp_reached");
+    if (side === "SHORT" && price <= tp) reasons.push("tp_reached");
+  }
+
+  // Regime breaks: HTF structure disagrees with direction
+  if (!dailyEmaRegimeOk(tickerData, side)) reasons.push("daily_ema_regime_break");
+  if (!ichimokuRegimeOk(tickerData, side)) reasons.push("ichimoku_regime_break");
+
+  // Late-cycle: disqualifier unless Momentum Elite
+  if (isLateCycle(tickerData) && !momentumElite) reasons.push("late_cycle");
+
+  // Overextension: extremely high completion means little edge left
+  const comp = completionForSize(tickerData);
+  if (Number.isFinite(comp) && comp >= 0.95) reasons.push("overextended");
+
+  // If we have a trigger timestamp and we're not in the entry corridor anymore,
+  // treat it as "not an entry" for this move (soft).
+  if (Number.isFinite(triggerTs) && triggerTs > 0) {
+    const ent = entryType(tickerData);
+    if (ent && ent.corridor === false) reasons.push("left_entry_corridor");
+  }
+
+  const isCompleted = reasons.includes("tp_reached");
+  const isInvalidated = reasons.includes("sl_breached") || (!isCompleted && reasons.length > 0);
+
+  const status = isCompleted ? "COMPLETED" : isInvalidated ? "INVALIDATED" : "ACTIVE";
+  const severity = reasons.includes("sl_breached") || reasons.includes("tp_reached") ? "HARD" : reasons.length ? "SOFT" : "NONE";
+
+  return {
+    status,
+    side,
+    severity,
+    reasons,
+  };
+}
+
 function sideFromStateOrScores(tickerData) {
   const state = String(tickerData?.state || "");
   if (state.includes("BULL")) return "LONG";
@@ -893,6 +959,13 @@ function computeDynamicScore(ticker) {
   const trig = ticker?.trigger_summary || triggerSummaryAndScore(ticker);
   if (trig && typeof trig === "object" && Number.isFinite(trig.score)) {
     dynamicScore += trig.score;
+  }
+
+  // Move status: deprioritize invalidated/completed moves
+  const ms = ticker?.move_status || computeMoveStatus(ticker);
+  if (ms && typeof ms === "object") {
+    if (ms.status === "INVALIDATED") dynamicScore -= 30;
+    else if (ms.status === "COMPLETED") dynamicScore -= 20;
   }
 
   // Corridor bonus (high priority - active setups)
@@ -1663,6 +1736,10 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
     momentumElite && inCorridor && corridorAlignedOK && (trigOk || sqRelease || justEnteredCorridor);
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
+  // Don't enter if the move has already invalidated/completed
+  const ms = tickerData?.move_status || computeMoveStatus(tickerData);
+  if (ms && (ms.status === "INVALIDATED" || ms.status === "COMPLETED")) return false;
+
   // Phase 1/3 gates applied to simulation entries too.
   const inferredSide = side || sideFromStateOrScores(tickerData);
   if (!dailyEmaRegimeOk(tickerData, inferredSide)) return false;
@@ -1831,6 +1908,11 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   if (!inCorridor) blockers.push("not_in_corridor");
   if (inCorridor && !corridorAlignedOK) blockers.push("corridor_misaligned");
   if (!shouldConsiderAlert) blockers.push("no_trigger");
+
+  // Move invalidation/completion gate (don't suggest entries on broken/done moves)
+  const ms = tickerData?.move_status || computeMoveStatus(tickerData);
+  if (ms && ms.status === "INVALIDATED") blockers.push("move_invalidated");
+  if (ms && ms.status === "COMPLETED") blockers.push("move_completed");
 
   // Phase 1: HTF regime gate + late-cycle disqualifier + pullback-only entry constraint
   const inferredSide = side || sideFromStateOrScores(tickerData);
@@ -5309,6 +5391,13 @@ function computeRank(d) {
     score += trig.score;
   }
 
+  // Move status: invalidate/completed moves should fall out of “best setups”
+  const ms = d?.move_status || computeMoveStatus(d);
+  if (ms && typeof ms === "object") {
+    if (ms.status === "INVALIDATED") score -= 25;
+    else if (ms.status === "COMPLETED") score -= 15;
+  }
+
   // State bonuses (reduced)
   if (aligned) score += 12; // Reduced from 15
   if (setup) score += 4; // Reduced from 5
@@ -8639,6 +8728,10 @@ export default {
             const tfSum = tfTechAlignmentSummary(payload);
             if (tfSum) payload.tf_summary = tfSum;
             payload.trigger_summary = triggerSummaryAndScore(payload);
+            payload.move_status = computeMoveStatus(payload);
+            payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+            payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
+            payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
           } catch (e) {
             console.error(`[ENRICH] Failed for ${ticker}:`, String(e?.message || e));
           }
@@ -10615,6 +10708,12 @@ export default {
             if (!data.trigger_summary) {
               data.trigger_summary = triggerSummaryAndScore(data);
             }
+            if (!data.move_status) {
+              data.move_status = computeMoveStatus(data);
+            }
+            data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+            data.flags.move_invalidated = data.move_status?.status === "INVALIDATED";
+            data.flags.move_completed = data.move_status?.status === "COMPLETED";
           } catch (e) {
             console.error(
               `[ENRICH] /timed/latest failed for ${ticker}:`,
@@ -10895,6 +10994,12 @@ export default {
                 if (!value.trigger_summary) {
                   value.trigger_summary = triggerSummaryAndScore(value);
                 }
+                if (!value.move_status) {
+                  value.move_status = computeMoveStatus(value);
+                }
+                value.flags = value.flags && typeof value.flags === "object" ? value.flags : {};
+                value.flags.move_invalidated = value.move_status?.status === "INVALIDATED";
+                value.flags.move_completed = value.move_status?.status === "COMPLETED";
               } catch (e) {
                 console.error(
                   `[ENRICH] /timed/all failed for ${ticker}:`,
