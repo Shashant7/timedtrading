@@ -1432,6 +1432,139 @@
         return `${days}d`;
       }
 
+      // Trail/Bubble-journey derived intent classifier (entry-focused, but can recommend HOLD/EXIT).
+      function classifyEntryIntent(ticker) {
+        const t = ticker && typeof ticker === "object" ? ticker : {};
+        const flags = t.flags && typeof t.flags === "object" ? t.flags : {};
+        const move = getMoveStatusInfo(t);
+        const ent = entryType(t);
+        const inCorridor = !!ent?.corridor;
+
+        const rr = Number(t.rr);
+        const rank = Number(t.rank);
+        const comp = completionForSize(t);
+        const phase = Number(t.phase_pct);
+        const zone = String(t.phase_zone || "").toUpperCase();
+
+        const sqRel = !!flags.sq30_release;
+        const sqOn = !!flags.sq30_on;
+        const inSqueeze = sqOn && !sqRel;
+        const momentumElite = !!flags.momentum_elite;
+        const thesis = flags.thesis_match === true;
+
+        const deltas = t.deltas && typeof t.deltas === "object" ? t.deltas : {};
+        const seq = t.seq && typeof t.seq === "object" ? t.seq : {};
+        const patt = seq.pattern && typeof seq.pattern === "object" ? seq.pattern : {};
+
+        const htf4h = Number(deltas.htf_4h);
+        const ltf4h = Number(deltas.ltf_4h);
+        const htfImproving4h = !!flags.htf_improving_4h;
+        const htfMove4h = Number.isFinite(htf4h) ? Math.abs(htf4h) : 0;
+
+        // Exit conditions (even if move_status still says ACTIVE)
+        const lateCycle = zone === "HIGH" || zone === "EXTREME" || (Number.isFinite(phase) && phase >= 0.75);
+        const overextended = Number.isFinite(comp) && comp >= 0.9;
+        if (move.hasMoveStatus && (move.status === "INVALIDATED" || move.status === "COMPLETED")) {
+          return {
+            group: move.status === "COMPLETED" ? "Completed moves" : "Invalidated moves",
+            action: "EXIT",
+            confidence: 0.95,
+            why: [move.headlineReason || move.status],
+          };
+        }
+        if (overextended || lateCycle) {
+          return {
+            group: "Late-cycle / Overextended",
+            action: "EXIT",
+            confidence: overextended ? 0.9 : 0.75,
+            why: [
+              overextended ? "Completion very high" : null,
+              lateCycle ? `Phase zone ${zone || "HIGH"}` : null,
+            ].filter(Boolean),
+          };
+        }
+
+        // Entry archetypes (grouping)
+        const squeezeToMomentum = patt.squeezeReleaseToMomentum_6h === true;
+        const corridorReclaim = seq.corridorEntry_60m === true;
+        const squeezeOnToRelease = patt.squeezeOnToRelease_24h === true;
+
+        if (squeezeToMomentum) {
+          return {
+            group: "Squeeze → Momentum",
+            action: inCorridor ? "ENTRY" : "WAIT",
+            confidence: inCorridor ? 0.82 : 0.7,
+            why: [
+              "Squeeze release → momentum transition",
+              htfImproving4h ? "HTF improving (4h)" : null,
+              Number.isFinite(rr) ? `RR ${rr.toFixed(2)}` : null,
+            ].filter(Boolean),
+          };
+        }
+
+        if (momentumElite && (sqRel || htfImproving4h || htfMove4h >= 5)) {
+          return {
+            group: "Momentum Elite",
+            action: inCorridor ? "ENTRY" : "HOLD",
+            confidence: inCorridor ? 0.8 : 0.68,
+            why: [
+              "Momentum Elite",
+              sqRel ? "Squeeze release" : null,
+              htfImproving4h ? "HTF improving (4h)" : null,
+            ].filter(Boolean),
+          };
+        }
+
+        if (corridorReclaim && htfImproving4h) {
+          return {
+            group: "Corridor reclaim",
+            action: inCorridor ? "ENTRY" : "HOLD",
+            confidence: inCorridor ? 0.78 : 0.62,
+            why: ["Recent corridor entry", "HTF improving (4h)"],
+          };
+        }
+
+        if (inSqueeze && (inCorridor || squeezeOnToRelease)) {
+          return {
+            group: "Squeeze pressure build",
+            action: inCorridor ? "WAIT" : "HOLD",
+            confidence: 0.62,
+            why: ["Squeeze ON", "Waiting for release"],
+          };
+        }
+
+        // Default: make a sensible ENTRY vs HOLD/WAI
+        const baseGood =
+          Number.isFinite(rank) && rank >= 70 && Number.isFinite(rr) && rr >= 1.3 && comp <= 0.7;
+        const momentumGood =
+          (Number.isFinite(htf4h) && Number.isFinite(ltf4h) && (htfMove4h >= 5 || Math.abs(ltf4h) >= 5)) ||
+          htfImproving4h ||
+          thesis;
+
+        if (baseGood && momentumGood) {
+          return {
+            group: "Trend continuation",
+            action: inCorridor ? "ENTRY" : "HOLD",
+            confidence: inCorridor ? 0.68 : 0.55,
+            why: [
+              thesis ? "Thesis match" : null,
+              htfImproving4h ? "HTF improving (4h)" : null,
+              Number.isFinite(htf4h) ? `ΔHTF(4h) ${htf4h.toFixed(1)}` : null,
+            ].filter(Boolean),
+          };
+        }
+
+        return {
+          group: "Unclear / Chop",
+          action: inCorridor ? "WAIT" : "HOLD",
+          confidence: 0.45,
+          why: [
+            inCorridor ? "In corridor but weak confirmation" : "Out of corridor",
+            thesis ? "Thesis match (weak)" : null,
+          ].filter(Boolean),
+        };
+      }
+
       function isPrimeBubble(ticker) {
         const rank = Number(ticker.rank || 0);
         const rr = ticker.rr != null ? Number(ticker.rr) : 0;
@@ -10235,6 +10368,80 @@
         );
       }
 
+      function ActionPresetsBar({ onApply }) {
+        const apply = (patch) => {
+          if (typeof onApply === "function") onApply(patch);
+        };
+        const btn = (label, cls, onClick, title = "") => (
+          <button
+            onClick={onClick}
+            className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${cls}`}
+            title={title}
+          >
+            {label}
+          </button>
+        );
+        return (
+          <div className="mb-3 flex items-center gap-2 flex-wrap">
+            <div className="text-[10px] font-semibold text-[#6b7a9f] mr-1">
+              Action presets:
+            </div>
+            {btn(
+              "ENTRY NOW",
+              "border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20",
+              () =>
+                apply({
+                  opportunities: "ELIGIBLE",
+                  guidanceCategory: "INITIATE",
+                  horizonBucket: undefined,
+                  momentumElite: undefined,
+                  squeezeRelease: undefined,
+                  inSqueeze: undefined,
+                  winnerSignature: undefined,
+                }),
+              "Shows corridor-eligible setups + Initiate guidance"
+            )}
+            {btn(
+              "Momentum",
+              "border-purple-500/40 bg-purple-500/10 text-purple-200 hover:bg-purple-500/20",
+              () => apply({ momentumElite: true }),
+              "Filter to Momentum Elite"
+            )}
+            {btn(
+              "Squeeze Release",
+              "border-cyan-400/40 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20",
+              () => apply({ squeezeRelease: true }),
+              "Filter to squeeze releases"
+            )}
+            {btn(
+              "Thesis",
+              "border-blue-400/40 bg-blue-400/10 text-blue-200 hover:bg-blue-400/20",
+              () => apply({ ...THESIS_PRESET }),
+              "Apply Thesis preset gates"
+            )}
+            {btn(
+              "RESET",
+              "border-[#26325f] bg-[#121a33] text-[#93a4d6] hover:text-white hover:bg-[#16224a]",
+              () =>
+                apply({
+                  opportunities: undefined,
+                  guidanceCategory: undefined,
+                  horizonBucket: undefined,
+                  quadrants: undefined,
+                  group: "ALL",
+                  sector: undefined,
+                  momentumElite: undefined,
+                  squeezeRelease: undefined,
+                  inSqueeze: undefined,
+                  winnerSignature: undefined,
+                  td9Setup: null,
+                }),
+              "Clear filters back toward default"
+            )}
+          </div>
+        );
+      }
+
       function ActiveMovesSnapshotPanel({
         tickers = [],
         rankPositions = {},
@@ -10279,10 +10486,27 @@
               const thesis = flags.thesis_match === true;
               const prime = isPrimeBubble(t);
               const winnerSig = isWinnerSignature(t);
-              const sl = Number(t?.sl ?? t?.sl_price);
-              const tp = Number(t?.tp ?? t?.tp_price);
+              const sl = Number(
+                t?.sl ??
+                  t?.sl_price ??
+                  t?.stop_loss ??
+                  t?.stop ??
+                  t?.trade?.sl ??
+                  t?.trade?.sl_price
+              );
+              const tpTarget = computeTpTargetPrice(t);
+              const tpMax = computeTpMaxPrice(t);
+              const tp = Number(
+                t?.tp ??
+                  t?.tp_price ??
+                  tpTarget ??
+                  tpMax ??
+                  t?.tp_target_price ??
+                  t?.tp_max_price
+              );
               const eta = computeEtaDays(t);
-              const price = Number(t?.price);
+              const price = Number(t?.price ?? t?.close ?? t?.c ?? t?.last);
+              const intent = classifyEntryIntent(t);
               const progRaw = computeMoveProgressPct(t);
               const comp = completionForSize(t);
               const progress = Number.isFinite(progRaw) ? progRaw : Number.isFinite(comp) ? comp : null;
@@ -10306,6 +10530,7 @@
                 tp: Number.isFinite(tp) && tp > 0 ? tp : null,
                 eta: Number.isFinite(eta) && eta > 0 ? eta : null,
                 price: Number.isFinite(price) && price > 0 ? price : null,
+                intent,
                 t,
               });
             }
@@ -10356,6 +10581,42 @@
         const asOf = snap?.createdAt ? new Date(Number(snap.createdAt)) : null;
         const rows = Array.isArray(snap?.items) ? snap.items : [];
 
+        const grouped = React.useMemo(() => {
+          const groups = {};
+          for (const r of rows) {
+            const g = String(r?.intent?.group || "Unclear / Chop");
+            if (!groups[g]) groups[g] = [];
+            groups[g].push(r);
+          }
+          const order = [
+            "Squeeze → Momentum",
+            "Momentum Elite",
+            "Corridor reclaim",
+            "Trend continuation",
+            "Squeeze pressure build",
+            "Late-cycle / Overextended",
+            "Unclear / Chop",
+          ];
+          const keys = Object.keys(groups);
+          keys.sort((a, b) => {
+            const ia = order.indexOf(a);
+            const ib = order.indexOf(b);
+            if (ia !== -1 && ib !== -1) return ia - ib;
+            if (ia !== -1) return -1;
+            if (ib !== -1) return 1;
+            return a.localeCompare(b);
+          });
+          return keys.map((k) => ({ group: k, items: groups[k] }));
+        }, [rows]);
+
+        const actionPill = (action) => {
+          const a = String(action || "").toUpperCase();
+          if (a === "ENTRY") return { label: "ENTRY", cls: "bg-green-500/15 text-green-300 border-green-500/40" };
+          if (a === "EXIT") return { label: "EXIT", cls: "bg-red-500/15 text-red-300 border-red-500/40" };
+          if (a === "WAIT") return { label: "WAIT", cls: "bg-yellow-500/10 text-yellow-200 border-yellow-500/30" };
+          return { label: "HOLD", cls: "bg-blue-500/10 text-blue-200 border-blue-500/30" };
+        };
+
         return (
           <div className="mb-4 rounded-xl border border-[#26325f] bg-[#0f1630] p-4">
             <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -10389,8 +10650,15 @@
                 No active moves found in the snapshot (requires `trigger_ts` + Move=ACTIVE).
               </div>
             ) : (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                {rows.map((r) => {
+              <div className="mt-3 space-y-4">
+                {grouped.map((g) => (
+                  <div key={`active-group-${g.group}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[12px] font-bold text-[#e7ecff]">{g.group}</div>
+                      <div className="text-[11px] text-[#6b7a9f]">{g.items.length}</div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                      {g.items.map((r) => {
                   const mv = getMoveStatusInfo(r.t);
                   const dir = mv.side || (getDirection(r.t)?.text || "");
                   const latest =
@@ -10416,9 +10684,14 @@
                     r.inSqueeze ? "🧨" : null,
                   ].filter(Boolean);
                   const emojiText = badges.join("");
+                  const pxText = r.price != null ? `$${r.price.toFixed(2)}` : "—";
                   const slText = r.sl != null ? `$${r.sl.toFixed(2)}` : "—";
                   const tpText = r.tp != null ? `$${r.tp.toFixed(2)}` : "—";
                   const etaText = r.eta != null ? `${r.eta.toFixed(1)}d` : "—";
+                  const act = actionPill(r?.intent?.action);
+                  const conf = Number(r?.intent?.confidence);
+                  const confPct = Number.isFinite(conf) ? Math.round(conf * 100) : null;
+                  const why = Array.isArray(r?.intent?.why) ? r.intent.why.slice(0, 3) : [];
                   const meTip = (() => {
                     const crit = r.t?.momentum_elite_criteria;
                     if (!r.momentumElite) return null;
@@ -10449,6 +10722,12 @@
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <div className="font-bold text-white">{r.sym}</div>
+                            <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${act.cls}`}>
+                              {act.label}
+                              {confPct != null ? (
+                                <span className="ml-1 opacity-80">{confPct}%</span>
+                              ) : null}
+                            </span>
                             <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${mv.pillCls}`}>
                               {mv.icon} {mv.status}
                             </span>
@@ -10494,7 +10773,16 @@
                               </span>
                             ) : null}
                           </div>
+                          {why.length > 0 ? (
+                            <div className="mt-1 text-[10px] text-[#6b7a9f]">
+                              {why.join(" • ")}
+                            </div>
+                          ) : null}
                           <div className="mt-1 text-[10px] text-[#6b7a9f] flex items-center gap-3 flex-wrap">
+                            <span>
+                              <span className="text-[#93a4d6]">Px</span>{" "}
+                              <span className="text-white font-semibold">{pxText}</span>
+                            </span>
                             <span>
                               <span className="text-[#93a4d6]">SL</span>{" "}
                               <span className="text-red-300 font-semibold">{slText}</span>
@@ -10533,8 +10821,11 @@
                         </div>
                       </div>
                     </button>
-                  );
-                })}
+                      );
+                    })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -16275,6 +16566,24 @@
           });
         }, []);
 
+        const [showAdvancedFilters, setShowAdvancedFilters] = useState(() => {
+          try {
+            const v = localStorage.getItem("timedTrading_showAdvancedFilters");
+            if (v === "1") return true;
+            if (v === "0") return false;
+          } catch {}
+          return false; // default: simpler
+        });
+        const toggleAdvancedFilters = useCallback(() => {
+          setShowAdvancedFilters((v) => {
+            const next = !v;
+            try {
+              localStorage.setItem("timedTrading_showAdvancedFilters", next ? "1" : "0");
+            } catch {}
+            return next;
+          });
+        }, []);
+
         // Apply thesis preset once per page-load if enabled.
         useEffect(() => {
           try {
@@ -16418,6 +16727,16 @@
                         allData={data}
                         defaultLimit={12}
                       />
+                      <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                        <ActionPresetsBar onApply={handleFilterChange} />
+                        <button
+                          onClick={toggleAdvancedFilters}
+                          className="px-3 py-1.5 rounded-lg border border-[#26325f] bg-[#121a33] text-xs font-semibold text-[#93a4d6] hover:text-white hover:bg-[#16224a]"
+                          title="Show/hide advanced filter tags"
+                        >
+                          {showAdvancedFilters ? "Hide filters" : "Advanced filters"}
+                        </button>
+                      </div>
                       <input
                         type="text"
                         placeholder="Search tickers, filters, or conditions... (e.g., 'AAPL, GOOGL, TSLA' or 'top 40' or 'rank over 75')"
@@ -16450,13 +16769,19 @@
                       </div>
                     </div>
                     {/* Filters live in the compact tag panel below (no duplicate button rows). */}
-                    <ViewportFilterTags
-                      filters={filters}
-                      onChange={handleFilterChange}
-                      sectors={sectors}
-                      allData={data}
-                      trades={trades}
-                    />
+                    {showAdvancedFilters ? (
+                      <ViewportFilterTags
+                        filters={filters}
+                        onChange={handleFilterChange}
+                        sectors={sectors}
+                        allData={data}
+                        trades={trades}
+                      />
+                    ) : (
+                      <div className="text-xs text-[#6b7a9f]">
+                        Using presets + search. Open <span className="text-[#93a4d6] font-semibold">Advanced filters</span> for Guidance/Horizon/Opportunities/Specials.
+                      </div>
+                    )}
                   </div>
                 </header>
 
