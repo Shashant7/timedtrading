@@ -9513,25 +9513,138 @@
         };
 
         const pillCounts = React.useMemo(() => {
-          if (!allData) return { thesis: null, winner: null };
+          if (!allData) return null;
           const safeTrades = Array.isArray(trades) ? trades : [];
-          try {
-            const thesisFilters = isThesisModeActive(filters)
-              ? filters
-              : { ...filters, ...THESIS_PRESET };
-            const thesis = applyFilters(allData, thesisFilters, safeTrades).length;
-            const winnerFilters =
-              filters.winnerSignature === true
-                ? filters
-                : { ...filters, winnerSignature: true };
-            const winner = applyFilters(allData, winnerFilters, safeTrades).length;
-            return {
-              thesis: Number.isFinite(thesis) ? thesis : null,
-              winner: Number.isFinite(winner) ? winner : null,
-            };
-          } catch {
-            return { thesis: null, winner: null };
-          }
+          const base = filters || {};
+
+          const countWith = (nextFilters) => {
+            try {
+              const n = applyFilters(allData, nextFilters, safeTrades).length;
+              return Number.isFinite(n) ? n : null;
+            } catch {
+              return null;
+            }
+          };
+
+          // Guidance
+          const guidanceAll = countWith({ ...base, guidanceCategory: undefined });
+          const guidanceInitiate = countWith({ ...base, guidanceCategory: "INITIATE" });
+          const guidanceConsider = countWith({ ...base, guidanceCategory: "CONSIDER" });
+          const guidanceMonitor = countWith({ ...base, guidanceCategory: "MONITOR" });
+          const guidanceWait = countWith({ ...base, guidanceCategory: "WAIT" });
+          const guidanceExitTrim = countWith({ ...base, guidanceCategory: "EXIT_TRIM" });
+          const guidanceOther = countWith({ ...base, guidanceCategory: "OTHER" });
+
+          // Horizon
+          const horizonAll = countWith({ ...base, horizonBucket: undefined });
+          const horizonShort = countWith({ ...base, horizonBucket: "SHORT_TERM" });
+          const horizonSwing = countWith({ ...base, horizonBucket: "SWING" });
+          const horizonPos = countWith({ ...base, horizonBucket: "POSITIONAL" });
+
+          // Opportunities
+          const oppAll = countWith({ ...base, opportunities: undefined });
+          const oppEligible = countWith({ ...base, opportunities: "ELIGIBLE" });
+          const oppPrime = countWith({ ...base, opportunities: "PRIME" });
+          const oppWatch = countWith({ ...base, opportunities: "WATCH" });
+          const q1 = countWith({ ...base, quadrants: [QUAD.Q1] });
+          const q2 = countWith({ ...base, quadrants: [QUAD.Q2] });
+          const q3 = countWith({ ...base, quadrants: [QUAD.Q3] });
+          const q4 = countWith({ ...base, quadrants: [QUAD.Q4] });
+
+          // Specials
+          const thesisFilters = isThesisModeActive(base)
+            ? base
+            : { ...base, ...THESIS_PRESET };
+          const thesis = countWith(thesisFilters);
+          const inSqueeze = countWith({ ...base, inSqueeze: true });
+          const squeezeRelease = countWith({ ...base, squeezeRelease: true });
+          const momentumElite = countWith({ ...base, momentumElite: true });
+          const winnerSignature = countWith({ ...base, winnerSignature: true });
+
+          // Groups
+          const groupAll = countWith({ ...base, group: "ALL" });
+          const groupUpticks = countWith({ ...base, group: "UPTICKS" });
+          const groupSuperGranny = countWith({ ...base, group: "SuperGranny" });
+          const groupGRNY = countWith({ ...base, group: "GRNY" });
+          const groupGRNJ = countWith({ ...base, group: "GRNJ" });
+          const groupGRNI = countWith({ ...base, group: "GRNI" });
+          const groupSocial = countWith({ ...base, group: "Social" });
+          const groupNoGroup = countWith({ ...base, group: "UNGROUPED" });
+
+          // S&P Sectors (group + sector filters)
+          const sectorAll = countWith({ ...base, sector: undefined });
+          const spSectors = countWith({ ...base, group: "SP_Sectors" });
+          const comm = countWith({ ...base, sector: "Communication Services" });
+          const consDisc = countWith({ ...base, sector: "Consumer Discretionary" });
+          const consStaples = countWith({ ...base, sector: "Consumer Staples" });
+          const energy = countWith({ ...base, sector: "Energy" });
+          const financials = countWith({ ...base, sector: "Financials" });
+          const healthcare = countWith({ ...base, sector: "Healthcare" });
+          const industrials = countWith({ ...base, sector: "Industrials" });
+          const tech = countWith({ ...base, sector: "Information Technology" });
+          const materials = countWith({ ...base, sector: "Basic Materials" });
+          const realEstate = countWith({ ...base, sector: "Real Estate" });
+          const utilities = countWith({ ...base, sector: "Utilities" });
+
+          return {
+            guidance: {
+              ALL: guidanceAll,
+              INITIATE: guidanceInitiate,
+              CONSIDER: guidanceConsider,
+              MONITOR: guidanceMonitor,
+              WAIT: guidanceWait,
+              EXIT_TRIM: guidanceExitTrim,
+              OTHER: guidanceOther,
+            },
+            horizon: {
+              ALL: horizonAll,
+              SHORT_TERM: horizonShort,
+              SWING: horizonSwing,
+              POSITIONAL: horizonPos,
+            },
+            opp: {
+              ALL: oppAll,
+              ELIGIBLE: oppEligible,
+              PRIME: oppPrime,
+              WATCH: oppWatch,
+              Q1: q1,
+              Q2: q2,
+              Q3: q3,
+              Q4: q4,
+            },
+            specials: {
+              THESIS: thesis,
+              IN_SQUEEZE: inSqueeze,
+              SQUEEZE_RELEASE: squeezeRelease,
+              MOMENTUM_ELITE: momentumElite,
+              WINNER_SIGNATURE: winnerSignature,
+            },
+            groups: {
+              ALL: groupAll,
+              UPTICKS: groupUpticks,
+              SuperGranny: groupSuperGranny,
+              GRNY: groupGRNY,
+              GRNJ: groupGRNJ,
+              GRNI: groupGRNI,
+              Social: groupSocial,
+              UNGROUPED: groupNoGroup,
+            },
+            sectors: {
+              ALL: sectorAll,
+              SP_Sectors: spSectors,
+              "Communication Services": comm,
+              "Consumer Discretionary": consDisc,
+              "Consumer Staples": consStaples,
+              Energy: energy,
+              Financials: financials,
+              Healthcare: healthcare,
+              Industrials: industrials,
+              "Information Technology": tech,
+              "Basic Materials": materials,
+              "Real Estate": realEstate,
+              Utilities: utilities,
+            },
+          };
         }, [allData, trades, filters]);
 
         const pillLabelWithCount = (baseLabel, count) => {
@@ -9597,47 +9710,135 @@
             <div className="space-y-2">
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Guidance</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", guidance === "ALL", () => onChange({ guidanceCategory: undefined }))}
-                {pill("Initiate", guidance === "INITIATE", () => onChange({ guidanceCategory: "INITIATE" }))}
-                {pill("Consider Entry", guidance === "CONSIDER", () => onChange({ guidanceCategory: "CONSIDER" }))}
-                {pill("Monitor Closely", guidance === "MONITOR", () => onChange({ guidanceCategory: "MONITOR" }))}
-                {pill("Wait", guidance === "WAIT", () => onChange({ guidanceCategory: "WAIT" }))}
-                {pill("Exit/Trim", guidance === "EXIT_TRIM", () => onChange({ guidanceCategory: "EXIT_TRIM" }))}
-                {pill("Other", guidance === "OTHER", () => onChange({ guidanceCategory: "OTHER" }))}
+                {pill(
+                  pillLabelWithCount("All", pillCounts?.guidance?.ALL),
+                  guidance === "ALL",
+                  () => onChange({ guidanceCategory: undefined })
+                )}
+                {pill(
+                  pillLabelWithCount("Initiate", pillCounts?.guidance?.INITIATE),
+                  guidance === "INITIATE",
+                  () => onChange({ guidanceCategory: "INITIATE" })
+                )}
+                {pill(
+                  pillLabelWithCount("Consider Entry", pillCounts?.guidance?.CONSIDER),
+                  guidance === "CONSIDER",
+                  () => onChange({ guidanceCategory: "CONSIDER" })
+                )}
+                {pill(
+                  pillLabelWithCount("Monitor Closely", pillCounts?.guidance?.MONITOR),
+                  guidance === "MONITOR",
+                  () => onChange({ guidanceCategory: "MONITOR" })
+                )}
+                {pill(
+                  pillLabelWithCount("Wait", pillCounts?.guidance?.WAIT),
+                  guidance === "WAIT",
+                  () => onChange({ guidanceCategory: "WAIT" })
+                )}
+                {pill(
+                  pillLabelWithCount("Exit/Trim", pillCounts?.guidance?.EXIT_TRIM),
+                  guidance === "EXIT_TRIM",
+                  () => onChange({ guidanceCategory: "EXIT_TRIM" })
+                )}
+                {pill(
+                  pillLabelWithCount("Other", pillCounts?.guidance?.OTHER),
+                  guidance === "OTHER",
+                  () => onChange({ guidanceCategory: "OTHER" })
+                )}
               </div>
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", horizon === "ALL", () => onChange({ horizonBucket: undefined }))}
-                {pill("Short-Term", horizon === "SHORT_TERM", () => onChange({ horizonBucket: "SHORT_TERM" }))}
-                {pill("Swing", horizon === "SWING", () => onChange({ horizonBucket: "SWING" }))}
-                {pill("Positional", horizon === "POSITIONAL", () => onChange({ horizonBucket: "POSITIONAL" }))}
+                {pill(
+                  pillLabelWithCount("All", pillCounts?.horizon?.ALL),
+                  horizon === "ALL",
+                  () => onChange({ horizonBucket: undefined })
+                )}
+                {pill(
+                  pillLabelWithCount("Short-Term", pillCounts?.horizon?.SHORT_TERM),
+                  horizon === "SHORT_TERM",
+                  () => onChange({ horizonBucket: "SHORT_TERM" })
+                )}
+                {pill(
+                  pillLabelWithCount("Swing", pillCounts?.horizon?.SWING),
+                  horizon === "SWING",
+                  () => onChange({ horizonBucket: "SWING" })
+                )}
+                {pill(
+                  pillLabelWithCount("Positional", pillCounts?.horizon?.POSITIONAL),
+                  horizon === "POSITIONAL",
+                  () => onChange({ horizonBucket: "POSITIONAL" })
+                )}
               </div>
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Opportunities</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", opp === "ALL", () => onChange({ opportunities: undefined }))}
-                {pill("Eligible", opp === "ELIGIBLE", () => onChange({ opportunities: "ELIGIBLE" }))}
-                {pill("Prime", opp === "PRIME", () => onChange({ opportunities: "PRIME" }))}
-                {pill("Watch", opp === "WATCH", () => onChange({ opportunities: "WATCH" }))}
-                {pill("Q1", isQuadActive("Q1"), () => toggleQuadrant("Q1"))}
-                {pill("Q2", isQuadActive("Q2"), () => toggleQuadrant("Q2"))}
-                {pill("Q3", isQuadActive("Q3"), () => toggleQuadrant("Q3"))}
-                {pill("Q4", isQuadActive("Q4"), () => toggleQuadrant("Q4"))}
+                {pill(
+                  pillLabelWithCount("All", pillCounts?.opp?.ALL),
+                  opp === "ALL",
+                  () => onChange({ opportunities: undefined })
+                )}
+                {pill(
+                  pillLabelWithCount("Eligible", pillCounts?.opp?.ELIGIBLE),
+                  opp === "ELIGIBLE",
+                  () => onChange({ opportunities: "ELIGIBLE" })
+                )}
+                {pill(
+                  pillLabelWithCount("Prime", pillCounts?.opp?.PRIME),
+                  opp === "PRIME",
+                  () => onChange({ opportunities: "PRIME" })
+                )}
+                {pill(
+                  pillLabelWithCount("Watch", pillCounts?.opp?.WATCH),
+                  opp === "WATCH",
+                  () => onChange({ opportunities: "WATCH" })
+                )}
+                {pill(
+                  pillLabelWithCount("Q1", pillCounts?.opp?.Q1),
+                  isQuadActive("Q1"),
+                  () => toggleQuadrant("Q1")
+                )}
+                {pill(
+                  pillLabelWithCount("Q2", pillCounts?.opp?.Q2),
+                  isQuadActive("Q2"),
+                  () => toggleQuadrant("Q2")
+                )}
+                {pill(
+                  pillLabelWithCount("Q3", pillCounts?.opp?.Q3),
+                  isQuadActive("Q3"),
+                  () => toggleQuadrant("Q3")
+                )}
+                {pill(
+                  pillLabelWithCount("Q4", pillCounts?.opp?.Q4),
+                  isQuadActive("Q4"),
+                  () => toggleQuadrant("Q4")
+                )}
               </div>
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
               <div className="flex gap-2 flex-wrap items-center">
                 {pill(
-                  pillLabelWithCount("🧠 Thesis", pillCounts.thesis),
+                  pillLabelWithCount("🧠 Thesis", pillCounts?.specials?.THESIS),
                   isThesisActive(),
                   () => toggleThesis()
                 )}
-                {pill("🧨 In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
-                {pill("⚡ Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
-                {pill("🚀 Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
                 {pill(
-                  pillLabelWithCount("🏆 Winner Signature", pillCounts.winner),
+                  pillLabelWithCount("🧨 In Squeeze", pillCounts?.specials?.IN_SQUEEZE),
+                  filters.inSqueeze === true,
+                  () => toggleBool("inSqueeze")
+                )}
+                {pill(
+                  pillLabelWithCount("⚡ Squeeze Release", pillCounts?.specials?.SQUEEZE_RELEASE),
+                  filters.squeezeRelease === true,
+                  () => toggleBool("squeezeRelease")
+                )}
+                {pill(
+                  pillLabelWithCount("🚀 Momentum Elite", pillCounts?.specials?.MOMENTUM_ELITE),
+                  filters.momentumElite === true,
+                  () => toggleBool("momentumElite")
+                )}
+                {pill(
+                  pillLabelWithCount("🏆 Winner Signature", pillCounts?.specials?.WINNER_SIGNATURE),
                   filters.winnerSignature === true,
                   () => toggleBool("winnerSignature")
                 )}
@@ -9647,31 +9848,148 @@
             <div className="space-y-2">
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Groups</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", group === "ALL", () => onChange({ group: "ALL" }))}
-                {pill("Upticks", group === "UPTICKS", () => onChange({ group: "UPTICKS" }))}
-                {pill("Super Granny", group === "SuperGranny", () => onChange({ group: "SuperGranny" }))}
-                {pill("GRNY", group === "GRNY", () => onChange({ group: "GRNY" }))}
-                {pill("GRNJ", group === "GRNJ", () => onChange({ group: "GRNJ" }))}
-                {pill("GRNI", group === "GRNI", () => onChange({ group: "GRNI" }))}
-                {pill("Social", group === "Social", () => onChange({ group: "Social" }))}
-                {pill("No Group", group === "UNGROUPED", () => onChange({ group: "UNGROUPED" }))}
+                {pill(
+                  pillLabelWithCount("All", pillCounts?.groups?.ALL),
+                  group === "ALL",
+                  () => onChange({ group: "ALL" })
+                )}
+                {pill(
+                  pillLabelWithCount("Upticks", pillCounts?.groups?.UPTICKS),
+                  group === "UPTICKS",
+                  () => onChange({ group: "UPTICKS" })
+                )}
+                {pill(
+                  pillLabelWithCount("Super Granny", pillCounts?.groups?.SuperGranny),
+                  group === "SuperGranny",
+                  () => onChange({ group: "SuperGranny" })
+                )}
+                {pill(
+                  pillLabelWithCount("GRNY", pillCounts?.groups?.GRNY),
+                  group === "GRNY",
+                  () => onChange({ group: "GRNY" })
+                )}
+                {pill(
+                  pillLabelWithCount("GRNJ", pillCounts?.groups?.GRNJ),
+                  group === "GRNJ",
+                  () => onChange({ group: "GRNJ" })
+                )}
+                {pill(
+                  pillLabelWithCount("GRNI", pillCounts?.groups?.GRNI),
+                  group === "GRNI",
+                  () => onChange({ group: "GRNI" })
+                )}
+                {pill(
+                  pillLabelWithCount("Social", pillCounts?.groups?.Social),
+                  group === "Social",
+                  () => onChange({ group: "Social" })
+                )}
+                {pill(
+                  pillLabelWithCount("No Group", pillCounts?.groups?.UNGROUPED),
+                  group === "UNGROUPED",
+                  () => onChange({ group: "UNGROUPED" })
+                )}
               </div>
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">S&amp;P Sectors</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill("All", sector === "ALL", () => onChange({ sector: undefined }))}
-                {pill("S&P Sectors", group === "SP_Sectors", () => onChange({ group: "SP_Sectors" }))}
-                {pill(`${sectorEmoji("Communication Services")} Comm`, sector === "Communication Services", () => onChange({ sector: "Communication Services" }))}
-                {pill(`${sectorEmoji("Consumer Discretionary")} Cons Disc`, sector === "Consumer Discretionary", () => onChange({ sector: "Consumer Discretionary" }))}
-                {pill(`${sectorEmoji("Consumer Staples")} Cons Staples`, sector === "Consumer Staples", () => onChange({ sector: "Consumer Staples" }))}
-                {pill(`${sectorEmoji("Energy")} Energy`, sector === "Energy", () => onChange({ sector: "Energy" }))}
-                {pill(`${sectorEmoji("Financials")} Financials`, sector === "Financials", () => onChange({ sector: "Financials" }))}
-                {pill(`${sectorEmoji("Healthcare")} Health`, sector === "Healthcare", () => onChange({ sector: "Healthcare" }))}
-                {pill(`${sectorEmoji("Industrials")} Industrials`, sector === "Industrials", () => onChange({ sector: "Industrials" }))}
-                {pill(`${sectorEmoji("Information Technology")} Tech`, sector === "Information Technology", () => onChange({ sector: "Information Technology" }))}
-                {pill(`${sectorEmoji("Basic Materials")} Materials`, sector === "Basic Materials", () => onChange({ sector: "Basic Materials" }))}
-                {pill(`${sectorEmoji("Real Estate")} Real Estate`, sector === "Real Estate", () => onChange({ sector: "Real Estate" }))}
-                {pill(`${sectorEmoji("Utilities")} Utilities`, sector === "Utilities", () => onChange({ sector: "Utilities" }))}
+                {pill(
+                  pillLabelWithCount("All", pillCounts?.sectors?.ALL),
+                  sector === "ALL",
+                  () => onChange({ sector: undefined })
+                )}
+                {pill(
+                  pillLabelWithCount("S&P Sectors", pillCounts?.sectors?.SP_Sectors),
+                  group === "SP_Sectors",
+                  () => onChange({ group: "SP_Sectors" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Communication Services")} Comm`,
+                    pillCounts?.sectors?.["Communication Services"]
+                  ),
+                  sector === "Communication Services",
+                  () => onChange({ sector: "Communication Services" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Consumer Discretionary")} Cons Disc`,
+                    pillCounts?.sectors?.["Consumer Discretionary"]
+                  ),
+                  sector === "Consumer Discretionary",
+                  () => onChange({ sector: "Consumer Discretionary" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Consumer Staples")} Cons Staples`,
+                    pillCounts?.sectors?.["Consumer Staples"]
+                  ),
+                  sector === "Consumer Staples",
+                  () => onChange({ sector: "Consumer Staples" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Energy")} Energy`,
+                    pillCounts?.sectors?.Energy
+                  ),
+                  sector === "Energy",
+                  () => onChange({ sector: "Energy" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Financials")} Financials`,
+                    pillCounts?.sectors?.Financials
+                  ),
+                  sector === "Financials",
+                  () => onChange({ sector: "Financials" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Healthcare")} Health`,
+                    pillCounts?.sectors?.Healthcare
+                  ),
+                  sector === "Healthcare",
+                  () => onChange({ sector: "Healthcare" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Industrials")} Industrials`,
+                    pillCounts?.sectors?.Industrials
+                  ),
+                  sector === "Industrials",
+                  () => onChange({ sector: "Industrials" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Information Technology")} Tech`,
+                    pillCounts?.sectors?.["Information Technology"]
+                  ),
+                  sector === "Information Technology",
+                  () => onChange({ sector: "Information Technology" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Basic Materials")} Materials`,
+                    pillCounts?.sectors?.["Basic Materials"]
+                  ),
+                  sector === "Basic Materials",
+                  () => onChange({ sector: "Basic Materials" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Real Estate")} Real Estate`,
+                    pillCounts?.sectors?.["Real Estate"]
+                  ),
+                  sector === "Real Estate",
+                  () => onChange({ sector: "Real Estate" })
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    `${sectorEmoji("Utilities")} Utilities`,
+                    pillCounts?.sectors?.Utilities
+                  ),
+                  sector === "Utilities",
+                  () => onChange({ sector: "Utilities" })
+                )}
               </div>
 
             </div>
