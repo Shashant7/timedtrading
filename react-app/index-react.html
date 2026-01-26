@@ -10679,7 +10679,7 @@
                       <div className="text-[12px] font-bold text-[#e7ecff]">{g.group}</div>
                       <div className="text-[11px] text-[#6b7a9f]">{g.items.length}</div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
                       {g.items.map((r) => {
                   const mv = getMoveStatusInfo(r.t);
                   const dir = mv.side || (getDirection(r.t)?.text || "");
@@ -16642,7 +16642,7 @@
             )}
 
             <div className="min-h-screen p-4">
-              <div className="w-full mx-auto">
+              <div className="w-full max-w-[1600px] mx-auto">
                 {/* Navigation */}
                 <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                   <div className="flex items-center gap-3 flex-wrap">
