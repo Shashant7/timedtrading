@@ -9446,7 +9446,7 @@
       // ─────────────────────────────────────────────────────────────
       // Viewport Filter Tags (controls Viewport + Bubble Chart)
       // ─────────────────────────────────────────────────────────────
-      function ViewportFilterTags({ filters, onChange, sectors = [] }) {
+      function ViewportFilterTags({ filters, onChange, sectors = [], allData = null, trades = [] }) {
         const group = String(filters.group || "ALL");
         const horizon = String(filters.horizonBucket || "ALL");
         const opp = String(filters.opportunities || "ALL");
@@ -9512,8 +9512,37 @@
             "High-quality setup snapshot signature (tight, selective).",
         };
 
+        const pillCounts = React.useMemo(() => {
+          if (!allData) return { thesis: null, winner: null };
+          const safeTrades = Array.isArray(trades) ? trades : [];
+          try {
+            const thesisFilters = isThesisModeActive(filters)
+              ? filters
+              : { ...filters, ...THESIS_PRESET };
+            const thesis = applyFilters(allData, thesisFilters, safeTrades).length;
+            const winnerFilters =
+              filters.winnerSignature === true
+                ? filters
+                : { ...filters, winnerSignature: true };
+            const winner = applyFilters(allData, winnerFilters, safeTrades).length;
+            return {
+              thesis: Number.isFinite(thesis) ? thesis : null,
+              winner: Number.isFinite(winner) ? winner : null,
+            };
+          } catch {
+            return { thesis: null, winner: null };
+          }
+        }, [allData, trades, filters]);
+
+        const pillLabelWithCount = (baseLabel, count) => {
+          if (!Number.isFinite(count)) return baseLabel;
+          return `${baseLabel} (${count})`;
+        };
+
         const pill = (label, active, onClick) => {
-          const tip = PILL_TOOLTIPS[String(label)] || null;
+          const labelStr = String(label);
+          const baseLabel = labelStr.replace(/\s*\(\d+\)\s*$/, "");
+          const tip = PILL_TOOLTIPS[baseLabel] || null;
           return (
             <div className="relative group">
               <button
@@ -9599,11 +9628,19 @@
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill("🧠 Thesis", isThesisActive(), () => toggleThesis())}
+                {pill(
+                  pillLabelWithCount("🧠 Thesis", pillCounts.thesis),
+                  isThesisActive(),
+                  () => toggleThesis()
+                )}
                 {pill("🧨 In Squeeze", filters.inSqueeze === true, () => toggleBool("inSqueeze"))}
                 {pill("⚡ Squeeze Release", filters.squeezeRelease === true, () => toggleBool("squeezeRelease"))}
                 {pill("🚀 Momentum Elite", filters.momentumElite === true, () => toggleBool("momentumElite"))}
-                {pill("🏆 Winner Signature", filters.winnerSignature === true, () => toggleBool("winnerSignature"))}
+                {pill(
+                  pillLabelWithCount("🏆 Winner Signature", pillCounts.winner),
+                  filters.winnerSignature === true,
+                  () => toggleBool("winnerSignature")
+                )}
               </div>
             </div>
 
@@ -15490,6 +15527,8 @@
                       filters={filters}
                       onChange={handleFilterChange}
                       sectors={sectors}
+                      allData={data}
+                      trades={trades}
                     />
                   </div>
                 </header>
