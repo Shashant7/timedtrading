@@ -639,6 +639,143 @@ function completionForSize(ticker) {
   return Math.max(0, Math.min(1, raw));
 }
 
+function computeDataCompleteness(tickerData) {
+  const hasTfTech = !!(tickerData?.tf_tech && typeof tickerData.tf_tech === "object");
+  const hasTriggersField = "triggers" in (tickerData || {});
+  const triggersNonEmpty =
+    Array.isArray(tickerData?.triggers) &&
+    tickerData.triggers.some((t) => typeof t === "string" && t.trim());
+  const hasTpLevels = Array.isArray(tickerData?.tp_levels) && tickerData.tp_levels.length > 0;
+  const hasDailyEma = !!tickerData?.daily_ema_cloud;
+  const hasIchD = !!tickerData?.ichimoku_d;
+  const hasIchW = !!tickerData?.ichimoku_w;
+
+  const missing = [];
+  if (!hasTfTech) missing.push("tf_tech");
+  if (!hasTriggersField) missing.push("triggers_field");
+  if (!hasTpLevels) missing.push("tp_levels");
+  if (!hasDailyEma) missing.push("daily_ema_cloud");
+  if (!hasIchD) missing.push("ichimoku_d");
+  if (!hasIchW) missing.push("ichimoku_w");
+
+  // Score is intentionally simple + stable for UI filters.
+  // 100 = fully instrumented, lower scores indicate missing context.
+  let score = 100;
+  if (!hasTfTech) score -= 35;
+  if (!hasTriggersField) score -= 5;
+  if (!hasTpLevels) score -= 10;
+  if (!hasDailyEma) score -= 10;
+  if (!hasIchD) score -= 15;
+  if (!hasIchW) score -= 10;
+  score = Math.max(0, Math.min(100, score));
+
+  return {
+    score,
+    missing,
+    has_tf_tech: hasTfTech,
+    has_triggers_field: hasTriggersField,
+    triggers_non_empty: triggersNonEmpty,
+    has_tp_levels: hasTpLevels,
+    has_daily_ema_cloud: hasDailyEma,
+    has_ichimoku_d: hasIchD,
+    has_ichimoku_w: hasIchW,
+  };
+}
+
+function tfTechAlignmentSummary(tickerData) {
+  const tfTech = tickerData?.tf_tech;
+  if (!tfTech || typeof tfTech !== "object") return null;
+
+  const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
+  if (!side) return null;
+
+  const TF_ORDER = ["W", "D", "4H", "1H", "30", "10"];
+  const WEIGHTS = { W: 2.0, D: 2.0, "4H": 1.5, "1H": 1.5, "30": 1.0, "10": 1.0 };
+
+  let alignedW = 0;
+  let opposedW = 0;
+  let presentW = 0;
+  const stacks = {};
+
+  for (const k of TF_ORDER) {
+    const row = tfTech[k];
+    const stack = Number(row?.ema?.stack);
+    if (!Number.isFinite(stack)) continue;
+    presentW += WEIGHTS[k] || 1.0;
+    stacks[k] = stack;
+    const isAligned = side === "LONG" ? stack >= 4 : stack <= -4;
+    const isOpposed = side === "LONG" ? stack <= -4 : stack >= 4;
+    if (isAligned) alignedW += WEIGHTS[k] || 1.0;
+    if (isOpposed) opposedW += WEIGHTS[k] || 1.0;
+  }
+
+  // Convert to a bounded score contribution:
+  // - strong alignment across TFs => +0..+10
+  // - strong opposition => down to -8
+  const raw = alignedW - opposedW;
+  const score = Math.max(-8, Math.min(10, raw * 2));
+
+  const sq30 = tfTech["30"]?.sq;
+  const sq10 = tfTech["10"]?.sq;
+  const squeezeOn = !!(sq30?.s === 1 || sq10?.s === 1);
+  const squeezeRel = !!(sq30?.r === 1 || sq10?.r === 1);
+
+  return {
+    score,
+    side,
+    aligned_weight: Math.round(alignedW * 10) / 10,
+    opposed_weight: Math.round(opposedW * 10) / 10,
+    present_weight: Math.round(presentW * 10) / 10,
+    squeeze_on: squeezeOn,
+    squeeze_release: squeezeRel,
+    stacks,
+  };
+}
+
+function triggerSummaryAndScore(tickerData) {
+  const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
+  const list = Array.isArray(tickerData?.triggers)
+    ? tickerData.triggers.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim())
+    : [];
+
+  const uniq = Array.from(new Set(list));
+  let score = 0;
+
+  const has = (s) => uniq.includes(s);
+  const matchSide = (bull, bear) => {
+    if (!side) return 0;
+    if (side === "LONG" && has(bull)) return 1;
+    if (side === "SHORT" && has(bear)) return 1;
+    if (side === "LONG" && has(bear)) return -1;
+    if (side === "SHORT" && has(bull)) return -1;
+    return 0;
+  };
+
+  if (has("SQUEEZE_RELEASE_30M")) score += 6;
+  score += 4 * matchSide("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR");
+  score += 2 * matchSide("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR");
+  if (has("ST_FLIP_1H")) score += 1;
+  if (has("ST_FLIP_30M")) score += 1;
+  score += 5 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");
+
+  // Fallback for legacy payloads without triggers[] populated
+  const flags = tickerData?.flags || {};
+  if (uniq.length === 0) {
+    if (flags.sq30_release) score += 4;
+    if (flags.ema_cross_1h_13_48) score += 2;
+    if (flags.buyable_dip_1h_13_48) score += 4;
+  }
+
+  score = Math.max(-6, Math.min(12, score));
+
+  return {
+    score,
+    side,
+    count: uniq.length,
+    top: uniq.slice(0, 5),
+  };
+}
+
 function sideFromStateOrScores(tickerData) {
   const state = String(tickerData?.state || "");
   if (state.includes("BULL")) return "LONG";
@@ -736,6 +873,27 @@ function computeDynamicScore(ticker) {
   const inCorridor = ent.corridor;
 
   let dynamicScore = baseScore;
+
+  // Data completeness penalty: prefer fully-instrumented names.
+  const completeness = ticker?.data_completeness || computeDataCompleteness(ticker);
+  if (completeness && typeof completeness === "object") {
+    if (completeness.score < 70) dynamicScore -= 6;
+    else if (completeness.score < 85) dynamicScore -= 3;
+  }
+
+  // Per-TF technical structure: reward aligned multi-timeframe stacks.
+  const tfAlign = ticker?.tf_summary || tfTechAlignmentSummary(ticker);
+  if (tfAlign && typeof tfAlign === "object" && Number.isFinite(tfAlign.score)) {
+    dynamicScore += tfAlign.score;
+    if (tfAlign.squeeze_on && !sqRel && inCorridor) dynamicScore += 1;
+    if (tfAlign.squeeze_release && inCorridor) dynamicScore += 2;
+  }
+
+  // Explicit triggers[] “why now” boost (bounded).
+  const trig = ticker?.trigger_summary || triggerSummaryAndScore(ticker);
+  if (trig && typeof trig === "object" && Number.isFinite(trig.score)) {
+    dynamicScore += trig.score;
+  }
 
   // Corridor bonus (high priority - active setups)
   if (inCorridor) {
@@ -5110,7 +5268,7 @@ async function computeMomentumElite(KV, ticker, payload) {
 function computeRank(d) {
   const htf = Number(d.htf_score);
   const ltf = Number(d.ltf_score);
-  const comp = Number(d.completion);
+  const comp = completionForSize(d);
   const phase = Number(d.phase_pct);
   const rr = d.rr != null ? Number(d.rr) : computeRR(d);
 
@@ -5130,6 +5288,26 @@ function computeRank(d) {
 
   // ADJUSTED SCORING: More discriminating, lower base
   let score = 30; // Reduced from 50 to make scoring more selective
+
+  // Data completeness: slightly down-rank incomplete payloads so “Today/Prime” stays sane.
+  const completeness = d?.data_completeness || computeDataCompleteness(d);
+  if (completeness && typeof completeness === "object") {
+    if (completeness.score < 70) score -= 10;
+    else if (completeness.score < 85) score -= 5;
+    else if (completeness.score < 95) score -= 2;
+  }
+
+  // Per-TF technical structure alignment (bonus/penalty).
+  const tfAlign = d?.tf_summary || tfTechAlignmentSummary(d);
+  if (tfAlign && typeof tfAlign === "object" && Number.isFinite(tfAlign.score)) {
+    score += tfAlign.score;
+  }
+
+  // Explicit triggers[] “why now” boost.
+  const trig = d?.trigger_summary || triggerSummaryAndScore(d);
+  if (trig && typeof trig === "object" && Number.isFinite(trig.score)) {
+    score += trig.score;
+  }
 
   // State bonuses (reduced)
   if (aligned) score += 12; // Reduced from 15
@@ -8455,6 +8633,16 @@ export default {
             payload.flags.momentum_elite = false;
           }
 
+          // Data completeness + TF/trigger summaries (used by UI + scoring)
+          try {
+            payload.data_completeness = computeDataCompleteness(payload);
+            const tfSum = tfTechAlignmentSummary(payload);
+            if (tfSum) payload.tf_summary = tfSum;
+            payload.trigger_summary = triggerSummaryAndScore(payload);
+          } catch (e) {
+            console.error(`[ENRICH] Failed for ${ticker}:`, String(e?.message || e));
+          }
+
           payload.rank = computeRank(payload);
 
           // Derived: horizon + % metrics (ETA v2 + risk/return)
@@ -10415,6 +10603,25 @@ export default {
             );
           }
 
+          // Back-compat: compute completeness + summaries if missing (older KV entries)
+          try {
+            if (!data.data_completeness) {
+              data.data_completeness = computeDataCompleteness(data);
+            }
+            if (!data.tf_summary) {
+              const tfSum = tfTechAlignmentSummary(data);
+              if (tfSum) data.tf_summary = tfSum;
+            }
+            if (!data.trigger_summary) {
+              data.trigger_summary = triggerSummaryAndScore(data);
+            }
+          } catch (e) {
+            console.error(
+              `[ENRICH] /timed/latest failed for ${ticker}:`,
+              String(e?.message || e)
+            );
+          }
+
           try {
             const corrData = await computeOpenTradesCorrelation(env, KV);
             const corr =
@@ -10675,6 +10882,25 @@ export default {
             } else {
               // Always recompute RR to ensure it uses the latest max TP from tp_levels
               value.rr = computeRR(value);
+
+              // Back-compat: compute completeness + summaries if missing (older KV entries)
+              try {
+                if (!value.data_completeness) {
+                  value.data_completeness = computeDataCompleteness(value);
+                }
+                if (!value.tf_summary) {
+                  const tfSum = tfTechAlignmentSummary(value);
+                  if (tfSum) value.tf_summary = tfSum;
+                }
+                if (!value.trigger_summary) {
+                  value.trigger_summary = triggerSummaryAndScore(value);
+                }
+              } catch (e) {
+                console.error(
+                  `[ENRICH] /timed/all failed for ${ticker}:`,
+                  String(e?.message || e)
+                );
+              }
 
               // Calculate dynamicScore (for ranking) - backend calculation
               value.dynamicScore = computeDynamicScore(value);
