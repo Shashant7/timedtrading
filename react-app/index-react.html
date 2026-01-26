@@ -116,6 +116,12 @@
         color: var(--text);
       }
 
+      /* Fix rare font ligature rendering issues (e.g., missing “r” in “tr”). */
+      .no-ligatures {
+        font-variant-ligatures: none;
+        font-feature-settings: "liga" 0, "clig" 0, "calt" 0;
+      }
+
       .slider-thumb::-webkit-slider-thumb {
         appearance: none;
         width: 16px;
@@ -9651,11 +9657,21 @@
         showControls = true,
         thesisMode = false,
       }) {
-        const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all
+        const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all | today
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
         const [horizon, setHorizon] = React.useState("ALL"); // ALL | SHORT_TERM | SWING | POSITIONAL
         const [query, setQuery] = React.useState("");
         const [sortBy, setSortBy] = React.useState("RANK"); // RANK | ABC | DCHG
+        const [todaySnapshot, setTodaySnapshot] = React.useState(null); // { createdAt, tickers: [], rpBy: {} }
+
+        const todayStorageKey = React.useMemo(() => {
+          // Daily key (keeps “Today” list stable across refreshes)
+          const d = new Date();
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, "0");
+          const day = String(d.getDate()).padStart(2, "0");
+          return `timedTrading_todayBest_${y}-${m}-${day}`;
+        }, []);
 
         const getNum = (x) => {
           const n = Number(x);
@@ -9718,6 +9734,89 @@
           };
         };
 
+        // “Today’s Best Setups” (stable snapshot): favor corridor candidates with good RR/phase/completion.
+        const isTodayBestSetup = (t) => {
+          if (!t) return false;
+          const ent = entryType(t);
+          if (!ent?.corridor) return false;
+          const rr = Number(t?.rr);
+          const comp = completionForSize(t);
+          const phase = Number(t?.phase_pct);
+          const zone = String(t?.phase_zone || "").toUpperCase();
+          if (Number.isFinite(rr) && rr < 1.5) return false;
+          // Keep this list broad enough to be useful, while avoiding late/extended conditions.
+          if (Number.isFinite(comp) && comp > 0.6) return false;
+          if (zone === "HIGH" || zone === "EXTREME") return false;
+          if (Number.isFinite(phase) && phase > 0.7) return false;
+          return true;
+        };
+
+        const bestLiveForToday = React.useMemo(() => {
+          const list = Array.isArray(tickers) ? tickers : [];
+          const out = [];
+          for (const t of list) {
+            if (!t?.ticker) continue;
+            if (!isTodayBestSetup(t)) continue;
+            const sym = String(t.ticker).toUpperCase();
+            const rp =
+              getRankPositionFromMap(rankPositions, sym) ??
+              Number(t?.rank_position);
+            out.push({
+              sym,
+              rp: Number.isFinite(rp) ? rp : null,
+            });
+          }
+          out.sort((a, b) => {
+            if (a.rp != null && b.rp != null) return a.rp - b.rp;
+            if (a.rp != null) return -1;
+            if (b.rp != null) return 1;
+            return a.sym.localeCompare(b.sym);
+          });
+          const top = out.slice(0, 25);
+          const rpBy = {};
+          for (const x of top) {
+            if (x.sym && x.rp != null) rpBy[x.sym] = x.rp;
+          }
+          return { tickers: top.map((x) => x.sym), rpBy };
+        }, [tickers, rankPositions]);
+
+        // Load snapshot from localStorage (per-day).
+        React.useEffect(() => {
+          try {
+            const raw = localStorage.getItem(todayStorageKey);
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (parsed && Array.isArray(parsed.tickers)) {
+              setTodaySnapshot(parsed);
+            }
+          } catch {
+            // ignore
+          }
+          // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [todayStorageKey]);
+
+        const updateTodaySnapshot = React.useCallback(() => {
+          const snap = {
+            createdAt: Date.now(),
+            tickers: bestLiveForToday.tickers,
+            rpBy: bestLiveForToday.rpBy,
+          };
+          setTodaySnapshot(snap);
+          try {
+            localStorage.setItem(todayStorageKey, JSON.stringify(snap));
+          } catch {
+            // ignore
+          }
+        }, [bestLiveForToday, todayStorageKey]);
+
+        // Ensure snapshot exists when user switches to “Today”.
+        React.useEffect(() => {
+          if (view !== "today") return;
+          if (todaySnapshot && Array.isArray(todaySnapshot.tickers) && todaySnapshot.tickers.length > 0)
+            return;
+          if (bestLiveForToday.tickers.length > 0) updateTodaySnapshot();
+        }, [view, todaySnapshot, bestLiveForToday, updateTodaySnapshot]);
+
         const counts = React.useMemo(() => {
           const list = Array.isArray(tickers) ? tickers : [];
           let prime = 0;
@@ -9734,20 +9833,62 @@
           const list = Array.isArray(tickers) ? tickers : [];
           const q = String(query || "").trim().toUpperCase();
 
-          const items = list
+          const itemsAll = list
             .map((t) => {
               const c = classify(t);
               const status = c.prime ? "prime" : c.eligible ? "eligible" : "watch";
               const score = Number(rankScoreForTicker(t) || 0);
+              const sym = String(t?.ticker || "").toUpperCase();
               const rp =
-                getRankPositionFromMap(rankPositions, String(t?.ticker || "").toUpperCase()) ??
+                getRankPositionFromMap(rankPositions, sym) ??
                 Number(t?.rank_position);
-              const dc = getDailyChange(t);
-              const dayPct = Number(dc?.dayPct);
-              return { t, c, status, score, rp: Number.isFinite(rp) ? rp : null };
+              return { t, c, status, score, rp: Number.isFinite(rp) ? rp : null, sym };
             })
+            .filter(({ t }) => !!t?.ticker);
+
+          // Special mode: stable “Today” list (snapshot + movement deltas).
+          if (view === "today") {
+            const bySym = {};
+            for (const it of itemsAll) {
+              if (it.sym && !bySym[it.sym]) bySym[it.sym] = it;
+            }
+
+            const snapTickers =
+              todaySnapshot && Array.isArray(todaySnapshot.tickers) && todaySnapshot.tickers.length > 0
+                ? todaySnapshot.tickers
+                : bestLiveForToday.tickers;
+            const snapRpBy =
+              todaySnapshot && todaySnapshot.rpBy ? todaySnapshot.rpBy : bestLiveForToday.rpBy;
+
+            const out = [];
+            const inSnap = new Set();
+            for (const sym of snapTickers) {
+              const S = String(sym || "").toUpperCase();
+              if (!S) continue;
+              inSnap.add(S);
+              const it = bySym[S];
+              if (!it) continue;
+              out.push({
+                ...it,
+                snapRp: Number.isFinite(Number(snapRpBy?.[S])) ? Number(snapRpBy[S]) : null,
+                dropped: !isTodayBestSetup(it.t),
+              });
+            }
+
+            // Append newly-qualifying setups (so you don’t miss fresh arrivals) but keep them after the snapshot.
+            for (const sym of bestLiveForToday.tickers) {
+              const S = String(sym || "").toUpperCase();
+              if (!S || inSnap.has(S)) continue;
+              const it = bySym[S];
+              if (!it) continue;
+              out.push({ ...it, snapRp: null, dropped: false, isNew: true });
+            }
+
+            return out;
+          }
+
+          const items = itemsAll
             .filter(({ t, c, status }) => {
-              if (!t?.ticker) return false;
               if (!showControls) return true;
               if (view !== "all" && status !== view) return false;
               if (dir !== "ALL" && c.dir !== dir) return false;
@@ -9784,7 +9925,7 @@
             });
 
           return items;
-        }, [tickers, view, dir, horizon, query, rankPositions, sortBy]);
+        }, [tickers, view, dir, horizon, query, rankPositions, sortBy, todaySnapshot, bestLiveForToday]);
 
         React.useEffect(() => {
           if (!onFilteredTickersChange) return;
@@ -9810,6 +9951,8 @@
             winnerSig ? "🏆" : null,
             flags.sq30_release ? "⚡" : null,
             isInSqueeze ? "🧨" : null,
+            item?.isNew ? "🆕" : null,
+            item?.dropped ? "⚠️" : null,
           ].filter(Boolean);
           const actionInfo = getActionDescription(t);
           const price = Number(t?.price);
@@ -9924,7 +10067,18 @@
                 </div>
                 <div>
                   <span className="text-[#6b7a9f]">Rank</span>{" "}
-                  <span className="text-white font-semibold">{item.rp != null ? `#${item.rp}` : "—"}</span>
+                  <span className="text-white font-semibold">
+                    {item.rp != null ? `#${item.rp}` : "—"}
+                    {item.snapRp != null && item.rp != null ? (
+                      <span className="ml-1 text-[10px] text-[#6b7a9f]">
+                        {item.snapRp > item.rp
+                          ? `↑${item.snapRp - item.rp}`
+                          : item.snapRp < item.rp
+                          ? `↓${item.rp - item.snapRp}`
+                          : "→0"}
+                      </span>
+                    ) : null}
+                  </span>
                 </div>
                 <div>
                   <span className="text-[#6b7a9f]">RR</span>{" "}
@@ -10014,6 +10168,15 @@
                   <option value="ABC">Sort: ABC</option>
                   <option value="DCHG">Sort: Daily %</option>
                 </select>
+                {view === "today" && (
+                  <button
+                    onClick={updateTodaySnapshot}
+                    className="px-2 py-1 text-xs bg-blue-500/15 border border-blue-500/40 rounded text-blue-300 hover:bg-blue-500/25"
+                    title="Refresh the Today snapshot (keeps list stable)"
+                  >
+                    Update snapshot
+                  </button>
+                )}
               </div>
             </div>
 
@@ -10023,6 +10186,7 @@
                 {pill("Eligible", view === "eligible", () => setView("eligible"))}
                 {pill("Watch", view === "watch", () => setView("watch"))}
                 {pill("All", view === "all", () => setView("all"))}
+                {pill("📅 Today", view === "today", () => setView("today"))}
                 <div className="w-px h-6 bg-[#26325f] mx-1" />
                 {pill("All", dir === "ALL", () => setDir("ALL"))}
                 {pill("Long", dir === "LONG", () => setDir("LONG"))}
@@ -11306,7 +11470,7 @@
                               <div className="text-[10px] text-[#93a4d6] mb-1">
                                 Technical Rating (proxy)
                               </div>
-                              <div className="text-xs font-semibold text-white">
+                              <div className="text-xs font-semibold text-white no-ligatures">
                                 {trStatus || "—"}
                                 {trValue != null ? (
                                   <span className="ml-2 text-[10px] text-[#6b7a9f]">
