@@ -1339,6 +1339,7 @@
           ticker?.move_status && typeof ticker.move_status === "object"
             ? ticker.move_status
             : null;
+        const hasMoveStatus = !!(ms && ms.status);
         const statusRaw = ms?.status ? String(ms.status) : "";
         const status = statusRaw ? statusRaw.trim().toUpperCase() : "ACTIVE";
         const sideRaw = ms?.side ? String(ms.side) : "";
@@ -1356,6 +1357,7 @@
 
         if (status === "INVALIDATED") {
           return {
+            hasMoveStatus,
             status,
             side,
             severity,
@@ -1369,6 +1371,7 @@
         }
         if (status === "COMPLETED") {
           return {
+            hasMoveStatus,
             status,
             side,
             severity,
@@ -1381,6 +1384,7 @@
           };
         }
         return {
+          hasMoveStatus,
           status: "ACTIVE",
           side,
           severity,
@@ -10235,6 +10239,7 @@
         tickers = [],
         rankPositions = {},
         onSelectTicker = null,
+        allData = null,
         defaultLimit = 12,
         storageKey = "timedTrading_activeMovesSnapshot_v1",
         title = "Active Moves (snapshot)",
@@ -10258,6 +10263,8 @@
             for (const t of list) {
               if (!t?.ticker) continue;
               const mv = getMoveStatusInfo(t);
+              // Do not include items without an explicit move_status (prevents snapshot/right-rail mismatch)
+              if (!mv.hasMoveStatus) continue;
               if (mv.status !== "ACTIVE") continue;
               const triggerTs = Number(t?.trigger_ts);
               if (!Number.isFinite(triggerTs) || triggerTs <= 0) continue; // only "real" moves
@@ -10265,6 +10272,17 @@
               const rp = getRankPositionFromMap(rankPositions, sym) ?? Number(t?.rank_position);
               const inCorridor = !!entryType(t)?.corridor;
               const rr = Number(t?.rr);
+              const flags = t?.flags && typeof t.flags === "object" ? t.flags : {};
+              const momentumElite = !!flags.momentum_elite;
+              const sqRelease = !!flags.sq30_release;
+              const inSqueeze = !!flags.sq30_on && !flags.sq30_release;
+              const thesis = flags.thesis_match === true;
+              const prime = isPrimeBubble(t);
+              const winnerSig = isWinnerSignature(t);
+              const sl = Number(t?.sl ?? t?.sl_price);
+              const tp = Number(t?.tp ?? t?.tp_price);
+              const eta = computeEtaDays(t);
+              const price = Number(t?.price);
               const progRaw = computeMoveProgressPct(t);
               const comp = completionForSize(t);
               const progress = Number.isFinite(progRaw) ? progRaw : Number.isFinite(comp) ? comp : null;
@@ -10278,6 +10296,16 @@
                 progress: Number.isFinite(progress) ? progress : null,
                 phase: Number.isFinite(phase) ? phase : null,
                 age,
+                momentumElite,
+                sqRelease,
+                inSqueeze,
+                thesis,
+                prime,
+                winnerSig,
+                sl: Number.isFinite(sl) && sl > 0 ? sl : null,
+                tp: Number.isFinite(tp) && tp > 0 ? tp : null,
+                eta: Number.isFinite(eta) && eta > 0 ? eta : null,
+                price: Number.isFinite(price) && price > 0 ? price : null,
                 t,
               });
             }
@@ -10365,6 +10393,13 @@
                 {rows.map((r) => {
                   const mv = getMoveStatusInfo(r.t);
                   const dir = mv.side || (getDirection(r.t)?.text || "");
+                  const latest =
+                    allData && typeof allData === "object"
+                      ? allData[r.sym] || allData[String(r.sym).toUpperCase()] || null
+                      : null;
+                  const curMv = latest ? getMoveStatusInfo(latest) : null;
+                  const statusChanged =
+                    curMv && curMv.hasMoveStatus && curMv.status && curMv.status !== mv.status;
                   const rrText = r.rr != null ? r.rr.toFixed(2) : "—";
                   const rpText = r.rp != null ? `#${r.rp}` : "—";
                   const p = r.progress != null ? Math.max(0, Math.min(1, r.progress)) : null;
@@ -10372,10 +10407,39 @@
                   const phasePct = Number.isFinite(r.phase) ? Math.round(r.phase * 100) : null;
                   const corridor = r.inCorridor ? "In corridor" : "Out of corridor";
                   const corridorCls = r.inCorridor ? "text-green-300" : "text-yellow-300";
+                  const badges = [
+                    r.momentumElite ? "🚀" : null,
+                    r.thesis ? "🧠" : null,
+                    r.prime ? "⭐" : null,
+                    r.winnerSig ? "🏆" : null,
+                    r.sqRelease ? "⚡" : null,
+                    r.inSqueeze ? "🧨" : null,
+                  ].filter(Boolean);
+                  const emojiText = badges.join("");
+                  const slText = r.sl != null ? `$${r.sl.toFixed(2)}` : "—";
+                  const tpText = r.tp != null ? `$${r.tp.toFixed(2)}` : "—";
+                  const etaText = r.eta != null ? `${r.eta.toFixed(1)}d` : "—";
+                  const meTip = (() => {
+                    const crit = r.t?.momentum_elite_criteria;
+                    if (!r.momentumElite) return null;
+                    if (!crit || typeof crit !== "object") return "Momentum Elite";
+                    const c = crit;
+                    const parts = [];
+                    if (c.priceOver4 != null) parts.push(`Price>=4: ${c.priceOver4 ? "Y" : "N"}`);
+                    if (c.adrOver2 != null) parts.push(`ADR>=2: ${c.adrOver2 ? "Y" : "N"}`);
+                    if (c.volumeOver2M != null) parts.push(`Vol>=2M: ${c.volumeOver2M ? "Y" : "N"}`);
+                    if (c.anyMomentumCriteria != null)
+                      parts.push(`1M>=25%: ${c.anyMomentumCriteria ? "Y" : "N"}`);
+                    return parts.length ? `Momentum Elite • ${parts.join(" • ")}` : "Momentum Elite";
+                  })();
                   return (
                     <button
                       key={`active-move-${r.sym}`}
-                      className="w-full text-left rounded-lg border border-[#26325f] bg-[#121a33] hover:bg-[#16224a] hover:border-[#3a4aa0] transition-all px-3 py-2"
+                      className={`w-full text-left rounded-lg border bg-[#121a33] hover:bg-[#16224a] transition-all px-3 py-2 ${
+                        r.momentumElite
+                          ? "border-purple-500/50 hover:border-purple-400 shadow-[0_0_0_1px_rgba(168,85,247,0.18)]"
+                          : "border-[#26325f] hover:border-[#3a4aa0]"
+                      }`}
                       onClick={() => {
                         if (typeof onSelectTicker === "function") onSelectTicker(r.sym);
                       }}
@@ -10388,6 +10452,22 @@
                             <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${mv.pillCls}`}>
                               {mv.icon} {mv.status}
                             </span>
+                            {statusChanged ? (
+                              <span
+                                className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${curMv.pillCls}`}
+                                title="Live status differs from snapshot"
+                              >
+                                Now: {curMv.icon} {curMv.status}
+                              </span>
+                            ) : null}
+                            {emojiText ? (
+                              <span
+                                className="px-2 py-0.5 rounded border border-[#26325f] bg-[#0f1630] text-[10px] font-semibold text-[#e7ecff]"
+                                title={meTip || undefined}
+                              >
+                                {emojiText}
+                              </span>
+                            ) : null}
                             {dir ? (
                               <span className="px-2 py-0.5 rounded border border-[#26325f] bg-[#0f1630] text-[10px] text-[#c8d2ff]">
                                 {dir}
@@ -10414,6 +10494,20 @@
                               </span>
                             ) : null}
                           </div>
+                          <div className="mt-1 text-[10px] text-[#6b7a9f] flex items-center gap-3 flex-wrap">
+                            <span>
+                              <span className="text-[#93a4d6]">SL</span>{" "}
+                              <span className="text-red-300 font-semibold">{slText}</span>
+                            </span>
+                            <span>
+                              <span className="text-[#93a4d6]">TP</span>{" "}
+                              <span className="text-green-300 font-semibold">{tpText}</span>
+                            </span>
+                            <span>
+                              <span className="text-[#93a4d6]">ETA</span>{" "}
+                              <span className="text-[#e7ecff] font-semibold">{etaText}</span>
+                            </span>
+                          </div>
                         </div>
                         <div className="flex-shrink-0 text-right">
                           <div className="text-[11px] text-[#93a4d6]">Progress</div>
@@ -10435,7 +10529,7 @@
                         </div>
                         <div className="mt-1 flex items-center justify-between text-[10px] text-[#6b7a9f]">
                           <span>{phasePct != null ? `Phase ${phasePct}%` : "Phase —"}</span>
-                          <span>{r.t?.price != null ? `$${Number(r.t.price).toFixed(2)}` : "—"}</span>
+                          <span>{r.price != null ? `$${r.price.toFixed(2)}` : "—"}</span>
                         </div>
                       </div>
                     </button>
@@ -16321,6 +16415,7 @@
                         tickers={allTickersWithRanks}
                         rankPositions={rankedTickerPositions}
                         onSelectTicker={handleTickerSelect}
+                        allData={data}
                         defaultLimit={12}
                       />
                       <input

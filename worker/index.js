@@ -5168,32 +5168,46 @@ async function computeMomentumElite(KV, ticker, payload) {
     }
   }
 
-  // 3. Average Daily Range (ADR) > $2 (cached for 1 hour)
-  // Prefer TradingView heartbeat fields when present (most accurate).
+  // 3. Average Daily Range (ADR) (looser, cached for 1 hour)
+  // Prefer TradingView heartbeat fields when present.
   const adrKey = `timed:momentum:adr:${ticker}`;
-  let adrOver2 = false;
+  let adrOk = true; // Looser: if we can't compute ADR, don't block
   const adrCache = await kvGetJSON(KV, adrKey);
   if (adrCache && now - adrCache.timestamp < 60 * 60 * 1000) {
-    adrOver2 = adrCache.value;
+    adrOk = !!adrCache.value;
   } else {
-    // Prefer ADR from payload (Heartbeat sends `adr_14` as an absolute $ range)
+    // Prefer ADR from payload:
+    // - Heartbeat sends `adr_14` as an absolute $ range
+    // - Some sources may provide `adr_pct_14` as a fraction (0.02 == 2%)
     const adrAbs = Number(payload.adr_14);
+    const adrPctDirect = Number(payload.adr_pct_14);
+
+    const priceForAdr = price > 0 ? price : Number(payload.price) || 0;
+    const adrPct =
+      Number.isFinite(adrPctDirect) && adrPctDirect > 0
+        ? adrPctDirect
+        : Number.isFinite(adrAbs) && adrAbs > 0 && priceForAdr > 0
+        ? adrAbs / priceForAdr
+        : null;
+
     if (Number.isFinite(adrAbs) && adrAbs > 0) {
-      adrOver2 = adrAbs >= 2.0;
+      // Looser than $2: treat >= $1 as "OK"
+      adrOk = adrAbs >= 1.0;
+    } else if (Number.isFinite(adrPct) && adrPct > 0) {
+      // Looser than 2%: treat >= 1.5% as "OK"
+      adrOk = adrPct >= 0.015;
     } else {
       // Fallback: if only OHLC is available, estimate ADR as a percent of price (legacy).
       const high = Number(payload.high ?? payload.h) || price;
       const low = Number(payload.low ?? payload.l) || price;
       const adrPct = calculateADR(price, high, low); // fraction of price
-      // Convert to an approximate $ADR using current price; then compare to $2
-      const adrApproxAbs =
-        adrPct != null && Number.isFinite(adrPct) && price > 0 ? adrPct * price : null;
-      adrOver2 = adrApproxAbs != null && adrApproxAbs >= 2.0;
+      // Looser: accept >= 1.5% if computed
+      adrOk = adrPct != null && Number.isFinite(adrPct) && adrPct >= 0.015;
     }
     await kvPutJSON(
       KV,
       adrKey,
-      { value: adrOver2, timestamp: now },
+      { value: adrOk, timestamp: now },
       60 * 60
     );
   }
@@ -5223,8 +5237,8 @@ async function computeMomentumElite(KV, ticker, payload) {
     );
   }
 
-  // All base criteria
-  const allBaseCriteria = priceOver4 && adrOver2 && volumeOver2M;
+  // All base criteria (looser ADR gate)
+  const allBaseCriteria = priceOver4 && adrOk && volumeOver2M;
 
   // Any momentum criteria (cached for 15 minutes):
   // Prefer TradingView payload data (most accurate), fallback to trail history
@@ -5318,7 +5332,8 @@ async function computeMomentumElite(KV, ticker, payload) {
     criteria: {
       priceOver4,
       marketCapOver1B,
-      adrOver2,
+      // Back-compat name: still called adrOver2 in UI, but now means "ADR gate passed (looser)".
+      adrOver2: adrOk,
       volumeOver2M,
       allBaseCriteria,
       anyMomentumCriteria,
