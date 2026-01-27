@@ -11274,6 +11274,18 @@ export default {
             corsHeaders(env, req)
           );
         }
+        
+        // Try to return cached version first (updated every 5 min by cron)
+        const cached = await kvGetJSON(KV, "timed:all:cache");
+        if (cached && cached.ok && cached.data) {
+          const age = Date.now() - (cached.cached_at || 0);
+          // Return cache if less than 10 minutes old
+          if (age < 600000) {
+            console.log(`[/timed/all] Returning cached response (age: ${Math.round(age/1000)}s)`);
+            return sendJSON(cached, 200, corsHeaders(env, req));
+          }
+        }
+        console.log(`[/timed/all] Cache miss or stale, computing fresh response`);
 
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const storedVersion =
@@ -11683,23 +11695,25 @@ export default {
           entry.rank_score = item.score;
         });
 
-        return sendJSON(
-          {
-            ok: true,
-            count: Object.keys(data).length,
-            totalIndex: tickers.length,
-            versionFiltered: versionFilteredCount,
-            versionBreakdown: versionBreakdown,
-            dataVersion: storedVersion,
-            requestedVersion: requestedVersion || "latest",
-            versionsSeen: Array.from(versionsSeen),
-            acceptedVersions: Array.from(acceptedVersions),
-            currentDataVersion: CURRENT_DATA_VERSION,
-            data,
-          },
-          200,
-          corsHeaders(env, req)
-        );
+        const responseData = {
+          ok: true,
+          count: Object.keys(data).length,
+          totalIndex: tickers.length,
+          versionFiltered: versionFilteredCount,
+          versionBreakdown: versionBreakdown,
+          dataVersion: storedVersion,
+          requestedVersion: requestedVersion || "latest",
+          versionsSeen: Array.from(versionsSeen),
+          acceptedVersions: Array.from(acceptedVersions),
+          currentDataVersion: CURRENT_DATA_VERSION,
+          data,
+          cached_at: Date.now(),
+        };
+        
+        // Cache the response for future requests (background write, don't await)
+        ctx.waitUntil(kvPutJSON(KV, "timed:all:cache", responseData));
+        
+        return sendJSON(responseData, 200, corsHeaders(env, req));
       }
 
       // GET /timed/trail?ticker=
@@ -18086,6 +18100,37 @@ Provide 3-5 actionable next steps:
     const hour = now.getUTCHours();
     const minute = now.getUTCMinutes();
 
+    // Pre-warm /timed/all cache (runs every 5 minutes)
+    try {
+      console.log(`[CACHE WARMING] Starting /timed/all cache refresh...`);
+      const warmStart = Date.now();
+      
+      // Trigger internal fetch to /timed/all to compute and cache
+      const selfUrl = `https://timed-trading-ingest.shashant.workers.dev/timed/all?_warmup=1`;
+      const warmupReq = new Request(selfUrl, {
+        headers: { "X-Cache-Warmup": "true" },
+      });
+      
+      // Use waitUntil to not block the scheduled job
+      ctx.waitUntil(
+        (async () => {
+          try {
+            const resp = await fetch(warmupReq);
+            const warmEnd = Date.now();
+            if (resp.ok) {
+              console.log(`[CACHE WARMING] Success in ${warmEnd - warmStart}ms`);
+            } else {
+              console.error(`[CACHE WARMING] Failed: ${resp.status}`);
+            }
+          } catch (e) {
+            console.error(`[CACHE WARMING] Error:`, String(e));
+          }
+        })()
+      );
+    } catch (error) {
+      console.error("[CACHE WARMING ERROR]", error);
+    }
+    
     // Always update open trades (runs every 5 minutes)
     try {
       const tradesKey = "timed:trades:all";
