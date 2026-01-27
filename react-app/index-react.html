@@ -2775,6 +2775,10 @@
           if (effectiveFilters.winnerSignature === true) {
             if (!isWinnerSignature(d)) continue;
           }
+          if (effectiveFilters.flipWatch === true) {
+            const flags = d.flags || {};
+            if (!flags.flip_watch) continue;
+          }
 
           // Pattern Group filter (Action Moves groups)
           if (effectiveFilters.patternGroup && typeof effectiveFilters.patternGroup === "string") {
@@ -3164,8 +3168,12 @@
               : 1;
           const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
 
+          const flipWatch = !!flags.flip_watch;
+          
           const borderWidth = waitingForData
             ? 2
+            : flipWatch
+            ? 3.5
             : prime
             ? 3
             : winnerSig
@@ -3178,6 +3186,8 @@
 
           let borderColor = waitingForData
             ? "#93a4d6"
+            : flipWatch
+            ? "#fbbf24" // Amber for flip watch
             : prime
             ? "#2ecc71"
             : winnerSig
@@ -3294,6 +3304,7 @@
           if (flags.thesis_match === true && !waitingForData) emojis.push("🧠");
           if (waitingForData) emojis.push("⏳");
           if (!waitingForData) {
+            if (flipWatch) emojis.push("🎯"); // Flip watch - about to transition
             if (!!flags.momentum_elite) emojis.push("🚀");
             if (prime) emojis.push("⭐");
             if (winnerSig) emojis.push("🏆");
@@ -3363,6 +3374,42 @@
               }}
             >
               {decisionTooltip && <title>{decisionTooltip}</title>}
+              {/* Pulsing glow effect for flip watch */}
+              {flipWatch && (
+                <>
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={renderedSize + 4}
+                    fill="none"
+                    stroke="#fbbf24"
+                    strokeWidth="2"
+                    opacity="0.5"
+                  >
+                    <animate
+                      attributeName="r"
+                      values={`${renderedSize + 3};${renderedSize + 6};${renderedSize + 3}`}
+                      dur="2s"
+                      repeatCount="indefinite"
+                    />
+                    <animate
+                      attributeName="opacity"
+                      values="0.3;0.7;0.3"
+                      dur="2s"
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={renderedSize + 2}
+                    fill="none"
+                    stroke="#fbbf24"
+                    strokeWidth="1"
+                    opacity="0.4"
+                  />
+                </>
+              )}
               {/* Glow effect for prime */}
               {prime && (
                 <circle
@@ -9944,6 +9991,7 @@
           const squeezeRelease = countWith({ ...base, squeezeRelease: true });
           const momentumElite = countWith({ ...base, momentumElite: true });
           const winnerSignature = countWith({ ...base, winnerSignature: true });
+          const flipWatch = countWith({ ...base, flipWatch: true });
 
           // Action Moves Pattern Groups
           const patternSqueezeMomentum = countWith({ ...base, patternGroup: "Squeeze → Momentum" });
@@ -10011,6 +10059,7 @@
               SQUEEZE_RELEASE: squeezeRelease,
               MOMENTUM_ELITE: momentumElite,
               WINNER_SIGNATURE: winnerSignature,
+              FLIP_WATCH: flipWatch,
             },
             patterns: {
               SQUEEZE_MOMENTUM: patternSqueezeMomentum,
@@ -10256,6 +10305,17 @@
                 >
                   🏆 Winner Signature {pillCounts?.specials?.WINNER_SIGNATURE != null ? `(${pillCounts.specials.WINNER_SIGNATURE})` : ""}
                 </span>
+                <span
+                  onClick={() => toggleBool("flipWatch")}
+                  className={`cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border-2 ${
+                    filters.flipWatch === true
+                      ? "bg-gradient-to-r from-amber-600 to-orange-600 border-amber-400 text-white shadow-lg animate-pulse"
+                      : "bg-[#121a33] border-[#26325f] text-[#93a4d6] hover:border-amber-400/50"
+                  }`}
+                  title="Tickers about to flip from PULLBACK to momentum (76% flip within 6 hours)"
+                >
+                  🎯 Flip Watch {pillCounts?.specials?.FLIP_WATCH != null ? `(${pillCounts.specials.FLIP_WATCH})` : ""}
+                </span>
               </div>
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Action Moves Patterns</div>
@@ -10500,6 +10560,7 @@
               const thesis = flags.thesis_match === true;
               const prime = isPrimeBubble(t);
               const winnerSig = isWinnerSignature(t);
+              const flipWatch = !!flags.flip_watch;
               const sl = Number(
                 t?.sl ??
                   t?.sl_price ??
@@ -10540,6 +10601,7 @@
                 thesis,
                 prime,
                 winnerSig,
+                flipWatch,
                 sl: Number.isFinite(sl) && sl > 0 ? sl : null,
                 tp: Number.isFinite(tp) && tp > 0 ? tp : null,
                 eta: Number.isFinite(eta) && eta > 0 ? eta : null,
@@ -10690,6 +10752,7 @@
                   const corridor = r.inCorridor ? "In corridor" : "Out of corridor";
                   const corridorCls = r.inCorridor ? "text-green-300" : "text-yellow-300";
                   const badges = [
+                    r.flipWatch ? "🎯" : null,
                     r.momentumElite ? "🚀" : null,
                     r.thesis ? "🧠" : null,
                     r.prime ? "⭐" : null,
@@ -10842,6 +10905,159 @@
                 ))}
               </div>
             )}
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Early Movers Panel: Flip Watch + Just Flipped tickers
+      // ─────────────────────────────────────────────────────────────
+      function EarlyMoversPanel({ tickers = [], onSelectTicker = null }) {
+        const now = Date.now();
+        
+        // Flip Watch: tickers in PULLBACK about to flip to momentum
+        const flipWatch = tickers.filter(t => {
+          const flags = t?.flags || {};
+          return !!flags.flip_watch;
+        }).slice(0, 8);
+        
+        // Just Flipped: tickers that transitioned from PULLBACK to momentum in last 2 hours
+        const justFlipped = tickers.filter(t => {
+          const state = String(t?.state || "");
+          const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+          if (!isMomentum) return false;
+          
+          // Check if they have corridor reclaim in last 2 hours
+          const seq = t?.seq || {};
+          const corridorEntry = seq.corridorEntry_60m === true;
+          return corridorEntry; // Recently entered corridor and now in momentum
+        }).slice(0, 8);
+        
+        // High Probability: Corridor + Squeeze Release combo
+        const highProb = tickers.filter(t => {
+          const ent = entryType(t);
+          const flags = t?.flags || {};
+          return ent?.corridor && flags.sq30_release;
+        }).slice(0, 8);
+        
+        const renderCard = (t) => {
+          const state = String(t?.state || "");
+          const isBullish = state.includes("BULL");
+          const dir = isBullish ? "LONG" : "SHORT";
+          const dirEmoji = isBullish ? "📈" : "📉";
+          const flags = t?.flags || {};
+          const htf = Number(t?.htf_score);
+          const ltf = Number(t?.ltf_score);
+          const price = Number(t?.price);
+          const completion = Number(t?.completion);
+          const phase = Number(t?.phase_pct);
+          const rank = Number(t?.rank);
+          const score = Number(t?.flip_watch_score);
+          
+          return (
+            <button
+              key={`early-${t.ticker}`}
+              onClick={() => onSelectTicker?.(t.ticker)}
+              className="w-full text-left p-3 rounded-lg border border-[#26325f] bg-[#0f1630] hover:bg-[#121a33] hover:border-[#3a4a7f] transition-all"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-white">{t.ticker}</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isBullish ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                      {dirEmoji} {dir}
+                    </span>
+                    {flags.flip_watch && score > 0 && (
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-semibold border border-amber-500/40">
+                        🎯 {score}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-[11px] text-[#93a4d6]">{state}</div>
+                  <div className="mt-1 flex items-center gap-3 text-[10px] text-[#6b7a9f]">
+                    <span>
+                      HTF <span className="text-white font-semibold">{Number.isFinite(htf) ? htf.toFixed(1) : "—"}</span>
+                    </span>
+                    <span>
+                      LTF <span className="text-white font-semibold">{Number.isFinite(ltf) ? ltf.toFixed(1) : "—"}</span>
+                    </span>
+                    {Number.isFinite(rank) && rank > 0 && (
+                      <span>
+                        Rank <span className="text-white font-semibold">#{rank}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="text-right text-[11px]">
+                  <div className="text-white font-semibold">${Number.isFinite(price) ? price.toFixed(2) : "—"}</div>
+                  {Number.isFinite(completion) && (
+                    <div className="text-[#6b7a9f]">{Math.round(completion * 100)}% done</div>
+                  )}
+                  {Number.isFinite(phase) && (
+                    <div className="text-[#6b7a9f]">{Math.round(phase * 100)}% phase</div>
+                  )}
+                </div>
+              </div>
+            </button>
+          );
+        };
+        
+        if (flipWatch.length === 0 && justFlipped.length === 0 && highProb.length === 0) {
+          return null;
+        }
+        
+        return (
+          <div className="mb-4 rounded-xl border border-[#26325f] bg-[#0f1630] p-4">
+            <div className="mb-3">
+              <div className="text-sm font-bold text-white">🎯 Early Movers — Timing Opportunities</div>
+              <div className="mt-0.5 text-[11px] text-[#93a4d6]">
+                Real-time detection of setup → momentum transitions (76% flip within 6 hours)
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              {flipWatch.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[12px] font-semibold text-amber-300">
+                      🎯 Flip Watch <span className="text-[#6b7a9f]">({flipWatch.length})</span>
+                    </div>
+                    <div className="text-[10px] text-[#6b7a9f]">About to flip (PULLBACK → Momentum)</div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                    {flipWatch.map(renderCard)}
+                  </div>
+                </div>
+              )}
+              
+              {justFlipped.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[12px] font-semibold text-green-300">
+                      ⚡ Just Flipped <span className="text-[#6b7a9f]">({justFlipped.length})</span>
+                    </div>
+                    <div className="text-[10px] text-[#6b7a9f]">Recently entered corridor & momentum</div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                    {justFlipped.map(renderCard)}
+                  </div>
+                </div>
+              )}
+              
+              {highProb.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[12px] font-semibold text-cyan-300">
+                      💎 High Probability <span className="text-[#6b7a9f]">({highProb.length})</span>
+                    </div>
+                    <div className="text-[10px] text-[#6b7a9f]">Corridor + Squeeze Release combo</div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                    {highProb.map(renderCard)}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         );
       }
@@ -16758,6 +16974,10 @@
                         onSelectTicker={handleTickerSelect}
                         allData={data}
                         defaultLimit={12}
+                      />
+                      <EarlyMoversPanel
+                        tickers={filteredData}
+                        onSelectTicker={handleTickerSelect}
                       />
                       <div className="flex items-center justify-end gap-3 flex-wrap mb-2">
                         <button
