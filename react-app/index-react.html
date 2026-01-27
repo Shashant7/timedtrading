@@ -11057,21 +11057,10 @@
           return null;
         }
         
-        // Calculate total tickers in Kanban flow
+        // Calculate total tickers in Kanban flow (Worker assigns stage)
         const kanbanTickers = tickers.filter(t => {
-          const flags = t?.flags || {};
-          const mv = getMoveStatusInfo(t);
-          const intent = classifyEntryIntent(t);
-          const action = String(intent?.action || "").toUpperCase();
-          const state = String(t?.state || "");
-          const seq = t?.seq || {};
-          const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
-          
-          // Include: flip watch, just flipped, entry opportunities, or open positions
-          return flags.flip_watch || 
-                 (isMomentum && seq.corridorEntry_60m) || 
-                 action === "ENTRY" ||
-                 mv.status === "ACTIVE";
+          const stage = t?.kanban_stage;
+          return stage && typeof stage === 'string' && stage !== '';
         });
         
         const kanbanCount = kanbanTickers.length;
@@ -11129,7 +11118,7 @@
       function EarlyMoversPanel({ tickers = [], onSelectTicker = null }) {
         const now = Date.now();
         
-        // Categorize tickers into Kanban columns based on trading lifecycle
+        // Categorize tickers into Kanban columns using Worker-provided stage
         const categories = React.useMemo(() => {
           const flipWatch = [];
           const justFlipped = [];
@@ -11139,53 +11128,31 @@
           const exit = [];
           
           tickers.forEach(t => {
-            const flags = t?.flags || {};
-            const state = String(t?.state || "");
-            const mv = getMoveStatusInfo(t);
-            const intent = classifyEntryIntent(t);
-            const action = String(intent?.action || "").toUpperCase();
-            const confidence = Number(intent?.confidence);
-            const completion = Number(t?.completion);
-            const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
-            const seq = t?.seq || {};
-            const ent = entryType(t);
+            const stage = String(t?.kanban_stage || "");
             
-            // Column 1: Flip Watch (about to transition)
-            if (flags.flip_watch && !mv.hasMoveStatus) {
-              flipWatch.push(t);
-              return;
-            }
-            
-            // Column 2: Just Flipped (recently transitioned to momentum)
-            if (isMomentum && seq.corridorEntry_60m === true && !mv.hasMoveStatus) {
-              justFlipped.push(t);
-              return;
-            }
-            
-            // Column 3: Enter Now (prime entry opportunities)
-            if (!mv.hasMoveStatus && action === "ENTRY") {
-              if (confidence >= 0.7 || flags.thesis_match || (ent?.corridor && flags.sq30_release) || flags.momentum_elite) {
+            // Worker determines the stage - UI just displays it
+            switch (stage) {
+              case "flip_watch":
+                flipWatch.push(t);
+                break;
+              case "just_flipped":
+                justFlipped.push(t);
+                break;
+              case "enter_now":
                 enterNow.push(t);
-                return;
-              }
-            }
-            
-            // Open positions (Move=ACTIVE)
-            if (mv.status === "ACTIVE") {
-              // Column 6: Exit (low confidence or EXIT action)
-              if (action === "EXIT" || confidence < 0.4) {
-                exit.push(t);
-                return;
-              }
-              
-              // Column 5: Trim (high completion or late phase)
-              if (completion >= 0.7 || (action === "WAIT" && completion >= 0.5)) {
+                break;
+              case "hold":
+                hold.push(t);
+                break;
+              case "trim":
                 trim.push(t);
-                return;
-              }
-              
-              // Column 4: Hold (everything else)
-              hold.push(t);
+                break;
+              case "exit":
+                exit.push(t);
+                break;
+              default:
+                // No stage assigned - not in pipeline
+                break;
             }
           });
           

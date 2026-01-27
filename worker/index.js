@@ -976,6 +976,85 @@ function detectFlipWatch(tickerData, trail = []) {
   };
 }
 
+/**
+ * Classify ticker into Kanban stage based on trading lifecycle
+ * Stages: flip_watch, just_flipped, enter_now, hold, trim, exit
+ */
+function classifyKanbanStage(tickerData) {
+  const state = String(tickerData?.state || "");
+  const flags = tickerData?.flags || {};
+  const moveStatus = computeMoveStatus(tickerData);
+  const completion = Number(tickerData?.completion) || 0;
+  const phase = Number(tickerData?.phase_pct) || 0;
+  const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+  const seq = tickerData?.seq || {};
+  const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
+  const isActive = moveStatus?.status === "ACTIVE";
+  const htfScore = Number(tickerData?.htf_score) || 0;
+  const ltfScore = Number(tickerData?.ltf_score) || 0;
+  const rank = Number(tickerData?.rank) || 999;
+  
+  // For open positions, use move invalidation signals to determine exit/trim
+  if (isActive) {
+    // Stage 6: Exit - position invalidated or critical issues
+    const reasons = moveStatus?.reasons || [];
+    const severity = moveStatus?.severity || "NONE";
+    if (severity === "CRITICAL" || reasons.includes("left_entry_corridor")) {
+      return "exit";
+    }
+    
+    // Stage 5: Trim - high completion (>70%) or late phase with warnings
+    if (completion >= 0.7 || (phase >= 0.7 && severity === "WARNING")) {
+      return "trim";
+    }
+    
+    // Stage 4: Hold - all other open positions
+    return "hold";
+  }
+  
+  // For non-position tickers, determine if they're entry opportunities
+  
+  // Stage 1: Flip Watch - about to transition
+  if (flags.flip_watch) {
+    return "flip_watch";
+  }
+  
+  // Stage 2: Just Flipped - recently entered momentum
+  if (isMomentum && seq.corridorEntry_60m === true) {
+    return "just_flipped";
+  }
+  
+  // Stage 3: Enter Now - high-confidence entry opportunities
+  // Must be in momentum and meet quality thresholds
+  if (isMomentum) {
+    // Top-ranked tickers
+    if (rank <= 10) {
+      return "enter_now";
+    }
+    
+    // Thesis match or momentum elite
+    if (flags.thesis_match || flags.momentum_elite) {
+      return "enter_now";
+    }
+    
+    // Strong HTF/LTF alignment
+    const htfAbs = Math.abs(htfScore);
+    const ltfAbs = Math.abs(ltfScore);
+    if (htfAbs >= 50 && ltfAbs >= 25) {
+      return "enter_now";
+    }
+    
+    // Corridor + Squeeze combo
+    const ent = entryType(tickerData);
+    if (ent?.corridor && flags.sq30_release) {
+      return "enter_now";
+    }
+  }
+  
+  // Default: no stage (not in trading pipeline)
+  return null;
+}
+
 function computeMoveStatus(tickerData) {
   const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
   const flags = tickerData?.flags || {};
@@ -9086,6 +9165,18 @@ export default {
                 }
               } catch (e) {
                 console.error(`[FLIP WATCH] Detection failed for ${ticker}:`, String(e));
+              }
+              
+              // Kanban Stage classification - determine lifecycle stage
+              try {
+                const stage = classifyKanbanStage(payload);
+                payload.kanban_stage = stage;
+                if (stage) {
+                  console.log(`[KANBAN] ${ticker} → ${stage}`);
+                }
+              } catch (e) {
+                console.error(`[KANBAN] Stage classification failed for ${ticker}:`, String(e));
+                payload.kanban_stage = null;
               }
             } catch (e) {
               console.error(
