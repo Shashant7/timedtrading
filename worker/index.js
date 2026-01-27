@@ -1110,6 +1110,7 @@ function computeMoveStatus(tickerData) {
   const sl = Number(tickerData?.sl);
   const tp = Number(tickerData?.tp);
   const triggerTs = Number(tickerData?.trigger_ts);
+  const curTs = Number(tickerData?.ts ?? tickerData?.ingest_ts ?? Date.now());
 
   const reasons = [];
 
@@ -1132,6 +1133,22 @@ function computeMoveStatus(tickerData) {
       severity: "NONE",
       reasons: [],
     };
+  }
+
+  // If the trigger is stale, don't keep the ticker stuck in "move" lanes forever.
+  // This is especially important when the market is closed and many names won't ingest frequently.
+  // Treat old triggers as no active move so opportunity lanes (Flip Watch / Enter Now) can surface.
+  if (Number.isFinite(curTs) && curTs > 0) {
+    const ageMs = curTs - triggerTs;
+    const STALE_TRIGGER_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+    if (Number.isFinite(ageMs) && ageMs > STALE_TRIGGER_MS) {
+      return {
+        status: "NONE",
+        side,
+        severity: "NONE",
+        reasons: [],
+      };
+    }
   }
 
   // Hard invalidation: SL breach
