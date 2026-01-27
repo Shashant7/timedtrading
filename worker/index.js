@@ -811,6 +811,171 @@ function triggerReasonCorroboration(tickerData) {
   return { corroborated: true, note: "" };
 }
 
+/**
+ * Detect "Flip Watch" - tickers about to transition from PULLBACK to momentum
+ * Based on analysis of top movers: 76% flipped from PULLBACK to momentum within 6h
+ * Common traits: Low completion (<15%), Early phase (<35%), Strong HTF, In/near corridor
+ */
+function detectFlipWatch(tickerData, trail = []) {
+  const state = String(tickerData?.state || "");
+  const htfScore = Number(tickerData?.htf_score);
+  const ltfScore = Number(tickerData?.ltf_score);
+  const completion = Number(tickerData?.completion);
+  const phase = Number(tickerData?.phase_pct);
+  const flags = tickerData?.flags || {};
+  
+  // Must be in PULLBACK state (setup quadrant)
+  const inPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  if (!inPullback) return null;
+  
+  const isBullSetup = state === "HTF_BULL_LTF_PULLBACK";
+  const isBearSetup = state === "HTF_BEAR_LTF_PULLBACK";
+  
+  // Check corridor status
+  const inCorridor = (() => {
+    if (!Number.isFinite(htfScore) || !Number.isFinite(ltfScore)) return false;
+    if (isBullSetup) {
+      return htfScore > 0 && ltfScore >= -10 && ltfScore <= 0;
+    } else if (isBearSetup) {
+      return htfScore < 0 && ltfScore >= 0 && ltfScore <= 10;
+    }
+    return false;
+  })();
+  
+  const nearCorridor = (() => {
+    if (inCorridor) return false; // already in, not "near"
+    if (!Number.isFinite(htfScore) || !Number.isFinite(ltfScore)) return false;
+    if (isBullSetup) {
+      // Near corridor: HTF positive, LTF slightly below corridor (-15 to -10)
+      return htfScore > 0 && ltfScore >= -15 && ltfScore < -10;
+    } else if (isBearSetup) {
+      // Near corridor: HTF negative, LTF slightly above corridor (10 to 15)
+      return htfScore < 0 && ltfScore > 10 && ltfScore <= 15;
+    }
+    return false;
+  })();
+  
+  // Score components (0-100 scale)
+  const reasons = [];
+  let score = 0;
+  
+  // 1. Corridor status (30 points)
+  if (inCorridor) {
+    score += 30;
+    reasons.push("In corridor");
+  } else if (nearCorridor) {
+    score += 20;
+    reasons.push("Near corridor");
+  }
+  
+  // 2. HTF strength (20 points) - Strong HTF indicates trend support
+  const htfStrength = Math.abs(htfScore);
+  if (htfStrength >= 20) {
+    score += 20;
+    reasons.push(`Strong HTF (${htfScore.toFixed(1)})`);
+  } else if (htfStrength >= 15) {
+    score += 15;
+    reasons.push(`Moderate HTF (${htfScore.toFixed(1)})`);
+  } else if (htfStrength >= 10) {
+    score += 10;
+    reasons.push(`Weak HTF (${htfScore.toFixed(1)})`);
+  }
+  
+  // 3. Low completion (20 points) - 64% of winners had completion <15%
+  if (Number.isFinite(completion)) {
+    if (completion < 0.15) {
+      score += 20;
+      reasons.push(`Very low completion (${Math.round(completion * 100)}%)`);
+    } else if (completion < 0.25) {
+      score += 15;
+      reasons.push(`Low completion (${Math.round(completion * 100)}%)`);
+    } else if (completion < 0.35) {
+      score += 10;
+      reasons.push(`Moderate completion (${Math.round(completion * 100)}%)`);
+    }
+  }
+  
+  // 4. Early phase (15 points) - 52% of winners had phase <35%
+  if (Number.isFinite(phase)) {
+    if (phase < 0.35) {
+      score += 15;
+      reasons.push(`Early phase (${Math.round(phase * 100)}%)`);
+    } else if (phase < 0.50) {
+      score += 10;
+      reasons.push(`Mid phase (${Math.round(phase * 100)}%)`);
+    }
+  }
+  
+  // 5. Squeeze signals (15 points) - 40% had sq30_on, 32% had sq30_release
+  if (flags.sq30_release) {
+    score += 15;
+    reasons.push("Squeeze released");
+  } else if (flags.sq30_on) {
+    score += 10;
+    reasons.push("Squeeze building");
+  }
+  
+  // 6. HTF improving (bonus 10 points) - momentum building
+  if (flags.htf_improving_4h) {
+    score += 10;
+    reasons.push("HTF improving");
+  }
+  
+  // 7. LTF approaching flip zone (bonus) - LTF moving toward zero
+  if (Number.isFinite(ltfScore)) {
+    const ltfAbs = Math.abs(ltfScore);
+    if (ltfAbs <= 5) {
+      score += 5;
+      reasons.push("LTF near flip zone");
+    }
+  }
+  
+  // 8. Check recent trail for momentum building (if available)
+  if (Array.isArray(trail) && trail.length >= 2) {
+    // Look at last 6 points (~30 minutes at 5m cadence)
+    const recent = trail.slice(-6);
+    const htfScores = recent.map(p => Number(p?.htf_score)).filter(Number.isFinite);
+    const ltfScores = recent.map(p => Number(p?.ltf_score)).filter(Number.isFinite);
+    
+    if (htfScores.length >= 3) {
+      // Check if HTF is strengthening
+      const htfLast = htfScores[htfScores.length - 1];
+      const htfFirst = htfScores[0];
+      const htfImproving = isBullSetup ? (htfLast > htfFirst) : (htfLast < htfFirst);
+      if (htfImproving) {
+        score += 5;
+        reasons.push("HTF strengthening");
+      }
+    }
+    
+    if (ltfScores.length >= 3) {
+      // Check if LTF is moving toward momentum zone
+      const ltfLast = ltfScores[ltfScores.length - 1];
+      const ltfFirst = ltfScores[0];
+      const ltfMovingToMomentum = isBullSetup ? (ltfLast > ltfFirst) : (ltfLast < ltfFirst);
+      if (ltfMovingToMomentum) {
+        score += 5;
+        reasons.push("LTF moving to momentum");
+      }
+    }
+  }
+  
+  // Require minimum score of 50 to flag as flip watch
+  if (score < 50) return null;
+  
+  return {
+    score,
+    reasons,
+    state,
+    htf_score: htfScore,
+    ltf_score: ltfScore,
+    completion,
+    phase,
+    in_corridor: inCorridor,
+    near_corridor: nearCorridor,
+  };
+}
+
 function computeMoveStatus(tickerData) {
   const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
   const flags = tickerData?.flags || {};
@@ -7776,6 +7941,81 @@ function createTD9EntryEmbed(
   };
 }
 
+function createFlipWatchEmbed(ticker, tickerData) {
+  const state = String(tickerData?.state || "");
+  const htfScore = Number(tickerData?.htf_score);
+  const ltfScore = Number(tickerData?.ltf_score);
+  const completion = Number(tickerData?.completion);
+  const phase = Number(tickerData?.phase_pct);
+  const price = Number(tickerData?.price);
+  const rank = Number(tickerData?.rank);
+  const score = Number(tickerData?.flip_watch_score);
+  const reasons = tickerData?.flip_watch_reasons || [];
+  
+  const isBullSetup = state === "HTF_BULL_LTF_PULLBACK";
+  const direction = isBullSetup ? "LONG" : "SHORT";
+  const emoji = isBullSetup ? "📈" : "📉";
+  
+  const fields = [
+    {
+      name: "🎯 Flip Watch Alert",
+      value: `**${ticker}** is in a **PULLBACK setup** and showing signs it may flip to **momentum** soon (within 2-6 hours based on historical patterns).`,
+      inline: false,
+    },
+    {
+      name: "📊 Setup Quality",
+      value: `**Flip Watch Score:** ${score}/100\n**Why watching:**\n${reasons.slice(0, 5).map(r => `• ${r}`).join("\n")}`,
+      inline: false,
+    },
+    {
+      name: "💰 Entry Details",
+      value: `**Current Price:** $${price.toFixed(2)}\n**Direction:** ${emoji} ${direction}\n**State:** ${state}`,
+      inline: true,
+    },
+    {
+      name: "📈 Scores & Position",
+      value: `**HTF Score:** ${htfScore.toFixed(1)}\n**LTF Score:** ${ltfScore.toFixed(1)}\n**Rank:** ${rank > 0 ? rank : "—"}`,
+      inline: true,
+    },
+    {
+      name: "🎪 Phase & Completion",
+      value: `**Phase:** ${Math.round(phase * 100)}%\n**Completion:** ${Math.round(completion * 100)}%`,
+      inline: true,
+    },
+  ];
+  
+  // Add momentum indicators if available
+  const flags = tickerData?.flags || {};
+  const indicators = [];
+  if (flags.sq30_release) indicators.push("⚡ Squeeze released");
+  else if (flags.sq30_on) indicators.push("🧨 Squeeze building");
+  if (flags.htf_improving_4h) indicators.push("📈 HTF improving");
+  if (flags.momentum_elite) indicators.push("🚀 Momentum Elite");
+  
+  if (indicators.length > 0) {
+    fields.push({
+      name: "🔥 Momentum Indicators",
+      value: indicators.join("\n"),
+      inline: false,
+    });
+  }
+  
+  fields.push({
+    name: "⏱️ What to Watch",
+    value: `Monitor for **LTF score to cross zero** and state to change to **${isBullSetup ? "HTF_BULL_LTF_BULL" : "HTF_BEAR_LTF_BEAR"}**.\n\n**Historical pattern:** 76% of top movers flipped from PULLBACK to momentum within 6 hours, with 64% having <15% completion at start.`,
+    inline: false,
+  });
+  
+  return {
+    title: `🎯 Flip Watch Alert: ${ticker} ${emoji}`,
+    description: `Setup quality score: **${score}/100** — Ready to transition from pullback to momentum`,
+    color: isBullSetup ? 0xfbbf24 : 0xf59e0b, // amber/orange for watch status
+    fields,
+    timestamp: new Date().toISOString(),
+    footer: { text: "Flip Watch — Timed Trading Pattern Detection" },
+  };
+}
+
 function requireKeyOr401(req, env) {
   const expected = env.TIMED_API_KEY;
   if (!expected) return null; // open if unset (not recommended)
@@ -8833,6 +9073,20 @@ export default {
                 payload.flags.htf_move_4h_ge_5 = !!computed.flags?.htf_move_4h_ge_5;
                 payload.flags.thesis_match = !!computed.flags?.thesis_match;
               }
+
+              // Flip Watch detection - tickers about to transition from setup to momentum
+              try {
+                const flipWatch = detectFlipWatch(payload, trail);
+                if (flipWatch) {
+                  payload.flags.flip_watch = true;
+                  payload.flip_watch_score = flipWatch.score;
+                  payload.flip_watch_reasons = flipWatch.reasons;
+                } else {
+                  payload.flags.flip_watch = false;
+                }
+              } catch (e) {
+                console.error(`[FLIP WATCH] Detection failed for ${ticker}:`, String(e));
+              }
             } catch (e) {
               console.error(
                 `[THESIS FEATURES] Compute failed for ${ticker}:`,
@@ -9233,6 +9487,56 @@ export default {
               await kvPutText(KV, prevSqueezeRelKey, "true", 7 * 24 * 60 * 60);
             } else if (!sqRel && prevSqueezeRel === "true") {
               await kvPutText(KV, prevSqueezeRelKey, "false", 7 * 24 * 60 * 60);
+            }
+
+            // Track flip watch (tickers about to flip from PULLBACK to momentum)
+            const prevFlipWatchKey = `timed:prev_flip_watch:${ticker}`;
+            const prevFlipWatch = await KV.get(prevFlipWatchKey);
+            const nowFlipWatch = !!flags.flip_watch;
+            
+            if (nowFlipWatch && prevFlipWatch !== "true") {
+              // New flip watch - send Discord alert
+              const discordEnable = env?.DISCORD_ENABLE || "false";
+              const discordWebhook = env?.DISCORD_WEBHOOK_URL;
+              const discordConfigured = discordEnable === "true" && !!discordWebhook;
+              
+              const nowMs = Date.now();
+              const hourBucket = new Date(nowMs).toISOString().slice(0, 13);
+              const dedupeKey = `timed:dedupe:flip_watch:${ticker}:${hourBucket}`;
+              const already = await KV.get(dedupeKey);
+              
+              if (!already && discordConfigured) {
+                await KV.put(dedupeKey, "1", { expirationTtl: 60 * 60 * 4 }); // 4 hour dedupe
+                
+                const embed = createFlipWatchEmbed(ticker, payload);
+                const sendRes = await notifyDiscord(env, embed).catch((err) => {
+                  console.error(`[FLIP WATCH] Failed to send alert for ${ticker}:`, err);
+                  return { ok: false, error: String(err) };
+                });
+                
+                console.log(`[FLIP WATCH] 🎯 Alert sent for ${ticker}, score=${payload.flip_watch_score}`);
+              }
+              
+              await appendActivity(KV, {
+                type: "flip_watch",
+                ticker: ticker,
+                side: side,
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                flip_watch_score: payload.flip_watch_score,
+                flip_watch_reasons: payload.flip_watch_reasons,
+                sl: payload.sl,
+                tp: payload.tp,
+                tp_levels: payload.tp_levels,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+              
+              await kvPutText(KV, prevFlipWatchKey, "true", 7 * 24 * 60 * 60);
+            } else if (!nowFlipWatch && prevFlipWatch === "true") {
+              await kvPutText(KV, prevFlipWatchKey, "false", 7 * 24 * 60 * 60);
             }
 
             // Track state change to aligned
