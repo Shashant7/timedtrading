@@ -1806,7 +1806,12 @@ f_atr_band_json(float px, float prevPx, float pc, float atr) =>
                             crossSide := (crossUpUp or crossDnUp) ? 1 : -1
 
         xStr = na(crossMult) ? "null" : f_fmt(crossMult, 3)
-        s = "{\"s\":" + str.tostring(side) + ",\"lo\":" + f_fmt(lo, 3) + ",\"hi\":" + hiFinal + ",\"x\":" + xStr + ",\"xd\":\"" + crossDir + "\",\"xs\":" + str.tostring(crossSide) + "}"
+        s = "{\"s\":" + str.tostring(side) + 
+         ",\"lo\":" + f_fmt(lo, 3) + 
+         ",\"hi\":" + hiFinal + 
+         ",\"x\":" + xStr + 
+         ",\"xd\":\"" + crossDir + 
+         "\",\"xs\":" + str.tostring(crossSide) + "}"
         s
 
 f_tf_entry(string tfKey, float px, float prevPx, float pc, float atr, float e5, float e13, float e21, float e48, float e89, float e200, float e233,
