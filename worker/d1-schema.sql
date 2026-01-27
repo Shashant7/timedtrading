@@ -124,3 +124,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_events_idempotent
 CREATE INDEX IF NOT EXISTS idx_trade_events_trade_ts
   ON trade_events (trade_id, ts);
 
+-- -----------------------------------------------------------------------------
+-- Latest snapshot tables (fast UI reads)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS ticker_index (
+  ticker TEXT PRIMARY KEY,
+  first_seen_ts INTEGER NOT NULL,
+  last_seen_ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ticker_latest (
+  ticker TEXT PRIMARY KEY,
+  ts INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  kanban_stage TEXT,
+  payload_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticker_latest_ts ON ticker_latest (ts);
+CREATE INDEX IF NOT EXISTS idx_ticker_latest_kanban_stage ON ticker_latest (kanban_stage);
+

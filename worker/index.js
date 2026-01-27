@@ -1004,7 +1004,7 @@ function detectFlipWatch(tickerData, trail = []) {
 
 /**
  * Classify ticker into Kanban stage based on trading lifecycle
- * Stages: flip_watch, just_flipped, enter_now, hold, trim, exit
+ * Stages: watch, flip_watch, just_flipped, enter_now, hold, trim, exit, invalidated, completed
  */
 function classifyKanbanStage(tickerData) {
   const state = String(tickerData?.state || "");
@@ -1014,12 +1014,15 @@ function classifyKanbanStage(tickerData) {
   const phase = Number(tickerData?.phase_pct) || 0;
   const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
   const seq = tickerData?.seq || {};
-  const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
   const isActive = moveStatus?.status === "ACTIVE";
   const htfScore = Number(tickerData?.htf_score) || 0;
   const ltfScore = Number(tickerData?.ltf_score) || 0;
   const rank = Number(tickerData?.rank) || 999;
   
+  // Terminal/administrative stages
+  if (moveStatus?.status === "INVALIDATED") return "invalidated";
+  if (moveStatus?.status === "COMPLETED") return "completed";
+
   // For open positions, use move invalidation signals to determine exit/trim
   if (isActive) {
     // Stage 6: Exit - position invalidated or critical issues
@@ -1075,6 +1078,9 @@ function classifyKanbanStage(tickerData) {
     if (ent?.corridor && flags.sq30_release) {
       return "enter_now";
     }
+
+    // Momentum-aligned but not an entry yet (helps track "what happened" cases)
+    return "watch";
   }
   
   // Default: no stage (not in trading pipeline)
@@ -6246,6 +6252,135 @@ async function d1InsertIngestReceipt(env, ticker, payload, rawPayload) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// D1 Latest Snapshot Storage (fast reads for UI)
+// ─────────────────────────────────────────────────────────────
+
+async function d1EnsureLatestSchema(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+
+  // Throttle schema checks to ~once/day
+  const KV = env?.KV_TIMED;
+  const throttleKey = "timed:d1:latest:schema_ok_ms";
+  try {
+    if (KV) {
+      const last = Number(await KV.get(throttleKey));
+      if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) {
+        return { ok: true, skipped: true, reason: "throttled" };
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    // Index of tickers we know about (baseline)
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ticker_index (
+          ticker TEXT PRIMARY KEY,
+          first_seen_ts INTEGER NOT NULL,
+          last_seen_ts INTEGER NOT NULL
+        )`
+      )
+      .run();
+
+    // Latest snapshot per ticker (for UI reads)
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ticker_latest (
+          ticker TEXT PRIMARY KEY,
+          ts INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          kanban_stage TEXT,
+          payload_json TEXT NOT NULL
+        )`
+      )
+      .run();
+
+    await db
+      .prepare(`CREATE INDEX IF NOT EXISTS idx_ticker_latest_ts ON ticker_latest (ts)`)
+      .run();
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_ticker_latest_kanban_stage ON ticker_latest (kanban_stage)`
+      )
+      .run();
+
+    try {
+      if (KV) await KV.put(throttleKey, String(Date.now()), { expirationTtl: 7 * 24 * 60 * 60 });
+    } catch {
+      // ignore
+    }
+
+    return { ok: true };
+  } catch (err) {
+    console.error("[D1 LATEST] Schema ensure failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1UpsertTickerIndex(env, ticker, ts) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  const sym = String(ticker || "").toUpperCase();
+  const nowTs = Number(ts) || Date.now();
+
+  try {
+    await d1EnsureLatestSchema(env);
+    await db
+      .prepare(
+        `INSERT INTO ticker_index (ticker, first_seen_ts, last_seen_ts)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(ticker) DO UPDATE SET last_seen_ts = excluded.last_seen_ts`
+      )
+      .bind(sym, nowTs, nowTs)
+      .run();
+    return { ok: true };
+  } catch (err) {
+    console.error(`[D1 LATEST] Index upsert failed for ${sym}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1UpsertTickerLatest(env, ticker, payload) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  const sym = String(ticker || "").toUpperCase();
+  const ts = Number(payload?.ts) || Date.now();
+  const updatedAt = Date.now();
+  const stage = payload?.kanban_stage != null ? String(payload.kanban_stage) : null;
+
+  let payloadJson = null;
+  try {
+    payloadJson = JSON.stringify(payload);
+  } catch {
+    payloadJson = null;
+  }
+  if (!payloadJson) return { ok: false, skipped: true, reason: "payload_json_failed" };
+
+  try {
+    await d1EnsureLatestSchema(env);
+    await db
+      .prepare(
+        `INSERT INTO ticker_latest (ticker, ts, updated_at, kanban_stage, payload_json)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(ticker) DO UPDATE SET
+           ts = excluded.ts,
+           updated_at = excluded.updated_at,
+           kanban_stage = excluded.kanban_stage,
+           payload_json = excluded.payload_json`
+      )
+      .bind(sym, ts, updatedAt, stage, payloadJson)
+      .run();
+    return { ok: true };
+  } catch (err) {
+    console.error(`[D1 LATEST] Latest upsert failed for ${sym}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
 async function d1CleanupOldTrail(env, ttlDays = 35) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -9192,50 +9327,48 @@ export default {
               } catch (e) {
                 console.error(`[FLIP WATCH] Detection failed for ${ticker}:`, String(e));
               }
-              
-              // Kanban Stage classification - determine lifecycle stage
-              try {
-                const stage = classifyKanbanStage(payload);
-                const prevStage = existing?.kanban_stage;
-                payload.kanban_stage = stage;
-                
-                // Track entry price when entering "enter_now" stage
-                if (stage === "enter_now" && prevStage !== "enter_now") {
-                  const price = Number(payload?.price);
-                  if (Number.isFinite(price) && price > 0) {
-                    payload.entry_price = price;
-                    payload.entry_ts = payload.ts;
-                    console.log(`[KANBAN] ${ticker} entered ENTER_NOW at $${price.toFixed(2)}`);
-                  }
-                }
-                
-                // Preserve entry_price if already set and still in pipeline
-                if (stage && existing?.entry_price) {
-                  payload.entry_price = existing.entry_price;
-                  payload.entry_ts = existing.entry_ts;
-                }
-                
-                // Calculate % change from entry if we have entry_price
-                if (payload.entry_price) {
-                  const entryPrice = Number(payload.entry_price);
-                  const currentPrice = Number(payload.price);
-                  if (Number.isFinite(entryPrice) && Number.isFinite(currentPrice) && entryPrice > 0) {
-                    payload.entry_change_pct = ((currentPrice - entryPrice) / entryPrice) * 100;
-                  }
-                }
-                
-                if (stage) {
-                  console.log(`[KANBAN] ${ticker} → ${stage}`);
-                }
-              } catch (e) {
-                console.error(`[KANBAN] Stage classification failed for ${ticker}:`, String(e));
-                payload.kanban_stage = null;
-              }
             } catch (e) {
               console.error(
                 `[THESIS FEATURES] Compute failed for ${ticker}:`,
                 String(e)
               );
+            }
+
+            // Kanban Stage classification - ALWAYS run (independent of thesis/flip-watch logic)
+            try {
+              const stage = classifyKanbanStage(payload);
+              const prevStage = existing?.kanban_stage;
+              payload.kanban_stage = stage;
+
+              // Track entry price when entering "enter_now" stage
+              if (stage === "enter_now" && prevStage !== "enter_now") {
+                const price = Number(payload?.price);
+                if (Number.isFinite(price) && price > 0) {
+                  payload.entry_price = price;
+                  payload.entry_ts = payload.ts;
+                  console.log(`[KANBAN] ${ticker} entered ENTER_NOW at $${price.toFixed(2)}`);
+                }
+              }
+
+              // Preserve entry_price if already set and still in the pipeline
+              if (stage && existing?.entry_price) {
+                payload.entry_price = existing.entry_price;
+                payload.entry_ts = existing.entry_ts;
+              }
+
+              // Calculate % change from entry if we have entry_price
+              if (payload.entry_price) {
+                const entryPrice = Number(payload.entry_price);
+                const currentPrice = Number(payload.price);
+                if (Number.isFinite(entryPrice) && Number.isFinite(currentPrice) && entryPrice > 0) {
+                  payload.entry_change_pct = ((currentPrice - entryPrice) / entryPrice) * 100;
+                }
+              }
+
+              if (stage) console.log(`[KANBAN] ${ticker} → ${stage}`);
+            } catch (e) {
+              console.error(`[KANBAN] Stage classification failed for ${ticker}:`, String(e));
+              payload.kanban_stage = existing?.kanban_stage || null;
             }
 
             // Also store into D1 (if configured) for 7-day history.
@@ -9823,6 +9956,14 @@ export default {
 
           // Store latest (do this BEFORE alert so UI has it)
           await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+
+          // Upsert latest snapshot to D1 for fast UI reads (best-effort)
+          try {
+            ctx.waitUntil(d1UpsertTickerLatest(env, ticker, payload));
+            ctx.waitUntil(d1UpsertTickerIndex(env, ticker, payload?.ts));
+          } catch {
+            // ignore
+          }
 
           if (ticker === "ETHT") {
             console.log(`[ETHT DEBUG] Successfully stored latest data`);
@@ -10992,7 +11133,44 @@ export default {
               }
 
               // Store latest and trail (KV) and write to D1 trail, but do NOT run alert/discord logic here.
+              // Ensure kanban_stage is always computed even on capture-promote path
+              try {
+                const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+                const stage = classifyKanbanStage(payload);
+                const prevStage = existing?.kanban_stage;
+                payload.kanban_stage = stage;
+
+                if (stage === "enter_now" && prevStage !== "enter_now") {
+                  const price = Number(payload?.price);
+                  if (Number.isFinite(price) && price > 0) {
+                    payload.entry_price = price;
+                    payload.entry_ts = payload.ts;
+                  }
+                }
+                if (stage && existing?.entry_price) {
+                  payload.entry_price = existing.entry_price;
+                  payload.entry_ts = existing.entry_ts;
+                }
+                if (payload.entry_price) {
+                  const entryPrice = Number(payload.entry_price);
+                  const currentPrice = Number(payload.price);
+                  if (Number.isFinite(entryPrice) && Number.isFinite(currentPrice) && entryPrice > 0) {
+                    payload.entry_change_pct = ((currentPrice - entryPrice) / entryPrice) * 100;
+                  }
+                }
+              } catch (e) {
+                console.error(`[KANBAN] capture-promote stage compute failed for ${ticker}:`, String(e));
+              }
+
               await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+
+              // Upsert latest snapshot to D1 for fast UI reads (best-effort)
+              try {
+                ctx.waitUntil(d1UpsertTickerLatest(env, ticker, payload));
+                ctx.waitUntil(d1UpsertTickerIndex(env, ticker, payload?.ts));
+              } catch {
+                // ignore
+              }
               await appendTrail(
                 KV,
                 ticker,
@@ -11060,7 +11238,39 @@ export default {
             400,
             corsHeaders(env, req)
           );
-        const data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        // Prefer D1 for reads (single-row query)
+        let data = null;
+        try {
+          if (env?.DB) {
+            await d1EnsureLatestSchema(env);
+            const row = await env.DB
+              .prepare(`SELECT payload_json FROM ticker_latest WHERE ticker = ?1`)
+              .bind(String(ticker || "").toUpperCase())
+              .first();
+            if (row && row.payload_json) {
+              try {
+                data = JSON.parse(String(row.payload_json));
+              } catch {
+                data = null;
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`[D1 LATEST] Read failed for ${ticker}:`, String(e));
+        }
+
+        // Fallback to KV if D1 misses (and best-effort backfill D1)
+        if (!data) {
+          data = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          if (data) {
+            try {
+              ctx.waitUntil(d1UpsertTickerLatest(env, ticker, data));
+              ctx.waitUntil(d1UpsertTickerIndex(env, ticker, data?.ts));
+            } catch {
+              // ignore
+            }
+          }
+        }
         const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
         if (data) {
           // Merge capture-only enrichment fields when present (non-destructive).
@@ -11240,6 +11450,16 @@ export default {
             );
           }
 
+          // Ensure kanban_stage is set for Action Center flow
+          try {
+            if (data.kanban_stage == null) {
+              const stage = classifyKanbanStage(data);
+              if (stage) data.kanban_stage = stage;
+            }
+          } catch {
+            // ignore
+          }
+
           return sendJSON(
             { ok: true, ticker, latestData: data, data },
             200,
@@ -11273,7 +11493,23 @@ export default {
           );
         }
 
-        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        // Prefer D1 for reads (fast index table)
+        let tickers = [];
+        try {
+          if (env?.DB) {
+            await d1EnsureLatestSchema(env);
+            const rows = await env.DB
+              .prepare(`SELECT ticker FROM ticker_index ORDER BY ticker ASC`)
+              .all();
+            const list = rows?.results || [];
+            tickers = list.map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+          }
+        } catch (e) {
+          console.error(`[D1 LATEST] /timed/tickers read failed:`, String(e));
+        }
+        if (!Array.isArray(tickers) || tickers.length === 0) {
+          tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        }
         return sendJSON(
           { ok: true, tickers, count: tickers.length },
           200,
@@ -11300,29 +11536,59 @@ export default {
             corsHeaders(env, req)
           );
         }
-        
-        // CACHE-ONLY MODE: Always serve from cache (updated every 5 min by cron)
-        const cached = await kvGetJSON(KV, "timed:all:cache");
-        if (cached && cached.ok && cached.data) {
-          const age = Date.now() - (cached.cached_at || 0);
-          console.log(`[/timed/all] Returning cached response (age: ${Math.round(age/1000)}s)`);
-          return sendJSON(cached, 200, corsHeaders(env, req));
+        // Read from D1 (single query) for UI performance
+        try {
+          if (!env?.DB) {
+            return sendJSON(
+              { ok: false, error: "no_db_binding" },
+              500,
+              corsHeaders(env, req)
+            );
+          }
+
+          await d1EnsureLatestSchema(env);
+          const rows = await env.DB
+            .prepare(`SELECT ticker, payload_json, updated_at FROM ticker_latest`)
+            .all();
+
+          const results = rows?.results || [];
+          const data = {};
+          let maxUpdatedAt = 0;
+
+          for (const r of results) {
+            const sym = String(r?.ticker || "").toUpperCase();
+            if (!sym) continue;
+            if (Number(r?.updated_at) > maxUpdatedAt) maxUpdatedAt = Number(r.updated_at);
+            const raw = r?.payload_json;
+            if (!raw) continue;
+            try {
+              data[sym] = JSON.parse(String(raw));
+            } catch {
+              // skip bad rows
+            }
+          }
+
+          return sendJSON(
+            {
+              ok: true,
+              count: Object.keys(data).length,
+              totalIndex: Object.keys(data).length,
+              data,
+              d1_max_updated_at: maxUpdatedAt || null,
+            },
+            200,
+            corsHeaders(env, req)
+          );
+        } catch (e) {
+          console.error(`[D1 LATEST] /timed/all failed:`, String(e));
+          return sendJSON(
+            { ok: false, error: "d1_all_failed", message: String(e?.message || e) },
+            500,
+            corsHeaders(env, req)
+          );
         }
-        
-        // NO CACHE: Return error, cron will build it soon
-        console.log(`[/timed/all] No cache available, cron will build it within 5 minutes`);
-        return sendJSON(
-          {
-            ok: false,
-            error: "cache_not_ready",
-            message: "Data cache is being built. Please try again in 1-2 minutes.",
-            retry_after: 120,
-          },
-          503,
-          corsHeaders(env, req)
-        );
-        
-        /* REMOVED: On-demand computation (too slow, always times out)
+
+        /* REMOVED: On-demand computation (KV-based) - replaced by D1 reads
         const useLightweightMode = true;
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const storedVersion =
@@ -18157,50 +18423,7 @@ Provide 3-5 actionable next steps:
     const hour = now.getUTCHours();
     const minute = now.getUTCMinutes();
 
-    // Build /timed/all cache directly (runs every 5 minutes)
-    try {
-      console.log(`[CACHE BUILD] Starting /timed/all cache build...`);
-      const cacheStart = Date.now();
-      
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      console.log(`[CACHE BUILD] Fetching data for ${tickers.length} tickers...`);
-      
-      // Lightweight fetch: only get timed:latest for each ticker
-      const dataPromises = tickers.map(async (t) => {
-        try {
-          const value = await kvGetJSON(KV, `timed:latest:${t}`);
-          // Add sector if missing
-          if (value && !value.sector) {
-            value.sector = getSector(t);
-          }
-          return { ticker: t, value };
-        } catch (e) {
-          return { ticker: t, value: null };
-        }
-      });
-      
-      const results = await Promise.all(dataPromises);
-      const data = {};
-      for (const { ticker, value } of results) {
-        if (value) {
-          data[ticker] = value;
-        }
-      }
-      
-      const cacheData = {
-        ok: true,
-        count: Object.keys(data).length,
-        totalIndex: tickers.length,
-        data,
-        cached_at: Date.now(),
-        cache_build_time_ms: Date.now() - cacheStart,
-      };
-      
-      await kvPutJSON(KV, "timed:all:cache", cacheData);
-      console.log(`[CACHE BUILD] Complete in ${cacheData.cache_build_time_ms}ms, ${cacheData.count} tickers cached`);
-    } catch (error) {
-      console.error("[CACHE BUILD ERROR]", error);
-    }
+    // Note: /timed/all now reads from D1 (single query). No KV cache build needed here.
     
     // Always update open trades (runs every 5 minutes)
     try {
