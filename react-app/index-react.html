@@ -11116,14 +11116,13 @@
         const rows = Array.isArray(snap?.items) ? snap.items : [];
         const activePositionsCount = rows.length;
         
+        // Calculate Kanban count for display (EarlyMoversPanel will handle actual categorization)
+        const kanbanCount = hasEarlyMovers ? earlyMoversCount : 0;
+        
         // Show panel if we have either early movers or active positions
         if (!hasEarlyMovers && activePositionsCount === 0) {
           return null;
         }
-        
-        // Calculate total tickers in Kanban flow from categories (includes fallback classification)
-        const { flipWatch, justFlipped, enterNow, hold, trim, exit } = categories;
-        const kanbanCount = flipWatch.length + justFlipped.length + enterNow.length + hold.length + trim.length + exit.length;
         
         return (
           <div className="mb-4 rounded-xl border-2 border-[#3a4a7f] bg-[#0a0f24] p-4">
@@ -11260,6 +11259,8 @@
           
           return { flipWatch, justFlipped, enterNow, hold, trim, exit };
         }, [tickers]);
+        
+        const { flipWatch, justFlipped, enterNow, hold, trim, exit } = categories;
         
         // Compact card renderer for Kanban layout
         const renderCompactCard = (t, showProgress = false, showOpen = false, showDetails = false) => {
