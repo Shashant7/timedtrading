@@ -11057,96 +11057,65 @@
           return null;
         }
         
+        // Calculate total tickers in Kanban flow
+        const kanbanTickers = tickers.filter(t => {
+          const flags = t?.flags || {};
+          const mv = getMoveStatusInfo(t);
+          const intent = classifyEntryIntent(t);
+          const action = String(intent?.action || "").toUpperCase();
+          const state = String(t?.state || "");
+          const seq = t?.seq || {};
+          const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+          
+          // Include: flip watch, just flipped, entry opportunities, or open positions
+          return flags.flip_watch || 
+                 (isMomentum && seq.corridorEntry_60m) || 
+                 action === "ENTRY" ||
+                 mv.status === "ACTIVE";
+        });
+        
+        const kanbanCount = kanbanTickers.length;
+        
         return (
           <div className="mb-4 rounded-xl border-2 border-[#3a4a7f] bg-[#0a0f24] p-4">
             <div className="mb-4">
               <div className="text-lg font-bold text-white flex items-center gap-2">
                 🎯 Action Center
                 <span className="text-[13px] font-normal text-[#6b7a9f]">
-                  {earlyMoversCount > 0 && `${earlyMoversCount} opportunities`}
-                  {earlyMoversCount > 0 && activePositionsCount > 0 && " • "}
-                  {activePositionsCount > 0 && `${activePositionsCount} open positions`}
+                  Trading Lifecycle Flow
                 </span>
               </div>
               <div className="mt-1 text-[11px] text-[#93a4d6]">
-                Entry timing + position management in one view
+                {kanbanCount} tickers in play • Flip Watch → Enter → Hold → Trim → Exit
               </div>
             </div>
             
-            {/* Early Movers Section */}
-            {hasEarlyMovers && (
+            {/* Kanban Trading Flow */}
+            {kanbanCount > 0 && (
               <div className="mb-4">
                 <button
                   onClick={() => toggleSection('earlyMovers')}
-                  className="w-full flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-2 border-amber-500/40 hover:border-amber-500/60 transition-all mb-3"
+                  className="w-full flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-amber-500/10 via-blue-500/10 to-green-500/10 border-2 border-[#3a4a7f] hover:border-[#4a5a8f] transition-all mb-3"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-amber-300">⚡ Entry Opportunities</span>
-                    <span className="px-2 py-0.5 rounded bg-amber-500/30 text-amber-200 text-[10px] font-bold border border-amber-400/60 shadow-sm">
-                      {earlyMoversCount} ready
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-white">📊 Trading Pipeline</span>
+                    <span className="px-2 py-0.5 rounded bg-purple-500/30 text-purple-200 text-[10px] font-bold border border-purple-400/60">
+                      {kanbanCount} active
                     </span>
-                    <span className="text-[10px] text-amber-300/70">• Watch for the flip</span>
+                    <span className="text-[10px] text-[#93a4d6]">
+                      🎯 Watch → ⚡ Flip → 🚀 Enter → 💎 Hold → 📊 Trim → 🚪 Exit
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[#93a4d6]">76% flip within 6h</span>
+                    <span className="text-[10px] text-[#6b7a9f]">Horizontal flow</span>
                     <span className="text-[#93a4d6]">{expandedSections.earlyMovers ? "▼" : "▶"}</span>
                   </div>
                 </button>
                 
                 {expandedSections.earlyMovers && (
-                  <div className="space-y-4">
+                  <div className="bg-[#0f1630] rounded-lg p-3 border border-[#26325f]">
                     <EarlyMoversPanel tickers={tickers} onSelectTicker={onSelectTicker} />
                   </div>
-                )}
-              </div>
-            )}
-            
-            {/* Active Positions Section */}
-            {activePositionsCount > 0 && (
-              <div>
-                <button
-                  onClick={() => toggleSection('activePositions')}
-                  className="w-full flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border-2 border-blue-500/40 hover:border-blue-500/60 transition-all mb-3"
-                >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-blue-300">📊 Open Positions</span>
-                    <span className="px-2 py-0.5 rounded bg-blue-500/30 text-blue-200 text-[10px] font-bold border border-blue-400/60 shadow-sm">
-                      {activePositionsCount} in play
-                    </span>
-                    <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-300 text-[10px] font-semibold">
-                      SL/TP active
-                    </span>
-                    <span className="text-[10px] text-blue-300/70">• Manage positions</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {asOf && (
-                      <span className="text-[10px] text-[#6b7a9f]">
-                        {asOf.toLocaleTimeString()}
-                      </span>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRefresh();
-                      }}
-                      className="px-2 py-1 rounded border border-blue-500/40 bg-blue-500/15 text-[10px] font-semibold text-blue-300 hover:bg-blue-500/25"
-                      title="Update positions from latest data"
-                    >
-                      ↻ Sync
-                    </button>
-                    <span className="text-[#93a4d6]">{expandedSections.activePositions ? "▼" : "▶"}</span>
-                  </div>
-                </button>
-                
-                {expandedSections.activePositions && (
-                  <ActiveMovesSnapshotPanel
-                    tickers={allTickersWithRanks}
-                    rankPositions={rankPositions}
-                    onSelectTicker={onSelectTicker}
-                    allData={allData}
-                    defaultLimit={defaultLimit}
-                    storageKey={storageKey}
-                  />
                 )}
               </div>
             )}
@@ -11155,91 +11124,126 @@
       }
 
       // ─────────────────────────────────────────────────────────────
-      // Early Movers Panel: Flip Watch + Just Flipped tickers
+      // Early Movers Panel: Kanban-style trading flow
       // ─────────────────────────────────────────────────────────────
       function EarlyMoversPanel({ tickers = [], onSelectTicker = null }) {
         const now = Date.now();
         
-        // Flip Watch: tickers in PULLBACK about to flip to momentum
-        const flipWatch = tickers.filter(t => {
-          const flags = t?.flags || {};
-          return !!flags.flip_watch;
-        }).slice(0, 8);
-        
-        // Just Flipped: tickers that transitioned from PULLBACK to momentum in last 2 hours
-        const justFlipped = tickers.filter(t => {
-          const state = String(t?.state || "");
-          const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
-          if (!isMomentum) return false;
+        // Categorize tickers into Kanban columns based on trading lifecycle
+        const categories = React.useMemo(() => {
+          const flipWatch = [];
+          const justFlipped = [];
+          const enterNow = [];
+          const hold = [];
+          const trim = [];
+          const exit = [];
           
-          // Check if they have corridor reclaim in last 2 hours
-          const seq = t?.seq || {};
-          const corridorEntry = seq.corridorEntry_60m === true;
-          return corridorEntry; // Recently entered corridor and now in momentum
-        }).slice(0, 8);
+          tickers.forEach(t => {
+            const flags = t?.flags || {};
+            const state = String(t?.state || "");
+            const mv = getMoveStatusInfo(t);
+            const intent = classifyEntryIntent(t);
+            const action = String(intent?.action || "").toUpperCase();
+            const confidence = Number(intent?.confidence);
+            const completion = Number(t?.completion);
+            const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+            const seq = t?.seq || {};
+            const ent = entryType(t);
+            
+            // Column 1: Flip Watch (about to transition)
+            if (flags.flip_watch && !mv.hasMoveStatus) {
+              flipWatch.push(t);
+              return;
+            }
+            
+            // Column 2: Just Flipped (recently transitioned to momentum)
+            if (isMomentum && seq.corridorEntry_60m === true && !mv.hasMoveStatus) {
+              justFlipped.push(t);
+              return;
+            }
+            
+            // Column 3: Enter Now (prime entry opportunities)
+            if (!mv.hasMoveStatus && action === "ENTRY") {
+              if (confidence >= 0.7 || flags.thesis_match || (ent?.corridor && flags.sq30_release) || flags.momentum_elite) {
+                enterNow.push(t);
+                return;
+              }
+            }
+            
+            // Open positions (Move=ACTIVE)
+            if (mv.status === "ACTIVE") {
+              // Column 6: Exit (low confidence or EXIT action)
+              if (action === "EXIT" || confidence < 0.4) {
+                exit.push(t);
+                return;
+              }
+              
+              // Column 5: Trim (high completion or late phase)
+              if (completion >= 0.7 || (action === "WAIT" && completion >= 0.5)) {
+                trim.push(t);
+                return;
+              }
+              
+              // Column 4: Hold (everything else)
+              hold.push(t);
+            }
+          });
+          
+          return { flipWatch, justFlipped, enterNow, hold, trim, exit };
+        }, [tickers]);
         
-        // High Probability: Corridor + Squeeze Release combo
-        const highProb = tickers.filter(t => {
-          const ent = entryType(t);
-          const flags = t?.flags || {};
-          return ent?.corridor && flags.sq30_release;
-        }).slice(0, 8);
-        
-        const renderCard = (t) => {
+        // Compact card renderer for Kanban layout
+        const renderCompactCard = (t, showProgress = false, showOpen = false) => {
           const state = String(t?.state || "");
           const isBullish = state.includes("BULL");
           const dir = isBullish ? "LONG" : "SHORT";
           const dirEmoji = isBullish ? "📈" : "📉";
           const flags = t?.flags || {};
-          const htf = Number(t?.htf_score);
-          const ltf = Number(t?.ltf_score);
-          const price = Number(t?.price);
-          const completion = Number(t?.completion);
-          const phase = Number(t?.phase_pct);
           const rank = Number(t?.rank);
           const score = Number(t?.flip_watch_score);
+          const completion = Number(t?.completion);
+          const price = Number(t?.price);
+          const htf = Number(t?.htf_score);
+          const ltf = Number(t?.ltf_score);
           
           return (
             <button
-              key={`early-${t.ticker}`}
+              key={`kanban-${t.ticker}`}
               onClick={() => onSelectTicker?.(t.ticker)}
-              className="w-full text-left p-3 rounded-lg border border-[#26325f] bg-[#0f1630] hover:bg-[#121a33] hover:border-[#3a4a7f] transition-all"
+              className="w-full text-left p-2 rounded border border-[#26325f] bg-[#0f1630] hover:bg-[#121a33] hover:border-[#3a4a7f] transition-all"
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-white">{t.ticker}</span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isBullish ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-                      {dirEmoji} {dir}
-                    </span>
-                    {flags.flip_watch && score > 0 && (
-                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-semibold border border-amber-500/40">
-                        🎯 {score}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1 text-[11px] text-[#93a4d6]">{state}</div>
-                  <div className="mt-1 flex items-center gap-3 text-[10px] text-[#6b7a9f]">
-                    <span>
-                      HTF <span className="text-white font-semibold">{Number.isFinite(htf) ? htf.toFixed(1) : "—"}</span>
-                    </span>
-                    <span>
-                      LTF <span className="text-white font-semibold">{Number.isFinite(ltf) ? ltf.toFixed(1) : "—"}</span>
-                    </span>
-                    {Number.isFinite(rank) && rank > 0 && (
-                      <span>
-                        Rank <span className="text-white font-semibold">#{rank}</span>
-                      </span>
-                    )}
-                  </div>
+              <div className="flex items-center justify-between gap-1 mb-1">
+                <span className="text-xs font-bold text-white truncate">{t.ticker}</span>
+                {showOpen && (
+                  <span className="px-1 py-0.5 rounded bg-green-500/25 text-green-300 text-[9px] font-bold border border-green-500/50">
+                    OPEN
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 mb-1">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${isBullish ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                  {dirEmoji} {dir}
+                </span>
+                {score > 0 && (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-semibold">
+                    🎯 {score}
+                  </span>
+                )}
+                {Number.isFinite(rank) && rank > 0 && rank <= 10 && (
+                  <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[9px] font-semibold">
+                    #{rank}
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] text-[#6b7a9f] space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span>HTF {Number.isFinite(htf) ? htf.toFixed(1) : "—"}</span>
+                  <span className="text-white font-semibold">${Number.isFinite(price) ? price.toFixed(2) : "—"}</span>
                 </div>
-                <div className="text-right text-[11px]">
-                  <div className="text-white font-semibold">${Number.isFinite(price) ? price.toFixed(2) : "—"}</div>
-                  {Number.isFinite(completion) && (
-                    <div className="text-[#6b7a9f]">{Math.round(completion * 100)}% done</div>
-                  )}
-                  {Number.isFinite(phase) && (
-                    <div className="text-[#6b7a9f]">{Math.round(phase * 100)}% phase</div>
+                <div className="flex items-center justify-between">
+                  <span>LTF {Number.isFinite(ltf) ? ltf.toFixed(1) : "—"}</span>
+                  {showProgress && Number.isFinite(completion) && (
+                    <span className="text-[#93a4d6]">{Math.round(completion * 100)}%</span>
                   )}
                 </div>
               </div>
@@ -11247,54 +11251,118 @@
           );
         };
         
-        if (flipWatch.length === 0 && justFlipped.length === 0 && highProb.length === 0) {
+        const { flipWatch, justFlipped, enterNow, hold, trim, exit } = categories;
+        const totalCount = flipWatch.length + justFlipped.length + enterNow.length + hold.length + trim.length + exit.length;
+        
+        if (totalCount === 0) {
           return null;
         }
         
-        return (
-          <div className="space-y-4">
-              {flipWatch.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[12px] font-semibold text-amber-300">
-                      🎯 Flip Watch <span className="text-[#6b7a9f]">({flipWatch.length})</span>
-                    </div>
-                    <div className="text-[10px] text-[#6b7a9f]">About to flip (PULLBACK → Momentum)</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-                    {flipWatch.map(renderCard)}
-                  </div>
+        // Kanban column component
+        const KanbanColumn = ({ title, subtitle, count, icon, color, items, showProgress, showOpen }) => {
+          if (count === 0) return null;
+          
+          return (
+            <div className="flex-1 min-w-[180px] max-w-[280px]">
+              <div className={`p-2 rounded-t-lg border-t-2 ${color} bg-[#0f1630]`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-white">
+                    {icon} {title}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-[#26325f] text-[10px] font-semibold text-[#93a4d6]">
+                    {count}
+                  </span>
                 </div>
-              )}
-              
-              {justFlipped.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[12px] font-semibold text-green-300">
-                      ⚡ Just Flipped <span className="text-[#6b7a9f]">({justFlipped.length})</span>
-                    </div>
-                    <div className="text-[10px] text-[#6b7a9f]">Recently entered corridor & momentum</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-                    {justFlipped.map(renderCard)}
-                  </div>
-                </div>
-              )}
-              
-              {highProb.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[12px] font-semibold text-cyan-300">
-                      💎 High Probability <span className="text-[#6b7a9f]">({highProb.length})</span>
-                    </div>
-                    <div className="text-[10px] text-[#6b7a9f]">Corridor + Squeeze Release combo</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
-                    {highProb.map(renderCard)}
-                  </div>
-                </div>
-              )}
+                {subtitle && (
+                  <div className="text-[9px] text-[#6b7a9f]">{subtitle}</div>
+                )}
+              </div>
+              <div className="border-l border-r border-b border-[#26325f] rounded-b-lg bg-[#0a0f24] p-2 space-y-2 max-h-[600px] overflow-y-auto">
+                {items.slice(0, 50).map(t => renderCompactCard(t, showProgress, showOpen))}
+              </div>
             </div>
+          );
+        };
+        
+        return (
+          <div>
+            <div className="mb-2 text-[10px] text-[#6b7a9f] flex items-center gap-1">
+              <span className="text-amber-300">Setup</span>
+              <span>→</span>
+              <span className="text-green-300">Transition</span>
+              <span>→</span>
+              <span className="text-cyan-300">Entry</span>
+              <span>→</span>
+              <span className="text-blue-300">Position</span>
+              <span>→</span>
+              <span className="text-yellow-300">Take Profit</span>
+              <span>→</span>
+              <span className="text-red-300">Close</span>
+            </div>
+            <div className="overflow-x-auto">
+              <div className="flex gap-3 pb-2 min-w-max">
+                <KanbanColumn
+                  title="Flip Watch"
+                  subtitle="About to flip to momentum"
+                  count={flipWatch.length}
+                  icon="🎯"
+                  color="border-amber-500"
+                  items={flipWatch}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
+                <KanbanColumn
+                  title="Just Flipped"
+                  subtitle="Entered momentum recently"
+                  count={justFlipped.length}
+                  icon="⚡"
+                  color="border-green-500"
+                  items={justFlipped}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
+                <KanbanColumn
+                  title="Enter Now"
+                  subtitle="High-confidence entries"
+                  count={enterNow.length}
+                  icon="🚀"
+                  color="border-cyan-500"
+                  items={enterNow}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
+                <KanbanColumn
+                  title="Hold"
+                  subtitle="Open positions, early phase"
+                  count={hold.length}
+                  icon="💎"
+                  color="border-blue-500"
+                  items={hold}
+                  showProgress={true}
+                  showOpen={true}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
+                <KanbanColumn
+                  title="Trim"
+                  subtitle="High completion, take profit"
+                  count={trim.length}
+                  icon="📊"
+                  color="border-yellow-500"
+                  items={trim}
+                  showProgress={true}
+                  showOpen={true}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
+                <KanbanColumn
+                  title="Exit"
+                  subtitle="Close position"
+                  count={exit.length}
+                  icon="🚪"
+                  color="border-red-500"
+                  items={exit}
+                  showProgress={true}
+                  showOpen={true}
+                />
+              </div>
+            </div>
+          </div>
         );
       }
 
