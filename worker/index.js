@@ -6381,6 +6381,72 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   }
 }
 
+// Periodic KV → D1 latest sync (batched) to bootstrap /timed/all quickly after deploy.
+async function d1SyncLatestBatchFromKV(env, ctx, batchSize = 50) {
+  const KV = env?.KV_TIMED;
+  const db = env?.DB;
+  if (!KV || !db) return { ok: false, skipped: true, reason: "missing_kv_or_db" };
+
+  try {
+    await d1EnsureLatestSchema(env);
+  } catch {
+    // ignore
+  }
+
+  const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+  if (!Array.isArray(tickers) || tickers.length === 0) {
+    return { ok: false, skipped: true, reason: "no_tickers_index" };
+  }
+
+  const cursorKey = "timed:d1:latest_sync_cursor";
+  let cursor = 0;
+  try {
+    cursor = Number(await KV.get(cursorKey)) || 0;
+    if (!Number.isFinite(cursor) || cursor < 0) cursor = 0;
+  } catch {
+    cursor = 0;
+  }
+
+  const start = Date.now();
+  const end = Math.min(cursor + batchSize, tickers.length);
+  const slice = tickers.slice(cursor, end);
+
+  for (const t of slice) {
+    const sym = String(t || "").toUpperCase();
+    if (!sym) continue;
+    try {
+      // Always index the ticker (even if no latest yet)
+      await d1UpsertTickerIndex(env, sym, Date.now());
+      const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
+      if (latest && typeof latest === "object") {
+        // Ensure stage exists for D1 consumers
+        try {
+          if (latest.kanban_stage == null) {
+            const stage = classifyKanbanStage(latest);
+            if (stage) latest.kanban_stage = stage;
+          }
+        } catch {
+          // ignore
+        }
+        await d1UpsertTickerLatest(env, sym, latest);
+      }
+    } catch (e) {
+      console.error(`[D1 SYNC] Failed for ${sym}:`, String(e));
+    }
+  }
+
+  const nextCursor = end >= tickers.length ? 0 : end;
+  try {
+    await KV.put(cursorKey, String(nextCursor), { expirationTtl: 7 * 24 * 60 * 60 });
+  } catch {
+    // ignore
+  }
+
+  const ms = Date.now() - start;
+  console.log(`[D1 SYNC] Synced ${slice.length}/${tickers.length} tickers in ${ms}ms (cursor ${cursor}→${nextCursor})`);
+  return { ok: true, synced: slice.length, total: tickers.length, ms, cursor, nextCursor };
+}
+
 async function d1CleanupOldTrail(env, ttlDays = 35) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -11516,8 +11582,20 @@ export default {
         } catch (e) {
           console.error(`[D1 LATEST] /timed/tickers read failed:`, String(e));
         }
-        if (!Array.isArray(tickers) || tickers.length === 0) {
-          tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        // If D1 is still warming up, fall back to KV index to avoid hiding tickers.
+        const kvTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        if (
+          !Array.isArray(tickers) ||
+          tickers.length === 0 ||
+          (Array.isArray(kvTickers) && kvTickers.length > tickers.length)
+        ) {
+          tickers = Array.isArray(kvTickers) ? kvTickers : [];
+          // Kick a background sync so D1 catches up without blocking the request.
+          try {
+            ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 50));
+          } catch {
+            // ignore
+          }
         }
         return sendJSON(
           { ok: true, tickers, count: tickers.length },
@@ -11577,11 +11655,28 @@ export default {
             }
           }
 
+          // If D1 is warming up, report total index from KV for transparency
+          let totalIndex = Object.keys(data).length;
+          try {
+            const kvTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+            if (Array.isArray(kvTickers) && kvTickers.length > totalIndex) {
+              totalIndex = kvTickers.length;
+              // Background sync to accelerate warm-up
+              try {
+                ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 75));
+              } catch {
+                // ignore
+              }
+            }
+          } catch {
+            // ignore
+          }
+
           return sendJSON(
             {
               ok: true,
               count: Object.keys(data).length,
-              totalIndex: Object.keys(data).length,
+              totalIndex,
               data,
               d1_max_updated_at: maxUpdatedAt || null,
             },
@@ -18431,6 +18526,14 @@ Provide 3-5 actionable next steps:
     const now = new Date();
     const hour = now.getUTCHours();
     const minute = now.getUTCMinutes();
+
+    // KV → D1 warm-up (every run) so UI reads are fast/complete
+    try {
+      // Run in background so it doesn't block other scheduled work
+      ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 75));
+    } catch (e) {
+      console.error("[D1 SYNC] scheduled kickoff failed:", String(e));
+    }
 
     // Note: /timed/all now reads from D1 (single query). No KV cache build needed here.
     
