@@ -11224,7 +11224,7 @@
         }, [tickers]);
         
         // Compact card renderer for Kanban layout
-        const renderCompactCard = (t, showProgress = false, showOpen = false) => {
+        const renderCompactCard = (t, showProgress = false, showOpen = false, showDetails = false) => {
           const state = String(t?.state || "");
           const isBullish = state.includes("BULL");
           const dir = isBullish ? "LONG" : "SHORT";
@@ -11237,8 +11237,16 @@
           const price = Number(t?.price);
           const htf = Number(t?.htf_score);
           const ltf = Number(t?.ltf_score);
-          const sl = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss);
-          const tp = Number(t?.tp ?? t?.tp_price ?? t?.tp_target_price);
+          
+          // Compute SL/TP using helper functions (works for both positions and opportunities)
+          const slRaw = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
+          const sl = Number.isFinite(slRaw) && slRaw > 0 ? slRaw : null;
+          
+          const tpTarget = computeTpTargetPrice(t);
+          const tpMax = computeTpMaxPrice(t);
+          const tpRaw = Number(t?.tp ?? t?.tp_price ?? tpTarget ?? tpMax ?? t?.tp_target_price ?? t?.tp_max_price);
+          const tp = Number.isFinite(tpRaw) && tpRaw > 0 ? tpRaw : null;
+          
           const rr = Number(t?.rr);
           const eta = computeEtaDays(t);
           
@@ -11302,16 +11310,16 @@
                 </div>
               </div>
               
-              {/* Position Details (for open positions) */}
-              {showOpen && (
+              {/* Trading Details (for entry opportunities and open positions) */}
+              {showDetails && (
                 <div className="mt-1.5 pt-1.5 border-t border-[#26325f] text-[9px] text-[#6b7a9f] space-y-0.5">
-                  {Number.isFinite(sl) && sl > 0 && (
+                  {sl !== null && (
                     <div className="flex items-center justify-between">
                       <span>SL</span>
                       <span className="text-red-300 font-semibold">${sl.toFixed(2)}</span>
                     </div>
                   )}
-                  {Number.isFinite(tp) && tp > 0 && (
+                  {tp !== null && (
                     <div className="flex items-center justify-between">
                       <span>TP</span>
                       <span className="text-green-300 font-semibold">${tp.toFixed(2)}</span>
@@ -11319,7 +11327,7 @@
                   )}
                   <div className="flex items-center justify-between">
                     <span>R:R</span>
-                    <span className="text-[#93a4d6] font-semibold">{Number.isFinite(rr) ? rr.toFixed(2) : "—"}</span>
+                    <span className="text-[#93a4d6] font-semibold">{Number.isFinite(rr) && rr > 0 ? rr.toFixed(2) : "—"}</span>
                   </div>
                   {Number.isFinite(eta) && eta > 0 && (
                     <div className="flex items-center justify-between">
@@ -11327,10 +11335,16 @@
                       <span className="text-[#93a4d6] font-semibold">{eta.toFixed(1)}d</span>
                     </div>
                   )}
-                  {Number.isFinite(phase) && (
+                  {Number.isFinite(phase) && phase > 0 && (
                     <div className="flex items-center justify-between">
                       <span>Phase</span>
                       <span className="text-[#93a4d6] font-semibold">{Math.round(phase * 100)}%</span>
+                    </div>
+                  )}
+                  {Number.isFinite(completion) && completion > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span>Done</span>
+                      <span className="text-[#93a4d6] font-semibold">{Math.round(completion * 100)}%</span>
                     </div>
                   )}
                 </div>
@@ -11347,7 +11361,7 @@
         }
         
         // Kanban column component
-        const KanbanColumn = ({ title, subtitle, count, icon, color, items, showProgress, showOpen }) => {
+        const KanbanColumn = ({ title, subtitle, count, icon, color, items, showProgress, showOpen, showDetails }) => {
           if (count === 0) return null;
           
           return (
@@ -11366,7 +11380,7 @@
                 )}
               </div>
               <div className="border-l border-r border-b border-[#26325f] rounded-b-lg bg-[#0a0f24] p-2 space-y-2 max-h-[600px] overflow-y-auto">
-                {items.slice(0, 50).map(t => renderCompactCard(t, showProgress, showOpen))}
+                {items.slice(0, 50).map(t => renderCompactCard(t, showProgress, showOpen, showDetails))}
               </div>
             </div>
           );
@@ -11414,6 +11428,7 @@
                   icon="🚀"
                   color="border-cyan-500"
                   items={enterNow}
+                  showDetails={true}
                 />
                 <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
                 <KanbanColumn
@@ -11425,6 +11440,7 @@
                   items={hold}
                   showProgress={true}
                   showOpen={true}
+                  showDetails={true}
                 />
                 <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
                 <KanbanColumn
@@ -11436,6 +11452,7 @@
                   items={trim}
                   showProgress={true}
                   showOpen={true}
+                  showDetails={true}
                 />
                 <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
                 <KanbanColumn
@@ -11447,6 +11464,7 @@
                   items={exit}
                   showProgress={true}
                   showOpen={true}
+                  showDetails={true}
                 />
               </div>
             </div>
