@@ -11121,13 +11121,9 @@
           return null;
         }
         
-        // Calculate total tickers in Kanban flow (Worker assigns stage)
-        const kanbanTickers = tickers.filter(t => {
-          const stage = t?.kanban_stage;
-          return stage && typeof stage === 'string' && stage !== '';
-        });
-        
-        const kanbanCount = kanbanTickers.length;
+        // Calculate total tickers in Kanban flow from categories (includes fallback classification)
+        const { flipWatch, justFlipped, enterNow, hold, trim, exit } = categories;
+        const kanbanCount = flipWatch.length + justFlipped.length + enterNow.length + hold.length + trim.length + exit.length;
         
         return (
           <div className="mb-4 rounded-xl border-2 border-[#3a4a7f] bg-[#0a0f24] p-4">
@@ -11182,7 +11178,7 @@
       function EarlyMoversPanel({ tickers = [], onSelectTicker = null }) {
         const now = Date.now();
         
-        // Categorize tickers into Kanban columns using Worker-provided stage
+        // Categorize tickers into Kanban columns using Worker-provided stage (with client-side fallback)
         const categories = React.useMemo(() => {
           const flipWatch = [];
           const justFlipped = [];
@@ -11192,9 +11188,51 @@
           const exit = [];
           
           tickers.forEach(t => {
-            const stage = String(t?.kanban_stage || "");
+            let stage = String(t?.kanban_stage || "");
             
-            // Worker determines the stage - UI just displays it
+            // Fallback: If Worker hasn't assigned stage yet, classify client-side
+            if (!stage) {
+              const flags = t?.flags || {};
+              const state = String(t?.state || "");
+              const mv = getMoveStatusInfo(t);
+              const intent = classifyEntryIntent(t);
+              const action = String(intent?.action || "").toUpperCase();
+              const confidence = Number(intent?.confidence) || 0;
+              const completion = Number(t?.completion) || 0;
+              const phase = Number(t?.phase_pct) || 0;
+              const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+              const seq = t?.seq || {};
+              const isActive = mv.status === "ACTIVE";
+              const rank = Number(t?.rank) || 999;
+              const htfScore = Number(t?.htf_score) || 0;
+              const ltfScore = Number(t?.ltf_score) || 0;
+              
+              // Classify based on same logic as Worker
+              if (isActive) {
+                const severity = mv?.severity || "NONE";
+                const reasons = mv?.reasons || [];
+                if (severity === "CRITICAL" || reasons.includes("left_entry_corridor")) {
+                  stage = "exit";
+                } else if (completion >= 0.7 || (phase >= 0.7 && severity === "WARNING")) {
+                  stage = "trim";
+                } else {
+                  stage = "hold";
+                }
+              } else if (flags.flip_watch) {
+                stage = "flip_watch";
+              } else if (isMomentum && seq.corridorEntry_60m === true) {
+                stage = "just_flipped";
+              } else if (isMomentum) {
+                const ent = entryType(t);
+                if (rank <= 10 || flags.thesis_match || flags.momentum_elite || 
+                    (Math.abs(htfScore) >= 50 && Math.abs(ltfScore) >= 25) ||
+                    (ent?.corridor && flags.sq30_release)) {
+                  stage = "enter_now";
+                }
+              }
+            }
+            
+            // Assign to column based on stage
             switch (stage) {
               case "flip_watch":
                 flipWatch.push(t);
@@ -11370,10 +11408,7 @@
           );
         };
         
-        const { flipWatch, justFlipped, enterNow, hold, trim, exit } = categories;
-        const totalCount = flipWatch.length + justFlipped.length + enterNow.length + hold.length + trim.length + exit.length;
-        
-        if (totalCount === 0) {
+        if (flipWatch.length === 0 && justFlipped.length === 0 && enterNow.length === 0 && hold.length === 0 && trim.length === 0 && exit.length === 0) {
           return null;
         }
         
