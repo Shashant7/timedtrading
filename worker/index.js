@@ -8900,7 +8900,16 @@ export default {
       // Wrap in try-catch to prevent crashes if KV is unavailable
       if (!sectorMappingsLoaded && KV) {
         try {
-          await loadSectorMappingsFromKV(KV);
+          // Never let a slow KV read block the entire Worker (can cause all endpoints to hang)
+          const withTimeout = (p, ms) =>
+            Promise.race([
+              p,
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("sector_mappings_timeout")), ms)
+              ),
+            ]);
+
+          await withTimeout(loadSectorMappingsFromKV(KV), 1000);
           sectorMappingsLoaded = true;
         } catch (sectorLoadErr) {
           console.error(`[SECTOR LOAD] Failed to load sector mappings:`, {
