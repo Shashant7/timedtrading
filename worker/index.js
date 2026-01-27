@@ -11275,21 +11275,29 @@ export default {
           );
         }
         
-        // Try to return cached version first (updated every 5 min by cron)
+        // CACHE-ONLY MODE: Always serve from cache (updated every 5 min by cron)
         const cached = await kvGetJSON(KV, "timed:all:cache");
         if (cached && cached.ok && cached.data) {
           const age = Date.now() - (cached.cached_at || 0);
-          // Return cache if less than 10 minutes old
-          if (age < 600000) {
-            console.log(`[/timed/all] Returning cached response (age: ${Math.round(age/1000)}s)`);
-            return sendJSON(cached, 200, corsHeaders(env, req));
-          }
+          console.log(`[/timed/all] Returning cached response (age: ${Math.round(age/1000)}s)`);
+          return sendJSON(cached, 200, corsHeaders(env, req));
         }
-        console.log(`[/timed/all] Cache miss or stale, computing fresh response`);
         
-        // PERFORMANCE: Use lightweight mode to avoid timeout
-        const useLightweightMode = true; // Always use lightweight for now
-
+        // NO CACHE: Return error, cron will build it soon
+        console.log(`[/timed/all] No cache available, cron will build it within 5 minutes`);
+        return sendJSON(
+          {
+            ok: false,
+            error: "cache_not_ready",
+            message: "Data cache is being built. Please try again in 1-2 minutes.",
+            retry_after: 120,
+          },
+          503,
+          corsHeaders(env, req)
+        );
+        
+        /* REMOVED: On-demand computation (too slow, always times out)
+        const useLightweightMode = true;
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const storedVersion =
           (await getStoredVersion(KV)) || CURRENT_DATA_VERSION;
@@ -18121,35 +18129,49 @@ Provide 3-5 actionable next steps:
     const hour = now.getUTCHours();
     const minute = now.getUTCMinutes();
 
-    // Pre-warm /timed/all cache (runs every 5 minutes)
+    // Build /timed/all cache directly (runs every 5 minutes)
     try {
-      console.log(`[CACHE WARMING] Starting /timed/all cache refresh...`);
-      const warmStart = Date.now();
+      console.log(`[CACHE BUILD] Starting /timed/all cache build...`);
+      const cacheStart = Date.now();
       
-      // Trigger internal fetch to /timed/all to compute and cache
-      const selfUrl = `https://timed-trading-ingest.shashant.workers.dev/timed/all?_warmup=1`;
-      const warmupReq = new Request(selfUrl, {
-        headers: { "X-Cache-Warmup": "true" },
+      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      console.log(`[CACHE BUILD] Fetching data for ${tickers.length} tickers...`);
+      
+      // Lightweight fetch: only get timed:latest for each ticker
+      const dataPromises = tickers.map(async (t) => {
+        try {
+          const value = await kvGetJSON(KV, `timed:latest:${t}`);
+          // Add sector if missing
+          if (value && !value.sector) {
+            value.sector = getSector(t);
+          }
+          return { ticker: t, value };
+        } catch (e) {
+          return { ticker: t, value: null };
+        }
       });
       
-      // Use waitUntil to not block the scheduled job
-      ctx.waitUntil(
-        (async () => {
-          try {
-            const resp = await fetch(warmupReq);
-            const warmEnd = Date.now();
-            if (resp.ok) {
-              console.log(`[CACHE WARMING] Success in ${warmEnd - warmStart}ms`);
-            } else {
-              console.error(`[CACHE WARMING] Failed: ${resp.status}`);
-            }
-          } catch (e) {
-            console.error(`[CACHE WARMING] Error:`, String(e));
-          }
-        })()
-      );
+      const results = await Promise.all(dataPromises);
+      const data = {};
+      for (const { ticker, value } of results) {
+        if (value) {
+          data[ticker] = value;
+        }
+      }
+      
+      const cacheData = {
+        ok: true,
+        count: Object.keys(data).length,
+        totalIndex: tickers.length,
+        data,
+        cached_at: Date.now(),
+        cache_build_time_ms: Date.now() - cacheStart,
+      };
+      
+      await kvPutJSON(KV, "timed:all:cache", cacheData);
+      console.log(`[CACHE BUILD] Complete in ${cacheData.cache_build_time_ms}ms, ${cacheData.count} tickers cached`);
     } catch (error) {
-      console.error("[CACHE WARMING ERROR]", error);
+      console.error("[CACHE BUILD ERROR]", error);
     }
     
     // Always update open trades (runs every 5 minutes)
