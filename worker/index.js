@@ -327,23 +327,49 @@ async function checkRateLimit(
   window = 3600
 ) {
   const key = `ratelimit:${identifier}:${endpoint}`;
-  const count = await KV.get(key);
-  const current = count ? Number(count) : 0;
 
-  if (current >= limit) {
+  const withTimeout = (p, ms) =>
+    Promise.race([
+      p,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("rate_limit_kv_timeout")), ms)
+      ),
+    ]);
+
+  try {
+    // IMPORTANT: KV can occasionally stall; never block request handling.
+    const count = await withTimeout(KV.get(key), 750);
+    const current = count ? Number(count) : 0;
+
+    if (current >= limit) {
+      return {
+        allowed: false,
+        remaining: 0,
+        resetAt: Date.now() + window * 1000,
+      };
+    }
+
+    // Best-effort write; if it times out we still allow the request.
+    try {
+      await withTimeout(KV.put(key, String(current + 1), { expirationTtl: window }), 750);
+    } catch (e) {
+      console.warn(`[RATE LIMIT] KV.put timeout for ${endpoint}:`, String(e?.message || e));
+    }
+
     return {
-      allowed: false,
-      remaining: 0,
+      allowed: true,
+      remaining: limit - current - 1,
+      resetAt: Date.now() + window * 1000,
+    };
+  } catch (e) {
+    console.warn(`[RATE LIMIT] KV.get timeout for ${endpoint}:`, String(e?.message || e));
+    // Fail-open: don't take down the UI if KV is slow.
+    return {
+      allowed: true,
+      remaining: Math.max(0, limit - 1),
       resetAt: Date.now() + window * 1000,
     };
   }
-
-  await KV.put(key, String(current + 1), { expirationTtl: window });
-  return {
-    allowed: true,
-    remaining: limit - current - 1,
-    resetAt: Date.now() + window * 1000,
-  };
 }
 
 // Fixed-window rate limiting helper (bucketed by window).
