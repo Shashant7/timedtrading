@@ -2776,6 +2776,13 @@
             if (!isWinnerSignature(d)) continue;
           }
 
+          // Pattern Group filter (Action Moves groups)
+          if (effectiveFilters.patternGroup && typeof effectiveFilters.patternGroup === "string") {
+            const intent = classifyEntryIntent(d);
+            const wantGroup = String(effectiveFilters.patternGroup).trim();
+            if (intent.group !== wantGroup) continue;
+          }
+
           // Opportunities filter (Viewport row 3)
           if (
             effectiveFilters.opportunities &&
@@ -9938,6 +9945,15 @@
           const momentumElite = countWith({ ...base, momentumElite: true });
           const winnerSignature = countWith({ ...base, winnerSignature: true });
 
+          // Action Moves Pattern Groups
+          const patternSqueezeMomentum = countWith({ ...base, patternGroup: "Squeeze → Momentum" });
+          const patternMomentumElite = countWith({ ...base, patternGroup: "Momentum Elite" });
+          const patternCorridorReclaim = countWith({ ...base, patternGroup: "Corridor reclaim" });
+          const patternSqueezeBuild = countWith({ ...base, patternGroup: "Squeeze pressure build" });
+          const patternTrendCont = countWith({ ...base, patternGroup: "Trend continuation" });
+          const patternLateCycle = countWith({ ...base, patternGroup: "Late-cycle / Overextended" });
+          const patternUnclear = countWith({ ...base, patternGroup: "Unclear / Chop" });
+
           // Groups
           const groupAll = countWith({ ...base, group: "ALL" });
           const groupUpticks = countWith({ ...base, group: "UPTICKS" });
@@ -9995,6 +10011,15 @@
               SQUEEZE_RELEASE: squeezeRelease,
               MOMENTUM_ELITE: momentumElite,
               WINNER_SIGNATURE: winnerSignature,
+            },
+            patterns: {
+              SQUEEZE_MOMENTUM: patternSqueezeMomentum,
+              MOMENTUM_ELITE: patternMomentumElite,
+              CORRIDOR_RECLAIM: patternCorridorReclaim,
+              SQUEEZE_BUILD: patternSqueezeBuild,
+              TREND_CONT: patternTrendCont,
+              LATE_CYCLE: patternLateCycle,
+              UNCLEAR: patternUnclear,
             },
             groups: {
               ALL: groupAll,
@@ -10234,6 +10259,50 @@
                   pillLabelWithCount("🏆 Winner Signature", pillCounts?.specials?.WINNER_SIGNATURE),
                   filters.winnerSignature === true,
                   () => toggleBool("winnerSignature")
+                )}
+              </div>
+
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Action Moves Patterns</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill(
+                  pillLabelWithCount("All", null),
+                  !filters.patternGroup,
+                  () => onChange({ patternGroup: undefined })
+                )}
+                {pill(
+                  pillLabelWithCount("⚡ Squeeze → Momentum", pillCounts?.patterns?.SQUEEZE_MOMENTUM),
+                  filters.patternGroup === "Squeeze → Momentum",
+                  () => onChange({ patternGroup: "Squeeze → Momentum" })
+                )}
+                {pill(
+                  pillLabelWithCount("🚀 Momentum Elite", pillCounts?.patterns?.MOMENTUM_ELITE),
+                  filters.patternGroup === "Momentum Elite",
+                  () => onChange({ patternGroup: "Momentum Elite" })
+                )}
+                {pill(
+                  pillLabelWithCount("📍 Corridor Reclaim", pillCounts?.patterns?.CORRIDOR_RECLAIM),
+                  filters.patternGroup === "Corridor reclaim",
+                  () => onChange({ patternGroup: "Corridor reclaim" })
+                )}
+                {pill(
+                  pillLabelWithCount("🧨 Squeeze Build", pillCounts?.patterns?.SQUEEZE_BUILD),
+                  filters.patternGroup === "Squeeze pressure build",
+                  () => onChange({ patternGroup: "Squeeze pressure build" })
+                )}
+                {pill(
+                  pillLabelWithCount("📈 Trend Cont.", pillCounts?.patterns?.TREND_CONT),
+                  filters.patternGroup === "Trend continuation",
+                  () => onChange({ patternGroup: "Trend continuation" })
+                )}
+                {pill(
+                  pillLabelWithCount("⚠️ Late-cycle", pillCounts?.patterns?.LATE_CYCLE),
+                  filters.patternGroup === "Late-cycle / Overextended",
+                  () => onChange({ patternGroup: "Late-cycle / Overextended" })
+                )}
+                {pill(
+                  pillLabelWithCount("❓ Unclear", pillCounts?.patterns?.UNCLEAR),
+                  filters.patternGroup === "Unclear / Chop",
+                  () => onChange({ patternGroup: "Unclear / Chop" })
                 )}
               </div>
             </div>
