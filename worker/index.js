@@ -1079,8 +1079,21 @@ function classifyKanbanStage(tickerData) {
       return "enter_now";
     }
 
-    // Momentum-aligned but not an entry yet (helps track "what happened" cases)
-    return "watch";
+    // Watch: Momentum-aligned, but ENTRY is blocked (meaningful "next-up" lane)
+    const ed = tickerData?.entry_decision;
+    const action = String(ed?.action || "").toUpperCase();
+    const ok = ed?.ok === true;
+    const blockers = Array.isArray(ed?.blockers) ? ed.blockers : [];
+    const hasMeaningfulBlocker =
+      blockers.includes("not_in_corridor") ||
+      blockers.includes("rank_below_min") ||
+      blockers.includes("completion_high") ||
+      blockers.includes("phase_high") ||
+      blockers.includes("no_trigger") ||
+      blockers.includes("no_fresh_pullback");
+    if (action === "ENTRY" && !ok && hasMeaningfulBlocker) {
+      return "watch";
+    }
   }
   
   // Default: no stage (not in trading pipeline)
@@ -11534,12 +11547,15 @@ export default {
             );
           }
 
-          // Ensure kanban_stage is set for Action Center flow
+          // Ensure kanban_stage reflects current logic for Action Center flow
           try {
-            if (data.kanban_stage == null) {
-              const stage = classifyKanbanStage(data);
-              if (stage) data.kanban_stage = stage;
-            }
+            data.move_status = computeMoveStatus(data);
+          } catch {
+            // ignore
+          }
+          try {
+            const stage = classifyKanbanStage(data);
+            data.kanban_stage = stage;
           } catch {
             // ignore
           }
@@ -11658,7 +11674,20 @@ export default {
             const raw = r?.payload_json;
             if (!raw) continue;
             try {
-              data[sym] = JSON.parse(String(raw));
+              const obj = JSON.parse(String(raw));
+              // Ensure stage/status reflect current logic even if no new ingests
+              try {
+                obj.move_status = computeMoveStatus(obj);
+              } catch {
+                // ignore
+              }
+              try {
+                const stage = classifyKanbanStage(obj);
+                obj.kanban_stage = stage;
+              } catch {
+                // ignore
+              }
+              data[sym] = obj;
             } catch {
               // skip bad rows
             }
