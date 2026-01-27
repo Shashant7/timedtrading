@@ -1192,9 +1192,28 @@ if not na(tp) and usePivotSR
         tp := nearestSupport * 1.02  // 2% above support
 
 // Refined Completion% (TP-based):
-// Completion% should represent progress from trigger → primary TP (0–100% at TP).
+// Completion% should represent progress from trigger → MAX TP target (0–100% at max TP).
+// This gives a realistic view of progress toward final profit target.
 // If TP/trigger is missing, fall back to expectedMove as a best-effort proxy.
-tpMove = (not na(tp) and not na(triggerPrice)) ? math.abs(tp - triggerPrice) : na
+
+// Find max TP target from all targets array
+float tpMax = na
+if array.size(allTargets) > 0
+    for i = 0 to array.size(allTargets) - 1
+        tpVal = array.get(allTargets, i)
+        if not na(tpVal)
+            if na(tpMax)
+                tpMax := tpVal
+            else
+                // For LONG: max is highest target above price_now
+                // For SHORT: max is lowest target below price_now
+                if dir == 1 and tpVal > tpMax
+                    tpMax := tpVal
+                else if dir == -1 and tpVal < tpMax
+                    tpMax := tpVal
+
+// Calculate completion relative to MAX TP target (not first target)
+tpMove = (not na(tpMax) and not na(triggerPrice)) ? math.abs(tpMax - triggerPrice) : na
 denom = (not na(tpMove) and tpMove > 0) ? tpMove : expectedMove
 completion := na(triggerPrice) or denom <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / denom, 0, 1)
 
