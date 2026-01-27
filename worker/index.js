@@ -1139,11 +1139,20 @@ function computeMoveStatus(tickerData) {
     if (ent && ent.corridor === false) reasons.push("left_entry_corridor");
   }
 
+  // IMPORTANT: do NOT mark the entire universe invalidated for "soft" reasons.
+  // Only hard-stop conditions should become INVALIDATED / COMPLETED.
   const isCompleted = reasons.includes("tp_reached");
-  const isInvalidated = reasons.includes("sl_breached") || (!isCompleted && reasons.length > 0);
+  const isInvalidated = reasons.includes("sl_breached");
 
   const status = isCompleted ? "COMPLETED" : isInvalidated ? "INVALIDATED" : "ACTIVE";
-  const severity = reasons.includes("sl_breached") || reasons.includes("tp_reached") ? "HARD" : reasons.length ? "SOFT" : "NONE";
+
+  // Severity is used by Kanban stage logic and UI; keep it consistent:
+  // NONE | WARNING | CRITICAL
+  const severity = reasons.includes("sl_breached")
+    ? "CRITICAL"
+    : reasons.length
+    ? "WARNING"
+    : "NONE";
 
   return {
     status,
