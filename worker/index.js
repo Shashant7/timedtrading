@@ -11286,6 +11286,9 @@ export default {
           }
         }
         console.log(`[/timed/all] Cache miss or stale, computing fresh response`);
+        
+        // PERFORMANCE: Use lightweight mode to avoid timeout
+        const useLightweightMode = true; // Always use lightweight for now
 
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const storedVersion =
@@ -11327,15 +11330,19 @@ export default {
                 value = null; // Don't include mismatched versions
               }
             }
+          } else if (useLightweightMode) {
+            // LIGHTWEIGHT MODE: Only get latest data, skip capture/context/momentum merges
+            value = await kvGetJSON(KV, `timed:latest:${t}`);
           } else {
             // Default: get latest data
             value = await kvGetJSON(KV, `timed:latest:${t}`);
 
             // Merge capture-only enrichment fields when present (non-destructive).
             // This helps after-hours analytics + Momentum Elite metadata even if heartbeat is wired to /ingest-capture.
-            try {
-              const capture = await kvGetJSON(KV, `timed:capture:latest:${t}`);
-              if (value && capture && typeof capture === "object") {
+            if (!useLightweightMode) {
+              try {
+                const capture = await kvGetJSON(KV, `timed:capture:latest:${t}`);
+                if (value && capture && typeof capture === "object") {
                 // Prefer capture for daily-change fields (more reliable for UI/analysis).
                 for (const k of ["prev_close", "day_change", "day_change_pct"]) {
                   if (capture[k] != null) value[k] = capture[k];
@@ -11388,9 +11395,10 @@ export default {
                   }
                 }
               }
-            } catch {
-              // ignore
-            }
+              } catch {
+                // ignore
+              }
+            } // End lightweight mode skip
 
             // Debug: Check if BMNR data exists in KV
             if (t === "BMNR" || t === "BABA") {
@@ -11426,10 +11434,12 @@ export default {
 
         const data = {};
         let corrData = null;
-        try {
-          corrData = await computeOpenTradesCorrelation(env, KV);
-        } catch (e) {
-          console.error(`[CORR] /timed/all compute failed:`, String(e));
+        if (!useLightweightMode) {
+          try {
+            corrData = await computeOpenTradesCorrelation(env, KV);
+          } catch (e) {
+            console.error(`[CORR] /timed/all compute failed:`, String(e));
+          }
         }
         let versionFilteredCount = 0;
         const versionBreakdown = {}; // Track which versions are being filtered
@@ -11466,11 +11476,15 @@ export default {
                 `[FILTER] Ticker ${ticker} filtered: version=${tickerVersion}, requested=${requestedVersion}`
               );
             } else {
-              // Always recompute RR to ensure it uses the latest max TP from tp_levels
-              value.rr = computeRR(value);
+              // LIGHTWEIGHT MODE: Skip heavy enrichment, just return raw data
+              if (!useLightweightMode) {
+                // Always recompute RR to ensure it uses the latest max TP from tp_levels
+                value.rr = computeRR(value);
+              }
 
               // Back-compat: compute completeness + summaries if missing (older KV entries)
-              try {
+              if (!useLightweightMode) {
+                try {
                 if (!value.data_completeness) {
                   value.data_completeness = computeDataCompleteness(value);
                 }
@@ -11492,12 +11506,16 @@ export default {
                   `[ENRICH] /timed/all failed for ${ticker}:`,
                   String(e?.message || e)
                 );
-              }
+                }
+              } // End lightweight mode skip
 
               // Calculate dynamicScore (for ranking) - backend calculation
-              value.dynamicScore = computeDynamicScore(value);
+              if (!useLightweightMode) {
+                value.dynamicScore = computeDynamicScore(value);
+              }
 
               // Back-compat: compute derived horizon/ETA v2 + target TP fields if missing
+              if (!useLightweightMode) {
               try {
                 if (
                   !value.horizon_bucket ||
@@ -11528,15 +11546,18 @@ export default {
                   `[ENTRY DECISION] /timed/all failed for ${ticker}:`,
                   String(e)
                 );
-              }
+                }
+              } // End lightweight mode skip
 
-              if (corrData && corrData.avgCorrByTicker) {
-                const corr =
-                  corrData.avgCorrByTicker[String(ticker).toUpperCase()];
-                if (corr) {
-                  value.avg_corr = corr.avg_corr;
-                  value.diversity_score = corr.diversity_score;
-                  value.corr_count = corr.corr_count;
+              if (!useLightweightMode) {
+                if (corrData && corrData.avgCorrByTicker) {
+                  const corr =
+                    corrData.avgCorrByTicker[String(ticker).toUpperCase()];
+                  if (corr) {
+                    value.avg_corr = corr.avg_corr;
+                    value.diversity_score = corr.diversity_score;
+                    value.corr_count = corr.corr_count;
+                  }
                 }
               }
 
