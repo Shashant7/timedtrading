@@ -11242,13 +11242,16 @@
           const slRaw = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
           const sl = Number.isFinite(slRaw) && slRaw > 0 ? slRaw : null;
           
-          const tpTarget = computeTpTargetPrice(t);
+          // Use computeTpMaxPrice() like the Right Rail does for consistency
           const tpMax = computeTpMaxPrice(t);
-          const tpRaw = Number(t?.tp ?? t?.tp_price ?? tpTarget ?? tpMax ?? t?.tp_target_price ?? t?.tp_max_price);
-          const tp = Number.isFinite(tpRaw) && tpRaw > 0 ? tpRaw : null;
+          const tp = tpMax || computeTpTargetPrice(t);
           
           const rr = Number(t?.rr);
           const eta = computeEtaDays(t);
+          
+          // Entry tracking and % change
+          const entryPrice = Number(t?.entry_price);
+          const entryChangePct = Number(t?.entry_change_pct);
           
           // Emoji badges for flags
           const badges = [];
@@ -11313,6 +11316,20 @@
               {/* Trading Details (for entry opportunities and open positions) */}
               {showDetails && (
                 <div className="mt-1.5 pt-1.5 border-t border-[#26325f] text-[9px] text-[#6b7a9f] space-y-0.5">
+                  {Number.isFinite(entryPrice) && entryPrice > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span>Entry</span>
+                      <span className="text-cyan-300 font-semibold">${entryPrice.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {Number.isFinite(entryChangePct) && (
+                    <div className="flex items-center justify-between">
+                      <span>Change</span>
+                      <span className={`font-semibold ${entryChangePct >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                        {entryChangePct >= 0 ? '+' : ''}{entryChangePct.toFixed(2)}%
+                      </span>
+                    </div>
+                  )}
                   {sl !== null && (
                     <div className="flex items-center justify-between">
                       <span>SL</span>

@@ -9170,7 +9170,34 @@ export default {
               // Kanban Stage classification - determine lifecycle stage
               try {
                 const stage = classifyKanbanStage(payload);
+                const prevStage = existing?.kanban_stage;
                 payload.kanban_stage = stage;
+                
+                // Track entry price when entering "enter_now" stage
+                if (stage === "enter_now" && prevStage !== "enter_now") {
+                  const price = Number(payload?.price);
+                  if (Number.isFinite(price) && price > 0) {
+                    payload.entry_price = price;
+                    payload.entry_ts = payload.ts;
+                    console.log(`[KANBAN] ${ticker} entered ENTER_NOW at $${price.toFixed(2)}`);
+                  }
+                }
+                
+                // Preserve entry_price if already set and still in pipeline
+                if (stage && existing?.entry_price) {
+                  payload.entry_price = existing.entry_price;
+                  payload.entry_ts = existing.entry_ts;
+                }
+                
+                // Calculate % change from entry if we have entry_price
+                if (payload.entry_price) {
+                  const entryPrice = Number(payload.entry_price);
+                  const currentPrice = Number(payload.price);
+                  if (Number.isFinite(entryPrice) && Number.isFinite(currentPrice) && entryPrice > 0) {
+                    payload.entry_change_pct = ((currentPrice - entryPrice) / entryPrice) * 100;
+                  }
+                }
+                
                 if (stage) {
                   console.log(`[KANBAN] ${ticker} → ${stage}`);
                 }
