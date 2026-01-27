@@ -1020,11 +1020,12 @@ function classifyKanbanStage(tickerData) {
   const rank = Number(tickerData?.rank) || 999;
   
   // Terminal/administrative stages
-  if (moveStatus?.status === "INVALIDATED") return "invalidated";
-  if (moveStatus?.status === "COMPLETED") return "completed";
+  const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
+  if (hasMoveStatus && moveStatus?.status === "INVALIDATED") return "invalidated";
+  if (hasMoveStatus && moveStatus?.status === "COMPLETED") return "completed";
 
   // For open positions, use move invalidation signals to determine exit/trim
-  if (isActive) {
+  if (hasMoveStatus && isActive) {
     // Stage 6: Exit - position invalidated or critical issues
     const reasons = moveStatus?.reasons || [];
     const severity = moveStatus?.severity || "NONE";
@@ -1117,6 +1118,17 @@ function computeMoveStatus(tickerData) {
     return {
       status: "ACTIVE",
       side: null,
+      severity: "NONE",
+      reasons: [],
+    };
+  }
+
+  // If we don't have a trigger timestamp, this isn't an active "move" yet.
+  // This prevents labeling the entire universe as ACTIVE/HOLD/TRIM/EXIT.
+  if (!Number.isFinite(triggerTs) || triggerTs <= 0) {
+    return {
+      status: "NONE",
+      side,
       severity: "NONE",
       reasons: [],
     };
