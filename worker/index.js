@@ -11743,6 +11743,8 @@ export default {
         ctx.waitUntil(kvPutJSON(KV, "timed:all:cache", responseData));
         
         return sendJSON(responseData, 200, corsHeaders(env, req));
+        */
+        // END OF REMOVED ON-DEMAND COMPUTATION CODE
       }
 
       // GET /timed/trail?ticker=
