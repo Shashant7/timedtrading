@@ -2779,6 +2779,13 @@
             const flags = d.flags || {};
             if (!flags.flip_watch) continue;
           }
+          
+          // Kanban Stage filter
+          if (effectiveFilters.kanbanStage && typeof effectiveFilters.kanbanStage === "string") {
+            const stage = String(d.kanban_stage || "");
+            const wantStage = String(effectiveFilters.kanbanStage).trim();
+            if (stage !== wantStage) continue;
+          }
 
           // Pattern Group filter (Action Moves groups)
           if (effectiveFilters.patternGroup && typeof effectiveFilters.patternGroup === "string") {
@@ -9992,6 +9999,14 @@
           const momentumElite = countWith({ ...base, momentumElite: true });
           const winnerSignature = countWith({ ...base, winnerSignature: true });
           const flipWatch = countWith({ ...base, flipWatch: true });
+          
+          // Kanban Stages
+          const kanbanFlipWatch = countWith({ ...base, kanbanStage: "flip_watch" });
+          const kanbanJustFlipped = countWith({ ...base, kanbanStage: "just_flipped" });
+          const kanbanEnterNow = countWith({ ...base, kanbanStage: "enter_now" });
+          const kanbanHold = countWith({ ...base, kanbanStage: "hold" });
+          const kanbanTrim = countWith({ ...base, kanbanStage: "trim" });
+          const kanbanExit = countWith({ ...base, kanbanStage: "exit" });
 
           // Action Moves Pattern Groups
           const patternSqueezeMomentum = countWith({ ...base, patternGroup: "Squeeze → Momentum" });
@@ -10069,6 +10084,14 @@
               TREND_CONT: patternTrendCont,
               LATE_CYCLE: patternLateCycle,
               UNCLEAR: patternUnclear,
+            },
+            kanban: {
+              FLIP_WATCH: kanbanFlipWatch,
+              JUST_FLIPPED: kanbanJustFlipped,
+              ENTER_NOW: kanbanEnterNow,
+              HOLD: kanbanHold,
+              TRIM: kanbanTrim,
+              EXIT: kanbanExit,
             },
             groups: {
               ALL: groupAll,
@@ -10359,6 +10382,47 @@
                   pillLabelWithCount("❓ Unclear", pillCounts?.patterns?.UNCLEAR),
                   filters.patternGroup === "Unclear / Chop",
                   () => onChange({ patternGroup: "Unclear / Chop" })
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Kanban Stages</div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill(
+                  pillLabelWithCount("All", null),
+                  !filters.kanbanStage,
+                  () => onChange({ kanbanStage: undefined })
+                )}
+                {pill(
+                  pillLabelWithCount("🎯 Flip Watch", pillCounts?.kanban?.FLIP_WATCH),
+                  filters.kanbanStage === "flip_watch",
+                  () => onChange({ kanbanStage: "flip_watch" })
+                )}
+                {pill(
+                  pillLabelWithCount("⚡ Just Flipped", pillCounts?.kanban?.JUST_FLIPPED),
+                  filters.kanbanStage === "just_flipped",
+                  () => onChange({ kanbanStage: "just_flipped" })
+                )}
+                {pill(
+                  pillLabelWithCount("🚀 Enter Now", pillCounts?.kanban?.ENTER_NOW),
+                  filters.kanbanStage === "enter_now",
+                  () => onChange({ kanbanStage: "enter_now" })
+                )}
+                {pill(
+                  pillLabelWithCount("💎 Hold", pillCounts?.kanban?.HOLD),
+                  filters.kanbanStage === "hold",
+                  () => onChange({ kanbanStage: "hold" })
+                )}
+                {pill(
+                  pillLabelWithCount("📊 Trim", pillCounts?.kanban?.TRIM),
+                  filters.kanbanStage === "trim",
+                  () => onChange({ kanbanStage: "trim" })
+                )}
+                {pill(
+                  pillLabelWithCount("🚪 Exit", pillCounts?.kanban?.EXIT),
+                  filters.kanbanStage === "exit",
+                  () => onChange({ kanbanStage: "exit" })
                 )}
               </div>
             </div>
@@ -11169,9 +11233,24 @@
           const rank = Number(t?.rank);
           const score = Number(t?.flip_watch_score);
           const completion = Number(t?.completion);
+          const phase = Number(t?.phase_pct);
           const price = Number(t?.price);
           const htf = Number(t?.htf_score);
           const ltf = Number(t?.ltf_score);
+          const sl = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss);
+          const tp = Number(t?.tp ?? t?.tp_price ?? t?.tp_target_price);
+          const rr = Number(t?.rr);
+          const eta = computeEtaDays(t);
+          
+          // Emoji badges for flags
+          const badges = [];
+          if (flags.flip_watch) badges.push("🎯");
+          if (flags.momentum_elite) badges.push("🚀");
+          if (flags.thesis_match) badges.push("🧠");
+          if (isPrimeBubble(t)) badges.push("⭐");
+          if (isWinnerSignature(t)) badges.push("🏆");
+          if (flags.sq30_release) badges.push("⚡");
+          if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
           
           return (
             <button
@@ -11179,6 +11258,7 @@
               onClick={() => onSelectTicker?.(t.ticker)}
               className="w-full text-left p-2 rounded border border-[#26325f] bg-[#0f1630] hover:bg-[#121a33] hover:border-[#3a4a7f] transition-all"
             >
+              {/* Header: Ticker + Open Badge */}
               <div className="flex items-center justify-between gap-1 mb-1">
                 <span className="text-xs font-bold text-white truncate">{t.ticker}</span>
                 {showOpen && (
@@ -11187,13 +11267,15 @@
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-1 mb-1">
+              
+              {/* Direction + Badges */}
+              <div className="flex items-center gap-1 mb-1 flex-wrap">
                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${isBullish ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
                   {dirEmoji} {dir}
                 </span>
                 {score > 0 && (
                   <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-semibold">
-                    🎯 {score}
+                    {score}
                   </span>
                 )}
                 {Number.isFinite(rank) && rank > 0 && rank <= 10 && (
@@ -11201,7 +11283,12 @@
                     #{rank}
                   </span>
                 )}
+                {badges.length > 0 && (
+                  <span className="text-[10px]">{badges.join("")}</span>
+                )}
               </div>
+              
+              {/* Scores + Price */}
               <div className="text-[10px] text-[#6b7a9f] space-y-0.5">
                 <div className="flex items-center justify-between">
                   <span>HTF {Number.isFinite(htf) ? htf.toFixed(1) : "—"}</span>
@@ -11210,10 +11297,44 @@
                 <div className="flex items-center justify-between">
                   <span>LTF {Number.isFinite(ltf) ? ltf.toFixed(1) : "—"}</span>
                   {showProgress && Number.isFinite(completion) && (
-                    <span className="text-[#93a4d6]">{Math.round(completion * 100)}%</span>
+                    <span className="text-[#93a4d6]">{Math.round(completion * 100)}% done</span>
                   )}
                 </div>
               </div>
+              
+              {/* Position Details (for open positions) */}
+              {showOpen && (
+                <div className="mt-1.5 pt-1.5 border-t border-[#26325f] text-[9px] text-[#6b7a9f] space-y-0.5">
+                  {Number.isFinite(sl) && sl > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span>SL</span>
+                      <span className="text-red-300 font-semibold">${sl.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {Number.isFinite(tp) && tp > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span>TP</span>
+                      <span className="text-green-300 font-semibold">${tp.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span>R:R</span>
+                    <span className="text-[#93a4d6] font-semibold">{Number.isFinite(rr) ? rr.toFixed(2) : "—"}</span>
+                  </div>
+                  {Number.isFinite(eta) && eta > 0 && (
+                    <div className="flex items-center justify-between">
+                      <span>ETA</span>
+                      <span className="text-[#93a4d6] font-semibold">{eta.toFixed(1)}d</span>
+                    </div>
+                  )}
+                  {Number.isFinite(phase) && (
+                    <div className="flex items-center justify-between">
+                      <span>Phase</span>
+                      <span className="text-[#93a4d6] font-semibold">{Math.round(phase * 100)}%</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </button>
           );
         };
