@@ -10001,12 +10001,15 @@
           const flipWatch = countWith({ ...base, flipWatch: true });
           
           // Kanban Stages
+          const kanbanWatch = countWith({ ...base, kanbanStage: "watch" });
           const kanbanFlipWatch = countWith({ ...base, kanbanStage: "flip_watch" });
           const kanbanJustFlipped = countWith({ ...base, kanbanStage: "just_flipped" });
           const kanbanEnterNow = countWith({ ...base, kanbanStage: "enter_now" });
           const kanbanHold = countWith({ ...base, kanbanStage: "hold" });
           const kanbanTrim = countWith({ ...base, kanbanStage: "trim" });
           const kanbanExit = countWith({ ...base, kanbanStage: "exit" });
+          const kanbanInvalidated = countWith({ ...base, kanbanStage: "invalidated" });
+          const kanbanCompleted = countWith({ ...base, kanbanStage: "completed" });
 
           // Action Moves Pattern Groups
           const patternSqueezeMomentum = countWith({ ...base, patternGroup: "Squeeze → Momentum" });
@@ -10086,12 +10089,15 @@
               UNCLEAR: patternUnclear,
             },
             kanban: {
+              WATCH: kanbanWatch,
               FLIP_WATCH: kanbanFlipWatch,
               JUST_FLIPPED: kanbanJustFlipped,
               ENTER_NOW: kanbanEnterNow,
               HOLD: kanbanHold,
               TRIM: kanbanTrim,
               EXIT: kanbanExit,
+              INVALIDATED: kanbanInvalidated,
+              COMPLETED: kanbanCompleted,
             },
             groups: {
               ALL: groupAll,
@@ -10395,6 +10401,11 @@
                   () => onChange({ kanbanStage: undefined })
                 )}
                 {pill(
+                  pillLabelWithCount("👀 Watch", pillCounts?.kanban?.WATCH),
+                  filters.kanbanStage === "watch",
+                  () => onChange({ kanbanStage: "watch" })
+                )}
+                {pill(
                   pillLabelWithCount("🎯 Flip Watch", pillCounts?.kanban?.FLIP_WATCH),
                   filters.kanbanStage === "flip_watch",
                   () => onChange({ kanbanStage: "flip_watch" })
@@ -10423,6 +10434,16 @@
                   pillLabelWithCount("🚪 Exit", pillCounts?.kanban?.EXIT),
                   filters.kanbanStage === "exit",
                   () => onChange({ kanbanStage: "exit" })
+                )}
+                {pill(
+                  pillLabelWithCount("⛔ Invalidated", pillCounts?.kanban?.INVALIDATED),
+                  filters.kanbanStage === "invalidated",
+                  () => onChange({ kanbanStage: "invalidated" })
+                )}
+                {pill(
+                  pillLabelWithCount("✅ Completed", pillCounts?.kanban?.COMPLETED),
+                  filters.kanbanStage === "completed",
+                  () => onChange({ kanbanStage: "completed" })
                 )}
               </div>
             </div>
@@ -11179,12 +11200,15 @@
         
         // Categorize tickers into Kanban columns using Worker-provided stage (with client-side fallback)
         const categories = React.useMemo(() => {
+          const watch = [];
           const flipWatch = [];
           const justFlipped = [];
           const enterNow = [];
           const hold = [];
           const trim = [];
           const exit = [];
+          const invalidated = [];
+          const completed = [];
           
           tickers.forEach(t => {
             let stage = String(t?.kanban_stage || "");
@@ -11207,6 +11231,11 @@
               const ltfScore = Number(t?.ltf_score) || 0;
               
               // Classify based on same logic as Worker
+              if (mv.status === "INVALIDATED") {
+                stage = "invalidated";
+              } else if (mv.status === "COMPLETED") {
+                stage = "completed";
+              } else
               if (isActive) {
                 const severity = mv?.severity || "NONE";
                 const reasons = mv?.reasons || [];
@@ -11227,12 +11256,17 @@
                     (Math.abs(htfScore) >= 50 && Math.abs(ltfScore) >= 25) ||
                     (ent?.corridor && flags.sq30_release)) {
                   stage = "enter_now";
+                } else {
+                  stage = "watch";
                 }
               }
             }
             
             // Assign to column based on stage
             switch (stage) {
+              case "watch":
+                watch.push(t);
+                break;
               case "flip_watch":
                 flipWatch.push(t);
                 break;
@@ -11251,16 +11285,22 @@
               case "exit":
                 exit.push(t);
                 break;
+              case "invalidated":
+                invalidated.push(t);
+                break;
+              case "completed":
+                completed.push(t);
+                break;
               default:
                 // No stage assigned - not in pipeline
                 break;
             }
           });
           
-          return { flipWatch, justFlipped, enterNow, hold, trim, exit };
+          return { watch, flipWatch, justFlipped, enterNow, hold, trim, exit, invalidated, completed };
         }, [tickers]);
         
-        const { flipWatch, justFlipped, enterNow, hold, trim, exit } = categories;
+        const { watch, flipWatch, justFlipped, enterNow, hold, trim, exit, invalidated, completed } = categories;
         
         // Compact card renderer for Kanban layout
         const renderCompactCard = (t, showProgress = false, showOpen = false, showDetails = false) => {
@@ -11409,7 +11449,7 @@
           );
         };
         
-        if (flipWatch.length === 0 && justFlipped.length === 0 && enterNow.length === 0 && hold.length === 0 && trim.length === 0 && exit.length === 0) {
+        if (watch.length === 0 && flipWatch.length === 0 && justFlipped.length === 0 && enterNow.length === 0 && hold.length === 0 && trim.length === 0 && exit.length === 0 && invalidated.length === 0 && completed.length === 0) {
           return null;
         }
         
@@ -11456,6 +11496,15 @@
             </div>
             <div className="overflow-x-auto">
               <div className="flex gap-3 pb-2 min-w-max">
+                <KanbanColumn
+                  title="Watch"
+                  subtitle="Momentum-aligned, not entry yet"
+                  count={watch.length}
+                  icon="👀"
+                  color="border-[#3a4a7f]"
+                  items={watch}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
                 <KanbanColumn
                   title="Flip Watch"
                   subtitle="About to flip to momentum"
@@ -11515,6 +11564,29 @@
                   icon="🚪"
                   color="border-red-500"
                   items={exit}
+                  showProgress={true}
+                  showOpen={true}
+                  showDetails={true}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
+                <KanbanColumn
+                  title="Invalidated"
+                  subtitle="Setup broke / risk invalid"
+                  count={invalidated.length}
+                  icon="⛔"
+                  color="border-red-400"
+                  items={invalidated}
+                  showProgress={true}
+                  showOpen={true}
+                  showDetails={true}
+                />
+                <KanbanColumn
+                  title="Completed"
+                  subtitle="Move completed"
+                  count={completed.length}
+                  icon="✅"
+                  color="border-green-400"
+                  items={completed}
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
