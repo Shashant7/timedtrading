@@ -10233,33 +10233,29 @@
                 )}
               </div>
 
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Specials</div>
+              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Premium Filters</div>
               <div className="flex gap-2 flex-wrap items-center">
-                {pill(
-                  pillLabelWithCount("🧠 Thesis", pillCounts?.specials?.THESIS),
-                  isThesisActive(),
-                  () => toggleThesis()
-                )}
-                {pill(
-                  pillLabelWithCount("🧨 In Squeeze", pillCounts?.specials?.IN_SQUEEZE),
-                  filters.inSqueeze === true,
-                  () => toggleBool("inSqueeze")
-                )}
-                {pill(
-                  pillLabelWithCount("⚡ Squeeze Release", pillCounts?.specials?.SQUEEZE_RELEASE),
-                  filters.squeezeRelease === true,
-                  () => toggleBool("squeezeRelease")
-                )}
-                {pill(
-                  pillLabelWithCount("🚀 Momentum Elite", pillCounts?.specials?.MOMENTUM_ELITE),
-                  filters.momentumElite === true,
-                  () => toggleBool("momentumElite")
-                )}
-                {pill(
-                  pillLabelWithCount("🏆 Winner Signature", pillCounts?.specials?.WINNER_SIGNATURE),
-                  filters.winnerSignature === true,
-                  () => toggleBool("winnerSignature")
-                )}
+                {/* Special styled pills for high-quality setups */}
+                <span
+                  onClick={() => toggleThesis()}
+                  className={`cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border-2 ${
+                    isThesisActive()
+                      ? "bg-gradient-to-r from-purple-600 to-blue-600 border-purple-400 text-white shadow-lg"
+                      : "bg-[#121a33] border-[#26325f] text-[#93a4d6] hover:border-purple-400/50"
+                  }`}
+                >
+                  🧠 Thesis {pillCounts?.specials?.THESIS != null ? `(${pillCounts.specials.THESIS})` : ""}
+                </span>
+                <span
+                  onClick={() => toggleBool("winnerSignature")}
+                  className={`cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border-2 ${
+                    filters.winnerSignature === true
+                      ? "bg-gradient-to-r from-yellow-600 to-orange-600 border-yellow-400 text-white shadow-lg"
+                      : "bg-[#121a33] border-[#26325f] text-[#93a4d6] hover:border-yellow-400/50"
+                  }`}
+                >
+                  🏆 Winner Signature {pillCounts?.specials?.WINNER_SIGNATURE != null ? `(${pillCounts.specials.WINNER_SIGNATURE})` : ""}
+                </span>
               </div>
 
               <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Action Moves Patterns</div>
@@ -13184,6 +13180,19 @@
                   );
                 })()}
 
+                {/* Guidance - Action Description (MOVED UP) */}
+                <div
+                  className={`mb-4 p-4 rounded-lg border ${actionInfo.bg} border-current/30`}
+                >
+                  <div className="text-sm text-[#93a4d6] mb-2">Guidance</div>
+                  <div className={`text-lg font-bold mb-2 ${actionInfo.color}`}>
+                    {actionInfo.action}
+                  </div>
+                  <div className="text-sm text-[#93a4d6]">
+                    {actionInfo.description}
+                  </div>
+                </div>
+
                 {/* System Decision */}
                 {decisionSummary && (
                   <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
@@ -13219,20 +13228,6 @@
                       )}
                   </div>
                 )}
-
-                {/* Action Description */}
-                <div
-                  className={`mb-4 p-4 rounded-lg border ${actionInfo.bg} border-current/30`}
-                >
-                  <div className={`text-lg font-bold mb-2 ${actionInfo.color}`}>
-                    {actionInfo.action}
-                  </div>
-                  <div className="text-sm text-[#93a4d6]">
-                    {actionInfo.description}
-                  </div>
-                </div>
-
-
 
                 {/* Score and Ranking */}
                 <div className="space-y-2.5 text-sm">
