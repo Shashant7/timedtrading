@@ -10202,45 +10202,6 @@
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
             <div className="space-y-2">
-              <div className="text-[10px] text-[#6b7a9f] font-semibold">Guidance</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill(
-                  pillLabelWithCount("All", pillCounts?.guidance?.ALL),
-                  guidance === "ALL",
-                  () => onChange({ guidanceCategory: undefined })
-                )}
-                {pill(
-                  pillLabelWithCount("Initiate", pillCounts?.guidance?.INITIATE),
-                  guidance === "INITIATE",
-                  () => onChange({ guidanceCategory: "INITIATE" })
-                )}
-                {pill(
-                  pillLabelWithCount("Consider Entry", pillCounts?.guidance?.CONSIDER),
-                  guidance === "CONSIDER",
-                  () => onChange({ guidanceCategory: "CONSIDER" })
-                )}
-                {pill(
-                  pillLabelWithCount("Monitor Closely", pillCounts?.guidance?.MONITOR),
-                  guidance === "MONITOR",
-                  () => onChange({ guidanceCategory: "MONITOR" })
-                )}
-                {pill(
-                  pillLabelWithCount("Wait", pillCounts?.guidance?.WAIT),
-                  guidance === "WAIT",
-                  () => onChange({ guidanceCategory: "WAIT" })
-                )}
-                {pill(
-                  pillLabelWithCount("Exit/Trim", pillCounts?.guidance?.EXIT_TRIM),
-                  guidance === "EXIT_TRIM",
-                  () => onChange({ guidanceCategory: "EXIT_TRIM" })
-                )}
-                {pill(
-                  pillLabelWithCount("Other", pillCounts?.guidance?.OTHER),
-                  guidance === "OTHER",
-                  () => onChange({ guidanceCategory: "OTHER" })
-                )}
-              </div>
-
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
               <div className="flex gap-2 flex-wrap items-center">
                 {pill(
@@ -10265,129 +10226,8 @@
                 )}
               </div>
 
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">Opportunities</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill(
-                  pillLabelWithCount("All", pillCounts?.opp?.ALL),
-                  opp === "ALL",
-                  () => onChange({ opportunities: undefined })
-                )}
-                {pill(
-                  pillLabelWithCount("Eligible", pillCounts?.opp?.ELIGIBLE),
-                  opp === "ELIGIBLE",
-                  () => onChange({ opportunities: "ELIGIBLE" })
-                )}
-                {pill(
-                  pillLabelWithCount("Prime", pillCounts?.opp?.PRIME),
-                  opp === "PRIME",
-                  () => onChange({ opportunities: "PRIME" })
-                )}
-                {pill(
-                  pillLabelWithCount("Watch", pillCounts?.opp?.WATCH),
-                  opp === "WATCH",
-                  () => onChange({ opportunities: "WATCH" })
-                )}
-                {pill(
-                  pillLabelWithCount("Q1", pillCounts?.opp?.Q1),
-                  isQuadActive("Q1"),
-                  () => toggleQuadrant("Q1")
-                )}
-                {pill(
-                  pillLabelWithCount("Q2", pillCounts?.opp?.Q2),
-                  isQuadActive("Q2"),
-                  () => toggleQuadrant("Q2")
-                )}
-                {pill(
-                  pillLabelWithCount("Q3", pillCounts?.opp?.Q3),
-                  isQuadActive("Q3"),
-                  () => toggleQuadrant("Q3")
-                )}
-                {pill(
-                  pillLabelWithCount("Q4", pillCounts?.opp?.Q4),
-                  isQuadActive("Q4"),
-                  () => toggleQuadrant("Q4")
-                )}
-              </div>
-
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Premium Filters</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {/* Special styled pills for high-quality setups */}
-                <span
-                  onClick={() => toggleThesis()}
-                  className={`cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border-2 ${
-                    isThesisActive()
-                      ? "bg-gradient-to-r from-purple-600 to-blue-600 border-purple-400 text-white shadow-lg"
-                      : "bg-[#121a33] border-[#26325f] text-[#93a4d6] hover:border-purple-400/50"
-                  }`}
-                >
-                  🧠 Thesis {pillCounts?.specials?.THESIS != null ? `(${pillCounts.specials.THESIS})` : ""}
-                </span>
-                <span
-                  onClick={() => toggleBool("winnerSignature")}
-                  className={`cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border-2 ${
-                    filters.winnerSignature === true
-                      ? "bg-gradient-to-r from-yellow-600 to-orange-600 border-yellow-400 text-white shadow-lg"
-                      : "bg-[#121a33] border-[#26325f] text-[#93a4d6] hover:border-yellow-400/50"
-                  }`}
-                >
-                  🏆 Winner Signature {pillCounts?.specials?.WINNER_SIGNATURE != null ? `(${pillCounts.specials.WINNER_SIGNATURE})` : ""}
-                </span>
-                <span
-                  onClick={() => toggleBool("flipWatch")}
-                  className={`cursor-pointer px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border-2 ${
-                    filters.flipWatch === true
-                      ? "bg-gradient-to-r from-amber-600 to-orange-600 border-amber-400 text-white shadow-lg animate-pulse"
-                      : "bg-[#121a33] border-[#26325f] text-[#93a4d6] hover:border-amber-400/50"
-                  }`}
-                  title="Tickers about to flip from PULLBACK to momentum (76% flip within 6 hours)"
-                >
-                  🎯 Flip Watch {pillCounts?.specials?.FLIP_WATCH != null ? `(${pillCounts.specials.FLIP_WATCH})` : ""}
-                </span>
-              </div>
-
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Action Moves Patterns</div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill(
-                  pillLabelWithCount("All", null),
-                  !filters.patternGroup,
-                  () => onChange({ patternGroup: undefined })
-                )}
-                {pill(
-                  pillLabelWithCount("⚡ Squeeze → Momentum", pillCounts?.patterns?.SQUEEZE_MOMENTUM),
-                  filters.patternGroup === "Squeeze → Momentum",
-                  () => onChange({ patternGroup: "Squeeze → Momentum" })
-                )}
-                {pill(
-                  pillLabelWithCount("🚀 Momentum Elite", pillCounts?.patterns?.MOMENTUM_ELITE),
-                  filters.patternGroup === "Momentum Elite",
-                  () => onChange({ patternGroup: "Momentum Elite" })
-                )}
-                {pill(
-                  pillLabelWithCount("📍 Corridor Reclaim", pillCounts?.patterns?.CORRIDOR_RECLAIM),
-                  filters.patternGroup === "Corridor reclaim",
-                  () => onChange({ patternGroup: "Corridor reclaim" })
-                )}
-                {pill(
-                  pillLabelWithCount("🧨 Squeeze Build", pillCounts?.patterns?.SQUEEZE_BUILD),
-                  filters.patternGroup === "Squeeze pressure build",
-                  () => onChange({ patternGroup: "Squeeze pressure build" })
-                )}
-                {pill(
-                  pillLabelWithCount("📈 Trend Cont.", pillCounts?.patterns?.TREND_CONT),
-                  filters.patternGroup === "Trend continuation",
-                  () => onChange({ patternGroup: "Trend continuation" })
-                )}
-                {pill(
-                  pillLabelWithCount("⚠️ Late-cycle", pillCounts?.patterns?.LATE_CYCLE),
-                  filters.patternGroup === "Late-cycle / Overextended",
-                  () => onChange({ patternGroup: "Late-cycle / Overextended" })
-                )}
-                {pill(
-                  pillLabelWithCount("❓ Unclear", pillCounts?.patterns?.UNCLEAR),
-                  filters.patternGroup === "Unclear / Chop",
-                  () => onChange({ patternGroup: "Unclear / Chop" })
-                )}
-              </div>
+              {/* Note: Filter UI intentionally simplified.
+                  Additional groups (Quadrants / Premium / Patterns) removed to reduce noise. */}
             </div>
 
             <div className="space-y-2">
@@ -17579,8 +17419,37 @@
                     </div>
                   </div>
 
+                  {/* Global Search (applies to Action Center + Bubble Chart) */}
+                  <div className="mt-4 mb-4">
+                    <input
+                      type="text"
+                      placeholder="Search tickers, filters, or conditions... (e.g., 'AAPL, GOOGL, TSLA' or 'top 40' or 'rank over 75')"
+                      value={filters.search}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        handleFilterChange({ search: value });
+                        // Also update tickerFilter if it looks like a simple ticker list (for Time Travel compatibility)
+                        // Only if it's comma-separated and doesn't contain filter keywords
+                        if (
+                          value.includes(",") &&
+                          !value.match(
+                            /rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/
+                          )
+                        ) {
+                          handleFilterChange({ tickerFilter: value });
+                        } else if (!value.trim()) {
+                          handleFilterChange({ tickerFilter: "" });
+                        }
+                      }}
+                      className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6]"
+                    />
+                    <div className="mt-1 text-xs text-[#6b7a9f]">
+                      💡 Examples: "AAPL, GOOGL, TSLA" • "top 40" • "rank over 75" • "RR above 2"
+                    </div>
+                  </div>
+
                   {/* Filters */}
-                  <div className="mt-4">
+                  <div className="mt-2">
                     <div className="mb-4">
                       <ActionCenterPanel
                         tickers={tickers}
@@ -17598,36 +17467,6 @@
                         >
                           {showAdvancedFilters ? "Hide filters" : "Advanced filters"}
                         </button>
-                      </div>
-                      <input
-                        type="text"
-                        placeholder="Search tickers, filters, or conditions... (e.g., 'AAPL, GOOGL, TSLA' or 'top 40' or 'rank over 75')"
-                        value={filters.search}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          handleFilterChange({ search: value });
-                          // Also update tickerFilter if it looks like a simple ticker list (for Time Travel compatibility)
-                          // Only if it's comma-separated and doesn't contain filter keywords
-                          if (
-                            value.includes(",") &&
-                            !value.match(
-                              /rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/
-                            )
-                          ) {
-                            handleFilterChange({ tickerFilter: value });
-                          } else if (!value.trim()) {
-                            handleFilterChange({ tickerFilter: "" });
-                          }
-                        }}
-                        className="w-full px-4 py-2 bg-[#0f1630] border border-[#26325f] rounded-lg text-white placeholder-[#93a4d6]"
-                      />
-                      <div className="mt-1 text-xs text-[#6b7a9f]">
-                        💡 Search by tickers (comma-separated), natural language
-                        filters, or conditions.{" "}
-                        <span className="text-[#93a4d6]">
-                          Examples: "AAPL, GOOGL, TSLA" • "top 40" • "rank over
-                          75" • "RR above 2" • "prime setup and in corridor"
-                        </span>
                       </div>
                     </div>
                     {/* Filters live in the compact tag panel below (no duplicate button rows). */}
