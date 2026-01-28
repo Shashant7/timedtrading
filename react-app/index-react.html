@@ -1837,33 +1837,31 @@
           "yclose",
           "close_prev",
         ]);
-        let dayChg = null;
-        let dayPct = null;
+        // Prefer explicit daily-change fields from the ingest (Heartbeat Pine already emits these).
+        // Only fall back to deriving from prev_close when they are missing.
+        let dayChg = pickNum(t, [
+          "day_change",
+          "daily_change",
+          "session_change",
+          "chg",
+          "ch",
+        ]);
+        let dayPct = pickNum(t, [
+          "day_change_pct",
+          "daily_change_pct",
+          "session_change_pct",
+          "chp",
+        ]);
 
-        // Prefer watchlist semantics whenever we have prev close.
-        // Some payloads also include fields named "change"/"change_pct" that are NOT daily change (e.g. move-from-trigger),
-        // so we intentionally avoid those ambiguous keys and compute from prev close when possible.
-        if (Number.isFinite(price) && price > 0 && Number.isFinite(prevClose) && prevClose > 0) {
-          dayChg = price - prevClose;
-          dayPct = (dayChg / prevClose) * 100;
-        } else {
-          dayChg = pickNum(t, [
-            "day_change",
-            "daily_change",
-            "session_change",
-            "chg",
-            "ch",
-          ]);
-          dayPct = pickNum(t, [
-            "day_change_pct",
-            "daily_change_pct",
-            "session_change_pct",
-            "chp",
-          ]);
-        }
-
-        // If we have prev close but no change fields, compute them like a watchlist.
-        if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct) && Number.isFinite(price) && price > 0 && Number.isFinite(prevClose) && prevClose > 0) {
+        // If missing, compute like a watchlist using prev close.
+        if (
+          !Number.isFinite(dayChg) &&
+          !Number.isFinite(dayPct) &&
+          Number.isFinite(price) &&
+          price > 0 &&
+          Number.isFinite(prevClose) &&
+          prevClose > 0
+        ) {
           dayChg = price - prevClose;
           dayPct = (dayChg / prevClose) * 100;
         }
