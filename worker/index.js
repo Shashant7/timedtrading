@@ -589,14 +589,18 @@ function stalenessBucket(ticker, ts) {
 }
 
 function computeRR(d) {
-  // Use current price (real-time) for RR calculation, not trigger price
-  // d.price should be the current market price from TradingView
+  // RR should be based on the "entry reference" (trigger price when available),
+  // otherwise it looks artificially better/worse after a move has already run.
   const price = Number(d.price);
+  const entryRefRaw = Number(d.trigger_price);
+  const entryRef = Number.isFinite(entryRefRaw) && entryRefRaw > 0 ? entryRefRaw : price;
   const sl = Number(d.sl);
-  if (!Number.isFinite(price) || !Number.isFinite(sl)) return null;
+  if (!Number.isFinite(entryRef) || !Number.isFinite(sl)) return null;
 
   // Use MAX TP from tp_levels if available, otherwise fall back to first TP
-  let tp = Number(d.tp);
+  let tp = Number(d.tp_max_price);
+  if (!Number.isFinite(tp)) tp = Number(d.tp_target_price);
+  if (!Number.isFinite(tp)) tp = Number(d.tp);
   if (d.tp_levels && Array.isArray(d.tp_levels) && d.tp_levels.length > 0) {
     // Extract prices from tp_levels (handle both object and number formats)
     const tpPrices = d.tp_levels
@@ -613,8 +617,11 @@ function computeRR(d) {
       .filter((p) => Number.isFinite(p));
 
     if (tpPrices.length > 0) {
-      // Use maximum TP (best-case scenario for RR calculation)
-      tp = Math.max(...tpPrices);
+      // Use maximum TP for LONG, minimum for SHORT
+      const state = String(d.state || "");
+      const isLong = state.includes("BULL");
+      const isShort = state.includes("BEAR");
+      tp = isShort ? Math.min(...tpPrices) : Math.max(...tpPrices);
     }
   }
 
@@ -628,17 +635,17 @@ function computeRR(d) {
   let risk, gain;
 
   if (isLong) {
-    // For LONG: SL should be below price, TP should be above price
-    risk = price - sl; // Risk is distance from current price to SL (down)
-    gain = tp - price; // Gain is distance from current price to TP (up)
+    // For LONG: SL should be below entryRef, TP should be above entryRef
+    risk = entryRef - sl;
+    gain = tp - entryRef;
   } else if (isShort) {
-    // For SHORT: SL should be above price, TP should be below price
-    risk = sl - price; // Risk is distance from current price to SL (up)
-    gain = price - tp; // Gain is distance from current price to TP (down)
+    // For SHORT: SL should be above entryRef, TP should be below entryRef
+    risk = sl - entryRef;
+    gain = entryRef - tp;
   } else {
     // Fallback to absolute values if direction unclear
-    risk = Math.abs(price - sl);
-    gain = Math.abs(tp - price);
+    risk = Math.abs(entryRef - sl);
+    gain = Math.abs(tp - entryRef);
   }
 
   // Ensure both risk and gain are positive
@@ -661,6 +668,36 @@ function completionForSize(ticker) {
   const denom = Math.abs(tp - triggerPrice);
   if (!(denom > 0)) return 0;
 
+  const raw = Math.abs(price - triggerPrice) / denom;
+  return Math.max(0, Math.min(1, raw));
+}
+
+function computeTpMaxFromLevels(ticker) {
+  const tpMaxRaw = Number(ticker?.tp_max_price);
+  if (Number.isFinite(tpMaxRaw) && tpMaxRaw > 0) return tpMaxRaw;
+  const tpLevels = Array.isArray(ticker?.tp_levels) ? ticker.tp_levels : [];
+  const tpPrices = tpLevels
+    .map((tpItem) => {
+      if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
+        return Number(tpItem.price);
+      }
+      return typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
+    })
+    .filter((p) => Number.isFinite(p));
+  if (tpPrices.length === 0) return null;
+  const state = String(ticker?.state || "");
+  const isLong = state.includes("BULL");
+  const isShort = state.includes("BEAR");
+  return isShort ? Math.min(...tpPrices) : Math.max(...tpPrices);
+}
+
+function computeCompletionToTpMax(ticker) {
+  const price = Number(ticker?.price);
+  const triggerPrice = Number(ticker?.trigger_price);
+  const tpMax = computeTpMaxFromLevels(ticker);
+  if (!Number.isFinite(price) || !Number.isFinite(triggerPrice) || !Number.isFinite(tpMax)) return null;
+  const denom = Math.abs(tpMax - triggerPrice);
+  if (!(denom > 0)) return null;
   const raw = Math.abs(price - triggerPrice) / denom;
   return Math.max(0, Math.min(1, raw));
 }
@@ -1142,7 +1179,7 @@ function computeMoveStatus(tickerData) {
 
   const price = Number(tickerData?.price);
   const sl = Number(tickerData?.sl);
-  const tp = Number(tickerData?.tp);
+  const tp = computeTpMaxFromLevels(tickerData) ?? Number(tickerData?.tp);
   const triggerTs = Number(tickerData?.trigger_ts);
   const curTs = Number(tickerData?.ts ?? tickerData?.ingest_ts ?? Date.now());
 
@@ -1204,8 +1241,11 @@ function computeMoveStatus(tickerData) {
   // Late-cycle: disqualifier unless Momentum Elite
   if (isLateCycle(tickerData) && !momentumElite) reasons.push("late_cycle");
 
-  // Overextension: extremely high completion means little edge left
-  const comp = completionForSize(tickerData);
+  // Overextension: extremely high completion means little edge left (relative to MAX TP)
+  const comp = (() => {
+    const cMax = computeCompletionToTpMax(tickerData);
+    return Number.isFinite(cMax) ? cMax : completionForSize(tickerData);
+  })();
   if (Number.isFinite(comp) && comp >= 0.95) reasons.push("overextended");
 
   // If we have a trigger timestamp and we're not in the entry corridor anymore,
@@ -11622,6 +11662,10 @@ export default {
 
           // Ensure kanban_stage reflects current logic for Action Center flow
           try {
+            const cMax = computeCompletionToTpMax(data);
+            if (Number.isFinite(cMax)) data.completion = cMax;
+            const rr = computeRR(data);
+            if (Number.isFinite(rr)) data.rr = rr;
             data.move_status = computeMoveStatus(data);
           } catch {
             // ignore
@@ -11758,6 +11802,10 @@ export default {
               const obj = JSON.parse(String(raw));
               // Ensure stage/status reflect current logic even if no new ingests
               try {
+                const cMax = computeCompletionToTpMax(obj);
+                if (Number.isFinite(cMax)) obj.completion = cMax;
+                const rr = computeRR(obj);
+                if (Number.isFinite(rr)) obj.rr = rr;
                 obj.move_status = computeMoveStatus(obj);
               } catch {
                 // ignore
