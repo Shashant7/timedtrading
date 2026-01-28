@@ -1837,8 +1837,9 @@
           "yclose",
           "close_prev",
         ]);
-        // Prefer explicit daily-change fields from the ingest (Heartbeat Pine already emits these).
-        // Only fall back to deriving from prev_close when they are missing.
+        // Prefer explicit daily-change fields from ingest (Heartbeat Pine emits these).
+        // However, some stored "latest" snapshots can carry a stale/incorrect prev_close-derived day_change_pct.
+        // So we treat "change/change_pct" as a safe fallback *only when* the day_* values look absurd.
         let dayChg = pickNum(t, [
           "day_change",
           "daily_change",
@@ -1852,6 +1853,17 @@
           "session_change_pct",
           "chp",
         ]);
+
+        const altChg = pickNum(t, ["change", "session_change"]);
+        const altPct = pickNum(t, ["change_pct", "pct_change", "session_change_pct"]);
+        const looksAbsurd = (pct) => Number.isFinite(pct) && Math.abs(pct) > 5; // >5% is rare for large caps; usually indicates a bad anchor
+        const looksSane = (pct) => Number.isFinite(pct) && Math.abs(pct) <= 5;
+
+        // If day_* is present but looks wrong, fall back to change/change_pct when it looks sane.
+        if (looksAbsurd(dayPct) && looksSane(altPct)) {
+          dayPct = altPct;
+          if (!Number.isFinite(dayChg) && Number.isFinite(altChg)) dayChg = altChg;
+        }
 
         // If missing, compute like a watchlist using prev close.
         if (
