@@ -1096,6 +1096,14 @@ function classifyKanbanStage(tickerData) {
       return "watch";
     }
   }
+
+  // Late-cycle: overextended / high phase but NOT in momentum.
+  // This avoids pulling names like AAPL out of Watch when they're still momentum-aligned.
+  const phaseZone = String(tickerData?.phase_zone || "").toUpperCase();
+  const isLate = phaseZone === "HIGH" || phaseZone === "EXTREME" || phase >= 0.7 || completion >= 0.95;
+  if (!isMomentum && isLate) {
+    return "late_cycle";
+  }
   
   // Default: no stage (not in trading pipeline)
   return null;
@@ -11583,6 +11591,13 @@ export default {
             // ignore
           }
           try {
+            data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+            data.flags.move_invalidated = data.move_status?.status === "INVALIDATED";
+            data.flags.move_completed = data.move_status?.status === "COMPLETED";
+          } catch {
+            // ignore
+          }
+          try {
             const stage = classifyKanbanStage(data);
             data.kanban_stage = stage;
           } catch {
@@ -11707,6 +11722,13 @@ export default {
               // Ensure stage/status reflect current logic even if no new ingests
               try {
                 obj.move_status = computeMoveStatus(obj);
+              } catch {
+                // ignore
+              }
+              try {
+                obj.flags = obj.flags && typeof obj.flags === "object" ? obj.flags : {};
+                obj.flags.move_invalidated = obj.move_status?.status === "INVALIDATED";
+                obj.flags.move_completed = obj.move_status?.status === "COMPLETED";
               } catch {
                 // ignore
               }

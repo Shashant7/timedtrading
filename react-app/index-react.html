@@ -10002,6 +10002,7 @@
           
           // Kanban Stages
           const kanbanWatch = countWith({ ...base, kanbanStage: "watch" });
+          const kanbanLateCycle = countWith({ ...base, kanbanStage: "late_cycle" });
           const kanbanFlipWatch = countWith({ ...base, kanbanStage: "flip_watch" });
           const kanbanJustFlipped = countWith({ ...base, kanbanStage: "just_flipped" });
           const kanbanEnterNow = countWith({ ...base, kanbanStage: "enter_now" });
@@ -10090,6 +10091,7 @@
             },
             kanban: {
               WATCH: kanbanWatch,
+              LATE_CYCLE: kanbanLateCycle,
               FLIP_WATCH: kanbanFlipWatch,
               JUST_FLIPPED: kanbanJustFlipped,
               ENTER_NOW: kanbanEnterNow,
@@ -10404,6 +10406,11 @@
                   pillLabelWithCount("👀 Watch", pillCounts?.kanban?.WATCH),
                   filters.kanbanStage === "watch",
                   () => onChange({ kanbanStage: "watch" })
+                )}
+                {pill(
+                  pillLabelWithCount("🌙 Late-cycle", pillCounts?.kanban?.LATE_CYCLE),
+                  filters.kanbanStage === "late_cycle",
+                  () => onChange({ kanbanStage: "late_cycle" })
                 )}
                 {pill(
                   pillLabelWithCount("🎯 Flip Watch", pillCounts?.kanban?.FLIP_WATCH),
@@ -11201,6 +11208,7 @@
         // Categorize tickers into Kanban columns using Worker-provided stage (with client-side fallback)
         const categories = React.useMemo(() => {
           const watch = [];
+          const lateCycle = [];
           const flipWatch = [];
           const justFlipped = [];
           const enterNow = [];
@@ -11267,6 +11275,9 @@
               case "watch":
                 watch.push(t);
                 break;
+              case "late_cycle":
+                lateCycle.push(t);
+                break;
               case "flip_watch":
                 flipWatch.push(t);
                 break;
@@ -11297,10 +11308,10 @@
             }
           });
           
-          return { watch, flipWatch, justFlipped, enterNow, hold, trim, exit, invalidated, completed };
+          return { watch, lateCycle, flipWatch, justFlipped, enterNow, hold, trim, exit, invalidated, completed };
         }, [tickers]);
         
-        const { watch, flipWatch, justFlipped, enterNow, hold, trim, exit, invalidated, completed } = categories;
+        const { watch, lateCycle, flipWatch, justFlipped, enterNow, hold, trim, exit, invalidated, completed } = categories;
         
         // Compact card renderer for Kanban layout
         const renderCompactCard = (t, showProgress = false, showOpen = false, showDetails = false) => {
@@ -11449,7 +11460,7 @@
           );
         };
         
-        if (watch.length === 0 && flipWatch.length === 0 && justFlipped.length === 0 && enterNow.length === 0 && hold.length === 0 && trim.length === 0 && exit.length === 0 && invalidated.length === 0 && completed.length === 0) {
+        if (watch.length === 0 && lateCycle.length === 0 && flipWatch.length === 0 && justFlipped.length === 0 && enterNow.length === 0 && hold.length === 0 && trim.length === 0 && exit.length === 0 && invalidated.length === 0 && completed.length === 0) {
           return null;
         }
         
@@ -11509,6 +11520,15 @@
                   icon="👀"
                   color="border-[#3a4a7f]"
                   items={watch}
+                />
+                <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
+                <KanbanColumn
+                  title="Late-cycle"
+                  subtitle="Overextended (wait for reset)"
+                  count={lateCycle.length}
+                  icon="🌙"
+                  color="border-fuchsia-400"
+                  items={lateCycle}
                 />
                 <div className="flex items-center justify-center text-2xl text-[#3a4a7f] px-1">→</div>
                 <KanbanColumn
