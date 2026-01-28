@@ -19,7 +19,10 @@ contextEveryHours = input.int(4, "Context cadence (hours)", minval=1, maxval=24,
 import TradingView/TechnicalRating/3 as TR
 
 // Daily change vs previous close (watchlist style)
-prevCloseD = request.security(syminfo.tickerid, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
+// IMPORTANT: For US stocks we want "yesterday close" anchored to the regular session close (4pm ET),
+// not an extended-session daily bar close which can skew the numbers after-hours.
+symRth = (syminfo.type == "stock") ? ticker.new(syminfo.prefix, syminfo.ticker, session.regular) : syminfo.tickerid
+prevCloseD = request.security(symRth, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
 dayChange = not na(prevCloseD) and prevCloseD > 0 ? (close - prevCloseD) : na
 dayChangePct = not na(dayChange) and prevCloseD > 0 ? ((dayChange / prevCloseD) * 100.0) : na
 prevCloseStr = not na(prevCloseD) ? (",\"prev_close\":" + str.tostring(prevCloseD)) : ""

@@ -17367,7 +17367,8 @@
             )}
 
             <div className="min-h-screen p-0">
-              <div className="w-full">
+              {/* Page gutter + max width so filters don't hug screen edges */}
+              <div className="mx-auto w-full max-w-[1800px] px-3 sm:px-6 lg:px-8">
                 {/* Navigation */}
                 <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -17494,14 +17495,17 @@
                   </div>
 
                   {/* Filter Groups (under Search, above Action Center) */}
-                  <div className="mt-2 mb-4">
-                    <div className="flex items-center justify-end gap-3 flex-wrap mb-2">
+                  <div className="mt-2 mb-4 rounded-xl border border-[#26325f] bg-[#0f1630] p-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                      <div className="text-xs font-semibold text-[#93a4d6]">
+                        Filter groups
+                      </div>
                       <button
                         onClick={toggleAdvancedFilters}
                         className="px-3 py-1.5 rounded-lg border border-[#26325f] bg-[#121a33] text-xs font-semibold text-[#93a4d6] hover:text-white hover:bg-[#16224a]"
                         title="Show/hide advanced filter tags"
                       >
-                        {showAdvancedFilters ? "Hide filters" : "Filter groups"}
+                        {showAdvancedFilters ? "Hide" : "Show"}
                       </button>
                     </div>
                     {showAdvancedFilters ? (
@@ -17512,7 +17516,11 @@
                         allData={data}
                         trades={trades}
                       />
-                    ) : null}
+                    ) : (
+                      <div className="text-[11px] text-[#6b7a9f]">
+                        Tip: use these to narrow the universe before scanning the Action Center.
+                      </div>
+                    )}
                   </div>
 
                   {/* Action Center (below Search + Filter Groups) */}
