@@ -4191,10 +4191,10 @@ async function processTradeSimulation(
             const dedupeKey = `timed:dedupe:tdseq_defense:${ticker}:${direction}:${hourBucket}`;
             const already = await KV.get(dedupeKey);
 
-            if (!already) {
+              if (!already) {
               await KV.put(dedupeKey, "1", { expirationTtl: 60 * 60 });
 
-              if (discordConfigured) {
+              if (discordConfigured && shouldSendDiscordAlert(env, "TDSEQ_DEFENSE", { ticker, direction })) {
                 const embed = createTDSeqDefenseEmbed(
                   ticker,
                   direction,
@@ -4632,7 +4632,7 @@ async function processTradeSimulation(
             };
 
             // Send TRIM alert whenever a new TRIM event was created
-            if (didTrim) {
+              if (didTrim) {
               console.log(
                 `[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction} (trimmedPct ${oldTrimmedPct} -> ${newTrimmedPct})`
               );
@@ -4646,7 +4646,7 @@ async function processTradeSimulation(
                 console.log(
                   `[TRADE SIM] 🔁 Deduped TRIM alert for ${ticker} ${direction} (${dedupe.key})`
                 );
-              } else {
+              } else if (shouldSendDiscordAlert(env, "TRADE_TRIM", { newTrimmedPct, trimDeltaPctRaw })) {
               const embed = createTradeTrimmedEmbed(
                 ticker,
                 direction,
@@ -4712,6 +4712,8 @@ async function processTradeSimulation(
               }).catch((e) => {
                 console.error(`[D1 LEDGER] Failed to upsert trim alert:`, e);
               });
+              } else {
+                console.log(`[TRADE SIM] (critical-only) Skipping TRIM discord for ${ticker} (${newTrimmedPct}% total trimmed)`);
               }
             }
 
@@ -4802,7 +4804,7 @@ async function processTradeSimulation(
               });
 
               // If this was a TD exit, send additional TD9/TD13 alert
-              if (shouldExitFromTDSeq) {
+              if (shouldExitFromTDSeq && shouldSendDiscordAlert(env, "TD9_EXIT", { ticker, direction })) {
                 console.log(
                   `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`
                 );
@@ -5184,7 +5186,9 @@ async function processTradeSimulation(
                     },
                     timestamp: new Date().toISOString(),
                   };
-                  await notifyDiscord(env, embed).catch(() => {});
+                  if (shouldSendDiscordAlert(env, "SYSTEM", { ticker, kind: "trade_merge" })) {
+                    await notifyDiscord(env, embed).catch(() => {});
+                  }
                 }
               }
             }
@@ -5447,26 +5451,37 @@ async function processTradeSimulation(
                 }
               }
 
-              const embed = createTradeEntryEmbed(
+              const allowDiscord = shouldSendDiscordAlert(env, "TRADE_ENTRY", {
                 ticker,
-                direction,
-                entryPrice,
-                Number(tickerData.sl),
-                validTP, // Use validated TP
-                entryRR || 0,
-                trade.rank || 0,
-                tickerData.state || "N/A",
-                Number(tickerData.price), // Current price for comparison
-                isBackfill,
-                tickerData // Pass full ticker data for comprehensive embed
-              );
-              const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                console.error(
-                  `[TRADE SIM] ❌ Failed to send entry alert for ${ticker}:`,
-                  err
-                );
-                return { ok: false, error: String(err) };
-              }); // Don't let Discord errors break trade creation
+                rank: trade.rank || 0,
+                rr: entryRR || 0,
+                momentumElite: !!tickerData?.flags?.momentum_elite,
+              });
+
+              const embed = allowDiscord
+                ? createTradeEntryEmbed(
+                    ticker,
+                    direction,
+                    entryPrice,
+                    Number(tickerData.sl),
+                    validTP, // Use validated TP
+                    entryRR || 0,
+                    trade.rank || 0,
+                    tickerData.state || "N/A",
+                    Number(tickerData.price), // Current price for comparison
+                    isBackfill,
+                    tickerData // Pass full ticker data for comprehensive embed
+                  )
+                : null;
+              const sendRes = allowDiscord
+                ? await notifyDiscord(env, embed).catch((err) => {
+                    console.error(
+                      `[TRADE SIM] ❌ Failed to send entry alert for ${ticker}:`,
+                      err
+                    );
+                    return { ok: false, error: String(err) };
+                  }) // Don't let Discord errors break trade creation
+                : { ok: false, skipped: true, reason: "suppressed_critical_only" };
 
               const entryTs =
                 isoToMs(trade.entryTime) ||
@@ -7453,6 +7468,58 @@ async function notifyDiscord(env, embed) {
     });
     return { ok: false, error: String(error), message: error.message };
   }
+}
+
+function getDiscordAlertMode(env) {
+  // Modes:
+  // - "critical" (default): high-signal only
+  // - "all": legacy behavior (send everything)
+  const raw = String(env?.DISCORD_ALERT_MODE || "critical").trim().toLowerCase();
+  return raw === "all" ? "all" : "critical";
+}
+
+function shouldSendDiscordAlert(env, type, ctx = {}) {
+  const mode = getDiscordAlertMode(env);
+  if (mode === "all") return true;
+  const t = String(type || "").toUpperCase();
+
+  // Critical-only policy: fewer, higher-signal alerts.
+  // Keep exits, keep major trims, keep only very high-conviction entries.
+  if (t === "TRADE_EXIT") return true;
+
+  if (t === "TRADE_TRIM") {
+    const newTrimmedPct = Number(ctx.newTrimmedPct);
+    const deltaPct = Number(ctx.trimDeltaPctRaw);
+    // Major trim events only (e.g. scaled out meaningfully)
+    if (Number.isFinite(newTrimmedPct) && newTrimmedPct >= 50) return true;
+    if (Number.isFinite(deltaPct) && Math.abs(deltaPct) >= 20) return true;
+    return false;
+  }
+
+  if (t === "TRADE_ENTRY") {
+    const rr = Number(ctx.rr);
+    const rank = Number(ctx.rank);
+    const momentumElite = !!ctx.momentumElite;
+    // High conviction: very strong rank + RR, or Momentum Elite with slightly relaxed RR.
+    if (Number.isFinite(rank) && rank >= 80 && Number.isFinite(rr) && rr >= 2.0) return true;
+    if (momentumElite && Number.isFinite(rank) && rank >= 75 && Number.isFinite(rr) && rr >= 1.6) return true;
+    return false;
+  }
+
+  // Suppress noisy/secondary alerts in critical mode:
+  // - flip_watch: early heads-up (nice-to-have, not critical)
+  // - tdseq_defense: internal SL tightening (can be frequent/noisy)
+  // - td9_exit: redundant with TRADE_EXIT
+  // - alert_entry (corridor entry signals): redundant with trade simulation entry alerts
+  if (t === "FLIP_WATCH") return false;
+  if (t === "TDSEQ_DEFENSE") return false;
+  if (t === "TD9_EXIT") return false;
+  if (t === "TD9_ENTRY") return false;
+  if (t === "SYSTEM") return false;
+  if (t === "ALERT_ENTRY") return false;
+
+  // Default: suppress.
+  return false;
 }
 
 // Helper: Generate natural language interpretation for trade actions
@@ -9494,7 +9561,9 @@ export default {
                       text: "Timed Trading System",
                     },
                   };
-                  notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
+                  if (shouldSendDiscordAlert(env, "SYSTEM", { kind: "migration" })) {
+                    notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
+                  }
                 }
               })
               .catch((err) => {
@@ -10129,7 +10198,7 @@ export default {
               const dedupeKey = `timed:dedupe:flip_watch:${ticker}:${hourBucket}`;
               const already = await KV.get(dedupeKey);
               
-              if (!already && discordConfigured) {
+              if (!already && discordConfigured && shouldSendDiscordAlert(env, "FLIP_WATCH", { ticker })) {
                 await KV.put(dedupeKey, "1", { expirationTtl: 60 * 60 * 4 }); // 4 hour dedupe
                 
                 const embed = createFlipWatchEmbed(ticker, payload);
@@ -11043,6 +11112,14 @@ export default {
                   }
                 }
 
+                const allowDiscord = shouldSendDiscordAlert(env, "ALERT_ENTRY", {
+                  ticker,
+                  side,
+                  rank: payload.rank,
+                  rr: rrToUse,
+                  momentumElite,
+                });
+
                 const opportunityEmbed = {
                   title: `🎯 Trading Opportunity: ${ticker} ${side}`,
                   color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
@@ -11053,7 +11130,10 @@ export default {
                   },
                   url: tv, // Make the title clickable to open TradingView
                 };
-                const sendRes = await notifyDiscord(env, opportunityEmbed);
+
+                const sendRes = allowDiscord
+                  ? await notifyDiscord(env, opportunityEmbed)
+                  : { ok: false, skipped: true, reason: "suppressed_critical_only" };
 
                 // Persist alert ledger record to D1 (best-effort)
                 d1UpsertAlert(env, {
@@ -11083,25 +11163,27 @@ export default {
                 });
 
                 // Log Discord alert to activity feed
-                await appendActivity(KV, {
-                  ticker,
-                  type: "discord_alert",
-                  direction: side,
-                  action: "entry",
-                  rank: payload.rank,
-                  rr: payload.rr,
-                  price: payload.price,
-                  trigger_price: payload.trigger_price,
-                  sl: payload.sl,
-                  tp: payload.tp,
-                  state: payload.state,
-                  htf_score: payload.htf_score,
-                  ltf_score: payload.ltf_score,
-                  completion: payload.completion,
-                  phase_pct: payload.phase_pct,
-                  why: why,
-                  momentum_elite: momentumElite,
-                });
+                if (sendRes?.ok) {
+                  await appendActivity(KV, {
+                    ticker,
+                    type: "discord_alert",
+                    direction: side,
+                    action: "entry",
+                    rank: payload.rank,
+                    rr: payload.rr,
+                    price: payload.price,
+                    trigger_price: payload.trigger_price,
+                    sl: payload.sl,
+                    tp: payload.tp,
+                    state: payload.state,
+                    htf_score: payload.htf_score,
+                    ltf_score: payload.ltf_score,
+                    completion: payload.completion,
+                    phase_pct: payload.phase_pct,
+                    why: why,
+                    momentum_elite: momentumElite,
+                  });
+                }
               } else {
                 console.log(
                   `[DISCORD ALERT] Skipped ${ticker} - already alerted`,
@@ -11246,19 +11328,21 @@ export default {
                     td13_bearish: td13Bearish,
                   });
 
-                  // Send Discord alert
-                  const td9Embed = createTD9EntryEmbed(
-                    ticker,
-                    suggestedDirection,
-                    payload.price,
-                    payload.sl,
-                    payload.tp,
-                    payload.rr,
-                    payload.rank,
-                    tdSeq,
-                    payload // Pass full payload as tickerData
-                  );
-                  await notifyDiscord(env, td9Embed).catch(() => {});
+                  // Send Discord alert (suppressed in critical-only mode)
+                  if (shouldSendDiscordAlert(env, "TD9_ENTRY", { ticker, direction: suggestedDirection, rr: payload.rr, rank: payload.rank })) {
+                    const td9Embed = createTD9EntryEmbed(
+                      ticker,
+                      suggestedDirection,
+                      payload.price,
+                      payload.sl,
+                      payload.tp,
+                      payload.rr,
+                      payload.rank,
+                      tdSeq,
+                      payload // Pass full payload as tickerData
+                    );
+                    await notifyDiscord(env, td9Embed).catch(() => {});
+                  }
 
                   console.log(
                     `[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`
