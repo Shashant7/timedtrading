@@ -11230,6 +11230,21 @@
                 : null;
           const showEntryStats = stage === "enter_now" || stage === "hold" || stage === "trim" || stage === "exit";
 
+          // Highlight recently transitioned cards
+          const prevLane = t?.prev_kanban_stage != null ? String(t.prev_kanban_stage) : "";
+          const prevLaneTsRaw = Number(t?.prev_kanban_stage_ts);
+          // Be tolerant: sometimes timestamps are seconds, sometimes ms.
+          const prevLaneTs =
+            Number.isFinite(prevLaneTsRaw) && prevLaneTsRaw > 0
+              ? (prevLaneTsRaw < 2e12 ? prevLaneTsRaw * 1000 : prevLaneTsRaw)
+              : NaN;
+          const movedRecently =
+            !!prevLane &&
+            prevLane !== stage &&
+            stage !== "archive" &&
+            Number.isFinite(prevLaneTs) &&
+            Date.now() - prevLaneTs < 30 * 60 * 1000; // 30m
+
           // Archive meta (worker-provided)
           const km = t?.kanban_meta && typeof t.kanban_meta === "object" ? t.kanban_meta : null;
           const archiveEmoji = km?.emoji ? String(km.emoji) : "";
@@ -11251,11 +11266,38 @@
             <button
               key={`kanban-${t.ticker}`}
               onClick={() => onSelectTicker?.(t.ticker)}
-              className="w-full text-left p-2 rounded border border-[#26325f] bg-[#0f1630] hover:bg-[#121a33] hover:border-[#3a4a7f] transition-all"
+              className={
+                "w-full text-left p-2 rounded border bg-[#0f1630] hover:bg-[#121a33] transition-all " +
+                (movedRecently
+                  ? "border-cyan-400/60 ring-1 ring-cyan-400/30 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]"
+                  : "border-[#26325f] hover:border-[#3a4a7f]")
+              }
             >
               {/* Header: Ticker + Status Badge */}
               <div className="flex items-center justify-between gap-1 mb-1">
-                <span className="text-xs font-bold text-white truncate">{t.ticker}</span>
+                <div className="flex items-center gap-1 min-w-0">
+                  <span className="text-xs font-bold text-white truncate">{t.ticker}</span>
+                  {(() => {
+                    const prev = prevLane;
+                    if (!prev) return null;
+                    if (prev === stage) return null;
+                    if (stage === "archive") return null;
+                    const label = prev.replaceAll("_", " ").toUpperCase();
+                    return (
+                      <span
+                        className={
+                          "px-1 py-0.5 rounded text-[9px] font-semibold border whitespace-nowrap " +
+                          (movedRecently
+                            ? "bg-cyan-500/15 text-cyan-200 border-cyan-400/30"
+                            : "bg-white/5 text-[#9fb0df] border-white/10")
+                        }
+                        title={`Previous lane: ${label}`}
+                      >
+                        ← {label}
+                      </span>
+                    );
+                  })()}
+                </div>
                 {(() => {
                   if (!showOpen) return null;
                   if (stage === "archive") return null;

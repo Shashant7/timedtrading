@@ -42,6 +42,38 @@ groupRunner = "Runner management"
 trailAtrMult = input.float(1.1, "Runner trail ATR ×", minval=0.2, maxval=5.0, step=0.1, group=groupRunner)
 defendPct = input.float(0.30, "Defend when within X of stop", minval=0.05, maxval=0.8, step=0.05, group=groupRunner)
 
+groupImprove = "Entry/Exit improvements"
+useRRFilter = input.bool(true, "Entry: require minimum R:R vs TP1", group=groupImprove)
+minRR = input.float(1.0, "Min R:R (TP1 ÷ StopDist)", minval=0.2, maxval=5.0, step=0.1, group=groupImprove)
+useLateEntry = input.bool(true, "Entry: allow late retest window", group=groupImprove)
+lateWindowBars = input.int(6, "Late window (bars)", minval=1, maxval=50, group=groupImprove)
+cooldownBars = input.int(3, "Cooldown after exit (bars)", minval=0, maxval=50, group=groupImprove)
+
+groupMTF = "MTF alignment (anti-chop)"
+useHTFAlign = input.bool(true, "Entry: require HTF EMA alignment", group=groupMTF)
+htfMode = input.string("Majority", "HTF rule", options=["All","Majority","Any"], group=groupMTF)
+htfEnable1 = input.bool(true, "HTF 1h", group=groupMTF, inline="htf")
+htfEnable2 = input.bool(true, "HTF 30m", group=groupMTF, inline="htf")
+htfEnable3 = input.bool(true, "HTF 10m", group=groupMTF, inline="htf")
+htfTf1 = input.string("60", "TF", options=["10","15","30","45","60","90","120","240","D"], group=groupMTF, inline="htf")
+htfTf2 = input.string("30", "TF", options=["10","15","30","45","60","90","120","240","D"], group=groupMTF, inline="htf")
+htfTf3 = input.string("10", "TF", options=["10","15","30","45","60","90","120","240","D"], group=groupMTF, inline="htf")
+
+useLTFAlign = input.bool(true, "Entry: require LTF momentum alignment", group=groupMTF)
+ltfMode = input.string("Majority", "LTF rule", options=["All","Majority","Any"], group=groupMTF)
+ltfRsiMid = input.float(50.0, "LTF RSI midline", minval=40, maxval=60, step=0.5, group=groupMTF)
+ltfEnable1 = input.bool(true, "LTF 5m", group=groupMTF, inline="ltf")
+ltfEnable2 = input.bool(true, "LTF 3m", group=groupMTF, inline="ltf")
+ltfEnable3 = input.bool(true, "LTF 1m", group=groupMTF, inline="ltf")
+ltfTf1 = input.string("5", "TF", options=["1","2","3","5"], group=groupMTF, inline="ltf")
+ltfTf2 = input.string("3", "TF", options=["1","2","3","5"], group=groupMTF, inline="ltf")
+ltfTf3 = input.string("1", "TF", options=["1","2","3","5"], group=groupMTF, inline="ltf")
+
+groupFuse = "Exit: Fuse (arm → confirm)"
+fuseEnable = input.bool(true, "Enable Fuse exits (early exit)", group=groupFuse)
+fuseMaxWaitBars = input.int(6, "Fuse confirm timeout (bars)", minval=1, maxval=50, group=groupFuse)
+fuseExitOnTimeout = input.bool(false, "Exit on timeout (else disarm)", group=groupFuse)
+
 groupViz = "Visuals"
 showLevels = input.bool(true, "Show key levels (PDH/PDL/ONH/ONL/VWAP)", group=groupViz)
 showBands = input.bool(true, "Show VWAP bands", group=groupViz)
@@ -72,7 +104,8 @@ tradable = inGlobex
 // ─────────────────────────────────────────────────────────────
 emaFast = ta.ema(close, emaFastLen)
 emaSlow = ta.ema(close, emaSlowLen)
-adx = ta.adx(adxLen)
+// Pine v6: use DMI to get ADX value
+[plusDI, minusDI, adx] = ta.dmi(adxLen, adxLen)
 rsi = ta.rsi(close, rsiLen)
 atr = ta.atr(atrLen)
 atrPts = atr // ES points
@@ -93,12 +126,65 @@ pbOkLong = trendUp and low <= (emaFast - pbDepthAtr * atrPts) and close >= emaFa
 pbOkShort = trendDn and high >= (emaFast + pbDepthAtr * atrPts) and close <= emaFast and close < emaSlow
 
 // Range mean-reversion (VWAP bands)
-mrLong = isRange and low < vwapDn and ta.crossover(close, vwapDn) and rsi <= rsiOS
-mrShort = isRange and high > vwapUp and ta.crossunder(close, vwapUp) and rsi >= rsiOB
+crossUpVwapDn = ta.crossover(close, vwapDn)
+crossDnVwapUp = ta.crossunder(close, vwapUp)
+mrLong = isRange and low < vwapDn and crossUpVwapDn and rsi <= rsiOS
+mrShort = isRange and high > vwapUp and crossDnVwapUp and rsi >= rsiOB
+
+// ─────────────────────────────────────────────────────────────
+// MTF alignment gates (simple, TimedTrading-inspired)
+// ─────────────────────────────────────────────────────────────
+f_pass(mode, agreeCnt, totalCnt) =>
+    // totalCnt can be 0 if user disables all TFs; treat as "pass"
+    totalCnt <= 0 ? true :
+     mode == "All" ? (agreeCnt >= totalCnt) :
+     mode == "Majority" ? (agreeCnt >= math.ceil(totalCnt / 2.0)) :
+     (agreeCnt >= 1)
+
+f_htf_pack() =>
+    [ta.ema(close, emaFastLen), ta.ema(close, emaSlowLen)]
+
+f_ltf_pack() =>
+    [ta.ema(close, emaFastLen), ta.ema(close, emaSlowLen), ta.rsi(close, rsiLen)]
+
+// HTFs: 1h / 30m / 10m (configurable)
+[htfF1, htfS1] = request.security(syminfo.tickerid, htfTf1, f_htf_pack(), barmerge.gaps_off, barmerge.lookahead_off)
+[htfF2, htfS2] = request.security(syminfo.tickerid, htfTf2, f_htf_pack(), barmerge.gaps_off, barmerge.lookahead_off)
+[htfF3, htfS3] = request.security(syminfo.tickerid, htfTf3, f_htf_pack(), barmerge.gaps_off, barmerge.lookahead_off)
+htfUp1 = htfEnable1 and htfF1 > htfS1
+htfUp2 = htfEnable2 and htfF2 > htfS2
+htfUp3 = htfEnable3 and htfF3 > htfS3
+htfDn1 = htfEnable1 and htfF1 < htfS1
+htfDn2 = htfEnable2 and htfF2 < htfS2
+htfDn3 = htfEnable3 and htfF3 < htfS3
+htfN = (htfEnable1 ? 1 : 0) + (htfEnable2 ? 1 : 0) + (htfEnable3 ? 1 : 0)
+htfUpCnt = (htfUp1 ? 1 : 0) + (htfUp2 ? 1 : 0) + (htfUp3 ? 1 : 0)
+htfDnCnt = (htfDn1 ? 1 : 0) + (htfDn2 ? 1 : 0) + (htfDn3 ? 1 : 0)
+htfGateLong = not useHTFAlign or f_pass(htfMode, htfUpCnt, htfN)
+htfGateShort = not useHTFAlign or f_pass(htfMode, htfDnCnt, htfN)
+
+// LTFs: 5m / 3m / 1m (configurable) using EMA alignment + RSI midline
+[ltfF1, ltfS1, ltfR1] = request.security(syminfo.tickerid, ltfTf1, f_ltf_pack(), barmerge.gaps_off, barmerge.lookahead_off)
+[ltfF2, ltfS2, ltfR2] = request.security(syminfo.tickerid, ltfTf2, f_ltf_pack(), barmerge.gaps_off, barmerge.lookahead_off)
+[ltfF3, ltfS3, ltfR3] = request.security(syminfo.tickerid, ltfTf3, f_ltf_pack(), barmerge.gaps_off, barmerge.lookahead_off)
+ltfUp1 = ltfEnable1 and ltfF1 > ltfS1 and ltfR1 >= ltfRsiMid
+ltfUp2 = ltfEnable2 and ltfF2 > ltfS2 and ltfR2 >= ltfRsiMid
+ltfUp3 = ltfEnable3 and ltfF3 > ltfS3 and ltfR3 >= ltfRsiMid
+ltfDn1 = ltfEnable1 and ltfF1 < ltfS1 and ltfR1 <= ltfRsiMid
+ltfDn2 = ltfEnable2 and ltfF2 < ltfS2 and ltfR2 <= ltfRsiMid
+ltfDn3 = ltfEnable3 and ltfF3 < ltfS3 and ltfR3 <= ltfRsiMid
+ltfN = (ltfEnable1 ? 1 : 0) + (ltfEnable2 ? 1 : 0) + (ltfEnable3 ? 1 : 0)
+ltfUpCnt = (ltfUp1 ? 1 : 0) + (ltfUp2 ? 1 : 0) + (ltfUp3 ? 1 : 0)
+ltfDnCnt = (ltfDn1 ? 1 : 0) + (ltfDn2 ? 1 : 0) + (ltfDn3 ? 1 : 0)
+ltfGateLong = not useLTFAlign or f_pass(ltfMode, ltfUpCnt, ltfN)
+ltfGateShort = not useLTFAlign or f_pass(ltfMode, ltfDnCnt, ltfN)
+
+mtfGateLong = htfGateLong and ltfGateLong
+mtfGateShort = htfGateShort and ltfGateShort
 
 // Entry signals (armed by regime)
-sigLong = tradable and ((isTrend and pbOkLong) or (isRange and mrLong))
-sigShort = tradable and ((isTrend and pbOkShort) or (isRange and mrShort))
+sigLong = tradable and mtfGateLong and ((isTrend and pbOkLong) or (isRange and mrLong))
+sigShort = tradable and mtfGateShort and ((isTrend and pbOkShort) or (isRange and mrShort))
 
 // ─────────────────────────────────────────────────────────────
 // Levels engine (realistic targets)
@@ -145,6 +231,15 @@ var float entryPx = na
 var float stopPx = na
 var float tp1Px = na
 var bool tp1Hit = false
+var bool lateArmedL = false
+var bool lateArmedS = false
+var int lateArmBarL = na
+var int lateArmBarS = na
+var int lateUntilL = na
+var int lateUntilS = na
+var bool fuseArmed = false
+var int fuseArmBar = na
+var int lastExitBar = na
 
 // Stop distance in points (ATR-based with cap + floor)
 f_stopDist() =>
@@ -159,30 +254,102 @@ hitTp1Short = pos == -1 and not na(tp1Px) and low <= tp1Px
 // Forced flat rules
 forceFlat = (not tradable) or (flattenAtRthClose and endRth)
 
+// Event flags (set only when we actually take action)
+enterLongEvent = false
+enterShortEvent = false
+exitEvent = false
+
 // Entry logic (one side only)
 if pos == 0
     tp1Hit := false
     entryPx := na
     stopPx := na
     tp1Px := na
+    fuseArmed := false
+    fuseArmBar := na
 
-    if sigLong and not sigShort
-        pos := 1
-        entryPx := close
+    cooldownOK = cooldownBars <= 0 or na(lastExitBar) or (bar_index - lastExitBar >= cooldownBars)
+
+    // Maintain "late entry" armed windows (flat-only)
+    if useLateEntry
+        if sigLong and not sigShort
+            lateArmedL := true
+            lateArmBarL := bar_index
+            lateUntilL := bar_index + lateWindowBars
+        if sigShort and not sigLong
+            lateArmedS := true
+            lateArmBarS := bar_index
+            lateUntilS := bar_index + lateWindowBars
+
+        // Expire windows
+        if lateArmedL and not na(lateUntilL) and bar_index > lateUntilL
+            lateArmedL := false
+            lateArmBarL := na
+            lateUntilL := na
+        if lateArmedS and not na(lateUntilS) and bar_index > lateUntilS
+            lateArmedS := false
+            lateArmBarS := na
+            lateUntilS := na
+
+    lateActiveL = useLateEntry and lateArmedL and not na(lateArmBarL) and not na(lateUntilL) and bar_index > lateArmBarL and bar_index <= lateUntilL
+    lateActiveS = useLateEntry and lateArmedS and not na(lateArmBarS) and not na(lateUntilS) and bar_index > lateArmBarS and bar_index <= lateUntilS
+
+    // Late retest conditions (less strict than the initial signal)
+    lateCondLong = tradable and cooldownOK and mtfGateLong and lateActiveL and ((isTrend and trendUp and low <= emaFast and close > emaFast and close > emaSlow) or (isRange and low <= vwapDn and close > vwapDn and rsi <= rsiOS))
+    lateCondShort = tradable and cooldownOK and mtfGateShort and lateActiveS and ((isTrend and trendDn and high >= emaFast and close < emaFast and close < emaSlow) or (isRange and high >= vwapUp and close < vwapUp and rsi >= rsiOB))
+
+    wantLong = tradable and cooldownOK and (sigLong or lateCondLong)
+    wantShort = tradable and cooldownOK and (sigShort or lateCondShort)
+
+    if wantLong and not wantShort
+        _entry = close
         sd = f_stopDist()
-        stopPx := entryPx - sd
+        _stop = _entry - sd
         // fallback TP is 1R
-        tpFallback = entryPx + sd
-        tp1Px := f_bestTargetLong(entryPx, tpFallback)
-        stage := "ENTER_LONG"
-    else if sigShort and not sigLong
-        pos := -1
-        entryPx := close
+        tpFallback = _entry + sd
+        _tp1 = f_bestTargetLong(_entry, tpFallback)
+        _rr = (sd > 0 and not na(_tp1) and _tp1 > _entry) ? (_tp1 - _entry) / sd : 0.0
+        _rrOK = (not useRRFilter) or (_rr >= minRR)
+
+        if _rrOK
+            pos := 1
+            entryPx := _entry
+            stopPx := _stop
+            tp1Px := _tp1
+            stage := "ENTER_LONG"
+            enterLongEvent := true
+            // Consume late state on fill (prevents repeats)
+            if lateCondLong
+                lateArmedL := false
+                lateArmBarL := na
+                lateUntilL := na
+        else
+            stage := "RR_BLOCK_LONG"
+
+    else if wantShort and not wantLong
+        _entry = close
         sd = f_stopDist()
-        stopPx := entryPx + sd
-        tpFallback = entryPx - sd
-        tp1Px := f_bestTargetShort(entryPx, tpFallback)
-        stage := "ENTER_SHORT"
+        _stop = _entry + sd
+        tpFallback = _entry - sd
+        _tp1 = f_bestTargetShort(_entry, tpFallback)
+        _rr = (sd > 0 and not na(_tp1) and _tp1 < _entry) ? (_entry - _tp1) / sd : 0.0
+        _rrOK = (not useRRFilter) or (_rr >= minRR)
+
+        if _rrOK
+            pos := -1
+            entryPx := _entry
+            stopPx := _stop
+            tp1Px := _tp1
+            stage := "ENTER_SHORT"
+            enterShortEvent := true
+            if lateCondShort
+                lateArmedS := false
+                lateArmBarS := na
+                lateUntilS := na
+        else
+            stage := "RR_BLOCK_SHORT"
+    else if wantLong and wantShort
+        stage := "CONFLICT"
     else
         // Watch/Trigger states
         stage := tradable ? (isTrend ? "WATCH_TREND" : "WATCH_RANGE") : "OFF"
@@ -214,27 +381,66 @@ if pos != 0
             stopPx := math.min(stopPx, trailStop)
             stage := "RUNNER"
 
-    // Defend state when price approaches stop
-    if not tp1Hit
+    // Fuse exits (Phoenix-style): arm on weakness, confirm later (or timeout)
+    fuseExitNow = false
+    if fuseEnable and not tp1Hit
+        softFuseLong = pos == 1 and close < emaFast and rsi < rsi[1]
+        softFuseShort = pos == -1 and close > emaFast and rsi > rsi[1]
+
+        if (softFuseLong or softFuseShort) and not fuseArmed
+            fuseArmed := true
+            fuseArmBar := bar_index
+
+        if fuseArmed
+            stage := "FUSE_ARMED"
+            timedOut = not na(fuseArmBar) and (bar_index - fuseArmBar >= fuseMaxWaitBars)
+            confirmLong = pos == 1 and close < emaSlow
+            confirmShort = pos == -1 and close > emaSlow
+            if confirmLong or confirmShort
+                fuseExitNow := true
+            else if fuseExitOnTimeout and timedOut
+                fuseExitNow := true
+            else if (not fuseExitOnTimeout) and timedOut
+                // Disarm on timeout
+                fuseArmed := false
+                fuseArmBar := na
+
+        if fuseExitNow
+            stage := "EXIT_FUSE"
+            pos := 0
+            exitEvent := true
+            fuseArmed := false
+            fuseArmBar := na
+
+    // Defend label (optional heads-up) when price approaches stop (only if we didn't fuse-exit)
+    if pos != 0 and not tp1Hit
         sdNow = math.abs(entryPx - stopPx)
-        if pos == 1 and Number.isFinite(sdNow) and sdNow > 0 and close <= (stopPx + defendPct * sdNow)
+        if stage != "FUSE_ARMED" and pos == 1 and not na(sdNow) and sdNow > 0 and close <= (stopPx + defendPct * sdNow)
             stage := "DEFEND"
-        if pos == -1 and Number.isFinite(sdNow) and sdNow > 0 and close >= (stopPx - defendPct * sdNow)
+        if stage != "FUSE_ARMED" and pos == -1 and not na(sdNow) and sdNow > 0 and close >= (stopPx - defendPct * sdNow)
             stage := "DEFEND"
 
     // Exit conditions
-    if forceFlat or hitStopLong or hitStopShort
+    if pos != 0 and (forceFlat or hitStopLong or hitStopShort)
         stage := "EXIT"
         pos := 0
+        exitEvent := true
+        fuseArmed := false
+        fuseArmBar := na
+        lastExitBar := bar_index
 
 // ─────────────────────────────────────────────────────────────
 // Visuals
 // ─────────────────────────────────────────────────────────────
 colTrend = color.new(color.teal, 0)
 colRange = color.new(color.purple, 0)
-bgcolor(isTrend ? color.new(colTrend, 92) : color.new(colRange, 92))
+// Background:
+// - While in a position: clear directional tint (40% transparency ~= alpha 60)
+// - While flat: subtle regime tint
+posBg = pos == 1 ? color.new(color.teal, 60) : pos == -1 ? color.new(color.red, 60) : na
+bgcolor(pos != 0 ? posBg : isTrend ? color.new(colTrend, 92) : color.new(colRange, 92))
 
-plot(emaFast, "EMA Fast", color=color.new(color.cyan, 0), linewidth=2)
+plot(emaFast, "EMA Fast", color=color.new(color.aqua, 0), linewidth=2)
 plot(emaSlow, "EMA Slow", color=color.new(color.blue, 40), linewidth=2)
 plot(vwap, "VWAP", color=color.new(color.white, 35), linewidth=2)
 plot(showBands ? vwapUp : na, "VWAP + band", color=color.new(color.white, 70), style=plot.style_line)
@@ -252,11 +458,20 @@ plot(pos != 0 ? stopPx : na, "Stop", color=color.new(color.red, 0), linewidth=2,
 plot(pos != 0 and not na(tp1Px) and not tp1Hit ? tp1Px : na, "TP1", color=color.new(color.lime, 0), linewidth=2, style=plot.style_linebr)
 
 // Markers
-plotshape(stage == "ENTER_LONG", title="Enter Long", style=shape.labelup, text="ENTER\nLONG", color=color.new(color.green, 0), textcolor=color.white, size=size.small, location=location.belowbar)
-plotshape(stage == "ENTER_SHORT", title="Enter Short", style=shape.labeldown, text="ENTER\nSHORT", color=color.new(color.red, 0), textcolor=color.white, size=size.small, location=location.abovebar)
-plotshape(stage == "DEFEND", title="Defend", style=shape.labeldown, text="DEFEND", color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny, location=pos == 1 ? location.abovebar : location.belowbar)
-plotshape(stage == "TP1", title="TP1 Hit", style=shape.labeldown, text="TP1", color=color.new(color.lime, 0), textcolor=color.black, size=size.tiny, location=pos == 1 ? location.abovebar : location.belowbar)
-plotshape(stage == "EXIT", title="Exit", style=shape.labeldown, text="EXIT", color=color.new(color.gray, 0), textcolor=color.white, size=size.tiny, location=location.top)
+// Entry/Exit markers (slightly smaller, black)
+plotshape(enterLongEvent, title="Enter Long", style=shape.triangleup, text="LONG", color=color.black, textcolor=color.black, size=size.small, location=location.belowbar)
+plotshape(enterShortEvent, title="Enter Short", style=shape.triangledown, text="SHORT", color=color.black, textcolor=color.black, size=size.small, location=location.abovebar)
+// plotshape() location must be a constant; split by side.
+plotshape(stage == "DEFEND" and pos == 1, title="Defend (Long)", style=shape.labeldown, text="DEFEND", color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny, location=location.abovebar)
+plotshape(stage == "DEFEND" and pos == -1, title="Defend (Short)", style=shape.labelup, text="DEFEND", color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny, location=location.belowbar)
+plotshape(stage == "FUSE_ARMED" and pos == 1, title="Fuse Armed (Long)", style=shape.labeldown, text="FUSE", color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny, location=location.abovebar)
+plotshape(stage == "FUSE_ARMED" and pos == -1, title="Fuse Armed (Short)", style=shape.labelup, text="FUSE", color=color.new(color.fuchsia, 0), textcolor=color.white, size=size.tiny, location=location.belowbar)
+plotshape(stage == "TP1" and pos == 1, title="TP1 Hit (Long)", style=shape.labeldown, text="TP1", color=color.new(color.lime, 0), textcolor=color.black, size=size.tiny, location=location.abovebar)
+plotshape(stage == "TP1" and pos == -1, title="TP1 Hit (Short)", style=shape.labelup, text="TP1", color=color.new(color.lime, 0), textcolor=color.black, size=size.tiny, location=location.belowbar)
+plotshape(stage == "EXIT" or stage == "EXIT_FUSE", title="Exit", style=shape.labeldown, text="EXIT", color=color.new(color.gray, 0), textcolor=color.white, size=size.tiny, location=location.top)
+
+// Exit marker on the bar we flatten/stop
+plotshape(exitEvent, title="Exit", style=shape.xcross, text="EXIT", color=color.black, textcolor=color.black, size=size.small, location=location.top)
 
 // Table HUD
 var table hud = table.new(position.top_right, 2, 6, border_width=1)
@@ -281,12 +496,14 @@ enterLongAlert = stage == "ENTER_LONG"
 enterShortAlert = stage == "ENTER_SHORT"
 defendAlert = stage == "DEFEND"
 tp1Alert = stage == "TP1"
+fuseAlert = stage == "EXIT_FUSE"
 exitAlert = stage == "EXIT"
 
-if alertsEnabled
-    alertcondition(enterLongAlert, "ENTER LONG", "ES 3m: ENTER LONG. Entry={{close}} SL={{plot(\"Stop\")}} TP1={{plot(\"TP1\")}} Stage={{plot(\"Entry\")}}")
-    alertcondition(enterShortAlert, "ENTER SHORT", "ES 3m: ENTER SHORT. Entry={{close}} SL={{plot(\"Stop\")}} TP1={{plot(\"TP1\")}}")
-    alertcondition(defendAlert, "DEFEND", "ES 3m: DEFEND. Tighten risk / watch stop.")
-    alertcondition(tp1Alert, "TP1 HIT", "ES 3m: TP1 HIT. Move stop to BE; manage runner.")
-    alertcondition(exitAlert, "EXIT", "ES 3m: EXIT. Stop/flat condition triggered.")
+// alertcondition() must be in global scope. Gate with alertsEnabled in the condition.
+alertcondition(alertsEnabled and enterLongAlert, "ENTER LONG", "ES 3m: ENTER LONG. Entry={{close}} SL={{plot(\"Stop\")}} TP1={{plot(\"TP1\")}}")
+alertcondition(alertsEnabled and enterShortAlert, "ENTER SHORT", "ES 3m: ENTER SHORT. Entry={{close}} SL={{plot(\"Stop\")}} TP1={{plot(\"TP1\")}}")
+alertcondition(alertsEnabled and defendAlert, "DEFEND", "ES 3m: DEFEND. Tighten risk / watch stop.")
+alertcondition(alertsEnabled and tp1Alert, "TP1 HIT", "ES 3m: TP1 HIT. Move stop to BE; manage runner.")
+alertcondition(alertsEnabled and fuseAlert, "EXIT (FUSE)", "ES 3m: EXIT (FUSE). Early exit triggered by weakness/confirm.")
+alertcondition(alertsEnabled and exitAlert, "EXIT", "ES 3m: EXIT. Stop/flat condition triggered.")
 

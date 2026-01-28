@@ -139,9 +139,11 @@ CREATE TABLE IF NOT EXISTS ticker_latest (
   ts INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   kanban_stage TEXT,
+  prev_kanban_stage TEXT,
   payload_json TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_ticker_latest_ts ON ticker_latest (ts);
 CREATE INDEX IF NOT EXISTS idx_ticker_latest_kanban_stage ON ticker_latest (kanban_stage);
+CREATE INDEX IF NOT EXISTS idx_ticker_latest_prev_kanban_stage ON ticker_latest (prev_kanban_stage);
 

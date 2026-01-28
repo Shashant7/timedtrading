@@ -6573,10 +6573,20 @@ async function d1EnsureLatestSchema(env) {
           ts INTEGER NOT NULL,
           updated_at INTEGER NOT NULL,
           kanban_stage TEXT,
+          prev_kanban_stage TEXT,
           payload_json TEXT NOT NULL
         )`
       )
       .run();
+
+    // Best-effort schema migration for existing deployments (D1/SQLite doesn't support IF NOT EXISTS for ADD COLUMN)
+    try {
+      await db
+        .prepare(`ALTER TABLE ticker_latest ADD COLUMN prev_kanban_stage TEXT`)
+        .run();
+    } catch {
+      // ignore (already exists)
+    }
 
     await db
       .prepare(`CREATE INDEX IF NOT EXISTS idx_ticker_latest_ts ON ticker_latest (ts)`)
@@ -6584,6 +6594,11 @@ async function d1EnsureLatestSchema(env) {
     await db
       .prepare(
         `CREATE INDEX IF NOT EXISTS idx_ticker_latest_kanban_stage ON ticker_latest (kanban_stage)`
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_ticker_latest_prev_kanban_stage ON ticker_latest (prev_kanban_stage)`
       )
       .run();
 
@@ -6630,6 +6645,8 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   const ts = Number(payload?.ts) || Date.now();
   const updatedAt = Date.now();
   const stage = payload?.kanban_stage != null ? String(payload.kanban_stage) : null;
+  const prevStage =
+    payload?.prev_kanban_stage != null ? String(payload.prev_kanban_stage) : null;
 
   let payloadJson = null;
   try {
@@ -6643,15 +6660,16 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
     await d1EnsureLatestSchema(env);
     await db
       .prepare(
-        `INSERT INTO ticker_latest (ticker, ts, updated_at, kanban_stage, payload_json)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        `INSERT INTO ticker_latest (ticker, ts, updated_at, kanban_stage, prev_kanban_stage, payload_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT(ticker) DO UPDATE SET
            ts = excluded.ts,
            updated_at = excluded.updated_at,
            kanban_stage = excluded.kanban_stage,
+           prev_kanban_stage = excluded.prev_kanban_stage,
            payload_json = excluded.payload_json`
       )
-      .bind(sym, ts, updatedAt, stage, payloadJson)
+      .bind(sym, ts, updatedAt, stage, prevStage, payloadJson)
       .run();
     return { ok: true };
   } catch (err) {
@@ -9836,6 +9854,22 @@ export default {
 
               payload.kanban_stage = finalStage;
               payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
+              // Persist last transition source lane so UI can show "from: <lane>".
+              // If stage changed: stamp prev_kanban_stage = previous lane (if known).
+              // If stage did NOT change: carry forward the last stamped prev_kanban_stage.
+              if (prevStage != null && finalStage != null && String(prevStage) !== String(finalStage)) {
+                payload.prev_kanban_stage = String(prevStage);
+                payload.prev_kanban_stage_ts = Number(payload?.ts) || Date.now();
+              } else if (existing?.prev_kanban_stage != null) {
+                payload.prev_kanban_stage = String(existing.prev_kanban_stage);
+                payload.prev_kanban_stage_ts =
+                  Number.isFinite(Number(existing?.prev_kanban_stage_ts))
+                    ? Number(existing.prev_kanban_stage_ts)
+                    : null;
+              } else {
+                payload.prev_kanban_stage = null;
+                payload.prev_kanban_stage_ts = null;
+              }
 
               // Track entry price when entering "enter_now" stage
               if (finalStage === "enter_now" && prevStage !== "enter_now") {
@@ -9866,6 +9900,8 @@ export default {
             } catch (e) {
               console.error(`[KANBAN] Stage classification failed for ${ticker}:`, String(e));
               payload.kanban_stage = existing?.kanban_stage || null;
+              payload.prev_kanban_stage = existing?.prev_kanban_stage || null;
+              payload.prev_kanban_stage_ts = existing?.prev_kanban_stage_ts || null;
             }
 
             // Also store into D1 (if configured) for 7-day history.
@@ -11667,6 +11703,19 @@ export default {
                 const stage = classifyKanbanStage(payload);
                 const prevStage = existing?.kanban_stage;
                 payload.kanban_stage = stage;
+                if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
+                  payload.prev_kanban_stage = String(prevStage);
+                  payload.prev_kanban_stage_ts = Number(payload?.ts) || Date.now();
+                } else if (existing?.prev_kanban_stage != null) {
+                  payload.prev_kanban_stage = String(existing.prev_kanban_stage);
+                  payload.prev_kanban_stage_ts =
+                    Number.isFinite(Number(existing?.prev_kanban_stage_ts))
+                      ? Number(existing.prev_kanban_stage_ts)
+                      : null;
+                } else {
+                  payload.prev_kanban_stage = null;
+                  payload.prev_kanban_stage_ts = null;
+                }
 
                 if (stage === "enter_now" && prevStage !== "enter_now") {
                   const price = Number(payload?.price);
