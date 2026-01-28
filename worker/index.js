@@ -220,6 +220,72 @@ function nyWallMidnightToUtcMs(dayKey) {
   return ts;
 }
 
+// Convert a NY wall-clock time (YYYY-MM-DD at HH:MM:SS) to a UTC ms timestamp.
+// Uses the same fixed-point iteration as nyWallMidnightToUtcMs for DST correctness.
+function nyWallTimeToUtcMs(dayKey, hh = 0, mm = 0, ss = 0) {
+  if (!dayKey) return null;
+  const H = String(Math.max(0, Math.min(23, Number(hh) || 0))).padStart(2, "0");
+  const M = String(Math.max(0, Math.min(59, Number(mm) || 0))).padStart(2, "0");
+  const S = String(Math.max(0, Math.min(59, Number(ss) || 0))).padStart(2, "0");
+  const t0 = Date.parse(`${dayKey}T${H}:${M}:${S}Z`); // wall time interpreted as UTC
+  if (!Number.isFinite(t0)) return null;
+  let ts = t0;
+  for (let i = 0; i < 3; i++) {
+    const off = tzOffsetMs(ts, "America/New_York");
+    const next = t0 - off;
+    if (!Number.isFinite(next)) break;
+    if (Math.abs(next - ts) < 1000) {
+      ts = next;
+      break;
+    }
+    ts = next;
+  }
+  return ts;
+}
+
+function prevTradingDayKey(dayKey) {
+  if (!dayKey) return null;
+  // Work with a stable noon UTC anchor so DST shifts don’t jump dates.
+  let ms = Date.parse(`${dayKey}T12:00:00Z`);
+  if (!Number.isFinite(ms)) return null;
+  for (let i = 0; i < 10; i++) {
+    ms -= 24 * 60 * 60 * 1000;
+    const k = nyTradingDayKey(ms);
+    if (!k) continue;
+    if (!isNyWeekend(ms)) return k;
+  }
+  return null;
+}
+
+async function computePrevCloseFromTrail(db, ticker, asOfTs) {
+  if (!db || !ticker) return null;
+  const dayKey = nyTradingDayKey(asOfTs);
+  const prevKey = prevTradingDayKey(dayKey);
+  if (!prevKey) return null;
+  // Watchlist semantics: previous close = prior trading day regular session close (4pm ET).
+  const closeCutoff = nyWallTimeToUtcMs(prevKey, 16, 0, 0);
+  if (!Number.isFinite(closeCutoff)) return null;
+  const lookbackStart = closeCutoff - 14 * 24 * 60 * 60 * 1000;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT price AS price, ts AS ts
+         FROM timed_trail
+         WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3 AND price IS NOT NULL
+         ORDER BY ts DESC
+         LIMIT 1`
+      )
+      .bind(String(ticker).toUpperCase(), lookbackStart, closeCutoff + 1000)
+      .first();
+    const p = Number(row?.price);
+    const ts = Number(row?.ts);
+    if (!Number.isFinite(p) || p <= 0) return null;
+    return { close: p, ts: Number.isFinite(ts) ? ts : null, dayKey: prevKey };
+  } catch {
+    return null;
+  }
+}
+
 async function kvGetJSON(KV, key) {
   const t = await KV.get(key);
   if (!t) return null;
@@ -11619,6 +11685,23 @@ export default {
           // Always recompute RR to ensure it uses the latest max TP from tp_levels
           data.rr = computeRR(data);
 
+          // Ensure watchlist-style daily change is correct (prev trading day 4pm ET close).
+          // This is used by the UI header/kanban and should not depend on ingest quirks.
+          try {
+            if (env?.DB) {
+              const asOfTs = Number(data.ts ?? data.ingest_ts ?? Date.now());
+              const rec = await computePrevCloseFromTrail(env.DB, ticker, asOfTs);
+              const price = Number(data.price);
+              if (rec && Number.isFinite(price) && price > 0) {
+                data.prev_close = rec.close;
+                data.day_change = price - rec.close;
+                data.day_change_pct = ((price - rec.close) / rec.close) * 100;
+              }
+            }
+          } catch (e) {
+            console.warn(`[DAILY CHANGE] /timed/latest backfill failed for ${ticker}:`, String(e?.message || e));
+          }
+
           // Back-compat: older KV entries may not have derived horizon/ETA v2 fields yet,
           // or may be missing the newer target TP fields. Compute on-the-fly.
           try {
@@ -12274,11 +12357,13 @@ export default {
               const cachePromises = [];
 
               for (const [dayKey, tickSet] of byDay.entries()) {
-                const nyStart = nyWallMidnightToUtcMs(dayKey);
-                if (!Number.isFinite(nyStart)) continue;
-                const lookbackStart = nyStart - 14 * 24 * 60 * 60 * 1000;
+                const prevKey = prevTradingDayKey(dayKey);
+                if (!prevKey) continue;
+                const closeCutoff = nyWallTimeToUtcMs(prevKey, 16, 0, 0);
+                if (!Number.isFinite(closeCutoff)) continue;
+                const lookbackStart = closeCutoff - 14 * 24 * 60 * 60 * 1000;
 
-                // For this "current day", prev_close is the last known price before nyStart.
+                // Watchlist semantics: prev_close = prior trading day regular close (4pm ET).
                 const rows = await db
                   .prepare(
                     `SELECT t1.ticker AS ticker, t1.price AS price, t1.ts AS ts
@@ -12286,12 +12371,12 @@ export default {
                      JOIN (
                        SELECT ticker, MAX(ts) AS tsMax
                        FROM timed_trail
-                       WHERE ts >= ?1 AND ts < ?2 AND price IS NOT NULL
+                       WHERE ts >= ?1 AND ts <= ?2 AND price IS NOT NULL
                        GROUP BY ticker
                      ) t2
                      ON t1.ticker = t2.ticker AND t1.ts = t2.tsMax`
                   )
-                  .bind(lookbackStart, nyStart)
+                  .bind(lookbackStart, closeCutoff + 1000)
                   .all();
 
                 const closeMap = new Map();
@@ -12316,7 +12401,7 @@ export default {
                   v.day_change = price - prevClose;
                   v.day_change_pct = ((price - prevClose) / prevClose) * 100;
 
-                  const prevDayKey = nyTradingDayKey(Number(rec?.ts));
+                  const prevDayKey = prevKey;
                   if (prevDayKey) {
                     cachePromises.push(
                       kvPutJSON(
