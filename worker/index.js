@@ -18061,6 +18061,81 @@ Provide 3-5 actionable next steps:
         );
       }
 
+      // GET /timed/debug/daily?ticker=AMD
+      // Debug endpoint to inspect daily change inputs/sources (latest vs capture vs worker-derived).
+      if (url.pathname === "/timed/debug/daily" && req.method === "GET") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const ticker = normTicker(url.searchParams.get("ticker"));
+        if (!ticker) {
+          return sendJSON(
+            { ok: false, error: "missing ticker" },
+            400,
+            corsHeaders(env, req)
+          );
+        }
+
+        const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+        const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
+
+        const pick = (obj, keys) => {
+          for (const k of keys) {
+            if (!obj || typeof obj !== "object") continue;
+            if (obj[k] != null) return obj[k];
+          }
+          return null;
+        };
+        const num = (v) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? n : null;
+        };
+
+        const latestTs = num(pick(latest, ["ts", "ingest_ts"])) || null;
+        const captureTs = num(pick(capture, ["ts", "ingest_ts"])) || null;
+        const asOfTs = latestTs || captureTs || Date.now();
+
+        let derived = null;
+        try {
+          if (env?.DB) {
+            const rec = await computePrevCloseFromTrail(env.DB, ticker, asOfTs);
+            const price = num(pick(latest, ["price"])) ?? num(pick(capture, ["price"]));
+            if (rec && Number.isFinite(price) && price > 0) {
+              derived = {
+                prev_close: rec.close,
+                prev_close_day: rec.dayKey,
+                prev_close_ts: rec.ts,
+                day_change: price - rec.close,
+                day_change_pct: ((price - rec.close) / rec.close) * 100,
+              };
+            } else {
+              derived = { prev_close: null, reason: rec ? "bad_price" : "no_prev_close_row" };
+            }
+          }
+        } catch (e) {
+          derived = { prev_close: null, error: String(e?.message || e) };
+        }
+
+        const fields = ["price", "prev_close", "day_change", "day_change_pct", "change", "change_pct", "session", "is_rth", "ts", "ingest_ts"];
+        const subset = (obj) => {
+          const out = {};
+          for (const k of fields) if (obj && typeof obj === "object" && obj[k] != null) out[k] = obj[k];
+          return out;
+        };
+
+        return sendJSON(
+          {
+            ok: true,
+            ticker,
+            latest: subset(latest),
+            capture: subset(capture),
+            derived,
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
       // POST /timed/debug/cleanup-duplicates?key=...&ticker=RIOT - Remove duplicate trades for a ticker
       if (
         url.pathname === "/timed/debug/cleanup-duplicates" &&
