@@ -9728,13 +9728,44 @@ export default {
 
               // Flip Watch detection - tickers about to transition from setup to momentum
               try {
+                const nowMs = Number(payload?.ts ?? payload?.ingest_ts ?? Date.now());
+                const state = String(payload?.state || "");
+                const inPullback =
+                  state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+                const isMomentum =
+                  state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+
                 const flipWatch = detectFlipWatch(payload, trail);
+                const prevUntilRaw = Number(existing?.flip_watch_until_ts);
+                const prevUntil = Number.isFinite(prevUntilRaw) ? prevUntilRaw : null;
+                const prevScore = Number(existing?.flip_watch_score);
+                const prevReasons = Array.isArray(existing?.flip_watch_reasons)
+                  ? existing.flip_watch_reasons
+                  : null;
+
+                // Sticky window: once triggered, keep Flip Watch for 60m *while still in pullback*.
+                // If it flips into momentum, release immediately so it can progress (Just Flipped / Enter Now).
+                const STICKY_MS = 60 * 60 * 1000;
+                const stickyActive =
+                  !isMomentum &&
+                  inPullback &&
+                  prevUntil != null &&
+                  Number.isFinite(nowMs) &&
+                  nowMs <= prevUntil;
+
                 if (flipWatch) {
                   payload.flags.flip_watch = true;
                   payload.flip_watch_score = flipWatch.score;
                   payload.flip_watch_reasons = flipWatch.reasons;
+                  payload.flip_watch_until_ts = nowMs + STICKY_MS;
+                } else if (stickyActive) {
+                  payload.flags.flip_watch = true;
+                  if (Number.isFinite(prevScore)) payload.flip_watch_score = prevScore;
+                  if (prevReasons) payload.flip_watch_reasons = prevReasons;
+                  payload.flip_watch_until_ts = prevUntil;
                 } else {
                   payload.flags.flip_watch = false;
+                  payload.flip_watch_until_ts = null;
                 }
               } catch (e) {
                 console.error(`[FLIP WATCH] Detection failed for ${ticker}:`, String(e));
