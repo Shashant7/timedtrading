@@ -702,6 +702,73 @@ function computeCompletionToTpMax(ticker) {
   return Math.max(0, Math.min(1, raw));
 }
 
+function computeRRWith(entryRef, slRef, tpRef, state) {
+  const e = Number(entryRef);
+  const sl = Number(slRef);
+  const tp = Number(tpRef);
+  if (!Number.isFinite(e) || !Number.isFinite(sl) || !Number.isFinite(tp)) return null;
+
+  const s = String(state || "");
+  const isLong = s.includes("BULL");
+  const isShort = s.includes("BEAR");
+
+  let risk, gain;
+  if (isLong) {
+    risk = e - sl;
+    gain = tp - e;
+  } else if (isShort) {
+    risk = sl - e;
+    gain = e - tp;
+  } else {
+    risk = Math.abs(e - sl);
+    gain = Math.abs(tp - e);
+  }
+  if (!(risk > 0) || !(gain > 0)) return null;
+  return gain / risk;
+}
+
+function computeDynamicStopBreakeven(ticker) {
+  const state = String(ticker?.state || "");
+  const isLong = state.includes("BULL");
+  const isShort = state.includes("BEAR");
+  const sl = Number(ticker?.sl);
+  const trig = Number(ticker?.trigger_price);
+  if (!Number.isFinite(sl) || sl <= 0) return null;
+  if (!Number.isFinite(trig) || trig <= 0) return sl;
+  if (isShort) return Math.min(sl, trig);
+  if (isLong) return Math.max(sl, trig);
+  return sl;
+}
+
+function computeRRTargets(ticker) {
+  const state = String(ticker?.state || "");
+  const price = Number(ticker?.price);
+  const triggerPrice = Number(ticker?.trigger_price);
+  const sl = Number(ticker?.sl);
+  const tpLikely =
+    Number(ticker?.tp_target_price) ||
+    Number(ticker?.tp_target) ||
+    Number(ticker?.tp_target_price);
+  const tpRef = Number.isFinite(tpLikely) && tpLikely > 0 ? tpLikely : null;
+  if (!tpRef || !Number.isFinite(sl) || sl <= 0) return null;
+
+  const entryRef = Number.isFinite(triggerPrice) && triggerPrice > 0 ? triggerPrice : null;
+  const rrEntryLikely = entryRef ? computeRRWith(entryRef, sl, tpRef, state) : null;
+
+  const dynStop = computeDynamicStopBreakeven(ticker);
+  const rrNowLikely =
+    Number.isFinite(price) && Number.isFinite(dynStop)
+      ? computeRRWith(price, dynStop, tpRef, state)
+      : null;
+
+  return {
+    tp_likely: tpRef,
+    sl_dynamic: Number.isFinite(dynStop) ? dynStop : null,
+    rr_entry_likely: Number.isFinite(rrEntryLikely) ? rrEntryLikely : null,
+    rr_now_likely: Number.isFinite(rrNowLikely) ? rrNowLikely : null,
+  };
+}
+
 function computeDataCompleteness(tickerData) {
   const hasTfTech = !!(tickerData?.tf_tech && typeof tickerData.tf_tech === "object");
   const hasTriggersField = "triggers" in (tickerData || {});
@@ -11666,6 +11733,8 @@ export default {
             if (Number.isFinite(cMax)) data.completion = cMax;
             const rr = computeRR(data);
             if (Number.isFinite(rr)) data.rr = rr;
+            const rrTargets = computeRRTargets(data);
+            if (rrTargets) Object.assign(data, rrTargets);
             data.move_status = computeMoveStatus(data);
           } catch {
             // ignore
@@ -11806,6 +11875,8 @@ export default {
                 if (Number.isFinite(cMax)) obj.completion = cMax;
                 const rr = computeRR(obj);
                 if (Number.isFinite(rr)) obj.rr = rr;
+                const rrTargets = computeRRTargets(obj);
+                if (rrTargets) Object.assign(obj, rrTargets);
                 obj.move_status = computeMoveStatus(obj);
               } catch {
                 // ignore
