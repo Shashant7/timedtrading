@@ -1004,7 +1004,7 @@ function detectFlipWatch(tickerData, trail = []) {
 
 /**
  * Classify ticker into Kanban stage based on trading lifecycle
- * Stages: watch, flip_watch, just_flipped, enter_now, hold, trim, exit, invalidated, completed
+ * Stages: watch, flip_watch, just_flipped, enter_now, hold, trim, exit, archive
  */
 function classifyKanbanStage(tickerData) {
   const state = String(tickerData?.state || "");
@@ -1019,10 +1019,9 @@ function classifyKanbanStage(tickerData) {
   const ltfScore = Number(tickerData?.ltf_score) || 0;
   const rank = Number(tickerData?.rank) || 999;
   
-  // Terminal/administrative stages
+  // Terminal/administrative stages -> ARCHIVE
   const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
-  if (hasMoveStatus && moveStatus?.status === "INVALIDATED") return "invalidated";
-  if (hasMoveStatus && moveStatus?.status === "COMPLETED") return "completed";
+  if (hasMoveStatus && (moveStatus?.status === "INVALIDATED" || moveStatus?.status === "COMPLETED")) return "archive";
 
   // For open positions, use move invalidation signals to determine exit/trim
   if (hasMoveStatus && isActive) {
@@ -1102,11 +1101,38 @@ function classifyKanbanStage(tickerData) {
   const phaseZone = String(tickerData?.phase_zone || "").toUpperCase();
   const isLate = phaseZone === "HIGH" || phaseZone === "EXTREME" || phase >= 0.7 || completion >= 0.95;
   if (!isMomentum && isLate) {
-    return "late_cycle";
+    return "archive";
   }
   
   // Default: no stage (not in trading pipeline)
   return null;
+}
+
+function deriveKanbanMeta(tickerData, stage) {
+  const ms = tickerData?.move_status || computeMoveStatus(tickerData);
+  const completion = Number(tickerData?.completion) || 0;
+  const phase = Number(tickerData?.phase_pct) || 0;
+  const phaseZone = String(tickerData?.phase_zone || "").toUpperCase();
+  const isLate = phaseZone === "HIGH" || phaseZone === "EXTREME" || phase >= 0.7 || completion >= 0.95;
+  const state = String(tickerData?.state || "");
+  const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+
+  // Only attach meta for Archive (keeps noise down)
+  if (stage !== "archive") return null;
+
+  if (ms?.status === "INVALIDATED") {
+    const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
+    return { bucket: "invalidated", emoji: "⛔", reason: reasons[0] || "invalidated", reasons };
+  }
+  if (ms?.status === "COMPLETED") {
+    const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
+    return { bucket: "completed", emoji: "✅", reason: reasons[0] || "completed", reasons };
+  }
+  if (!isMomentum && isLate) {
+    const why = completion >= 0.95 ? "completion_high" : phase >= 0.7 ? "phase_high" : phaseZone ? `phase_${phaseZone.toLowerCase()}` : "late_cycle";
+    return { bucket: "late_cycle", emoji: "🌙", reason: why, reasons: [why] };
+  }
+  return { bucket: "archive", emoji: "🗂", reason: "archived", reasons: ["archived"] };
 }
 
 function computeMoveStatus(tickerData) {
@@ -9472,10 +9498,20 @@ export default {
             try {
               const stage = classifyKanbanStage(payload);
               const prevStage = existing?.kanban_stage;
-              payload.kanban_stage = stage;
+              // Recycle rule: if something was in ARCHIVE, it must re-enter via opportunity lanes
+              // so users clearly see it "recycled" rather than jumping into position-management lanes.
+              let finalStage = stage;
+              if (prevStage === "archive" && (stage === "hold" || stage === "trim" || stage === "exit")) {
+                finalStage = "watch";
+                payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                payload.flags.recycled_from_archive = true;
+              }
+
+              payload.kanban_stage = finalStage;
+              payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
 
               // Track entry price when entering "enter_now" stage
-              if (stage === "enter_now" && prevStage !== "enter_now") {
+              if (finalStage === "enter_now" && prevStage !== "enter_now") {
                 const price = Number(payload?.price);
                 if (Number.isFinite(price) && price > 0) {
                   payload.entry_price = price;
@@ -9485,7 +9521,7 @@ export default {
               }
 
               // Preserve entry_price if already set and still in the pipeline
-              if (stage && existing?.entry_price) {
+              if (finalStage && existing?.entry_price) {
                 payload.entry_price = existing.entry_price;
                 payload.entry_ts = existing.entry_ts;
               }
@@ -9499,7 +9535,7 @@ export default {
                 }
               }
 
-              if (stage) console.log(`[KANBAN] ${ticker} → ${stage}`);
+              if (finalStage) console.log(`[KANBAN] ${ticker} → ${finalStage}`);
             } catch (e) {
               console.error(`[KANBAN] Stage classification failed for ${ticker}:`, String(e));
               payload.kanban_stage = existing?.kanban_stage || null;
@@ -11600,6 +11636,7 @@ export default {
           try {
             const stage = classifyKanbanStage(data);
             data.kanban_stage = stage;
+            data.kanban_meta = deriveKanbanMeta(data, stage);
           } catch {
             // ignore
           }
@@ -11735,6 +11772,7 @@ export default {
               try {
                 const stage = classifyKanbanStage(obj);
                 obj.kanban_stage = stage;
+                obj.kanban_meta = deriveKanbanMeta(obj, stage);
               } catch {
                 // ignore
               }
