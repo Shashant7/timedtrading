@@ -1,0 +1,292 @@
+//@version=6
+indicator("TimedTrading — ES 3m Companion (Stage + SL/TP)", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ─────────────────────────────────────────────────────────────
+// Mission: ES day-trader companion (3m), overnight + regime switch
+// - Clear stage machine: WATCH → TRIGGER → ENTER → HOLD → DEFEND → TP1 → RUNNER → EXIT
+// - Trend regime: pullback-to-EMA corridor entries
+// - Range regime: VWAP mean reversion entries
+// - Risk: ATR-based stop with max-cap (points)
+// - Targets: TP1 (nearest realistic level), plus runner w/ trailing stop
+// ─────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// Inputs
+// ─────────────────────────────────────────────────────────────
+groupSess = "Session"
+sessionTz = input.string("America/New_York", "Session timezone (preference)", group=groupSess)
+globexSession = input.session("1800-1700:1234567", "Globex session (incl overnight)", group=groupSess)
+rthSession = input.session("0930-1600:1234567", "RTH session", group=groupSess)
+flattenAtRthClose = input.bool(true, "Flatten at RTH close", group=groupSess)
+
+groupReg = "Regime (Trend vs Range)"
+adxLen = input.int(14, "ADX length", minval=5, maxval=50, group=groupReg)
+adxTrendMin = input.float(18.0, "ADX threshold (trend)", minval=5, maxval=50, step=0.5, group=groupReg)
+emaFastLen = input.int(21, "EMA fast", minval=5, maxval=100, group=groupReg)
+emaSlowLen = input.int(55, "EMA slow", minval=10, maxval=200, group=groupReg)
+
+groupRisk = "Risk (ATR stop w/ cap)"
+atrLen = input.int(14, "ATR length", minval=5, maxval=100, group=groupRisk)
+atrMult = input.float(1.6, "Stop = ATR ×", minval=0.5, maxval=5.0, step=0.1, group=groupRisk)
+maxStopPts = input.float(8.0, "Max stop cap (points)", minval=0.5, maxval=50.0, step=0.25, group=groupRisk)
+minStopPts = input.float(1.25, "Min stop floor (points)", minval=0.25, maxval=10.0, step=0.25, group=groupRisk)
+
+groupEntry = "Entry tuning (ES 3m)"
+pbDepthAtr = input.float(0.35, "Trend pullback depth (ATR)", minval=0.1, maxval=2.0, step=0.05, group=groupEntry)
+vwapBandAtr = input.float(0.8, "Range VWAP band (ATR)", minval=0.2, maxval=3.0, step=0.05, group=groupEntry)
+rsiLen = input.int(14, "RSI length", minval=5, maxval=50, group=groupEntry)
+rsiOB = input.int(65, "Range RSI overbought", minval=55, maxval=90, group=groupEntry)
+rsiOS = input.int(35, "Range RSI oversold", minval=10, maxval=45, group=groupEntry)
+
+groupRunner = "Runner management"
+trailAtrMult = input.float(1.1, "Runner trail ATR ×", minval=0.2, maxval=5.0, step=0.1, group=groupRunner)
+defendPct = input.float(0.30, "Defend when within X of stop", minval=0.05, maxval=0.8, step=0.05, group=groupRunner)
+
+groupViz = "Visuals"
+showLevels = input.bool(true, "Show key levels (PDH/PDL/ONH/ONL/VWAP)", group=groupViz)
+showBands = input.bool(true, "Show VWAP bands", group=groupViz)
+showTable = input.bool(true, "Show stage table", group=groupViz)
+alertsEnabled = input.bool(true, "Enable alertconditions", group=groupViz)
+
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+f_clamp(x, lo, hi) =>
+    math.max(lo, math.min(hi, x))
+
+f_inSession(sess, tz) =>
+    // Session strings are interpreted in the provided timezone.
+    // We default to America/New_York to match the trader's mental model.
+    not na(time(timeframe.period, sess, tz))
+
+inGlobex = f_inSession(globexSession, sessionTz)
+inRth = f_inSession(rthSession, sessionTz)
+newRth = inRth and not inRth[1]
+endRth = not inRth and inRth[1]
+
+// CME maintenance is typically 17:00-18:00 ET; let user session string exclude it.
+tradable = inGlobex
+
+// ─────────────────────────────────────────────────────────────
+// Core signals (ES 3m)
+// ─────────────────────────────────────────────────────────────
+emaFast = ta.ema(close, emaFastLen)
+emaSlow = ta.ema(close, emaSlowLen)
+adx = ta.adx(adxLen)
+rsi = ta.rsi(close, rsiLen)
+atr = ta.atr(atrLen)
+atrPts = atr // ES points
+
+// VWAP (anchored to session)
+vwap = ta.vwap(hlc3)
+vwapUp = vwap + vwapBandAtr * atrPts
+vwapDn = vwap - vwapBandAtr * atrPts
+
+trendUp = emaFast > emaSlow
+trendDn = emaFast < emaSlow
+isTrend = adx >= adxTrendMin and math.abs(emaFast - emaSlow) >= 0.05 * atrPts
+isRange = not isTrend
+
+// Trend corridor (pullback zone)
+// For longs: price pulls back toward EMA fast within pbDepthAtr * ATR without breaking EMA slow hard.
+pbOkLong = trendUp and low <= (emaFast - pbDepthAtr * atrPts) and close >= emaFast and close > emaSlow
+pbOkShort = trendDn and high >= (emaFast + pbDepthAtr * atrPts) and close <= emaFast and close < emaSlow
+
+// Range mean-reversion (VWAP bands)
+mrLong = isRange and low < vwapDn and ta.crossover(close, vwapDn) and rsi <= rsiOS
+mrShort = isRange and high > vwapUp and ta.crossunder(close, vwapUp) and rsi >= rsiOB
+
+// Entry signals (armed by regime)
+sigLong = tradable and ((isTrend and pbOkLong) or (isRange and mrLong))
+sigShort = tradable and ((isTrend and pbOkShort) or (isRange and mrShort))
+
+// ─────────────────────────────────────────────────────────────
+// Levels engine (realistic targets)
+// - Previous RTH day high/low/close using regular-session symbol
+// - Overnight high/low (from Globex, excluding RTH)
+// ─────────────────────────────────────────────────────────────
+symRth = (syminfo.type == "stock" or syminfo.type == "futures") ? ticker.new(syminfo.prefix, syminfo.ticker, session.regular) : syminfo.tickerid
+pdHigh = request.security(symRth, "D", high[1], barmerge.gaps_off, barmerge.lookahead_off)
+pdLow  = request.security(symRth, "D", low[1], barmerge.gaps_off, barmerge.lookahead_off)
+pdClose = request.security(symRth, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
+
+var float onHigh = na
+var float onLow = na
+if newRth
+    onHigh := na
+    onLow := na
+// Track overnight levels outside RTH but within tradable session
+if tradable and not inRth
+    onHigh := na(onHigh) ? high : math.max(onHigh, high)
+    onLow := na(onLow) ? low : math.min(onLow, low)
+
+f_bestTargetLong(entryPx, tpFallback) =>
+    // Choose the nearest plausible level above entry
+    best = tpFallback
+    best := (not na(pdHigh) and pdHigh > entryPx and pdHigh < best) ? pdHigh : best
+    best := (not na(onHigh) and onHigh > entryPx and onHigh < best) ? onHigh : best
+    best := (not na(vwapUp) and vwapUp > entryPx and vwapUp < best) ? vwapUp : best
+    best
+
+f_bestTargetShort(entryPx, tpFallback) =>
+    // Choose the nearest plausible level below entry
+    best = tpFallback
+    best := (not na(pdLow) and pdLow < entryPx and pdLow > best) ? pdLow : best
+    best := (not na(onLow) and onLow < entryPx and onLow > best) ? onLow : best
+    best := (not na(vwapDn) and vwapDn < entryPx and vwapDn > best) ? vwapDn : best
+    best
+
+// ─────────────────────────────────────────────────────────────
+// Stage machine (virtual position)
+// ─────────────────────────────────────────────────────────────
+var int pos = 0 // 1 long, -1 short, 0 flat
+var string stage = "NEUTRAL"
+var float entryPx = na
+var float stopPx = na
+var float tp1Px = na
+var bool tp1Hit = false
+
+// Stop distance in points (ATR-based with cap + floor)
+f_stopDist() =>
+    f_clamp(atrMult * atrPts, minStopPts, maxStopPts)
+
+// Detect stop/target hits for current bar (conservative)
+hitStopLong = pos == 1 and not na(stopPx) and low <= stopPx
+hitStopShort = pos == -1 and not na(stopPx) and high >= stopPx
+hitTp1Long = pos == 1 and not na(tp1Px) and high >= tp1Px
+hitTp1Short = pos == -1 and not na(tp1Px) and low <= tp1Px
+
+// Forced flat rules
+forceFlat = (not tradable) or (flattenAtRthClose and endRth)
+
+// Entry logic (one side only)
+if pos == 0
+    tp1Hit := false
+    entryPx := na
+    stopPx := na
+    tp1Px := na
+
+    if sigLong and not sigShort
+        pos := 1
+        entryPx := close
+        sd = f_stopDist()
+        stopPx := entryPx - sd
+        // fallback TP is 1R
+        tpFallback = entryPx + sd
+        tp1Px := f_bestTargetLong(entryPx, tpFallback)
+        stage := "ENTER_LONG"
+    else if sigShort and not sigLong
+        pos := -1
+        entryPx := close
+        sd = f_stopDist()
+        stopPx := entryPx + sd
+        tpFallback = entryPx - sd
+        tp1Px := f_bestTargetShort(entryPx, tpFallback)
+        stage := "ENTER_SHORT"
+    else
+        // Watch/Trigger states
+        stage := tradable ? (isTrend ? "WATCH_TREND" : "WATCH_RANGE") : "OFF"
+
+// In-position management
+if pos != 0
+    // After entry, transition to HOLD
+    if stage == "ENTER_LONG" or stage == "ENTER_SHORT"
+        stage := "HOLD"
+
+    // TP1 logic (stage + move stop to breakeven)
+    if not tp1Hit
+        if hitTp1Long or hitTp1Short
+            tp1Hit := true
+            stage := "TP1"
+            // move stop to breakeven immediately
+            stopPx := entryPx
+
+    // Runner trailing once TP1 hit
+    if tp1Hit
+        trail = trailAtrMult * atrPts
+        if pos == 1
+            // Trail behind EMA fast or ATR, never below breakeven
+            trailStop = math.max(entryPx, emaFast - trail)
+            stopPx := math.max(stopPx, trailStop)
+            stage := "RUNNER"
+        if pos == -1
+            trailStop = math.min(entryPx, emaFast + trail)
+            stopPx := math.min(stopPx, trailStop)
+            stage := "RUNNER"
+
+    // Defend state when price approaches stop
+    if not tp1Hit
+        sdNow = math.abs(entryPx - stopPx)
+        if pos == 1 and Number.isFinite(sdNow) and sdNow > 0 and close <= (stopPx + defendPct * sdNow)
+            stage := "DEFEND"
+        if pos == -1 and Number.isFinite(sdNow) and sdNow > 0 and close >= (stopPx - defendPct * sdNow)
+            stage := "DEFEND"
+
+    // Exit conditions
+    if forceFlat or hitStopLong or hitStopShort
+        stage := "EXIT"
+        pos := 0
+
+// ─────────────────────────────────────────────────────────────
+// Visuals
+// ─────────────────────────────────────────────────────────────
+colTrend = color.new(color.teal, 0)
+colRange = color.new(color.purple, 0)
+bgcolor(isTrend ? color.new(colTrend, 92) : color.new(colRange, 92))
+
+plot(emaFast, "EMA Fast", color=color.new(color.cyan, 0), linewidth=2)
+plot(emaSlow, "EMA Slow", color=color.new(color.blue, 40), linewidth=2)
+plot(vwap, "VWAP", color=color.new(color.white, 35), linewidth=2)
+plot(showBands ? vwapUp : na, "VWAP + band", color=color.new(color.white, 70), style=plot.style_line)
+plot(showBands ? vwapDn : na, "VWAP - band", color=color.new(color.white, 70), style=plot.style_line)
+
+// Key levels
+plot(showLevels ? pdHigh : na, "PDH (RTH)", color=color.new(color.green, 70), style=plot.style_linebr)
+plot(showLevels ? pdLow : na, "PDL (RTH)", color=color.new(color.red, 70), style=plot.style_linebr)
+plot(showLevels ? onHigh : na, "ONH", color=color.new(color.green, 85), style=plot.style_linebr)
+plot(showLevels ? onLow : na, "ONL", color=color.new(color.red, 85), style=plot.style_linebr)
+
+// Position lines
+plot(pos != 0 ? entryPx : na, "Entry", color=color.new(color.yellow, 0), linewidth=2, style=plot.style_linebr)
+plot(pos != 0 ? stopPx : na, "Stop", color=color.new(color.red, 0), linewidth=2, style=plot.style_linebr)
+plot(pos != 0 and not na(tp1Px) and not tp1Hit ? tp1Px : na, "TP1", color=color.new(color.lime, 0), linewidth=2, style=plot.style_linebr)
+
+// Markers
+plotshape(stage == "ENTER_LONG", title="Enter Long", style=shape.labelup, text="ENTER\nLONG", color=color.new(color.green, 0), textcolor=color.white, size=size.small, location=location.belowbar)
+plotshape(stage == "ENTER_SHORT", title="Enter Short", style=shape.labeldown, text="ENTER\nSHORT", color=color.new(color.red, 0), textcolor=color.white, size=size.small, location=location.abovebar)
+plotshape(stage == "DEFEND", title="Defend", style=shape.labeldown, text="DEFEND", color=color.new(color.orange, 0), textcolor=color.black, size=size.tiny, location=pos == 1 ? location.abovebar : location.belowbar)
+plotshape(stage == "TP1", title="TP1 Hit", style=shape.labeldown, text="TP1", color=color.new(color.lime, 0), textcolor=color.black, size=size.tiny, location=pos == 1 ? location.abovebar : location.belowbar)
+plotshape(stage == "EXIT", title="Exit", style=shape.labeldown, text="EXIT", color=color.new(color.gray, 0), textcolor=color.white, size=size.tiny, location=location.top)
+
+// Table HUD
+var table hud = table.new(position.top_right, 2, 6, border_width=1)
+if showTable and barstate.islast
+    table.cell(hud, 0, 0, "Regime", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 1, 0, isTrend ? "TREND" : "RANGE", text_color=color.white, bgcolor=color.new(isTrend ? colTrend : colRange, 40))
+    table.cell(hud, 0, 1, "Stage", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 1, 1, stage, text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 2, "Pos", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 1, 2, pos == 1 ? "LONG" : pos == -1 ? "SHORT" : "FLAT", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 3, "Stop (pts)", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 1, 3, pos != 0 and not na(entryPx) and not na(stopPx) ? str.tostring(math.abs(entryPx - stopPx), format.mintick) : "—", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 4, "TP1", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 1, 4, pos != 0 and not na(tp1Px) ? str.tostring(tp1Px, format.mintick) : "—", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 0, 5, "Tradable", text_color=color.white, bgcolor=color.new(color.black, 0))
+    table.cell(hud, 1, 5, tradable ? (inRth ? "RTH" : "ON") : "OFF", text_color=color.white, bgcolor=color.new(color.black, 0))
+
+// ─────────────────────────────────────────────────────────────
+// Alerts
+// ─────────────────────────────────────────────────────────────
+enterLongAlert = stage == "ENTER_LONG"
+enterShortAlert = stage == "ENTER_SHORT"
+defendAlert = stage == "DEFEND"
+tp1Alert = stage == "TP1"
+exitAlert = stage == "EXIT"
+
+if alertsEnabled
+    alertcondition(enterLongAlert, "ENTER LONG", "ES 3m: ENTER LONG. Entry={{close}} SL={{plot(\"Stop\")}} TP1={{plot(\"TP1\")}} Stage={{plot(\"Entry\")}}")
+    alertcondition(enterShortAlert, "ENTER SHORT", "ES 3m: ENTER SHORT. Entry={{close}} SL={{plot(\"Stop\")}} TP1={{plot(\"TP1\")}}")
+    alertcondition(defendAlert, "DEFEND", "ES 3m: DEFEND. Tighten risk / watch stop.")
+    alertcondition(tp1Alert, "TP1 HIT", "ES 3m: TP1 HIT. Move stop to BE; manage runner.")
+    alertcondition(exitAlert, "EXIT", "ES 3m: EXIT. Stop/flat condition triggered.")
+
