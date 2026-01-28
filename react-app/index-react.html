@@ -11129,6 +11129,7 @@
         const asOf = snap?.createdAt ? new Date(Number(snap.createdAt)) : null;
         const rows = Array.isArray(snap?.items) ? snap.items : [];
         const activePositionsCount = rows.length;
+        const rankTotal = rankPositions && typeof rankPositions === "object" ? Object.keys(rankPositions).length : null;
         
         // Calculate Kanban count for display (EarlyMoversPanel will handle actual categorization)
         const kanbanCount = hasEarlyMovers ? earlyMoversCount : 0;
@@ -11146,6 +11147,9 @@
                 <span className="text-[13px] font-normal text-[#6b7a9f]">
                   Trading Lifecycle Flow
                 </span>
+              </div>
+              <div className="mt-1 text-[10px] text-[#6b7a9f]">
+                Rank = position in current ranked list{rankTotal ? ` (1–${rankTotal}, 1 is strongest)` : ""}.
               </div>
               <div className="mt-1 text-[11px] text-[#93a4d6]">
                 {kanbanCount} tickers in play • Flip Watch → Enter → Hold → Trim → Exit
@@ -11176,7 +11180,7 @@
                 
                 {expandedSections.earlyMovers && (
                   <div className="bg-[#0f1630] rounded-lg p-3 border border-[#26325f]">
-                    <EarlyMoversPanel tickers={tickers} onSelectTicker={onSelectTicker} />
+                    <EarlyMoversPanel tickers={tickers} onSelectTicker={onSelectTicker} rankPositions={rankPositions} rankTotal={rankTotal} />
                   </div>
                 )}
               </div>
@@ -11188,7 +11192,7 @@
       // ─────────────────────────────────────────────────────────────
       // Early Movers Panel: Kanban-style trading flow
       // ─────────────────────────────────────────────────────────────
-      function EarlyMoversPanel({ tickers = [], onSelectTicker = null }) {
+      function EarlyMoversPanel({ tickers = [], onSelectTicker = null, rankPositions = {}, rankTotal = null }) {
         const now = Date.now();
         const laneScrollTopRef = React.useRef({});
         
@@ -11299,6 +11303,7 @@
           const dirEmoji = isBullish ? "📈" : "📉";
           const flags = t?.flags || {};
           const rank = Number(t?.rank);
+          const rankPos = getRankPositionFromMap(rankPositions, String(t?.ticker || "").toUpperCase());
           const score = Number(t?.flip_watch_score);
           const completion = Number(t?.completion);
           const phase = Number(t?.phase_pct);
@@ -11315,6 +11320,10 @@
           const tp = tpMax || computeTpTargetPrice(t);
           
           const rr = Number(t?.rr);
+          const rrEntryLikely = Number(t?.rr_entry_likely);
+          const rrNowLikely = Number(t?.rr_now_likely);
+          const slDynamic = Number(t?.sl_dynamic);
+          const tpLikely = Number(t?.tp_likely);
           const eta = computeEtaDays(t);
           
           // Entry tracking and % change
@@ -11390,6 +11399,11 @@
                     {score}
                   </span>
                 )}
+                {Number.isFinite(rankPos) && rankPos > 0 && (
+                  <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-200 text-[9px] font-semibold border border-purple-400/40">
+                    #{rankPos}{rankTotal ? `/${rankTotal}` : ""}
+                  </span>
+                )}
                 {Number.isFinite(rank) && rank > 0 && rank <= 10 && (
                   <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[9px] font-semibold">
                     #{rank}
@@ -11442,16 +11456,40 @@
                       <span className="text-red-300 font-semibold">${sl.toFixed(2)}</span>
                     </div>
                   )}
+                  {Number.isFinite(slDynamic) && slDynamic > 0 && slDynamic !== sl && (
+                    <div className="flex items-center justify-between">
+                      <span>SL (dyn)</span>
+                      <span className="text-red-200 font-semibold">${slDynamic.toFixed(2)}</span>
+                    </div>
+                  )}
                   {tp !== null && (
                     <div className="flex items-center justify-between">
                       <span>TP</span>
                       <span className="text-green-300 font-semibold">${tp.toFixed(2)}</span>
                     </div>
                   )}
+                  {Number.isFinite(tpLikely) && tpLikely > 0 && tp !== null && Math.abs(tpLikely - tp) > 1e-6 && (
+                    <div className="flex items-center justify-between">
+                      <span>TP (likely)</span>
+                      <span className="text-green-200 font-semibold">${tpLikely.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
-                    <span>R:R</span>
+                    <span>R:R (max)</span>
                     <span className="text-[#93a4d6] font-semibold">{Number.isFinite(rr) && rr > 0 ? rr.toFixed(2) : "—"}</span>
                   </div>
+                  {(Number.isFinite(rrEntryLikely) || Number.isFinite(rrNowLikely)) && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span>R:R (entry)</span>
+                        <span className="text-[#93a4d6] font-semibold">{Number.isFinite(rrEntryLikely) && rrEntryLikely > 0 ? rrEntryLikely.toFixed(2) : "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>R:R (now)</span>
+                        <span className="text-[#93a4d6] font-semibold">{Number.isFinite(rrNowLikely) && rrNowLikely > 0 ? rrNowLikely.toFixed(2) : "—"}</span>
+                      </div>
+                    </>
+                  )}
                   {Number.isFinite(eta) && eta > 0 && (
                     <div className="flex items-center justify-between">
                       <span>ETA</span>
