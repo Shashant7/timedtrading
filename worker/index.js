@@ -9196,6 +9196,17 @@ export default {
   async fetch(req, env, ctx) {
     // Top-level error handler to prevent 500 errors from crashing the worker
     try {
+      const url = new URL(req.url);
+
+      // Always satisfy CORS preflight before touching bindings.
+      // This prevents the dashboard from being blocked by CORS when KV/D1 are misconfigured.
+      if (req.method === "OPTIONS") {
+        return new Response("", {
+          status: 204,
+          headers: corsHeaders(env, req),
+        });
+      }
+
       const KV = env.KV_TIMED;
 
       // Verify KV binding is available
@@ -9245,14 +9256,7 @@ export default {
         }
       }
 
-      const url = new URL(req.url);
-
-      if (req.method === "OPTIONS") {
-        return new Response("", {
-          status: 204,
-          headers: corsHeaders(env, req),
-        });
-      }
+      // url already parsed above
 
       // POST /timed/ingest
       // NOTE: This endpoint uses API key authentication instead of rate limiting
