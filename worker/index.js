@@ -6660,6 +6660,50 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   }
 }
 
+// Patch selected fields inside ticker_latest.payload_json without rewriting the whole row.
+// Uses SQLite JSON1 `json_set` to avoid a read+merge cycle.
+async function d1PatchTickerLatestFields(env, ticker, patch) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  const sym = String(ticker || "").toUpperCase();
+  if (!sym) return { ok: false, skipped: true, reason: "bad_ticker" };
+  if (!patch || typeof patch !== "object") return { ok: false, skipped: true, reason: "bad_patch" };
+
+  const pairs = [];
+  const binds = [];
+  const add = (k, v) => {
+    if (v == null) return;
+    // Keep numbers as numbers; booleans as 1/0; strings as strings.
+    let val = v;
+    if (typeof v === "boolean") val = v ? 1 : 0;
+    pairs.push(`'$.${k}', ?${binds.length + 1}`);
+    binds.push(val);
+  };
+
+  add("prev_close", patch.prev_close);
+  add("day_change", patch.day_change);
+  add("day_change_pct", patch.day_change_pct);
+  add("change", patch.change);
+  add("change_pct", patch.change_pct);
+  add("session", patch.session);
+  add("is_rth", patch.is_rth);
+
+  if (pairs.length === 0) return { ok: false, skipped: true, reason: "no_fields" };
+
+  try {
+    await d1EnsureLatestSchema(env);
+    const sql = `UPDATE ticker_latest
+                 SET payload_json = json_set(payload_json, ${pairs.join(", ")})
+                 WHERE ticker = ?${binds.length + 1} AND payload_json IS NOT NULL`;
+    binds.push(sym);
+    await db.prepare(sql).bind(...binds).run();
+    return { ok: true };
+  } catch (err) {
+    console.error(`[D1 LATEST] Patch failed for ${sym}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
 // Periodic KV → D1 latest sync (batched) to bootstrap /timed/all quickly after deploy.
 async function d1SyncLatestBatchFromKV(env, ctx, batchSize = 50) {
   const KV = env?.KV_TIMED;
@@ -11573,6 +11617,22 @@ export default {
           }
 
           await kvPutJSON(KV, `timed:capture:latest:${ticker}`, payload);
+          // Best-effort: persist the heartbeat daily-change fields into D1 ticker_latest so /timed/all stays KV-free.
+          try {
+            ctx.waitUntil(
+              d1PatchTickerLatestFields(env, ticker, {
+                prev_close: payload.prev_close,
+                day_change: payload.day_change,
+                day_change_pct: payload.day_change_pct,
+                change: payload.change,
+                change_pct: payload.change_pct,
+                session: payload.session,
+                is_rth: payload.is_rth,
+              })
+            );
+          } catch {
+            // ignore
+          }
           await appendCaptureTrail(KV, ticker, {
             ts: payload.ts,
             price: payload.price,
@@ -11817,7 +11877,13 @@ export default {
               const asOfTs = Number(data.ts ?? data.ingest_ts ?? Date.now());
               const rec = await computePrevCloseFromTrail(env.DB, ticker, asOfTs);
               const price = Number(data.price);
-              if (rec && Number.isFinite(price) && price > 0) {
+              // Only backfill if daily-change fields are missing. Heartbeat capture is preferred when present.
+              if (
+                rec &&
+                Number.isFinite(price) &&
+                price > 0 &&
+                !(Number.isFinite(Number(data.day_change_pct)) && Number.isFinite(Number(data.day_change)))
+              ) {
                 data.prev_close = rec.close;
                 data.day_change = price - rec.close;
                 data.day_change_pct = ((price - rec.close) / rec.close) * 100;
@@ -11825,6 +11891,35 @@ export default {
             }
           } catch (e) {
             console.warn(`[DAILY CHANGE] /timed/latest backfill failed for ${ticker}:`, String(e?.message || e));
+          }
+
+          // Canonicalize daily change: if day_* disagrees with change_* (heartbeat), prefer change_*.
+          try {
+            const dayPct = Number(data.day_change_pct);
+            const altPct = Number(data.change_pct);
+            const dayChg = Number(data.day_change);
+            const altChg = Number(data.change);
+            const price = Number(data.price);
+            const disagree =
+              Number.isFinite(dayPct) &&
+              Number.isFinite(altPct) &&
+              (((dayPct >= 0) !== (altPct >= 0)) || Math.abs(dayPct - altPct) >= 1.5);
+            const absurd = Number.isFinite(dayPct) && Math.abs(dayPct) > 5;
+            const saneAlt = Number.isFinite(altPct) && Math.abs(altPct) <= 5;
+            if ((disagree || (absurd && saneAlt)) && Number.isFinite(altPct)) {
+              data.day_change_pct = altPct;
+              if (Number.isFinite(altChg)) data.day_change = altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+            } else if (!Number.isFinite(dayPct) && Number.isFinite(altPct)) {
+              data.day_change_pct = altPct;
+              if (Number.isFinite(altChg)) data.day_change = altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+            } else if (!Number.isFinite(dayChg) && Number.isFinite(altChg)) {
+              data.day_change = altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+            }
+          } catch {
+            // ignore
           }
 
           // Back-compat: older KV entries may not have derived horizon/ETA v2 fields yet,
@@ -12077,6 +12172,32 @@ export default {
             if (!raw) continue;
             try {
               const obj = JSON.parse(String(raw));
+              // Canonicalize daily change fields: prefer heartbeat capture semantics (change/change_pct)
+              // when stored day_change_pct is poisoned by a bad prev_close anchor.
+              try {
+                const dayPct = Number(obj.day_change_pct);
+                const altPct = Number(obj.change_pct);
+                const altChg = Number(obj.change);
+                const price = Number(obj.price);
+                const disagree =
+                  Number.isFinite(dayPct) &&
+                  Number.isFinite(altPct) &&
+                  (((dayPct >= 0) !== (altPct >= 0)) ||
+                    Math.abs(dayPct - altPct) >= 1.5);
+                const absurd = Number.isFinite(dayPct) && Math.abs(dayPct) > 5;
+                const saneAlt = Number.isFinite(altPct) && Math.abs(altPct) <= 5;
+                if ((disagree || (absurd && saneAlt)) && Number.isFinite(altPct)) {
+                  obj.day_change_pct = altPct;
+                  if (Number.isFinite(altChg)) obj.day_change = altChg;
+                  if (Number.isFinite(price) && Number.isFinite(altChg)) obj.prev_close = price - altChg;
+                } else if (!Number.isFinite(dayPct) && Number.isFinite(altPct)) {
+                  obj.day_change_pct = altPct;
+                  if (Number.isFinite(altChg)) obj.day_change = altChg;
+                  if (Number.isFinite(price) && Number.isFinite(altChg)) obj.prev_close = price - altChg;
+                }
+              } catch {
+                // ignore
+              }
               // Ensure stage/status reflect current logic even if no new ingests
               try {
                 const cMax = computeCompletionToTpMax(obj);
