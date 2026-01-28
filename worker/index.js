@@ -11900,6 +11900,13 @@ export default {
             const dayChg = Number(data.day_change);
             const altChg = Number(data.change);
             const price = Number(data.price);
+            const hasHeartbeatSession = data.session != null || data.is_rth != null;
+            // If heartbeat fields are present, treat change/change_pct as authoritative watchlist daily change.
+            if (hasHeartbeatSession && Number.isFinite(altPct)) {
+              data.day_change_pct = altPct;
+              if (Number.isFinite(altChg)) data.day_change = altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+            }
             const disagree =
               Number.isFinite(dayPct) &&
               Number.isFinite(altPct) &&
@@ -12179,6 +12186,12 @@ export default {
                 const altPct = Number(obj.change_pct);
                 const altChg = Number(obj.change);
                 const price = Number(obj.price);
+                const hasHeartbeatSession = obj.session != null || obj.is_rth != null;
+                if (hasHeartbeatSession && Number.isFinite(altPct)) {
+                  obj.day_change_pct = altPct;
+                  if (Number.isFinite(altChg)) obj.day_change = altChg;
+                  if (Number.isFinite(price) && Number.isFinite(altChg)) obj.prev_close = price - altChg;
+                }
                 const disagree =
                   Number.isFinite(dayPct) &&
                   Number.isFinite(altPct) &&
