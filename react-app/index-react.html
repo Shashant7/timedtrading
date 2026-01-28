@@ -1859,7 +1859,8 @@
         // If day_* is present but looks wrong, fall back to change/change_pct when it looks sane.
         if (looksAbsurd(dayPct) && looksSane(altPct)) {
           dayPct = altPct;
-          if (!Number.isFinite(dayChg) && Number.isFinite(altChg)) dayChg = altChg;
+          // Also switch $ change to the sane source when available to avoid mismatched "$ + pct".
+          if (Number.isFinite(altChg)) dayChg = altChg;
         }
 
         // If missing, compute like a watchlist using prev close.
