@@ -10206,8 +10206,10 @@
         };
 
         return (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-            <div className="space-y-2">
+          <div className="space-y-3 mb-4">
+            {/* Row 1: Horizon + Kanban Stages */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="space-y-2">
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Horizon</div>
               <div className="flex gap-2 flex-wrap items-center">
                 {pill(
@@ -10234,10 +10236,10 @@
 
               {/* Note: Filter UI intentionally simplified.
                   Additional groups (Quadrants / Premium / Patterns) removed to reduce noise. */}
-            </div>
+              </div>
 
-            <div className="space-y-2">
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-3">Kanban Stages</div>
+              <div className="space-y-2">
+              <div className="text-[10px] text-[#6b7a9f] font-semibold">Kanban Stages</div>
               <div className="flex gap-2 flex-wrap items-center">
                 {pill(
                   pillLabelWithCount("All", null),
@@ -10285,8 +10287,11 @@
                   () => onChange({ kanbanStage: "archive" })
                 )}
               </div>
+              </div>
             </div>
 
+            {/* Row 2: Groups + S&P Sectors */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="space-y-2">
               <div className="text-[10px] text-[#6b7a9f] font-semibold">Groups</div>
               <div className="flex gap-2 flex-wrap items-center">
@@ -10332,7 +10337,10 @@
                 )}
               </div>
 
-              <div className="text-[10px] text-[#6b7a9f] font-semibold mt-1">S&amp;P Sectors</div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-[10px] text-[#6b7a9f] font-semibold">S&amp;P Sectors</div>
               <div className="flex gap-2 flex-wrap items-center">
                 {pill(
                   pillLabelWithCount("All", pillCounts?.sectors?.ALL),
@@ -10433,7 +10441,7 @@
                   () => onChange({ sector: "Utilities" })
                 )}
               </div>
-
+            </div>
             </div>
           </div>
         );
@@ -11386,8 +11394,8 @@
           });
 
           return (
-            <div className="flex-1 min-w-[170px] max-w-[250px]">
-              <div className={`p-2 rounded-t-lg border-t-2 ${color} bg-[#0f1630]`}>
+            <div className="flex-1 min-w-[140px] max-w-[200px]">
+              <div className={`p-1.5 rounded-t-lg border-t-2 ${color} bg-[#0f1630]`}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-bold text-white">
                     {icon} {title}
@@ -11402,7 +11410,7 @@
               </div>
               <div
                 ref={listRef}
-                className="border-l border-r border-b border-[#26325f] rounded-b-lg bg-[#0a0f24] p-2 max-h-[600px] overflow-y-auto"
+                className="border-l border-r border-b border-[#26325f] rounded-b-lg bg-[#0a0f24] p-1.5 max-h-[560px] overflow-y-auto"
                 style={{ overflowAnchor: "none" }}
                 onScroll={() => {
                   try {
@@ -11437,7 +11445,7 @@
               <span className="text-red-300">Close</span>
             </div>
             <div className="overflow-x-auto">
-              <div className="flex gap-2 pb-1.5 min-w-max">
+              <div className="flex gap-1.5 pb-1.5">
                 <KanbanColumn
                   laneKey="watch"
                   title="Watch"
@@ -17367,8 +17375,8 @@
             )}
 
             <div className="min-h-screen p-0">
-              {/* Page gutter + max width so filters don't hug screen edges */}
-              <div className="mx-auto w-full max-w-[1800px] px-3 sm:px-6 lg:px-8">
+              {/* Light page gutter: avoid edge bleed but keep width for Kanban lanes (14" MBP). */}
+              <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
                 {/* Navigation */}
                 <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
                   <div className="flex items-center gap-3 flex-wrap">
