@@ -1837,22 +1837,30 @@
           "yclose",
           "close_prev",
         ]);
-        let dayChg = pickNum(t, [
-          "day_change",
-          "daily_change",
-          "change",
-          "session_change",
-          "chg",
-          "ch",
-        ]);
-        let dayPct = pickNum(t, [
-          "day_change_pct",
-          "daily_change_pct",
-          "change_pct",
-          "pct_change",
-          "session_change_pct",
-          "chp",
-        ]);
+        let dayChg = null;
+        let dayPct = null;
+
+        // Prefer watchlist semantics whenever we have prev close.
+        // Some payloads also include fields named "change"/"change_pct" that are NOT daily change (e.g. move-from-trigger),
+        // so we intentionally avoid those ambiguous keys and compute from prev close when possible.
+        if (Number.isFinite(price) && price > 0 && Number.isFinite(prevClose) && prevClose > 0) {
+          dayChg = price - prevClose;
+          dayPct = (dayChg / prevClose) * 100;
+        } else {
+          dayChg = pickNum(t, [
+            "day_change",
+            "daily_change",
+            "session_change",
+            "chg",
+            "ch",
+          ]);
+          dayPct = pickNum(t, [
+            "day_change_pct",
+            "daily_change_pct",
+            "session_change_pct",
+            "chp",
+          ]);
+        }
 
         // If we have prev close but no change fields, compute them like a watchlist.
         if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct) && Number.isFinite(price) && price > 0 && Number.isFinite(prevClose) && prevClose > 0) {
@@ -11141,6 +11149,7 @@
           const isBullish = state.includes("BULL");
           const dir = isBullish ? "LONG" : "SHORT";
           const dirEmoji = isBullish ? "📈" : "📉";
+          const stage = String(t?.kanban_stage || "");
           const flags = t?.flags || {};
           const rank = Number(t?.rank);
           const rankPos = getRankPositionFromMap(rankPositions, String(t?.ticker || "").toUpperCase());
@@ -11167,8 +11176,25 @@
           const eta = computeEtaDays(t);
           
           // Entry tracking and % change
-          const entryPrice = Number(t?.entry_price);
-          const entryChangePct = Number(t?.entry_change_pct);
+          const entryPriceRaw = numFromAny(t?.entry_price);
+          const entryRefRaw = numFromAny(t?.entry_ref);
+          const triggerPriceRaw = numFromAny(t?.trigger_price);
+          const entryPrice =
+            Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
+              ? entryPriceRaw
+              : Number.isFinite(entryRefRaw) && entryRefRaw > 0
+                ? entryRefRaw
+                : Number.isFinite(triggerPriceRaw) && triggerPriceRaw > 0
+                  ? triggerPriceRaw
+                  : null;
+          const entryChangePctRaw = numFromAny(t?.entry_change_pct);
+          const entryChangePct =
+            Number.isFinite(entryChangePctRaw)
+              ? entryChangePctRaw
+              : Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(price) && price > 0
+                ? (dir === "LONG" ? ((price - entryPrice) / entryPrice) * 100 : ((entryPrice - price) / entryPrice) * 100)
+                : null;
+          const showEntryStats = stage === "enter_now" || stage === "hold" || stage === "trim" || stage === "exit";
 
           // Archive meta (worker-provided)
           const km = t?.kanban_meta && typeof t.kanban_meta === "object" ? t.kanban_meta : null;
@@ -11198,7 +11224,6 @@
                 <span className="text-xs font-bold text-white truncate">{t.ticker}</span>
                 {(() => {
                   if (!showOpen) return null;
-                  const stage = String(t?.kanban_stage || "");
                   if (stage === "archive") return null;
                   if (stage === "exit") {
                     return (
@@ -11256,14 +11281,31 @@
               
               {/* Scores + Price */}
               <div className="text-[10px] text-[#6b7a9f] space-y-0.5">
-                {String(t?.kanban_stage || "") === "archive" && (archiveBucket || archiveReason) && (
+                {stage === "archive" && (archiveBucket || archiveReason) && (
                   <div className="text-[9px] text-[#93a4d6]">
                     {archiveEmoji ? `${archiveEmoji} ` : ""}{archiveBucket}{archiveBucket && archiveReason ? ": " : ""}{archiveReason}
                   </div>
                 )}
                 <div className="flex items-center justify-between">
                   <span>HTF {Number.isFinite(htf) ? htf.toFixed(1) : "—"}</span>
-                  <span className="text-white font-semibold">${Number.isFinite(price) ? price.toFixed(2) : "—"}</span>
+                  <div className="text-right">
+                    <div className="text-white font-semibold">
+                      ${Number.isFinite(price) ? price.toFixed(2) : "—"}
+                    </div>
+                    {(() => {
+                      const { dayChg, dayPct } = getDailyChange(t);
+                      if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
+                      const up = Number(dayChg || dayPct || 0) >= 0;
+                      const cls = up ? "text-green-300" : "text-red-300";
+                      const sign = up ? "+" : "-";
+                      return (
+                        <div className={`text-[9px] ${cls}`}>
+                          {Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : "—"}
+                          {Number.isFinite(dayPct) ? ` (${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>LTF {Number.isFinite(ltf) ? ltf.toFixed(1) : "—"}</span>
@@ -11276,16 +11318,16 @@
               {/* Trading Details (for entry opportunities and open positions) */}
               {showDetails && (
                 <div className="mt-1.5 pt-1.5 border-t border-[#26325f] text-[9px] text-[#6b7a9f] space-y-0.5">
-                  {Number.isFinite(entryPrice) && entryPrice > 0 && (
+                  {showEntryStats && Number.isFinite(entryPrice) && entryPrice > 0 && (
                     <div className="flex items-center justify-between">
                       <span>Entry</span>
                       <span className="text-cyan-300 font-semibold">${entryPrice.toFixed(2)}</span>
                     </div>
                   )}
-                  {Number.isFinite(entryChangePct) && (
+                  {showEntryStats && Number.isFinite(entryChangePct) && (
                     <div className="flex items-center justify-between">
-                      <span>Change</span>
-                      <span className={`font-semibold ${entryChangePct >= 0 ? 'text-green-300' : 'text-red-300'}`}>
+                      <span>Since entry</span>
+                      <span className={`font-semibold ${entryChangePct >= 0 ? 'text-cyan-300' : 'text-cyan-300'}`}>
                         {entryChangePct >= 0 ? '+' : ''}{entryChangePct.toFixed(2)}%
                       </span>
                     </div>
@@ -13241,13 +13283,45 @@
                         const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
                         return (
                           <div className={`text-xs mt-0.5 ${cls}`}>
-                            {Number.isFinite(dayPct) ? `${sign}${Math.abs(dayPct).toFixed(2)}%` : "—"}{" "}
-                            {Number.isFinite(dayChg) ? `(${sign}${fmtUsdAbs(dayChg)})` : ""}
+                            {Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : "—"}{" "}
+                            {Number.isFinite(dayPct) ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""}
                             {!marketOpen && (
                               <span className="ml-2 text-[10px] text-[#93a4d6]">
                                 AH{stale?.ageLabel ? ` • as of ${stale.ageLabel}` : ""}
                               </span>
                             )}
+                          </div>
+                        );
+                      })()}
+                      {(() => {
+                        const stage = String(ticker?.kanban_stage || "");
+                        const showEntryStats = stage === "enter_now" || stage === "hold" || stage === "trim" || stage === "exit";
+                        if (!showEntryStats) return null;
+                        const price = numFromAny(ticker?.price);
+                        const entryPriceRaw = numFromAny(ticker?.entry_price);
+                        const entryRefRaw = numFromAny(ticker?.entry_ref);
+                        const triggerRaw = numFromAny(ticker?.trigger_price);
+                        const entryPx =
+                          Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
+                            ? entryPriceRaw
+                            : Number.isFinite(entryRefRaw) && entryRefRaw > 0
+                              ? entryRefRaw
+                              : Number.isFinite(triggerRaw) && triggerRaw > 0
+                                ? triggerRaw
+                                : null;
+                        const dir = getDirectionFromState(ticker);
+                        const entryPctRaw = numFromAny(ticker?.entry_change_pct);
+                        const entryPct =
+                          Number.isFinite(entryPctRaw)
+                            ? entryPctRaw
+                            : Number.isFinite(entryPx) && entryPx > 0 && Number.isFinite(price) && price > 0
+                              ? (dir === "SHORT" ? ((entryPx - price) / entryPx) * 100 : ((price - entryPx) / entryPx) * 100)
+                              : null;
+                        if (!Number.isFinite(entryPx) && !Number.isFinite(entryPct)) return null;
+                        return (
+                          <div className="text-[11px] mt-1 text-cyan-300/90">
+                            {Number.isFinite(entryPx) ? `Entry $${Number(entryPx).toFixed(2)}` : "Entry —"}
+                            {Number.isFinite(entryPct) ? ` • Since entry ${entryPct >= 0 ? "+" : ""}${entryPct.toFixed(2)}%` : ""}
                           </div>
                         );
                       })()}
