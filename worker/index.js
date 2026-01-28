@@ -1174,7 +1174,7 @@ function detectFlipWatch(tickerData, trail = []) {
 
 /**
  * Classify ticker into Kanban stage based on trading lifecycle
- * Stages: watch, flip_watch, just_flipped, enter_now, hold, trim, exit, archive
+ * Stages: watch, flip_watch, just_flipped, enter_now, hold, defend, trim, exit, archive
  */
 function classifyKanbanStage(tickerData) {
   const state = String(tickerData?.state || "");
@@ -1202,6 +1202,12 @@ function classifyKanbanStage(tickerData) {
       return "exit";
     }
     
+    // Stage 4.5: Defend - open position has warning conditions but is not yet a trim/exit
+    // This is a "pay attention" lane that keeps risk flags visible without forcing action.
+    if (severity === "WARNING" && completion < 0.7 && phase < 0.7) {
+      return "defend";
+    }
+
     // Stage 5: Trim - high completion (>70%) or late phase with warnings
     if (completion >= 0.7 || (phase >= 0.7 && severity === "WARNING")) {
       return "trim";
@@ -9747,7 +9753,7 @@ export default {
               // Recycle rule: if something was in ARCHIVE, it must re-enter via opportunity lanes
               // so users clearly see it "recycled" rather than jumping into position-management lanes.
               let finalStage = stage;
-              if (prevStage === "archive" && (stage === "hold" || stage === "trim" || stage === "exit")) {
+              if (prevStage === "archive" && (stage === "hold" || stage === "defend" || stage === "trim" || stage === "exit")) {
                 finalStage = "watch";
                 payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
                 payload.flags.recycled_from_archive = true;

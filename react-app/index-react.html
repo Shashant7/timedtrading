@@ -10012,6 +10012,7 @@
           const kanbanJustFlipped = countWith({ ...base, kanbanStage: "just_flipped" });
           const kanbanEnterNow = countWith({ ...base, kanbanStage: "enter_now" });
           const kanbanHold = countWith({ ...base, kanbanStage: "hold" });
+          const kanbanDefend = countWith({ ...base, kanbanStage: "defend" });
           const kanbanTrim = countWith({ ...base, kanbanStage: "trim" });
           const kanbanExit = countWith({ ...base, kanbanStage: "exit" });
           const kanbanArchive = countWith({ ...base, kanbanStage: "archive" });
@@ -10099,6 +10100,7 @@
               JUST_FLIPPED: kanbanJustFlipped,
               ENTER_NOW: kanbanEnterNow,
               HOLD: kanbanHold,
+              DEFEND: kanbanDefend,
               TRIM: kanbanTrim,
               EXIT: kanbanExit,
               ARCHIVE: kanbanArchive,
@@ -10270,6 +10272,11 @@
                   pillLabelWithCount("💎 Hold", pillCounts?.kanban?.HOLD),
                   filters.kanbanStage === "hold",
                   () => onChange({ kanbanStage: "hold" })
+                )}
+                {pill(
+                  pillLabelWithCount("🛡 Defend", pillCounts?.kanban?.DEFEND),
+                  filters.kanbanStage === "defend",
+                  () => onChange({ kanbanStage: "defend" })
                 )}
                 {pill(
                   pillLabelWithCount("📊 Trim", pillCounts?.kanban?.TRIM),
@@ -11006,7 +11013,7 @@
                 Rank = viewport score rank (relative strength){rankTotal ? ` (1–${rankTotal}, 1 is strongest)` : ""}. “Enter Now” also requires trigger/corridor/completion gates, so a top-5 name can still be Watch/Hold/Trim.
               </div>
               <div className="mt-1 text-[11px] text-[#93a4d6]">
-                {kanbanCount} tickers in play • Flip Watch → Enter → Hold → Trim → Exit
+                      {kanbanCount} tickers in play • Flip Watch → Enter → Hold → Defend → Trim → Exit
               </div>
             </div>
             
@@ -11023,7 +11030,7 @@
                       {kanbanCount} active
                     </span>
                     <span className="text-[10px] text-[#93a4d6]">
-                      🎯 Watch → ⚡ Flip → 🚀 Enter → 💎 Hold → 📊 Trim → 🚪 Exit
+                      🎯 Watch → ⚡ Flip → 🚀 Enter → 💎 Hold → 🛡 Defend → 📊 Trim → 🚪 Exit
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -11058,6 +11065,7 @@
           const justFlipped = [];
           const enterNow = [];
           const hold = [];
+          const defend = [];
           const trim = [];
           const exit = [];
           
@@ -11091,6 +11099,8 @@
                 const reasons = mv?.reasons || [];
                 if (severity === "CRITICAL" || reasons.includes("left_entry_corridor")) {
                   stage = "exit";
+                } else if (severity === "WARNING" && completion < 0.7 && phase < 0.7) {
+                  stage = "defend";
                 } else if (completion >= 0.7 || (phase >= 0.7 && severity === "WARNING")) {
                   stage = "trim";
                 } else {
@@ -11129,6 +11139,9 @@
               case "hold":
                 hold.push(t);
                 break;
+              case "defend":
+                defend.push(t);
+                break;
               case "trim":
                 trim.push(t);
                 break;
@@ -11144,10 +11157,10 @@
             }
           });
           
-          return { watch, flipWatch, justFlipped, enterNow, hold, trim, exit, archive };
+          return { watch, flipWatch, justFlipped, enterNow, hold, defend, trim, exit, archive };
         }, [tickers]);
         
-        const { watch, flipWatch, justFlipped, enterNow, hold, trim, exit, archive } = categories;
+        const { watch, flipWatch, justFlipped, enterNow, hold, defend, trim, exit, archive } = categories;
         
         // Compact card renderer for Kanban layout
         const renderCompactCard = (t, showProgress = false, showOpen = false, showDetails = false) => {
@@ -11242,6 +11255,13 @@
                     return (
                       <span className="px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-300 text-[9px] font-bold border border-yellow-500/50">
                         TRIM
+                      </span>
+                    );
+                  }
+                  if (stage === "defend") {
+                    return (
+                      <span className="px-1 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[9px] font-bold border border-orange-500/50">
+                        DEFEND
                       </span>
                     );
                   }
@@ -11375,7 +11395,7 @@
           );
         };
         
-        if (watch.length === 0 && flipWatch.length === 0 && justFlipped.length === 0 && enterNow.length === 0 && hold.length === 0 && trim.length === 0 && exit.length === 0 && archive.length === 0) {
+        if (watch.length === 0 && flipWatch.length === 0 && justFlipped.length === 0 && enterNow.length === 0 && hold.length === 0 && defend.length === 0 && trim.length === 0 && exit.length === 0 && archive.length === 0) {
           return null;
         }
         
@@ -11491,6 +11511,18 @@
                   icon="💎"
                   color="border-blue-500"
                   items={hold}
+                  showProgress={true}
+                  showOpen={true}
+                  showDetails={true}
+                />
+                <KanbanColumn
+                  laneKey="defend"
+                  title="Defend"
+                  subtitle="Open positions w/ warnings"
+                  count={defend.length}
+                  icon="🛡"
+                  color="border-orange-500"
+                  items={defend}
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
