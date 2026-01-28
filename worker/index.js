@@ -9852,6 +9852,75 @@ export default {
                 payload.flags.recycled_from_archive = true;
               }
 
+              // Lifecycle gate: HOLD/DEFEND/TRIM/EXIT must pass through ENTER_NOW first (per trigger+side cycle).
+              // This prevents "jumping" into management lanes when a ticker flips sides or has stale trigger state.
+              try {
+                const mgmt =
+                  finalStage === "hold" ||
+                  finalStage === "defend" ||
+                  finalStage === "trim" ||
+                  finalStage === "exit";
+                if (mgmt) {
+                  const curTriggerTs = Number(payload?.trigger_ts);
+                  const curSide = sideFromStateOrScores(payload); // "LONG" | "SHORT" | null
+                  const cycleEnterTs = Number(existing?.kanban_cycle_enter_now_ts);
+                  const cycleTrig = Number(existing?.kanban_cycle_trigger_ts);
+                  const cycleSide =
+                    existing?.kanban_cycle_side != null ? String(existing.kanban_cycle_side) : null;
+                  const sameTrig =
+                    Number.isFinite(curTriggerTs) &&
+                    curTriggerTs > 0 &&
+                    Number.isFinite(cycleTrig) &&
+                    cycleTrig > 0 &&
+                    cycleTrig === curTriggerTs;
+                  const cycleOk =
+                    Number.isFinite(cycleEnterTs) &&
+                    cycleEnterTs > 0 &&
+                    sameTrig &&
+                    !!cycleSide &&
+                    !!curSide &&
+                    cycleSide === curSide;
+
+                  if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
+                    // Can't be in management lanes without a valid trigger.
+                    finalStage = "watch";
+                    payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                    payload.flags.forced_watch_missing_trigger = true;
+                  } else if (!cycleOk) {
+                    finalStage = "enter_now";
+                    payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                    payload.flags.forced_enter_now_gate = true;
+                  }
+                }
+
+                const tsNow = Number(payload?.ts) || Date.now();
+                if (finalStage === "enter_now") {
+                  const curTriggerTs = Number(payload?.trigger_ts);
+                  const curSide = sideFromStateOrScores(payload);
+                  payload.kanban_cycle_enter_now_ts = tsNow;
+                  payload.kanban_cycle_trigger_ts =
+                    Number.isFinite(curTriggerTs) && curTriggerTs > 0 ? curTriggerTs : null;
+                  payload.kanban_cycle_side = curSide != null ? String(curSide) : null;
+                } else if (
+                  finalStage === "hold" ||
+                  finalStage === "defend" ||
+                  finalStage === "trim" ||
+                  finalStage === "exit"
+                ) {
+                  // Carry forward the cycle markers while in management lanes.
+                  payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts || null;
+                  payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts || null;
+                  payload.kanban_cycle_side = existing?.kanban_cycle_side || null;
+                } else {
+                  // Reset cycle when we're not in ENTER_NOW or management lanes.
+                  payload.kanban_cycle_enter_now_ts = null;
+                  payload.kanban_cycle_trigger_ts = null;
+                  payload.kanban_cycle_side = null;
+                }
+              } catch (e) {
+                console.error(`[KANBAN] lifecycle gate failed for ${ticker}:`, String(e));
+              }
+
               payload.kanban_stage = finalStage;
               payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
               // Persist last transition source lane so UI can show "from: <lane>".
@@ -11702,7 +11771,74 @@ export default {
                 const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
                 const stage = classifyKanbanStage(payload);
                 const prevStage = existing?.kanban_stage;
-                payload.kanban_stage = stage;
+                let finalStage = stage;
+
+                // Lifecycle gate: HOLD/DEFEND/TRIM/EXIT must pass through ENTER_NOW first (per trigger+side cycle).
+                try {
+                  const mgmt =
+                    finalStage === "hold" ||
+                    finalStage === "defend" ||
+                    finalStage === "trim" ||
+                    finalStage === "exit";
+                  if (mgmt) {
+                    const curTriggerTs = Number(payload?.trigger_ts);
+                    const curSide = sideFromStateOrScores(payload);
+                    const cycleEnterTs = Number(existing?.kanban_cycle_enter_now_ts);
+                    const cycleTrig = Number(existing?.kanban_cycle_trigger_ts);
+                    const cycleSide =
+                      existing?.kanban_cycle_side != null ? String(existing.kanban_cycle_side) : null;
+                    const sameTrig =
+                      Number.isFinite(curTriggerTs) &&
+                      curTriggerTs > 0 &&
+                      Number.isFinite(cycleTrig) &&
+                      cycleTrig > 0 &&
+                      cycleTrig === curTriggerTs;
+                    const cycleOk =
+                      Number.isFinite(cycleEnterTs) &&
+                      cycleEnterTs > 0 &&
+                      sameTrig &&
+                      !!cycleSide &&
+                      !!curSide &&
+                      cycleSide === curSide;
+
+                    if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
+                      finalStage = "watch";
+                      payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                      payload.flags.forced_watch_missing_trigger = true;
+                    } else if (!cycleOk) {
+                      finalStage = "enter_now";
+                      payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                      payload.flags.forced_enter_now_gate = true;
+                    }
+                  }
+
+                  const tsNow = Number(payload?.ts) || Date.now();
+                  if (finalStage === "enter_now") {
+                    const curTriggerTs = Number(payload?.trigger_ts);
+                    const curSide = sideFromStateOrScores(payload);
+                    payload.kanban_cycle_enter_now_ts = tsNow;
+                    payload.kanban_cycle_trigger_ts =
+                      Number.isFinite(curTriggerTs) && curTriggerTs > 0 ? curTriggerTs : null;
+                    payload.kanban_cycle_side = curSide != null ? String(curSide) : null;
+                  } else if (
+                    finalStage === "hold" ||
+                    finalStage === "defend" ||
+                    finalStage === "trim" ||
+                    finalStage === "exit"
+                  ) {
+                    payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts || null;
+                    payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts || null;
+                    payload.kanban_cycle_side = existing?.kanban_cycle_side || null;
+                  } else {
+                    payload.kanban_cycle_enter_now_ts = null;
+                    payload.kanban_cycle_trigger_ts = null;
+                    payload.kanban_cycle_side = null;
+                  }
+                } catch (e) {
+                  console.error(`[KANBAN] capture-promote lifecycle gate failed for ${ticker}:`, String(e));
+                }
+
+                payload.kanban_stage = finalStage;
                 if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
                   payload.prev_kanban_stage = String(prevStage);
                   payload.prev_kanban_stage_ts = Number(payload?.ts) || Date.now();
