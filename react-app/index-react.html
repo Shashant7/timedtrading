@@ -11190,6 +11190,7 @@
       // ─────────────────────────────────────────────────────────────
       function EarlyMoversPanel({ tickers = [], onSelectTicker = null }) {
         const now = Date.now();
+        const laneScrollTopRef = React.useRef({});
         
         // Categorize tickers into Kanban columns using Worker-provided stage (with client-side fallback)
         const categories = React.useMemo(() => {
@@ -11480,7 +11481,19 @@
         }
         
         // Kanban column component (always render, even if empty)
-        const KanbanColumn = ({ title, subtitle, count, icon, color, items, showProgress, showOpen, showDetails }) => {
+        const KanbanColumn = ({ laneKey, title, subtitle, count, icon, color, items, showProgress, showOpen, showDetails }) => {
+          const listRef = React.useRef(null);
+          
+          // Restore scroll position when re-rendering (prevents auto-jump when Right Rail opens)
+          React.useLayoutEffect(() => {
+            try {
+              const el = listRef.current;
+              if (!el) return;
+              const saved = laneScrollTopRef.current[laneKey];
+              if (Number.isFinite(saved)) el.scrollTop = saved;
+            } catch {}
+          });
+
           return (
             <div className="flex-1 min-w-[170px] max-w-[250px]">
               <div className={`p-2 rounded-t-lg border-t-2 ${color} bg-[#0f1630]`}>
@@ -11496,7 +11509,18 @@
                   <div className="text-[9px] text-[#6b7a9f]">{subtitle}</div>
                 )}
               </div>
-              <div className="border-l border-r border-b border-[#26325f] rounded-b-lg bg-[#0a0f24] p-2 max-h-[600px] overflow-y-auto">
+              <div
+                ref={listRef}
+                className="border-l border-r border-b border-[#26325f] rounded-b-lg bg-[#0a0f24] p-2 max-h-[600px] overflow-y-auto"
+                style={{ overflowAnchor: "none" }}
+                onScroll={() => {
+                  try {
+                    const el = listRef.current;
+                    if (!el) return;
+                    laneScrollTopRef.current[laneKey] = el.scrollTop;
+                  } catch {}
+                }}
+              >
                 {Array.isArray(items) && items.length > 0 ? (
                   <div className="space-y-2">
                     {items.slice(0, 50).map(t => renderCompactCard(t, showProgress, showOpen, showDetails))}
@@ -11524,6 +11548,7 @@
             <div className="overflow-x-auto">
               <div className="flex gap-2 pb-1.5 min-w-max">
                 <KanbanColumn
+                  laneKey="watch"
                   title="Watch"
                   subtitle="Momentum-aligned, not entry yet"
                   count={watch.length}
@@ -11532,6 +11557,7 @@
                   items={watch}
                 />
                 <KanbanColumn
+                  laneKey="flip_watch"
                   title="Flip Watch"
                   subtitle="About to flip to momentum"
                   count={flipWatch.length}
@@ -11540,6 +11566,7 @@
                   items={flipWatch}
                 />
                 <KanbanColumn
+                  laneKey="just_flipped"
                   title="Just Flipped"
                   subtitle="Entered momentum recently"
                   count={justFlipped.length}
@@ -11548,6 +11575,7 @@
                   items={justFlipped}
                 />
                 <KanbanColumn
+                  laneKey="enter_now"
                   title="Enter Now"
                   subtitle="High-confidence entries"
                   count={enterNow.length}
@@ -11557,6 +11585,7 @@
                   showDetails={true}
                 />
                 <KanbanColumn
+                  laneKey="hold"
                   title="Hold"
                   subtitle="Open positions, early phase"
                   count={hold.length}
@@ -11568,6 +11597,7 @@
                   showDetails={true}
                 />
                 <KanbanColumn
+                  laneKey="trim"
                   title="Trim"
                   subtitle="High completion, take profit"
                   count={trim.length}
@@ -11579,6 +11609,7 @@
                   showDetails={true}
                 />
                 <KanbanColumn
+                  laneKey="exit"
                   title="Exit"
                   subtitle="Close position"
                   count={exit.length}
@@ -11590,6 +11621,7 @@
                   showDetails={true}
                 />
                 <KanbanColumn
+                  laneKey="archive"
                   title="Archive"
                   subtitle="Resolved / not actionable"
                   count={archive.length}
@@ -17671,23 +17703,33 @@
 
                     {/* Right Rail - Detail View (slides in from right, fixed to viewport) */}
                     {selectedTicker && (
-                      <div className="fixed right-0 top-0 w-full sm:w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
-                        <OverlayPortal
-                          selectedTicker={selectedTicker}
-                          tickers={tickers}
-                          data={data}
-                          onClose={() => handleTickerSelect(null)}
+                      <>
+                        {/* Backdrop: click outside closes Right Rail */}
+                        <div
+                          className="fixed inset-0 z-30"
+                          onMouseDown={() => handleTickerSelect(null)}
+                        />
+                        <div
+                          className="fixed right-0 top-0 w-full sm:w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto"
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
+                          <OverlayPortal
+                            selectedTicker={selectedTicker}
+                            tickers={tickers}
+                            data={data}
+                            onClose={() => handleTickerSelect(null)}
                             rankedTickers={rankedTickers}
                             rankedTickerPositions={rankedTickerPositions}
-                          rankAsOfMs={rankAsOfMs}
-                          sectors={sectors}
-                          onJourneyHover={setJourneyHoverPoint}
-                          onJourneySelect={(p) => {
-                            setJourneySelectedPoint(p);
-                          }}
-                          selectedJourneyTs={journeySelectedPoint?.ts ?? null}
-                        />
-                      </div>
+                            rankAsOfMs={rankAsOfMs}
+                            sectors={sectors}
+                            onJourneyHover={setJourneyHoverPoint}
+                            onJourneySelect={(p) => {
+                              setJourneySelectedPoint(p);
+                            }}
+                            selectedJourneyTs={journeySelectedPoint?.ts ?? null}
+                          />
+                        </div>
+                      </>
                     )}
 
                   </div>
