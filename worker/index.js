@@ -2636,11 +2636,6 @@ function getTradeDirection(state) {
   return null;
 }
 
-function isOpenTradeStatus(s) {
-  const st = String(s || "OPEN").toUpperCase();
-  return st === "OPEN" || st === "TP_HIT_TRIM";
-}
-
 function computeTradePnlComponents(trade, tickerData) {
   const direction = String(trade?.direction || "").toUpperCase();
   const isLong = direction === "LONG";
