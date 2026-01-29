@@ -7484,99 +7484,23 @@
 
         return (
           <>
-            {/* Welcome Modals */}
-            {showWelcomeDashboard && (
-              <DashboardWelcomeModal onClose={handleWelcomeDashboardClose} />
-            )}
-            {showWelcomeTracker && (
-              <TrackerWelcomeModal onClose={handleWelcomeTrackerClose} />
-            )}
-
-            <div className="min-h-screen p-4">
-              <div className="w-full mx-auto px-2">
-                {/* Navigation */}
-                <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-sm text-[#93a4d6]">Navigate:</span>
-                    <a
-                      href="index-react.html"
-                      className="px-3 py-1.5 rounded bg-[#0f1630] border border-[#26325f] text-sm hover:bg-[#1a2550] transition-colors"
-                    >
-                      Dashboard
-                    </a>
-                    <a
-                      href="simulation-dashboard.html"
-                      className="px-3 py-1.5 rounded bg-blue-500/20 border border-blue-500 text-sm text-blue-400 font-semibold"
-                    >
-                      Trade Tracker
-                    </a>
-                    <button
-                      onClick={() => setShowWelcomeDashboard(true)}
-                      className="px-3 py-1.5 rounded bg-purple-500/20 border border-purple-500 text-sm text-purple-400 font-semibold hover:bg-purple-500/30 transition-colors"
-                      title="Show Dashboard Guide (Trading Concepts)"
-                    >
-                      📚 Dashboard Guide
-                    </button>
-                    <button
-                      onClick={() => setShowWelcomeTracker(true)}
-                      className="px-3 py-1.5 rounded bg-blue-500/20 border border-blue-500 text-sm text-blue-400 font-semibold hover:bg-blue-500/30 transition-colors"
-                      title="Show Trade Tracker Guide (Simulated Trades)"
-                    >
-                      📊 Trade Tracker Guide
-                    </button>
-                  </div>
-                </nav>
-
-                {/* Version Filter */}
-                <div className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-sm text-[#93a4d6]">
-                      Model Version:
-                    </span>
-                    <select
-                      value={selectedVersion}
-                      onChange={(e) => setSelectedVersion(e.target.value)}
-                      className="px-3 py-1.5 rounded bg-[#0f1630] border border-[#26325f] text-sm text-white hover:bg-[#1a2550] transition-colors"
-                    >
-                      <option value="all">
-                        All Versions ({trades.length} trades)
-                      </option>
-                      {availableVersions.map((v) => {
-                        const count = trades.filter(
-                          (t) => (t.scriptVersion || "unknown") === v,
-                        ).length;
-                        return (
-                          <option key={v} value={v}>
-                            {v} ({count} trades)
-                          </option>
-                        );
-                      })}
-                    </select>
-                    {selectedVersion !== "all" && (
-                      <span className="text-xs text-[#93a4d6]">
-                        Showing {filteredTrades.length} of {trades.length}{" "}
-                        trades
-                      </span>
-                    )}
-                  </div>
-                </div>
-
+            <div className="min-h-screen px-4 py-6">
+              <div className="w-full mx-auto max-w-[1320px]">
                 {/* Header */}
                 <header className="mb-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h1 className="text-3xl font-bold">
-                      Timed Trading — Trade Tracker
-                    </h1>
-                    <div className="flex items-center gap-4">
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <h1 className="text-3xl font-bold">
+                        Timed Trading — Trade Tracker
+                      </h1>
+                      <div className="text-xs text-[#93a4d6] mt-1">
+                        Proof Center • Trades • Alerts
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-wrap">
                       {(loading || tradesLoading) && (
                         <div className="loading-spinner"></div>
                       )}
-                      <div className="px-3 py-2 rounded-lg border border-[#26325f] bg-[#0f1630] text-sm text-[#93a4d6]">
-                        Trade Journey
-                        <span className="ml-2 text-xs px-2 py-0.5 rounded bg-blue-500/20 border border-blue-500/30 text-blue-300">
-                          Ledger
-                        </span>
-                      </div>
                       <button
                         onClick={() => {
                           refetch();
@@ -7585,13 +7509,6 @@
                         className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
                       >
                         Refresh
-                      </button>
-                      <button
-                        onClick={fetchDailySummary}
-                        disabled={summaryLoading}
-                        className="px-4 py-2 bg-blue-500/20 border border-blue-500 rounded-lg hover:bg-blue-500/30 transition-colors text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {summaryLoading ? "Loading..." : "📊 Daily Summary"}
                       </button>
                       {lastUpdate && (
                         <span className="text-sm text-[#93a4d6]">
@@ -7609,12 +7526,6 @@
                     </div>
                   </div>
                 </header>
-
-                <PerformanceDashboard
-                  mode={trackerMode}
-                  ledgerSummary={ledgerSummary}
-                  analytics={analytics}
-                />
 
                 {/* Trade Journey (D1-backed) */}
                 <div className="mb-6 bg-[#121a33] border border-[#26325f] rounded-xl p-4">
