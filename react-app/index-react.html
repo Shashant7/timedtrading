@@ -12129,8 +12129,17 @@
 
               {/* Collapsed summary row */}
               <div className="flex items-center justify-between text-[10px] text-[#6b7a9f] mb-1">
-                <span className="text-[9px]">
-                  {dirEmoji} {dir}
+                <span
+                  className={
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide border " +
+                    (dir === "LONG"
+                      ? "bg-cyan-400/15 text-cyan-200 border-cyan-300/50 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]"
+                      : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-300/50 shadow-[0_0_0_1px_rgba(217,70,239,0.18)]")
+                  }
+                  title="Directional bias"
+                >
+                  <span className="opacity-95">{dirEmoji}</span>
+                  <span>{dir}</span>
                 </span>
                 {(() => {
                   const up = Number(dayChg || dayPct || 0) >= 0;
@@ -12152,7 +12161,11 @@
                   {/* Direction + Badges */}
                   <div className="flex items-center gap-1 mb-1 flex-wrap">
                     <span
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${isBullish ? "bg-green-500/20 text-green-300" : "bg-red-500/20 text-red-300"}`}
+                      className={`px-2 py-0.5 rounded text-[10px] font-extrabold tracking-wide border ${
+                        isBullish
+                          ? "bg-cyan-400/15 text-cyan-200 border-cyan-300/50 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]"
+                          : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-300/50 shadow-[0_0_0_1px_rgba(217,70,239,0.18)]"
+                      }`}
                     >
                       {dirEmoji} {dir}
                     </span>

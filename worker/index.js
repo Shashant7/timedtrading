@@ -4126,7 +4126,12 @@ async function processTradeSimulation(
     const stageTransition = stage && stage !== prevStage;
     const isEnter = stageTransition && stage === "enter_now";
     const isTrim = stageTransition && stage === "trim";
-    const isExit = stageTransition && stage === "exit";
+    // IMPORTANT:
+    // Exiting only on stage *transition* can get stuck if we miss the first "enter exit lane"
+    // ingest, or the exit is throttled by cooldown. If a ticker remains in the EXIT lane while
+    // the ledger trade is still OPEN/TP_HIT_TRIM, we should re-attempt the exit on subsequent
+    // ingests (cooldown prevents churn).
+    const isExit = stage === "exit";
 
     // Idempotency / anti-flap guards (per ticker)
     const execKey = `timed:exec:last:${sym}`;
@@ -4287,8 +4292,12 @@ async function processTradeSimulation(
       }
     };
 
-    // 1) EXIT: close any open trade on transition into EXIT lane
-    if (isExit && exitCooldownOk && openTrade) {
+    // Market is closed on weekends — never execute TP trims/exits on Sat/Sun.
+    // (We still allow SL evaluation elsewhere to be conservative.)
+    const weekendNow = isNyWeekend(Date.now());
+
+    // 1) EXIT: close any open trade while in EXIT lane
+    if (isExit && !weekendNow && exitCooldownOk && openTrade) {
       await closeTradeAtPrice(openTrade, pxNow, reason);
       await kvPutJSON(KV, execKey, {
         ...execState,
@@ -4297,7 +4306,7 @@ async function processTradeSimulation(
     }
 
     // 2) TRIM: apply progressive trim on transition into TRIM lane
-    if (isTrim && trimCooldownOk && openTrade && Number.isFinite(pxNow)) {
+    if (isTrim && !weekendNow && trimCooldownOk && openTrade && Number.isFinite(pxNow)) {
       const comp = Number(tickerData?.completion);
       const phase = Number(tickerData?.phase_pct);
       // progressive ladder driven by lifecycle: 25% -> 50% -> 75%
