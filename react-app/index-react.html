@@ -12127,11 +12127,11 @@
                 </div>
               </div>
 
-              {/* Collapsed summary row */}
-              <div className="flex items-center justify-between text-[10px] text-[#6b7a9f] mb-1">
+              {/* Collapsed summary row (two-line, no overlap) */}
+              <div className="grid grid-cols-[auto,1fr] gap-x-2 gap-y-1 items-start text-[10px] text-[#6b7a9f] mb-1">
                 <span
                   className={
-                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide border " +
+                    "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide border whitespace-nowrap " +
                     (dir === "LONG"
                       ? "bg-cyan-400/15 text-cyan-200 border-cyan-300/50 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]"
                       : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-300/50 shadow-[0_0_0_1px_rgba(217,70,239,0.18)]")
@@ -12141,17 +12141,28 @@
                   <span className="opacity-95">{dirEmoji}</span>
                   <span>{dir}</span>
                 </span>
+
                 {(() => {
                   const up = Number(dayChg || dayPct || 0) >= 0;
                   const cls = up ? "text-sky-300" : "text-orange-300";
                   const sign = up ? "+" : "-";
+                  const pxText = Number.isFinite(price) ? `$${price.toFixed(2)}` : "—";
+                  const chgText = Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : null;
+                  const pctText = Number.isFinite(dayPct)
+                    ? `${sign}${Math.abs(dayPct).toFixed(2)}%`
+                    : null;
                   return (
-                    <span className={cls}>
-                      {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
-                      {Number.isFinite(dayChg) || Number.isFinite(dayPct)
-                        ? ` • ${Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : "—"}${Number.isFinite(dayPct) ? ` (${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""}`
-                        : ""}
-                    </span>
+                    <div className={`min-w-0 text-right ${cls}`}>
+                      <div className="font-semibold">{pxText}</div>
+                      {chgText || pctText ? (
+                        <div className="text-[9px] opacity-90 truncate">
+                          {chgText || "—"}
+                          {pctText ? ` (${pctText})` : ""}
+                        </div>
+                      ) : (
+                        <div className="text-[9px] opacity-60">—</div>
+                      )}
+                    </div>
                   );
                 })()}
               </div>
