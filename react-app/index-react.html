@@ -11810,7 +11810,7 @@
           // Be tolerant: sometimes timestamps are seconds, sometimes ms.
           const prevLaneTs =
             Number.isFinite(prevLaneTsRaw) && prevLaneTsRaw > 0
-              ? prevLaneTsRaw < 2e12
+              ? prevLaneTsRaw < 1e12
                 ? prevLaneTsRaw * 1000
                 : prevLaneTsRaw
               : NaN;
@@ -11820,6 +11820,36 @@
             stage !== "archive" &&
             Number.isFinite(prevLaneTs) &&
             Date.now() - prevLaneTs < 30 * 60 * 1000; // 30m
+
+          // Transition direction (forward progression vs backtrack) for styling.
+          const laneOrder = {
+            watch: 0,
+            flip_watch: 1,
+            just_flipped: 2,
+            enter_now: 3,
+            hold: 4,
+            defend: 5,
+            trim: 6,
+            exit: 7,
+            archive: 8,
+          };
+          const prevIdx =
+            prevLane && laneOrder[prevLane] != null
+              ? Number(laneOrder[prevLane])
+              : -1;
+          const curIdx =
+            stage && laneOrder[stage] != null ? Number(laneOrder[stage]) : -1;
+          const isBacktrack =
+            movedRecently && prevIdx >= 0 && curIdx >= 0 && curIdx < prevIdx;
+          const isForward =
+            movedRecently && prevIdx >= 0 && curIdx >= 0 && curIdx > prevIdx;
+          const transitionCardClass = movedRecently
+            ? isBacktrack
+              ? "border-fuchsia-400/60 ring-1 ring-fuchsia-400/30 shadow-[0_0_0_1px_rgba(217,70,239,0.14)]"
+              : isForward
+                ? "border-white/40 ring-1 ring-white/15 shadow-[0_0_0_1px_rgba(255,255,255,0.10)]"
+                : "border-cyan-400/60 ring-1 ring-cyan-400/30 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]"
+            : null;
 
           // Archive meta (worker-provided)
           const km =
@@ -11848,7 +11878,7 @@
               className={
                 "w-full text-left p-2 rounded border bg-[#0f1630] hover:bg-[#121a33] transition-all " +
                 (movedRecently
-                  ? "border-cyan-400/60 ring-1 ring-cyan-400/30 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]"
+                  ? transitionCardClass
                   : "border-[#26325f] hover:border-[#3a4a7f]")
               }
             >
@@ -11869,7 +11899,11 @@
                         className={
                           "px-1 py-0.5 rounded text-[9px] font-semibold border whitespace-nowrap " +
                           (movedRecently
-                            ? "bg-cyan-500/15 text-cyan-200 border-cyan-400/30"
+                            ? isBacktrack
+                              ? "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30"
+                              : isForward
+                                ? "bg-white/10 text-white border-white/20"
+                                : "bg-cyan-500/15 text-cyan-200 border-cyan-400/30"
                             : "bg-white/5 text-[#9fb0df] border-white/10")
                         }
                         title={`Previous lane: ${label}`}

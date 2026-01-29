@@ -12614,9 +12614,21 @@ export default {
             // ignore
           }
           try {
+            const prevStage = data?.kanban_stage != null ? String(data.kanban_stage) : null;
             const stage = classifyKanbanStage(data);
             data.kanban_stage = stage;
             data.kanban_meta = deriveKanbanMeta(data, stage);
+            // Track lane transitions even on read-time recompute (so UI can show prev lane + highlight).
+            if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
+              data.prev_kanban_stage = String(prevStage);
+              data.prev_kanban_stage_ts = Date.now();
+              try {
+                ctx.waitUntil(d1UpsertTickerLatest(env, ticker, data));
+                ctx.waitUntil(d1UpsertTickerIndex(env, ticker, data?.ts));
+              } catch {
+                // ignore
+              }
+            }
           } catch {
             // ignore
           }
@@ -12788,9 +12800,21 @@ export default {
                 // ignore
               }
               try {
+                const prevStage = obj?.kanban_stage != null ? String(obj.kanban_stage) : null;
                 const stage = classifyKanbanStage(obj);
                 obj.kanban_stage = stage;
                 obj.kanban_meta = deriveKanbanMeta(obj, stage);
+                // Track lane transitions even if no new ingests (persist back into D1 so UI can highlight).
+                if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
+                  obj.prev_kanban_stage = String(prevStage);
+                  obj.prev_kanban_stage_ts = Date.now();
+                  try {
+                    ctx.waitUntil(d1UpsertTickerLatest(env, sym, obj));
+                    ctx.waitUntil(d1UpsertTickerIndex(env, sym, obj?.ts));
+                  } catch {
+                    // ignore
+                  }
+                }
               } catch {
                 // ignore
               }
