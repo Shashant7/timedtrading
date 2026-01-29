@@ -409,6 +409,8 @@
         const [lastUpdate, setLastUpdate] = useState(null);
         const [versionInfo, setVersionInfo] = useState(null);
         const [tickersWithoutScores, setTickersWithoutScores] = useState([]);
+        // Local fallback for Kanban prev-lane tracking (covers cases where the backend doesn't stamp prev_kanban_stage).
+        const kanbanPrevLocalRef = React.useRef({});
 
         const fetchData = useCallback(async () => {
           try {
@@ -463,6 +465,32 @@
                 tickersJson.ok && tickersJson.tickers
                   ? tickersJson.tickers
                   : [];
+
+              // Local prev-lane fallback (so transition marker/glow always works).
+              // Only stamps when backend didn't provide prev_kanban_stage.
+              try {
+                const prevMap =
+                  kanbanPrevLocalRef.current &&
+                  typeof kanbanPrevLocalRef.current === "object"
+                    ? kanbanPrevLocalRef.current
+                    : {};
+                for (const [symRaw, objRaw] of Object.entries(tickerData)) {
+                  const sym = String(symRaw || "").toUpperCase();
+                  const obj = objRaw && typeof objRaw === "object" ? objRaw : null;
+                  if (!sym || !obj) continue;
+                  const stage = obj.kanban_stage != null ? String(obj.kanban_stage) : "";
+                  if (!stage) continue;
+                  const prev = prevMap[sym] != null ? String(prevMap[sym]) : "";
+                  if (prev && prev !== stage && (obj.prev_kanban_stage == null || String(obj.prev_kanban_stage).trim() === "")) {
+                    obj.prev_kanban_stage = prev;
+                    obj.prev_kanban_stage_ts = Date.now();
+                  }
+                  prevMap[sym] = stage;
+                }
+                kanbanPrevLocalRef.current = prevMap;
+              } catch {
+                // ignore
+              }
 
               // Log version information for debugging
               const dataVersion = dataJson.dataVersion || "unknown";
@@ -10562,10 +10590,10 @@
         };
 
         return (
-          <div className="space-y-3 mb-4">
+          <div className="space-y-2 mb-2">
             {/* Row 1: Horizon + Kanban Stages */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-y-3 lg:gap-x-1">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-y-2 lg:gap-x-2">
+              <div className="space-y-1">
                 <div className="text-[10px] text-[#6b7a9f] font-semibold">
                   Horizon
                 </div>
@@ -10602,7 +10630,7 @@
                   Additional groups (Quadrants / Premium / Patterns) removed to reduce noise. */}
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <div className="text-[10px] text-[#6b7a9f] font-semibold">
                   Kanban Stages
                 </div>
@@ -10674,8 +10702,8 @@
             </div>
 
             {/* Row 2: Groups + S&P Sectors */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-y-3 lg:gap-x-1">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-y-2 lg:gap-x-2">
+              <div className="space-y-1">
                 <div className="text-[10px] text-[#6b7a9f] font-semibold">
                   Groups
                 </div>
@@ -10729,7 +10757,7 @@
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <div className="text-[10px] text-[#6b7a9f] font-semibold">
                   S&amp;P Sectors
                 </div>
@@ -10851,6 +10879,49 @@
         storageKey = "timedTrading_activeMovesSnapshot_v1",
         title = "Active Moves (snapshot)",
       }) {
+        // Hover tooltip (replaces tiny default browser "title" tooltip)
+        const [hoverTip, setHoverTip] = React.useState(null);
+        const [hoverTipPos, setHoverTipPos] = React.useState({ x: 0, y: 0 });
+
+        const updateHoverTipPos = React.useCallback((e) => {
+          try {
+            const vw =
+              typeof window !== "undefined" ? Number(window.innerWidth) : 1200;
+            const vh =
+              typeof window !== "undefined" ? Number(window.innerHeight) : 800;
+            const MAX_W = 360;
+            const MAX_H = 220; // conservative clamp (multi-line tips)
+            const PAD = 12;
+            const x0 = Number(e?.clientX) || 0;
+            const y0 = Number(e?.clientY) || 0;
+            const x = Math.max(
+              PAD,
+              Math.min(x0 + 12, Math.max(PAD, vw - MAX_W - PAD)),
+            );
+            const y = Math.max(
+              PAD,
+              Math.min(y0 + 12, Math.max(PAD, vh - MAX_H - PAD)),
+            );
+            setHoverTipPos({ x, y });
+          } catch {
+            // ignore
+          }
+        }, []);
+
+        const showHoverTip = React.useCallback(
+          (text, e) => {
+            const t = String(text || "").trim();
+            if (!t) return;
+            updateHoverTipPos(e);
+            setHoverTip(t);
+          },
+          [updateHoverTipPos],
+        );
+
+        const hideHoverTip = React.useCallback(() => {
+          setHoverTip(null);
+        }, []);
+
         const [snap, setSnap] = React.useState(() => {
           try {
             const raw = localStorage.getItem(storageKey);
@@ -11050,19 +11121,20 @@
         }
 
         return (
-          <div className="space-y-4">
-            {grouped.map((g) => (
-              <div key={`active-group-${g.group}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-[12px] font-bold text-[#e7ecff]">
-                    {g.group}
+          <>
+            <div className="space-y-4">
+              {grouped.map((g) => (
+                <div key={`active-group-${g.group}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[12px] font-bold text-[#e7ecff]">
+                      {g.group}
+                    </div>
+                    <div className="text-[11px] text-[#6b7a9f]">
+                      {g.items.length}
+                    </div>
                   </div>
-                  <div className="text-[11px] text-[#6b7a9f]">
-                    {g.items.length}
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
-                  {g.items.map((r) => {
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
+                    {g.items.map((r) => {
                     const mv = getMoveStatusInfo(r.t);
                     const dir = mv.side || getDirection(r.t)?.text || "";
                     const latest =
@@ -11150,7 +11222,8 @@
                           if (typeof onSelectTicker === "function")
                             onSelectTicker(r.sym);
                         }}
-                        title="Click to open in right rail"
+                        aria-label={`Open ${r.sym} in right rail`}
+                        onMouseLeave={hideHoverTip}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
@@ -11179,7 +11252,14 @@
                               {statusChanged ? (
                                 <span
                                   className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${curMv.pillCls}`}
-                                  title="Live status differs from snapshot"
+                                  onMouseEnter={(e) =>
+                                    showHoverTip(
+                                      "Live status differs from snapshot",
+                                      e,
+                                    )
+                                  }
+                                  onMouseMove={updateHoverTipPos}
+                                  onMouseLeave={hideHoverTip}
                                 >
                                   Now: {curMv.icon} {curMv.status}
                                 </span>
@@ -11187,7 +11267,11 @@
                               {emojiText ? (
                                 <span
                                   className="px-2 py-0.5 rounded border border-[#26325f] bg-[#0f1630] text-[10px] font-semibold text-[#e7ecff]"
-                                  title={meTip || undefined}
+                                  onMouseEnter={(e) =>
+                                    meTip ? showHoverTip(meTip, e) : undefined
+                                  }
+                                  onMouseMove={updateHoverTipPos}
+                                  onMouseLeave={hideHoverTip}
                                 >
                                   {emojiText}
                                 </span>
@@ -11286,11 +11370,22 @@
                         </div>
                       </button>
                     );
-                  })}
+                    })}
+                  </div>
                 </div>
+              ))}
+            </div>
+
+            {hoverTip && (
+              <div
+                className="fixed z-[9999] max-w-[360px] pointer-events-none bg-[#0b1020]/95 backdrop-blur-sm border border-[#3a4aa0] rounded-lg shadow-2xl px-3 py-2 text-[12px] leading-snug text-[#e7ecff]"
+                style={{ left: hoverTipPos.x, top: hoverTipPos.y }}
+                role="tooltip"
+              >
+                {hoverTip}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         );
       }
 
@@ -11876,10 +11971,11 @@
               key={`kanban-${t.ticker}`}
               onClick={() => toggleExpanded(sym)}
               className={
-                "w-full text-left p-2 rounded border bg-[#0f1630] hover:bg-[#121a33] transition-all " +
+                // Match Viewport card feel (same surface + hover), with transition overlay applied.
+                "w-full text-left px-3 py-2 rounded-lg border bg-[#121a33] hover:bg-[#16224a] transition-all " +
                 (movedRecently
                   ? transitionCardClass
-                  : "border-[#26325f] hover:border-[#3a4a7f]")
+                  : "border-[#26325f] hover:border-[#3a4aa0]")
               }
             >
               {/* Header: Ticker + Status Badge */}
@@ -18712,44 +18808,62 @@
             <div className="min-h-screen p-0">
               {/* Light page gutter: avoid edge bleed but keep width for Kanban lanes (14" MBP). */}
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
-                {/* Navigation */}
-                <nav className="mb-4 p-3 bg-[#121a33] border border-[#26325f] rounded-lg">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-sm text-[#93a4d6]">Navigate:</span>
-                    <a
-                      href="index-react.html"
-                      className="px-3 py-1.5 rounded bg-blue-500/20 border border-blue-500 text-sm text-blue-400 font-semibold"
-                    >
-                      Dashboard
-                    </a>
-                    <a
-                      href="simulation-dashboard.html"
-                      className="px-3 py-1.5 rounded bg-[#0f1630] border border-[#26325f] text-sm hover:bg-[#1a2550] transition-colors"
-                    >
-                      Trade Tracker
-                    </a>
-                    <button
-                      onClick={() => setShowWelcomeDashboard(true)}
-                      className="px-3 py-1.5 rounded bg-purple-500/20 border border-purple-500 text-sm text-purple-400 font-semibold hover:bg-purple-500/30 transition-colors"
-                      title="Show Dashboard Guide (Trading Concepts)"
-                    >
-                      📚 Dashboard Guide
-                    </button>
-                    <button
-                      onClick={() => setShowWelcomeTracker(true)}
-                      className="px-3 py-1.5 rounded bg-blue-500/20 border border-blue-500 text-sm text-blue-400 font-semibold hover:bg-blue-500/30 transition-colors"
-                      title="Show Trade Tracker Guide (Simulated Trades)"
-                    >
-                      📊 Trade Tracker Guide
-                    </button>
-                  </div>
-                </nav>
-
                 {/* Header */}
-                <header className="mb-6">
-                  <div className="flex items-center justify-between mb-4">
+                <header className="mb-4">
+                  <div className="flex items-center justify-between gap-4 flex-wrap mb-2">
+                    <h1 className="text-3xl font-bold">Timed Trading</h1>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <a
+                        href="index-react.html"
+                        className="px-3 py-2 rounded-lg bg-blue-500/20 border border-blue-500 text-sm text-blue-300 font-semibold hover:bg-blue-500/30 transition-colors"
+                        title="Dashboard"
+                      >
+                        Dashboard
+                      </a>
+                      <a
+                        href="simulation-dashboard.html"
+                        className="px-3 py-2 rounded-lg bg-[#0f1630] border border-[#26325f] text-sm text-[#93a4d6] hover:text-white hover:bg-[#1a2550] transition-colors"
+                        title="Trade Tracker"
+                      >
+                        Trade Tracker
+                      </a>
+                      <button
+                        onClick={() => setShowWelcomeDashboard(true)}
+                        className="px-3 py-2 rounded-lg bg-purple-500/15 border border-purple-500/50 text-sm text-purple-300 font-semibold hover:bg-purple-500/25 transition-colors"
+                        title="Show Dashboard Guide (Trading Concepts)"
+                      >
+                        📚 Guide
+                      </button>
+                      <button
+                        onClick={() => setShowWelcomeTracker(true)}
+                        className="px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/50 text-sm text-blue-300 font-semibold hover:bg-blue-500/20 transition-colors"
+                        title="Show Trade Tracker Guide (Simulated Trades)"
+                      >
+                        📊 Tracker
+                      </button>
+                      <button
+                        onClick={refetch}
+                        className="px-3 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors text-sm"
+                        title="Refresh data"
+                      >
+                        Refresh
+                      </button>
+                      {lastUpdate && (
+                        <span className="text-sm text-[#93a4d6]">
+                          Updated {lastUpdate.toLocaleTimeString()}
+                        </span>
+                      )}
+                      {loading && <div className="loading-spinner"></div>}
+                      {error && (
+                        <div className="px-3 py-2 bg-red-500/20 border border-red-500 rounded-lg text-red-300 text-sm">
+                          Error: {error}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-4 flex-wrap">
-                      <h1 className="text-3xl font-bold">Timed Trading</h1>
                       <div className="flex gap-3 text-sm items-center flex-wrap">
                         <div className="px-3 py-1.5 rounded-lg bg-[#0f1630] border border-[#26325f]">
                           <span className="text-[#93a4d6]">Tickers: </span>
@@ -18792,29 +18906,10 @@
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      {loading && <div className="loading-spinner"></div>}
-                      {error && (
-                        <div className="px-4 py-2 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm">
-                          Error: {error}
-                        </div>
-                      )}
-                      <button
-                        onClick={refetch}
-                        className="px-4 py-2 bg-[#1a2550] border border-[#26325f] rounded-lg hover:bg-[#26325f] transition-colors"
-                      >
-                        Refresh
-                      </button>
-                      {lastUpdate && (
-                        <span className="text-sm text-[#93a4d6]">
-                          Updated {lastUpdate.toLocaleTimeString()}
-                        </span>
-                      )}
-                    </div>
                   </div>
 
                   {/* Global Search (applies to Action Center + Bubble Chart) */}
-                  <div className="mt-4 mb-4">
+                  <div className="mt-3 mb-3">
                     <input
                       type="text"
                       placeholder="Search tickers, filters, or conditions... (e.g., 'AAPL, GOOGL, TSLA' or 'top 40' or 'rank over 75')"
@@ -18844,8 +18939,8 @@
                   </div>
 
                   {/* Filter Groups (under Search, above Action Center) */}
-                  <div className="mt-2 mb-4 rounded-xl border border-[#26325f] bg-[#0f1630] p-3">
-                    <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                  <div className="mt-1 mb-3 rounded-xl border border-[#26325f] bg-[#0f1630] p-2">
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
                       <div className="text-xs font-semibold text-[#93a4d6]">
                         Filter groups
                       </div>
@@ -18866,9 +18961,13 @@
                         trades={trades}
                       />
                     ) : (
-                      <div className="text-[11px] text-[#6b7a9f]">
-                        Tip: use these to narrow the universe before scanning
-                        the Action Center.
+                      <div className="text-xs text-[#93a4d6] bg-[#121a33] border border-[#26325f] rounded-lg px-2 py-1">
+                        <span className="font-semibold text-yellow-300">Tip:</span>{" "}
+                        use these to narrow the universe before scanning the{" "}
+                        <span className="text-white font-semibold">
+                          Action Center
+                        </span>
+                        .
                       </div>
                     )}
                   </div>
