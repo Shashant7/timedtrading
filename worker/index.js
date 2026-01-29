@@ -4124,7 +4124,12 @@ async function processTradeSimulation(
     let portfolio = await getPortfolioState(KV);
 
     const stageTransition = stage && stage !== prevStage;
-    const isEnter = stageTransition && stage === "enter_now";
+    // IMPORTANT:
+    // Entering only on stage *transition* can miss entries if we don't ingest during the brief
+    // window where a ticker first enters ENTER_NOW. If the ticker remains in ENTER_NOW and there
+    // is still no open trade, we should re-attempt entry on subsequent ingests (cooldown + cycle guard
+    // prevent churn / duplicate entries).
+    const isEnter = stage === "enter_now";
     const isTrim = stageTransition && stage === "trim";
     // IMPORTANT:
     // Exiting only on stage *transition* can get stuck if we miss the first "enter exit lane"
@@ -4322,8 +4327,8 @@ async function processTradeSimulation(
       });
     }
 
-    // 3) ENTER: open trade on transition into ENTER_NOW lane
-    if (isEnter && enterCooldownOk && !sameEnterCycle) {
+    // 3) ENTER: open trade while in ENTER_NOW lane
+    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle) {
       // If we already have an open trade in the opposite direction, close it first (flip).
       if (
         openTrade &&
@@ -4340,7 +4345,7 @@ async function processTradeSimulation(
       }
     }
 
-    if (isEnter && enterCooldownOk && !sameEnterCycle && !openTrade) {
+    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade) {
       const entryPx = Number(entryPxCandidate);
       if (
         Number.isFinite(entryPx) &&

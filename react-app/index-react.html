@@ -6906,6 +6906,7 @@
 
       // Generate plain English action description
       function getActionDescription(ticker) {
+        const stage = String(ticker?.kanban_stage || "").trim().toLowerCase();
         const state = String(ticker.state || "");
         const phase = Number(ticker.phase_pct) || 0;
         const comp = completionForSize(ticker);
@@ -6925,6 +6926,47 @@
         const inCorridor = ent.corridor;
         const sqRelease = !!flags.sq30_release;
         const sqOn = !!flags.sq30_on;
+
+        // Lane-aware guidance: when the Kanban lane is explicit, keep the headline aligned
+        // with the lane so the UI doesn't contradict itself. Add phase/completion as caution.
+        if (stage === "enter_now" || stage === "just_flipped" || stage === "flip_watch") {
+          const late =
+            (Number.isFinite(phase) && phase > 0.7) ||
+            (Number.isFinite(comp) && comp > 0.8);
+          const cautionParts = [];
+          if (Number.isFinite(phase) && phase > 0.7)
+            cautionParts.push(`Phase ${(phase * 100).toFixed(0)}% (late-cycle)`);
+          if (Number.isFinite(comp) && comp > 0.8)
+            cautionParts.push(
+              `Completion ${(comp * 100).toFixed(0)}% (near target)`,
+            );
+          const caution =
+            cautionParts.length > 0 ? `Caution: ${cautionParts.join(" • ")}.` : "";
+
+          if (stage === "flip_watch") {
+            return {
+              action: late ? "Flip Watch (Late-cycle)" : "Flip Watch",
+              description: `Ticker is in the Flip Watch lane: momentum alignment is near and the system is watching for a flip into momentum. Wait for the flip / corridor confirmation before entering. ${caution}`.trim(),
+              color: "text-amber-300",
+              bg: "bg-amber-500/15",
+            };
+          }
+          if (stage === "just_flipped") {
+            return {
+              action: late ? "Just Flipped (Late-cycle)" : "Just Flipped",
+              description: `Ticker just flipped into momentum (recent corridor entry). Prefer waiting for the first pullback / corridor stabilization, then enter on confirmation. ${caution}`.trim(),
+              color: "text-cyan-300",
+              bg: "bg-cyan-500/15",
+            };
+          }
+          // enter_now
+          return {
+            action: late ? "Enter Now (Late-cycle)" : "Enter Now",
+            description: `Ticker is in the Enter Now lane: it meets momentum + quality gates for an entry candidate. If you have no open trade, the paper portfolio may enter when conditions persist (cooldowns apply). ${caution}`.trim(),
+            color: late ? "text-yellow-300" : "text-green-300",
+            bg: late ? "bg-yellow-500/15" : "bg-green-500/15",
+          };
+        }
 
         // High completion = near target, consider exit/trim
         if (comp > 0.8) {
