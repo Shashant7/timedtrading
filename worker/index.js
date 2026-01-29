@@ -2201,6 +2201,92 @@ function pct01(x) {
 // ─────────────────────────────────────────────────────────────
 
 const TRADE_SIZE = 1000; // $1000 per trade
+const PORTFOLIO_START_CASH = 100000;
+const MIN_TRADE_NOTIONAL = 1000;
+const MAX_TRADE_NOTIONAL = 5000;
+const PORTFOLIO_KEY = "timed:portfolio:v1";
+
+function clamp(x, lo, hi) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function computeTradeConfidence(tickerData) {
+  const t = tickerData && typeof tickerData === "object" ? tickerData : {};
+  const flags = t.flags && typeof t.flags === "object" ? t.flags : {};
+  const rank = Number(t.rank) || 0;
+  const rr =
+    Number(t.rr_now_likely) ||
+    Number(t.rr_entry_likely) ||
+    Number(t.rr) ||
+    0;
+  const h = Math.abs(Number(t.htf_score) || 0);
+  const l = Math.abs(Number(t.ltf_score) || 0);
+
+  // Rank is the strongest driver: 60→0, 90→1
+  const cRank = clamp((rank - 60) / 30, 0, 1);
+  // RR: 1.0→0, 2.5→1
+  const cRr = clamp((rr - 1.0) / 1.5, 0, 1);
+  // Scores: soft contribution
+  const cScore = clamp((h / 60) * 0.6 + (l / 35) * 0.4, 0, 1);
+  const bonus =
+    (flags.momentum_elite ? 0.08 : 0) +
+    (flags.thesis_match ? 0.08 : 0) +
+    (flags.sq30_release ? 0.04 : 0);
+
+  const confidence = clamp(0.55 * cRank + 0.25 * cRr + 0.2 * cScore + bonus, 0, 1);
+  return confidence;
+}
+
+async function getPortfolioState(KV) {
+  try {
+    const p = await kvGetJSON(KV, PORTFOLIO_KEY);
+    if (p && typeof p === "object" && Number.isFinite(Number(p.cash))) return p;
+  } catch {
+    // ignore
+  }
+  const now = Date.now();
+  return {
+    version: 1,
+    startCash: PORTFOLIO_START_CASH,
+    cash: PORTFOLIO_START_CASH,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+async function putPortfolioState(KV, p) {
+  try {
+    const now = Date.now();
+    const next = { ...(p || {}), updated_at: now };
+    if (!Number.isFinite(Number(next.startCash))) next.startCash = PORTFOLIO_START_CASH;
+    if (!Number.isFinite(Number(next.cash))) next.cash = Number(next.startCash) || PORTFOLIO_START_CASH;
+    await kvPutJSON(KV, PORTFOLIO_KEY, next);
+    return next;
+  } catch {
+    return p;
+  }
+}
+
+function tradeNotionalFromConfidence(confidence, cashAvailable) {
+  const base = MIN_TRADE_NOTIONAL + (MAX_TRADE_NOTIONAL - MIN_TRADE_NOTIONAL) * clamp(confidence, 0, 1);
+  const maxByCash = Number.isFinite(Number(cashAvailable)) ? Number(cashAvailable) : base;
+  const capped = Math.min(base, maxByCash, MAX_TRADE_NOTIONAL);
+  return clamp(capped, MIN_TRADE_NOTIONAL, MAX_TRADE_NOTIONAL);
+}
+
+function computeSharesForTrade(ticker, entryPrice, notional) {
+  const sym = String(ticker || "").toUpperCase();
+  const isFutures = FUTURES_SPECS[sym] || sym.endsWith("1!");
+  if (isFutures && FUTURES_SPECS[sym]) {
+    return { shares: 1, pointValue: FUTURES_SPECS[sym].pointValue };
+  }
+  const px = Number(entryPrice);
+  const n = Number(notional);
+  if (!Number.isFinite(px) || px <= 0 || !Number.isFinite(n) || n <= 0) return { shares: null, pointValue: 1 };
+  return { shares: n / px, pointValue: 1 };
+}
 
 // Futures contract specifications (point value per contract)
 const FUTURES_SPECS = {
@@ -2548,6 +2634,32 @@ function getTradeDirection(state) {
   if (s.includes("BULL")) return "LONG";
   if (s.includes("BEAR")) return "SHORT";
   return null;
+}
+
+function isOpenTradeStatus(s) {
+  const st = String(s || "OPEN").toUpperCase();
+  return st === "OPEN" || st === "TP_HIT_TRIM";
+}
+
+function computeTradePnlComponents(trade, tickerData) {
+  const direction = String(trade?.direction || "").toUpperCase();
+  const isLong = direction === "LONG";
+  const entryPrice = Number(trade?.entryPrice);
+  const currentPrice = Number(tickerData?.price ?? trade?.currentPrice);
+  const shares = Number(trade?.shares);
+  const pointValue = Number(trade?.pointValue) || 1;
+  const trimmedPct = clamp(Number(trade?.trimmedPct || 0), 0, 1);
+  const remainingPct = Math.max(0, 1 - trimmedPct);
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(currentPrice) || !Number.isFinite(shares)) {
+    return { pnl: null, pnlPct: null, realized: Number(trade?.realizedPnl || 0) || 0, unrealized: null };
+  }
+  const dirSign = isLong ? 1 : -1;
+  const unrealized = (currentPrice - entryPrice) * shares * pointValue * remainingPct * dirSign;
+  const realized = Number(trade?.realizedPnl || 0) || 0;
+  const pnl = realized + unrealized;
+  const notional = Number(trade?.notional) || (Number.isFinite(entryPrice) ? entryPrice * shares : null);
+  const pnlPct = Number.isFinite(notional) && notional !== 0 ? (pnl / notional) * 100 : null;
+  return { pnl, pnlPct, realized, unrealized };
 }
 
 // Helper: Score TP level for intelligent selection
@@ -3846,19 +3958,284 @@ async function processTradeSimulation(
     const tradesKey = "timed:trades:all";
     const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
 
-    // Get direction
+    const sym = String(ticker || "").toUpperCase();
+    const stage = String(tickerData?.kanban_stage || "").trim().toLowerCase();
+    const prevStage = String(prevData?.kanban_stage || "").trim().toLowerCase();
     const direction = getTradeDirection(tickerData.state);
     if (!direction) return;
 
-    // Check for existing open trade
-    const existingOpenTrade = allTrades.find(
-      (t) =>
-        t.ticker === ticker &&
-        t.direction === direction &&
-        (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM")
+    let openTrade = allTrades.find(
+      (t) => String(t?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(t?.status)
     );
+    const openTradeDir = openTrade && String(openTrade.direction || "").toUpperCase();
+    const now = Date.now();
 
-    if (existingOpenTrade) {
+    // Portfolio (cash gating + bookkeeping)
+    let portfolio = await getPortfolioState(KV);
+
+    const stageTransition = stage && stage !== prevStage;
+    const isEnter = stageTransition && stage === "enter_now";
+    const isTrim = stageTransition && stage === "trim";
+    const isExit = stageTransition && stage === "exit";
+
+    // Idempotency / anti-flap guards (per ticker)
+    const execKey = `timed:exec:last:${sym}`;
+    const execState = (await kvGetJSON(KV, execKey)) || {};
+    const lastEnterMs = Number(execState.lastEnterMs);
+    const lastTrimMs = Number(execState.lastTrimMs);
+    const lastExitMs = Number(execState.lastExitMs);
+    const lastEnterTriggerTs = Number(execState.lastEnterTriggerTs);
+    const lastEnterSide = execState.lastEnterSide != null ? String(execState.lastEnterSide) : null;
+    const curTriggerTs = Number(tickerData?.trigger_ts);
+    const enterCooldownOk = !Number.isFinite(lastEnterMs) || now - lastEnterMs >= 10 * 60 * 1000; // 10m
+    const trimCooldownOk = !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
+    const exitCooldownOk = !Number.isFinite(lastExitMs) || now - lastExitMs >= 5 * 60 * 1000; // 5m
+    const sameEnterCycle =
+      Number.isFinite(curTriggerTs) &&
+      curTriggerTs > 0 &&
+      Number.isFinite(lastEnterTriggerTs) &&
+      lastEnterTriggerTs > 0 &&
+      lastEnterTriggerTs === curTriggerTs &&
+      !!lastEnterSide &&
+      lastEnterSide === direction;
+
+    const pxNow = Number(tickerData?.price);
+    const entryPxCandidate =
+      Number(tickerData?.entry_price) ||
+      Number(tickerData?.entry_ref) ||
+      Number(tickerData?.trigger_price) ||
+      pxNow ||
+      null;
+
+    const move = tickerData?.move_status && typeof tickerData.move_status === "object" ? tickerData.move_status : null;
+    const reasons = Array.isArray(move?.reasons) ? move.reasons : [];
+    const reason = reasons.length > 0 ? String(reasons[0]) : stage ? `KANBAN_${stage.toUpperCase()}` : "KANBAN";
+
+    const persistTrades = async () => {
+      allTrades.sort((a, b) => {
+        const timeA = new Date(a.entryTime || 0).getTime();
+        const timeB = new Date(b.entryTime || 0).getTime();
+        return timeB - timeA;
+      });
+      await kvPutJSON(KV, tradesKey, allTrades);
+    };
+
+    const closeTradeAtPrice = async (trade, closePrice, closeReason) => {
+      const p = Number(closePrice);
+      if (!Number.isFinite(p) || p <= 0) return;
+      const trimmed = clamp(Number(trade.trimmedPct || 0), 0, 1);
+      const remainingPct = Math.max(0, 1 - trimmed);
+      const shares = Number(trade.shares);
+      if (!Number.isFinite(shares)) return;
+      const remainingShares = shares * remainingPct;
+
+      const dirSign = String(trade.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+      const pnlRemaining = (p - Number(trade.entryPrice)) * remainingShares * (Number(trade.pointValue) || 1) * dirSign;
+      trade.realizedPnl = Number(trade.realizedPnl || 0) + pnlRemaining;
+
+      const ev = {
+        type: "EXIT",
+        timestamp: new Date().toISOString(),
+        price: p,
+        shares: remainingShares,
+        value: p * remainingShares,
+        reason: closeReason,
+        pnl_realized: pnlRemaining,
+        note: `Exit at $${p.toFixed(2)} (${closeReason})`,
+      };
+      trade.history = Array.isArray(trade.history) ? [...trade.history, ev] : [ev];
+
+      trade.exitReason = closeReason;
+      trade.exitPrice = p;
+      trade.status = trade.realizedPnl >= 0 ? "WIN" : "LOSS";
+      trade.pnl = trade.realizedPnl;
+      trade.pnlPct =
+        Number.isFinite(Number(trade.notional)) && Number(trade.notional) > 0
+          ? (trade.pnl / Number(trade.notional)) * 100
+          : null;
+      trade.lastUpdate = new Date().toISOString();
+
+      // Portfolio cash increases by proceeds
+      portfolio.cash = Number(portfolio.cash) + p * remainingShares;
+
+      // Persist to D1 ledger best-effort
+      if (env) {
+        d1UpsertTrade(env, trade).catch(() => {});
+        if (trade?.id) d1InsertTradeEvent(env, trade.id, ev).catch(() => {});
+      }
+    };
+
+    const trimTradeToPct = async (trade, targetTrimPct, trimPrice, trimReason) => {
+      const p = Number(trimPrice);
+      if (!Number.isFinite(p) || p <= 0) return;
+      const oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
+      const tgt = clamp(Number(targetTrimPct), 0, 0.95);
+      if (tgt <= oldTrim + 1e-6) return;
+      const delta = tgt - oldTrim;
+      const shares = Number(trade.shares);
+      if (!Number.isFinite(shares)) return;
+      const trimShares = shares * delta;
+
+      const dirSign = String(trade.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+      const pnlRealized = (p - Number(trade.entryPrice)) * trimShares * (Number(trade.pointValue) || 1) * dirSign;
+      trade.realizedPnl = Number(trade.realizedPnl || 0) + pnlRealized;
+      trade.trimmedPct = tgt;
+      trade.status = tgt > 0 ? "TP_HIT_TRIM" : "OPEN";
+
+      const ev = {
+        type: "TRIM",
+        timestamp: new Date().toISOString(),
+        price: p,
+        shares: trimShares,
+        value: p * trimShares,
+        trimPct: tgt,
+        trimDeltaPct: delta,
+        reason: trimReason,
+        pnl_realized: pnlRealized,
+        note: `Trimmed ${Math.round(delta * 100)}% at $${p.toFixed(2)} (${trimReason})`,
+      };
+      trade.history = Array.isArray(trade.history) ? [...trade.history, ev] : [ev];
+      trade.lastUpdate = new Date().toISOString();
+
+      // Portfolio cash increases by proceeds
+      portfolio.cash = Number(portfolio.cash) + p * trimShares;
+
+      if (env) {
+        d1UpsertTrade(env, trade).catch(() => {});
+        if (trade?.id) d1InsertTradeEvent(env, trade.id, ev).catch(() => {});
+      }
+    };
+
+    // 1) EXIT: close any open trade on transition into EXIT lane
+    if (isExit && exitCooldownOk && openTrade) {
+      await closeTradeAtPrice(openTrade, pxNow, reason);
+      await kvPutJSON(KV, execKey, {
+        ...execState,
+        lastExitMs: now,
+      });
+    }
+
+    // 2) TRIM: apply progressive trim on transition into TRIM lane
+    if (isTrim && trimCooldownOk && openTrade && Number.isFinite(pxNow)) {
+      const comp = Number(tickerData?.completion);
+      const phase = Number(tickerData?.phase_pct);
+      // progressive ladder driven by lifecycle: 25% -> 50% -> 75%
+      let target = 0.25;
+      if (Number.isFinite(comp) && comp >= 0.85) target = 0.75;
+      else if (Number.isFinite(comp) && comp >= 0.7) target = 0.5;
+      else if (Number.isFinite(phase) && phase >= 0.8) target = 0.75;
+      else if (Number.isFinite(phase) && phase >= 0.7) target = 0.5;
+      await trimTradeToPct(openTrade, target, pxNow, reason);
+      await kvPutJSON(KV, execKey, {
+        ...execState,
+        lastTrimMs: now,
+      });
+    }
+
+    // 3) ENTER: open trade on transition into ENTER_NOW lane
+    if (isEnter && enterCooldownOk && !sameEnterCycle) {
+      // If we already have an open trade in the opposite direction, close it first (flip).
+      if (openTrade && openTradeDir && openTradeDir !== direction && exitCooldownOk) {
+        await closeTradeAtPrice(openTrade, pxNow, `FLIP_${reason}`);
+        await kvPutJSON(KV, execKey, {
+          ...execState,
+          lastExitMs: now,
+        });
+        openTrade = null;
+      }
+    }
+
+    if (isEnter && enterCooldownOk && !sameEnterCycle && !openTrade) {
+      const entryPx = Number(entryPxCandidate);
+      if (Number.isFinite(entryPx) && entryPx > 0 && Number.isFinite(pxNow) && pxNow > 0) {
+        const confidence = computeTradeConfidence(tickerData);
+        const cash = Number(portfolio.cash);
+        const notional =
+          Number.isFinite(cash) && cash >= MIN_TRADE_NOTIONAL
+            ? tradeNotionalFromConfidence(confidence, cash)
+            : null;
+        if (notional != null) {
+          const { shares, pointValue } = computeSharesForTrade(sym, entryPx, notional);
+          if (Number.isFinite(shares) && shares > 0) {
+            const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
+            const entryTime = new Date().toISOString();
+            const ev = {
+              type: "ENTRY",
+              timestamp: entryTime,
+              price: entryPx,
+              shares: shares,
+              value: entryPx * shares,
+              reason: reason,
+              note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)}`,
+            };
+
+            const trade = {
+              id: tradeId,
+              ticker: sym,
+              direction,
+              entryPrice: entryPx,
+              entryTime,
+              triggerTimestamp: Number(tickerData?.trigger_ts) || null,
+              sl: Number(tickerData?.sl) || null,
+              tp: Number(tickerData?.tp) || null,
+              rr: Number(tickerData?.rr) || 0,
+              rank: Number(tickerData?.rank) || 0,
+              state: tickerData?.state,
+              flags: tickerData?.flags || {},
+              scriptVersion: tickerData?.script_version || "unknown",
+              status: "OPEN",
+              trimmedPct: 0,
+              history: [ev],
+              notional: notional,
+              confidence: confidence,
+              shares: shares,
+              pointValue: pointValue,
+              realizedPnl: 0,
+              currentPrice: pxNow,
+              lastUpdate: new Date().toISOString(),
+              source: "KANBAN_ENTER_NOW",
+            };
+
+            // Portfolio cash decreases by cost
+            portfolio.cash = Number(portfolio.cash) - entryPx * shares;
+
+            allTrades.push(trade);
+            await kvPutJSON(KV, execKey, {
+              ...execState,
+              lastEnterMs: now,
+              lastEnterTriggerTs: Number.isFinite(curTriggerTs) && curTriggerTs > 0 ? curTriggerTs : null,
+              lastEnterSide: direction,
+            });
+            if (env) {
+              d1UpsertTrade(env, trade).catch(() => {});
+              d1InsertTradeEvent(env, tradeId, ev).catch(() => {});
+            }
+          }
+        } else {
+          tickerData.flags = tickerData.flags && typeof tickerData.flags === "object" ? tickerData.flags : {};
+          tickerData.flags.portfolio_no_cash = true;
+        }
+      }
+    }
+
+    // 4) Mark-to-market open trade (no auto TP/SL execution; Kanban lanes drive executions)
+    if (openTrade && isOpenTradeStatus(openTrade.status)) {
+      openTrade.currentPrice = Number.isFinite(pxNow) ? pxNow : openTrade.currentPrice;
+      const mtm = computeTradePnlComponents(openTrade, tickerData);
+      if (mtm.pnl != null) openTrade.pnl = mtm.pnl;
+      if (mtm.pnlPct != null) openTrade.pnlPct = mtm.pnlPct;
+      openTrade.lastUpdate = new Date().toISOString();
+      if (env) d1UpsertTrade(env, openTrade).catch(() => {});
+    }
+
+    portfolio = await putPortfolioState(KV, portfolio);
+    await persistTrades();
+
+    // Legacy price-based simulation path removed from Kanban-driven execution.
+    // Keep the function returning successfully for callers.
+    return;
+
+    if (false) {
       // Check if entry price needs correction (was incorrectly set from trigger_price)
       let correctedEntryPrice = existingOpenTrade.entryPrice;
       const entryPriceCorrected =
@@ -16525,6 +16902,166 @@ export default {
             versions: versions,
             trades: filteredTrades,
             corrected: corrected, // Indicate if corrections were made
+          },
+          200,
+          corsHeaders(env, req)
+        );
+      }
+
+      // GET /timed/portfolio (paper portfolio + executions, derived from KV trades)
+      if (url.pathname === "/timed/portfolio" && req.method === "GET") {
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const rateLimit = await checkRateLimit(KV, ip, "/timed/portfolio", 2000, 3600);
+        if (!rateLimit.allowed) {
+          return sendJSON(
+            { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
+            429,
+            corsHeaders(env, req)
+          );
+        }
+
+        const tradesKey = "timed:trades:all";
+        const trades = (await kvGetJSON(KV, tradesKey)) || [];
+        const startCash = PORTFOLIO_START_CASH;
+        const events = [];
+
+        const toMs = (tsLike) => {
+          const n = typeof tsLike === "string" ? isoToMs(tsLike) : Number(tsLike);
+          if (!Number.isFinite(n) || n <= 0) return null;
+          return n < 1e12 ? n * 1000 : n;
+        };
+        const dayKey = (ms) => {
+          try {
+            const d = new Date(ms);
+            const y = d.getUTCFullYear();
+            const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+            const da = String(d.getUTCDate()).padStart(2, "0");
+            return `${y}-${m}-${da}`;
+          } catch {
+            return "unknown";
+          }
+        };
+
+        for (const tr of trades) {
+          const ticker = String(tr?.ticker || "").toUpperCase();
+          const dir = String(tr?.direction || "").toUpperCase();
+          const notional = Number(tr?.notional);
+          const hist = Array.isArray(tr?.history) ? tr.history : [];
+          for (const ev of hist) {
+            const ts = toMs(ev?.timestamp ?? ev?.ts);
+            if (!Number.isFinite(ts)) continue;
+            const type = String(ev?.type || "").toUpperCase();
+            if (!type) continue;
+            const price = Number(ev?.price);
+            const shares = Number(ev?.shares);
+            const value = Number.isFinite(Number(ev?.value))
+              ? Number(ev.value)
+              : Number.isFinite(price) && Number.isFinite(shares)
+                ? price * shares
+                : null;
+            events.push({
+              ts,
+              day: dayKey(ts),
+              ticker,
+              direction: dir,
+              type,
+              price: Number.isFinite(price) ? price : null,
+              shares: Number.isFinite(shares) ? shares : null,
+              value: Number.isFinite(value) ? value : null,
+              reason: ev?.reason != null ? String(ev.reason) : null,
+              notional: Number.isFinite(notional) ? notional : null,
+              trade_id: tr?.id || null,
+            });
+          }
+        }
+
+        events.sort((a, b) => a.ts - b.ts);
+
+        // Replay portfolio from executions (simple cash + positions model)
+        let cash = startCash;
+        const positions = {}; // ticker -> {direction, shares, avgEntry, cost}
+
+        const ensurePos = (tkr, dir) => {
+          if (!positions[tkr]) positions[tkr] = { ticker: tkr, direction: dir, shares: 0, avgEntry: null, cost: 0 };
+          return positions[tkr];
+        };
+
+        for (const e of events) {
+          if (!e.ticker || !e.type) continue;
+          const tkr = e.ticker;
+          const dir = e.direction || null;
+          const shares = Number(e.shares);
+          const value = Number(e.value);
+          if (!Number.isFinite(shares) || shares <= 0) continue;
+          if (!Number.isFinite(value) || value <= 0) continue;
+
+          if (e.type === "ENTRY") {
+            cash -= value;
+            const p = ensurePos(tkr, dir);
+            // simple avg entry calc
+            const newShares = p.shares + shares;
+            const entryPx = Number(e.price);
+            const newCost = p.cost + value;
+            p.shares = newShares;
+            p.cost = newCost;
+            p.avgEntry = Number.isFinite(entryPx) && newShares > 0 ? newCost / newShares : p.avgEntry;
+            p.direction = dir || p.direction;
+          } else if (e.type === "TRIM" || e.type === "EXIT") {
+            cash += value;
+            const p = ensurePos(tkr, dir);
+            p.shares = Math.max(0, p.shares - shares);
+            if (p.shares <= 1e-9) {
+              delete positions[tkr];
+            }
+          }
+        }
+
+        // Mark-to-market open positions using last known trade currentPrice (best-effort)
+        let positionsValue = 0;
+        const openPositions = [];
+        for (const [tkr, p] of Object.entries(positions)) {
+          const trade = trades.find((x) => String(x?.ticker || "").toUpperCase() === tkr && isOpenTradeStatus(x?.status));
+          const px = Number(trade?.currentPrice ?? trade?.price);
+          const val = Number.isFinite(px) ? px * Number(p.shares) : null;
+          if (Number.isFinite(val)) positionsValue += val;
+          openPositions.push({
+            ticker: tkr,
+            direction: p.direction,
+            shares: p.shares,
+            avgEntry: p.avgEntry,
+            mark: Number.isFinite(px) ? px : null,
+            value: Number.isFinite(val) ? val : null,
+          });
+        }
+
+        const equity = cash + positionsValue;
+
+        // Group executions by day and ticker
+        const byDay = {};
+        const byTicker = {};
+        for (const e of events) {
+          if (!byDay[e.day]) byDay[e.day] = [];
+          byDay[e.day].push(e);
+          if (!byTicker[e.ticker]) byTicker[e.ticker] = [];
+          byTicker[e.ticker].push(e);
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            portfolio: {
+              startCash,
+              cash,
+              equity,
+              positionsValue,
+              openPositions,
+              updated_at: Date.now(),
+            },
+            executions: {
+              count: events.length,
+              byDay,
+              byTicker,
+            },
           },
           200,
           corsHeaders(env, req)
