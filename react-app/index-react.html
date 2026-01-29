@@ -11966,17 +11966,48 @@
           if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
           if (archiveEmoji) badges.push(archiveEmoji);
 
+          // Card background: base tint from daily change (green/red intensity),
+          // plus a completion "fill" overlay (left->right).
+          const dc = getDailyChange(t);
+          const dayPct = Number(dc?.dayPct);
+          const dayAbs = Number.isFinite(dayPct)
+            ? Math.min(5, Math.abs(dayPct))
+            : null;
+          const dayIntensity =
+            dayAbs != null ? Math.max(0, Math.min(1, dayAbs / 3)) : 0; // 0..1 (3% => full)
+          const tintAlpha = 0.04 + dayIntensity * 0.14;
+          const tint =
+            Number.isFinite(dayPct) && dayPct !== 0
+              ? dayPct >= 0
+                ? `rgba(34,197,94,${tintAlpha})`
+                : `rgba(239,68,68,${tintAlpha})`
+              : "rgba(0,0,0,0)";
+
+          const compP = completionForSize(t);
+          const compPct = Number.isFinite(compP)
+            ? Math.round(Math.max(0, Math.min(1, compP)) * 100)
+            : null;
+          const compFill =
+            Number.isFinite(compP) && compPct != null
+              ? `linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) ${compPct}%, rgba(255,255,255,0) ${compPct}%, rgba(255,255,255,0) 100%)`
+              : null;
+          const bgTint = `linear-gradient(0deg, ${tint}, ${tint})`;
+          const bgImage = compFill ? `${compFill}, ${bgTint}` : bgTint;
+
+          const badgesText = badges.length > 0 ? badges.join("") : "";
+
           return (
             <button
               key={`kanban-${t.ticker}`}
               onClick={() => toggleExpanded(sym)}
               className={
                 // Match Viewport card feel (same surface + hover), with transition overlay applied.
-                "w-full text-left px-3 py-2 rounded-lg border bg-[#121a33] hover:bg-[#16224a] transition-all " +
+                "w-full text-left px-3 py-2 rounded-lg border transition-all hover:brightness-[1.06] " +
                 (movedRecently
                   ? transitionCardClass
                   : "border-[#26325f] hover:border-[#3a4aa0]")
               }
+              style={{ backgroundColor: "#121a33", backgroundImage: bgImage }}
             >
               {/* Header: Ticker + Status Badge */}
               <div className="flex items-center justify-between gap-1 mb-1">
@@ -12010,43 +12041,16 @@
                   })()}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  {showOpen &&
-                    stage !== "archive" &&
-                    (() => {
-                      if (stage === "exit") {
-                        return (
-                          <span className="px-1 py-0.5 rounded bg-red-500/20 text-red-300 text-[9px] font-bold border border-red-500/50">
-                            EXIT
-                          </span>
-                        );
-                      }
-                      if (stage === "trim") {
-                        return (
-                          <span className="px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-300 text-[9px] font-bold border border-yellow-500/50">
-                            TRIM
-                          </span>
-                        );
-                      }
-                      if (stage === "defend") {
-                        return (
-                          <span className="px-1 py-0.5 rounded bg-orange-500/20 text-orange-300 text-[9px] font-bold border border-orange-500/50">
-                            DEFEND
-                          </span>
-                        );
-                      }
-                      if (stage === "hold") {
-                        return (
-                          <span className="px-1 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[9px] font-bold border border-blue-500/50">
-                            HOLD
-                          </span>
-                        );
-                      }
-                      return (
-                        <span className="px-1 py-0.5 rounded bg-green-500/20 text-green-300 text-[9px] font-bold border border-green-500/50">
-                          OPEN
-                        </span>
-                      );
-                    })()}
+                  {badgesText ? (
+                    <span
+                      className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] font-semibold text-[#e7ecff]"
+                      title="Signals"
+                    >
+                      {badgesText.length > 10
+                        ? `${badgesText.slice(0, 10)}…`
+                        : badgesText}
+                    </span>
+                  ) : null}
 
                   {/* Open full ticker view without toggling accordion */}
                   <button
@@ -12113,6 +12117,115 @@
                       <span className="text-[10px]">{badges.join("")}</span>
                     )}
                   </div>
+
+                  {/* Viewport-style action line */}
+                  {(() => {
+                    const ai = getActionDescription(t);
+                    if (!ai?.action) return null;
+                    return (
+                      <div className="text-[10px] text-[#93a4d6] mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
+                        <span className="text-[#6b7a9f]">{ai.action}</span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Viewport-style metrics + bars */}
+                  {(() => {
+                    const tpTarget = computeTpTargetPrice(t);
+                    const tpMax = computeTpMaxPrice(t);
+                    const tpDisplay =
+                      Number.isFinite(tpTarget) && tpTarget > 0
+                        ? tpTarget
+                        : Number.isFinite(tpMax) && tpMax > 0
+                          ? tpMax
+                          : Number.isFinite(tp) && tp > 0
+                            ? tp
+                            : null;
+                    const rrDisplay = Number(t?.rr);
+                    const slDisplayRaw = Number(
+                      t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop,
+                    );
+                    const slDisplay =
+                      Number.isFinite(slDisplayRaw) && slDisplayRaw > 0
+                        ? slDisplayRaw
+                        : null;
+                    const phaseP = Math.max(
+                      0,
+                      Math.min(1, Number(t?.phase_pct) || 0),
+                    );
+                    const compP2 = completionForSize(t);
+                    const phaseColor = phaseToColor(phaseP);
+                    const compColor = phaseToColor(compP2);
+                    const Bar = ({ label, p, color }) => (
+                      <div className="flex items-center gap-2">
+                        <div className="w-14 text-[9px] text-[#6b7a9f]">
+                          {label}
+                        </div>
+                        <div className="flex-1 h-1.5 rounded bg-[#0f1630] border border-[#26325f] overflow-hidden">
+                          <div
+                            className="h-full"
+                            style={{
+                              width: `${Math.round(p * 100)}%`,
+                              background: color,
+                            }}
+                          />
+                        </div>
+                        <div className="w-9 text-right text-[9px] text-[#93a4d6]">
+                          {Math.round(p * 100)}%
+                        </div>
+                      </div>
+                    );
+                    return (
+                      <>
+                        <div className="mt-1 grid grid-cols-3 gap-2 text-[9px] text-[#93a4d6]">
+                          <div>
+                            <span className="text-[#6b7a9f]">Score</span>{" "}
+                            <span className="text-white font-semibold">
+                              {Number.isFinite(score) ? score.toFixed(0) : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#6b7a9f]">Rank</span>{" "}
+                            <span className="text-white font-semibold">
+                              {Number.isFinite(rankPos) && rankPos > 0
+                                ? `#${rankPos}`
+                                : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#6b7a9f]">RR</span>{" "}
+                            <span className="text-white font-semibold">
+                              {Number.isFinite(rrDisplay) ? rrDisplay.toFixed(2) : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#6b7a9f]">SL</span>{" "}
+                            <span className="text-red-300 font-semibold">
+                              {slDisplay != null ? `$${slDisplay.toFixed(2)}` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#6b7a9f]">TP</span>{" "}
+                            <span className="text-green-300 font-semibold">
+                              {tpDisplay != null ? `$${tpDisplay.toFixed(2)}` : "—"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[#6b7a9f]">ETA</span>{" "}
+                            <span className="text-white font-semibold">
+                              {Number.isFinite(eta) && eta > 0
+                                ? `${eta.toFixed(1)}d`
+                                : "—"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-2 space-y-1">
+                          <Bar label="Phase" p={phaseP} color={phaseColor} />
+                          <Bar label="Comp" p={compP2} color={compColor} />
+                        </div>
+                      </>
+                    );
+                  })()}
 
                   {/* Scores + Price */}
                   <div className="text-[10px] text-[#6b7a9f] space-y-0.5">
@@ -18805,7 +18918,7 @@
               <TrackerWelcomeModal onClose={handleWelcomeTrackerClose} />
             )}
 
-            <div className="min-h-screen p-0">
+            <div className="min-h-screen p-0 pt-2">
               {/* Light page gutter: avoid edge bleed but keep width for Kanban lanes (14" MBP). */}
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
                 {/* Header */}
