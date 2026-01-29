@@ -362,6 +362,74 @@ function deriveTickerContext(obj) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+function mergeTickerContext(existing, incoming) {
+  const a =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? existing
+      : null;
+  const b =
+    incoming && typeof incoming === "object" && !Array.isArray(incoming)
+      ? incoming
+      : null;
+  if (!a && !b) return null;
+  if (!a) return b;
+  if (!b) return a;
+
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    if (v == null) continue;
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (!s) continue;
+      out[k] = s;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+function sanitizeTickerContext(ctx, hostObj = null) {
+  if (!ctx || typeof ctx !== "object" || Array.isArray(ctx)) return null;
+  const host = hostObj && typeof hostObj === "object" ? hostObj : null;
+
+  const cleanStr = (s, fallback = "") => {
+    if (s == null) return fallback;
+    let v = String(s);
+    // If a control char sneaks in (e.g. \r), prefer a known-good fallback when available.
+    if (v.includes("\r")) {
+      if (fallback) return String(fallback);
+      // best-effort: drop control chars
+      v = v.replace(/\r/g, "");
+    }
+    return v.trim();
+  };
+
+  const out = { ...ctx };
+  if (typeof out.name === "string") out.name = cleanStr(out.name, host?.name);
+  if (typeof out.description === "string")
+    out.description = cleanStr(out.description, host?.description);
+  if (typeof out.sector === "string")
+    out.sector = cleanStr(out.sector, host?.sector);
+  if (typeof out.industry === "string")
+    out.industry = cleanStr(out.industry, host?.industry);
+  if (typeof out.country === "string")
+    out.country = cleanStr(out.country, host?.country);
+
+  // Nested string fields (keep objects but clean known strings).
+  if (
+    out.technical_rating &&
+    typeof out.technical_rating === "object" &&
+    !Array.isArray(out.technical_rating) &&
+    typeof out.technical_rating.status === "string"
+  ) {
+    out.technical_rating = { ...out.technical_rating };
+    out.technical_rating.status = cleanStr(out.technical_rating.status);
+  }
+
+  return out;
+}
+
 function numParam(url, key, fallback) {
   const v = url?.searchParams?.get(key);
   if (v == null || v === "") return fallback;
@@ -12584,10 +12652,14 @@ export default {
           // without this, `timed:capture:latest:*` gets overwritten and context disappears.
           try {
             if (payload.context && typeof payload.context === "object") {
+              // Avoid downgrading richer context (e.g. keep name/description if a later payload omits them).
+              const incoming = sanitizeTickerContext(payload.context, payload);
+              const saved = await kvGetJSON(KV, `timed:context:${ticker}`);
+              const merged = mergeTickerContext(saved, incoming);
               await kvPutJSON(
                 KV,
                 `timed:context:${ticker}`,
-                payload.context,
+                merged || incoming || payload.context,
                 30 * 24 * 60 * 60,
               );
             }
@@ -12968,7 +13040,10 @@ export default {
                 capture.context && typeof capture.context === "object"
                   ? capture.context
                   : null;
-              if (ctx) data.context = ctx;
+              if (ctx) {
+                const cleaned = sanitizeTickerContext(ctx, data);
+                data.context = mergeTickerContext(data.context, cleaned || ctx);
+              }
             }
           } catch (e) {
             console.error(
@@ -12981,7 +13056,10 @@ export default {
           try {
             if (!data.context) {
               const saved = await kvGetJSON(KV, `timed:context:${ticker}`);
-              if (saved && typeof saved === "object") data.context = saved;
+              if (saved && typeof saved === "object") {
+                const cleaned = sanitizeTickerContext(saved, data);
+                data.context = cleaned || saved;
+              }
             }
           } catch (e) {
             console.error(
@@ -12994,7 +13072,10 @@ export default {
           try {
             if (!data.context) {
               const derived = deriveTickerContext(data);
-              if (derived) data.context = derived;
+              if (derived) {
+                const cleaned = sanitizeTickerContext(derived, data);
+                data.context = cleaned || derived;
+              }
             }
           } catch {
             // ignore
@@ -13480,9 +13561,15 @@ export default {
 
               // Context fallback for D1 /timed/all path (payload_json may omit capture.context).
               try {
-                if (!obj.context) {
+                if (obj.context && typeof obj.context === "object") {
+                  const cleaned = sanitizeTickerContext(obj.context, obj);
+                  if (cleaned) obj.context = cleaned;
+                } else if (!obj.context) {
                   const derived = deriveTickerContext(obj);
-                  if (derived) obj.context = derived;
+                  if (derived) {
+                    const cleaned = sanitizeTickerContext(derived, obj);
+                    obj.context = cleaned || derived;
+                  }
                 }
               } catch {
                 // ignore

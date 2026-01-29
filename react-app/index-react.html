@@ -15088,25 +15088,34 @@
                     <>
                       {/* Context (optional enrichment from /timed/ingest-context) */}
                       {(() => {
-                        const ctx =
-                          (ticker?.context && typeof ticker.context === "object"
+                        const baseCtx =
+                          ticker?.context && typeof ticker.context === "object"
                             ? ticker.context
-                            : null) ||
-                          (latestTicker?.context &&
+                            : null;
+                        const latestCtx =
+                          latestTicker?.context &&
                           typeof latestTicker.context === "object"
                             ? latestTicker.context
-                            : null);
+                            : null;
+                        const ctx =
+                          baseCtx || latestCtx
+                            ? { ...(baseCtx || {}), ...(latestCtx || {}) }
+                            : null;
                         if (!ctx) return null;
-                        const name = ctx.name ? String(ctx.name).trim() : "";
-                        const sector = ctx.sector
-                          ? String(ctx.sector).trim()
-                          : "";
-                        const industry = ctx.industry
-                          ? String(ctx.industry).trim()
-                          : "";
-                        const country = ctx.country
-                          ? String(ctx.country).trim()
-                          : "";
+                        const clean = (v) =>
+                          v == null
+                            ? ""
+                            : String(v)
+                                // Some capture strings can contain stray control chars (e.g. \r),
+                                // which render oddly in the browser.
+                                .replace(/\r/g, "r")
+                                .trim();
+
+                        const name = clean(ctx.name);
+                        const description = clean(ctx.description);
+                        const sector = clean(ctx.sector);
+                        const industry = clean(ctx.industry);
+                        const country = clean(ctx.country);
                         const tr =
                           ctx.technical_rating &&
                           typeof ctx.technical_rating === "object"
@@ -15167,6 +15176,11 @@
                             {name ? (
                               <div className="text-sm font-semibold text-white leading-snug">
                                 {name}
+                              </div>
+                            ) : null}
+                            {description ? (
+                              <div className="mt-1 text-xs text-[#93a4d6] leading-snug">
+                                {description}
                               </div>
                             ) : null}
                             <div className="mt-1 text-[11px] text-[#93a4d6]">
