@@ -303,6 +303,65 @@ async function kvPutJSON(KV, key, val, ttlSec = null) {
   await KV.put(key, JSON.stringify(val), opts);
 }
 
+// Derive a minimal ticker context from common payload fields.
+// This is a fallback for when Pine capture throttles `payload.context`.
+function deriveTickerContext(obj) {
+  const pickStr = (...vals) => {
+    for (const v of vals) {
+      if (typeof v === "string") {
+        const s = v.trim();
+        if (s) return s;
+      }
+    }
+    return "";
+  };
+
+  const fundamentals = obj?.fundamentals && typeof obj.fundamentals === "object"
+    ? obj.fundamentals
+    : {};
+  const profile =
+    obj?.profile && typeof obj.profile === "object"
+      ? obj.profile
+      : obj?.company_profile && typeof obj.company_profile === "object"
+        ? obj.company_profile
+        : {};
+  const meta = obj?.meta && typeof obj.meta === "object" ? obj.meta : {};
+
+  const name = pickStr(
+    obj?.name,
+    obj?.company_name,
+    fundamentals?.name,
+    fundamentals?.longName,
+    fundamentals?.shortName,
+    profile?.name,
+    meta?.name,
+  );
+  const description = pickStr(
+    obj?.description,
+    fundamentals?.description,
+    fundamentals?.business_summary,
+    fundamentals?.longBusinessSummary,
+    profile?.description,
+    profile?.summary,
+  );
+  const sector = pickStr(obj?.sector, fundamentals?.sector, profile?.sector);
+  const industry = pickStr(
+    obj?.industry,
+    fundamentals?.industry,
+    profile?.industry,
+  );
+  const website = pickStr(obj?.website, fundamentals?.website, profile?.website);
+
+  const out = {};
+  if (name) out.name = name;
+  if (description) out.description = description;
+  if (sector) out.sector = sector;
+  if (industry) out.industry = industry;
+  if (website) out.website = website;
+
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 function numParam(url, key, fallback) {
   const v = url?.searchParams?.get(key);
   if (v == null || v === "") return fallback;
@@ -12931,6 +12990,16 @@ export default {
             );
           }
 
+          // Final fallback: derive minimal context from fundamentals/profile fields.
+          try {
+            if (!data.context) {
+              const derived = deriveTickerContext(data);
+              if (derived) data.context = derived;
+            }
+          } catch {
+            // ignore
+          }
+
           // Ensure Momentum Elite reflects the most recent computed status.
           // Score payloads often default flags.momentum_elite=false; use cached momentum computation when available.
           try {
@@ -13408,6 +13477,17 @@ export default {
               } catch {
                 // ignore
               }
+
+              // Context fallback for D1 /timed/all path (payload_json may omit capture.context).
+              try {
+                if (!obj.context) {
+                  const derived = deriveTickerContext(obj);
+                  if (derived) obj.context = derived;
+                }
+              } catch {
+                // ignore
+              }
+
               data[sym] = obj;
             } catch {
               // skip bad rows
