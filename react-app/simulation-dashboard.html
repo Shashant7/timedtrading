@@ -8765,9 +8765,11 @@
                                 cashOut: 0,
                                 cashIn: 0,
                                 realizedPnl: 0,
-                                winEvents: 0,
-                                lossEvents: 0,
+                                // Closed-trade outcomes (EXIT only, deduped by trade_id)
+                                wins: 0,
+                                losses: 0,
                               };
+                              const closedByTradeId = new Map(); // trade_id -> pnl
                               for (const k of keys) {
                                 const arr = Array.isArray(byDay[k])
                                   ? byDay[k]
@@ -8788,16 +8790,23 @@
                                   const pnl = pnlForEvent(e);
                                   if (Number.isFinite(pnl)) {
                                     out.realizedPnl += pnl;
-                                    if (pnl > 0) out.winEvents += 1;
-                                    if (pnl < 0) out.lossEvents += 1;
+                                    // Only count wins/losses on EXIT (a closed trade),
+                                    // TRIM is partial and can occur multiple times.
+                                    if (type === "EXIT") {
+                                      const tradeId = String(e?.trade_id || "");
+                                      if (tradeId) closedByTradeId.set(tradeId, pnl);
+                                    }
                                   }
                                 }
                               }
-                              const denom = out.winEvents + out.lossEvents;
-                              out.winRate =
-                                denom > 0
-                                  ? (out.winEvents / denom) * 100
-                                  : null;
+                              for (const pnl of closedByTradeId.values()) {
+                                if (!Number.isFinite(pnl) || pnl === 0) continue;
+                                if (pnl > 0) out.wins += 1;
+                                if (pnl < 0) out.losses += 1;
+                              }
+                              const denom = out.wins + out.losses;
+                              out.winRate = denom > 0 ? (out.wins / denom) * 100 : null;
+                              out.closedTrades = denom;
                               return out;
                             };
 
@@ -8867,7 +8876,7 @@
                             const topToday = topRealizedInKeys([todayKey], 6);
 
                             const pnlByTickerForKeys = (keys) => {
-                              const map = new Map(); // ticker -> realized pnl
+                              const realized = new Map(); // ticker -> realized pnl (TRIM + EXIT)
                               for (const k of keys) {
                                 const arr = Array.isArray(byDay[k])
                                   ? byDay[k]
@@ -8880,20 +8889,50 @@
                                     e?.ticker || "",
                                   ).toUpperCase();
                                   if (!tkr) continue;
-                                  map.set(tkr, (map.get(tkr) || 0) + pnl);
+                                  realized.set(tkr, (realized.get(tkr) || 0) + pnl);
                                 }
                               }
-                              const rows = Array.from(map.entries())
-                                .map(([ticker, pnl]) => ({ ticker, pnl }))
+                              const unreal = new Map(); // ticker -> unrealized pnl (open positions)
+                              for (const pos of openPos) {
+                                const tkr = String(pos?.ticker || "").toUpperCase();
+                                if (!tkr) continue;
+                                const direction = String(pos?.direction || "").toUpperCase();
+                                const sign = direction === "SHORT" ? -1 : 1;
+                                const avgEntry = Number(pos?.avgEntry);
+                                const mark = Number(pos?.mark);
+                                const shares = Number(pos?.shares);
+                                if (!Number.isFinite(avgEntry) || !Number.isFinite(mark) || !Number.isFinite(shares)) continue;
+                                const pnl = (mark - avgEntry) * shares * sign;
+                                if (!Number.isFinite(pnl) || pnl === 0) continue;
+                                unreal.set(tkr, (unreal.get(tkr) || 0) + pnl);
+                              }
+
+                              const tickers = new Set([
+                                ...Array.from(realized.keys()),
+                                ...Array.from(unreal.keys()),
+                              ]);
+
+                              const rows = Array.from(tickers)
+                                .map((ticker) => {
+                                  const r = Number(realized.get(ticker) || 0);
+                                  const u = Number(unreal.get(ticker) || 0);
+                                  return {
+                                    ticker,
+                                    realized: r,
+                                    unrealized: u,
+                                    total: r + u,
+                                  };
+                                })
                                 .filter(
-                                  (r) => Number.isFinite(r.pnl) && r.pnl !== 0,
+                                  (r) =>
+                                    Number.isFinite(r.total) && r.total !== 0,
                                 );
                               rows.sort(
-                                (a, b) => Math.abs(b.pnl) - Math.abs(a.pnl),
+                                (a, b) => Math.abs(b.total) - Math.abs(a.total),
                               );
                               const maxAbs = rows.reduce(
                                 (m, r) =>
-                                  Math.max(m, Math.abs(Number(r.pnl) || 0)),
+                                  Math.max(m, Math.abs(Number(r.total) || 0)),
                                 0,
                               );
                               return { rows, maxAbs };
@@ -9169,8 +9208,9 @@
                                         P&L by ticker
                                       </div>
                                       <div className="text-[11px] text-[#93a4d6]">
-                                        {windowLabel} realized P&L (wins right,
-                                        losses left). Click a row to drill down.
+                                        {windowLabel} total P&L (wins right,
+                                        losses left). Includes open positions.
+                                        Click a row to drill down.
                                       </div>
                                     </div>
                                     <div className="text-[11px] text-[#6b7a9f]">
@@ -9185,15 +9225,14 @@
 
                                   {pnlByTickerWindow.rows.length === 0 ? (
                                     <div className="mt-3 text-sm text-[#93a4d6]">
-                                      No realized P&L in this window yet (needs
-                                      TRIM or EXIT events).
+                                      No P&L in this window yet.
                                     </div>
                                   ) : (
                                     <div className="mt-3 space-y-2">
                                       {pnlByTickerWindow.rows
                                         .slice(0, 24)
                                         .map((r) => {
-                                          const pnl = Number(r.pnl) || 0;
+                                          const pnl = Number(r.total) || 0;
                                           const abs = Math.abs(pnl);
                                           const pct =
                                             pnlByTickerWindow.maxAbs > 0
@@ -9218,7 +9257,7 @@
                                                   setLedgerTab("trades");
                                                 } catch {}
                                               }}
-                                              title="Click to drill down in Trades"
+                                              title={`Total: ${fmtUsd(pnl)} | Realized: ${fmtUsd(Number(r.realized) || 0)} | Unrealized: ${fmtUsd(Number(r.unrealized) || 0)} (click to drill down)`}
                                             >
                                               <div className="font-semibold">
                                                 {r.ticker}
