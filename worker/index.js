@@ -92,7 +92,7 @@ function corsHeaders(env, req, allowNoOrigin = false) {
       config: corsConfig,
       exactMatch: allowedOrigins.some((o) => o === origin),
       caseInsensitiveMatch: allowedOrigins.some(
-        (o) => o.toLowerCase() === origin.toLowerCase()
+        (o) => o.toLowerCase() === origin.toLowerCase(),
       ),
     });
     allowed = "null";
@@ -273,7 +273,7 @@ async function computePrevCloseFromTrail(db, ticker, asOfTs) {
          FROM timed_trail
          WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3 AND price IS NOT NULL
          ORDER BY ts DESC
-         LIMIT 1`
+         LIMIT 1`,
       )
       .bind(String(ticker).toUpperCase(), lookbackStart, closeCutoff + 1000)
       .first();
@@ -345,12 +345,12 @@ async function kvPutJSONWithRetry(KV, key, val, ttlSec = null, maxRetries = 3) {
         } catch {
           // Not JSON, retry
           lastError = new Error(
-            `Verification failed: value mismatch on attempt ${attempt}`
+            `Verification failed: value mismatch on attempt ${attempt}`,
           );
         }
       } else {
         lastError = new Error(
-          `Verification failed: value not found after write on attempt ${attempt}`
+          `Verification failed: value not found after write on attempt ${attempt}`,
         );
       }
     } catch (err) {
@@ -360,7 +360,7 @@ async function kvPutJSONWithRetry(KV, key, val, ttlSec = null, maxRetries = 3) {
     if (attempt < maxRetries) {
       // Exponential backoff: 50ms, 100ms, 200ms
       await new Promise((resolve) =>
-        setTimeout(resolve, 50 * Math.pow(2, attempt - 1))
+        setTimeout(resolve, 50 * Math.pow(2, attempt - 1)),
       );
     }
   }
@@ -390,7 +390,7 @@ async function checkRateLimit(
   identifier,
   endpoint,
   limit = 100,
-  window = 3600
+  window = 3600,
 ) {
   const key = `ratelimit:${identifier}:${endpoint}`;
 
@@ -398,7 +398,7 @@ async function checkRateLimit(
     Promise.race([
       p,
       new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("rate_limit_kv_timeout")), ms)
+        setTimeout(() => reject(new Error("rate_limit_kv_timeout")), ms),
       ),
     ]);
 
@@ -417,9 +417,15 @@ async function checkRateLimit(
 
     // Best-effort write; if it times out we still allow the request.
     try {
-      await withTimeout(KV.put(key, String(current + 1), { expirationTtl: window }), 750);
+      await withTimeout(
+        KV.put(key, String(current + 1), { expirationTtl: window }),
+        750,
+      );
     } catch (e) {
-      console.warn(`[RATE LIMIT] KV.put timeout for ${endpoint}:`, String(e?.message || e));
+      console.warn(
+        `[RATE LIMIT] KV.put timeout for ${endpoint}:`,
+        String(e?.message || e),
+      );
     }
 
     return {
@@ -428,7 +434,10 @@ async function checkRateLimit(
       resetAt: Date.now() + window * 1000,
     };
   } catch (e) {
-    console.warn(`[RATE LIMIT] KV.get timeout for ${endpoint}:`, String(e?.message || e));
+    console.warn(
+      `[RATE LIMIT] KV.get timeout for ${endpoint}:`,
+      String(e?.message || e),
+    );
     // Fail-open: don't take down the UI if KV is slow.
     return {
       allowed: true,
@@ -445,7 +454,7 @@ async function checkRateLimitFixedWindow(
   identifier,
   endpoint,
   limit = 100,
-  window = 3600
+  window = 3600,
 ) {
   const bucket = Math.floor(Date.now() / (window * 1000));
   const key = `ratelimit:${identifier}:${endpoint}:${bucket}`;
@@ -494,7 +503,7 @@ async function ensureTickerIndex(KV, ticker) {
             alreadyInIndex: cur.includes(ticker),
             currentIndexSize: cur.length,
             indexSample: cur.slice(0, 10),
-          }
+          },
         );
       }
 
@@ -510,7 +519,7 @@ async function ensureTickerIndex(KV, ticker) {
 
         if (wasAdded) {
           console.log(
-            `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}, Verified: ${wasAdded}`
+            `[TICKER INDEX] Added ${ticker} to index. New count: ${cur.length}, Verified: ${wasAdded}`,
           );
           success = true;
         } else {
@@ -518,7 +527,7 @@ async function ensureTickerIndex(KV, ticker) {
           console.warn(
             `[TICKER INDEX] ${ticker} verification failed, retrying... (retries left: ${
               retries - 1
-            })`
+            })`,
           );
           retries--;
           if (retries > 0) {
@@ -538,14 +547,14 @@ async function ensureTickerIndex(KV, ticker) {
               afterAdd: verify.length,
               tickerInVerify: verify.includes(ticker),
               verifySample: verify.slice(0, 10),
-            }
+            },
           );
         }
       } else {
         // Already in index - success
         if (ticker === "BMNR" || ticker === "BABA" || ticker === "ETHT") {
           console.log(
-            `[TICKER INDEX DEBUG] ${ticker} already in index (count: ${cur.length})`
+            `[TICKER INDEX DEBUG] ${ticker} already in index (count: ${cur.length})`,
           );
         }
         success = true;
@@ -620,10 +629,16 @@ function buildAlertDedupeKey({ ticker, action, side, ts }) {
   };
 }
 
-async function shouldSendTradeDiscordEvent(KV, { tradeId, type, ts }, ttlSec = 48 * 60 * 60) {
+async function shouldSendTradeDiscordEvent(
+  KV,
+  { tradeId, type, ts },
+  ttlSec = 48 * 60 * 60,
+) {
   try {
     const id = String(tradeId || "").trim();
-    const t = String(type || "").trim().toUpperCase();
+    const t = String(type || "")
+      .trim()
+      .toUpperCase();
     const ms = Number(ts);
     if (!id || !t || !Number.isFinite(ms)) {
       return { ok: true, key: null, deduped: false };
@@ -637,7 +652,12 @@ async function shouldSendTradeDiscordEvent(KV, { tradeId, type, ts }, ttlSec = 4
     return { ok: true, key, deduped: false };
   } catch (e) {
     // Fail open: better to alert than silently drop.
-    return { ok: false, key: null, deduped: false, error: String(e?.message || e) };
+    return {
+      ok: false,
+      key: null,
+      deduped: false,
+      error: String(e?.message || e),
+    };
   }
 }
 
@@ -659,7 +679,8 @@ function computeRR(d) {
   // otherwise it looks artificially better/worse after a move has already run.
   const price = Number(d.price);
   const entryRefRaw = Number(d.trigger_price);
-  const entryRef = Number.isFinite(entryRefRaw) && entryRefRaw > 0 ? entryRefRaw : price;
+  const entryRef =
+    Number.isFinite(entryRefRaw) && entryRefRaw > 0 ? entryRefRaw : price;
   const sl = Number(d.sl);
   if (!Number.isFinite(entryRef) || !Number.isFinite(sl)) return null;
 
@@ -728,7 +749,11 @@ function completionForSize(ticker) {
   const price = Number(ticker?.price);
   const triggerPrice = Number(ticker?.trigger_price);
   const tp = Number(ticker?.tp);
-  if (!Number.isFinite(price) || !Number.isFinite(triggerPrice) || !Number.isFinite(tp))
+  if (
+    !Number.isFinite(price) ||
+    !Number.isFinite(triggerPrice) ||
+    !Number.isFinite(tp)
+  )
     return 0;
 
   const denom = Math.abs(tp - triggerPrice);
@@ -744,7 +769,11 @@ function computeTpMaxFromLevels(ticker) {
   const tpLevels = Array.isArray(ticker?.tp_levels) ? ticker.tp_levels : [];
   const tpPrices = tpLevels
     .map((tpItem) => {
-      if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
+      if (
+        typeof tpItem === "object" &&
+        tpItem !== null &&
+        tpItem.price != null
+      ) {
         return Number(tpItem.price);
       }
       return typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
@@ -761,7 +790,12 @@ function computeCompletionToTpMax(ticker) {
   const price = Number(ticker?.price);
   const triggerPrice = Number(ticker?.trigger_price);
   const tpMax = computeTpMaxFromLevels(ticker);
-  if (!Number.isFinite(price) || !Number.isFinite(triggerPrice) || !Number.isFinite(tpMax)) return null;
+  if (
+    !Number.isFinite(price) ||
+    !Number.isFinite(triggerPrice) ||
+    !Number.isFinite(tpMax)
+  )
+    return null;
   const denom = Math.abs(tpMax - triggerPrice);
   if (!(denom > 0)) return null;
   const raw = Math.abs(price - triggerPrice) / denom;
@@ -772,7 +806,8 @@ function computeRRWith(entryRef, slRef, tpRef, state) {
   const e = Number(entryRef);
   const sl = Number(slRef);
   const tp = Number(tpRef);
-  if (!Number.isFinite(e) || !Number.isFinite(sl) || !Number.isFinite(tp)) return null;
+  if (!Number.isFinite(e) || !Number.isFinite(sl) || !Number.isFinite(tp))
+    return null;
 
   const s = String(state || "");
   const isLong = s.includes("BULL");
@@ -818,8 +853,11 @@ function computeRRTargets(ticker) {
   const tpRef = Number.isFinite(tpLikely) && tpLikely > 0 ? tpLikely : null;
   if (!tpRef || !Number.isFinite(sl) || sl <= 0) return null;
 
-  const entryRef = Number.isFinite(triggerPrice) && triggerPrice > 0 ? triggerPrice : null;
-  const rrEntryLikely = entryRef ? computeRRWith(entryRef, sl, tpRef, state) : null;
+  const entryRef =
+    Number.isFinite(triggerPrice) && triggerPrice > 0 ? triggerPrice : null;
+  const rrEntryLikely = entryRef
+    ? computeRRWith(entryRef, sl, tpRef, state)
+    : null;
 
   const dynStop = computeDynamicStopBreakeven(ticker);
   const rrNowLikely =
@@ -836,12 +874,15 @@ function computeRRTargets(ticker) {
 }
 
 function computeDataCompleteness(tickerData) {
-  const hasTfTech = !!(tickerData?.tf_tech && typeof tickerData.tf_tech === "object");
+  const hasTfTech = !!(
+    tickerData?.tf_tech && typeof tickerData.tf_tech === "object"
+  );
   const hasTriggersField = "triggers" in (tickerData || {});
   const triggersNonEmpty =
     Array.isArray(tickerData?.triggers) &&
     tickerData.triggers.some((t) => typeof t === "string" && t.trim());
-  const hasTpLevels = Array.isArray(tickerData?.tp_levels) && tickerData.tp_levels.length > 0;
+  const hasTpLevels =
+    Array.isArray(tickerData?.tp_levels) && tickerData.tp_levels.length > 0;
   const hasDailyEma = !!tickerData?.daily_ema_cloud;
   const hasIchD = !!tickerData?.ichimoku_d;
   const hasIchW = !!tickerData?.ichimoku_w;
@@ -886,7 +927,7 @@ function tfTechAlignmentSummary(tickerData) {
   if (!side) return null;
 
   const TF_ORDER = ["W", "D", "4H", "1H", "30", "10"];
-  const WEIGHTS = { W: 2.0, D: 2.0, "4H": 1.5, "1H": 1.5, "30": 1.0, "10": 1.0 };
+  const WEIGHTS = { W: 2.0, D: 2.0, "4H": 1.5, "1H": 1.5, 30: 1.0, 10: 1.0 };
 
   let alignedW = 0;
   let opposedW = 0;
@@ -931,7 +972,9 @@ function tfTechAlignmentSummary(tickerData) {
 function triggerSummaryAndScore(tickerData) {
   const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
   const list = Array.isArray(tickerData?.triggers)
-    ? tickerData.triggers.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim())
+    ? tickerData.triggers
+        .filter((t) => typeof t === "string" && t.trim())
+        .map((t) => t.trim())
     : [];
 
   const uniq = Array.from(new Set(list));
@@ -949,10 +992,12 @@ function triggerSummaryAndScore(tickerData) {
 
   if (has("SQUEEZE_RELEASE_30M")) score += 6;
   score += 4 * matchSide("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR");
-  score += 2 * matchSide("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR");
+  score +=
+    2 * matchSide("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR");
   if (has("ST_FLIP_1H")) score += 1;
   if (has("ST_FLIP_30M")) score += 1;
-  score += 5 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");
+  score +=
+    5 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");
 
   // Fallback for legacy payloads without triggers[] populated
   const flags = tickerData?.flags || {};
@@ -973,14 +1018,25 @@ function triggerSummaryAndScore(tickerData) {
 }
 
 function triggerReasonCorroboration(tickerData) {
-  const rawReason = tickerData?.trigger_reason != null ? String(tickerData.trigger_reason).trim() : "";
-  const rawDir = tickerData?.trigger_dir != null ? String(tickerData.trigger_dir).trim() : "";
+  const rawReason =
+    tickerData?.trigger_reason != null
+      ? String(tickerData.trigger_reason).trim()
+      : "";
+  const rawDir =
+    tickerData?.trigger_dir != null
+      ? String(tickerData.trigger_dir).trim()
+      : "";
   if (!rawReason) return { corroborated: true, note: "" };
 
   const triggers = Array.isArray(tickerData?.triggers)
-    ? tickerData.triggers.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim())
+    ? tickerData.triggers
+        .filter((t) => typeof t === "string" && t.trim())
+        .map((t) => t.trim())
     : [];
-  const flags = tickerData?.flags && typeof tickerData.flags === "object" ? tickerData.flags : {};
+  const flags =
+    tickerData?.flags && typeof tickerData.flags === "object"
+      ? tickerData.flags
+      : {};
 
   const hasAny = (...xs) => xs.some((x) => triggers.includes(x));
 
@@ -991,7 +1047,9 @@ function triggerReasonCorroboration(tickerData) {
       !!flags.ema_cross_1h_13_48;
     return {
       corroborated: ok,
-      note: ok ? "" : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
+      note: ok
+        ? ""
+        : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
     };
   }
   if (rawReason === "EMA_CROSS_30M_13_48") {
@@ -1000,7 +1058,9 @@ function triggerReasonCorroboration(tickerData) {
       !!flags.ema_cross_30m_13_48;
     return {
       corroborated: ok,
-      note: ok ? "" : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
+      note: ok
+        ? ""
+        : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
     };
   }
 
@@ -1019,14 +1079,15 @@ function detectFlipWatch(tickerData, trail = []) {
   const completion = Number(tickerData?.completion);
   const phase = Number(tickerData?.phase_pct);
   const flags = tickerData?.flags || {};
-  
+
   // Must be in PULLBACK state (setup quadrant)
-  const inPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  const inPullback =
+    state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
   if (!inPullback) return null;
-  
+
   const isBullSetup = state === "HTF_BULL_LTF_PULLBACK";
   const isBearSetup = state === "HTF_BEAR_LTF_PULLBACK";
-  
+
   // Check corridor status
   const inCorridor = (() => {
     if (!Number.isFinite(htfScore) || !Number.isFinite(ltfScore)) return false;
@@ -1037,7 +1098,7 @@ function detectFlipWatch(tickerData, trail = []) {
     }
     return false;
   })();
-  
+
   const nearCorridor = (() => {
     if (inCorridor) return false; // already in, not "near"
     if (!Number.isFinite(htfScore) || !Number.isFinite(ltfScore)) return false;
@@ -1050,11 +1111,11 @@ function detectFlipWatch(tickerData, trail = []) {
     }
     return false;
   })();
-  
+
   // Score components (0-100 scale)
   const reasons = [];
   let score = 0;
-  
+
   // 1. Corridor status (30 points)
   if (inCorridor) {
     score += 30;
@@ -1063,7 +1124,7 @@ function detectFlipWatch(tickerData, trail = []) {
     score += 20;
     reasons.push("Near corridor");
   }
-  
+
   // 2. HTF strength (20 points) - Strong HTF indicates trend support
   const htfStrength = Math.abs(htfScore);
   if (htfStrength >= 20) {
@@ -1076,7 +1137,7 @@ function detectFlipWatch(tickerData, trail = []) {
     score += 10;
     reasons.push(`Weak HTF (${htfScore.toFixed(1)})`);
   }
-  
+
   // 3. Low completion (20 points) - 64% of winners had completion <15%
   if (Number.isFinite(completion)) {
     if (completion < 0.15) {
@@ -1090,18 +1151,18 @@ function detectFlipWatch(tickerData, trail = []) {
       reasons.push(`Moderate completion (${Math.round(completion * 100)}%)`);
     }
   }
-  
+
   // 4. Early phase (15 points) - 52% of winners had phase <35%
   if (Number.isFinite(phase)) {
     if (phase < 0.35) {
       score += 15;
       reasons.push(`Early phase (${Math.round(phase * 100)}%)`);
-    } else if (phase < 0.50) {
+    } else if (phase < 0.5) {
       score += 10;
       reasons.push(`Mid phase (${Math.round(phase * 100)}%)`);
     }
   }
-  
+
   // 5. Squeeze signals (15 points) - 40% had sq30_on, 32% had sq30_release
   if (flags.sq30_release) {
     score += 15;
@@ -1110,13 +1171,13 @@ function detectFlipWatch(tickerData, trail = []) {
     score += 10;
     reasons.push("Squeeze building");
   }
-  
+
   // 6. HTF improving (bonus 10 points) - momentum building
   if (flags.htf_improving_4h) {
     score += 10;
     reasons.push("HTF improving");
   }
-  
+
   // 7. LTF approaching flip zone (bonus) - LTF moving toward zero
   if (Number.isFinite(ltfScore)) {
     const ltfAbs = Math.abs(ltfScore);
@@ -1125,40 +1186,48 @@ function detectFlipWatch(tickerData, trail = []) {
       reasons.push("LTF near flip zone");
     }
   }
-  
+
   // 8. Check recent trail for momentum building (if available)
   if (Array.isArray(trail) && trail.length >= 2) {
     // Look at last 6 points (~30 minutes at 5m cadence)
     const recent = trail.slice(-6);
-    const htfScores = recent.map(p => Number(p?.htf_score)).filter(Number.isFinite);
-    const ltfScores = recent.map(p => Number(p?.ltf_score)).filter(Number.isFinite);
-    
+    const htfScores = recent
+      .map((p) => Number(p?.htf_score))
+      .filter(Number.isFinite);
+    const ltfScores = recent
+      .map((p) => Number(p?.ltf_score))
+      .filter(Number.isFinite);
+
     if (htfScores.length >= 3) {
       // Check if HTF is strengthening
       const htfLast = htfScores[htfScores.length - 1];
       const htfFirst = htfScores[0];
-      const htfImproving = isBullSetup ? (htfLast > htfFirst) : (htfLast < htfFirst);
+      const htfImproving = isBullSetup
+        ? htfLast > htfFirst
+        : htfLast < htfFirst;
       if (htfImproving) {
         score += 5;
         reasons.push("HTF strengthening");
       }
     }
-    
+
     if (ltfScores.length >= 3) {
       // Check if LTF is moving toward momentum zone
       const ltfLast = ltfScores[ltfScores.length - 1];
       const ltfFirst = ltfScores[0];
-      const ltfMovingToMomentum = isBullSetup ? (ltfLast > ltfFirst) : (ltfLast < ltfFirst);
+      const ltfMovingToMomentum = isBullSetup
+        ? ltfLast > ltfFirst
+        : ltfLast < ltfFirst;
       if (ltfMovingToMomentum) {
         score += 5;
         reasons.push("LTF moving to momentum");
       }
     }
   }
-  
+
   // Require minimum score of 50 to flag as flip watch
   if (score < 50) return null;
-  
+
   return {
     score,
     reasons,
@@ -1182,16 +1251,21 @@ function classifyKanbanStage(tickerData) {
   const moveStatus = computeMoveStatus(tickerData);
   const completion = Number(tickerData?.completion) || 0;
   const phase = Number(tickerData?.phase_pct) || 0;
-  const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+  const isMomentum =
+    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
   const seq = tickerData?.seq || {};
   const isActive = moveStatus?.status === "ACTIVE";
   const htfScore = Number(tickerData?.htf_score) || 0;
   const ltfScore = Number(tickerData?.ltf_score) || 0;
   const rank = Number(tickerData?.rank) || 999;
-  
+
   // Terminal/administrative stages -> ARCHIVE
   const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
-  if (hasMoveStatus && (moveStatus?.status === "INVALIDATED" || moveStatus?.status === "COMPLETED")) return "archive";
+  if (
+    hasMoveStatus &&
+    (moveStatus?.status === "INVALIDATED" || moveStatus?.status === "COMPLETED")
+  )
+    return "archive";
 
   // For open positions, use move invalidation signals to determine exit/trim
   if (hasMoveStatus && isActive) {
@@ -1201,7 +1275,7 @@ function classifyKanbanStage(tickerData) {
     if (severity === "CRITICAL" || reasons.includes("left_entry_corridor")) {
       return "exit";
     }
-    
+
     // Stage 4.5: Defend - open position has warning conditions but is not yet a trim/exit
     // This is a "pay attention" lane that keeps risk flags visible without forcing action.
     if (severity === "WARNING" && completion < 0.7 && phase < 0.7) {
@@ -1212,23 +1286,23 @@ function classifyKanbanStage(tickerData) {
     if (completion >= 0.7 || (phase >= 0.7 && severity === "WARNING")) {
       return "trim";
     }
-    
+
     // Stage 4: Hold - all other open positions
     return "hold";
   }
-  
+
   // For non-position tickers, determine if they're entry opportunities
-  
+
   // Stage 1: Flip Watch - about to transition
   if (flags.flip_watch) {
     return "flip_watch";
   }
-  
+
   // Stage 2: Just Flipped - recently entered momentum
   if (isMomentum && seq.corridorEntry_60m === true) {
     return "just_flipped";
   }
-  
+
   // Stage 3: Enter Now - high-confidence entry opportunities
   // Must be in momentum and meet quality thresholds
   if (isMomentum) {
@@ -1236,19 +1310,19 @@ function classifyKanbanStage(tickerData) {
     if (rank <= 10) {
       return "enter_now";
     }
-    
+
     // Thesis match or momentum elite
     if (flags.thesis_match || flags.momentum_elite) {
       return "enter_now";
     }
-    
+
     // Strong HTF/LTF alignment
     const htfAbs = Math.abs(htfScore);
     const ltfAbs = Math.abs(ltfScore);
     if (htfAbs >= 50 && ltfAbs >= 25) {
       return "enter_now";
     }
-    
+
     // Corridor + Squeeze combo
     const ent = entryType(tickerData);
     if (ent?.corridor && flags.sq30_release) {
@@ -1275,11 +1349,15 @@ function classifyKanbanStage(tickerData) {
   // Late-cycle: overextended / high phase but NOT in momentum.
   // This avoids pulling names like AAPL out of Watch when they're still momentum-aligned.
   const phaseZone = String(tickerData?.phase_zone || "").toUpperCase();
-  const isLate = phaseZone === "HIGH" || phaseZone === "EXTREME" || phase >= 0.7 || completion >= 0.95;
+  const isLate =
+    phaseZone === "HIGH" ||
+    phaseZone === "EXTREME" ||
+    phase >= 0.7 ||
+    completion >= 0.95;
   if (!isMomentum && isLate) {
     return "archive";
   }
-  
+
   // Default: no stage (not in trading pipeline)
   return null;
 }
@@ -1289,26 +1367,53 @@ function deriveKanbanMeta(tickerData, stage) {
   const completion = Number(tickerData?.completion) || 0;
   const phase = Number(tickerData?.phase_pct) || 0;
   const phaseZone = String(tickerData?.phase_zone || "").toUpperCase();
-  const isLate = phaseZone === "HIGH" || phaseZone === "EXTREME" || phase >= 0.7 || completion >= 0.95;
+  const isLate =
+    phaseZone === "HIGH" ||
+    phaseZone === "EXTREME" ||
+    phase >= 0.7 ||
+    completion >= 0.95;
   const state = String(tickerData?.state || "");
-  const isMomentum = (state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR");
+  const isMomentum =
+    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
 
   // Only attach meta for Archive (keeps noise down)
   if (stage !== "archive") return null;
 
   if (ms?.status === "INVALIDATED") {
     const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
-    return { bucket: "invalidated", emoji: "⛔", reason: reasons[0] || "invalidated", reasons };
+    return {
+      bucket: "invalidated",
+      emoji: "⛔",
+      reason: reasons[0] || "invalidated",
+      reasons,
+    };
   }
   if (ms?.status === "COMPLETED") {
     const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
-    return { bucket: "completed", emoji: "✅", reason: reasons[0] || "completed", reasons };
+    return {
+      bucket: "completed",
+      emoji: "✅",
+      reason: reasons[0] || "completed",
+      reasons,
+    };
   }
   if (!isMomentum && isLate) {
-    const why = completion >= 0.95 ? "completion_high" : phase >= 0.7 ? "phase_high" : phaseZone ? `phase_${phaseZone.toLowerCase()}` : "late_cycle";
+    const why =
+      completion >= 0.95
+        ? "completion_high"
+        : phase >= 0.7
+          ? "phase_high"
+          : phaseZone
+            ? `phase_${phaseZone.toLowerCase()}`
+            : "late_cycle";
     return { bucket: "late_cycle", emoji: "🌙", reason: why, reasons: [why] };
   }
-  return { bucket: "archive", emoji: "🗂", reason: "archived", reasons: ["archived"] };
+  return {
+    bucket: "archive",
+    emoji: "🗂",
+    reason: "archived",
+    reasons: ["archived"],
+  };
 }
 
 function computeMoveStatus(tickerData) {
@@ -1374,8 +1479,10 @@ function computeMoveStatus(tickerData) {
   }
 
   // Regime breaks: HTF structure disagrees with direction
-  if (!dailyEmaRegimeOk(tickerData, side)) reasons.push("daily_ema_regime_break");
-  if (!ichimokuRegimeOk(tickerData, side)) reasons.push("ichimoku_regime_break");
+  if (!dailyEmaRegimeOk(tickerData, side))
+    reasons.push("daily_ema_regime_break");
+  if (!ichimokuRegimeOk(tickerData, side))
+    reasons.push("ichimoku_regime_break");
 
   // Late-cycle: disqualifier unless Momentum Elite
   if (isLateCycle(tickerData) && !momentumElite) reasons.push("late_cycle");
@@ -1399,15 +1506,19 @@ function computeMoveStatus(tickerData) {
   const isCompleted = reasons.includes("tp_reached");
   const isInvalidated = reasons.includes("sl_breached");
 
-  const status = isCompleted ? "COMPLETED" : isInvalidated ? "INVALIDATED" : "ACTIVE";
+  const status = isCompleted
+    ? "COMPLETED"
+    : isInvalidated
+      ? "INVALIDATED"
+      : "ACTIVE";
 
   // Severity is used by Kanban stage logic and UI; keep it consistent:
   // NONE | WARNING | CRITICAL
   const severity = reasons.includes("sl_breached")
     ? "CRITICAL"
     : reasons.length
-    ? "WARNING"
-    : "NONE";
+      ? "WARNING"
+      : "NONE";
 
   return {
     status,
@@ -1432,7 +1543,8 @@ function sideFromStateOrScores(tickerData) {
 
 function dailyEmaRegimeOk(tickerData, side) {
   const cloud = tickerData?.daily_ema_cloud;
-  const pos = cloud?.position != null ? String(cloud.position).toLowerCase() : "";
+  const pos =
+    cloud?.position != null ? String(cloud.position).toLowerCase() : "";
   if (!pos) return true;
   if (side === "LONG") return pos !== "below";
   if (side === "SHORT") return pos !== "above";
@@ -1503,7 +1615,9 @@ function computeDynamicScore(ticker) {
   const rr = Number(ticker.rr) || 0;
   const flags = ticker.flags || {};
   const state = String(ticker.state || "");
-  const holdIntent = String(ticker.hold_intent || ticker.horizon_bucket || "").toUpperCase();
+  const holdIntent = String(
+    ticker.hold_intent || ticker.horizon_bucket || "",
+  ).toUpperCase();
 
   const sqRel = !!flags.sq30_release;
   const sqOn = !!flags.sq30_on;
@@ -1516,7 +1630,8 @@ function computeDynamicScore(ticker) {
   let dynamicScore = baseScore;
 
   // Data completeness penalty: prefer fully-instrumented names.
-  const completeness = ticker?.data_completeness || computeDataCompleteness(ticker);
+  const completeness =
+    ticker?.data_completeness || computeDataCompleteness(ticker);
   if (completeness && typeof completeness === "object") {
     if (completeness.score < 70) dynamicScore -= 6;
     else if (completeness.score < 85) dynamicScore -= 3;
@@ -1524,7 +1639,11 @@ function computeDynamicScore(ticker) {
 
   // Per-TF technical structure: reward aligned multi-timeframe stacks.
   const tfAlign = ticker?.tf_summary || tfTechAlignmentSummary(ticker);
-  if (tfAlign && typeof tfAlign === "object" && Number.isFinite(tfAlign.score)) {
+  if (
+    tfAlign &&
+    typeof tfAlign === "object" &&
+    Number.isFinite(tfAlign.score)
+  ) {
     dynamicScore += tfAlign.score;
     if (tfAlign.squeeze_on && !sqRel && inCorridor) dynamicScore += 1;
     if (tfAlign.squeeze_release && inCorridor) dynamicScore += 2;
@@ -1750,8 +1869,8 @@ function deriveHorizonAndMetrics(payload) {
   const direction = state.includes("BULL")
     ? "LONG"
     : state.includes("BEAR")
-    ? "SHORT"
-    : null;
+      ? "SHORT"
+      : null;
   const isLong = direction === "LONG";
 
   const entryRef =
@@ -1847,7 +1966,7 @@ function deriveHorizonAndMetrics(payload) {
   const momentumFactor = clampNum(
     0.85 + (htfAbs / 50) * 0.25 + (ltfAbs / 50) * 0.25,
     0.75,
-    1.45
+    1.45,
   );
 
   let expectedDailyMovePct = null;
@@ -1855,14 +1974,14 @@ function deriveHorizonAndMetrics(payload) {
     expectedDailyMovePct = clampNum(
       dailyAtrPct * 0.35 * momentumFactor,
       0.003,
-      dailyAtrPct * 1.1
+      dailyAtrPct * 1.1,
     );
     out.eta_confidence += 0.25;
   } else if (Number.isFinite(out.risk_pct) && out.risk_pct > 0) {
     expectedDailyMovePct = clampNum(
       (out.risk_pct / 100) * 0.25 * momentumFactor,
       0.003,
-      0.02
+      0.02,
     );
     out.eta_confidence += 0.1;
   } else {
@@ -1876,8 +1995,8 @@ function deriveHorizonAndMetrics(payload) {
     tpArray && tpArray.length > 1
       ? tpArray[1]
       : tpArray && tpArray.length > 0
-      ? tpArray[0]
-      : null;
+        ? tpArray[0]
+        : null;
   if (targetTp && Number.isFinite(targetTp.price) && targetTp.price > 0) {
     out.tp_target_price = Number(targetTp.price);
     const targetPct =
@@ -1904,16 +2023,16 @@ function deriveHorizonAndMetrics(payload) {
     const typeScore = type.startsWith("FUSED")
       ? 3
       : type === "STRUCTURE"
-      ? 3
-      : type === "LIQUIDITY"
-      ? 2
-      : type === "FVG"
-      ? 1.5
-      : type === "GAP"
-      ? 1
-      : type === "ATR_FIB"
-      ? 1
-      : 0.5;
+        ? 3
+        : type === "LIQUIDITY"
+          ? 2
+          : type === "FVG"
+            ? 1.5
+            : type === "GAP"
+              ? 1
+              : type === "ATR_FIB"
+                ? 1
+                : 0.5;
     const confScore = Number.isFinite(conf)
       ? clampNum((conf - 0.6) / 0.3, 0, 1)
       : 0.5;
@@ -2055,8 +2174,8 @@ async function computeOpenTradesCorrelation(env, KV, options = {}) {
           return status === "OPEN" || status === "TP_HIT_TRIM" || !status;
         })
         .map((t) => String(t?.ticker || "").toUpperCase())
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
 
   if (openTickers.length < 2) {
@@ -2077,7 +2196,7 @@ async function computeOpenTradesCorrelation(env, KV, options = {}) {
       const trail = res && Array.isArray(res.trail) ? res.trail : [];
       const dailySeries = buildDailyCloseSeries(trail, 20);
       seriesMap.set(ticker, dailySeries);
-    })
+    }),
   );
 
   const returnMapByTicker = new Map();
@@ -2217,10 +2336,7 @@ function computeTradeConfidence(tickerData) {
   const flags = t.flags && typeof t.flags === "object" ? t.flags : {};
   const rank = Number(t.rank) || 0;
   const rr =
-    Number(t.rr_now_likely) ||
-    Number(t.rr_entry_likely) ||
-    Number(t.rr) ||
-    0;
+    Number(t.rr_now_likely) || Number(t.rr_entry_likely) || Number(t.rr) || 0;
   const h = Math.abs(Number(t.htf_score) || 0);
   const l = Math.abs(Number(t.ltf_score) || 0);
 
@@ -2235,7 +2351,11 @@ function computeTradeConfidence(tickerData) {
     (flags.thesis_match ? 0.08 : 0) +
     (flags.sq30_release ? 0.04 : 0);
 
-  const confidence = clamp(0.55 * cRank + 0.25 * cRr + 0.2 * cScore + bonus, 0, 1);
+  const confidence = clamp(
+    0.55 * cRank + 0.25 * cRr + 0.2 * cScore + bonus,
+    0,
+    1,
+  );
   return confidence;
 }
 
@@ -2260,8 +2380,10 @@ async function putPortfolioState(KV, p) {
   try {
     const now = Date.now();
     const next = { ...(p || {}), updated_at: now };
-    if (!Number.isFinite(Number(next.startCash))) next.startCash = PORTFOLIO_START_CASH;
-    if (!Number.isFinite(Number(next.cash))) next.cash = Number(next.startCash) || PORTFOLIO_START_CASH;
+    if (!Number.isFinite(Number(next.startCash)))
+      next.startCash = PORTFOLIO_START_CASH;
+    if (!Number.isFinite(Number(next.cash)))
+      next.cash = Number(next.startCash) || PORTFOLIO_START_CASH;
     await kvPutJSON(KV, PORTFOLIO_KEY, next);
     return next;
   } catch {
@@ -2270,8 +2392,12 @@ async function putPortfolioState(KV, p) {
 }
 
 function tradeNotionalFromConfidence(confidence, cashAvailable) {
-  const base = MIN_TRADE_NOTIONAL + (MAX_TRADE_NOTIONAL - MIN_TRADE_NOTIONAL) * clamp(confidence, 0, 1);
-  const maxByCash = Number.isFinite(Number(cashAvailable)) ? Number(cashAvailable) : base;
+  const base =
+    MIN_TRADE_NOTIONAL +
+    (MAX_TRADE_NOTIONAL - MIN_TRADE_NOTIONAL) * clamp(confidence, 0, 1);
+  const maxByCash = Number.isFinite(Number(cashAvailable))
+    ? Number(cashAvailable)
+    : base;
   const capped = Math.min(base, maxByCash, MAX_TRADE_NOTIONAL);
   return clamp(capped, MIN_TRADE_NOTIONAL, MAX_TRADE_NOTIONAL);
 }
@@ -2284,7 +2410,8 @@ function computeSharesForTrade(ticker, entryPrice, notional) {
   }
   const px = Number(entryPrice);
   const n = Number(notional);
-  if (!Number.isFinite(px) || px <= 0 || !Number.isFinite(n) || n <= 0) return { shares: null, pointValue: 1 };
+  if (!Number.isFinite(px) || px <= 0 || !Number.isFinite(n) || n <= 0)
+    return { shares: null, pointValue: 1 };
   return { shares: n / px, pointValue: 1 };
 }
 
@@ -2341,8 +2468,8 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
     h > 0 && l >= -8 && l <= 12
       ? "LONG"
       : h < 0 && l >= -12 && l <= 8
-      ? "SHORT"
-      : null;
+        ? "SHORT"
+        : null;
   const corridorAlignedOK =
     (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
 
@@ -2394,12 +2521,16 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const phaseOk = phase <= maxPhase;
 
   const momentumEliteTrigger =
-    momentumElite && inCorridor && corridorAlignedOK && (trigOk || sqRelease || justEnteredCorridor);
+    momentumElite &&
+    inCorridor &&
+    corridorAlignedOK &&
+    (trigOk || sqRelease || justEnteredCorridor);
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
   // Don't enter if the move has already invalidated/completed
   const ms = tickerData?.move_status || computeMoveStatus(tickerData);
-  if (ms && (ms.status === "INVALIDATED" || ms.status === "COMPLETED")) return false;
+  if (ms && (ms.status === "INVALIDATED" || ms.status === "COMPLETED"))
+    return false;
 
   // Phase 1/3 gates applied to simulation entries too.
   const inferredSide = side || sideFromStateOrScores(tickerData);
@@ -2409,8 +2540,10 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   // Pullback-only entry: require a pullback→re-alignment transition OR a squeeze release.
   // This avoids chasing late/extended moves that are merely "in corridor".
   const prevStateStr = prevData ? String(prevData.state || "") : "";
-  const enteredFromPullback = !!enteredAligned && prevStateStr.includes("PULLBACK");
-  const freshPullbackOk = enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
+  const enteredFromPullback =
+    !!enteredAligned && prevStateStr.includes("PULLBACK");
+  const freshPullbackOk =
+    enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
   if (!freshPullbackOk) return false;
 
   return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
@@ -2505,8 +2638,8 @@ function buildEntryDecision(ticker, tickerData, prevState) {
     h > 0 && l >= -8 && l <= 12
       ? "LONG"
       : h < 0 && l >= -12 && l <= 8
-      ? "SHORT"
-      : null;
+        ? "SHORT"
+        : null;
   const corridorAlignedOK =
     (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
 
@@ -2541,14 +2674,14 @@ function buildEntryDecision(ticker, tickerData, prevState) {
     Number.isFinite(price) && price > 0
       ? price
       : Number.isFinite(triggerPrice) && triggerPrice > 0
-      ? triggerPrice
-      : null;
+        ? triggerPrice
+        : null;
   const entryPriceSource =
     Number.isFinite(price) && price > 0
       ? "price"
       : Number.isFinite(triggerPrice) && triggerPrice > 0
-      ? "trigger_price"
-      : null;
+        ? "trigger_price"
+        : null;
 
   const rrAtEntry =
     entryPrice != null ? calculateRRAtEntry(tickerData, entryPrice) : null;
@@ -2577,7 +2710,8 @@ function buildEntryDecision(ticker, tickerData, prevState) {
 
   // Phase 1: HTF regime gate + late-cycle disqualifier + pullback-only entry constraint
   const inferredSide = side || sideFromStateOrScores(tickerData);
-  if (!dailyEmaRegimeOk(tickerData, inferredSide)) blockers.push("htf_regime_gate");
+  if (!dailyEmaRegimeOk(tickerData, inferredSide))
+    blockers.push("htf_regime_gate");
   if (!ichimokuRegimeOk(tickerData, inferredSide))
     blockers.push("ichimoku_regime_gate");
 
@@ -2589,7 +2723,8 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   // (Entered-aligned alone can also happen on regime flips; we explicitly require pullback.)
   const enteredFromPullback =
     !!enteredAligned && String(prevState || "").includes("PULLBACK");
-  const freshPullbackOk = enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
+  const freshPullbackOk =
+    enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
   if (!freshPullbackOk) blockers.push("no_fresh_pullback");
 
   if (!rankOk) blockers.push("rank_below_min");
@@ -2645,15 +2780,28 @@ function computeTradePnlComponents(trade, tickerData) {
   const pointValue = Number(trade?.pointValue) || 1;
   const trimmedPct = clamp(Number(trade?.trimmedPct || 0), 0, 1);
   const remainingPct = Math.max(0, 1 - trimmedPct);
-  if (!Number.isFinite(entryPrice) || !Number.isFinite(currentPrice) || !Number.isFinite(shares)) {
-    return { pnl: null, pnlPct: null, realized: Number(trade?.realizedPnl || 0) || 0, unrealized: null };
+  if (
+    !Number.isFinite(entryPrice) ||
+    !Number.isFinite(currentPrice) ||
+    !Number.isFinite(shares)
+  ) {
+    return {
+      pnl: null,
+      pnlPct: null,
+      realized: Number(trade?.realizedPnl || 0) || 0,
+      unrealized: null,
+    };
   }
   const dirSign = isLong ? 1 : -1;
-  const unrealized = (currentPrice - entryPrice) * shares * pointValue * remainingPct * dirSign;
+  const unrealized =
+    (currentPrice - entryPrice) * shares * pointValue * remainingPct * dirSign;
   const realized = Number(trade?.realizedPnl || 0) || 0;
   const pnl = realized + unrealized;
-  const notional = Number(trade?.notional) || (Number.isFinite(entryPrice) ? entryPrice * shares : null);
-  const pnlPct = Number.isFinite(notional) && notional !== 0 ? (pnl / notional) * 100 : null;
+  const notional =
+    Number(trade?.notional) ||
+    (Number.isFinite(entryPrice) ? entryPrice * shares : null);
+  const pnlPct =
+    Number.isFinite(notional) && notional !== 0 ? (pnl / notional) * 100 : null;
   return { pnl, pnlPct, realized, unrealized };
 }
 
@@ -2728,7 +2876,7 @@ function fuseTPCandidates(
   entryPrice,
   direction,
   risk,
-  horizonConfig
+  horizonConfig,
 ) {
   if (!Array.isArray(tpCandidates) || tpCandidates.length === 0) return [];
   const isLong = direction === "LONG";
@@ -2814,13 +2962,13 @@ function fuseTPCandidates(
 
       const sources = Array.from(
         new Set(
-          c.items.map((x) => String(x.tp?.source || "").trim()).filter(Boolean)
-        )
+          c.items.map((x) => String(x.tp?.source || "").trim()).filter(Boolean),
+        ),
       );
       const types = Array.from(
         new Set(
-          c.items.map((x) => String(x.tp?.type || "").trim()).filter(Boolean)
-        )
+          c.items.map((x) => String(x.tp?.type || "").trim()).filter(Boolean),
+        ),
       );
 
       // Confluence score: sum of member scores + small boost for multiple confirmations,
@@ -2876,7 +3024,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   const bucketRaw = String(
     tickerData.horizon_bucket ||
       horizonBucketFromEtaDays(tickerData.eta_days_v2 ?? tickerData.eta_days) ||
-      ""
+      "",
   )
     .trim()
     .toUpperCase();
@@ -3023,7 +3171,7 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     entryPrice,
     direction,
     risk,
-    horizonConfig
+    horizonConfig,
   );
   const baseForScoring = fusedTPs.length > 0 ? fusedTPs : validTPs;
 
@@ -3238,8 +3386,8 @@ function getValidTP(tickerData, entryPrice, direction) {
         `[TP VALIDATION] ⚠️ ${
           tickerData.ticker || "UNKNOWN"
         } LONG: No TP above entry $${entryPrice.toFixed(
-          2
-        )}. Using highest TP: $${Math.max(...tpPrices).toFixed(2)}`
+          2,
+        )}. Using highest TP: $${Math.max(...tpPrices).toFixed(2)}`,
       );
       return Math.max(...tpPrices);
     }
@@ -3259,8 +3407,8 @@ function getValidTP(tickerData, entryPrice, direction) {
         `[TP VALIDATION] ⚠️ ${
           tickerData.ticker || "UNKNOWN"
         } SHORT: No TP below entry $${entryPrice.toFixed(
-          2
-        )}. Using lowest TP: $${Math.min(...tpPrices).toFixed(2)}`
+          2,
+        )}. Using lowest TP: $${Math.min(...tpPrices).toFixed(2)}`,
       );
       return Math.min(...tpPrices);
     }
@@ -3272,8 +3420,8 @@ function getValidTP(tickerData, entryPrice, direction) {
       `[TP VALIDATION] ⚠️ ${
         tickerData.ticker || "UNKNOWN"
       } ${direction}: Using invalid TP $${tp.toFixed(
-        2
-      )} (entry: $${entryPrice.toFixed(2)})`
+        2,
+      )} (entry: $${entryPrice.toFixed(2)})`,
     );
     return tp;
   }
@@ -3391,7 +3539,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
             Number.isFinite(tp.trimPct) &&
             tp.trimPct > 0 &&
             tp.trimPct <= 1 &&
-            isProfitSide(tp.price)
+            isProfitSide(tp.price),
         )
         .sort((a, b) => (a.trimPct || 0) - (b.trimPct || 0))
     : [];
@@ -3760,7 +3908,7 @@ function generateProactiveAlerts(allTickers, allTrades) {
 
   // Get open trades
   const openTrades = allTrades.filter(
-    (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM"
+    (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM",
   );
 
   // Alert 1: Positions approaching TP (within 2% of TP)
@@ -3791,9 +3939,9 @@ function generateProactiveAlerts(allTickers, allTrades) {
           priority: "high",
           ticker: trade.ticker,
           message: `${trade.ticker} is within ${pctToTP.toFixed(
-            1
+            1,
           )}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(
-            2
+            2,
           )}. Consider trimming 50% at TP.`,
           currentPrice,
           tp,
@@ -3830,9 +3978,9 @@ function generateProactiveAlerts(allTickers, allTrades) {
           priority: "high",
           ticker: trade.ticker,
           message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(
-            1
+            1,
           )}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(
-            2
+            2,
           )}. Monitor closely.`,
           currentPrice,
           sl,
@@ -3853,7 +4001,7 @@ function generateProactiveAlerts(allTickers, allTrades) {
         message: `${ticker.ticker} has reached ${(
           ticker.completion * 100
         ).toFixed(
-          0
+          0,
         )}% completion. Consider trimming 50-75% to lock in profits.`,
         completion: ticker.completion,
       });
@@ -3871,7 +4019,7 @@ function generateProactiveAlerts(allTickers, allTrades) {
         message: `${ticker.ticker} is in late phase (${(
           ticker.phase_pct * 100
         ).toFixed(
-          0
+          0,
         )}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
         phasePct: ticker.phase_pct,
       });
@@ -3885,7 +4033,7 @@ function generateProactiveAlerts(allTickers, allTrades) {
       t.rr >= 1.5 &&
       t.completion < 0.4 &&
       t.phase_pct < 0.6 &&
-      !openTrades.find((ot) => ot.ticker === t.ticker)
+      !openTrades.find((ot) => ot.ticker === t.ticker),
   );
 
   if (newPrimeSetups.length > 0) {
@@ -3912,7 +4060,7 @@ function generateProactiveAlerts(allTickers, allTrades) {
     (t) =>
       t.flags?.momentum_elite &&
       t.rank >= 70 &&
-      !openTrades.find((ot) => ot.ticker === t.ticker)
+      !openTrades.find((ot) => ot.ticker === t.ticker),
   );
 
   if (momentumEliteSetups.length > 0) {
@@ -3947,22 +4095,29 @@ async function processTradeSimulation(
   ticker,
   tickerData,
   prevData,
-  env = null
+  env = null,
 ) {
   try {
     const tradesKey = "timed:trades:all";
     const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
 
     const sym = String(ticker || "").toUpperCase();
-    const stage = String(tickerData?.kanban_stage || "").trim().toLowerCase();
-    const prevStage = String(prevData?.kanban_stage || "").trim().toLowerCase();
+    const stage = String(tickerData?.kanban_stage || "")
+      .trim()
+      .toLowerCase();
+    const prevStage = String(prevData?.kanban_stage || "")
+      .trim()
+      .toLowerCase();
     const direction = getTradeDirection(tickerData.state);
     if (!direction) return;
 
     let openTrade = allTrades.find(
-      (t) => String(t?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(t?.status)
+      (t) =>
+        String(t?.ticker || "").toUpperCase() === sym &&
+        isOpenTradeStatus(t?.status),
     );
-    const openTradeDir = openTrade && String(openTrade.direction || "").toUpperCase();
+    const openTradeDir =
+      openTrade && String(openTrade.direction || "").toUpperCase();
     const now = Date.now();
 
     // Portfolio (cash gating + bookkeeping)
@@ -3980,11 +4135,15 @@ async function processTradeSimulation(
     const lastTrimMs = Number(execState.lastTrimMs);
     const lastExitMs = Number(execState.lastExitMs);
     const lastEnterTriggerTs = Number(execState.lastEnterTriggerTs);
-    const lastEnterSide = execState.lastEnterSide != null ? String(execState.lastEnterSide) : null;
+    const lastEnterSide =
+      execState.lastEnterSide != null ? String(execState.lastEnterSide) : null;
     const curTriggerTs = Number(tickerData?.trigger_ts);
-    const enterCooldownOk = !Number.isFinite(lastEnterMs) || now - lastEnterMs >= 10 * 60 * 1000; // 10m
-    const trimCooldownOk = !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
-    const exitCooldownOk = !Number.isFinite(lastExitMs) || now - lastExitMs >= 5 * 60 * 1000; // 5m
+    const enterCooldownOk =
+      !Number.isFinite(lastEnterMs) || now - lastEnterMs >= 10 * 60 * 1000; // 10m
+    const trimCooldownOk =
+      !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
+    const exitCooldownOk =
+      !Number.isFinite(lastExitMs) || now - lastExitMs >= 5 * 60 * 1000; // 5m
     const sameEnterCycle =
       Number.isFinite(curTriggerTs) &&
       curTriggerTs > 0 &&
@@ -4002,9 +4161,17 @@ async function processTradeSimulation(
       pxNow ||
       null;
 
-    const move = tickerData?.move_status && typeof tickerData.move_status === "object" ? tickerData.move_status : null;
+    const move =
+      tickerData?.move_status && typeof tickerData.move_status === "object"
+        ? tickerData.move_status
+        : null;
     const reasons = Array.isArray(move?.reasons) ? move.reasons : [];
-    const reason = reasons.length > 0 ? String(reasons[0]) : stage ? `KANBAN_${stage.toUpperCase()}` : "KANBAN";
+    const reason =
+      reasons.length > 0
+        ? String(reasons[0])
+        : stage
+          ? `KANBAN_${stage.toUpperCase()}`
+          : "KANBAN";
 
     const persistTrades = async () => {
       allTrades.sort((a, b) => {
@@ -4024,8 +4191,13 @@ async function processTradeSimulation(
       if (!Number.isFinite(shares)) return;
       const remainingShares = shares * remainingPct;
 
-      const dirSign = String(trade.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
-      const pnlRemaining = (p - Number(trade.entryPrice)) * remainingShares * (Number(trade.pointValue) || 1) * dirSign;
+      const dirSign =
+        String(trade.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+      const pnlRemaining =
+        (p - Number(trade.entryPrice)) *
+        remainingShares *
+        (Number(trade.pointValue) || 1) *
+        dirSign;
       trade.realizedPnl = Number(trade.realizedPnl || 0) + pnlRemaining;
 
       const ev = {
@@ -4038,7 +4210,9 @@ async function processTradeSimulation(
         pnl_realized: pnlRemaining,
         note: `Exit at $${p.toFixed(2)} (${closeReason})`,
       };
-      trade.history = Array.isArray(trade.history) ? [...trade.history, ev] : [ev];
+      trade.history = Array.isArray(trade.history)
+        ? [...trade.history, ev]
+        : [ev];
 
       trade.exitReason = closeReason;
       trade.exitPrice = p;
@@ -4060,7 +4234,12 @@ async function processTradeSimulation(
       }
     };
 
-    const trimTradeToPct = async (trade, targetTrimPct, trimPrice, trimReason) => {
+    const trimTradeToPct = async (
+      trade,
+      targetTrimPct,
+      trimPrice,
+      trimReason,
+    ) => {
       const p = Number(trimPrice);
       if (!Number.isFinite(p) || p <= 0) return;
       const oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
@@ -4071,8 +4250,13 @@ async function processTradeSimulation(
       if (!Number.isFinite(shares)) return;
       const trimShares = shares * delta;
 
-      const dirSign = String(trade.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
-      const pnlRealized = (p - Number(trade.entryPrice)) * trimShares * (Number(trade.pointValue) || 1) * dirSign;
+      const dirSign =
+        String(trade.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+      const pnlRealized =
+        (p - Number(trade.entryPrice)) *
+        trimShares *
+        (Number(trade.pointValue) || 1) *
+        dirSign;
       trade.realizedPnl = Number(trade.realizedPnl || 0) + pnlRealized;
       trade.trimmedPct = tgt;
       trade.status = tgt > 0 ? "TP_HIT_TRIM" : "OPEN";
@@ -4089,7 +4273,9 @@ async function processTradeSimulation(
         pnl_realized: pnlRealized,
         note: `Trimmed ${Math.round(delta * 100)}% at $${p.toFixed(2)} (${trimReason})`,
       };
-      trade.history = Array.isArray(trade.history) ? [...trade.history, ev] : [ev];
+      trade.history = Array.isArray(trade.history)
+        ? [...trade.history, ev]
+        : [ev];
       trade.lastUpdate = new Date().toISOString();
 
       // Portfolio cash increases by proceeds
@@ -4130,7 +4316,12 @@ async function processTradeSimulation(
     // 3) ENTER: open trade on transition into ENTER_NOW lane
     if (isEnter && enterCooldownOk && !sameEnterCycle) {
       // If we already have an open trade in the opposite direction, close it first (flip).
-      if (openTrade && openTradeDir && openTradeDir !== direction && exitCooldownOk) {
+      if (
+        openTrade &&
+        openTradeDir &&
+        openTradeDir !== direction &&
+        exitCooldownOk
+      ) {
         await closeTradeAtPrice(openTrade, pxNow, `FLIP_${reason}`);
         await kvPutJSON(KV, execKey, {
           ...execState,
@@ -4142,7 +4333,12 @@ async function processTradeSimulation(
 
     if (isEnter && enterCooldownOk && !sameEnterCycle && !openTrade) {
       const entryPx = Number(entryPxCandidate);
-      if (Number.isFinite(entryPx) && entryPx > 0 && Number.isFinite(pxNow) && pxNow > 0) {
+      if (
+        Number.isFinite(entryPx) &&
+        entryPx > 0 &&
+        Number.isFinite(pxNow) &&
+        pxNow > 0
+      ) {
         const confidence = computeTradeConfidence(tickerData);
         const cash = Number(portfolio.cash);
         const notional =
@@ -4150,7 +4346,11 @@ async function processTradeSimulation(
             ? tradeNotionalFromConfidence(confidence, cash)
             : null;
         if (notional != null) {
-          const { shares, pointValue } = computeSharesForTrade(sym, entryPx, notional);
+          const { shares, pointValue } = computeSharesForTrade(
+            sym,
+            entryPx,
+            notional,
+          );
           if (Number.isFinite(shares) && shares > 0) {
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
             const entryTime = new Date().toISOString();
@@ -4198,7 +4398,10 @@ async function processTradeSimulation(
             await kvPutJSON(KV, execKey, {
               ...execState,
               lastEnterMs: now,
-              lastEnterTriggerTs: Number.isFinite(curTriggerTs) && curTriggerTs > 0 ? curTriggerTs : null,
+              lastEnterTriggerTs:
+                Number.isFinite(curTriggerTs) && curTriggerTs > 0
+                  ? curTriggerTs
+                  : null,
               lastEnterSide: direction,
             });
             if (env) {
@@ -4207,7 +4410,10 @@ async function processTradeSimulation(
             }
           }
         } else {
-          tickerData.flags = tickerData.flags && typeof tickerData.flags === "object" ? tickerData.flags : {};
+          tickerData.flags =
+            tickerData.flags && typeof tickerData.flags === "object"
+              ? tickerData.flags
+              : {};
           tickerData.flags.portfolio_no_cash = true;
         }
       }
@@ -4215,7 +4421,9 @@ async function processTradeSimulation(
 
     // 4) Mark-to-market open trade (no auto TP/SL execution; Kanban lanes drive executions)
     if (openTrade && isOpenTradeStatus(openTrade.status)) {
-      openTrade.currentPrice = Number.isFinite(pxNow) ? pxNow : openTrade.currentPrice;
+      openTrade.currentPrice = Number.isFinite(pxNow)
+        ? pxNow
+        : openTrade.currentPrice;
       const mtm = computeTradePnlComponents(openTrade, tickerData);
       if (mtm.pnl != null) openTrade.pnl = mtm.pnl;
       if (mtm.pnlPct != null) openTrade.pnlPct = mtm.pnlPct;
@@ -4250,10 +4458,10 @@ async function processTradeSimulation(
 
         console.log(
           `[TRADE SIM] Checking ${ticker} ${direction} entry price correction: entry=$${currentEntryPrice.toFixed(
-            2
+            2,
           )}, current=$${currentPrice.toFixed(2)}, trigger=${
             triggerPrice ? "$" + triggerPrice.toFixed(2) : "null"
-          }, differs=${entryPriceDiffers}, corrected=${entryPriceCorrected}`
+          }, differs=${entryPriceDiffers}, corrected=${entryPriceCorrected}`,
         );
 
         if (priceAvailable && entryPriceDiffers) {
@@ -4269,8 +4477,8 @@ async function processTradeSimulation(
             tickerData.trigger_ts != null
               ? new Date(Number(tickerData.trigger_ts)).toISOString()
               : tickerData.ts != null
-              ? new Date(Number(tickerData.ts)).toISOString()
-              : null;
+                ? new Date(Number(tickerData.ts)).toISOString()
+                : null;
           const triggerTime = triggerTimestamp
             ? new Date(triggerTimestamp).getTime()
             : null;
@@ -4283,7 +4491,7 @@ async function processTradeSimulation(
             Math.abs(currentEntryPrice - triggerPrice) / triggerPrice < 0.001;
 
           console.log(
-            `[TRADE SIM] ${ticker} correction check: isOldTrade=${isOldTrade}, isBackfill=${isBackfill}, entryMatchesTrigger=${entryMatchesTrigger}, entryTime=${existingOpenTrade.entryTime}`
+            `[TRADE SIM] ${ticker} correction check: isOldTrade=${isOldTrade}, isBackfill=${isBackfill}, entryMatchesTrigger=${entryMatchesTrigger}, entryTime=${existingOpenTrade.entryTime}`,
           );
 
           // For old trades: ALWAYS use current price (entry was likely wrong)
@@ -4294,14 +4502,14 @@ async function processTradeSimulation(
             correctedEntryPrice = currentPrice;
             console.log(
               `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(
-                2
+                2,
               )} -> $${correctedEntryPrice.toFixed(2)} (reason: ${
                 isOldTrade
                   ? "old trade"
                   : entryMatchesTrigger
-                  ? "matches trigger_price"
-                  : "differs from current price"
-              }, using current price)`
+                    ? "matches trigger_price"
+                    : "differs from current price"
+              }, using current price)`,
             );
           } else if (isBackfill && triggerPrice) {
             // For backfills only (not old trades): use trigger_price if significantly different
@@ -4312,20 +4520,20 @@ async function processTradeSimulation(
               correctedEntryPrice = triggerPrice;
               console.log(
                 `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(
-                  2
+                  2,
                 )} -> $${correctedEntryPrice.toFixed(
-                  2
-                )} (backfill, using trigger_price)`
+                  2,
+                )} (backfill, using trigger_price)`,
               );
             } else {
               // Price is close - use current price even for backfills
               correctedEntryPrice = currentPrice;
               console.log(
                 `[TRADE SIM] 🔧 Correcting ${ticker} ${direction} entry price: $${currentEntryPrice.toFixed(
-                  2
+                  2,
                 )} -> $${correctedEntryPrice.toFixed(
-                  2
-                )} (backfill, trigger_price close, using current price)`
+                  2,
+                )} (backfill, trigger_price close, using current price)`,
               );
             }
           }
@@ -4348,8 +4556,8 @@ async function processTradeSimulation(
             : TRADE_SIZE / correctedEntryPrice;
         console.log(
           `[TRADE SIM] 🔧 Recalculating ${ticker} ${direction} shares: ${existingOpenTrade.shares?.toFixed(
-            4
-          )} -> ${correctedShares.toFixed(4)} (due to entry price correction)`
+            4,
+          )} -> ${correctedShares.toFixed(4)} (due to entry price correction)`,
         );
       }
 
@@ -4394,10 +4602,14 @@ async function processTradeSimulation(
             direction,
             age_min: Math.round(ageMs / 60000),
             min_age_min: Math.round(MIN_TDSEQ_HOLD_MS / 60000),
-            td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
-            td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
-            td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
-            td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+            td9_bullish:
+              tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+            td9_bearish:
+              tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+            td13_bullish:
+              tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+            td13_bearish:
+              tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
           });
         }
       }
@@ -4436,10 +4648,14 @@ async function processTradeSimulation(
             direction === "LONG"
               ? (priceNow - entryPx) / (tpPx - entryPx)
               : (entryPx - priceNow) / (entryPx - tpPx);
-          tpProgress = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : null;
+          tpProgress = Number.isFinite(raw)
+            ? Math.max(0, Math.min(1, raw))
+            : null;
         }
 
-        const hasProfitBuffer = Number.isFinite(pnlPctNow) ? pnlPctNow >= 0.35 : false; // ~35 bps
+        const hasProfitBuffer = Number.isFinite(pnlPctNow)
+          ? pnlPctNow >= 0.35
+          : false; // ~35 bps
         const hasMeaningfulProgress =
           (Number.isFinite(completion) && completion >= 0.7) ||
           (Number.isFinite(phasePct) && phasePct >= 0.7) ||
@@ -4455,10 +4671,14 @@ async function processTradeSimulation(
             completion: Number.isFinite(completion) ? completion : null,
             phase_pct: Number.isFinite(phasePct) ? phasePct : null,
             tp_progress: Number.isFinite(tpProgress) ? tpProgress : null,
-            td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
-            td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
-            td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
-            td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+            td9_bullish:
+              tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+            td9_bearish:
+              tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+            td13_bullish:
+              tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+            td13_bearish:
+              tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
           });
         }
       }
@@ -4488,10 +4708,14 @@ async function processTradeSimulation(
           direction === "LONG"
             ? dailyExists &&
               (dailyPos === "below" ||
-                (Number.isFinite(dailyLower) && dailyLower > 0 && priceNow < dailyLower))
+                (Number.isFinite(dailyLower) &&
+                  dailyLower > 0 &&
+                  priceNow < dailyLower))
             : dailyExists &&
               (dailyPos === "above" ||
-                (Number.isFinite(dailyUpper) && dailyUpper > 0 && priceNow > dailyUpper));
+                (Number.isFinite(dailyUpper) &&
+                  dailyUpper > 0 &&
+                  priceNow > dailyUpper));
 
         // If daily doesn't confirm the reversal, prefer defending (tighten SL) over exiting.
         const shouldDefend = !dailyConfirmsExit;
@@ -4500,14 +4724,14 @@ async function processTradeSimulation(
           dailyExists && Number.isFinite(dailyUpper) && dailyUpper > 0
             ? dailyUpper
             : Number.isFinite(fourHUpper) && fourHUpper > 0
-            ? fourHUpper
-            : null;
+              ? fourHUpper
+              : null;
         const defendLower =
           dailyExists && Number.isFinite(dailyLower) && dailyLower > 0
             ? dailyLower
             : Number.isFinite(fourHLower) && fourHLower > 0
-            ? fourHLower
-            : null;
+              ? fourHLower
+              : null;
 
         const canDefendLong =
           direction === "LONG" &&
@@ -4534,8 +4758,8 @@ async function processTradeSimulation(
             oldSl == null
               ? true
               : direction === "LONG"
-              ? suggestedSl > oldSl
-              : suggestedSl < oldSl;
+                ? suggestedSl > oldSl
+                : suggestedSl < oldSl;
 
           if (tighten) {
             existingOpenTrade.sl = suggestedSl;
@@ -4552,27 +4776,38 @@ async function processTradeSimulation(
             cloud_pos: dailyPos || fourHPos || null,
             cloud_upper: Number.isFinite(defendUpper) ? defendUpper : null,
             cloud_lower: Number.isFinite(defendLower) ? defendLower : null,
-            td9_bullish: tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
-            td9_bearish: tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
-            td13_bullish: tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
-            td13_bearish: tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
+            td9_bullish:
+              tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true",
+            td9_bearish:
+              tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true",
+            td13_bullish:
+              tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true",
+            td13_bearish:
+              tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
           });
 
           // Discord + D1 alert (deduped hourly)
           try {
             const discordEnable = env?.DISCORD_ENABLE || "false";
             const discordWebhook = env?.DISCORD_WEBHOOK_URL;
-            const discordConfigured = discordEnable === "true" && !!discordWebhook;
+            const discordConfigured =
+              discordEnable === "true" && !!discordWebhook;
 
             const nowMs = Date.now();
             const hourBucket = new Date(nowMs).toISOString().slice(0, 13); // YYYY-MM-DDTHH
             const dedupeKey = `timed:dedupe:tdseq_defense:${ticker}:${direction}:${hourBucket}`;
             const already = await KV.get(dedupeKey);
 
-              if (!already) {
+            if (!already) {
               await KV.put(dedupeKey, "1", { expirationTtl: 60 * 60 });
 
-              if (discordConfigured && shouldSendDiscordAlert(env, "TDSEQ_DEFENSE", { ticker, direction })) {
+              if (
+                discordConfigured &&
+                shouldSendDiscordAlert(env, "TDSEQ_DEFENSE", {
+                  ticker,
+                  direction,
+                })
+              ) {
                 const embed = createTDSeqDefenseEmbed(
                   ticker,
                   direction,
@@ -4581,10 +4816,13 @@ async function processTradeSimulation(
                   oldSl,
                   tighten ? suggestedSl : oldSl,
                   tdSeq,
-                  tickerData
+                  tickerData,
                 );
                 const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                  console.error(`[TRADE SIM] ❌ Failed to send TDSEQ defense alert for ${ticker}:`, err);
+                  console.error(
+                    `[TRADE SIM] ❌ Failed to send TDSEQ defense alert for ${ticker}:`,
+                    err,
+                  );
                   return { ok: false, error: String(err) };
                 });
 
@@ -4602,7 +4840,10 @@ async function processTradeSimulation(
                   discord_status: sendRes?.status ?? null,
                   discord_error: sendRes?.ok
                     ? null
-                    : sendRes?.reason || sendRes?.statusText || sendRes?.error || "discord_send_failed",
+                    : sendRes?.reason ||
+                      sendRes?.statusText ||
+                      sendRes?.error ||
+                      "discord_send_failed",
                   payload_json: JSON.stringify({
                     ticker,
                     direction,
@@ -4614,7 +4855,10 @@ async function processTradeSimulation(
                   }),
                   meta_json: JSON.stringify({ kind: "tdseq_defense" }),
                 }).catch((e) => {
-                  console.error(`[D1 LEDGER] Failed to upsert TDSEQ defense alert:`, e);
+                  console.error(
+                    `[D1 LEDGER] Failed to upsert TDSEQ defense alert:`,
+                    e,
+                  );
                 });
               }
             }
@@ -4637,7 +4881,7 @@ async function processTradeSimulation(
           `[TRADE SIM] 🚨 TD Sequential exit signal for ${ticker} ${direction}: ` +
             `TD9/TD13 ${
               direction === "LONG" ? "bearish" : "bullish"
-            } reversal detected`
+            } reversal detected`,
         );
 
         // Force exit at current price (TD Sequential exhaustion signal)
@@ -4709,15 +4953,15 @@ async function processTradeSimulation(
           if (newStatus === "WIN" && tradeCalc.pnl < 0) {
             console.log(
               `[TRADE SIM] ⚠️ Correcting ${ticker} ${direction}: WIN with negative P&L (${tradeCalc.pnl.toFixed(
-                2
-              )}) -> LOSS`
+                2,
+              )}) -> LOSS`,
             );
             newStatus = "LOSS";
           } else if (newStatus === "LOSS" && tradeCalc.pnl > 0) {
             console.log(
               `[TRADE SIM] ⚠️ Correcting ${ticker} ${direction}: LOSS with positive P&L (${tradeCalc.pnl.toFixed(
-                2
-              )}) -> WIN`
+                2,
+              )}) -> WIN`,
             );
             newStatus = "WIN";
           }
@@ -4740,7 +4984,7 @@ async function processTradeSimulation(
             value:
               existingOpenTrade.entryPrice * (existingOpenTrade.shares || 0),
             note: `Initial entry at $${Number(
-              existingOpenTrade.entryPrice
+              existingOpenTrade.entryPrice,
             ).toFixed(2)}`,
             positionPct: 1.0,
           });
@@ -4760,9 +5004,9 @@ async function processTradeSimulation(
             shares: correctedShares,
             value: correctedEntryPrice * correctedShares,
             note: `Entry price corrected from $${existingOpenTrade.entryPrice.toFixed(
-              2
+              2,
             )} to $${correctedEntryPrice.toFixed(
-              2
+              2,
             )} (was incorrectly using trigger_price)`,
           };
           history.push(ev);
@@ -4772,7 +5016,7 @@ async function processTradeSimulation(
         const oldStatus = existingOpenTrade.status || "OPEN";
         const oldTrimmedPct = Number(existingOpenTrade.trimmedPct || 0);
         const newTrimmedPct = Number(
-          tradeCalc.trimmedPct != null ? tradeCalc.trimmedPct : oldTrimmedPct
+          tradeCalc.trimmedPct != null ? tradeCalc.trimmedPct : oldTrimmedPct,
         );
         const trimDeltaPctRaw = newTrimmedPct - oldTrimmedPct;
         const EPS = 1e-6;
@@ -4780,32 +5024,32 @@ async function processTradeSimulation(
 
         // Determine prices/reasons used by the calc
         const currentPrice = Number(
-          tickerData.price || tradeCalc.currentPrice || 0
+          tickerData.price || tradeCalc.currentPrice || 0,
         );
         const trimPrice = Number(
           tradeCalc.trimPrice != null
             ? tradeCalc.trimPrice
             : tickerData.tp != null
-            ? Number(tickerData.tp)
-            : existingOpenTrade.tp
+              ? Number(tickerData.tp)
+              : existingOpenTrade.tp,
         );
         const exitPrice = Number(
-          tradeCalc.exitPrice != null ? tradeCalc.exitPrice : currentPrice
+          tradeCalc.exitPrice != null ? tradeCalc.exitPrice : currentPrice,
         );
         const exitReason =
           tradeCalc.exitReason ||
           (shouldExitFromTDSeq
             ? "TDSEQ"
             : newStatus === "LOSS"
-            ? "SL"
-            : "TP_FULL");
+              ? "SL"
+              : "TP_FULL");
         const exitCategory =
           tradeCalc.exitCategory ||
           (exitReason === "SL" || exitReason === "TDSEQ"
             ? "INVALIDATION"
             : exitReason === "TP_FULL"
-            ? "PROFIT_MANAGEMENT"
-            : null);
+              ? "PROFIT_MANAGEMENT"
+              : null);
 
         // Add TRIM event whenever trimmedPct increases (supports progressive trims)
         if (didTrim) {
@@ -4815,8 +5059,8 @@ async function processTradeSimulation(
               e.trimPct != null
                 ? e.trimPct
                 : e.trimmedPct != null
-                ? e.trimmedPct
-                : 0
+                  ? e.trimmedPct
+                  : 0,
             );
             return Math.abs(ePct - newTrimmedPct) < EPS;
           });
@@ -4911,7 +5155,7 @@ async function processTradeSimulation(
                     }))
                     .filter(
                       (x) =>
-                        Number.isFinite(x.price) && Number.isFinite(x.trimPct)
+                        Number.isFinite(x.price) && Number.isFinite(x.trimPct),
                     )
                     .sort((a, b) => a.trimPct - b.trimPct)[0]?.price
                 : null;
@@ -4960,20 +5204,20 @@ async function processTradeSimulation(
         };
 
         const tradeIndex = allTrades.findIndex(
-          (t) => t.id === existingOpenTrade.id
+          (t) => t.id === existingOpenTrade.id,
         );
         if (tradeIndex >= 0) {
           allTrades[tradeIndex] = updatedTrade;
           await kvPutJSON(KV, tradesKey, allTrades);
           console.log(
-            `[TRADE SIM] Updated trade ${ticker} ${direction}: ${oldStatus} -> ${newStatus}`
+            `[TRADE SIM] Updated trade ${ticker} ${direction}: ${oldStatus} -> ${newStatus}`,
           );
 
           // Persist trade + new lifecycle events to D1 ledger (best-effort)
           d1UpsertTrade(env, updatedTrade).catch((e) => {
             console.error(
               `[D1 LEDGER] Failed to upsert trade ${updatedTrade?.id}:`,
-              e
+              e,
             );
           });
           if (
@@ -4985,7 +5229,7 @@ async function processTradeSimulation(
               d1InsertTradeEvent(env, updatedTrade.id, ev).catch((e) => {
                 console.error(
                   `[D1 LEDGER] Failed to insert trade event for ${updatedTrade.id}:`,
-                  e
+                  e,
                 );
               });
             }
@@ -5010,9 +5254,9 @@ async function processTradeSimulation(
             };
 
             // Send TRIM alert whenever a new TRIM event was created
-              if (didTrim) {
+            if (didTrim) {
               console.log(
-                `[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction} (trimmedPct ${oldTrimmedPct} -> ${newTrimmedPct})`
+                `[TRADE SIM] 📢 Preparing trim alert for ${ticker} ${direction} (trimmedPct ${oldTrimmedPct} -> ${newTrimmedPct})`,
               );
               const alertTs = findHistoryTs("TRIM");
               const dedupe = await shouldSendTradeDiscordEvent(KV, {
@@ -5022,76 +5266,83 @@ async function processTradeSimulation(
               });
               if (dedupe.deduped) {
                 console.log(
-                  `[TRADE SIM] 🔁 Deduped TRIM alert for ${ticker} ${direction} (${dedupe.key})`
+                  `[TRADE SIM] 🔁 Deduped TRIM alert for ${ticker} ${direction} (${dedupe.key})`,
                 );
-              } else if (shouldSendDiscordAlert(env, "TRADE_TRIM", { newTrimmedPct, trimDeltaPctRaw })) {
-              const embed = createTradeTrimmedEmbed(
-                ticker,
-                direction,
-                updatedTrade.entryPrice,
-                currentPrice,
-                Number.isFinite(trimPrice)
-                  ? trimPrice
-                  : Number(updatedTrade.tp),
-                pnl,
-                pnlPct,
-                newTrimmedPct,
-                tickerData,
-                updatedTrade,
-                trimDeltaPctRaw
-              );
-              const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                console.error(
-                  `[TRADE SIM] ❌ Failed to send trim alert for ${ticker}:`,
-                  err
+              } else if (
+                shouldSendDiscordAlert(env, "TRADE_TRIM", {
+                  newTrimmedPct,
+                  trimDeltaPctRaw,
+                })
+              ) {
+                const embed = createTradeTrimmedEmbed(
+                  ticker,
+                  direction,
+                  updatedTrade.entryPrice,
+                  currentPrice,
+                  Number.isFinite(trimPrice)
+                    ? trimPrice
+                    : Number(updatedTrade.tp),
+                  pnl,
+                  pnlPct,
+                  newTrimmedPct,
+                  tickerData,
+                  updatedTrade,
+                  trimDeltaPctRaw,
                 );
-                return { ok: false, error: String(err) };
-              }); // Don't let Discord errors break trade updates
-              // persist alert (best-effort)
-              const alertPayloadJson = (() => {
-                try {
-                  return JSON.stringify(tickerData);
-                } catch {
-                  return null;
-                }
-              })();
-              const alertMetaJson = (() => {
-                try {
-                  return JSON.stringify({
-                    type: "TRADE_TRIM",
-                    trade_id: updatedTrade.id,
-                    trimmed_pct: newTrimmedPct,
-                    trim_delta_pct: trimDeltaPctRaw,
-                  });
-                } catch {
-                  return null;
-                }
-              })();
-              d1UpsertAlert(env, {
-                alert_id: buildAlertId(ticker, alertTs, "TRADE_TRIM"),
-                ticker,
-                ts: alertTs,
-                side: direction,
-                state: tickerData.state,
-                rank: updatedTrade.rank,
-                rr_at_alert: updatedTrade.rr,
-                trigger_reason: "TRADE_TRIM",
-                dedupe_day: formatDedupDay(alertTs),
-                discord_sent: !!sendRes?.ok,
-                discord_status: sendRes?.status ?? null,
-                discord_error: sendRes?.ok
-                  ? null
-                  : sendRes?.reason ||
-                    sendRes?.statusText ||
-                    sendRes?.error ||
-                    "discord_send_failed",
-                payload_json: alertPayloadJson,
-                meta_json: alertMetaJson,
-              }).catch((e) => {
-                console.error(`[D1 LEDGER] Failed to upsert trim alert:`, e);
-              });
+                const sendRes = await notifyDiscord(env, embed).catch((err) => {
+                  console.error(
+                    `[TRADE SIM] ❌ Failed to send trim alert for ${ticker}:`,
+                    err,
+                  );
+                  return { ok: false, error: String(err) };
+                }); // Don't let Discord errors break trade updates
+                // persist alert (best-effort)
+                const alertPayloadJson = (() => {
+                  try {
+                    return JSON.stringify(tickerData);
+                  } catch {
+                    return null;
+                  }
+                })();
+                const alertMetaJson = (() => {
+                  try {
+                    return JSON.stringify({
+                      type: "TRADE_TRIM",
+                      trade_id: updatedTrade.id,
+                      trimmed_pct: newTrimmedPct,
+                      trim_delta_pct: trimDeltaPctRaw,
+                    });
+                  } catch {
+                    return null;
+                  }
+                })();
+                d1UpsertAlert(env, {
+                  alert_id: buildAlertId(ticker, alertTs, "TRADE_TRIM"),
+                  ticker,
+                  ts: alertTs,
+                  side: direction,
+                  state: tickerData.state,
+                  rank: updatedTrade.rank,
+                  rr_at_alert: updatedTrade.rr,
+                  trigger_reason: "TRADE_TRIM",
+                  dedupe_day: formatDedupDay(alertTs),
+                  discord_sent: !!sendRes?.ok,
+                  discord_status: sendRes?.status ?? null,
+                  discord_error: sendRes?.ok
+                    ? null
+                    : sendRes?.reason ||
+                      sendRes?.statusText ||
+                      sendRes?.error ||
+                      "discord_send_failed",
+                  payload_json: alertPayloadJson,
+                  meta_json: alertMetaJson,
+                }).catch((e) => {
+                  console.error(`[D1 LEDGER] Failed to upsert trim alert:`, e);
+                });
               } else {
-                console.log(`[TRADE SIM] (critical-only) Skipping TRIM discord for ${ticker} (${newTrimmedPct}% total trimmed)`);
+                console.log(
+                  `[TRADE SIM] (critical-only) Skipping TRIM discord for ${ticker} (${newTrimmedPct}% total trimmed)`,
+                );
               }
             }
 
@@ -5102,7 +5353,7 @@ async function processTradeSimulation(
               oldStatus !== "LOSS"
             ) {
               console.log(
-                `[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`
+                `[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`,
               );
               const exitTs = findHistoryTs("EXIT");
               const exitDedupe = await shouldSendTradeDiscordEvent(KV, {
@@ -5112,144 +5363,147 @@ async function processTradeSimulation(
               });
               if (exitDedupe.deduped) {
                 console.log(
-                  `[TRADE SIM] 🔁 Deduped EXIT alert for ${ticker} ${direction} (${exitDedupe.key})`
+                  `[TRADE SIM] 🔁 Deduped EXIT alert for ${ticker} ${direction} (${exitDedupe.key})`,
                 );
               } else {
-              const embed = createTradeClosedEmbed(
-                ticker,
-                direction,
-                newStatus,
-                updatedTrade.entryPrice,
-                exitPrice,
-                pnl,
-                pnlPct,
-                updatedTrade.rank || existingOpenTrade.rank || 0,
-                updatedTrade.rr || existingOpenTrade.rr || 0,
-                tickerData,
-                updatedTrade
-              );
-              const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                console.error(
-                  `[TRADE SIM] ❌ Failed to send exit alert for ${ticker}:`,
-                  err
-                );
-                return { ok: false, error: String(err) };
-              }); // Don't let Discord errors break trade updates
-              // persist alert (best-effort)
-              const exitPayloadJson = (() => {
-                try {
-                  return JSON.stringify(tickerData);
-                } catch {
-                  return null;
-                }
-              })();
-              const exitMetaJson = (() => {
-                try {
-                  return JSON.stringify({
-                    type: "TRADE_EXIT",
-                    trade_id: updatedTrade.id,
-                    status: newStatus,
-                    exit_reason: updatedTrade.exitReason || null,
-                    pnl,
-                    pnlPct,
-                  });
-                } catch {
-                  return null;
-                }
-              })();
-              d1UpsertAlert(env, {
-                alert_id: buildAlertId(ticker, exitTs, "TRADE_EXIT"),
-                ticker,
-                ts: exitTs,
-                side: direction,
-                state: tickerData.state,
-                rank: updatedTrade.rank,
-                rr_at_alert: updatedTrade.rr,
-                trigger_reason: updatedTrade.exitReason || "TRADE_EXIT",
-                dedupe_day: formatDedupDay(exitTs),
-                discord_sent: !!sendRes?.ok,
-                discord_status: sendRes?.status ?? null,
-                discord_error: sendRes?.ok
-                  ? null
-                  : sendRes?.reason ||
-                    sendRes?.statusText ||
-                    sendRes?.error ||
-                    "discord_send_failed",
-                payload_json: exitPayloadJson,
-                meta_json: exitMetaJson,
-              }).catch((e) => {
-                console.error(`[D1 LEDGER] Failed to upsert exit alert:`, e);
-              });
-
-              // If this was a TD exit, send additional TD9/TD13 alert
-              if (shouldExitFromTDSeq && shouldSendDiscordAlert(env, "TD9_EXIT", { ticker, direction })) {
-                console.log(
-                  `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`
-                );
-                const td9Ts = exitTs || findHistoryTs("EXIT");
-                const td9Dedupe = await shouldSendTradeDiscordEvent(KV, {
-                  tradeId: updatedTrade.id,
-                  type: "TD9_EXIT",
-                  ts: td9Ts,
-                });
-                if (td9Dedupe.deduped) {
-                  console.log(
-                    `[TRADE SIM] 🔁 Deduped TD9_EXIT alert for ${ticker} ${direction} (${td9Dedupe.key})`
-                  );
-                } else {
-                const tdSeq = tickerData.td_sequential || {};
-                const td9Embed = createTD9ExitEmbed(
+                const embed = createTradeClosedEmbed(
                   ticker,
                   direction,
+                  newStatus,
                   updatedTrade.entryPrice,
                   exitPrice,
                   pnl,
                   pnlPct,
-                  tdSeq,
-                  tickerData
+                  updatedTrade.rank || existingOpenTrade.rank || 0,
+                  updatedTrade.rr || existingOpenTrade.rr || 0,
+                  tickerData,
+                  updatedTrade,
                 );
-                const td9Res = await notifyDiscord(env, td9Embed).catch(
-                  (err) => {
-                    console.error(
-                      `[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`,
-                      err
-                    );
-                    return { ok: false, error: String(err) };
+                const sendRes = await notifyDiscord(env, embed).catch((err) => {
+                  console.error(
+                    `[TRADE SIM] ❌ Failed to send exit alert for ${ticker}:`,
+                    err,
+                  );
+                  return { ok: false, error: String(err) };
+                }); // Don't let Discord errors break trade updates
+                // persist alert (best-effort)
+                const exitPayloadJson = (() => {
+                  try {
+                    return JSON.stringify(tickerData);
+                  } catch {
+                    return null;
                   }
-                );
+                })();
+                const exitMetaJson = (() => {
+                  try {
+                    return JSON.stringify({
+                      type: "TRADE_EXIT",
+                      trade_id: updatedTrade.id,
+                      status: newStatus,
+                      exit_reason: updatedTrade.exitReason || null,
+                      pnl,
+                      pnlPct,
+                    });
+                  } catch {
+                    return null;
+                  }
+                })();
                 d1UpsertAlert(env, {
-                  alert_id: buildAlertId(ticker, td9Ts, "TD9_EXIT"),
+                  alert_id: buildAlertId(ticker, exitTs, "TRADE_EXIT"),
                   ticker,
-                  ts: td9Ts,
+                  ts: exitTs,
                   side: direction,
                   state: tickerData.state,
                   rank: updatedTrade.rank,
                   rr_at_alert: updatedTrade.rr,
-                  trigger_reason: "TDSEQ_EXIT",
-                  dedupe_day: formatDedupDay(td9Ts),
-                  discord_sent: !!td9Res?.ok,
-                  discord_status: td9Res?.status ?? null,
-                  discord_error: td9Res?.ok
+                  trigger_reason: updatedTrade.exitReason || "TRADE_EXIT",
+                  dedupe_day: formatDedupDay(exitTs),
+                  discord_sent: !!sendRes?.ok,
+                  discord_status: sendRes?.status ?? null,
+                  discord_error: sendRes?.ok
                     ? null
-                    : td9Res?.reason ||
-                      td9Res?.statusText ||
-                      td9Res?.error ||
+                    : sendRes?.reason ||
+                      sendRes?.statusText ||
+                      sendRes?.error ||
                       "discord_send_failed",
                   payload_json: exitPayloadJson,
                   meta_json: exitMetaJson,
                 }).catch((e) => {
-                  console.error(
-                    `[D1 LEDGER] Failed to upsert TD9 exit alert:`,
-                    e
-                  );
+                  console.error(`[D1 LEDGER] Failed to upsert exit alert:`, e);
                 });
+
+                // If this was a TD exit, send additional TD9/TD13 alert
+                if (
+                  shouldExitFromTDSeq &&
+                  shouldSendDiscordAlert(env, "TD9_EXIT", { ticker, direction })
+                ) {
+                  console.log(
+                    `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`,
+                  );
+                  const td9Ts = exitTs || findHistoryTs("EXIT");
+                  const td9Dedupe = await shouldSendTradeDiscordEvent(KV, {
+                    tradeId: updatedTrade.id,
+                    type: "TD9_EXIT",
+                    ts: td9Ts,
+                  });
+                  if (td9Dedupe.deduped) {
+                    console.log(
+                      `[TRADE SIM] 🔁 Deduped TD9_EXIT alert for ${ticker} ${direction} (${td9Dedupe.key})`,
+                    );
+                  } else {
+                    const tdSeq = tickerData.td_sequential || {};
+                    const td9Embed = createTD9ExitEmbed(
+                      ticker,
+                      direction,
+                      updatedTrade.entryPrice,
+                      exitPrice,
+                      pnl,
+                      pnlPct,
+                      tdSeq,
+                      tickerData,
+                    );
+                    const td9Res = await notifyDiscord(env, td9Embed).catch(
+                      (err) => {
+                        console.error(
+                          `[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`,
+                          err,
+                        );
+                        return { ok: false, error: String(err) };
+                      },
+                    );
+                    d1UpsertAlert(env, {
+                      alert_id: buildAlertId(ticker, td9Ts, "TD9_EXIT"),
+                      ticker,
+                      ts: td9Ts,
+                      side: direction,
+                      state: tickerData.state,
+                      rank: updatedTrade.rank,
+                      rr_at_alert: updatedTrade.rr,
+                      trigger_reason: "TDSEQ_EXIT",
+                      dedupe_day: formatDedupDay(td9Ts),
+                      discord_sent: !!td9Res?.ok,
+                      discord_status: td9Res?.status ?? null,
+                      discord_error: td9Res?.ok
+                        ? null
+                        : td9Res?.reason ||
+                          td9Res?.statusText ||
+                          td9Res?.error ||
+                          "discord_send_failed",
+                      payload_json: exitPayloadJson,
+                      meta_json: exitMetaJson,
+                    }).catch((e) => {
+                      console.error(
+                        `[D1 LEDGER] Failed to upsert TD9 exit alert:`,
+                        e,
+                      );
+                    });
+                  }
                 }
-              }
               }
             }
           } else {
             console.log(
-              `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} status change (${oldStatus} -> ${newStatus}) - env not available`
+              `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} status change (${oldStatus} -> ${newStatus}) - env not available`,
             );
           }
         }
@@ -5268,8 +5522,8 @@ async function processTradeSimulation(
         tickerData.trigger_ts != null
           ? new Date(Number(tickerData.trigger_ts)).toISOString()
           : tickerData.ts != null
-          ? new Date(Number(tickerData.ts)).toISOString()
-          : null;
+            ? new Date(Number(tickerData.ts)).toISOString()
+            : null;
       const now = Date.now();
       const triggerTime = triggerTimestamp
         ? new Date(triggerTimestamp).getTime()
@@ -5287,12 +5541,12 @@ async function processTradeSimulation(
         priceSource = isBackfill ? "price (backfill, using current)" : "price";
         console.log(
           `[TRADE SIM] Using current price $${currentPrice.toFixed(
-            2
+            2,
           )} as entry price${
             isBackfill
               ? " (backfill detected, but using current price for accuracy)"
               : " (real-time)"
-          }`
+          }`,
         );
       } else if (triggerPrice && triggerPrice > 0) {
         // Fallback: only use trigger_price if price is not available
@@ -5300,29 +5554,29 @@ async function processTradeSimulation(
         priceSource = "trigger_price (fallback)";
         console.log(
           `[TRADE SIM] ⚠️ Using trigger_price $${triggerPrice.toFixed(
-            2
-          )} as fallback (price not available)`
+            2,
+          )} as fallback (price not available)`,
         );
       } else {
         // No valid price available - cannot create trade
         console.log(
-          `[TRADE SIM] ⚠️ Cannot create trade for ${ticker}: no valid price or trigger_price`
+          `[TRADE SIM] ⚠️ Cannot create trade for ${ticker}: no valid price or trigger_price`,
         );
         return; // Exit early if no valid price
       }
 
       console.log(
         `[TRADE SIM] ${ticker} entry price: $${entryPrice.toFixed(
-          2
+          2,
         )} (from ${priceSource}${
           isBackfill ? ", BACKFILL" : ""
         }), current price: $${Number(tickerData.price || 0).toFixed(
-          2
+          2,
         )}, trigger_price: ${
           tickerData.trigger_price
             ? "$" + Number(tickerData.trigger_price).toFixed(2)
             : "null"
-        }`
+        }`,
       );
       const entryRR = calculateRRAtEntry(tickerData, entryPrice);
 
@@ -5335,7 +5589,7 @@ async function processTradeSimulation(
       const shouldTrigger = shouldTriggerTradeSimulation(
         ticker,
         tickerDataForCheck,
-        prevData
+        prevData,
       );
 
       // Log detailed check results for debugging
@@ -5352,8 +5606,8 @@ async function processTradeSimulation(
         h > 0 && l >= -8 && l <= 12
           ? "LONG"
           : h < 0 && l >= -12 && l <= 8
-          ? "SHORT"
-          : null;
+            ? "SHORT"
+            : null;
       const corridorAlignedOK =
         (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
 
@@ -5373,17 +5627,17 @@ async function processTradeSimulation(
           entryRR?.toFixed(2) || "null"
         }, currentRR=${tickerData.rr?.toFixed(2) || "null"}, rank=${
           tickerData.rank || 0
-        }, state=${state}`
+        }, state=${state}`,
       );
       console.log(
         `[TRADE SIM] ${ticker} checks: inCorridor=${inCorridor}, corridorAlignedOK=${corridorAlignedOK}, rrOk=${rrOk} (${
           entryRR?.toFixed(2) || "null"
-        } >= ${minRR}), compOk=${compOk}, phaseOk=${phaseOk}`
+        } >= ${minRR}), compOk=${compOk}, phaseOk=${phaseOk}`,
       );
 
       if (!shouldTrigger) {
         console.log(
-          `[TRADE SIM] ❌ ${ticker} ${direction}: Trade creation BLOCKED - conditions not met`
+          `[TRADE SIM] ❌ ${ticker} ${direction}: Trade creation BLOCKED - conditions not met`,
         );
         return; // Exit early - do not create trade
       }
@@ -5399,7 +5653,7 @@ async function processTradeSimulation(
             t.direction === direction &&
             (t.status === "WIN" || t.status === "LOSS") &&
             t.entryTime &&
-            now - new Date(t.entryTime).getTime() < recentCloseWindow
+            now - new Date(t.entryTime).getTime() < recentCloseWindow,
         );
 
         // Check for existing open trade
@@ -5408,7 +5662,7 @@ async function processTradeSimulation(
           (t) =>
             t.ticker === ticker &&
             t.direction === direction &&
-            (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM")
+            (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"),
         );
 
         // If open trade exists, check if entry price is significantly different
@@ -5423,19 +5677,19 @@ async function processTradeSimulation(
           if (shouldBlockOpenTrade) {
             console.log(
               `[TRADE SIM] ⚠️ ${ticker} ${direction}: Open trade exists with similar entry price (${existingEntryPrice.toFixed(
-                2
+                2,
               )} vs ${entryPrice.toFixed(2)}, diff: ${(
                 priceDiffPct * 100
-              ).toFixed(2)}%)`
+              ).toFixed(2)}%)`,
             );
           } else {
             // Scaling in - merge into existing trade
             console.log(
               `[TRADE SIM] ℹ️ ${ticker} ${direction}: Scaling in - entry price differs significantly (${existingEntryPrice.toFixed(
-                2
+                2,
               )} vs ${entryPrice.toFixed(2)}, diff: ${(
                 priceDiffPct * 100
-              ).toFixed(2)}%)`
+              ).toFixed(2)}%)`,
             );
 
             // Calculate new average entry price and total shares
@@ -5459,7 +5713,7 @@ async function processTradeSimulation(
             const tradeCalc = calculateTradePnl(
               tickerData,
               avgEntryPrice,
-              anyOpenTrade
+              anyOpenTrade,
             );
             if (tradeCalc) {
               // Add history entry for scaling in
@@ -5481,7 +5735,7 @@ async function processTradeSimulation(
                 shares: newShares,
                 value: newValue,
                 note: `Scaled in at $${entryPrice.toFixed(
-                  2
+                  2,
                 )} (avg entry now $${avgEntryPrice.toFixed(2)})`,
               });
 
@@ -5495,22 +5749,22 @@ async function processTradeSimulation(
               };
 
               const tradeIndex = allTrades.findIndex(
-                (t) => t.id === anyOpenTrade.id
+                (t) => t.id === anyOpenTrade.id,
               );
               if (tradeIndex >= 0) {
                 allTrades[tradeIndex] = updatedTrade;
                 await kvPutJSON(KV, tradesKey, allTrades);
                 console.log(
                   `[TRADE SIM] ✅ Scaled in ${ticker} ${direction} - Avg Entry: $${avgEntryPrice.toFixed(
-                    2
-                  )}, Total Shares: ${totalShares}`
+                    2,
+                  )}, Total Shares: ${totalShares}`,
                 );
 
                 // Persist to D1 ledger (best-effort)
                 d1UpsertTrade(env, updatedTrade).catch((e) => {
                   console.error(
                     `[D1 LEDGER] Failed to upsert scaled-in trade:`,
-                    e
+                    e,
                   );
                 });
                 const scaleEvent = history[history.length - 1];
@@ -5519,9 +5773,9 @@ async function processTradeSimulation(
                     (e) => {
                       console.error(
                         `[D1 LEDGER] Failed to insert SCALE_IN event:`,
-                        e
+                        e,
                       );
-                    }
+                    },
                   );
                 }
 
@@ -5564,7 +5818,12 @@ async function processTradeSimulation(
                     },
                     timestamp: new Date().toISOString(),
                   };
-                  if (shouldSendDiscordAlert(env, "SYSTEM", { ticker, kind: "trade_merge" })) {
+                  if (
+                    shouldSendDiscordAlert(env, "SYSTEM", {
+                      ticker,
+                      kind: "trade_merge",
+                    })
+                  ) {
                     await notifyDiscord(env, embed).catch(() => {});
                   }
                 }
@@ -5618,45 +5877,45 @@ async function processTradeSimulation(
             t.direction === direction &&
             (t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM") &&
             t.entryPrice &&
-            Math.abs(Number(t.entryPrice) - entryPrice) < priceThreshold
+            Math.abs(Number(t.entryPrice) - entryPrice) < priceThreshold,
         );
 
         // Log why trade was rejected if applicable
         if (recentlyClosedTrade) {
           console.log(
-            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - recently closed trade (within 5 min)`
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - recently closed trade (within 5 min)`,
           );
         } else if (shouldBlockOpenTrade) {
           console.log(
-            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - open trade already exists with similar entry price`
+            `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - open trade already exists with similar entry price`,
           );
         } else if (similarPriceOpenTrade) {
           console.log(
             `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - open trade exists with similar entry price (${Number(
-              similarPriceOpenTrade.entryPrice
+              similarPriceOpenTrade.entryPrice,
             ).toFixed(2)} vs ${entryPrice.toFixed(2)}, diff: ${(
               (Math.abs(Number(similarPriceOpenTrade.entryPrice) - entryPrice) /
                 entryPrice) *
               100
-            ).toFixed(2)}%)`
+            ).toFixed(2)}%)`,
           );
         } else if (similarPriceClosedTrade) {
           console.log(
             `[TRADE SIM] ⚠️ ${ticker} ${direction}: Skipping - closed trade from previous day with similar entry price (${Number(
-              similarPriceClosedTrade.entryPrice
+              similarPriceClosedTrade.entryPrice,
             ).toFixed(2)} vs ${entryPrice.toFixed(2)}, diff: ${(
               (Math.abs(
-                Number(similarPriceClosedTrade.entryPrice) - entryPrice
+                Number(similarPriceClosedTrade.entryPrice) - entryPrice,
               ) /
                 entryPrice) *
               100
-            ).toFixed(2)}%, closed: ${similarPriceClosedTrade.entryTime})`
+            ).toFixed(2)}%, closed: ${similarPriceClosedTrade.entryTime})`,
           );
         } else {
           // Price differs significantly or no similar trade found - allow scaling/pyramiding
           if (similarPriceClosedTrade === undefined && anyOpenTrade) {
             console.log(
-              `[TRADE SIM] ℹ️ ${ticker} ${direction}: Price differs significantly from previous day's closed trade - allowing scaling/pyramiding`
+              `[TRADE SIM] ℹ️ ${ticker} ${direction}: Price differs significantly from previous day's closed trade - allowing scaling/pyramiding`,
             );
           }
         }
@@ -5672,8 +5931,8 @@ async function processTradeSimulation(
           if (tradeCalc) {
             console.log(
               `[TRADE SIM] ✅ Creating new trade ${ticker} ${direction} - Entry: $${entryPrice.toFixed(
-                2
-              )}, RR: ${entryRR?.toFixed(2) || "N/A"}`
+                2,
+              )}, RR: ${entryRR?.toFixed(2) || "N/A"}`,
             );
             // Determine entry time: use trigger_ts if it's a backfill (already detected above), otherwise use current time
             // Use trigger_ts for entryTime if it's a backfill, otherwise use current time
@@ -5686,11 +5945,11 @@ async function processTradeSimulation(
             const tpArray = buildIntelligentTPArray(
               tickerData,
               entryPrice,
-              direction
+              direction,
             );
             if (tpArray.length === 0) {
               console.error(
-                `[TRADE SIM] ❌ ${ticker} ${direction}: Cannot create trade - no valid TP array found`
+                `[TRADE SIM] ❌ ${ticker} ${direction}: Cannot create trade - no valid TP array found`,
               );
               return; // Exit early if no valid TP array
             }
@@ -5733,7 +5992,7 @@ async function processTradeSimulation(
                   note: `Initial entry at $${entryPrice.toFixed(2)}${
                     triggerTimestamp
                       ? ` (signal: ${new Date(
-                          triggerTimestamp
+                          triggerTimestamp,
                         ).toLocaleString()})`
                       : ""
                   }`,
@@ -5755,7 +6014,7 @@ async function processTradeSimulation(
             const saveResult = await kvPutJSONWithRetry(
               KV,
               tradesKey,
-              allTrades
+              allTrades,
             );
             if (saveResult.success) {
               console.log(
@@ -5763,17 +6022,17 @@ async function processTradeSimulation(
                   trade.rank
                 }, Entry RR ${trade.rr.toFixed(2)}) - Saved to KV (attempt ${
                   saveResult.attempt
-                }${saveResult.note ? `, ${saveResult.note}` : ""})`
+                }${saveResult.note ? `, ${saveResult.note}` : ""})`,
               );
             } else {
               console.error(
                 `[TRADE SIM] ❌ Failed to save trade ${ticker} ${direction} after ${saveResult.attempts} attempts:`,
-                saveResult.error
+                saveResult.error,
               );
               // Still log the trade creation even if save failed
               // The trade will be recreated on next ingestion if conditions are met
               console.log(
-                `[TRADE SIM] ⚠️ Trade ${ticker} ${direction} created but NOT saved - will retry on next ingestion`
+                `[TRADE SIM] ⚠️ Trade ${ticker} ${direction} created but NOT saved - will retry on next ingestion`,
               );
             }
 
@@ -5781,7 +6040,7 @@ async function processTradeSimulation(
             d1UpsertTrade(env, trade).catch((e) => {
               console.error(
                 `[D1 LEDGER] Failed to upsert new trade ${ticker}:`,
-                e
+                e,
               );
             });
             const entryEvent =
@@ -5792,7 +6051,7 @@ async function processTradeSimulation(
               d1InsertTradeEvent(env, trade.id, entryEvent).catch((e) => {
                 console.error(
                   `[D1 LEDGER] Failed to insert ENTRY event for ${ticker}:`,
-                  e
+                  e,
                 );
               });
             }
@@ -5802,29 +6061,29 @@ async function processTradeSimulation(
             // Backfills can have misleading entry prices and confuse traders
             if (env && !isBackfill) {
               console.log(
-                `[TRADE SIM] 📢 Preparing entry alert for ${ticker} ${direction}`
+                `[TRADE SIM] 📢 Preparing entry alert for ${ticker} ${direction}`,
               );
 
               // CRITICAL: If we're sending a Discord alert, ensure the trade is saved
               // Retry KV write if it failed, since we have enough confidence to alert
               if (!saveResult.success) {
                 console.log(
-                  `[TRADE SIM] 🔄 Retrying KV save for ${ticker} ${direction} before sending alert`
+                  `[TRADE SIM] 🔄 Retrying KV save for ${ticker} ${direction} before sending alert`,
                 );
                 const retryResult = await kvPutJSONWithRetry(
                   KV,
                   tradesKey,
                   allTrades,
                   null,
-                  5
+                  5,
                 );
                 if (retryResult.success) {
                   console.log(
-                    `[TRADE SIM] ✅ Trade ${ticker} ${direction} saved on retry (attempt ${retryResult.attempt})`
+                    `[TRADE SIM] ✅ Trade ${ticker} ${direction} saved on retry (attempt ${retryResult.attempt})`,
                   );
                 } else {
                   console.error(
-                    `[TRADE SIM] ❌ Trade ${ticker} ${direction} STILL not saved after retry - alerting anyway but trade may be lost`
+                    `[TRADE SIM] ❌ Trade ${ticker} ${direction} STILL not saved after retry - alerting anyway but trade may be lost`,
                   );
                 }
               }
@@ -5848,18 +6107,22 @@ async function processTradeSimulation(
                     tickerData.state || "N/A",
                     Number(tickerData.price), // Current price for comparison
                     isBackfill,
-                    tickerData // Pass full ticker data for comprehensive embed
+                    tickerData, // Pass full ticker data for comprehensive embed
                   )
                 : null;
               const sendRes = allowDiscord
                 ? await notifyDiscord(env, embed).catch((err) => {
                     console.error(
                       `[TRADE SIM] ❌ Failed to send entry alert for ${ticker}:`,
-                      err
+                      err,
                     );
                     return { ok: false, error: String(err) };
                   }) // Don't let Discord errors break trade creation
-                : { ok: false, skipped: true, reason: "suppressed_critical_only" };
+                : {
+                    ok: false,
+                    skipped: true,
+                    reason: "suppressed_critical_only",
+                  };
 
               const entryTs =
                 isoToMs(trade.entryTime) ||
@@ -5928,9 +6191,9 @@ async function processTradeSimulation(
                             .map((tp) =>
                               typeof tp === "object" && tp.price
                                 ? Number(tp.price)
-                                : Number(tp)
+                                : Number(tp),
                             )
-                            .filter((p) => Number.isFinite(p))
+                            .filter((p) => Number.isFinite(p)),
                         )
                       : validTP,
                   rr: entryRR || 0,
@@ -5946,23 +6209,23 @@ async function processTradeSimulation(
               } catch (activityErr) {
                 console.error(
                   `[TRADE SIM] Failed to log trade entry to activity feed for ${ticker}:`,
-                  activityErr
+                  activityErr,
                 );
               }
             } else if (env && isBackfill) {
               console.log(
                 `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - backfill trade (entry: $${entryPrice.toFixed(
-                  2
-                )}, current: $${Number(tickerData.price).toFixed(2)})`
+                  2,
+                )}, current: $${Number(tickerData.price).toFixed(2)})`,
               );
             } else if (!env) {
               console.log(
-                `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - env not available`
+                `[TRADE SIM] ⚠️ Skipping Discord alert for ${ticker} ${direction} - env not available`,
               );
             }
           } else {
             console.log(
-              `[TRADE SIM] ⚠️ ${ticker} ${direction}: tradeCalc returned null`
+              `[TRADE SIM] ⚠️ ${ticker} ${direction}: tradeCalc returned null`,
             );
           }
         }
@@ -5994,35 +6257,35 @@ async function processTradeSimulation(
           // LONG corridor check
           if (l < -8) {
             corridorReason = `LTF too low for LONG corridor (LTF: ${l.toFixed(
-              2
+              2,
             )} < -8)`;
           } else if (l > 12) {
             corridorReason = `LTF too high for LONG corridor (LTF: ${l.toFixed(
-              2
+              2,
             )} > 12)`;
           } else {
             corridorReason = `Should be in LONG corridor (HTF: ${h.toFixed(
-              2
+              2,
             )} > 0, LTF: ${l.toFixed(2)} in [-8, 12])`;
           }
         } else if (h < 0) {
           // SHORT corridor check
           if (l < -12) {
             corridorReason = `LTF too low for SHORT corridor (LTF: ${l.toFixed(
-              2
+              2,
             )} < -12)`;
           } else if (l > 8) {
             corridorReason = `LTF too high for SHORT corridor (LTF: ${l.toFixed(
-              2
+              2,
             )} > 8)`;
           } else {
             corridorReason = `Should be in SHORT corridor (HTF: ${h.toFixed(
-              2
+              2,
             )} < 0, LTF: ${l.toFixed(2)} in [-12, 8])`;
           }
         } else {
           corridorReason = `HTF is zero (HTF: ${h.toFixed(
-            2
+            2,
           )}, neither LONG nor SHORT corridor)`;
         }
 
@@ -6030,7 +6293,7 @@ async function processTradeSimulation(
         const shouldTrigger = shouldTriggerTradeSimulation(
           ticker,
           tickerData,
-          prevData
+          prevData,
         );
 
         console.log(
@@ -6057,7 +6320,7 @@ async function processTradeSimulation(
             momentum_elite: !!(
               tickerData.flags && tickerData.flags.momentum_elite
             ),
-          }
+          },
         );
       }
     }
@@ -6125,7 +6388,7 @@ async function computeMomentumElite(KV, ticker, payload) {
         KV,
         marketCapKey,
         { value: marketCapOver1B, timestamp: now },
-        24 * 60 * 60
+        24 * 60 * 60,
       );
     }
   }
@@ -6149,8 +6412,8 @@ async function computeMomentumElite(KV, ticker, payload) {
       Number.isFinite(adrPctDirect) && adrPctDirect > 0
         ? adrPctDirect
         : Number.isFinite(adrAbs) && adrAbs > 0 && priceForAdr > 0
-        ? adrAbs / priceForAdr
-        : null;
+          ? adrAbs / priceForAdr
+          : null;
 
     if (Number.isFinite(adrAbs) && adrAbs > 0) {
       // Looser than $2: treat >= $1 as "OK"
@@ -6166,12 +6429,7 @@ async function computeMomentumElite(KV, ticker, payload) {
       // Looser: accept >= 1.5% if computed
       adrOk = adrPct != null && Number.isFinite(adrPct) && adrPct >= 0.015;
     }
-    await kvPutJSON(
-      KV,
-      adrKey,
-      { value: adrOk, timestamp: now },
-      60 * 60
-    );
+    await kvPutJSON(KV, adrKey, { value: adrOk, timestamp: now }, 60 * 60);
   }
 
   // 4. Average Volume (30 days) > 2M (cached for 1 hour)
@@ -6185,17 +6443,17 @@ async function computeMomentumElite(KV, ticker, payload) {
     const avgVol30 = Number(payload.avg_vol_30);
     const avgVol50 = Number(payload.avg_vol_50);
     const avgVol =
-      (Number.isFinite(avgVol30) && avgVol30 > 0
+      Number.isFinite(avgVol30) && avgVol30 > 0
         ? avgVol30
         : Number.isFinite(avgVol50) && avgVol50 > 0
-        ? avgVol50
-        : Number(payload.volume) || 0);
+          ? avgVol50
+          : Number(payload.volume) || 0;
     volumeOver2M = avgVol >= 2000000;
     await kvPutJSON(
       KV,
       volumeKey,
       { value: volumeOver2M, timestamp: now },
-      60 * 60
+      60 * 60,
     );
   }
 
@@ -6282,7 +6540,7 @@ async function computeMomentumElite(KV, ticker, payload) {
       KV,
       momentumKey,
       { value: anyMomentumCriteria, timestamp: now },
-      15 * 60
+      15 * 60,
     );
   }
 
@@ -6358,7 +6616,11 @@ function computeRank(d) {
 
   // Per-TF technical structure alignment (bonus/penalty).
   const tfAlign = d?.tf_summary || tfTechAlignmentSummary(d);
-  if (tfAlign && typeof tfAlign === "object" && Number.isFinite(tfAlign.score)) {
+  if (
+    tfAlign &&
+    typeof tfAlign === "object" &&
+    Number.isFinite(tfAlign.score)
+  ) {
     score += tfAlign.score;
   }
 
@@ -6401,8 +6663,10 @@ function computeRank(d) {
   // Completion bonus (reduced and more selective)
   if (Number.isFinite(comp)) {
     // Early completion gets more points, but cap reduced
-    if (comp <= 0.2) score += 15; // Excellent (0-20% completion)
-    else if (comp <= 0.4) score += 10; // Good (20-40% completion)
+    if (comp <= 0.2)
+      score += 15; // Excellent (0-20% completion)
+    else if (comp <= 0.4)
+      score += 10; // Good (20-40% completion)
     else if (comp <= 0.6) score += 5; // Moderate (40-60% completion)
     // No bonus for completion > 60%
   }
@@ -6415,7 +6679,8 @@ function computeRank(d) {
   }
 
   // Squeeze bonuses (reduced)
-  if (sqRel) score += 12; // Reduced from 15
+  if (sqRel)
+    score += 12; // Reduced from 15
   else if (sqOn) score += 4; // Reduced from 6
 
   // Phase zone change bonus (reduced)
@@ -6423,8 +6688,10 @@ function computeRank(d) {
 
   // RR contribution (more selective - requires better RR)
   if (Number.isFinite(rr)) {
-    if (rr >= 2.0) score += 10; // Excellent RR (2.0+)
-    else if (rr >= 1.5) score += 7; // Good RR (1.5-2.0)
+    if (rr >= 2.0)
+      score += 10; // Excellent RR (2.0+)
+    else if (rr >= 1.5)
+      score += 7; // Good RR (1.5-2.0)
     else if (rr >= 1.2) score += 4; // Acceptable RR (1.2-1.5)
     // No bonus for RR < 1.2
   }
@@ -6507,17 +6774,19 @@ function normalizeTrailPoint(p) {
 function directionForThesis(p, fallbackPayload = null) {
   const fromTrig =
     (fallbackPayload && fallbackPayload.trigger_dir) || (p && p.trigger_dir);
-  const td = String(fromTrig || "").trim().toUpperCase();
+  const td = String(fromTrig || "")
+    .trim()
+    .toUpperCase();
   if (td === "LONG" || td === "SHORT") return td;
 
   const st = String(
-    (fallbackPayload && fallbackPayload.state) || (p && p.state) || ""
+    (fallbackPayload && fallbackPayload.state) || (p && p.state) || "",
   );
   if (st.includes("BEAR")) return "SHORT";
   if (st.includes("BULL")) return "LONG";
 
   const htf = Number(
-    (fallbackPayload && fallbackPayload.htf_score) || (p && p.htf_score)
+    (fallbackPayload && fallbackPayload.htf_score) || (p && p.htf_score),
   );
   if (Number.isFinite(htf) && htf < 0) return "SHORT";
   if (Number.isFinite(htf) && htf > 0) return "LONG";
@@ -6528,7 +6797,7 @@ function lowerBoundTs(points, tsTarget, idxHiExclusive) {
   let lo = 0;
   let hi = Math.max(
     0,
-    Number.isFinite(idxHiExclusive) ? idxHiExclusive : points.length
+    Number.isFinite(idxHiExclusive) ? idxHiExclusive : points.length,
   );
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
@@ -6599,7 +6868,8 @@ function isPrimeLikeSnapshotForThesis(p) {
   const rank = Number(p?.rank);
   const completion = clamp01(p?.completion);
   const phase = clamp01(p?.phase_pct);
-  const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  const aligned =
+    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
   const sqRel = flagOn(flags, "sq30_release");
   const phaseZoneChange = flagOn(flags, "phase_zone_change");
   return (
@@ -6627,7 +6897,10 @@ function computeLiveThesisFeaturesFromTrail(trailPoints, payload) {
       recentSqueezeRelease_6h: false,
       recentSqueezeOn_6h: false,
       corridorEntry_60m: false,
-      pattern: { squeezeReleaseToMomentum_6h: false, squeezeOnToRelease_24h: false },
+      pattern: {
+        squeezeReleaseToMomentum_6h: false,
+        squeezeOnToRelease_24h: false,
+      },
     },
     deltas: { htf_4h: null, ltf_4h: null, htf_1d: null },
     flags: {
@@ -6714,12 +6987,12 @@ function computeLiveThesisFeaturesFromTrail(trailPoints, payload) {
       squeezeReleaseToMomentum_6h: orderedWithin(
         lastSqueezeReleaseTs,
         lastSetupToMomentumTs,
-        6 * H1
+        6 * H1,
       ),
       squeezeOnToRelease_24h: orderedWithin(
         lastSqueezeOnTs,
         lastSqueezeReleaseTs,
-        24 * H1
+        24 * H1,
       ),
     },
   };
@@ -6750,8 +7023,7 @@ function computeLiveThesisFeaturesFromTrail(trailPoints, payload) {
   const A = seq.pattern.squeezeReleaseToMomentum_6h && htf_move_4h_ge_5;
   const B = seq.recentSqueezeRelease_6h && htf_improving_4h;
   const C =
-    (primeLike && htf_move_4h_ge_5) ||
-    (winnerSignature && htf_improving_4h);
+    (primeLike && htf_move_4h_ge_5) || (winnerSignature && htf_improving_4h);
   const thesis_match = !!baseGate && (A || B || C);
 
   return {
@@ -6813,8 +7085,8 @@ async function d1InsertTrailPoint(env, ticker, payload) {
     point?.flags && typeof point.flags === "object"
       ? JSON.stringify(point.flags)
       : point?.flags != null
-      ? JSON.stringify(point.flags)
-      : null;
+        ? JSON.stringify(point.flags)
+        : null;
 
   try {
     await db
@@ -6822,7 +7094,7 @@ async function d1InsertTrailPoint(env, ticker, payload) {
         `INSERT OR REPLACE INTO timed_trail
           (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, payload_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
       )
       .bind(
         String(ticker || "").toUpperCase(),
@@ -6843,7 +7115,7 @@ async function d1InsertTrailPoint(env, ticker, payload) {
           } catch {
             return null;
           }
-        })()
+        })(),
       )
       .run();
 
@@ -6882,7 +7154,7 @@ async function d1InsertIngestReceipt(env, ticker, payload, rawPayload) {
         `INSERT OR IGNORE INTO ingest_receipts
           (receipt_id, ticker, ts, bucket_5m, received_ts, payload_hash, script_version, payload_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
       )
       .bind(
         receiptId,
@@ -6892,7 +7164,7 @@ async function d1InsertIngestReceipt(env, ticker, payload, rawPayload) {
         receivedTs,
         hash,
         scriptVersion,
-        raw || null
+        raw || null,
       )
       .run();
 
@@ -6933,7 +7205,7 @@ async function d1EnsureLatestSchema(env) {
           ticker TEXT PRIMARY KEY,
           first_seen_ts INTEGER NOT NULL,
           last_seen_ts INTEGER NOT NULL
-        )`
+        )`,
       )
       .run();
 
@@ -6947,7 +7219,7 @@ async function d1EnsureLatestSchema(env) {
           kanban_stage TEXT,
           prev_kanban_stage TEXT,
           payload_json TEXT NOT NULL
-        )`
+        )`,
       )
       .run();
 
@@ -6961,21 +7233,26 @@ async function d1EnsureLatestSchema(env) {
     }
 
     await db
-      .prepare(`CREATE INDEX IF NOT EXISTS idx_ticker_latest_ts ON ticker_latest (ts)`)
-      .run();
-    await db
       .prepare(
-        `CREATE INDEX IF NOT EXISTS idx_ticker_latest_kanban_stage ON ticker_latest (kanban_stage)`
+        `CREATE INDEX IF NOT EXISTS idx_ticker_latest_ts ON ticker_latest (ts)`,
       )
       .run();
     await db
       .prepare(
-        `CREATE INDEX IF NOT EXISTS idx_ticker_latest_prev_kanban_stage ON ticker_latest (prev_kanban_stage)`
+        `CREATE INDEX IF NOT EXISTS idx_ticker_latest_kanban_stage ON ticker_latest (kanban_stage)`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_ticker_latest_prev_kanban_stage ON ticker_latest (prev_kanban_stage)`,
       )
       .run();
 
     try {
-      if (KV) await KV.put(throttleKey, String(Date.now()), { expirationTtl: 7 * 24 * 60 * 60 });
+      if (KV)
+        await KV.put(throttleKey, String(Date.now()), {
+          expirationTtl: 7 * 24 * 60 * 60,
+        });
     } catch {
       // ignore
     }
@@ -6999,7 +7276,7 @@ async function d1UpsertTickerIndex(env, ticker, ts) {
       .prepare(
         `INSERT INTO ticker_index (ticker, first_seen_ts, last_seen_ts)
          VALUES (?1, ?2, ?3)
-         ON CONFLICT(ticker) DO UPDATE SET last_seen_ts = excluded.last_seen_ts`
+         ON CONFLICT(ticker) DO UPDATE SET last_seen_ts = excluded.last_seen_ts`,
       )
       .bind(sym, nowTs, nowTs)
       .run();
@@ -7016,9 +7293,12 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   const sym = String(ticker || "").toUpperCase();
   const ts = Number(payload?.ts) || Date.now();
   const updatedAt = Date.now();
-  const stage = payload?.kanban_stage != null ? String(payload.kanban_stage) : null;
+  const stage =
+    payload?.kanban_stage != null ? String(payload.kanban_stage) : null;
   const prevStage =
-    payload?.prev_kanban_stage != null ? String(payload.prev_kanban_stage) : null;
+    payload?.prev_kanban_stage != null
+      ? String(payload.prev_kanban_stage)
+      : null;
 
   let payloadJson = null;
   try {
@@ -7026,7 +7306,8 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   } catch {
     payloadJson = null;
   }
-  if (!payloadJson) return { ok: false, skipped: true, reason: "payload_json_failed" };
+  if (!payloadJson)
+    return { ok: false, skipped: true, reason: "payload_json_failed" };
 
   try {
     await d1EnsureLatestSchema(env);
@@ -7039,7 +7320,7 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
            updated_at = excluded.updated_at,
            kanban_stage = excluded.kanban_stage,
            prev_kanban_stage = excluded.prev_kanban_stage,
-           payload_json = excluded.payload_json`
+           payload_json = excluded.payload_json`,
       )
       .bind(sym, ts, updatedAt, stage, prevStage, payloadJson)
       .run();
@@ -7057,7 +7338,8 @@ async function d1PatchTickerLatestFields(env, ticker, patch) {
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   const sym = String(ticker || "").toUpperCase();
   if (!sym) return { ok: false, skipped: true, reason: "bad_ticker" };
-  if (!patch || typeof patch !== "object") return { ok: false, skipped: true, reason: "bad_patch" };
+  if (!patch || typeof patch !== "object")
+    return { ok: false, skipped: true, reason: "bad_patch" };
 
   const pairs = [];
   const binds = [];
@@ -7078,7 +7360,8 @@ async function d1PatchTickerLatestFields(env, ticker, patch) {
   add("session", patch.session);
   add("is_rth", patch.is_rth);
 
-  if (pairs.length === 0) return { ok: false, skipped: true, reason: "no_fields" };
+  if (pairs.length === 0)
+    return { ok: false, skipped: true, reason: "no_fields" };
 
   try {
     await d1EnsureLatestSchema(env);
@@ -7086,7 +7369,10 @@ async function d1PatchTickerLatestFields(env, ticker, patch) {
                  SET payload_json = json_set(payload_json, ${pairs.join(", ")})
                  WHERE ticker = ?${binds.length + 1} AND payload_json IS NOT NULL`;
     binds.push(sym);
-    await db.prepare(sql).bind(...binds).run();
+    await db
+      .prepare(sql)
+      .bind(...binds)
+      .run();
     return { ok: true };
   } catch (err) {
     console.error(`[D1 LATEST] Patch failed for ${sym}:`, err);
@@ -7098,7 +7384,8 @@ async function d1PatchTickerLatestFields(env, ticker, patch) {
 async function d1SyncLatestBatchFromKV(env, ctx, batchSize = 50) {
   const KV = env?.KV_TIMED;
   const db = env?.DB;
-  if (!KV || !db) return { ok: false, skipped: true, reason: "missing_kv_or_db" };
+  if (!KV || !db)
+    return { ok: false, skipped: true, reason: "missing_kv_or_db" };
 
   try {
     await d1EnsureLatestSchema(env);
@@ -7150,14 +7437,25 @@ async function d1SyncLatestBatchFromKV(env, ctx, batchSize = 50) {
 
   const nextCursor = end >= tickers.length ? 0 : end;
   try {
-    await KV.put(cursorKey, String(nextCursor), { expirationTtl: 7 * 24 * 60 * 60 });
+    await KV.put(cursorKey, String(nextCursor), {
+      expirationTtl: 7 * 24 * 60 * 60,
+    });
   } catch {
     // ignore
   }
 
   const ms = Date.now() - start;
-  console.log(`[D1 SYNC] Synced ${slice.length}/${tickers.length} tickers in ${ms}ms (cursor ${cursor}→${nextCursor})`);
-  return { ok: true, synced: slice.length, total: tickers.length, ms, cursor, nextCursor };
+  console.log(
+    `[D1 SYNC] Synced ${slice.length}/${tickers.length} tickers in ${ms}ms (cursor ${cursor}→${nextCursor})`,
+  );
+  return {
+    ok: true,
+    synced: slice.length,
+    total: tickers.length,
+    ms,
+    cursor,
+    nextCursor,
+  };
 }
 
 async function d1CleanupOldTrail(env, ttlDays = 35) {
@@ -7213,7 +7511,7 @@ async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
            FROM timed_trail
            WHERE ticker = ?1 AND ts >= ?2
            ORDER BY ts ASC
-           LIMIT ?3`
+           LIMIT ?3`,
         )
         .bind(t, Number(sinceTs), lim);
     } else {
@@ -7223,7 +7521,7 @@ async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
            FROM timed_trail
            WHERE ticker = ?1
            ORDER BY ts DESC
-           LIMIT ?2`
+           LIMIT ?2`,
         )
         .bind(t, lim);
     }
@@ -7271,7 +7569,7 @@ async function d1GetTrailPayloadRange(
   ticker,
   sinceTs = null,
   untilTs = null,
-  limit = 5000
+  limit = 5000,
 ) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -7296,7 +7594,7 @@ async function d1GetTrailPayloadRange(
          FROM timed_trail
          WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3
          ORDER BY ts ASC
-         LIMIT ?4`
+         LIMIT ?4`,
         )
         .bind(t, since, until, lim);
     } else if (since != null) {
@@ -7306,7 +7604,7 @@ async function d1GetTrailPayloadRange(
          FROM timed_trail
          WHERE ticker = ?1 AND ts >= ?2
          ORDER BY ts ASC
-         LIMIT ?3`
+         LIMIT ?3`,
         )
         .bind(t, since, lim);
     } else {
@@ -7316,7 +7614,7 @@ async function d1GetTrailPayloadRange(
          FROM timed_trail
          WHERE ticker = ?1
          ORDER BY ts DESC
-         LIMIT ?2`
+         LIMIT ?2`,
         )
         .bind(t, lim);
     }
@@ -7388,7 +7686,7 @@ async function d1UpsertAlert(env, alert) {
           (alert_id, ticker, ts, side, state, rank, rr_at_alert, trigger_reason, dedupe_day,
            discord_sent, discord_status, discord_error, payload_json, meta_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
       )
       .bind(
         alertId,
@@ -7404,7 +7702,7 @@ async function d1UpsertAlert(env, alert) {
         alert?.discord_status != null ? Number(alert.discord_status) : null,
         alert?.discord_error != null ? String(alert.discord_error) : null,
         alert?.payload_json != null ? String(alert.payload_json) : null,
-        alert?.meta_json != null ? String(alert.meta_json) : null
+        alert?.meta_json != null ? String(alert.meta_json) : null,
       )
       .run();
 
@@ -7448,8 +7746,8 @@ async function d1UpsertTrade(env, trade) {
     trade.exitPrice != null
       ? Number(trade.exitPrice)
       : exitEvent && exitEvent.price != null
-      ? Number(exitEvent.price)
-      : null;
+        ? Number(exitEvent.price)
+        : null;
   const derivedExitReason =
     trade.exitReason != null
       ? String(trade.exitReason)
@@ -7464,7 +7762,7 @@ async function d1UpsertTrade(env, trade) {
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
       )
       .bind(
         tradeId,
@@ -7484,10 +7782,10 @@ async function d1UpsertTrade(env, trade) {
         trade.scriptVersion != null
           ? String(trade.scriptVersion)
           : trade.script_version != null
-          ? String(trade.script_version)
-          : null,
+            ? String(trade.script_version)
+            : null,
         createdAt,
-        updatedAt
+        updatedAt,
       )
       .run();
 
@@ -7498,7 +7796,7 @@ async function d1UpsertTrade(env, trade) {
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
           updated_at=?16
-         WHERE trade_id=?1`
+         WHERE trade_id=?1`,
       )
       .bind(
         tradeId,
@@ -7518,9 +7816,9 @@ async function d1UpsertTrade(env, trade) {
         trade.scriptVersion != null
           ? String(trade.scriptVersion)
           : trade.script_version != null
-          ? String(trade.script_version)
-          : null,
-        updatedAt
+            ? String(trade.script_version)
+            : null,
+        updatedAt,
       )
       .run();
 
@@ -7549,8 +7847,8 @@ async function d1InsertTradeEvent(env, tradeId, event) {
     event.trimPct != null
       ? Number(event.trimPct)
       : event.trimmedPct != null
-      ? Number(event.trimmedPct)
-      : null;
+        ? Number(event.trimmedPct)
+        : null;
   const qtyPctDelta =
     event.trimDeltaPct != null ? Number(event.trimDeltaPct) : null;
 
@@ -7568,7 +7866,7 @@ async function d1InsertTradeEvent(env, tradeId, event) {
         `INSERT OR IGNORE INTO trade_events
           (event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
       )
       .bind(
         eventId,
@@ -7584,7 +7882,7 @@ async function d1InsertTradeEvent(env, tradeId, event) {
           : null,
         event.pnl_realized != null ? Number(event.pnl_realized) : null,
         event.reason != null ? String(event.reason) : null,
-        meta
+        meta,
       )
       .run();
 
@@ -7669,7 +7967,7 @@ async function d1GetNearestTrailPayload(
   db,
   ticker,
   targetTs,
-  windowMs = 2 * 60 * 60 * 1000
+  windowMs = 2 * 60 * 60 * 1000,
 ) {
   if (!db) return null;
   const sym = String(ticker || "").toUpperCase();
@@ -7685,7 +7983,7 @@ async function d1GetNearestTrailPayload(
          FROM timed_trail
          WHERE ticker = ?1 AND ts BETWEEN ?2 AND ?3 AND payload_json IS NOT NULL
          ORDER BY ABS(ts - ?4) ASC
-         LIMIT 1`
+         LIMIT 1`,
       )
       .bind(sym, lo, hi, ts)
       .first();
@@ -7751,7 +8049,7 @@ async function checkAndMigrate(KV, incomingVersion) {
 async function checkAndMigrateWithStoredVersion(
   KV,
   storedVersion,
-  incomingVersion
+  incomingVersion,
 ) {
   // If no stored version, this is first run - set it and continue
   if (!storedVersion) {
@@ -7766,7 +8064,7 @@ async function checkAndMigrateWithStoredVersion(
 
   // Version changed - trigger migration
   console.log(
-    `Version change detected: ${storedVersion} -> ${incomingVersion}`
+    `Version change detected: ${storedVersion} -> ${incomingVersion}`,
   );
 
   // Get tickers before purging (for archive)
@@ -7859,14 +8157,14 @@ async function notifyDiscord(env, embed) {
   const discordEnable = env.DISCORD_ENABLE || "false";
   if (discordEnable !== "true") {
     console.log(
-      `[DISCORD] Notifications disabled (DISCORD_ENABLE="${discordEnable}", expected "true")`
+      `[DISCORD] Notifications disabled (DISCORD_ENABLE="${discordEnable}", expected "true")`,
     );
     return { ok: false, skipped: true, reason: "disabled" };
   }
   const url = env.DISCORD_WEBHOOK_URL;
   if (!url) {
     console.log(
-      `[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`
+      `[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`,
     );
     return { ok: false, skipped: true, reason: "missing_webhook" };
   }
@@ -7884,7 +8182,7 @@ async function notifyDiscord(env, embed) {
         .catch(() => "Unable to read response");
       console.error(
         `[DISCORD] Failed to send notification: ${response.status} ${response.statusText}`,
-        { responseText: responseText.substring(0, 200) }
+        { responseText: responseText.substring(0, 200) },
       );
       return {
         ok: false,
@@ -7896,7 +8194,7 @@ async function notifyDiscord(env, embed) {
       console.log(
         `[DISCORD] ✅ Notification sent successfully: ${
           embed.title || "Untitled"
-        }`
+        }`,
       );
       return { ok: true, status: response.status };
     }
@@ -7914,7 +8212,9 @@ function getDiscordAlertMode(env) {
   // Modes:
   // - "critical" (default): high-signal only
   // - "all": legacy behavior (send everything)
-  const raw = String(env?.DISCORD_ALERT_MODE || "critical").trim().toLowerCase();
+  const raw = String(env?.DISCORD_ALERT_MODE || "critical")
+    .trim()
+    .toLowerCase();
   return raw === "all" ? "all" : "critical";
 }
 
@@ -7941,8 +8241,16 @@ function shouldSendDiscordAlert(env, type, ctx = {}) {
     const rank = Number(ctx.rank);
     const momentumElite = !!ctx.momentumElite;
     // High conviction: very strong rank + RR, or Momentum Elite with slightly relaxed RR.
-    if (Number.isFinite(rank) && rank >= 80 && Number.isFinite(rr) && rr >= 2.0) return true;
-    if (momentumElite && Number.isFinite(rank) && rank >= 75 && Number.isFinite(rr) && rr >= 1.6) return true;
+    if (Number.isFinite(rank) && rank >= 80 && Number.isFinite(rr) && rr >= 2.0)
+      return true;
+    if (
+      momentumElite &&
+      Number.isFinite(rank) &&
+      rank >= 75 &&
+      Number.isFinite(rr) &&
+      rr >= 1.6
+    )
+      return true;
     return false;
   }
 
@@ -7967,7 +8275,7 @@ function generateTradeActionInterpretation(
   action,
   tickerData,
   trade = null,
-  trimPct = null
+  trimPct = null,
 ) {
   const ticker = tickerData.ticker || "UNKNOWN";
   const direction =
@@ -7975,8 +8283,8 @@ function generateTradeActionInterpretation(
     (tickerData.state?.includes("BULL")
       ? "LONG"
       : tickerData.state?.includes("BEAR")
-      ? "SHORT"
-      : null);
+        ? "SHORT"
+        : null);
   const state = tickerData.state || "";
   const flags = tickerData.flags || {};
   const htfScore = Number(tickerData.htf_score || 0);
@@ -8001,19 +8309,19 @@ function generateTradeActionInterpretation(
     // State-based reasons
     if (state === "HTF_BULL_LTF_BULL") {
       reasons.push(
-        "✅ **HTF and LTF are both bullish** - Strong alignment in favor of upward movement"
+        "✅ **HTF and LTF are both bullish** - Strong alignment in favor of upward movement",
       );
     } else if (state === "HTF_BEAR_LTF_BEAR") {
       reasons.push(
-        "✅ **HTF and LTF are both bearish** - Strong alignment in favor of downward movement"
+        "✅ **HTF and LTF are both bearish** - Strong alignment in favor of downward movement",
       );
     } else if (state === "HTF_BULL_LTF_PULLBACK") {
       reasons.push(
-        "✅ **HTF bullish with LTF pullback** - Prime setup for long entry on pullback"
+        "✅ **HTF bullish with LTF pullback** - Prime setup for long entry on pullback",
       );
     } else if (state === "HTF_BEAR_LTF_PULLBACK") {
       reasons.push(
-        "✅ **HTF bearish with LTF pullback** - Prime setup for short entry on pullback"
+        "✅ **HTF bearish with LTF pullback** - Prime setup for short entry on pullback",
       );
     }
 
@@ -8021,39 +8329,39 @@ function generateTradeActionInterpretation(
     if (htfScore >= 25) {
       reasons.push(
         `📈 **Strong HTF score (${htfScore.toFixed(
-          1
-        )})** - High timeframe momentum is very favorable`
+          1,
+        )})** - High timeframe momentum is very favorable`,
       );
     } else if (htfScore >= 15) {
       reasons.push(
         `📈 **Good HTF score (${htfScore.toFixed(
-          1
-        )})** - High timeframe momentum is favorable`
+          1,
+        )})** - High timeframe momentum is favorable`,
       );
     }
 
     if (ltfScore >= 20) {
       reasons.push(
         `📊 **Strong LTF score (${ltfScore.toFixed(
-          1
-        )})** - Low timeframe momentum is very favorable`
+          1,
+        )})** - Low timeframe momentum is very favorable`,
       );
     } else if (ltfScore >= 12) {
       reasons.push(
         `📊 **Good LTF score (${ltfScore.toFixed(
-          1
-        )})** - Low timeframe momentum is favorable`
+          1,
+        )})** - Low timeframe momentum is favorable`,
       );
     }
 
     // Squeeze reasons
     if (sqRel) {
       reasons.push(
-        "🚀 **Squeeze release detected** - Momentum breakout from compression, strong directional move expected"
+        "🚀 **Squeeze release detected** - Momentum breakout from compression, strong directional move expected",
       );
     } else if (sqOn) {
       reasons.push(
-        "💥 **In squeeze** - Building energy for potential explosive move"
+        "💥 **In squeeze** - Building energy for potential explosive move",
       );
     }
 
@@ -8061,14 +8369,14 @@ function generateTradeActionInterpretation(
     if (completion <= 0.2) {
       reasons.push(
         `🎯 **Early in move (${(completion * 100).toFixed(
-          0
-        )}% complete)** - Plenty of room to run`
+          0,
+        )}% complete)** - Plenty of room to run`,
       );
     } else if (completion <= 0.4) {
       reasons.push(
         `🎯 **Good entry timing (${(completion * 100).toFixed(
-          0
-        )}% complete)** - Still early in the move`
+          0,
+        )}% complete)** - Still early in the move`,
       );
     }
 
@@ -8076,8 +8384,8 @@ function generateTradeActionInterpretation(
     if (phase <= 0.3) {
       reasons.push(
         `⚡ **Early phase (${(phase * 100).toFixed(
-          0
-        )}%)** - Strong momentum building`
+          0,
+        )}%)** - Strong momentum building`,
       );
     }
 
@@ -8085,65 +8393,65 @@ function generateTradeActionInterpretation(
     if (rr >= 2.0) {
       reasons.push(
         `💰 **Excellent Risk/Reward (${rr.toFixed(
-          2
-        )}:1)** - High potential reward relative to risk`
+          2,
+        )}:1)** - High potential reward relative to risk`,
       );
     } else if (rr >= 1.5) {
       reasons.push(
         `💰 **Good Risk/Reward (${rr.toFixed(
-          2
-        )}:1)** - Favorable reward relative to risk`
+          2,
+        )}:1)** - Favorable reward relative to risk`,
       );
     }
 
     // Rank reasons
     if (rank >= 80) {
       reasons.push(
-        `⭐ **Top-ranked setup (Rank: ${rank})** - One of the best opportunities in the watchlist`
+        `⭐ **Top-ranked setup (Rank: ${rank})** - One of the best opportunities in the watchlist`,
       );
     } else if (rank >= 70) {
       reasons.push(
-        `⭐ **High-ranked setup (Rank: ${rank})** - Strong opportunity`
+        `⭐ **High-ranked setup (Rank: ${rank})** - Strong opportunity`,
       );
     }
 
     // Momentum Elite
     if (momentumElite) {
       reasons.push(
-        "🚀 **Momentum Elite** - High-quality momentum stock with strong fundamentals"
+        "🚀 **Momentum Elite** - High-quality momentum stock with strong fundamentals",
       );
     }
 
     // TD Sequential
     if (tdSeq.td9_bullish && direction === "LONG") {
       reasons.push(
-        "🔢 **TD9 Bullish signal** - DeMark exhaustion pattern suggests upward reversal"
+        "🔢 **TD9 Bullish signal** - DeMark exhaustion pattern suggests upward reversal",
       );
     } else if (tdSeq.td9_bearish && direction === "SHORT") {
       reasons.push(
-        "🔢 **TD9 Bearish signal** - DeMark exhaustion pattern suggests downward reversal"
+        "🔢 **TD9 Bearish signal** - DeMark exhaustion pattern suggests downward reversal",
       );
     }
 
     // RSI Divergence
     if (rsi.divergence?.type === "bullish" && direction === "LONG") {
       reasons.push(
-        "📊 **RSI Bullish Divergence** - Price making lower lows while RSI makes higher lows, suggesting upward reversal"
+        "📊 **RSI Bullish Divergence** - Price making lower lows while RSI makes higher lows, suggesting upward reversal",
       );
     } else if (rsi.divergence?.type === "bearish" && direction === "SHORT") {
       reasons.push(
-        "📊 **RSI Bearish Divergence** - Price making higher highs while RSI makes lower highs, suggesting downward reversal"
+        "📊 **RSI Bearish Divergence** - Price making higher highs while RSI makes lower highs, suggesting downward reversal",
       );
     }
 
     // EMA Cloud position
     if (fourHEMACloud.position === "above" && direction === "LONG") {
       reasons.push(
-        "☁️ **Price above 4H EMA cloud** - Strong trend continuation signal"
+        "☁️ **Price above 4H EMA cloud** - Strong trend continuation signal",
       );
     } else if (fourHEMACloud.position === "below" && direction === "SHORT") {
       reasons.push(
-        "☁️ **Price below 4H EMA cloud** - Strong trend continuation signal"
+        "☁️ **Price below 4H EMA cloud** - Strong trend continuation signal",
       );
     }
   } else if (action === "TRIM") {
@@ -8151,31 +8459,31 @@ function generateTradeActionInterpretation(
     actionText = `**Trimming ${trimPercent}%** because:`;
 
     reasons.push(
-      `🎯 **Take Profit level hit** - Price reached TP target, locking in ${trimPercent}% of profits`
+      `🎯 **Take Profit level hit** - Price reached TP target, locking in ${trimPercent}% of profits`,
     );
 
     if (trimPct === 0.25) {
       reasons.push(
-        "📈 **First trim (25%)** - Securing initial profits while letting the rest run"
+        "📈 **First trim (25%)** - Securing initial profits while letting the rest run",
       );
     } else if (trimPct === 0.5) {
       reasons.push(
-        "📈 **Second trim (50%)** - Locking in half the position, remaining 50% continues to run"
+        "📈 **Second trim (50%)** - Locking in half the position, remaining 50% continues to run",
       );
     } else if (trimPct === 0.75) {
       reasons.push(
-        "📈 **Third trim (75%)** - Securing most profits, trailing stop on remaining 25%"
+        "📈 **Third trim (75%)** - Securing most profits, trailing stop on remaining 25%",
       );
     }
 
     // EMA Cloud position for hold decision
     if (fourHEMACloud.position === "above" && direction === "LONG") {
       reasons.push(
-        "☁️ **Price still above 4H EMA cloud** - Trend intact, holding remaining position"
+        "☁️ **Price still above 4H EMA cloud** - Trend intact, holding remaining position",
       );
     } else if (fourHEMACloud.position === "below" && direction === "SHORT") {
       reasons.push(
-        "☁️ **Price still below 4H EMA cloud** - Trend intact, holding remaining position"
+        "☁️ **Price still below 4H EMA cloud** - Trend intact, holding remaining position",
       );
     }
   } else if (action === "CLOSE") {
@@ -8185,15 +8493,15 @@ function generateTradeActionInterpretation(
 
     if (exitReason === "TDSEQ") {
       reasons.push(
-        "🔢 **TD Sequential exit signal** - DeMark exhaustion pattern suggests trend reversal"
+        "🔢 **TD Sequential exit signal** - DeMark exhaustion pattern suggests trend reversal",
       );
     } else if (exitReason === "SL") {
       reasons.push(
-        "❌ **Stop Loss hit** - Price moved against position, risk management triggered"
+        "❌ **Stop Loss hit** - Price moved against position, risk management triggered",
       );
     } else if (exitReason === "TP_FULL") {
       reasons.push(
-        "✅ **Take Profit fully achieved** - All TP levels hit, trade completed successfully"
+        "✅ **Take Profit fully achieved** - All TP levels hit, trade completed successfully",
       );
     } else if (status === "WIN") {
       reasons.push("✅ **Trade closed as WIN** - Profit secured");
@@ -8208,13 +8516,13 @@ function generateTradeActionInterpretation(
       reasons.push(
         `💰 **Final P&L: +$${Math.abs(pnl).toFixed(2)} (${
           pnlPct >= 0 ? "+" : ""
-        }${pnlPct.toFixed(2)}%)** - Trade profitable`
+        }${pnlPct.toFixed(2)}%)** - Trade profitable`,
       );
     } else {
       reasons.push(
         `💰 **Final P&L: -$${Math.abs(pnl).toFixed(2)} (${pnlPct.toFixed(
-          2
-        )}%)** - Trade closed at loss`
+          2,
+        )}%)** - Trade closed at loss`,
       );
     }
   }
@@ -8222,7 +8530,7 @@ function generateTradeActionInterpretation(
   // If no reasons found, add generic ones
   if (reasons.length === 0) {
     reasons.push(
-      "📊 **System signal detected** - Automated trade management triggered"
+      "📊 **System signal detected** - Automated trade management triggered",
     );
   }
 
@@ -8244,7 +8552,7 @@ function createTradeEntryEmbed(
   state,
   currentPrice = null,
   isBackfill = false,
-  tickerData = null
+  tickerData = null,
 ) {
   const color = direction === "LONG" ? 0x00ff00 : 0xff0000; // Green for LONG, Red for SHORT
 
@@ -8275,7 +8583,7 @@ function createTradeEntryEmbed(
     {
       name: "💰 Entry Details",
       value: `**Entry:** ${entryPriceDisplay}\n**Stop Loss:** $${sl.toFixed(
-        2
+        2,
       )}\n**Take Profit:** $${tp.toFixed(2)}`,
       inline: false,
     },
@@ -8305,7 +8613,7 @@ function createTradeEntryEmbed(
       fields.push({
         name: "🎯 TP Levels",
         value: `**Primary TP:** $${tp.toFixed(2)}\n**Max TP:** $${maxTP.toFixed(
-          2
+          2,
         )}\n**Total Levels:** ${tpPrices.length}`,
         inline: false,
       });
@@ -8322,7 +8630,7 @@ function createTradeEntryEmbed(
     fields.push({
       name: "📈 Scores & Metrics",
       value: `**HTF Score:** ${htfScore.toFixed(
-        2
+        2,
       )}\n**LTF Score:** ${ltfScore.toFixed(2)}\n**Completion:** ${(
         completion * 100
       ).toFixed(1)}%\n**Phase:** ${(phase * 100).toFixed(1)}%`,
@@ -8333,7 +8641,7 @@ function createTradeEntryEmbed(
   fields.push({
     name: "⭐ Quality Metrics",
     value: `**Rank:** ${rank}\n**Risk/Reward:** ${rr.toFixed(
-      2
+      2,
     )}:1\n**State:** ${state || "N/A"}`,
     inline: true,
   });
@@ -8458,7 +8766,7 @@ function createTradeTrimmedEmbed(
   trimmedPct = 0.5,
   tickerData = null,
   trade = null,
-  trimDeltaPct = null
+  trimDeltaPct = null,
 ) {
   const remainingPct = 1 - trimmedPct;
   const trimPercent = Math.round(trimmedPct * 100);
@@ -8513,9 +8821,9 @@ function createTradeTrimmedEmbed(
     {
       name: "💰 Position Details",
       value: `**Entry:** $${entryPrice.toFixed(
-        2
+        2,
       )}\n**Current:** $${currentPrice.toFixed(2)}\n**TP Hit:** $${tp.toFixed(
-        2
+        2,
       )}`,
       inline: false,
     },
@@ -8533,7 +8841,7 @@ function createTradeTrimmedEmbed(
       value: `**Remaining:** ${Math.round(remainingPct * 100)}%\n**Next TP:** ${
         nextTp
           ? `$${Number(nextTp.price).toFixed(2)} (${Math.round(
-              nextTp.trimPct * 100
+              nextTp.trimPct * 100,
             )}%)`
           : "—"
       }\n**Status:** Holding remaining position`,
@@ -8553,7 +8861,7 @@ function createTradeTrimmedEmbed(
               ? ` (${[tp.timeframe, tp.source].filter(Boolean).join(", ")})`
               : "";
           return `**${tp.label || `TP (${pct}%)`}:** $${tp.price.toFixed(
-            2
+            2,
           )} (${pct}%)${meta}`;
         })
         .join("\n"),
@@ -8568,8 +8876,8 @@ function createTradeTrimmedEmbed(
       fourH.position === "above" && direction === "LONG"
         ? "Price above 4H EMA cloud - trend intact"
         : fourH.position === "below" && direction === "SHORT"
-        ? "Price below 4H EMA cloud - trend intact"
-        : "Monitoring trend continuation";
+          ? "Price below 4H EMA cloud - trend intact"
+          : "Monitoring trend continuation";
 
     fields.push({
       name: "☁️ Trend Analysis",
@@ -8604,7 +8912,7 @@ function createTradeClosedEmbed(
   rank,
   rr,
   tickerData = null,
-  trade = null
+  trade = null,
 ) {
   const color = status === "WIN" ? 0x00ff00 : 0xff0000; // Green for WIN, Red for LOSS
   const emoji = status === "WIN" ? "✅" : "❌";
@@ -8626,9 +8934,9 @@ function createTradeClosedEmbed(
     {
       name: "💰 Trade Summary",
       value: `**Entry:** $${entryPrice.toFixed(
-        2
+        2,
       )}\n**Exit:** $${exitPrice.toFixed(2)}\n**Final P&L:** $${pnl.toFixed(
-        2
+        2,
       )} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
       inline: false,
     },
@@ -8641,10 +8949,10 @@ function createTradeClosedEmbed(
       exitReason === "TDSEQ"
         ? "🔢 **TD Sequential Exhaustion** - DeMark pattern suggests trend reversal"
         : exitReason === "SL"
-        ? "❌ **Stop Loss Hit** - Risk management triggered"
-        : exitReason === "TP_FULL"
-        ? "✅ **Take Profit Achieved** - TP plan completed"
-        : `📌 **Exit Reason:** ${exitReason}`;
+          ? "❌ **Stop Loss Hit** - Risk management triggered"
+          : exitReason === "TP_FULL"
+            ? "✅ **Take Profit Achieved** - TP plan completed"
+            : `📌 **Exit Reason:** ${exitReason}`;
     fields.push({
       name: "📌 Exit Reason",
       value: reasonText,
@@ -8667,9 +8975,9 @@ function createTradeClosedEmbed(
   fields.push({
     name: "📈 Price Movement",
     value: `**Change:** ${priceChange >= 0 ? "+" : ""}$${priceChange.toFixed(
-      2
+      2,
     )}\n**Change %:** ${priceChangePct >= 0 ? "+" : ""}${priceChangePct.toFixed(
-      2
+      2,
     )}%`,
     inline: true,
   });
@@ -8697,7 +9005,7 @@ function createTD9ExitEmbed(
   pnl,
   pnlPct,
   tdSeq,
-  tickerData = null
+  tickerData = null,
 ) {
   const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
   const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
@@ -8716,24 +9024,24 @@ function createTD9ExitEmbed(
 
   if (signalType === "TD13") {
     reasons.push(
-      `🔢 **TD13 ${signalDirection} exhaustion** - Strong DeMark reversal signal, lead-up phase complete`
+      `🔢 **TD13 ${signalDirection} exhaustion** - Strong DeMark reversal signal, lead-up phase complete`,
     );
   } else {
     reasons.push(
-      `🔢 **TD9 ${signalDirection} exhaustion** - DeMark reversal signal, preparation phase complete`
+      `🔢 **TD9 ${signalDirection} exhaustion** - DeMark reversal signal, preparation phase complete`,
     );
   }
 
   reasons.push(
-    `📉 **Price exhaustion detected** - Trend showing signs of reversal`
+    `📉 **Price exhaustion detected** - Trend showing signs of reversal`,
   );
   reasons.push(
-    `⚠️ **Risk management** - Exiting to protect profits and avoid reversal`
+    `⚠️ **Risk management** - Exiting to protect profits and avoid reversal`,
   );
 
   if (oppositeDirection) {
     reasons.push(
-      `🔄 **Consider ${oppositeDirection} entry** - If conditions align, opposite direction may present opportunity`
+      `🔄 **Consider ${oppositeDirection} entry** - If conditions align, opposite direction may present opportunity`,
     );
   }
 
@@ -8746,7 +9054,7 @@ function createTD9ExitEmbed(
     {
       name: "💰 Trade Summary",
       value: `**Entry:** $${entryPrice.toFixed(
-        2
+        2,
       )}\n**Exit:** $${exitPrice.toFixed(2)}\n**P&L:** $${pnl.toFixed(2)} (${
         pnlPct >= 0 ? "+" : ""
       }${pnlPct.toFixed(2)}%)`,
@@ -8813,15 +9121,17 @@ function createTDSeqDefenseEmbed(
   oldSl,
   newSl,
   tdSeq,
-  tickerData = null
+  tickerData = null,
 ) {
   const daily = tickerData?.daily_ema_cloud || {};
   const cloudPos = String(daily?.position || "").toUpperCase() || "UNKNOWN";
   const upper = Number(daily?.upper);
   const lower = Number(daily?.lower);
   const signalType =
-    (tdSeq.td13_bullish === true || tdSeq.td13_bullish === "true" ||
-      tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true")
+    tdSeq.td13_bullish === true ||
+    tdSeq.td13_bullish === "true" ||
+    tdSeq.td13_bearish === true ||
+    tdSeq.td13_bearish === "true"
       ? "TD13"
       : "TD9";
 
@@ -8896,7 +9206,7 @@ function createTD9EntryEmbed(
   rr,
   rank,
   tdSeq,
-  tickerData = null
+  tickerData = null,
 ) {
   const td9Bullish = tdSeq.td9_bullish === true || tdSeq.td9_bullish === "true";
   const td9Bearish = tdSeq.td9_bearish === true || tdSeq.td9_bearish === "true";
@@ -8914,11 +9224,11 @@ function createTD9EntryEmbed(
 
   if (signalType === "TD13") {
     reasons.push(
-      `🔢 **TD13 ${signalDirection} signal** - Strong DeMark reversal pattern, lead-up phase complete`
+      `🔢 **TD13 ${signalDirection} signal** - Strong DeMark reversal pattern, lead-up phase complete`,
     );
   } else {
     reasons.push(
-      `🔢 **TD9 ${signalDirection} signal** - DeMark reversal pattern, preparation phase complete`
+      `🔢 **TD9 ${signalDirection} signal** - DeMark reversal pattern, preparation phase complete`,
     );
   }
 
@@ -8927,14 +9237,14 @@ function createTD9EntryEmbed(
   if (rr >= 1.5) {
     reasons.push(
       `💰 **Good Risk/Reward (${rr.toFixed(
-        2
-      )}:1)** - Favorable reward relative to risk`
+        2,
+      )}:1)** - Favorable reward relative to risk`,
     );
   }
 
   if (rank >= 70) {
     reasons.push(
-      `⭐ **High-ranked setup (Rank: ${rank})** - Strong opportunity`
+      `⭐ **High-ranked setup (Rank: ${rank})** - Strong opportunity`,
     );
   }
 
@@ -8947,7 +9257,7 @@ function createTD9EntryEmbed(
     {
       name: "💰 Entry Details",
       value: `**Current Price:** $${price.toFixed(
-        2
+        2,
       )}\n**Stop Loss:** $${sl.toFixed(2)}\n**Take Profit:** $${tp.toFixed(2)}`,
       inline: false,
     },
@@ -8994,7 +9304,7 @@ function createTD9EntryEmbed(
     fields.push({
       name: "📈 Current Scores",
       value: `**HTF:** ${htfScore.toFixed(2)}\n**LTF:** ${ltfScore.toFixed(
-        2
+        2,
       )}\n**State:** ${state}`,
       inline: true,
     });
@@ -9022,11 +9332,11 @@ function createFlipWatchEmbed(ticker, tickerData) {
   const rank = Number(tickerData?.rank);
   const score = Number(tickerData?.flip_watch_score);
   const reasons = tickerData?.flip_watch_reasons || [];
-  
+
   const isBullSetup = state === "HTF_BULL_LTF_PULLBACK";
   const direction = isBullSetup ? "LONG" : "SHORT";
   const emoji = isBullSetup ? "📈" : "📉";
-  
+
   const fields = [
     {
       name: "🎯 Flip Watch Alert",
@@ -9035,7 +9345,10 @@ function createFlipWatchEmbed(ticker, tickerData) {
     },
     {
       name: "📊 Setup Quality",
-      value: `**Flip Watch Score:** ${score}/100\n**Why watching:**\n${reasons.slice(0, 5).map(r => `• ${r}`).join("\n")}`,
+      value: `**Flip Watch Score:** ${score}/100\n**Why watching:**\n${reasons
+        .slice(0, 5)
+        .map((r) => `• ${r}`)
+        .join("\n")}`,
       inline: false,
     },
     {
@@ -9054,7 +9367,7 @@ function createFlipWatchEmbed(ticker, tickerData) {
       inline: true,
     },
   ];
-  
+
   // Add momentum indicators if available
   const flags = tickerData?.flags || {};
   const indicators = [];
@@ -9062,7 +9375,7 @@ function createFlipWatchEmbed(ticker, tickerData) {
   else if (flags.sq30_on) indicators.push("🧨 Squeeze building");
   if (flags.htf_improving_4h) indicators.push("📈 HTF improving");
   if (flags.momentum_elite) indicators.push("🚀 Momentum Elite");
-  
+
   if (indicators.length > 0) {
     fields.push({
       name: "🔥 Momentum Indicators",
@@ -9070,13 +9383,13 @@ function createFlipWatchEmbed(ticker, tickerData) {
       inline: false,
     });
   }
-  
+
   fields.push({
     name: "⏱️ What to Watch",
     value: `Monitor for **LTF score to cross zero** and state to change to **${isBullSetup ? "HTF_BULL_LTF_BULL" : "HTF_BEAR_LTF_BEAR"}**.\n\n**Historical pattern:** 76% of top movers flipped from PULLBACK to momentum within 6 hours, with 64% having <15% completion at start.`,
     inline: false,
   });
-  
+
   return {
     title: `🎯 Flip Watch Alert: ${ticker} ${emoji}`,
     description: `Setup quality score: **${score}/100** — Ready to transition from pullback to momentum`,
@@ -9096,7 +9409,7 @@ function requireKeyOr401(req, env) {
   return sendJSON(
     { ok: false, error: "unauthorized" },
     401,
-    corsHeaders(env, req)
+    corsHeaders(env, req),
   );
 }
 
@@ -9382,7 +9695,7 @@ async function loadSectorMappingsFromKV(KV) {
   try {
     if (!KV) {
       console.log(
-        `[SECTOR LOAD] KV not available, skipping sector mapping load`
+        `[SECTOR LOAD] KV not available, skipping sector mapping load`,
       );
       return;
     }
@@ -9407,7 +9720,7 @@ async function loadSectorMappingsFromKV(KV) {
 
     if (loadedCount > 0) {
       console.log(
-        `[SECTOR LOAD] Loaded ${loadedCount} sector mappings from KV`
+        `[SECTOR LOAD] Loaded ${loadedCount} sector mappings from KV`,
       );
     }
   } catch (err) {
@@ -9421,7 +9734,7 @@ function getSectorRating(sector) {
 
 function getTickersInSector(sector) {
   return Object.keys(SECTOR_MAP).filter(
-    (ticker) => SECTOR_MAP[ticker] === sector
+    (ticker) => SECTOR_MAP[ticker] === sector,
   );
 }
 
@@ -9527,7 +9840,7 @@ function calculateValuationSignal(
   fairValuePE,
   pegRatio,
   premiumDiscount,
-  percentiles
+  percentiles,
 ) {
   // Default thresholds
   const UNDERVALUED_THRESHOLD = -15; // 15% below fair value
@@ -9548,12 +9861,12 @@ function calculateValuationSignal(
     if (premiumDiscount < UNDERVALUED_THRESHOLD) {
       signals.is_undervalued = true;
       signals.reasons.push(
-        `Price ${Math.abs(premiumDiscount).toFixed(1)}% below fair value`
+        `Price ${Math.abs(premiumDiscount).toFixed(1)}% below fair value`,
       );
     } else if (premiumDiscount > OVERVALUED_THRESHOLD) {
       signals.is_overvalued = true;
       signals.reasons.push(
-        `Price ${premiumDiscount.toFixed(1)}% above fair value`
+        `Price ${premiumDiscount.toFixed(1)}% above fair value`,
       );
     }
   }
@@ -9563,12 +9876,12 @@ function calculateValuationSignal(
     if (pegRatio < PEG_UNDERVALUED) {
       signals.is_undervalued = true;
       signals.reasons.push(
-        `PEG ratio ${pegRatio.toFixed(2)} suggests undervalued growth`
+        `PEG ratio ${pegRatio.toFixed(2)} suggests undervalued growth`,
       );
     } else if (pegRatio > PEG_OVERVALUED) {
       signals.is_overvalued = true;
       signals.reasons.push(
-        `PEG ratio ${pegRatio.toFixed(2)} suggests overvalued`
+        `PEG ratio ${pegRatio.toFixed(2)} suggests overvalued`,
       );
     }
   }
@@ -9731,7 +10044,7 @@ export default {
               "KV binding is not configured. Please add KV_TIMED binding in Cloudflare Dashboard.",
           },
           500,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -9747,7 +10060,10 @@ export default {
             Promise.race([
               p,
               new Promise((_, reject) =>
-                setTimeout(() => reject(new Error("sector_mappings_timeout")), ms)
+                setTimeout(
+                  () => reject(new Error("sector_mappings_timeout")),
+                  ms,
+                ),
               ),
             ]);
 
@@ -9776,7 +10092,7 @@ export default {
           console.log(
             `[INGEST REQUEST RECEIVED] IP: ${ip}, User-Agent: ${
               req.headers.get("User-Agent") || "none"
-            }`
+            }`,
           );
 
           const authFail = requireKeyOr401(req, env);
@@ -9791,8 +10107,8 @@ export default {
           if (!body) {
             console.log(
               `[INGEST JSON PARSE FAILED] IP: ${ip}, Error: ${String(
-                err || "unknown"
-              )}, Raw sample: ${String(raw || "").slice(0, 200)}`
+                err || "unknown",
+              )}, Raw sample: ${String(raw || "").slice(0, 200)}`,
             );
             return ackJSON(
               env,
@@ -9803,7 +10119,7 @@ export default {
                 parseError: String(err || ""),
               },
               400,
-              req
+              req,
             );
           }
 
@@ -9832,7 +10148,7 @@ export default {
                 ts: body?.ts,
                 htf: body?.htf_score,
                 ltf: body?.ltf_score,
-              }
+              },
             );
             return ackJSON(env, v, 400, req);
           }
@@ -9858,13 +10174,13 @@ export default {
                 KV,
                 `timed:ingest:raw:${ticker}`,
                 rawPayload,
-                2 * 24 * 60 * 60
+                2 * 24 * 60 * 60,
               );
             }
           } catch (rawErr) {
             console.error(
               `[INGEST RAW] KV store failed for ${ticker}:`,
-              rawErr
+              rawErr,
             );
           }
 
@@ -9872,9 +10188,9 @@ export default {
             (err) => {
               console.error(
                 `[D1 INGEST] Receipt insert exception for ${ticker}:`,
-                err
+                err,
               );
-            }
+            },
           );
 
           // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
@@ -9897,7 +10213,7 @@ export default {
               console.log(
                 `[MIGRATE BRK] Migrating BRK.B data to BRK-B (old ts: ${
                   oldData.ts
-                }, new ts: ${newData?.ts || "none"})`
+                }, new ts: ${newData?.ts || "none"})`,
               );
               // Copy data to BRK-B (use newer data if both exist)
               const dataToUse =
@@ -9918,11 +10234,11 @@ export default {
                 await KV.delete(`timed:latest:BRK.B`);
                 await KV.delete(`timed:trail:BRK.B`);
                 console.log(
-                  `[MIGRATE BRK] Migration complete: BRK.B → BRK-B (deleted old BRK.B)`
+                  `[MIGRATE BRK] Migration complete: BRK.B → BRK-B (deleted old BRK.B)`,
                 );
               } else {
                 console.log(
-                  `[MIGRATE BRK] BRK-B already has newer data, keeping both`
+                  `[MIGRATE BRK] BRK-B already has newer data, keeping both`,
                 );
               }
             }
@@ -9949,7 +10265,7 @@ export default {
           } else if (storedVersion !== incomingVersion) {
             // Version changed - run migration in background to avoid timeout
             console.log(
-              `Version change detected: ${storedVersion} -> ${incomingVersion}, starting background migration`
+              `Version change detected: ${storedVersion} -> ${incomingVersion}, starting background migration`,
             );
 
             // Update version immediately to prevent concurrent migrations from multiple requests
@@ -9963,7 +10279,7 @@ export default {
             const migrationPromise = checkAndMigrateWithStoredVersion(
               KV,
               storedVersion,
-              incomingVersion
+              incomingVersion,
             );
             migrationPromise
               .then((result) => {
@@ -9971,7 +10287,7 @@ export default {
                   console.log(
                     `Background migration completed: ${result.oldVersion} -> ${
                       result.newVersion
-                    }, purged ${result.tickerCount || 0} tickers`
+                    }, purged ${result.tickerCount || 0} tickers`,
                   );
                   // Optionally notify Discord about migration
                   // Notify Discord about migration with embed card
@@ -10001,7 +10317,9 @@ export default {
                       text: "Timed Trading System",
                     },
                   };
-                  if (shouldSendDiscordAlert(env, "SYSTEM", { kind: "migration" })) {
+                  if (
+                    shouldSendDiscordAlert(env, "SYSTEM", { kind: "migration" })
+                  ) {
                     notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
                   }
                 }
@@ -10047,16 +10365,16 @@ export default {
             console.log(
               `[INGEST DEDUPED] ${ticker} - same data within 60s (hash: ${hash.substring(
                 0,
-                8
-              )})`
+                8,
+              )})`,
             );
           } else {
             await kvPutText(KV, dedupeKey, "1", 60);
             console.log(
               `[INGEST NOT DEDUPED] ${ticker} - new or changed data (hash: ${hash.substring(
                 0,
-                8
-              )})`
+                8,
+              )})`,
             );
           }
 
@@ -10078,7 +10396,7 @@ export default {
           const momentumEliteData = await computeMomentumElite(
             KV,
             ticker,
-            payload
+            payload,
           );
           if (ticker === "ETHT") {
             console.log(`[ETHT DEBUG] Momentum Elite computed:`, {
@@ -10105,14 +10423,22 @@ export default {
             if (tfSum) payload.tf_summary = tfSum;
             payload.trigger_summary = triggerSummaryAndScore(payload);
             payload.move_status = computeMoveStatus(payload);
-            payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
-            payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
-            payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+            payload.flags =
+              payload.flags && typeof payload.flags === "object"
+                ? payload.flags
+                : {};
+            payload.flags.move_invalidated =
+              payload.move_status?.status === "INVALIDATED";
+            payload.flags.move_completed =
+              payload.move_status?.status === "COMPLETED";
             const trigCorr = triggerReasonCorroboration(payload);
             payload.trigger_reason_corroborated = !!trigCorr.corroborated;
             payload.trigger_reason_note = trigCorr.note || "";
           } catch (e) {
-            console.error(`[ENRICH] Failed for ${ticker}:`, String(e?.message || e));
+            console.error(
+              `[ENRICH] Failed for ${ticker}:`,
+              String(e?.message || e),
+            );
           }
 
           payload.rank = computeRank(payload);
@@ -10146,7 +10472,10 @@ export default {
 
             // Compute live thesis features from the updated trail
             try {
-              const computed = computeLiveThesisFeaturesFromTrail(trail, payload);
+              const computed = computeLiveThesisFeaturesFromTrail(
+                trail,
+                payload,
+              );
               if (computed && typeof computed === "object") {
                 payload.seq = computed.seq;
                 payload.deltas = computed.deltas;
@@ -10154,24 +10483,33 @@ export default {
                   payload.flags && typeof payload.flags === "object"
                     ? payload.flags
                     : {};
-                payload.flags.htf_improving_4h = !!computed.flags?.htf_improving_4h;
-                payload.flags.htf_improving_1d = !!computed.flags?.htf_improving_1d;
-                payload.flags.htf_move_4h_ge_5 = !!computed.flags?.htf_move_4h_ge_5;
+                payload.flags.htf_improving_4h =
+                  !!computed.flags?.htf_improving_4h;
+                payload.flags.htf_improving_1d =
+                  !!computed.flags?.htf_improving_1d;
+                payload.flags.htf_move_4h_ge_5 =
+                  !!computed.flags?.htf_move_4h_ge_5;
                 payload.flags.thesis_match = !!computed.flags?.thesis_match;
               }
 
               // Flip Watch detection - tickers about to transition from setup to momentum
               try {
-                const nowMs = Number(payload?.ts ?? payload?.ingest_ts ?? Date.now());
+                const nowMs = Number(
+                  payload?.ts ?? payload?.ingest_ts ?? Date.now(),
+                );
                 const state = String(payload?.state || "");
                 const inPullback =
-                  state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+                  state === "HTF_BULL_LTF_PULLBACK" ||
+                  state === "HTF_BEAR_LTF_PULLBACK";
                 const isMomentum =
-                  state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+                  state === "HTF_BULL_LTF_BULL" ||
+                  state === "HTF_BEAR_LTF_BEAR";
 
                 const flipWatch = detectFlipWatch(payload, trail);
                 const prevUntilRaw = Number(existing?.flip_watch_until_ts);
-                const prevUntil = Number.isFinite(prevUntilRaw) ? prevUntilRaw : null;
+                const prevUntil = Number.isFinite(prevUntilRaw)
+                  ? prevUntilRaw
+                  : null;
                 const prevScore = Number(existing?.flip_watch_score);
                 const prevReasons = Array.isArray(existing?.flip_watch_reasons)
                   ? existing.flip_watch_reasons
@@ -10194,7 +10532,8 @@ export default {
                   payload.flip_watch_until_ts = nowMs + STICKY_MS;
                 } else if (stickyActive) {
                   payload.flags.flip_watch = true;
-                  if (Number.isFinite(prevScore)) payload.flip_watch_score = prevScore;
+                  if (Number.isFinite(prevScore))
+                    payload.flip_watch_score = prevScore;
                   if (prevReasons) payload.flip_watch_reasons = prevReasons;
                   payload.flip_watch_until_ts = prevUntil;
                 } else {
@@ -10202,12 +10541,15 @@ export default {
                   payload.flip_watch_until_ts = null;
                 }
               } catch (e) {
-                console.error(`[FLIP WATCH] Detection failed for ${ticker}:`, String(e));
+                console.error(
+                  `[FLIP WATCH] Detection failed for ${ticker}:`,
+                  String(e),
+                );
               }
             } catch (e) {
               console.error(
                 `[THESIS FEATURES] Compute failed for ${ticker}:`,
-                String(e)
+                String(e),
               );
             }
 
@@ -10218,9 +10560,18 @@ export default {
               // Recycle rule: if something was in ARCHIVE, it must re-enter via opportunity lanes
               // so users clearly see it "recycled" rather than jumping into position-management lanes.
               let finalStage = stage;
-              if (prevStage === "archive" && (stage === "hold" || stage === "defend" || stage === "trim" || stage === "exit")) {
+              if (
+                prevStage === "archive" &&
+                (stage === "hold" ||
+                  stage === "defend" ||
+                  stage === "trim" ||
+                  stage === "exit")
+              ) {
                 finalStage = "watch";
-                payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                payload.flags =
+                  payload.flags && typeof payload.flags === "object"
+                    ? payload.flags
+                    : {};
                 payload.flags.recycled_from_archive = true;
               }
 
@@ -10235,10 +10586,14 @@ export default {
                 if (mgmt) {
                   const curTriggerTs = Number(payload?.trigger_ts);
                   const curSide = sideFromStateOrScores(payload); // "LONG" | "SHORT" | null
-                  const cycleEnterTs = Number(existing?.kanban_cycle_enter_now_ts);
+                  const cycleEnterTs = Number(
+                    existing?.kanban_cycle_enter_now_ts,
+                  );
                   const cycleTrig = Number(existing?.kanban_cycle_trigger_ts);
                   const cycleSide =
-                    existing?.kanban_cycle_side != null ? String(existing.kanban_cycle_side) : null;
+                    existing?.kanban_cycle_side != null
+                      ? String(existing.kanban_cycle_side)
+                      : null;
                   const sameTrig =
                     Number.isFinite(curTriggerTs) &&
                     curTriggerTs > 0 &&
@@ -10256,11 +10611,17 @@ export default {
                   if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
                     // Can't be in management lanes without a valid trigger.
                     finalStage = "watch";
-                    payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                    payload.flags =
+                      payload.flags && typeof payload.flags === "object"
+                        ? payload.flags
+                        : {};
                     payload.flags.forced_watch_missing_trigger = true;
                   } else if (!cycleOk) {
                     finalStage = "enter_now";
-                    payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                    payload.flags =
+                      payload.flags && typeof payload.flags === "object"
+                        ? payload.flags
+                        : {};
                     payload.flags.forced_enter_now_gate = true;
                   }
                 }
@@ -10271,8 +10632,11 @@ export default {
                   const curSide = sideFromStateOrScores(payload);
                   payload.kanban_cycle_enter_now_ts = tsNow;
                   payload.kanban_cycle_trigger_ts =
-                    Number.isFinite(curTriggerTs) && curTriggerTs > 0 ? curTriggerTs : null;
-                  payload.kanban_cycle_side = curSide != null ? String(curSide) : null;
+                    Number.isFinite(curTriggerTs) && curTriggerTs > 0
+                      ? curTriggerTs
+                      : null;
+                  payload.kanban_cycle_side =
+                    curSide != null ? String(curSide) : null;
                 } else if (
                   finalStage === "hold" ||
                   finalStage === "defend" ||
@@ -10280,9 +10644,12 @@ export default {
                   finalStage === "exit"
                 ) {
                   // Carry forward the cycle markers while in management lanes.
-                  payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts || null;
-                  payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts || null;
-                  payload.kanban_cycle_side = existing?.kanban_cycle_side || null;
+                  payload.kanban_cycle_enter_now_ts =
+                    existing?.kanban_cycle_enter_now_ts || null;
+                  payload.kanban_cycle_trigger_ts =
+                    existing?.kanban_cycle_trigger_ts || null;
+                  payload.kanban_cycle_side =
+                    existing?.kanban_cycle_side || null;
                 } else {
                   // Reset cycle when we're not in ENTER_NOW or management lanes.
                   payload.kanban_cycle_enter_now_ts = null;
@@ -10290,7 +10657,10 @@ export default {
                   payload.kanban_cycle_side = null;
                 }
               } catch (e) {
-                console.error(`[KANBAN] lifecycle gate failed for ${ticker}:`, String(e));
+                console.error(
+                  `[KANBAN] lifecycle gate failed for ${ticker}:`,
+                  String(e),
+                );
               }
 
               payload.kanban_stage = finalStage;
@@ -10298,15 +10668,21 @@ export default {
               // Persist last transition source lane so UI can show "from: <lane>".
               // If stage changed: stamp prev_kanban_stage = previous lane (if known).
               // If stage did NOT change: carry forward the last stamped prev_kanban_stage.
-              if (prevStage != null && finalStage != null && String(prevStage) !== String(finalStage)) {
+              if (
+                prevStage != null &&
+                finalStage != null &&
+                String(prevStage) !== String(finalStage)
+              ) {
                 payload.prev_kanban_stage = String(prevStage);
-                payload.prev_kanban_stage_ts = Number(payload?.ts) || Date.now();
+                payload.prev_kanban_stage_ts =
+                  Number(payload?.ts) || Date.now();
               } else if (existing?.prev_kanban_stage != null) {
                 payload.prev_kanban_stage = String(existing.prev_kanban_stage);
-                payload.prev_kanban_stage_ts =
-                  Number.isFinite(Number(existing?.prev_kanban_stage_ts))
-                    ? Number(existing.prev_kanban_stage_ts)
-                    : null;
+                payload.prev_kanban_stage_ts = Number.isFinite(
+                  Number(existing?.prev_kanban_stage_ts),
+                )
+                  ? Number(existing.prev_kanban_stage_ts)
+                  : null;
               } else {
                 payload.prev_kanban_stage = null;
                 payload.prev_kanban_stage_ts = null;
@@ -10318,7 +10694,9 @@ export default {
                 if (Number.isFinite(price) && price > 0) {
                   payload.entry_price = price;
                   payload.entry_ts = payload.ts;
-                  console.log(`[KANBAN] ${ticker} entered ENTER_NOW at $${price.toFixed(2)}`);
+                  console.log(
+                    `[KANBAN] ${ticker} entered ENTER_NOW at $${price.toFixed(2)}`,
+                  );
                 }
               }
 
@@ -10332,17 +10710,26 @@ export default {
               if (payload.entry_price) {
                 const entryPrice = Number(payload.entry_price);
                 const currentPrice = Number(payload.price);
-                if (Number.isFinite(entryPrice) && Number.isFinite(currentPrice) && entryPrice > 0) {
-                  payload.entry_change_pct = ((currentPrice - entryPrice) / entryPrice) * 100;
+                if (
+                  Number.isFinite(entryPrice) &&
+                  Number.isFinite(currentPrice) &&
+                  entryPrice > 0
+                ) {
+                  payload.entry_change_pct =
+                    ((currentPrice - entryPrice) / entryPrice) * 100;
                 }
               }
 
               if (finalStage) console.log(`[KANBAN] ${ticker} → ${finalStage}`);
             } catch (e) {
-              console.error(`[KANBAN] Stage classification failed for ${ticker}:`, String(e));
+              console.error(
+                `[KANBAN] Stage classification failed for ${ticker}:`,
+                String(e),
+              );
               payload.kanban_stage = existing?.kanban_stage || null;
               payload.prev_kanban_stage = existing?.prev_kanban_stage || null;
-              payload.prev_kanban_stage_ts = existing?.prev_kanban_stage_ts || null;
+              payload.prev_kanban_stage_ts =
+                existing?.prev_kanban_stage_ts || null;
             }
 
             // Also store into D1 (if configured) for 7-day history.
@@ -10362,7 +10749,7 @@ export default {
                 error: String(trailErr),
                 message: trailErr.message,
                 stack: trailErr.stack,
-              }
+              },
             );
             // Don't throw - continue with ingestion even if trail fails
           }
@@ -10389,7 +10776,7 @@ export default {
               const sectorMapKey = `timed:sector_map:${tickerUpper}`;
               await kvPutText(KV, sectorMapKey, sectorToUse);
               console.log(
-                `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorToUse} (from TradingView, not in SECTOR_MAP)`
+                `[SECTOR AUTO-MAP] ${tickerUpper} → ${sectorToUse} (from TradingView, not in SECTOR_MAP)`,
               );
             }
           } else {
@@ -10397,7 +10784,7 @@ export default {
             console.log(
               `[SECTOR] ${tickerUpper} → ${sectorToUse} (from SECTOR_MAP, ignoring TradingView sector: ${
                 payload.sector || "none"
-              })`
+              })`,
             );
           }
 
@@ -10468,7 +10855,7 @@ export default {
               if (percentiles) {
                 percentilePosition = getPercentilePosition(
                   currentPE,
-                  percentiles
+                  percentiles,
                 );
               }
             }
@@ -10479,11 +10866,11 @@ export default {
             const fairValuePE = calculateFairValuePE(peHistory, epsGrowthRate);
             const fairValuePrice = calculateFairValuePrice(
               eps,
-              fairValuePE?.preferred
+              fairValuePE?.preferred,
             );
             const premiumDiscount = calculatePremiumDiscount(
               currentPrice,
-              fairValuePrice
+              fairValuePrice,
             );
 
             // ─────────────────────────────────────────────────────────────
@@ -10494,7 +10881,7 @@ export default {
               fairValuePE?.preferred,
               pegRatio,
               premiumDiscount,
-              percentiles
+              percentiles,
             );
 
             // ─────────────────────────────────────────────────────────────
@@ -10552,13 +10939,13 @@ export default {
             // Apply valuation boost to rank (if fundamentals available)
             if (payload.fundamentals) {
               const valuationBoost = calculateValuationBoost(
-                payload.fundamentals
+                payload.fundamentals,
               );
               if (valuationBoost !== 0) {
                 const baseRank = payload.rank || 0;
                 payload.rank = Math.max(
                   0,
-                  Math.min(100, baseRank + valuationBoost)
+                  Math.min(100, baseRank + valuationBoost),
                 );
 
                 // Store valuation boost for debugging/display
@@ -10567,7 +10954,7 @@ export default {
                 payload.rank_components.base_rank = baseRank;
 
                 console.log(
-                  `[RANK] ${ticker}: Base=${baseRank}, Valuation Boost=${valuationBoost}, Final=${payload.rank}`
+                  `[RANK] ${ticker}: Base=${baseRank}, Valuation Boost=${valuationBoost}, Final=${payload.rank}`,
                 );
               }
             }
@@ -10606,7 +10993,7 @@ export default {
             KV,
             prevKey,
             String(payload.state || ""),
-            7 * 24 * 60 * 60
+            7 * 24 * 60 * 60,
           );
 
           const state = String(payload.state || "");
@@ -10653,7 +11040,7 @@ export default {
           payload.entry_decision = buildEntryDecision(
             ticker,
             payload,
-            prevState
+            prevState,
           );
           const prevSqueezeKey = `timed:prevsqueeze:${ticker}`;
           const prevSqueezeOn = await KV.get(prevSqueezeKey);
@@ -10744,30 +11131,40 @@ export default {
             const prevFlipWatchKey = `timed:prev_flip_watch:${ticker}`;
             const prevFlipWatch = await KV.get(prevFlipWatchKey);
             const nowFlipWatch = !!flags.flip_watch;
-            
+
             if (nowFlipWatch && prevFlipWatch !== "true") {
               // New flip watch - send Discord alert
               const discordEnable = env?.DISCORD_ENABLE || "false";
               const discordWebhook = env?.DISCORD_WEBHOOK_URL;
-              const discordConfigured = discordEnable === "true" && !!discordWebhook;
-              
+              const discordConfigured =
+                discordEnable === "true" && !!discordWebhook;
+
               const nowMs = Date.now();
               const hourBucket = new Date(nowMs).toISOString().slice(0, 13);
               const dedupeKey = `timed:dedupe:flip_watch:${ticker}:${hourBucket}`;
               const already = await KV.get(dedupeKey);
-              
-              if (!already && discordConfigured && shouldSendDiscordAlert(env, "FLIP_WATCH", { ticker })) {
+
+              if (
+                !already &&
+                discordConfigured &&
+                shouldSendDiscordAlert(env, "FLIP_WATCH", { ticker })
+              ) {
                 await KV.put(dedupeKey, "1", { expirationTtl: 60 * 60 * 4 }); // 4 hour dedupe
-                
+
                 const embed = createFlipWatchEmbed(ticker, payload);
                 const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                  console.error(`[FLIP WATCH] Failed to send alert for ${ticker}:`, err);
+                  console.error(
+                    `[FLIP WATCH] Failed to send alert for ${ticker}:`,
+                    err,
+                  );
                   return { ok: false, error: String(err) };
                 });
-                
-                console.log(`[FLIP WATCH] 🎯 Alert sent for ${ticker}, score=${payload.flip_watch_score}`);
+
+                console.log(
+                  `[FLIP WATCH] 🎯 Alert sent for ${ticker}, score=${payload.flip_watch_score}`,
+                );
               }
-              
+
               await appendActivity(KV, {
                 type: "flip_watch",
                 ticker: ticker,
@@ -10784,7 +11181,7 @@ export default {
                 phase_pct: payload.phase_pct,
                 completion: payload.completion,
               });
-              
+
               await kvPutText(KV, prevFlipWatchKey, "true", 7 * 24 * 60 * 60);
             } else if (!nowFlipWatch && prevFlipWatch === "true") {
               await kvPutText(KV, prevFlipWatchKey, "false", 7 * 24 * 60 * 60);
@@ -10834,14 +11231,14 @@ export default {
                 KV,
                 prevMomentumEliteKey,
                 "true",
-                7 * 24 * 60 * 60
+                7 * 24 * 60 * 60,
               );
             } else if (!currentMomentumElite && prevMomentumElite === "true") {
               await kvPutText(
                 KV,
                 prevMomentumEliteKey,
                 "false",
-                7 * 24 * 60 * 60
+                7 * 24 * 60 * 60,
               );
             }
           } catch (activityErr) {
@@ -10851,7 +11248,7 @@ export default {
                 error: String(activityErr),
                 message: activityErr.message,
                 stack: activityErr.stack,
-              }
+              },
             );
             // Don't throw - continue with ingestion even if activity tracking fails
           }
@@ -10892,7 +11289,9 @@ export default {
 
             // If no stored prev close, derive it on day-boundary from the last stored tick
             if (!Number.isFinite(prevClose) && prevLatest) {
-              const prevTs = Number(prevLatest.ts ?? prevLatest.ingest_ts ?? prevLatest.ingest_time);
+              const prevTs = Number(
+                prevLatest.ts ?? prevLatest.ingest_ts ?? prevLatest.ingest_time,
+              );
               const prevDay = nyTradingDayKey(prevTs);
               const prevPrice = Number(prevLatest.price);
               if (
@@ -10904,7 +11303,12 @@ export default {
               ) {
                 prevClose = prevPrice;
                 // Store for up to ~2 weeks
-                await kvPutJSON(KV, prevCloseKey, { day: prevDay, close: prevPrice }, 14 * 24 * 60 * 60);
+                await kvPutJSON(
+                  KV,
+                  prevCloseKey,
+                  { day: prevDay, close: prevPrice },
+                  14 * 24 * 60 * 60,
+                );
               }
             }
 
@@ -10919,12 +11323,15 @@ export default {
               payload.day_change_pct = ((price - prevClose) / prevClose) * 100;
             }
           } catch (e) {
-            console.warn(`[DAILY CHANGE] Failed to compute daily change for ${ticker}:`, String(e?.message || e));
+            console.warn(
+              `[DAILY CHANGE] Failed to compute daily change for ${ticker}:`,
+              String(e?.message || e),
+            );
           }
 
           if (ticker === "ETHT") {
             console.log(
-              `[ETHT DEBUG] Previous data retrieved, about to store latest`
+              `[ETHT DEBUG] Previous data retrieved, about to store latest`,
             );
           }
 
@@ -10949,20 +11356,20 @@ export default {
             await kvPutJSON(
               KV,
               `timed:snapshot:${ticker}:${snapshotVersion}`,
-              payload
+              payload,
             );
             // Also store timestamp of when this version was last seen
             await kvPutText(
               KV,
               `timed:version:${ticker}:${snapshotVersion}:last_seen`,
-              String(payload.ts || Date.now())
+              String(payload.ts || Date.now()),
             );
           }
 
           console.log(
             `[INGEST STORED] ${ticker} - latest data saved at ${new Date(
-              now
-            ).toISOString()}`
+              now,
+            ).toISOString()}`,
           );
 
           // CRITICAL: Ensure ticker is in index IMMEDIATELY after storage
@@ -10981,8 +11388,8 @@ export default {
             const entryPriceForCheck = payload.trigger_price
               ? Number(payload.trigger_price)
               : payload.price
-              ? Number(payload.price)
-              : null;
+                ? Number(payload.price)
+                : null;
 
             if (entryPriceForCheck && entryPriceForCheck > 0) {
               const entryRRForCheck = computeRRAtTrigger(payload);
@@ -10996,7 +11403,7 @@ export default {
                 shouldTriggerTradeSimulation(
                   ticker,
                   payloadWithEntryRR,
-                  prevLatest
+                  prevLatest,
                 )
               ) {
                 await processTradeSimulation(
@@ -11004,18 +11411,18 @@ export default {
                   ticker,
                   payload,
                   prevLatest,
-                  env
+                  env,
                 );
               } else {
                 console.log(
                   `[TRADE SIM] ${ticker}: Pre-check failed - entryRR=${
                     entryRRForCheck?.toFixed(2) || "null"
-                  }, rank=${payload.rank || 0}, state=${payload.state || "N/A"}`
+                  }, rank=${payload.rank || 0}, state=${payload.state || "N/A"}`,
                 );
               }
             } else {
               console.log(
-                `[TRADE SIM] ${ticker}: Skipping - no valid entry price (trigger_price=${payload.trigger_price}, price=${payload.price})`
+                `[TRADE SIM] ${ticker}: Skipping - no valid entry price (trigger_price=${payload.trigger_price}, price=${payload.price})`,
               );
             }
           } catch (tradeSimErr) {
@@ -11025,7 +11432,7 @@ export default {
                 error: String(tradeSimErr),
                 message: tradeSimErr.message,
                 stack: tradeSimErr.stack,
-              }
+              },
             );
             // Don't throw - continue with ingestion even if trade simulation fails
           }
@@ -11060,8 +11467,8 @@ export default {
               currentRR != null
                 ? currentRR
                 : payload.rr != null
-                ? Number(payload.rr)
-                : 0;
+                  ? Number(payload.rr)
+                  : 0;
             const rrOk = rrToUse >= minRR;
             const compOk =
               payload.completion == null
@@ -11123,15 +11530,11 @@ export default {
               completion: payload.completion,
               phaseOk,
               phase: payload.phase_pct,
-              allConditionsMet:
-                enhancedTrigger && rrOk && compOk && phaseOk,
+              allConditionsMet: enhancedTrigger && rrOk && compOk && phaseOk,
             });
 
             // Enhanced logging for alert conditions - log what's blocking alerts
-            if (
-              inCorridor &&
-              !(enhancedTrigger && rrOk && compOk && phaseOk)
-            ) {
+            if (inCorridor && !(enhancedTrigger && rrOk && compOk && phaseOk)) {
               const blockers = [];
               if (!enhancedTrigger) blockers.push("trigger conditions");
               if (!rrOk)
@@ -11140,25 +11543,25 @@ export default {
                     rrToUse?.toFixed(2) || "null"
                   } < ${minRR}, payload.rr=${
                     payload.rr?.toFixed(2) || "null"
-                  }, currentRR=${currentRR?.toFixed(2) || "null"})`
+                  }, currentRR=${currentRR?.toFixed(2) || "null"})`,
                 );
               if (!compOk)
                 blockers.push(
                   `Completion (${
                     payload.completion?.toFixed(2) || "null"
-                  } > ${maxComp})`
+                  } > ${maxComp})`,
                 );
               if (!phaseOk)
                 blockers.push(
                   `Phase (${
                     payload.phase_pct?.toFixed(2) || "null"
-                  } > ${maxPhase})`
+                  } > ${maxPhase})`,
                 );
 
               console.log(
                 `[ALERT BLOCKED] ${ticker}: Alert blocked by: ${blockers.join(
-                  ", "
-                )}`
+                  ", ",
+                )}`,
               );
             }
 
@@ -11178,7 +11581,7 @@ export default {
                   hasWebhook: !!discordWebhook,
                   inCorridor,
                   enteredCorridor,
-                }
+                },
               );
             }
 
@@ -11190,13 +11593,13 @@ export default {
               console.log(
                 `[ALERT SKIPPED] ${ticker}: Trade already open (${
                   openTrade.direction || "UNKNOWN"
-                })`
+                })`,
               );
             } else if (enhancedTrigger && rrOk && compOk && phaseOk) {
               // Smart dedupe: action + direction + UTC minute bucket (prevents duplicates but allows valid re-alerts)
               const action = "ENTRY";
               const alertEventTs = Number(
-                payload.trigger_ts || payload.ts || Date.now()
+                payload.trigger_ts || payload.ts || Date.now(),
               );
               const dedupeInfo = buildAlertDedupeKey({
                 ticker,
@@ -11304,7 +11707,7 @@ export default {
                   (sqRel ? " | ⚡ squeeze release" : "");
 
                 const tv = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
-                  ticker
+                  ticker,
                 )}`;
 
                 // Create Discord embed for trading opportunity
@@ -11373,7 +11776,7 @@ export default {
                 const primaryTP = Number(payload.tp);
                 if (Number.isFinite(primaryTP) && primaryTP > 0) {
                   const exists = tpLevels.some(
-                    (tp) => Math.abs(tp.price - primaryTP) < 0.01
+                    (tp) => Math.abs(tp.price - primaryTP) < 0.01,
                   );
                   if (!exists) {
                     tpLevels.push({
@@ -11392,7 +11795,7 @@ export default {
                 const state = String(payload.state || "");
                 const isLong = state.includes("BULL");
                 tpLevels.sort((a, b) =>
-                  isLong ? a.price - b.price : b.price - a.price
+                  isLong ? a.price - b.price : b.price - a.price,
                 );
 
                 const rrFormatted =
@@ -11422,7 +11825,7 @@ export default {
                     direction: side,
                     rank: payload.rank,
                     rr: rr,
-                  }
+                  },
                 );
 
                 // Build comprehensive fields similar to Trade Entered card
@@ -11463,11 +11866,11 @@ export default {
                 fields.push({
                   name: "💰 Entry Details",
                   value: `**Trigger Price:** $${fmt2(
-                    payload.trigger_price
+                    payload.trigger_price,
                   )}\n**Current Price:** $${fmt2(
-                    payload.price
+                    payload.price,
                   )}\n**Stop Loss:** $${fmt2(
-                    payload.sl
+                    payload.sl,
                   )} (${slDistancePct}% away)`,
                   inline: false,
                 });
@@ -11487,20 +11890,20 @@ export default {
                         tp.type === "STRUCTURE"
                           ? "Structure"
                           : tp.type === "ATR_FIB"
-                          ? tp.multiplier
-                            ? `ATR×${tp.multiplier}`
-                            : "ATR Fib"
-                          : tp.type;
+                            ? tp.multiplier
+                              ? `ATR×${tp.multiplier}`
+                              : "ATR Fib"
+                            : tp.type;
                       const tfLabel =
                         tp.timeframe === "W"
                           ? "Weekly"
                           : tp.timeframe === "D"
-                          ? "Daily"
-                          : tp.timeframe === "240" || tp.timeframe === "4H"
-                          ? "4H"
-                          : tp.timeframe;
+                            ? "Daily"
+                            : tp.timeframe === "240" || tp.timeframe === "4H"
+                              ? "4H"
+                              : tp.timeframe;
                       return `${prefix} $${tp.price.toFixed(
-                        2
+                        2,
                       )} (${distancePct}% away) - ${typeLabel} @ ${tfLabel} (${(
                         tp.confidence * 100
                       ).toFixed(0)}% conf)`;
@@ -11527,7 +11930,7 @@ export default {
                   fields.push({
                     name: "🎯 Take Profit",
                     value: `**Primary TP:** $${fmt2(
-                      primaryTP
+                      primaryTP,
                     )} (${tpDistancePct}% away)${tpWarning}`,
                     inline: false,
                   });
@@ -11542,7 +11945,7 @@ export default {
                 fields.push({
                   name: "📈 Scores & Metrics",
                   value: `**HTF Score:** ${htfScore.toFixed(
-                    2
+                    2,
                   )}\n**LTF Score:** ${ltfScore.toFixed(2)}\n**Completion:** ${(
                     completion * 100
                   ).toFixed(1)}%\n**Phase:** ${(phase * 100).toFixed(1)}%`,
@@ -11623,7 +12026,7 @@ export default {
                     }`;
                     if (divergence.strength) {
                       rsiText += ` (Strength: ${Number(
-                        divergence.strength
+                        divergence.strength,
                       ).toFixed(2)})`;
                     }
                   }
@@ -11645,19 +12048,19 @@ export default {
                   if (payload.daily_ema_cloud) {
                     const daily = payload.daily_ema_cloud;
                     cloudItems.push(
-                      `**Daily (5-8 EMA):** ${daily.position.toUpperCase()}`
+                      `**Daily (5-8 EMA):** ${daily.position.toUpperCase()}`,
                     );
                   }
                   if (payload.fourh_ema_cloud) {
                     const fourH = payload.fourh_ema_cloud;
                     cloudItems.push(
-                      `**4H (8-13 EMA):** ${fourH.position.toUpperCase()}`
+                      `**4H (8-13 EMA):** ${fourH.position.toUpperCase()}`,
                     );
                   }
                   if (payload.oneh_ema_cloud) {
                     const oneH = payload.oneh_ema_cloud;
                     cloudItems.push(
-                      `**1H (13-21 EMA):** ${oneH.position.toUpperCase()}`
+                      `**1H (13-21 EMA):** ${oneH.position.toUpperCase()}`,
                     );
                   }
 
@@ -11670,13 +12073,17 @@ export default {
                   }
                 }
 
-                const allowDiscord = shouldSendDiscordAlert(env, "ALERT_ENTRY", {
-                  ticker,
-                  side,
-                  rank: payload.rank,
-                  rr: rrToUse,
-                  momentumElite,
-                });
+                const allowDiscord = shouldSendDiscordAlert(
+                  env,
+                  "ALERT_ENTRY",
+                  {
+                    ticker,
+                    side,
+                    rank: payload.rank,
+                    rr: rrToUse,
+                    momentumElite,
+                  },
+                );
 
                 const opportunityEmbed = {
                   title: `🎯 Trading Opportunity: ${ticker} ${side}`,
@@ -11691,7 +12098,11 @@ export default {
 
                 const sendRes = allowDiscord
                   ? await notifyDiscord(env, opportunityEmbed)
-                  : { ok: false, skipped: true, reason: "suppressed_critical_only" };
+                  : {
+                      ok: false,
+                      skipped: true,
+                      reason: "suppressed_critical_only",
+                    };
 
                 // Persist alert ledger record to D1 (best-effort)
                 d1UpsertAlert(env, {
@@ -11716,7 +12127,7 @@ export default {
                 }).catch((e) => {
                   console.error(
                     `[D1 LEDGER] Failed to upsert alert ${ticker}:`,
-                    e
+                    e,
                   );
                 });
 
@@ -11750,7 +12161,7 @@ export default {
                     today,
                     dedupe_bucket: dedupeInfo.bucket,
                     action,
-                  }
+                  },
                 );
 
                 // Persist deduped alert decision to D1 (best-effort)
@@ -11816,7 +12227,7 @@ export default {
                 }).catch((e) => {
                   console.error(
                     `[D1 LEDGER] Failed to upsert deduped alert ${ticker}:`,
-                    e
+                    e,
                   );
                 });
               }
@@ -11828,7 +12239,7 @@ export default {
                 reasons.push(
                   `RR ${rrToUse?.toFixed(2) || "null"} < ${minRR} (payload.rr=${
                     payload.rr?.toFixed(2) || "null"
-                  })`
+                  })`,
                 );
               if (!compOk)
                 reasons.push(`Completion ${payload.completion} > ${maxComp}`);
@@ -11887,7 +12298,14 @@ export default {
                   });
 
                   // Send Discord alert (suppressed in critical-only mode)
-                  if (shouldSendDiscordAlert(env, "TD9_ENTRY", { ticker, direction: suggestedDirection, rr: payload.rr, rank: payload.rank })) {
+                  if (
+                    shouldSendDiscordAlert(env, "TD9_ENTRY", {
+                      ticker,
+                      direction: suggestedDirection,
+                      rr: payload.rr,
+                      rank: payload.rank,
+                    })
+                  ) {
                     const td9Embed = createTD9EntryEmbed(
                       ticker,
                       suggestedDirection,
@@ -11897,13 +12315,13 @@ export default {
                       payload.rr,
                       payload.rank,
                       tdSeq,
-                      payload // Pass full payload as tickerData
+                      payload, // Pass full payload as tickerData
                     );
                     await notifyDiscord(env, td9Embed).catch(() => {});
                   }
 
                   console.log(
-                    `[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`
+                    `[TD9 ENTRY ALERT] ${ticker} ${suggestedDirection} - ${signalType} signal`,
                   );
                 }
               }
@@ -11915,7 +12333,7 @@ export default {
                 error: String(alertErr),
                 message: alertErr.message,
                 stack: alertErr.stack,
-              }
+              },
             );
             // Don't throw - continue with ingestion even if alert evaluation fails
           }
@@ -11928,7 +12346,7 @@ export default {
             await kvPutText(
               KV,
               `timed:version:${ticker}:${version}:last_seen`,
-              String(payload.ts || Date.now())
+              String(payload.ts || Date.now()),
             );
           }
 
@@ -11943,7 +12361,7 @@ export default {
               wasNewTicker ? "NEW TICKER ADDED" : "updated existing"
             } - Total tickers in index: ${currentTickers.length} - Version: ${
               payload.script_version || "unknown"
-            }`
+            }`,
           );
 
           // Log all tickers in index if count is low (to debug missing tickers)
@@ -11953,20 +12371,20 @@ export default {
               currentTickers.slice(0, 30).join(", "),
               currentTickers.length > 30
                 ? `... (showing first 30 of ${currentTickers.length})`
-                : ""
+                : "",
             );
           }
 
           // Get final ticker count
           const finalTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
           console.log(
-            `[INGEST SUCCESS] ${ticker} - completed successfully. Total tickers: ${finalTickers.length}`
+            `[INGEST SUCCESS] ${ticker} - completed successfully. Total tickers: ${finalTickers.length}`,
           );
           return ackJSON(
             env,
             { ok: true, ticker, totalTickers: finalTickers.length },
             200,
-            req
+            req,
           );
         } catch (error) {
           // Catch any unexpected errors during ingestion
@@ -11988,7 +12406,7 @@ export default {
               ticker: ticker !== "UNKNOWN" ? ticker : null,
             },
             500,
-            req
+            req,
           );
         }
       }
@@ -12001,7 +12419,7 @@ export default {
           console.log(
             `[CAPTURE INGEST RECEIVED] IP: ${ip}, User-Agent: ${
               req.headers.get("User-Agent") || "none"
-            }`
+            }`,
           );
 
           const authFail = requireKeyOr401(req, env);
@@ -12019,7 +12437,7 @@ export default {
                 parseError: String(err || ""),
               },
               400,
-              req
+              req,
             );
           }
 
@@ -12046,13 +12464,13 @@ export default {
                 KV,
                 `timed:capture:raw:${ticker}`,
                 rawPayload,
-                2 * 24 * 60 * 60
+                2 * 24 * 60 * 60,
               );
             }
           } catch (rawErr) {
             console.error(
               `[CAPTURE RAW] KV store failed for ${ticker}:`,
-              rawErr
+              rawErr,
             );
           }
 
@@ -12060,9 +12478,9 @@ export default {
             (err) => {
               console.error(
                 `[D1 CAPTURE] Receipt insert exception for ${ticker}:`,
-                err
+                err,
               );
-            }
+            },
           );
 
           const now = Date.now();
@@ -12072,14 +12490,20 @@ export default {
           // Compute Momentum Elite for capture payload too (display-only enrichment).
           // This lets the UI show 🚀 + criteria even if the ticker's scoring feed is separate.
           try {
-            payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+            payload.flags =
+              payload.flags && typeof payload.flags === "object"
+                ? payload.flags
+                : {};
             const m = await computeMomentumElite(KV, ticker, payload);
             if (m) {
               payload.flags.momentum_elite = !!m.momentum_elite;
               payload.momentum_elite_criteria = m.criteria;
             }
           } catch (e) {
-            console.error(`[CAPTURE MOMENTUM] Failed for ${ticker}:`, String(e));
+            console.error(
+              `[CAPTURE MOMENTUM] Failed for ${ticker}:`,
+              String(e),
+            );
           }
 
           // Persist context separately so it survives bars where context is omitted.
@@ -12087,10 +12511,18 @@ export default {
           // without this, `timed:capture:latest:*` gets overwritten and context disappears.
           try {
             if (payload.context && typeof payload.context === "object") {
-              await kvPutJSON(KV, `timed:context:${ticker}`, payload.context, 30 * 24 * 60 * 60);
+              await kvPutJSON(
+                KV,
+                `timed:context:${ticker}`,
+                payload.context,
+                30 * 24 * 60 * 60,
+              );
             }
           } catch (e) {
-            console.error(`[CAPTURE CONTEXT] KV store failed for ${ticker}:`, String(e));
+            console.error(
+              `[CAPTURE CONTEXT] KV store failed for ${ticker}:`,
+              String(e),
+            );
           }
 
           await kvPutJSON(KV, `timed:capture:latest:${ticker}`, payload);
@@ -12105,7 +12537,7 @@ export default {
                 change_pct: payload.change_pct,
                 session: payload.session,
                 is_rth: payload.is_rth,
-              })
+              }),
             );
           } catch {
             // ignore
@@ -12155,10 +12587,14 @@ export default {
                   if (mgmt) {
                     const curTriggerTs = Number(payload?.trigger_ts);
                     const curSide = sideFromStateOrScores(payload);
-                    const cycleEnterTs = Number(existing?.kanban_cycle_enter_now_ts);
+                    const cycleEnterTs = Number(
+                      existing?.kanban_cycle_enter_now_ts,
+                    );
                     const cycleTrig = Number(existing?.kanban_cycle_trigger_ts);
                     const cycleSide =
-                      existing?.kanban_cycle_side != null ? String(existing.kanban_cycle_side) : null;
+                      existing?.kanban_cycle_side != null
+                        ? String(existing.kanban_cycle_side)
+                        : null;
                     const sameTrig =
                       Number.isFinite(curTriggerTs) &&
                       curTriggerTs > 0 &&
@@ -12175,11 +12611,17 @@ export default {
 
                     if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
                       finalStage = "watch";
-                      payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                      payload.flags =
+                        payload.flags && typeof payload.flags === "object"
+                          ? payload.flags
+                          : {};
                       payload.flags.forced_watch_missing_trigger = true;
                     } else if (!cycleOk) {
                       finalStage = "enter_now";
-                      payload.flags = payload.flags && typeof payload.flags === "object" ? payload.flags : {};
+                      payload.flags =
+                        payload.flags && typeof payload.flags === "object"
+                          ? payload.flags
+                          : {};
                       payload.flags.forced_enter_now_gate = true;
                     }
                   }
@@ -12190,36 +12632,53 @@ export default {
                     const curSide = sideFromStateOrScores(payload);
                     payload.kanban_cycle_enter_now_ts = tsNow;
                     payload.kanban_cycle_trigger_ts =
-                      Number.isFinite(curTriggerTs) && curTriggerTs > 0 ? curTriggerTs : null;
-                    payload.kanban_cycle_side = curSide != null ? String(curSide) : null;
+                      Number.isFinite(curTriggerTs) && curTriggerTs > 0
+                        ? curTriggerTs
+                        : null;
+                    payload.kanban_cycle_side =
+                      curSide != null ? String(curSide) : null;
                   } else if (
                     finalStage === "hold" ||
                     finalStage === "defend" ||
                     finalStage === "trim" ||
                     finalStage === "exit"
                   ) {
-                    payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts || null;
-                    payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts || null;
-                    payload.kanban_cycle_side = existing?.kanban_cycle_side || null;
+                    payload.kanban_cycle_enter_now_ts =
+                      existing?.kanban_cycle_enter_now_ts || null;
+                    payload.kanban_cycle_trigger_ts =
+                      existing?.kanban_cycle_trigger_ts || null;
+                    payload.kanban_cycle_side =
+                      existing?.kanban_cycle_side || null;
                   } else {
                     payload.kanban_cycle_enter_now_ts = null;
                     payload.kanban_cycle_trigger_ts = null;
                     payload.kanban_cycle_side = null;
                   }
                 } catch (e) {
-                  console.error(`[KANBAN] capture-promote lifecycle gate failed for ${ticker}:`, String(e));
+                  console.error(
+                    `[KANBAN] capture-promote lifecycle gate failed for ${ticker}:`,
+                    String(e),
+                  );
                 }
 
                 payload.kanban_stage = finalStage;
-                if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
+                if (
+                  prevStage != null &&
+                  stage != null &&
+                  String(prevStage) !== String(stage)
+                ) {
                   payload.prev_kanban_stage = String(prevStage);
-                  payload.prev_kanban_stage_ts = Number(payload?.ts) || Date.now();
-                } else if (existing?.prev_kanban_stage != null) {
-                  payload.prev_kanban_stage = String(existing.prev_kanban_stage);
                   payload.prev_kanban_stage_ts =
-                    Number.isFinite(Number(existing?.prev_kanban_stage_ts))
-                      ? Number(existing.prev_kanban_stage_ts)
-                      : null;
+                    Number(payload?.ts) || Date.now();
+                } else if (existing?.prev_kanban_stage != null) {
+                  payload.prev_kanban_stage = String(
+                    existing.prev_kanban_stage,
+                  );
+                  payload.prev_kanban_stage_ts = Number.isFinite(
+                    Number(existing?.prev_kanban_stage_ts),
+                  )
+                    ? Number(existing.prev_kanban_stage_ts)
+                    : null;
                 } else {
                   payload.prev_kanban_stage = null;
                   payload.prev_kanban_stage_ts = null;
@@ -12239,12 +12698,20 @@ export default {
                 if (payload.entry_price) {
                   const entryPrice = Number(payload.entry_price);
                   const currentPrice = Number(payload.price);
-                  if (Number.isFinite(entryPrice) && Number.isFinite(currentPrice) && entryPrice > 0) {
-                    payload.entry_change_pct = ((currentPrice - entryPrice) / entryPrice) * 100;
+                  if (
+                    Number.isFinite(entryPrice) &&
+                    Number.isFinite(currentPrice) &&
+                    entryPrice > 0
+                  ) {
+                    payload.entry_change_pct =
+                      ((currentPrice - entryPrice) / entryPrice) * 100;
                   }
                 }
               } catch (e) {
-                console.error(`[KANBAN] capture-promote stage compute failed for ${ticker}:`, String(e));
+                console.error(
+                  `[KANBAN] capture-promote stage compute failed for ${ticker}:`,
+                  String(e),
+                );
               }
 
               await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
@@ -12272,16 +12739,22 @@ export default {
                   trigger_reason: payload.trigger_reason,
                   trigger_dir: payload.trigger_dir,
                 },
-                20
+                20,
               );
               d1InsertTrailPoint(env, ticker, payload).catch((e) => {
-                console.error(`[D1 CAPTURE→TRAIL] Insert failed for ${ticker}:`, String(e));
+                console.error(
+                  `[D1 CAPTURE→TRAIL] Insert failed for ${ticker}:`,
+                  String(e),
+                );
               });
               await ensureTickerIndex(KV, ticker);
               await kvPutText(KV, "timed:last_ingest_ms", String(now));
             }
           } catch (promoteErr) {
-            console.error(`[CAPTURE PROMOTE] Failed for ${ticker}:`, String(promoteErr));
+            console.error(
+              `[CAPTURE PROMOTE] Failed for ${ticker}:`,
+              String(promoteErr),
+            );
           }
 
           return ackJSON(env, { ok: true, ticker, capture: true }, 200, req);
@@ -12291,7 +12764,7 @@ export default {
             env,
             { ok: false, error: String(err?.message || err) },
             500,
-            req
+            req,
           );
         }
       }
@@ -12305,14 +12778,14 @@ export default {
           ip,
           "/timed/latest",
           1000, // Increased for single-user
-          3600
+          3600,
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -12321,17 +12794,33 @@ export default {
           return sendJSON(
             { ok: false, error: "missing ticker" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         // Prefer D1 for reads (single-row query)
         let data = null;
+        let d1Stage = null;
+        let d1PrevStage = null;
+        let d1UpdatedAt = null;
         try {
           if (env?.DB) {
             await d1EnsureLatestSchema(env);
-            const row = await env.DB
-              .prepare(`SELECT payload_json FROM ticker_latest WHERE ticker = ?1`)
+            const row = await env.DB.prepare(
+              `SELECT payload_json, kanban_stage, prev_kanban_stage, updated_at
+                 FROM ticker_latest
+                 WHERE ticker = ?1`,
+            )
               .bind(String(ticker || "").toUpperCase())
               .first();
+            if (row) {
+              d1Stage =
+                row.kanban_stage != null ? String(row.kanban_stage) : null;
+              d1PrevStage =
+                row.prev_kanban_stage != null
+                  ? String(row.prev_kanban_stage)
+                  : null;
+              d1UpdatedAt = Number(row.updated_at);
+              if (!Number.isFinite(d1UpdatedAt)) d1UpdatedAt = null;
+            }
             if (row && row.payload_json) {
               try {
                 data = JSON.parse(String(row.payload_json));
@@ -12358,6 +12847,19 @@ export default {
         }
         const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
         if (data) {
+          // Ensure prev/current lane fields are present even if payload_json is older.
+          if (data.kanban_stage == null && d1Stage != null)
+            data.kanban_stage = d1Stage;
+          if (data.prev_kanban_stage == null && d1PrevStage != null)
+            data.prev_kanban_stage = d1PrevStage;
+          if (
+            data.prev_kanban_stage != null &&
+            data.prev_kanban_stage_ts == null &&
+            d1UpdatedAt != null
+          ) {
+            // Best-effort: when we only know "prev stage" from columns, approximate timestamp from row update.
+            data.prev_kanban_stage_ts = d1UpdatedAt;
+          }
           // Merge capture-only enrichment fields when present (non-destructive).
           // This helps after-hours analytics + Momentum Elite metadata even if heartbeat is wired to /ingest-capture.
           if (capture && typeof capture === "object") {
@@ -12377,9 +12879,11 @@ export default {
               if (data[k] == null && capture[k] != null) data[k] = capture[k];
             }
             if (capture.flags && typeof capture.flags === "object") {
-              data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+              data.flags =
+                data.flags && typeof data.flags === "object" ? data.flags : {};
               // Override from capture: score payloads don't compute Momentum Elite reliably.
-              if (capture.flags.momentum_elite != null) data.flags.momentum_elite = !!capture.flags.momentum_elite;
+              if (capture.flags.momentum_elite != null)
+                data.flags.momentum_elite = !!capture.flags.momentum_elite;
             }
           }
 
@@ -12396,7 +12900,7 @@ export default {
           } catch (e) {
             console.error(
               `[CONTEXT] /timed/latest capture merge failed for ${ticker}:`,
-              String(e)
+              String(e),
             );
           }
 
@@ -12407,7 +12911,10 @@ export default {
               if (saved && typeof saved === "object") data.context = saved;
             }
           } catch (e) {
-            console.error(`[CONTEXT] /timed/latest persisted context read failed for ${ticker}:`, String(e));
+            console.error(
+              `[CONTEXT] /timed/latest persisted context read failed for ${ticker}:`,
+              String(e),
+            );
           }
 
           // Ensure Momentum Elite reflects the most recent computed status.
@@ -12415,7 +12922,8 @@ export default {
           try {
             const m = await kvGetJSON(KV, `timed:momentum:${ticker}`);
             if (m && typeof m === "object" && m.momentum_elite != null) {
-              data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+              data.flags =
+                data.flags && typeof data.flags === "object" ? data.flags : {};
               data.flags.momentum_elite = !!m.momentum_elite;
               if (data.momentum_elite_criteria == null && m.criteria) {
                 data.momentum_elite_criteria = m.criteria;
@@ -12432,14 +12940,21 @@ export default {
           try {
             if (env?.DB) {
               const asOfTs = Number(data.ts ?? data.ingest_ts ?? Date.now());
-              const rec = await computePrevCloseFromTrail(env.DB, ticker, asOfTs);
+              const rec = await computePrevCloseFromTrail(
+                env.DB,
+                ticker,
+                asOfTs,
+              );
               const price = Number(data.price);
               // Only backfill if daily-change fields are missing. Heartbeat capture is preferred when present.
               if (
                 rec &&
                 Number.isFinite(price) &&
                 price > 0 &&
-                !(Number.isFinite(Number(data.day_change_pct)) && Number.isFinite(Number(data.day_change)))
+                !(
+                  Number.isFinite(Number(data.day_change_pct)) &&
+                  Number.isFinite(Number(data.day_change))
+                )
               ) {
                 data.prev_close = rec.close;
                 data.day_change = price - rec.close;
@@ -12447,7 +12962,10 @@ export default {
               }
             }
           } catch (e) {
-            console.warn(`[DAILY CHANGE] /timed/latest backfill failed for ${ticker}:`, String(e?.message || e));
+            console.warn(
+              `[DAILY CHANGE] /timed/latest backfill failed for ${ticker}:`,
+              String(e?.message || e),
+            );
           }
 
           // Canonicalize daily change: if day_* disagrees with change_* (heartbeat), prefer change_*.
@@ -12457,30 +12975,35 @@ export default {
             const dayChg = Number(data.day_change);
             const altChg = Number(data.change);
             const price = Number(data.price);
-            const hasHeartbeatSession = data.session != null || data.is_rth != null;
+            const hasHeartbeatSession =
+              data.session != null || data.is_rth != null;
             // If heartbeat fields are present, treat change/change_pct as authoritative watchlist daily change.
             if (hasHeartbeatSession && Number.isFinite(altPct)) {
               data.day_change_pct = altPct;
               if (Number.isFinite(altChg)) data.day_change = altChg;
-              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg))
+                data.prev_close = price - altChg;
             }
             const disagree =
               Number.isFinite(dayPct) &&
               Number.isFinite(altPct) &&
-              (((dayPct >= 0) !== (altPct >= 0)) || Math.abs(dayPct - altPct) >= 1.5);
+              (dayPct >= 0 !== altPct >= 0 || Math.abs(dayPct - altPct) >= 1.5);
             const absurd = Number.isFinite(dayPct) && Math.abs(dayPct) > 5;
             const saneAlt = Number.isFinite(altPct) && Math.abs(altPct) <= 5;
             if ((disagree || (absurd && saneAlt)) && Number.isFinite(altPct)) {
               data.day_change_pct = altPct;
               if (Number.isFinite(altChg)) data.day_change = altChg;
-              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg))
+                data.prev_close = price - altChg;
             } else if (!Number.isFinite(dayPct) && Number.isFinite(altPct)) {
               data.day_change_pct = altPct;
               if (Number.isFinite(altChg)) data.day_change = altChg;
-              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg))
+                data.prev_close = price - altChg;
             } else if (!Number.isFinite(dayChg) && Number.isFinite(altChg)) {
               data.day_change = altChg;
-              if (Number.isFinite(price) && Number.isFinite(altChg)) data.prev_close = price - altChg;
+              if (Number.isFinite(price) && Number.isFinite(altChg))
+                data.prev_close = price - altChg;
             }
           } catch {
             // ignore
@@ -12501,7 +13024,7 @@ export default {
           } catch (e) {
             console.error(
               `[DERIVED METRICS] /timed/latest failed for ${ticker}:`,
-              String(e)
+              String(e),
             );
           }
           // Back-compat: compute entry decision if missing
@@ -12512,7 +13035,7 @@ export default {
           } catch (e) {
             console.error(
               `[ENTRY DECISION] /timed/latest failed for ${ticker}:`,
-              String(e)
+              String(e),
             );
           }
 
@@ -12528,15 +13051,23 @@ export default {
               const trail =
                 (await kvGetJSON(KV, `timed:trail:${ticker}`)) || null;
               if (trail && Array.isArray(trail) && trail.length >= 2) {
-                const computed = computeLiveThesisFeaturesFromTrail(trail, data);
+                const computed = computeLiveThesisFeaturesFromTrail(
+                  trail,
+                  data,
+                );
                 if (computed && typeof computed === "object") {
                   data.seq = computed.seq;
                   data.deltas = computed.deltas;
                   data.flags =
-                    data.flags && typeof data.flags === "object" ? data.flags : {};
-                  data.flags.htf_improving_4h = !!computed.flags?.htf_improving_4h;
-                  data.flags.htf_improving_1d = !!computed.flags?.htf_improving_1d;
-                  data.flags.htf_move_4h_ge_5 = !!computed.flags?.htf_move_4h_ge_5;
+                    data.flags && typeof data.flags === "object"
+                      ? data.flags
+                      : {};
+                  data.flags.htf_improving_4h =
+                    !!computed.flags?.htf_improving_4h;
+                  data.flags.htf_improving_1d =
+                    !!computed.flags?.htf_improving_1d;
+                  data.flags.htf_move_4h_ge_5 =
+                    !!computed.flags?.htf_move_4h_ge_5;
                   data.flags.thesis_match = !!computed.flags?.thesis_match;
 
                   // Persist backfill so future reads don’t need to recompute.
@@ -12547,7 +13078,7 @@ export default {
           } catch (e) {
             console.error(
               `[THESIS FEATURES] /timed/latest failed for ${ticker}:`,
-              String(e)
+              String(e),
             );
           }
 
@@ -12566,13 +13097,16 @@ export default {
             if (!data.move_status) {
               data.move_status = computeMoveStatus(data);
             }
-            data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
-            data.flags.move_invalidated = data.move_status?.status === "INVALIDATED";
-            data.flags.move_completed = data.move_status?.status === "COMPLETED";
+            data.flags =
+              data.flags && typeof data.flags === "object" ? data.flags : {};
+            data.flags.move_invalidated =
+              data.move_status?.status === "INVALIDATED";
+            data.flags.move_completed =
+              data.move_status?.status === "COMPLETED";
           } catch (e) {
             console.error(
               `[ENRICH] /timed/latest failed for ${ticker}:`,
-              String(e?.message || e)
+              String(e?.message || e),
             );
           }
 
@@ -12590,7 +13124,7 @@ export default {
           } catch (e) {
             console.error(
               `[CORR] /timed/latest failed for ${ticker}:`,
-              String(e)
+              String(e),
             );
           }
 
@@ -12607,19 +13141,27 @@ export default {
             // ignore
           }
           try {
-            data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
-            data.flags.move_invalidated = data.move_status?.status === "INVALIDATED";
-            data.flags.move_completed = data.move_status?.status === "COMPLETED";
+            data.flags =
+              data.flags && typeof data.flags === "object" ? data.flags : {};
+            data.flags.move_invalidated =
+              data.move_status?.status === "INVALIDATED";
+            data.flags.move_completed =
+              data.move_status?.status === "COMPLETED";
           } catch {
             // ignore
           }
           try {
-            const prevStage = data?.kanban_stage != null ? String(data.kanban_stage) : null;
+            const prevStage =
+              data?.kanban_stage != null ? String(data.kanban_stage) : null;
             const stage = classifyKanbanStage(data);
             data.kanban_stage = stage;
             data.kanban_meta = deriveKanbanMeta(data, stage);
             // Track lane transitions even on read-time recompute (so UI can show prev lane + highlight).
-            if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
+            if (
+              prevStage != null &&
+              stage != null &&
+              String(prevStage) !== String(stage)
+            ) {
               data.prev_kanban_stage = String(prevStage);
               data.prev_kanban_stage_ts = Date.now();
               try {
@@ -12636,13 +13178,13 @@ export default {
           return sendJSON(
             { ok: true, ticker, latestData: data, data },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
         return sendJSON(
           { ok: false, error: "ticker_not_found", ticker },
           404,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -12655,14 +13197,14 @@ export default {
           ip,
           "/timed/tickers",
           20000, // Increased: UI polling + multiple tabs
-          3600
+          3600,
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -12671,11 +13213,13 @@ export default {
         try {
           if (env?.DB) {
             await d1EnsureLatestSchema(env);
-            const rows = await env.DB
-              .prepare(`SELECT ticker FROM ticker_index ORDER BY ticker ASC`)
-              .all();
+            const rows = await env.DB.prepare(
+              `SELECT ticker FROM ticker_index ORDER BY ticker ASC`,
+            ).all();
             const list = rows?.results || [];
-            tickers = list.map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+            tickers = list
+              .map((r) => String(r.ticker || "").toUpperCase())
+              .filter(Boolean);
           }
         } catch (e) {
           console.error(`[D1 LATEST] /timed/tickers read failed:`, String(e));
@@ -12698,7 +13242,7 @@ export default {
         return sendJSON(
           { ok: true, tickers, count: tickers.length },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -12711,14 +13255,14 @@ export default {
           ip,
           "/timed/all",
           20000,
-          3600
+          3600,
         ); // Increased for single-user
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
         // Read from D1 (single query) for UI performance
@@ -12727,14 +13271,14 @@ export default {
             return sendJSON(
               { ok: false, error: "no_db_binding" },
               500,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
           await d1EnsureLatestSchema(env);
-          const rows = await env.DB
-            .prepare(`SELECT ticker, payload_json, updated_at FROM ticker_latest`)
-            .all();
+          const rows = await env.DB.prepare(
+            `SELECT ticker, payload_json, updated_at, kanban_stage, prev_kanban_stage FROM ticker_latest`,
+          ).all();
 
           const results = rows?.results || [];
           const data = {};
@@ -12743,11 +13287,24 @@ export default {
           for (const r of results) {
             const sym = String(r?.ticker || "").toUpperCase();
             if (!sym) continue;
-            if (Number(r?.updated_at) > maxUpdatedAt) maxUpdatedAt = Number(r.updated_at);
+            if (Number(r?.updated_at) > maxUpdatedAt)
+              maxUpdatedAt = Number(r.updated_at);
             const raw = r?.payload_json;
             if (!raw) continue;
             try {
               const obj = JSON.parse(String(raw));
+              // Ensure lane fields are present even if payload_json is older than the D1 columns.
+              if (obj.kanban_stage == null && r?.kanban_stage != null)
+                obj.kanban_stage = String(r.kanban_stage);
+              if (obj.prev_kanban_stage == null && r?.prev_kanban_stage != null)
+                obj.prev_kanban_stage = String(r.prev_kanban_stage);
+              if (
+                obj.prev_kanban_stage != null &&
+                obj.prev_kanban_stage_ts == null &&
+                Number.isFinite(Number(r?.updated_at))
+              ) {
+                obj.prev_kanban_stage_ts = Number(r.updated_at);
+              }
               // Canonicalize daily change fields: prefer heartbeat capture semantics (change/change_pct)
               // when stored day_change_pct is poisoned by a bad prev_close anchor.
               try {
@@ -12755,27 +13312,38 @@ export default {
                 const altPct = Number(obj.change_pct);
                 const altChg = Number(obj.change);
                 const price = Number(obj.price);
-                const hasHeartbeatSession = obj.session != null || obj.is_rth != null;
+                const hasHeartbeatSession =
+                  obj.session != null || obj.is_rth != null;
                 if (hasHeartbeatSession && Number.isFinite(altPct)) {
                   obj.day_change_pct = altPct;
                   if (Number.isFinite(altChg)) obj.day_change = altChg;
-                  if (Number.isFinite(price) && Number.isFinite(altChg)) obj.prev_close = price - altChg;
+                  if (Number.isFinite(price) && Number.isFinite(altChg))
+                    obj.prev_close = price - altChg;
                 }
                 const disagree =
                   Number.isFinite(dayPct) &&
                   Number.isFinite(altPct) &&
-                  (((dayPct >= 0) !== (altPct >= 0)) ||
+                  (dayPct >= 0 !== altPct >= 0 ||
                     Math.abs(dayPct - altPct) >= 1.5);
                 const absurd = Number.isFinite(dayPct) && Math.abs(dayPct) > 5;
-                const saneAlt = Number.isFinite(altPct) && Math.abs(altPct) <= 5;
-                if ((disagree || (absurd && saneAlt)) && Number.isFinite(altPct)) {
+                const saneAlt =
+                  Number.isFinite(altPct) && Math.abs(altPct) <= 5;
+                if (
+                  (disagree || (absurd && saneAlt)) &&
+                  Number.isFinite(altPct)
+                ) {
                   obj.day_change_pct = altPct;
                   if (Number.isFinite(altChg)) obj.day_change = altChg;
-                  if (Number.isFinite(price) && Number.isFinite(altChg)) obj.prev_close = price - altChg;
-                } else if (!Number.isFinite(dayPct) && Number.isFinite(altPct)) {
+                  if (Number.isFinite(price) && Number.isFinite(altChg))
+                    obj.prev_close = price - altChg;
+                } else if (
+                  !Number.isFinite(dayPct) &&
+                  Number.isFinite(altPct)
+                ) {
                   obj.day_change_pct = altPct;
                   if (Number.isFinite(altChg)) obj.day_change = altChg;
-                  if (Number.isFinite(price) && Number.isFinite(altChg)) obj.prev_close = price - altChg;
+                  if (Number.isFinite(price) && Number.isFinite(altChg))
+                    obj.prev_close = price - altChg;
                 }
               } catch {
                 // ignore
@@ -12793,19 +13361,27 @@ export default {
                 // ignore
               }
               try {
-                obj.flags = obj.flags && typeof obj.flags === "object" ? obj.flags : {};
-                obj.flags.move_invalidated = obj.move_status?.status === "INVALIDATED";
-                obj.flags.move_completed = obj.move_status?.status === "COMPLETED";
+                obj.flags =
+                  obj.flags && typeof obj.flags === "object" ? obj.flags : {};
+                obj.flags.move_invalidated =
+                  obj.move_status?.status === "INVALIDATED";
+                obj.flags.move_completed =
+                  obj.move_status?.status === "COMPLETED";
               } catch {
                 // ignore
               }
               try {
-                const prevStage = obj?.kanban_stage != null ? String(obj.kanban_stage) : null;
+                const prevStage =
+                  obj?.kanban_stage != null ? String(obj.kanban_stage) : null;
                 const stage = classifyKanbanStage(obj);
                 obj.kanban_stage = stage;
                 obj.kanban_meta = deriveKanbanMeta(obj, stage);
                 // Track lane transitions even if no new ingests (persist back into D1 so UI can highlight).
-                if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
+                if (
+                  prevStage != null &&
+                  stage != null &&
+                  String(prevStage) !== String(stage)
+                ) {
                   obj.prev_kanban_stage = String(prevStage);
                   obj.prev_kanban_stage_ts = Date.now();
                   try {
@@ -12850,14 +13426,18 @@ export default {
               d1_max_updated_at: maxUpdatedAt || null,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (e) {
           console.error(`[D1 LATEST] /timed/all failed:`, String(e));
           return sendJSON(
-            { ok: false, error: "d1_all_failed", message: String(e?.message || e) },
+            {
+              ok: false,
+              error: "d1_all_failed",
+              message: String(e?.message || e),
+            },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -13324,13 +13904,13 @@ export default {
             ip,
             "/timed/trail",
             20000, // Higher limit: UI may fetch many tickers' trails
-            3600
+            3600,
           );
 
           if (!rateLimit.allowed) {
             const retryAfter = Math.max(
               1,
-              Math.ceil((rateLimit.resetAt - Date.now()) / 1000)
+              Math.ceil((rateLimit.resetAt - Date.now()) / 1000),
             );
             return sendJSON(
               { ok: false, error: "rate_limit_exceeded", retryAfter },
@@ -13341,7 +13921,7 @@ export default {
                 "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
                 "X-RateLimit-Remaining": "0",
                 "X-RateLimit-Reset": String(rateLimit.resetAt),
-              }
+              },
             );
           }
 
@@ -13350,7 +13930,7 @@ export default {
             return sendJSON(
               { ok: false, error: "missing ticker" },
               400,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
@@ -13402,7 +13982,7 @@ export default {
                   "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
                   "X-RateLimit-Remaining": String(rateLimit.remaining ?? 0),
                   "X-RateLimit-Reset": String(rateLimit.resetAt ?? Date.now()),
-                }
+                },
               );
             }
           }
@@ -13422,10 +14002,10 @@ export default {
                   ? `D1 returned sparse rows (${d1Trail.length}) — using KV recent window`
                   : "D1 returned 0 rows (falling back to KV)"
                 : d1Result.skipped
-                ? `D1 unavailable (${d1Result.reason || "unknown"})`
-                : d1Result.error
-                ? `D1 error (${d1Result.error})`
-                : "D1 unavailable",
+                  ? `D1 unavailable (${d1Result.reason || "unknown"})`
+                  : d1Result.error
+                    ? `D1 error (${d1Result.error})`
+                    : "D1 unavailable",
             },
             200,
             {
@@ -13433,7 +14013,7 @@ export default {
               "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
               "X-RateLimit-Remaining": String(rateLimit.remaining ?? 0),
               "X-RateLimit-Reset": String(rateLimit.resetAt ?? Date.now()),
-            }
+            },
           );
         } catch (error) {
           console.error(`[TRAIL] Unexpected error:`, error);
@@ -13443,7 +14023,7 @@ export default {
           return sendJSON(
             { ok: true, ticker, trail: [], count: 0, source: "error" },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -13452,10 +14032,10 @@ export default {
       if (url.pathname === "/timed/top" && req.method === "GET") {
         const n = Math.max(
           1,
-          Math.min(50, Number(url.searchParams.get("n") || "10"))
+          Math.min(50, Number(url.searchParams.get("n") || "10")),
         );
         const bucket = String(
-          url.searchParams.get("bucket") || "long"
+          url.searchParams.get("bucket") || "long",
         ).toLowerCase();
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
 
@@ -13477,8 +14057,8 @@ export default {
           bucket === "long"
             ? items.filter(isLongAligned)
             : bucket === "short"
-            ? items.filter(isShortAligned)
-            : items.filter(isSetup);
+              ? items.filter(isShortAligned)
+              : items.filter(isSetup);
 
         filtered.sort((a, b) => Number(b.rank || 0) - Number(a.rank || 0));
         filtered = filtered.slice(0, n);
@@ -13486,7 +14066,7 @@ export default {
         return sendJSON(
           { ok: true, bucket, n: filtered.length, data: filtered },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -13499,14 +14079,14 @@ export default {
           ip,
           "/timed/momentum",
           1000, // Increased for single-user
-          3600
+          3600,
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -13515,17 +14095,27 @@ export default {
           return sendJSON(
             { ok: false, error: "missing ticker" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         let data = await kvGetJSON(KV, `timed:momentum:${ticker}`);
         if (!data) {
           // On-demand compute using latest + capture enrichment (avoids waiting for next cache fill).
           try {
             const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
-            const base = latest && typeof latest === "object" ? { ...latest } : {};
+            const capture = await kvGetJSON(
+              KV,
+              `timed:capture:latest:${ticker}`,
+            );
+            const base =
+              latest && typeof latest === "object" ? { ...latest } : {};
             if (capture && typeof capture === "object") {
-              for (const k of ["avg_vol_30", "avg_vol_50", "adr_14", "momentum_pct", "price"]) {
+              for (const k of [
+                "avg_vol_30",
+                "avg_vol_50",
+                "adr_14",
+                "momentum_pct",
+                "price",
+              ]) {
                 if (base[k] == null && capture[k] != null) base[k] = capture[k];
               }
             }
@@ -13548,14 +14138,14 @@ export default {
           ip,
           "/timed/momentum/history",
           1000, // Increased for single-user
-          3600
+          3600,
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -13564,14 +14154,14 @@ export default {
           return sendJSON(
             { ok: false, error: "missing ticker" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         const history =
           (await kvGetJSON(KV, `timed:momentum:history:${ticker}`)) || [];
         return sendJSON(
           { ok: true, ticker, history },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -13584,14 +14174,14 @@ export default {
           ip,
           "/timed/momentum/all",
           1000, // Increased for single-user
-          3600
+          3600,
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -13606,7 +14196,7 @@ export default {
         return sendJSON(
           { ok: true, count: eliteTickers.length, tickers: eliteTickers },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -13633,14 +14223,14 @@ export default {
         const sector = decodeURIComponent(sectorPath);
         const limit = Math.max(
           1,
-          Math.min(50, Number(url.searchParams.get("limit") || "10"))
+          Math.min(50, Number(url.searchParams.get("limit") || "10")),
         );
 
         if (!getAllSectors().includes(sector)) {
           return sendJSON(
             { ok: false, error: `Invalid sector: ${sector}` },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -13655,7 +14245,7 @@ export default {
             tickers: topTickers,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -13666,15 +14256,15 @@ export default {
       ) {
         const limitPerSector = Math.max(
           1,
-          Math.min(20, Number(url.searchParams.get("limit") || "10"))
+          Math.min(20, Number(url.searchParams.get("limit") || "10")),
         );
         const totalLimit = Math.max(
           1,
-          Math.min(100, Number(url.searchParams.get("totalLimit") || "50"))
+          Math.min(100, Number(url.searchParams.get("totalLimit") || "50")),
         );
 
         const overweightSectors = getAllSectors().filter(
-          (sector) => getSectorRating(sector).rating === "overweight"
+          (sector) => getSectorRating(sector).rating === "overweight",
         );
 
         const allRecommendations = [];
@@ -13683,13 +14273,13 @@ export default {
           const topTickers = await rankTickersInSector(
             KV,
             sector,
-            limitPerSector
+            limitPerSector,
           );
           allRecommendations.push(
             ...topTickers.map((t) => ({
               ...t,
               sector,
-            }))
+            })),
           );
         }
 
@@ -13706,7 +14296,7 @@ export default {
             recommendations: topRecommendations,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -13726,7 +14316,7 @@ export default {
             return sendJSON(
               { ok: false, error: "No BRK data found" },
               404,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
@@ -13775,7 +14365,7 @@ export default {
               ltf_score: dataToUse?.ltf_score,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           console.error(`[MIGRATE BRK ERROR]`, {
@@ -13786,7 +14376,7 @@ export default {
           return sendJSON(
             { ok: false, error: "internal_error", message: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -13861,13 +14451,13 @@ export default {
               removedCount: removed.length,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -13886,7 +14476,7 @@ export default {
             return sendJSON(
               { ok: false, error: "ticker parameter required" },
               400,
-              cors
+              cors,
             );
           }
 
@@ -13904,7 +14494,7 @@ export default {
                 inIndex: alreadyInIndex,
               },
               404,
-              cors
+              cors,
             );
           }
 
@@ -13927,7 +14517,7 @@ export default {
                 indexSize: updatedIndex.length,
               },
               200,
-              cors
+              cors,
             );
           } else {
             return sendJSON(
@@ -13940,7 +14530,7 @@ export default {
                 indexSize: inIndex.length,
               },
               200,
-              cors
+              cors,
             );
           }
         } catch (err) {
@@ -13961,7 +14551,7 @@ export default {
             return sendJSON(
               { ok: false, error: "tickers array required" },
               400,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
@@ -13996,13 +14586,13 @@ export default {
               totalTickers: currentTickers.length,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -14020,7 +14610,7 @@ export default {
         const seen = new Set();
         const uniqueEvents = allEvents.filter((e) => {
           const key = `${e.ticker}-${e.type}-${Math.floor(
-            e.ts / (60 * 60 * 1000)
+            e.ts / (60 * 60 * 1000),
           )}`; // Group by hour
           if (seen.has(key)) return false;
           seen.add(key);
@@ -14032,7 +14622,7 @@ export default {
 
         const limit = Math.min(
           100,
-          Number(url.searchParams.get("limit") || "100")
+          Number(url.searchParams.get("limit") || "100"),
         );
         const filtered = uniqueEvents.slice(0, limit);
 
@@ -14043,7 +14633,7 @@ export default {
             events: filtered,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14054,7 +14644,7 @@ export default {
           return sendJSON(
             { ok: false, error: "ticker parameter required" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -14065,12 +14655,19 @@ export default {
         const trail = await kvGetJSON(KV, `timed:trail:${tickerUpper}`);
 
         // Capture-only channel (some TV alerts may be wired to /timed/ingest-capture)
-        const captureTickers = (await kvGetJSON(KV, "timed:capture:tickers")) || [];
+        const captureTickers =
+          (await kvGetJSON(KV, "timed:capture:tickers")) || [];
         const inCaptureIndex = Array.isArray(captureTickers)
           ? captureTickers.includes(tickerUpper)
           : false;
-        const captureLatest = await kvGetJSON(KV, `timed:capture:latest:${tickerUpper}`);
-        const captureTrail = await kvGetJSON(KV, `timed:capture:trail:${tickerUpper}`);
+        const captureLatest = await kvGetJSON(
+          KV,
+          `timed:capture:latest:${tickerUpper}`,
+        );
+        const captureTrail = await kvGetJSON(
+          KV,
+          `timed:capture:trail:${tickerUpper}`,
+        );
 
         // Raw payload breadcrumbs (last seen) to identify which endpoint is receiving data.
         // NOTE: truncated for safety/size.
@@ -14078,15 +14675,21 @@ export default {
         const captureRawKey = `timed:capture:raw:${tickerUpper}`;
         const ingestRaw = await KV.get(ingestRawKey);
         const captureRaw = await KV.get(captureRawKey);
-        const ingestRawSample = ingestRaw ? String(ingestRaw).slice(0, 500) : null;
-        const captureRawSample = captureRaw ? String(captureRaw).slice(0, 500) : null;
+        const ingestRawSample = ingestRaw
+          ? String(ingestRaw).slice(0, 500)
+          : null;
+        const captureRawSample = captureRaw
+          ? String(captureRaw).slice(0, 500)
+          : null;
 
-        const latestTs = latest?.ingest_ts ?? latest?.ingest_time ?? latest?.ts ?? null;
-        const captureTs = captureLatest?.ingest_ts ?? captureLatest?.ingest_time ?? captureLatest?.ts ?? null;
-        const likelyCaptureOnly =
-          !!captureLatest &&
-          !latest &&
-          inCaptureIndex;
+        const latestTs =
+          latest?.ingest_ts ?? latest?.ingest_time ?? latest?.ts ?? null;
+        const captureTs =
+          captureLatest?.ingest_ts ??
+          captureLatest?.ingest_time ??
+          captureLatest?.ts ??
+          null;
+        const likelyCaptureOnly = !!captureLatest && !latest && inCaptureIndex;
 
         return sendJSON(
           {
@@ -14115,7 +14718,7 @@ export default {
             },
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14132,13 +14735,13 @@ export default {
               missing: result.missing || [],
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: String(err?.message || err) },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -14151,25 +14754,35 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const now = Date.now();
         const since = numParam(url, "since", now - 6 * 60 * 60 * 1000);
         const until = numParam(url, "until", now);
-        const bucketMin = Math.max(1, Math.floor(numParam(url, "bucketMin", 5)));
+        const bucketMin = Math.max(
+          1,
+          Math.floor(numParam(url, "bucketMin", 5)),
+        );
         const bucketMs = bucketMin * 60 * 1000;
-        const threshold = Math.max(0, Math.min(1, numParam(url, "threshold", 0.9)));
+        const threshold = Math.max(
+          0,
+          Math.min(1, numParam(url, "threshold", 0.9)),
+        );
         const basis = String(url.searchParams.get("basis") || "payload")
           .trim()
           .toLowerCase(); // payload|received
 
-        if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) {
+        if (
+          !Number.isFinite(since) ||
+          !Number.isFinite(until) ||
+          until <= since
+        ) {
           return sendJSON(
             { ok: false, error: "invalid_since_until" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -14179,14 +14792,16 @@ export default {
         const bucketStart = Math.floor(since / bucketMs) * bucketMs;
         const bucketEnd = Math.floor(until / bucketMs) * bucketMs;
         const bucketCount =
-          bucketEnd >= bucketStart ? Math.floor((bucketEnd - bucketStart) / bucketMs) + 1 : 0;
+          bucketEnd >= bucketStart
+            ? Math.floor((bucketEnd - bucketStart) / bucketMs) + 1
+            : 0;
         const expectedPairs = watchlistCount * bucketCount;
 
         const receiptsTotalRow = await db
           .prepare(
             `SELECT COUNT(*) AS n
              FROM ingest_receipts
-             WHERE received_ts >= ?1 AND received_ts <= ?2`
+             WHERE received_ts >= ?1 AND received_ts <= ?2`,
           )
           .bind(since, until)
           .first();
@@ -14199,72 +14814,103 @@ export default {
                  WHERE received_ts >= ?2 AND received_ts <= ?3`
               : `SELECT COUNT(DISTINCT ticker || ':' || (CAST(ts / ?1 AS INTEGER) * ?1)) AS n
                  FROM ingest_receipts
-                 WHERE received_ts >= ?2 AND received_ts <= ?3`
+                 WHERE received_ts >= ?2 AND received_ts <= ?3`,
           )
           .bind(bucketMs, since, until)
           .first();
 
         const receiptsTotal = Number(receiptsTotalRow?.n) || 0;
         const distinctPairs = Number(distinctPairsRow?.n) || 0;
-        const coverage = expectedPairs > 0 ? distinctPairs / expectedPairs : null;
+        const coverage =
+          expectedPairs > 0 ? distinctPairs / expectedPairs : null;
 
         return sendJSON(
           {
             ok: true,
-            window: { since, until, bucketMin, bucketMs, bucketStart, bucketEnd, bucketCount },
+            window: {
+              since,
+              until,
+              bucketMin,
+              bucketMs,
+              bucketStart,
+              bucketEnd,
+              bucketCount,
+            },
             basis,
             watchlistCount,
             expectedPairs,
             receiptsTotal,
             distinctPairs,
-            coveragePct: coverage == null ? null : Math.round(coverage * 10000) / 100,
+            coveragePct:
+              coverage == null ? null : Math.round(coverage * 10000) / 100,
             meetsThreshold: coverage == null ? null : coverage >= threshold,
             thresholdPct: Math.round(threshold * 10000) / 100,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
       // GET /timed/watchlist/coverage?since&until&bucketMin&threshold
       // Per-ticker coverage across expected buckets (uses ingest_receipts)
-      if (url.pathname === "/timed/watchlist/coverage" && req.method === "GET") {
+      if (
+        url.pathname === "/timed/watchlist/coverage" &&
+        req.method === "GET"
+      ) {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const now = Date.now();
         const since = numParam(url, "since", now - 6 * 60 * 60 * 1000);
         const until = numParam(url, "until", now);
-        const bucketMin = Math.max(1, Math.floor(numParam(url, "bucketMin", 5)));
+        const bucketMin = Math.max(
+          1,
+          Math.floor(numParam(url, "bucketMin", 5)),
+        );
         const bucketMs = bucketMin * 60 * 1000;
-        const threshold = Math.max(0, Math.min(1, numParam(url, "threshold", 0.9)));
+        const threshold = Math.max(
+          0,
+          Math.min(1, numParam(url, "threshold", 0.9)),
+        );
         const basis = String(url.searchParams.get("basis") || "payload")
           .trim()
           .toLowerCase(); // payload|received
 
-        if (!Number.isFinite(since) || !Number.isFinite(until) || until <= since) {
+        if (
+          !Number.isFinite(since) ||
+          !Number.isFinite(until) ||
+          until <= since
+        ) {
           return sendJSON(
             { ok: false, error: "invalid_since_until" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const list = Array.isArray(tickers)
-          ? tickers.map((t) => String(t || "").trim().toUpperCase()).filter(Boolean)
+          ? tickers
+              .map((t) =>
+                String(t || "")
+                  .trim()
+                  .toUpperCase(),
+              )
+              .filter(Boolean)
           : [];
 
         const bucketStart = Math.floor(since / bucketMs) * bucketMs;
         const bucketEnd = Math.floor(until / bucketMs) * bucketMs;
         const bucketCount =
-          bucketEnd >= bucketStart ? Math.floor((bucketEnd - bucketStart) / bucketMs) + 1 : 0;
+          bucketEnd >= bucketStart
+            ? Math.floor((bucketEnd - bucketStart) / bucketMs) + 1
+            : 0;
 
         const rows = await db
           .prepare(
@@ -14280,7 +14926,7 @@ export default {
                   COUNT(DISTINCT (CAST(ts / ?1 AS INTEGER) * ?1)) AS seen_buckets
                  FROM ingest_receipts
                  WHERE received_ts >= ?2 AND received_ts <= ?3
-                 GROUP BY ticker`
+                 GROUP BY ticker`,
           )
           .bind(bucketMs, since, until)
           .all();
@@ -14305,8 +14951,12 @@ export default {
         });
 
         const tickersTotal = perTicker.length;
-        const tickersAny = perTicker.filter((t) => (t.seenBuckets || 0) > 0).length;
-        const tickersMeet = perTicker.filter((t) => t.meetsThreshold === true).length;
+        const tickersAny = perTicker.filter(
+          (t) => (t.seenBuckets || 0) > 0,
+        ).length;
+        const tickersMeet = perTicker.filter(
+          (t) => t.meetsThreshold === true,
+        ).length;
 
         // Sort “worst first” to make it easy to spot dropouts
         perTicker.sort((a, b) => (a.coveragePct ?? 0) - (b.coveragePct ?? 0));
@@ -14314,20 +14964,34 @@ export default {
         return sendJSON(
           {
             ok: true,
-            window: { since, until, bucketMin, bucketMs, bucketStart, bucketEnd, bucketCount },
+            window: {
+              since,
+              until,
+              bucketMin,
+              bucketMs,
+              bucketStart,
+              bucketEnd,
+              bucketCount,
+            },
             basis,
             thresholdPct: Math.round(threshold * 10000) / 100,
             summary: {
               tickersTotal,
               tickersAny,
-              pctTickersAny: tickersTotal > 0 ? Math.round((tickersAny / tickersTotal) * 10000) / 100 : null,
+              pctTickersAny:
+                tickersTotal > 0
+                  ? Math.round((tickersAny / tickersTotal) * 10000) / 100
+                  : null,
               tickersMeet,
-              pctTickersMeet: tickersTotal > 0 ? Math.round((tickersMeet / tickersTotal) * 10000) / 100 : null,
+              pctTickersMeet:
+                tickersTotal > 0
+                  ? Math.round((tickersMeet / tickersTotal) * 10000) / 100
+                  : null,
             },
             worst: perTicker.slice(0, 25),
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14338,7 +15002,7 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -14367,7 +15031,7 @@ export default {
           return sendJSON(
             { ok: false, error: "invalid_since_until" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -14390,14 +15054,14 @@ export default {
              WHERE ts >= ?2 AND ts <= ?3
              ${scriptVersion ? "AND script_version = ?4" : ""}
              ${tickerParam ? `AND ticker = ?${scriptVersion ? 5 : 4}` : ""}
-             GROUP BY ticker, bucket`
+             GROUP BY ticker, bucket`,
           )
           .bind(
             bucketMs,
             since,
             until,
             ...(scriptVersion ? [scriptVersion] : []),
-            ...(tickerParam ? [tickerParam] : [])
+            ...(tickerParam ? [tickerParam] : []),
           )
           .all();
 
@@ -14410,7 +15074,7 @@ export default {
              FROM timed_trail
              WHERE ts >= ?2 AND ts <= ?3
              ${tickerParam ? "AND ticker = ?4" : ""}
-             GROUP BY ticker, bucket`
+             GROUP BY ticker, bucket`,
           )
           .bind(bucketMs, since, until, ...(tickerParam ? [tickerParam] : []))
           .all();
@@ -14455,10 +15119,10 @@ export default {
           const kvBuckets = kvMap.get(ticker) || null;
 
           const missingReceipts = expectedBuckets.filter(
-            (b) => !receiptBuckets.has(b)
+            (b) => !receiptBuckets.has(b),
           );
           const missingTrail = expectedBuckets.filter(
-            (b) => !trailBuckets.has(b)
+            (b) => !trailBuckets.has(b),
           );
           const missingKv = kvBuckets
             ? expectedBuckets.filter((b) => !kvBuckets.has(b))
@@ -14491,7 +15155,7 @@ export default {
             perTicker,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14504,21 +15168,23 @@ export default {
           ip,
           "/timed/health",
           500,
-          3600
+          3600,
         ); // Increased for single-user
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const last = Number(await KV.get("timed:last_ingest_ms")) || 0;
-        const captureLast = Number(await KV.get("timed:capture:last_ingest_ms")) || 0;
+        const captureLast =
+          Number(await KV.get("timed:capture:last_ingest_ms")) || 0;
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const captureTickers = (await kvGetJSON(KV, "timed:capture:tickers")) || [];
+        const captureTickers =
+          (await kvGetJSON(KV, "timed:capture:tickers")) || [];
         const storedVersion = await getStoredVersion(KV);
         return sendJSON(
           {
@@ -14527,14 +15193,18 @@ export default {
             lastIngestMs: last,
             minutesSinceLast: last ? (Date.now() - last) / 60000 : null,
             captureLastIngestMs: captureLast,
-            captureMinutesSinceLast: captureLast ? (Date.now() - captureLast) / 60000 : null,
+            captureMinutesSinceLast: captureLast
+              ? (Date.now() - captureLast) / 60000
+              : null,
             tickers: tickers.length,
-            captureTickers: Array.isArray(captureTickers) ? captureTickers.length : 0,
+            captureTickers: Array.isArray(captureTickers)
+              ? captureTickers.length
+              : 0,
             dataVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14555,7 +15225,7 @@ export default {
             version: CURRENT_DATA_VERSION,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14598,7 +15268,7 @@ export default {
             totalAfter: tickersToKeep.length,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14778,7 +15448,7 @@ export default {
             note: "Index will continue to grow as TradingView sends alerts for these tickers.",
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14795,7 +15465,7 @@ export default {
           return sendJSON(
             { ok: false, error: "version parameter required" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -14822,7 +15492,7 @@ export default {
             targetVersion,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -14869,7 +15539,7 @@ export default {
               endpoints: allEndpoints,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } else if (ip && endpoint) {
           // Clear specific IP + endpoint combination
@@ -14916,7 +15586,7 @@ export default {
                 "Cannot clear endpoint without IP. Please specify both 'ip' and 'endpoint', or just 'ip' to clear all endpoints for that IP.",
             },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } else {
           // No parameters - return usage info
@@ -14933,7 +15603,7 @@ export default {
               },
             },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -14945,7 +15615,7 @@ export default {
             keys: clearedKeys,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -15189,7 +15859,7 @@ export default {
             finalTickers: toKeep.sort(),
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -15214,12 +15884,12 @@ export default {
                 allowedOrigins.length === 0
                   ? "*"
                   : allowedOrigins.includes(origin)
-                  ? origin
-                  : "null",
+                    ? origin
+                    : "null",
             },
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -15232,14 +15902,14 @@ export default {
           ip,
           "/timed/version",
           500, // Increased for single-user
-          3600
+          3600,
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15252,7 +15922,7 @@ export default {
             match: storedVersion === CURRENT_DATA_VERSION,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -15265,14 +15935,14 @@ export default {
           ip,
           "/timed/alert-debug",
           500, // Increased for single-user
-          3600
+          3600,
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15281,7 +15951,7 @@ export default {
           return sendJSON(
             { ok: false, error: "missing ticker" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15290,7 +15960,7 @@ export default {
           return sendJSON(
             { ok: false, error: "no data for ticker", ticker },
             404,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15431,7 +16101,7 @@ export default {
             },
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -15444,13 +16114,13 @@ export default {
           ip,
           "/timed/alert-replay",
           200, // conservative; this endpoint can be heavy
-          3600
+          3600,
         );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15459,7 +16129,7 @@ export default {
           return sendJSON(
             { ok: false, error: "missing ticker" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15482,7 +16152,7 @@ export default {
           ticker,
           since,
           until,
-          limit
+          limit,
         );
         if (!history.ok) {
           return sendJSON(
@@ -15495,7 +16165,7 @@ export default {
               ticker,
             },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15515,7 +16185,7 @@ export default {
               note: "No historical payloads found in D1 for requested range.",
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15574,8 +16244,8 @@ export default {
             currentRR != null
               ? currentRR
               : data.rr != null
-              ? Number(data.rr)
-              : 0;
+                ? Number(data.rr)
+                : 0;
           const rrOk = rrToUse >= minRR;
           const compOk =
             data.completion == null ? true : Number(data.completion) <= maxComp;
@@ -15586,8 +16256,7 @@ export default {
             momentumElite && inCorridor && corridorAlignedOK;
           const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-          const wouldAlertLogic =
-            enhancedTrigger && rrOk && compOk && phaseOk;
+          const wouldAlertLogic = enhancedTrigger && rrOk && compOk && phaseOk;
           const wouldAlert = wouldAlertLogic && discordEnabled && discordUrlSet;
 
           const action = "ENTRY";
@@ -15639,7 +16308,7 @@ export default {
           days.map(async (day) => {
             const v = await KV.get(day);
             dedupe[day] = { key: day, alreadyAlerted: !!v };
-          })
+          }),
         );
 
         // Compute "wouldSendIfFirstBucket" as a deterministic simulation of dedupe behavior
@@ -15684,7 +16353,7 @@ export default {
             results: enriched,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -15695,7 +16364,7 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15705,13 +16374,13 @@ export default {
           ip,
           "/timed/ledger/trades",
           600,
-          3600
+          3600,
         );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15767,7 +16436,7 @@ export default {
           binds.push(
             Number(cursor.entry_ts),
             Number(cursor.entry_ts),
-            String(cursor.trade_id)
+            String(cursor.trade_id),
           );
         }
 
@@ -15796,7 +16465,7 @@ export default {
         return sendJSON(
           { ok: true, count: page.length, hasMore, nextCursor, trades: page },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -15813,36 +16482,42 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const raw = url.pathname.split("/timed/ledger/trades/")[1] || "";
         const tradeId = decodeURIComponent(
-          raw.replace(/\/decision-card$/, "")
+          raw.replace(/\/decision-card$/, ""),
         ).trim();
         if (!tradeId) {
           return sendJSON(
             { ok: false, error: "missing trade_id" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
-        const typeRaw = String(url.searchParams.get("type") || url.searchParams.get("event") || "")
+        const typeRaw = String(
+          url.searchParams.get("type") || url.searchParams.get("event") || "",
+        )
           .trim()
           .toUpperCase();
         const type =
           typeRaw === "CLOSE"
             ? "EXIT"
             : typeRaw === "ENTRY" || typeRaw === "TRIM" || typeRaw === "EXIT"
-            ? typeRaw
-            : null;
+              ? typeRaw
+              : null;
         if (!type) {
           return sendJSON(
-            { ok: false, error: "missing_or_invalid_type", allowed: ["ENTRY", "TRIM", "EXIT"] },
+            {
+              ok: false,
+              error: "missing_or_invalid_type",
+              allowed: ["ENTRY", "TRIM", "EXIT"],
+            },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15855,7 +16530,7 @@ export default {
               trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
               exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
               script_version, created_at, updated_at
-             FROM trades WHERE trade_id = ?1 LIMIT 1`
+             FROM trades WHERE trade_id = ?1 LIMIT 1`,
           )
           .bind(tradeId)
           .first();
@@ -15864,7 +16539,7 @@ export default {
           return sendJSON(
             { ok: false, error: "not_found", trade_id: tradeId },
             404,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15873,7 +16548,7 @@ export default {
           return sendJSON(
             { ok: false, error: "missing_ticker", trade_id: tradeId },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15887,7 +16562,7 @@ export default {
                  FROM trade_events
                  WHERE trade_id = ?1 AND type = ?2
                  ORDER BY ABS(ts - ?3) ASC
-                 LIMIT 1`
+                 LIMIT 1`,
               )
               .bind(tradeId, type, Number(ts))
               .first();
@@ -15902,7 +16577,7 @@ export default {
                FROM trade_events
                WHERE trade_id = ?1 AND type = ?2
                ORDER BY ts ${order}
-               LIMIT 1`
+               LIMIT 1`,
             )
             .bind(tradeId, type)
             .first();
@@ -15918,41 +16593,48 @@ export default {
           if (type === "EXIT") return Number(tradeRow.exit_ts);
           // TRIM: best available fallback is updated_at when trim status is present
           const trimmed = Number(tradeRow.trimmed_pct || 0);
-          if (type === "TRIM" && trimmed > 0) return Number(tradeRow.updated_at);
+          if (type === "TRIM" && trimmed > 0)
+            return Number(tradeRow.updated_at);
           return null;
         })();
 
         const evRow = evRowFromDb
           ? evRowFromDb
           : Number.isFinite(Number(fallbackTs))
-          ? {
-              event_id: null,
-              trade_id: String(tradeId),
-              ts: Number(fallbackTs),
-              type,
-              price: null,
-              qty_pct_delta: null,
-              qty_pct_total:
-                type === "TRIM"
-                  ? Number(tradeRow.trimmed_pct || 0) || null
-                  : null,
-              pnl_realized: null,
-              reason: null,
-              meta_json: null,
-            }
-          : null;
+            ? {
+                event_id: null,
+                trade_id: String(tradeId),
+                ts: Number(fallbackTs),
+                type,
+                price: null,
+                qty_pct_delta: null,
+                qty_pct_total:
+                  type === "TRIM"
+                    ? Number(tradeRow.trimmed_pct || 0) || null
+                    : null,
+                pnl_realized: null,
+                reason: null,
+                meta_json: null,
+              }
+            : null;
 
         if (!evRow || !Number.isFinite(Number(evRow.ts))) {
           return sendJSON(
             { ok: false, error: "event_not_found", trade_id: tradeId, type },
             404,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const evTs = Number(evRow.ts);
-        const snapWindowMs = type === "ENTRY" ? 3 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
-        const snap = await d1GetNearestTrailPayload(db, ticker, evTs, snapWindowMs);
+        const snapWindowMs =
+          type === "ENTRY" ? 3 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+        const snap = await d1GetNearestTrailPayload(
+          db,
+          ticker,
+          evTs,
+          snapWindowMs,
+        );
 
         const tickerData = snap && snap.payload ? snap.payload : null;
         if (!tickerData) {
@@ -15965,7 +16647,7 @@ export default {
               ts: evTs,
             },
             404,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -15980,7 +16662,8 @@ export default {
         };
 
         const trimPct = (() => {
-          const v = evRow.qty_pct_total != null ? Number(evRow.qty_pct_total) : null;
+          const v =
+            evRow.qty_pct_total != null ? Number(evRow.qty_pct_total) : null;
           if (Number.isFinite(v)) return v;
           const fromMeta = parseTrimPctFromText(evRow.meta_json);
           return Number.isFinite(fromMeta) ? fromMeta : null;
@@ -15991,7 +16674,7 @@ export default {
           actionKey,
           tickerData,
           tradeLite,
-          trimPct
+          trimPct,
         );
 
         return sendJSON(
@@ -16001,13 +16684,14 @@ export default {
             event: evRow,
             snapshot: { ts: Number(snap.ts), payload: tickerData },
             card: {
-              title: `${ticker} ${String(tradeLite.direction || "").toUpperCase()}`.trim(),
+              title:
+                `${ticker} ${String(tradeLite.direction || "").toUpperCase()}`.trim(),
               action: interpretation?.action || null,
               reasons: interpretation?.reasons || null,
             },
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -16021,18 +16705,18 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const tradeId = decodeURIComponent(
-          url.pathname.split("/timed/ledger/trades/")[1] || ""
+          url.pathname.split("/timed/ledger/trades/")[1] || "",
         ).trim();
         if (!tradeId) {
           return sendJSON(
             { ok: false, error: "missing trade_id" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16045,7 +16729,7 @@ export default {
               trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
               exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
               script_version, created_at, updated_at
-             FROM trades WHERE trade_id = ?1 LIMIT 1`
+             FROM trades WHERE trade_id = ?1 LIMIT 1`,
           )
           .bind(tradeId)
           .first();
@@ -16054,7 +16738,7 @@ export default {
           return sendJSON(
             { ok: false, error: "not_found", trade_id: tradeId },
             404,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16064,7 +16748,7 @@ export default {
               event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
              FROM trade_events
              WHERE trade_id = ?1
-             ORDER BY ts ASC`
+             ORDER BY ts ASC`,
           )
           .bind(tradeId)
           .all();
@@ -16082,7 +16766,7 @@ export default {
             db,
             ticker,
             tradeRow.entry_ts,
-            3 * 60 * 60 * 1000
+            3 * 60 * 60 * 1000,
           );
 
           evidence = [];
@@ -16093,7 +16777,7 @@ export default {
               db,
               ticker,
               ts,
-              2 * 60 * 60 * 1000
+              2 * 60 * 60 * 1000,
             );
             if (snap && snap.payload) {
               evidence.push({
@@ -16109,7 +16793,7 @@ export default {
         return sendJSON(
           { ok: true, trade: tradeRow, events, evidence, entry_evidence },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -16120,7 +16804,7 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16130,13 +16814,13 @@ export default {
           ip,
           "/timed/ledger/alerts",
           600,
-          3600
+          3600,
         );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16177,7 +16861,7 @@ export default {
           binds.push(
             Number(cursor.ts),
             Number(cursor.ts),
-            String(cursor.alert_id)
+            String(cursor.alert_id),
           );
         }
 
@@ -16205,7 +16889,7 @@ export default {
         return sendJSON(
           { ok: true, count: page.length, hasMore, nextCursor, alerts: page },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -16216,7 +16900,7 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16226,13 +16910,13 @@ export default {
           ip,
           "/timed/ledger/summary",
           300,
-          3600
+          3600,
         );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16267,7 +16951,7 @@ export default {
               AVG(CASE WHEN status = 'WIN' THEN pnl ELSE NULL END) AS avg_win,
               AVG(CASE WHEN status = 'LOSS' THEN -pnl ELSE NULL END) AS avg_loss_abs
             FROM trades
-            ${where}`
+            ${where}`,
           )
           .bind(...binds)
           .first();
@@ -16303,7 +16987,7 @@ export default {
             FROM trades
             ${where}
             GROUP BY bucket
-            ORDER BY bucket`
+            ORDER BY bucket`,
           )
           .bind(...binds)
           .all();
@@ -16325,7 +17009,7 @@ export default {
             FROM trades
             ${where}
             GROUP BY bucket
-            ORDER BY bucket`
+            ORDER BY bucket`,
           )
           .bind(...binds)
           .all();
@@ -16341,7 +17025,7 @@ export default {
             FROM trades
             ${where}
             GROUP BY reason
-            ORDER BY n DESC`
+            ORDER BY n DESC`,
           )
           .bind(...binds)
           .all();
@@ -16368,7 +17052,7 @@ export default {
             FROM alerts
             ${alertWhere}
             GROUP BY reason
-            ORDER BY n DESC`
+            ORDER BY n DESC`,
           )
           .bind(...alertBinds)
           .all();
@@ -16401,7 +17085,7 @@ export default {
             },
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -16419,7 +17103,7 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16464,8 +17148,8 @@ export default {
                       const inferredTotal =
                         ev.trimPct != null
                           ? Number(ev.trimPct)
-                          : parseTrimPctFromText(ev.note) ??
-                            parseTrimPctFromText(ev.meta_json);
+                          : (parseTrimPctFromText(ev.note) ??
+                            parseTrimPctFromText(ev.meta_json));
                       if (
                         inferredTotal != null &&
                         Number.isFinite(inferredTotal)
@@ -16474,7 +17158,7 @@ export default {
                         if (ev.trimDeltaPct == null && prevTrimTotal != null) {
                           ev.trimDeltaPct = Math.max(
                             0,
-                            inferredTotal - prevTrimTotal
+                            inferredTotal - prevTrimTotal,
                           );
                         }
                         prevTrimTotal = inferredTotal;
@@ -16507,7 +17191,7 @@ export default {
                     if (!tradeCopy.exitReason)
                       tradeCopy.exitReason = inferExitReasonForLegacyTrade(
                         tradeCopy,
-                        exitEv
+                        exitEv,
                       );
                   }
                 }
@@ -16520,7 +17204,7 @@ export default {
                     const er = await d1InsertTradeEvent(
                       env,
                       String(tradeCopy.id),
-                      ev
+                      ev,
                     );
                     if (er.ok) eventsInserted += 1;
                   }
@@ -16528,7 +17212,7 @@ export default {
               } catch (e) {
                 errors.push({ trade_id: t?.id || null, error: String(e) });
               }
-            })
+            }),
           );
         }
 
@@ -16546,7 +17230,7 @@ export default {
             errors: errors.slice(0, 25),
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -16564,12 +17248,12 @@ export default {
           return sendJSON(
             { ok: false, error: "d1_not_configured" },
             503,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
         const source = String(
-          url.searchParams.get("source") || "all"
+          url.searchParams.get("source") || "all",
         ).toLowerCase();
         const qLimit = Number(url.searchParams.get("limit") || "0");
         const qOffset = Number(url.searchParams.get("offset") || "0");
@@ -16611,8 +17295,8 @@ export default {
                 ev.type === "discord_alert"
                   ? "ALERT_ENTRY"
                   : ev.type === "trade_entry"
-                  ? "TRADE_ENTRY"
-                  : "TD9_EXIT";
+                    ? "TRADE_ENTRY"
+                    : "TD9_EXIT";
               const payloadJson = (() => {
                 try {
                   return JSON.stringify(ev);
@@ -16718,7 +17402,7 @@ export default {
         return sendJSON(
           { ok: true, alertsUpserted, errors },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -16785,7 +17469,7 @@ export default {
               try {
                 const latest = await kvGetJSON(
                   KV,
-                  `timed:latest:${tradeTicker}`
+                  `timed:latest:${tradeTicker}`,
                 );
                 const base =
                   latest && typeof latest === "object" ? latest : trade;
@@ -16794,7 +17478,7 @@ export default {
                   entry_ref:
                     base.entry_ref != null
                       ? base.entry_ref
-                      : trade.entryPrice ?? base.trigger_price ?? base.price,
+                      : (trade.entryPrice ?? base.trigger_price ?? base.price),
                   trigger_price: base.trigger_price ?? trade.entryPrice,
                   price: base.price ?? trade.currentPrice ?? trade.entryPrice,
                   sl: base.sl ?? trade.sl,
@@ -16833,7 +17517,7 @@ export default {
             errors: errors.slice(0, 25),
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -16846,14 +17530,14 @@ export default {
           ip,
           "/timed/trades",
           100, // 100 requests
-          60 // per minute (instead of per hour)
+          60, // per minute (instead of per hour)
         );
 
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 60 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
         const versionFilter = url.searchParams.get("version");
@@ -16874,7 +17558,7 @@ export default {
               console.log(
                 `[TRADE CORRECTION] Correcting ${trade.ticker} ${
                   trade.direction
-                }: WIN with negative P&L (${trade.pnl.toFixed(2)}) -> LOSS`
+                }: WIN with negative P&L (${trade.pnl.toFixed(2)}) -> LOSS`,
               );
               allTrades[i] = { ...trade, status: "LOSS" };
               corrected = true;
@@ -16882,7 +17566,7 @@ export default {
               console.log(
                 `[TRADE CORRECTION] Correcting ${trade.ticker} ${
                   trade.direction
-                }: LOSS with positive P&L (${trade.pnl.toFixed(2)}) -> WIN`
+                }: LOSS with positive P&L (${trade.pnl.toFixed(2)}) -> WIN`,
               );
               allTrades[i] = { ...trade, status: "WIN" };
               corrected = true;
@@ -16894,14 +17578,14 @@ export default {
         if (corrected) {
           await kvPutJSON(KV, tradesKey, allTrades);
           console.log(
-            `[TRADE CORRECTION] Saved ${allTrades.length} trades with corrections`
+            `[TRADE CORRECTION] Saved ${allTrades.length} trades with corrections`,
           );
         }
 
         let filteredTrades = allTrades;
         if (versionFilter && versionFilter !== "all") {
           filteredTrades = allTrades.filter(
-            (t) => (t.scriptVersion || "unknown") === versionFilter
+            (t) => (t.scriptVersion || "unknown") === versionFilter,
           );
         }
 
@@ -16923,19 +17607,25 @@ export default {
             corrected: corrected, // Indicate if corrections were made
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
       // GET /timed/portfolio (paper portfolio + executions, derived from KV trades)
       if (url.pathname === "/timed/portfolio" && req.method === "GET") {
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
-        const rateLimit = await checkRateLimit(KV, ip, "/timed/portfolio", 2000, 3600);
+        const rateLimit = await checkRateLimit(
+          KV,
+          ip,
+          "/timed/portfolio",
+          2000,
+          3600,
+        );
         if (!rateLimit.allowed) {
           return sendJSON(
             { ok: false, error: "rate_limit_exceeded", retryAfter: 3600 },
             429,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -16946,14 +17636,16 @@ export default {
 
         const tpTargetPrice = (src) => {
           const directTarget = Number(src?.tp_target_price ?? src?.tp_target);
-          if (Number.isFinite(directTarget) && directTarget > 0) return directTarget;
+          if (Number.isFinite(directTarget) && directTarget > 0)
+            return directTarget;
           const tp = Number(src?.tp);
           if (Number.isFinite(tp) && tp > 0) return tp;
           return null;
         };
 
         const toMs = (tsLike) => {
-          const n = typeof tsLike === "string" ? isoToMs(tsLike) : Number(tsLike);
+          const n =
+            typeof tsLike === "string" ? isoToMs(tsLike) : Number(tsLike);
           if (!Number.isFinite(n) || n <= 0) return null;
           return n < 1e12 ? n * 1000 : n;
         };
@@ -17008,18 +17700,19 @@ export default {
         const latestByTicker = {};
         try {
           const tickSet = new Set();
-          for (const e of events) if (e?.ticker) tickSet.add(String(e.ticker).toUpperCase());
-          for (const tr of trades) if (tr?.ticker) tickSet.add(String(tr.ticker).toUpperCase());
+          for (const e of events)
+            if (e?.ticker) tickSet.add(String(e.ticker).toUpperCase());
+          for (const tr of trades)
+            if (tr?.ticker) tickSet.add(String(tr.ticker).toUpperCase());
           const tickers = Array.from(tickSet).filter(Boolean).slice(0, 500);
 
           // Prefer D1 for reads (batch query), fallback to KV.
           if (env?.DB && tickers.length > 0) {
             await d1EnsureLatestSchema(env);
             const placeholders = tickers.map((_, i) => `?${i + 1}`).join(", ");
-            const rows = await env.DB
-              .prepare(
-                `SELECT ticker, payload_json FROM ticker_latest WHERE ticker IN (${placeholders})`
-              )
+            const rows = await env.DB.prepare(
+              `SELECT ticker, payload_json FROM ticker_latest WHERE ticker IN (${placeholders})`,
+            )
               .bind(...tickers)
               .all();
             for (const r of rows?.results || []) {
@@ -17052,7 +17745,10 @@ export default {
             }
           }
         } catch (e) {
-          console.warn(`[PORTFOLIO] latest snapshot join failed:`, String(e?.message || e));
+          console.warn(
+            `[PORTFOLIO] latest snapshot join failed:`,
+            String(e?.message || e),
+          );
         }
 
         // Replay portfolio from executions (simple cash + positions model)
@@ -17060,7 +17756,14 @@ export default {
         const positions = {}; // ticker -> {direction, shares, avgEntry, cost}
 
         const ensurePos = (tkr, dir) => {
-          if (!positions[tkr]) positions[tkr] = { ticker: tkr, direction: dir, shares: 0, avgEntry: null, cost: 0 };
+          if (!positions[tkr])
+            positions[tkr] = {
+              ticker: tkr,
+              direction: dir,
+              shares: 0,
+              avgEntry: null,
+              cost: 0,
+            };
           return positions[tkr];
         };
 
@@ -17082,7 +17785,10 @@ export default {
             const newCost = p.cost + value;
             p.shares = newShares;
             p.cost = newCost;
-            p.avgEntry = Number.isFinite(entryPx) && newShares > 0 ? newCost / newShares : p.avgEntry;
+            p.avgEntry =
+              Number.isFinite(entryPx) && newShares > 0
+                ? newCost / newShares
+                : p.avgEntry;
             p.direction = dir || p.direction;
           } else if (e.type === "TRIM" || e.type === "EXIT") {
             cash += value;
@@ -17098,14 +17804,18 @@ export default {
         let positionsValue = 0;
         const openPositions = [];
         for (const [tkr, p] of Object.entries(positions)) {
-          const trade = trades.find((x) => String(x?.ticker || "").toUpperCase() === tkr && isOpenTradeStatus(x?.status));
+          const trade = trades.find(
+            (x) =>
+              String(x?.ticker || "").toUpperCase() === tkr &&
+              isOpenTradeStatus(x?.status),
+          );
           const latest = latestByTicker[String(tkr).toUpperCase()];
           const px = Number(
             latest?.price ??
               latest?.last ??
               latest?.close ??
               trade?.currentPrice ??
-              trade?.price
+              trade?.price,
           );
           const val = Number.isFinite(px) ? px * Number(p.shares) : null;
           if (Number.isFinite(val)) positionsValue += val;
@@ -17116,8 +17826,10 @@ export default {
             avgEntry: p.avgEntry,
             mark: Number.isFinite(px) ? px : null,
             value: Number.isFinite(val) ? val : null,
-            phase_pct: latest?.phase_pct != null ? Number(latest.phase_pct) : null,
-            completion: latest?.completion != null ? Number(latest.completion) : null,
+            phase_pct:
+              latest?.phase_pct != null ? Number(latest.phase_pct) : null,
+            completion:
+              latest?.completion != null ? Number(latest.completion) : null,
             tp: tpTargetPrice(latest),
           });
         }
@@ -17139,10 +17851,16 @@ export default {
         try {
           const entryByTradeId = new Map(); // trade_id -> { entryPrice, entryShares, entryTs, direction }
           for (const e of events) {
-            if (e?.type === "ENTRY" && e?.trade_id && Number.isFinite(Number(e?.price))) {
+            if (
+              e?.type === "ENTRY" &&
+              e?.trade_id &&
+              Number.isFinite(Number(e?.price))
+            ) {
               entryByTradeId.set(String(e.trade_id), {
                 entryPrice: Number(e.price),
-                entryShares: Number.isFinite(Number(e?.shares)) ? Number(e.shares) : null,
+                entryShares: Number.isFinite(Number(e?.shares))
+                  ? Number(e.shares)
+                  : null,
                 entryTs: Number.isFinite(Number(e?.ts)) ? Number(e.ts) : null,
                 direction: e?.direction || null,
               });
@@ -17164,7 +17882,9 @@ export default {
           for (const [day, dayEvents] of Object.entries(byDay)) {
             const arr = Array.isArray(dayEvents) ? dayEvents : [];
             const tradesById = new Map();
-            let entries = 0, trims = 0, exits = 0;
+            let entries = 0,
+              trims = 0,
+              exits = 0;
             let realizedPnl = 0;
             const closedById = new Map(); // trade_id -> pnl
 
@@ -17186,7 +17906,7 @@ export default {
                     latest?.price ??
                     latest?.last ??
                     latest?.close ??
-                    null
+                    null,
                 );
                 const entryPx = Number.isFinite(Number(pos?.avgEntry))
                   ? Number(pos.avgEntry)
@@ -17194,7 +17914,10 @@ export default {
                 tradesById.set(tradeId, {
                   trade_id: tradeId,
                   ticker: tkr,
-                  direction: String(meta.direction || e?.direction || "").toUpperCase() || null,
+                  direction:
+                    String(
+                      meta.direction || e?.direction || "",
+                    ).toUpperCase() || null,
                   entry: {
                     ts: meta?.entryTs ?? null,
                     price: Number.isFinite(entryPx) ? entryPx : null,
@@ -17202,8 +17925,14 @@ export default {
                   },
                   current: {
                     price: Number.isFinite(currentPx) ? currentPx : null,
-                    phase_pct: latest?.phase_pct != null ? Number(latest.phase_pct) : null,
-                    completion: latest?.completion != null ? Number(latest.completion) : null,
+                    phase_pct:
+                      latest?.phase_pct != null
+                        ? Number(latest.phase_pct)
+                        : null,
+                    completion:
+                      latest?.completion != null
+                        ? Number(latest.completion)
+                        : null,
                     tp: tpTargetPrice(latest),
                     ts: latest?.ts != null ? toMs(latest.ts) : null,
                   },
@@ -17212,7 +17941,8 @@ export default {
                   trim_price: null,
                   exit_price: null,
                   exit_reason: null,
-                  remaining_qty: pos?.shares != null ? Number(pos.shares) : null,
+                  remaining_qty:
+                    pos?.shares != null ? Number(pos.shares) : null,
                   realized_pnl: 0,
                 });
               }
@@ -17220,17 +17950,24 @@ export default {
               const t = tradesById.get(tradeId);
               const px = Number(e?.price);
               const sh = Number(e?.shares);
-              if (Number.isFinite(Number(e?.ts))) t.last_action_ts = Number(e.ts);
+              if (Number.isFinite(Number(e?.ts)))
+                t.last_action_ts = Number(e.ts);
               t.last_action_type = type || t.last_action_type;
               if (type === "TRIM" && Number.isFinite(px)) t.trim_price = px;
               if (type === "EXIT" && Number.isFinite(px)) t.exit_price = px;
-              if (type === "EXIT" && e?.reason) t.exit_reason = String(e.reason);
+              if (type === "EXIT" && e?.reason)
+                t.exit_reason = String(e.reason);
 
               // realized pnl for trim/exit if entry is known
               const entryPx = Number(t?.entry?.price);
               const dir = String(t?.direction || "").toUpperCase();
               const sign = dir === "SHORT" ? -1 : 1;
-              if ((type === "TRIM" || type === "EXIT") && Number.isFinite(entryPx) && Number.isFinite(px) && Number.isFinite(sh)) {
+              if (
+                (type === "TRIM" || type === "EXIT") &&
+                Number.isFinite(entryPx) &&
+                Number.isFinite(px) &&
+                Number.isFinite(sh)
+              ) {
                 const pnl = (px - entryPx) * sh * sign;
                 t.realized_pnl += pnl;
                 realizedPnl += pnl;
@@ -17238,7 +17975,8 @@ export default {
               }
             }
 
-            let wins = 0, losses = 0;
+            let wins = 0,
+              losses = 0;
             for (const pnl of closedById.values()) {
               if (!Number.isFinite(pnl) || pnl === 0) continue;
               if (pnl > 0) wins += 1;
@@ -17256,12 +17994,16 @@ export default {
                 realizedPnl,
               },
               trades: Array.from(tradesById.values()).sort(
-                (a, b) => Number(b.last_action_ts || 0) - Number(a.last_action_ts || 0)
+                (a, b) =>
+                  Number(b.last_action_ts || 0) - Number(a.last_action_ts || 0),
               ),
             };
           }
         } catch (e) {
-          console.warn(`[PORTFOLIO] proof build failed:`, String(e?.message || e));
+          console.warn(
+            `[PORTFOLIO] proof build failed:`,
+            String(e?.message || e),
+          );
         }
 
         return sendJSON(
@@ -17286,7 +18028,7 @@ export default {
             },
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -17300,7 +18042,7 @@ export default {
           return sendJSON(
             { ok: false, error: "missing trade id" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -17334,7 +18076,7 @@ export default {
             action: existingIndex >= 0 ? "updated" : "created",
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -17351,7 +18093,7 @@ export default {
           return sendJSON(
             { ok: false, error: "missing trade id" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -17368,7 +18110,7 @@ export default {
             remainingCount: filteredTrades.length,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -17417,7 +18159,7 @@ export default {
               return sendJSON(
                 { ok: false, error: "Invalid JSON in request body" },
                 400,
-                aiChatCorsHeaders
+                aiChatCorsHeaders,
               );
             }
             body = result.obj;
@@ -17425,7 +18167,7 @@ export default {
             return sendJSON(
               { ok: false, error: "Failed to parse request body" },
               400,
-              aiChatCorsHeaders
+              aiChatCorsHeaders,
             );
           }
 
@@ -17433,7 +18175,7 @@ export default {
             return sendJSON(
               { ok: false, error: "missing message" },
               400,
-              aiChatCorsHeaders
+              aiChatCorsHeaders,
             );
           }
 
@@ -17447,7 +18189,7 @@ export default {
                     "AI service not configured. Please set OPENAI_API_KEY secret.",
                 },
                 503,
-                aiChatCorsHeaders
+                aiChatCorsHeaders,
               );
             }
 
@@ -17463,7 +18205,7 @@ export default {
                   try {
                     const latestData = await kvGetJSON(
                       KV,
-                      `timed:latest:${ticker}`
+                      `timed:latest:${ticker}`,
                     );
                     if (latestData) {
                       return {
@@ -17481,7 +18223,7 @@ export default {
                   } catch (err) {
                     console.error(
                       `[AI CHAT] Error fetching ticker ${ticker}:`,
-                      err
+                      err,
                     );
                     return null;
                   }
@@ -17520,7 +18262,7 @@ export default {
                   } catch (e) {
                     console.error(
                       "[AI CHAT] Error formatting activity event:",
-                      e
+                      e,
                     );
                     // Skip this event
                   }
@@ -17567,7 +18309,7 @@ ${
             return `- **${String(t.ticker || "UNKNOWN")}**: Rank ${
               Number(t.rank) || 0
             }, RR ${rr.toFixed(2)}:1, Price $${price.toFixed(
-              2
+              2,
             )}, State: ${String(t.state || "UNKNOWN")}, Phase: ${(
               phasePct * 100
             ).toFixed(0)}%, Completion: ${(completion * 100).toFixed(0)}%`;
@@ -17589,7 +18331,7 @@ ${
           try {
             const price = Number(a.price) || 0;
             return `- ${String(a.time || "Unknown time")}: **${String(
-              a.ticker || "UNKNOWN"
+              a.ticker || "UNKNOWN",
             )}** ${String(a.type || "event")} at $${price.toFixed(2)}`;
           } catch (e) {
             console.error("[AI CHAT] Error formatting activity:", a, e);
@@ -17732,13 +18474,13 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                     max_tokens: 800,
                   }),
                   signal: controller.signal,
-                }
+                },
               );
             } catch (fetchError) {
               clearTimeout(timeoutId);
               if (fetchError.name === "AbortError") {
                 throw new Error(
-                  "Request timeout - OpenAI API took too long to respond"
+                  "Request timeout - OpenAI API took too long to respond",
                 );
               }
               throw new Error(`Network error: ${fetchError.message}`);
@@ -17757,7 +18499,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               console.error(
                 "[AI CHAT] OpenAI API error:",
                 aiResponse.status,
-                errorData
+                errorData,
               );
               // Provide user-friendly error messages for common OpenAI errors
               let errorMessage =
@@ -17809,7 +18551,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                 timestamp: Date.now(),
               },
               200,
-              aiChatCorsHeaders
+              aiChatCorsHeaders,
             );
           } catch (error) {
             // Catch any errors (including errors in error handling)
@@ -17826,13 +18568,13 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                   details: error.stack,
                 },
                 500,
-                aiChatCorsHeaders
+                aiChatCorsHeaders,
               );
             } catch (sendError) {
               // If even sendJSON fails, return a basic response with CORS headers
               console.error(
                 "[AI CHAT FATAL ERROR] Failed to send error response:",
-                sendError
+                sendError,
               );
               return new Response(
                 JSON.stringify({ ok: false, error: "Internal server error" }),
@@ -17842,7 +18584,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                     "Content-Type": "application/json",
                     ...aiChatCorsHeaders,
                   },
-                }
+                },
               );
             }
           } // End of inner try-catch for OpenAI API
@@ -17873,7 +18615,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                 details: fatalError?.message || "Unknown error",
               },
               500,
-              fatalCorsHeaders
+              fatalCorsHeaders,
             );
           } catch (sendError) {
             // Last resort - return basic response
@@ -17886,7 +18628,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                   "Content-Type": "application/json",
                   ...fatalCorsHeaders,
                 },
-              }
+              },
             );
           }
         }
@@ -17939,7 +18681,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               count: updates.length,
             },
             200,
-            aiChatCorsHeaders
+            aiChatCorsHeaders,
           );
         } catch (error) {
           console.error("[AI UPDATES ERROR]", error);
@@ -17949,7 +18691,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
               error: error.message || "Failed to fetch updates",
             },
             500,
-            aiChatCorsHeaders
+            aiChatCorsHeaders,
           );
         }
       }
@@ -17977,7 +18719,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
                   "AI service not configured. Please set OPENAI_API_KEY secret.",
               },
               503,
-              aiChatCorsHeaders
+              aiChatCorsHeaders,
             );
           }
 
@@ -18002,27 +18744,27 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
 
           // Categorize trades
           const newTrades = todayTrades.filter(
-            (t) => t.status === "OPEN" || !t.status
+            (t) => t.status === "OPEN" || !t.status,
           );
           const closedTrades = todayTrades.filter(
-            (t) => t.status === "WIN" || t.status === "LOSS"
+            (t) => t.status === "WIN" || t.status === "LOSS",
           );
           const trimmedTrades = todayTrades.filter(
-            (t) => t.status === "TP_HIT_TRIM"
+            (t) => t.status === "TP_HIT_TRIM",
           );
 
           // Calculate P&L
           const closedPnl = closedTrades.reduce(
             (sum, t) => sum + (Number(t.pnl) || 0),
-            0
+            0,
           );
           const openPnl = newTrades.reduce(
             (sum, t) => sum + (Number(t.pnl) || 0),
-            0
+            0,
           );
           const trimmedPnl = trimmedTrades.reduce(
             (sum, t) => sum + (Number(t.pnl) || 0),
-            0
+            0,
           );
 
           // Calculate win rate
@@ -18173,7 +18915,7 @@ ${
             }L (${(
               (stats.wins / (stats.wins + stats.losses || 1)) *
               100
-            ).toFixed(1)}% win rate) | P&L: $${stats.totalPnl.toFixed(2)}`
+            ).toFixed(1)}% win rate) | P&L: $${stats.totalPnl.toFixed(2)}`,
         )
         .join("\n")
     : "No significant signal patterns"
@@ -18203,7 +18945,7 @@ ${
       ([range, stats]) =>
         `- **${range}**: ${stats.wins}W/${
           stats.losses
-        }L | P&L: $${stats.totalPnl.toFixed(2)}`
+        }L | P&L: $${stats.totalPnl.toFixed(2)}`,
     )
     .join("\n") || "No data"
 }
@@ -18217,7 +18959,7 @@ ${
       ([range, stats]) =>
         `- **${range}**: ${stats.wins}W/${
           stats.losses
-        }L | P&L: $${stats.totalPnl.toFixed(2)}`
+        }L | P&L: $${stats.totalPnl.toFixed(2)}`,
     )
     .join("\n") || "No data"
 }
@@ -18285,9 +19027,9 @@ ${
           const trimLevel = tp; // Trim at first TP
 
           return `- **${t.ticker}** (${direction}): Entry $${entryPrice.toFixed(
-            2
+            2,
           )} | Current $${currentPrice.toFixed(2)} | SL $${sl.toFixed(
-            2
+            2,
           )} | TP $${tp.toFixed(2)} | RR ${rrFormatted} | Rank ${
             t.rank || 0
           } | ${pctToTP}% to TP`;
@@ -18389,7 +19131,7 @@ Based on today's data:
                   max_tokens: 2000,
                 }),
                 signal: controller.signal,
-              }
+              },
             );
           } catch (fetchError) {
             clearTimeout(timeoutId);
@@ -18437,7 +19179,7 @@ Based on today's data:
               timestamp: Date.now(),
             },
             200,
-            aiChatCorsHeaders
+            aiChatCorsHeaders,
           );
         } catch (error) {
           console.error("[DAILY SUMMARY ERROR]", error);
@@ -18447,7 +19189,7 @@ Based on today's data:
               error: error.message || "Daily summary service error",
             },
             500,
-            aiChatCorsHeaders
+            aiChatCorsHeaders,
           );
         }
       }
@@ -18475,7 +19217,7 @@ Based on today's data:
                   "AI service not configured. Please set OPENAI_API_KEY secret.",
               },
               503,
-              aiChatCorsHeaders
+              aiChatCorsHeaders,
             );
           }
 
@@ -18563,13 +19305,13 @@ Based on today's data:
           // Pattern Recognition: Analyze winning patterns
           const winningPatterns = analyzeWinningPatterns(
             tradeHistory,
-            allTickers
+            allTickers,
           );
 
           // Proactive Alerts: Detect conditions that need attention
           const proactiveAlerts = generateProactiveAlerts(
             allTickers,
-            allTradesForHistory
+            allTradesForHistory,
           );
 
           // Analyze for proactive alerts
@@ -18578,15 +19320,15 @@ Based on today's data:
               t.rank >= 75 &&
               t.rr >= 1.5 &&
               t.completion < 0.4 &&
-              t.phase_pct < 0.6
+              t.phase_pct < 0.6,
           );
 
           const highRiskPositions = allTickers.filter(
-            (t) => t.completion > 0.7 || t.phase_pct > 0.8
+            (t) => t.completion > 0.7 || t.phase_pct > 0.8,
           );
 
           const momentumEliteSetups = allTickers.filter(
-            (t) => t.flags?.momentum_elite && t.rank >= 70
+            (t) => t.flags?.momentum_elite && t.rank >= 70,
           );
 
           // Build monitoring prompt
@@ -18637,8 +19379,8 @@ ${
         `- **${t.ticker}**: Rank ${t.rank}, Completion ${(
           t.completion * 100
         ).toFixed(0)}%, Phase ${(t.phase_pct * 100).toFixed(
-          0
-        )}%, Price $${t.price.toFixed(2)}`
+          0,
+        )}%, Price $${t.price.toFixed(2)}`,
     )
     .join("\n") || "None"
 }
@@ -18651,7 +19393,7 @@ ${
       (a) =>
         `- ${new Date(a.ts).toLocaleTimeString()}: **${a.ticker}** ${
           a.type
-        } at $${a.price.toFixed(2)}`
+        } at $${a.price.toFixed(2)}`,
     )
     .join("\n") || "None"
 }
@@ -18784,7 +19526,7 @@ Provide 3-5 actionable next steps:
                   max_tokens: 1000,
                 }),
                 signal: controller.signal,
-              }
+              },
             );
           } catch (fetchError) {
             clearTimeout(timeoutId);
@@ -18805,7 +19547,7 @@ Provide 3-5 actionable next steps:
             }
             throw new Error(
               errorData.error?.message ||
-                `OpenAI API error: ${aiResponse.status}`
+                `OpenAI API error: ${aiResponse.status}`,
             );
           }
 
@@ -18829,7 +19571,7 @@ Provide 3-5 actionable next steps:
               timestamp: Date.now(),
             },
             200,
-            aiChatCorsHeaders
+            aiChatCorsHeaders,
           );
         } catch (error) {
           console.error("[AI MONITOR ERROR]", error);
@@ -18839,7 +19581,7 @@ Provide 3-5 actionable next steps:
               error: error.message || "Monitoring service error",
             },
             500,
-            aiChatCorsHeaders
+            aiChatCorsHeaders,
           );
         }
       }
@@ -18863,16 +19605,16 @@ Provide 3-5 actionable next steps:
           if (tickerFilter) {
             const tickerUpper = String(tickerFilter).toUpperCase();
             filteredTrades = allTrades.filter(
-              (t) => String(t.ticker || "").toUpperCase() === tickerUpper
+              (t) => String(t.ticker || "").toUpperCase() === tickerUpper,
             );
           }
 
           const openTrades = filteredTrades.filter(
             (t) =>
-              t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+              t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM",
           );
           const closedTrades = filteredTrades.filter(
-            (t) => t.status === "WIN" || t.status === "LOSS"
+            (t) => t.status === "WIN" || t.status === "LOSS",
           );
 
           return sendJSON(
@@ -18897,13 +19639,13 @@ Provide 3-5 actionable next steps:
               },
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -18924,7 +19666,7 @@ Provide 3-5 actionable next steps:
           });
 
           const allData = (await Promise.all(tickerDataPromises)).filter(
-            Boolean
+            Boolean,
           );
 
           // Score distribution
@@ -18957,22 +19699,22 @@ Provide 3-5 actionable next steps:
               rank >= 90
                 ? "90-100"
                 : rank >= 80
-                ? "80-89"
-                : rank >= 70
-                ? "70-79"
-                : rank >= 60
-                ? "60-69"
-                : rank >= 50
-                ? "50-59"
-                : rank >= 40
-                ? "40-49"
-                : rank >= 30
-                ? "30-39"
-                : rank >= 20
-                ? "20-29"
-                : rank >= 10
-                ? "10-19"
-                : "0-9";
+                  ? "80-89"
+                  : rank >= 70
+                    ? "70-79"
+                    : rank >= 60
+                      ? "60-69"
+                      : rank >= 50
+                        ? "50-59"
+                        : rank >= 40
+                          ? "40-49"
+                          : rank >= 30
+                            ? "30-39"
+                            : rank >= 20
+                              ? "20-29"
+                              : rank >= 10
+                                ? "10-19"
+                                : "0-9";
             scoreRanges[scoreRange]++;
 
             // Component analysis
@@ -19080,13 +19822,13 @@ Provide 3-5 actionable next steps:
               highScoreBreakdown: scoreBreakdown.slice(0, 50), // Top 50 high scores
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -19132,13 +19874,13 @@ Provide 3-5 actionable next steps:
               tickers: tickerData,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -19166,7 +19908,7 @@ Provide 3-5 actionable next steps:
             },
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -19181,7 +19923,7 @@ Provide 3-5 actionable next steps:
           return sendJSON(
             { ok: false, error: "missing ticker" },
             400,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
 
@@ -19208,7 +19950,8 @@ Provide 3-5 actionable next steps:
         try {
           if (env?.DB) {
             const rec = await computePrevCloseFromTrail(env.DB, ticker, asOfTs);
-            const price = num(pick(latest, ["price"])) ?? num(pick(capture, ["price"]));
+            const price =
+              num(pick(latest, ["price"])) ?? num(pick(capture, ["price"]));
             if (rec && Number.isFinite(price) && price > 0) {
               derived = {
                 prev_close: rec.close,
@@ -19218,17 +19961,33 @@ Provide 3-5 actionable next steps:
                 day_change_pct: ((price - rec.close) / rec.close) * 100,
               };
             } else {
-              derived = { prev_close: null, reason: rec ? "bad_price" : "no_prev_close_row" };
+              derived = {
+                prev_close: null,
+                reason: rec ? "bad_price" : "no_prev_close_row",
+              };
             }
           }
         } catch (e) {
           derived = { prev_close: null, error: String(e?.message || e) };
         }
 
-        const fields = ["price", "prev_close", "day_change", "day_change_pct", "change", "change_pct", "session", "is_rth", "ts", "ingest_ts"];
+        const fields = [
+          "price",
+          "prev_close",
+          "day_change",
+          "day_change_pct",
+          "change",
+          "change_pct",
+          "session",
+          "is_rth",
+          "ts",
+          "ingest_ts",
+        ];
         const subset = (obj) => {
           const out = {};
-          for (const k of fields) if (obj && typeof obj === "object" && obj[k] != null) out[k] = obj[k];
+          for (const k of fields)
+            if (obj && typeof obj === "object" && obj[k] != null)
+              out[k] = obj[k];
           return out;
         };
 
@@ -19241,7 +20000,7 @@ Provide 3-5 actionable next steps:
             derived,
           },
           200,
-          corsHeaders(env, req)
+          corsHeaders(env, req),
         );
       }
 
@@ -19262,13 +20021,13 @@ Provide 3-5 actionable next steps:
             return sendJSON(
               { ok: false, error: "ticker parameter required" },
               400,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
           const tickerUpper = String(tickerFilter).toUpperCase();
           const tickerTrades = allTrades.filter(
-            (t) => String(t.ticker || "").toUpperCase() === tickerUpper
+            (t) => String(t.ticker || "").toUpperCase() === tickerUpper,
           );
 
           if (tickerTrades.length === 0) {
@@ -19280,7 +20039,7 @@ Provide 3-5 actionable next steps:
                 kept: 0,
               },
               200,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
@@ -19303,7 +20062,7 @@ Provide 3-5 actionable next steps:
             // Keep the most recent open trade, or if all closed, keep the most recent one
             const openTrades = dirTrades.filter(
               (t) =>
-                t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+                t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM",
             );
 
             if (openTrades.length > 0) {
@@ -19316,7 +20075,7 @@ Provide 3-5 actionable next steps:
               tradesToKeep.push(sortedOpen[0]);
               tradesToRemove.push(...sortedOpen.slice(1));
               tradesToRemove.push(
-                ...dirTrades.filter((t) => !openTrades.includes(t))
+                ...dirTrades.filter((t) => !openTrades.includes(t)),
               );
             } else {
               // All closed - keep the most recent one
@@ -19333,7 +20092,7 @@ Provide 3-5 actionable next steps:
           // Remove duplicates from allTrades
           const tradeIdsToRemove = new Set(tradesToRemove.map((t) => t.id));
           const cleanedTrades = allTrades.filter(
-            (t) => !tradeIdsToRemove.has(t.id)
+            (t) => !tradeIdsToRemove.has(t.id),
           );
 
           await kvPutJSON(KV, tradesKey, cleanedTrades);
@@ -19359,13 +20118,13 @@ Provide 3-5 actionable next steps:
               })),
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -19387,7 +20146,7 @@ Provide 3-5 actionable next steps:
             return sendJSON(
               { ok: false, error: "ticker parameter required" },
               400,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
@@ -19396,7 +20155,7 @@ Provide 3-5 actionable next steps:
 
           // Filter out all trades for this ticker
           const filteredTrades = allTrades.filter(
-            (t) => String(t.ticker || "").toUpperCase() !== tickerUpper
+            (t) => String(t.ticker || "").toUpperCase() !== tickerUpper,
           );
 
           const removedCount = beforeCount - filteredTrades.length;
@@ -19410,7 +20169,7 @@ Provide 3-5 actionable next steps:
                 remaining: beforeCount,
               },
               200,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
@@ -19427,13 +20186,13 @@ Provide 3-5 actionable next steps:
               message: `Successfully purged all ${removedCount} trades for ${tickerUpper}`,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -19495,7 +20254,7 @@ Provide 3-5 actionable next steps:
                 removed: 0,
               },
               200,
-              corsHeaders(env, req)
+              corsHeaders(env, req),
             );
           }
 
@@ -19531,13 +20290,13 @@ Provide 3-5 actionable next steps:
               })),
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -19591,13 +20350,13 @@ Provide 3-5 actionable next steps:
               results,
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -19627,11 +20386,11 @@ Provide 3-5 actionable next steps:
             // Get latest ticker data
             const tickerData = await kvGetJSON(
               KV,
-              `timed:latest:${trade.ticker}`
+              `timed:latest:${trade.ticker}`,
             );
             if (!tickerData || !tickerData.price) {
               console.log(
-                `[FIX ENTRY PRICES] Skipping ${trade.ticker} - no current price data`
+                `[FIX ENTRY PRICES] Skipping ${trade.ticker} - no current price data`,
               );
               continue;
             }
@@ -19687,12 +20446,12 @@ Provide 3-5 actionable next steps:
               const tradeCalc = calculateTradePnl(
                 tickerData,
                 correctedEntryPrice,
-                trade
+                trade,
               );
 
               if (!tradeCalc) {
                 console.log(
-                  `[FIX ENTRY PRICES] Skipping ${trade.ticker} - cannot recalculate P&L`
+                  `[FIX ENTRY PRICES] Skipping ${trade.ticker} - cannot recalculate P&L`,
                 );
                 continue;
               }
@@ -19713,9 +20472,9 @@ Provide 3-5 actionable next steps:
                     shares: correctedShares,
                     value: correctedEntryPrice * correctedShares,
                     note: `Entry price corrected from $${entryPrice.toFixed(
-                      2
+                      2,
                     )} to $${correctedEntryPrice.toFixed(
-                      2
+                      2,
                     )} (was using trigger_price or outdated price)`,
                   },
                 ],
@@ -19737,10 +20496,10 @@ Provide 3-5 actionable next steps:
                 `[FIX ENTRY PRICES] Fixed ${trade.ticker} ${
                   trade.direction
                 }: $${entryPrice.toFixed(2)} -> $${correctedEntryPrice.toFixed(
-                  2
+                  2,
                 )} (P&L: $${(trade.pnl || 0).toFixed(
-                  2
-                )} -> $${tradeCalc.pnl.toFixed(2)})`
+                  2,
+                )} -> $${tradeCalc.pnl.toFixed(2)})`,
               );
             }
           }
@@ -19748,7 +20507,7 @@ Provide 3-5 actionable next steps:
           if (fixed > 0) {
             await kvPutJSON(KV, tradesKey, allTrades);
             console.log(
-              `[FIX ENTRY PRICES] Fixed ${fixed} trades with incorrect entry prices`
+              `[FIX ENTRY PRICES] Fixed ${fixed} trades with incorrect entry prices`,
             );
           }
 
@@ -19760,7 +20519,7 @@ Provide 3-5 actionable next steps:
               fixedTrades,
             },
             200,
-            corsHeaders(env, req, true)
+            corsHeaders(env, req, true),
           );
         } catch (err) {
           console.error(`[FIX ENTRY PRICES ERROR]`, {
@@ -19771,7 +20530,7 @@ Provide 3-5 actionable next steps:
           return sendJSON(
             { ok: false, error: "internal_error", message: err.message },
             500,
-            corsHeaders(env, req, true)
+            corsHeaders(env, req, true),
           );
         }
       }
@@ -19865,7 +20624,7 @@ Provide 3-5 actionable next steps:
                   // Use closest match if it's within 2% of entry price
                   if (closestPoint && closestDiff <= entryPrice * 0.02) {
                     bestMatchTimestamp = new Date(
-                      Number(closestPoint.ts)
+                      Number(closestPoint.ts),
                     ).toISOString();
                     bestMatchPrice = Number(closestPoint.price);
                     matchMethod = "trail_closest_match";
@@ -19881,7 +20640,7 @@ Provide 3-5 actionable next steps:
               try {
                 const tickerData = await kvGetJSON(
                   KV,
-                  `timed:latest:${trade.ticker}`
+                  `timed:latest:${trade.ticker}`,
                 );
                 if (tickerData && tickerData.trigger_ts) {
                   const triggerTime = Number(tickerData.trigger_ts);
@@ -19981,13 +20740,13 @@ Provide 3-5 actionable next steps:
               fixedTrades: fixedTrades.slice(0, 50), // Show first 50
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -20016,13 +20775,13 @@ Provide 3-5 actionable next steps:
               note: "New trades will be created automatically as TradingView alerts come in",
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -20056,7 +20815,7 @@ Provide 3-5 actionable next steps:
                   ticker,
                   latestData,
                   prevLatest,
-                  env
+                  env,
                 );
                 results.processed++;
               } else {
@@ -20072,7 +20831,7 @@ Provide 3-5 actionable next steps:
           const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
           const openTrades = allTrades.filter(
             (t) =>
-              t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+              t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM",
           );
 
           return sendJSON(
@@ -20086,13 +20845,13 @@ Provide 3-5 actionable next steps:
               },
             },
             200,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         } catch (err) {
           return sendJSON(
             { ok: false, error: err.message },
             500,
-            corsHeaders(env, req)
+            corsHeaders(env, req),
           );
         }
       }
@@ -20100,7 +20859,7 @@ Provide 3-5 actionable next steps:
       return sendJSON(
         { ok: false, error: "not_found" },
         404,
-        corsHeaders(env, req)
+        corsHeaders(env, req),
       );
     } catch (topLevelErr) {
       // Catch any unhandled errors and return a proper response with CORS headers
@@ -20124,7 +20883,7 @@ Provide 3-5 actionable next steps:
               : undefined,
         },
         500,
-        corsHeaders(env, req)
+        corsHeaders(env, req),
       );
     }
   },
@@ -20145,25 +20904,25 @@ Provide 3-5 actionable next steps:
     }
 
     // Note: /timed/all now reads from D1 (single query). No KV cache build needed here.
-    
+
     // Always update open trades (runs every 5 minutes)
     try {
       const tradesKey = "timed:trades:all";
       const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
       const openTrades = allTrades.filter(
-        (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM"
+        (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM",
       );
 
       if (openTrades.length > 0) {
         console.log(
-          `[TRADE UPDATE CRON] Updating ${openTrades.length} open trades`
+          `[TRADE UPDATE CRON] Updating ${openTrades.length} open trades`,
         );
 
         for (const trade of openTrades) {
           try {
             const latestData = await kvGetJSON(
               KV,
-              `timed:latest:${trade.ticker}`
+              `timed:latest:${trade.ticker}`,
             );
             if (latestData) {
               // Use processTradeSimulation to ensure entry price correction logic runs
@@ -20173,13 +20932,13 @@ Provide 3-5 actionable next steps:
                 trade.ticker,
                 latestData,
                 prevLatest,
-                env
+                env,
               );
             }
           } catch (err) {
             console.error(
               `[TRADE UPDATE CRON] Error updating trade ${trade.ticker}:`,
-              err
+              err,
             );
           }
         }
@@ -20215,7 +20974,7 @@ Provide 3-5 actionable next steps:
         const tradesKey = "timed:trades:all";
         const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
         const openTrades = allTrades.filter(
-          (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM"
+          (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM",
         );
 
         // Fetch current ticker data for alert generation
@@ -20244,7 +21003,7 @@ Provide 3-5 actionable next steps:
           });
 
         const allTickers = (await Promise.all(tickerDataPromises)).filter(
-          Boolean
+          Boolean,
         );
 
         // Generate proactive alerts
@@ -20271,7 +21030,7 @@ Provide 3-5 actionable next steps:
           await kvPutJSON(KV, alertsKey, updatedAlerts);
 
           console.log(
-            `[PROACTIVE ALERTS] Generated ${proactiveAlerts.length} alerts, ${newHighPriorityAlerts.length} high-priority`
+            `[PROACTIVE ALERTS] Generated ${proactiveAlerts.length} alerts, ${newHighPriorityAlerts.length} high-priority`,
           );
         }
       } catch (error) {
@@ -20361,11 +21120,14 @@ Provide 3-5 actionable next steps:
       // Analyze for proactive alerts
       const primeSetups = allTickers.filter(
         (t) =>
-          t.rank >= 75 && t.rr >= 1.5 && t.completion < 0.4 && t.phase_pct < 0.6
+          t.rank >= 75 &&
+          t.rr >= 1.5 &&
+          t.completion < 0.4 &&
+          t.phase_pct < 0.6,
       );
 
       const highRiskPositions = allTickers.filter(
-        (t) => t.completion > 0.7 || t.phase_pct > 0.8
+        (t) => t.completion > 0.7 || t.phase_pct > 0.8,
       );
 
       // Build monitoring prompt
@@ -20406,7 +21168,7 @@ ${
       (a) =>
         `- ${new Date(a.ts).toLocaleTimeString()}: **${a.ticker}** ${
           a.type
-        } at $${a.price.toFixed(2)}`
+        } at $${a.price.toFixed(2)}`,
     )
     .join("\n") || "None"
 }
@@ -20436,7 +21198,7 @@ Be concise (3-5 sentences per section).`;
             temperature: 0.7,
             max_tokens: 800,
           }),
-        }
+        },
       );
 
       if (!aiResponse.ok) {
@@ -20477,7 +21239,7 @@ Be concise (3-5 sentences per section).`;
       await KV.put(updatesListKey, JSON.stringify(existingList.slice(0, 30)));
 
       console.log(
-        `[SCHEDULED] Generated ${updateTime} at ${now.toISOString()}`
+        `[SCHEDULED] Generated ${updateTime} at ${now.toISOString()}`,
       );
     } catch (error) {
       console.error("[SCHEDULED ERROR]", error);
