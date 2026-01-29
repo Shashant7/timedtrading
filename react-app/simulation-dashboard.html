@@ -9656,11 +9656,12 @@
                                                           data &&
                                                           (data[sym] ||
                                                             data[t.ticker]);
-                                                        const curPx = Number(
-                                                          live?.price ??
-                                                            live?.last ??
-                                                            live?.close,
-                                                        );
+                                                        const curPxLive =
+                                                          Number(
+                                                            live?.price ??
+                                                              live?.last ??
+                                                              live?.close,
+                                                          );
                                                         const tp =
                                                           computeTpTargetPrice(
                                                             live || {},
@@ -9674,6 +9675,54 @@
                                                         const comp = Number(
                                                           live?.completion,
                                                         );
+
+                                                        // Prefer portfolio mark/avgEntry for open positions (often the most reliable),
+                                                        // fall back to live ticker snapshot.
+                                                        const pos =
+                                                          openPos.find((p) => {
+                                                            const pt = String(
+                                                              p?.ticker || "",
+                                                            ).toUpperCase();
+                                                            const pd = String(
+                                                              p?.direction ||
+                                                                "",
+                                                            ).toUpperCase();
+                                                            return (
+                                                              pt === sym &&
+                                                              (!t.direction ||
+                                                                !pd ||
+                                                                pd ===
+                                                                  t.direction)
+                                                            );
+                                                          });
+                                                        const curPxMark =
+                                                          Number(pos?.mark);
+                                                        const curPx =
+                                                          Number.isFinite(
+                                                            curPxMark,
+                                                          )
+                                                            ? curPxMark
+                                                            : curPxLive;
+                                                        const entryPxFinal =
+                                                          Number.isFinite(
+                                                            Number(
+                                                              t.entryPrice,
+                                                            ),
+                                                          )
+                                                            ? Number(
+                                                                t.entryPrice,
+                                                              )
+                                                            : Number.isFinite(
+                                                                  Number(
+                                                                    pos?.avgEntry,
+                                                                  ),
+                                                                )
+                                                              ? Number(
+                                                                  pos.avgEntry,
+                                                                )
+                                                              : Number(
+                                                                  t.entryPrice,
+                                                                );
 
                                                         const exitPx = t.exit
                                                           ? Number(
@@ -9727,24 +9776,6 @@
                                                             },
                                                             0,
                                                           );
-
-                                                        const pos =
-                                                          openPos.find((p) => {
-                                                            const pt = String(
-                                                              p?.ticker || "",
-                                                            ).toUpperCase();
-                                                            const pd = String(
-                                                              p?.direction ||
-                                                                "",
-                                                            ).toUpperCase();
-                                                            return (
-                                                              pt === sym &&
-                                                              (!t.direction ||
-                                                                !pd ||
-                                                                pd ===
-                                                                  t.direction)
-                                                            );
-                                                          });
 
                                                         const remaining = t.exit
                                                           ? 0
@@ -9812,10 +9843,10 @@
                                                             </td>
                                                             <td className="p-2">
                                                               {Number.isFinite(
-                                                                t.entryPrice,
+                                                                entryPxFinal,
                                                               ) ? (
                                                                 fmtUsd(
-                                                                  t.entryPrice,
+                                                                  entryPxFinal,
                                                                 )
                                                               ) : (
                                                                 <span className="text-[#6b7a9f]">
