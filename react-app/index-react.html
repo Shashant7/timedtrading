@@ -11966,21 +11966,73 @@
           if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
           if (archiveEmoji) badges.push(archiveEmoji);
 
-          // Card background: base tint from daily change (green/red intensity),
+          // Daily change (for tint + display):
+          // Prefer getDailyChange() (staleness-aware), but fall back to raw fields so cards
+          // still show a consistent background even when the stale gate hides dayPct.
+          const pickNum = (obj, keys) => {
+            for (const k of keys) {
+              const v = Number(obj?.[k]);
+              if (Number.isFinite(v)) return v;
+            }
+            return null;
+          };
+          const priceNum = Number(t?.price);
+          const prevCloseNum = pickNum(t, [
+            "prev_close",
+            "previous_close",
+            "prior_close",
+            "yclose",
+            "close_prev",
+          ]);
+          const baseDaily = getDailyChange(t) || {};
+          let dayPct = Number(baseDaily?.dayPct);
+          let dayChg = Number(baseDaily?.dayChg);
+          if (!Number.isFinite(dayPct)) {
+            dayPct = pickNum(t, [
+              "day_change_pct",
+              "daily_change_pct",
+              "session_change_pct",
+              "change_pct",
+              "pct_change",
+              "chp",
+            ]);
+          }
+          if (!Number.isFinite(dayChg)) {
+            dayChg = pickNum(t, [
+              "day_change",
+              "daily_change",
+              "session_change",
+              "change",
+              "chg",
+              "ch",
+            ]);
+          }
+          if (
+            (!Number.isFinite(dayChg) || !Number.isFinite(dayPct)) &&
+            Number.isFinite(priceNum) &&
+            priceNum > 0 &&
+            Number.isFinite(prevCloseNum) &&
+            prevCloseNum > 0
+          ) {
+            const chg = priceNum - prevCloseNum;
+            const pct = (chg / prevCloseNum) * 100;
+            if (!Number.isFinite(dayChg)) dayChg = chg;
+            if (!Number.isFinite(dayPct)) dayPct = pct;
+          }
+
+          // Card background: base tint from daily change (blue/orange intensity),
           // plus a completion "fill" overlay (left->right).
-          const dc = getDailyChange(t);
-          const dayPct = Number(dc?.dayPct);
           const dayAbs = Number.isFinite(dayPct)
             ? Math.min(5, Math.abs(dayPct))
             : null;
           const dayIntensity =
-            dayAbs != null ? Math.max(0, Math.min(1, dayAbs / 3)) : 0; // 0..1 (3% => full)
-          const tintAlpha = 0.04 + dayIntensity * 0.14;
+            dayAbs != null ? Math.max(0, Math.min(1, dayAbs / 2.5)) : 0; // 0..1 (2.5% => full)
+          const tintAlpha = 0.08 + dayIntensity * 0.26; // punchier tint for readability
           const tint =
             Number.isFinite(dayPct) && dayPct !== 0
               ? dayPct >= 0
-                ? `rgba(34,197,94,${tintAlpha})`
-                : `rgba(239,68,68,${tintAlpha})`
+                ? `rgba(59,130,246,${tintAlpha})`
+                : `rgba(249,115,22,${tintAlpha})`
               : "rgba(0,0,0,0)";
 
           const compP = completionForSize(t);
@@ -11995,6 +12047,12 @@
           const bgImage = compFill ? `${compFill}, ${bgTint}` : bgTint;
 
           const badgesText = badges.length > 0 ? badges.join("") : "";
+          const dayEdgeClass =
+            Number.isFinite(dayPct) && dayPct !== 0
+              ? dayPct >= 0
+                ? "shadow-[0_0_0_1px_rgba(56,189,248,0.22)]"
+                : "shadow-[0_0_0_1px_rgba(251,146,60,0.22)]"
+              : "";
 
           return (
             <button
@@ -12006,6 +12064,8 @@
                 (movedRecently
                   ? transitionCardClass
                   : "border-[#26325f] hover:border-[#3a4aa0]")
+                  .trim() +
+                (dayEdgeClass ? ` ${dayEdgeClass}` : "")
               }
               style={{ backgroundColor: "#121a33", backgroundImage: bgImage }}
             >
@@ -12073,9 +12133,8 @@
                   {dirEmoji} {dir}
                 </span>
                 {(() => {
-                  const { dayChg, dayPct } = getDailyChange(t);
                   const up = Number(dayChg || dayPct || 0) >= 0;
-                  const cls = up ? "text-green-300" : "text-red-300";
+                  const cls = up ? "text-sky-300" : "text-orange-300";
                   const sign = up ? "+" : "-";
                   return (
                     <span className={cls}>
@@ -12247,14 +12306,13 @@
                           ${Number.isFinite(price) ? price.toFixed(2) : "—"}
                         </div>
                         {(() => {
-                          const { dayChg, dayPct } = getDailyChange(t);
                           if (
                             !Number.isFinite(dayChg) &&
                             !Number.isFinite(dayPct)
                           )
                             return null;
                           const up = Number(dayChg || dayPct || 0) >= 0;
-                          const cls = up ? "text-green-300" : "text-red-300";
+                          const cls = up ? "text-sky-300" : "text-orange-300";
                           const sign = up ? "+" : "-";
                           return (
                             <div className={`text-[9px] ${cls}`}>
