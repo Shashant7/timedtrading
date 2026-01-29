@@ -16920,6 +16920,14 @@ export default {
         const startCash = PORTFOLIO_START_CASH;
         const events = [];
 
+        const tpTargetPrice = (src) => {
+          const directTarget = Number(src?.tp_target_price ?? src?.tp_target);
+          if (Number.isFinite(directTarget) && directTarget > 0) return directTarget;
+          const tp = Number(src?.tp);
+          if (Number.isFinite(tp) && tp > 0) return tp;
+          return null;
+        };
+
         const toMs = (tsLike) => {
           const n = typeof tsLike === "string" ? isoToMs(tsLike) : Number(tsLike);
           if (!Number.isFinite(n) || n <= 0) return null;
@@ -16972,6 +16980,57 @@ export default {
 
         events.sort((a, b) => a.ts - b.ts);
 
+        // Best-effort latest snapshots for tickers referenced by the portfolio/tape.
+        const latestByTicker = {};
+        try {
+          const tickSet = new Set();
+          for (const e of events) if (e?.ticker) tickSet.add(String(e.ticker).toUpperCase());
+          for (const tr of trades) if (tr?.ticker) tickSet.add(String(tr.ticker).toUpperCase());
+          const tickers = Array.from(tickSet).filter(Boolean).slice(0, 500);
+
+          // Prefer D1 for reads (batch query), fallback to KV.
+          if (env?.DB && tickers.length > 0) {
+            await d1EnsureLatestSchema(env);
+            const placeholders = tickers.map((_, i) => `?${i + 1}`).join(", ");
+            const rows = await env.DB
+              .prepare(
+                `SELECT ticker, payload_json FROM ticker_latest WHERE ticker IN (${placeholders})`
+              )
+              .bind(...tickers)
+              .all();
+            for (const r of rows?.results || []) {
+              const sym = String(r?.ticker || "").toUpperCase();
+              if (!sym) continue;
+              const raw = r?.payload_json;
+              if (!raw) continue;
+              try {
+                latestByTicker[sym] = JSON.parse(String(raw));
+              } catch {
+                // ignore
+              }
+            }
+          }
+
+          // Backfill from KV when D1 misses.
+          const missing = tickers.filter((t) => !latestByTicker[t]);
+          if (missing.length > 0) {
+            for (const t of missing) {
+              const v = await kvGetJSON(KV, `timed:latest:${t}`);
+              if (v && typeof v === "object") {
+                latestByTicker[t] = v;
+                try {
+                  ctx.waitUntil(d1UpsertTickerLatest(env, t, v));
+                  ctx.waitUntil(d1UpsertTickerIndex(env, t, v?.ts));
+                } catch {
+                  // ignore
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`[PORTFOLIO] latest snapshot join failed:`, String(e?.message || e));
+        }
+
         // Replay portfolio from executions (simple cash + positions model)
         let cash = startCash;
         const positions = {}; // ticker -> {direction, shares, avgEntry, cost}
@@ -17016,7 +17075,14 @@ export default {
         const openPositions = [];
         for (const [tkr, p] of Object.entries(positions)) {
           const trade = trades.find((x) => String(x?.ticker || "").toUpperCase() === tkr && isOpenTradeStatus(x?.status));
-          const px = Number(trade?.currentPrice ?? trade?.price);
+          const latest = latestByTicker[String(tkr).toUpperCase()];
+          const px = Number(
+            latest?.price ??
+              latest?.last ??
+              latest?.close ??
+              trade?.currentPrice ??
+              trade?.price
+          );
           const val = Number.isFinite(px) ? px * Number(p.shares) : null;
           if (Number.isFinite(val)) positionsValue += val;
           openPositions.push({
@@ -17026,6 +17092,9 @@ export default {
             avgEntry: p.avgEntry,
             mark: Number.isFinite(px) ? px : null,
             value: Number.isFinite(val) ? val : null,
+            phase_pct: latest?.phase_pct != null ? Number(latest.phase_pct) : null,
+            completion: latest?.completion != null ? Number(latest.completion) : null,
+            tp: tpTargetPrice(latest),
           });
         }
 
@@ -17039,6 +17108,136 @@ export default {
           byDay[e.day].push(e);
           if (!byTicker[e.ticker]) byTicker[e.ticker] = [];
           byTicker[e.ticker].push(e);
+        }
+
+        // Proof snapshot (server-side join): per-day rows with trade details.
+        const proofByDay = {};
+        try {
+          const entryByTradeId = new Map(); // trade_id -> { entryPrice, entryShares, entryTs, direction }
+          for (const e of events) {
+            if (e?.type === "ENTRY" && e?.trade_id && Number.isFinite(Number(e?.price))) {
+              entryByTradeId.set(String(e.trade_id), {
+                entryPrice: Number(e.price),
+                entryShares: Number.isFinite(Number(e?.shares)) ? Number(e.shares) : null,
+                entryTs: Number.isFinite(Number(e?.ts)) ? Number(e.ts) : null,
+                direction: e?.direction || null,
+              });
+            }
+          }
+
+          // Index open positions for remaining qty and avgEntry/mark.
+          const posByTickerDir = new Map(); // `${tkr}:${dir}` -> pos
+          for (const p of openPositions) {
+            const key = `${String(p.ticker).toUpperCase()}:${String(p.direction || "").toUpperCase()}`;
+            posByTickerDir.set(key, p);
+          }
+
+          const getPos = (tkr, dir) => {
+            const key = `${String(tkr).toUpperCase()}:${String(dir || "").toUpperCase()}`;
+            return posByTickerDir.get(key) || null;
+          };
+
+          for (const [day, dayEvents] of Object.entries(byDay)) {
+            const arr = Array.isArray(dayEvents) ? dayEvents : [];
+            const tradesById = new Map();
+            let entries = 0, trims = 0, exits = 0;
+            let realizedPnl = 0;
+            const closedById = new Map(); // trade_id -> pnl
+
+            for (const e of arr) {
+              const tradeId = e?.trade_id ? String(e.trade_id) : null;
+              const tkr = String(e?.ticker || "").toUpperCase();
+              const type = String(e?.type || "").toUpperCase();
+              if (type === "ENTRY") entries += 1;
+              if (type === "TRIM") trims += 1;
+              if (type === "EXIT") exits += 1;
+
+              if (!tradeId || !tkr) continue;
+              if (!tradesById.has(tradeId)) {
+                const meta = entryByTradeId.get(tradeId) || {};
+                const latest = latestByTicker[tkr] || null;
+                const pos = getPos(tkr, meta.direction || e?.direction || "");
+                const currentPx = Number(
+                  pos?.mark ??
+                    latest?.price ??
+                    latest?.last ??
+                    latest?.close ??
+                    null
+                );
+                const entryPx = Number.isFinite(Number(pos?.avgEntry))
+                  ? Number(pos.avgEntry)
+                  : Number(meta?.entryPrice);
+                tradesById.set(tradeId, {
+                  trade_id: tradeId,
+                  ticker: tkr,
+                  direction: String(meta.direction || e?.direction || "").toUpperCase() || null,
+                  entry: {
+                    ts: meta?.entryTs ?? null,
+                    price: Number.isFinite(entryPx) ? entryPx : null,
+                    shares: meta?.entryShares ?? null,
+                  },
+                  current: {
+                    price: Number.isFinite(currentPx) ? currentPx : null,
+                    phase_pct: latest?.phase_pct != null ? Number(latest.phase_pct) : null,
+                    completion: latest?.completion != null ? Number(latest.completion) : null,
+                    tp: tpTargetPrice(latest),
+                    ts: latest?.ts != null ? toMs(latest.ts) : null,
+                  },
+                  last_action_type: null,
+                  last_action_ts: null,
+                  trim_price: null,
+                  exit_price: null,
+                  exit_reason: null,
+                  remaining_qty: pos?.shares != null ? Number(pos.shares) : null,
+                  realized_pnl: 0,
+                });
+              }
+
+              const t = tradesById.get(tradeId);
+              const px = Number(e?.price);
+              const sh = Number(e?.shares);
+              if (Number.isFinite(Number(e?.ts))) t.last_action_ts = Number(e.ts);
+              t.last_action_type = type || t.last_action_type;
+              if (type === "TRIM" && Number.isFinite(px)) t.trim_price = px;
+              if (type === "EXIT" && Number.isFinite(px)) t.exit_price = px;
+              if (type === "EXIT" && e?.reason) t.exit_reason = String(e.reason);
+
+              // realized pnl for trim/exit if entry is known
+              const entryPx = Number(t?.entry?.price);
+              const dir = String(t?.direction || "").toUpperCase();
+              const sign = dir === "SHORT" ? -1 : 1;
+              if ((type === "TRIM" || type === "EXIT") && Number.isFinite(entryPx) && Number.isFinite(px) && Number.isFinite(sh)) {
+                const pnl = (px - entryPx) * sh * sign;
+                t.realized_pnl += pnl;
+                realizedPnl += pnl;
+                if (type === "EXIT") closedById.set(tradeId, pnl);
+              }
+            }
+
+            let wins = 0, losses = 0;
+            for (const pnl of closedById.values()) {
+              if (!Number.isFinite(pnl) || pnl === 0) continue;
+              if (pnl > 0) wins += 1;
+              if (pnl < 0) losses += 1;
+            }
+
+            proofByDay[day] = {
+              day,
+              stats: {
+                entries,
+                trims,
+                exits,
+                wins,
+                losses,
+                realizedPnl,
+              },
+              trades: Array.from(tradesById.values()).sort(
+                (a, b) => Number(b.last_action_ts || 0) - Number(a.last_action_ts || 0)
+              ),
+            };
+          }
+        } catch (e) {
+          console.warn(`[PORTFOLIO] proof build failed:`, String(e?.message || e));
         }
 
         return sendJSON(
@@ -17056,6 +17255,10 @@ export default {
               count: events.length,
               byDay,
               byTicker,
+            },
+            proof: {
+              generated_at: Date.now(),
+              byDay: proofByDay,
             },
           },
           200,

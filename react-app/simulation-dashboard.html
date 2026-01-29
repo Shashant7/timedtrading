@@ -8675,6 +8675,11 @@
                               ex.byDay && typeof ex.byDay === "object"
                                 ? ex.byDay
                                 : {};
+                            const proof = paperPortfolio.data?.proof;
+                            const proofByDay =
+                              proof && typeof proof.byDay === "object"
+                                ? proof.byDay
+                                : null;
                             const openPos = Array.isArray(p.openPositions)
                               ? p.openPositions
                               : [];
@@ -9498,6 +9503,321 @@
                                       .slice()
                                       .reverse()
                                       .map((dayKey) => {
+                                        // Prefer server-side proof snapshot from Worker (/timed/portfolio.proof.byDay)
+                                        if (proofByDay && proofByDay[dayKey]) {
+                                          const day = proofByDay[dayKey] || {};
+                                          const stats = day.stats || {};
+                                          const trades = Array.isArray(
+                                            day.trades,
+                                          )
+                                            ? day.trades
+                                            : [];
+                                          const realizedPnl = Number(
+                                            stats.realizedPnl || 0,
+                                          );
+                                          const entries = Number(
+                                            stats.entries || 0,
+                                          );
+                                          const trims = Number(
+                                            stats.trims || 0,
+                                          );
+                                          const exits = Number(
+                                            stats.exits || 0,
+                                          );
+                                          const wins = Number(stats.wins || 0);
+                                          const losses = Number(
+                                            stats.losses || 0,
+                                          );
+                                          return (
+                                            <details
+                                              key={`day-proof-${dayKey}`}
+                                              className="bg-[#121a33] border border-[#26325f] rounded-xl overflow-hidden"
+                                            >
+                                              <summary className="cursor-pointer select-none p-3 flex items-center justify-between gap-3 flex-wrap">
+                                                <div>
+                                                  <div className="text-sm font-bold">
+                                                    {dayKey}
+                                                  </div>
+                                                  <div className="text-[11px] text-[#93a4d6]">
+                                                    {fmtInt(entries)} entries •{" "}
+                                                    {fmtInt(trims)} trims •{" "}
+                                                    {fmtInt(exits)} exits
+                                                    {wins + losses > 0 ? (
+                                                      <>
+                                                        {" "}
+                                                        • {fmtInt(wins)}W/
+                                                        {fmtInt(losses)}L
+                                                      </>
+                                                    ) : null}
+                                                  </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                  <div
+                                                    className={`px-2 py-1 rounded bg-[#0f1630] border border-[#26325f] text-xs font-semibold ${realizedPnl >= 0 ? "text-green-400" : "text-red-400"}`}
+                                                  >
+                                                    {trades.length > 0
+                                                      ? fmtUsd(realizedPnl)
+                                                      : "—"}
+                                                  </div>
+                                                  <div className="px-2 py-1 rounded bg-[#0f1630] border border-[#26325f] text-xs text-[#93a4d6]">
+                                                    {fmtInt(trades.length)}{" "}
+                                                    trades
+                                                  </div>
+                                                </div>
+                                              </summary>
+
+                                              <div className="p-3 border-t border-[#26325f]">
+                                                {trades.length === 0 ? (
+                                                  <div className="text-sm text-[#93a4d6]">
+                                                    No trades for this day.
+                                                  </div>
+                                                ) : (
+                                                  <div className="overflow-x-auto">
+                                                    <table className="w-full text-sm min-w-[1150px]">
+                                                      <thead>
+                                                        <tr className="text-left border-b border-[#26325f]">
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Trade
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Side
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Current
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Entry
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            TP
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Phase
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Completion
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Exit/Trim price
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Exit reason
+                                                          </th>
+                                                          <th className="p-2 text-xs text-[#93a4d6]">
+                                                            Remaining qty
+                                                          </th>
+                                                        </tr>
+                                                      </thead>
+                                                      <tbody>
+                                                        {trades.map((t) => {
+                                                          const sym = String(
+                                                            t?.ticker || "",
+                                                          ).toUpperCase();
+                                                          const dir = String(
+                                                            t?.direction || "",
+                                                          ).toUpperCase();
+                                                          const entryTs =
+                                                            Number(
+                                                              t?.entry?.ts,
+                                                            );
+                                                          const entryPx =
+                                                            Number(
+                                                              t?.entry?.price,
+                                                            );
+                                                          const curPx = Number(
+                                                            t?.current?.price,
+                                                          );
+                                                          const tp = Number(
+                                                            t?.current?.tp,
+                                                          );
+                                                          const phase = Number(
+                                                            t?.current
+                                                              ?.phase_pct,
+                                                          );
+                                                          const comp = Number(
+                                                            t?.current
+                                                              ?.completion,
+                                                          );
+                                                          const trimPx = Number(
+                                                            t?.trim_price,
+                                                          );
+                                                          const exitPx = Number(
+                                                            t?.exit_price,
+                                                          );
+                                                          const exitReason =
+                                                            t?.exit_reason !=
+                                                            null
+                                                              ? String(
+                                                                  t.exit_reason,
+                                                                )
+                                                              : null;
+                                                          const remaining =
+                                                            Number(
+                                                              t?.remaining_qty,
+                                                            );
+
+                                                          const actionPx =
+                                                            Number.isFinite(
+                                                              exitPx,
+                                                            )
+                                                              ? exitPx
+                                                              : Number.isFinite(
+                                                                    trimPx,
+                                                                  )
+                                                                ? trimPx
+                                                                : null;
+
+                                                          return (
+                                                            <tr
+                                                              key={`proof-tr-${dayKey}-${t?.trade_id || sym}`}
+                                                              className="border-b border-[#26325f]/50 hover:bg-[#0f1630] cursor-pointer"
+                                                              onClick={() => {
+                                                                try {
+                                                                  setLedgerTickerFilter(
+                                                                    sym,
+                                                                  );
+                                                                  setLedgerTab(
+                                                                    "trades",
+                                                                  );
+                                                                } catch {}
+                                                              }}
+                                                              title="Click to drill down in Trades"
+                                                            >
+                                                              <td className="p-2">
+                                                                <div className="font-semibold">
+                                                                  {sym}
+                                                                </div>
+                                                                <div className="text-[10px] text-[#6b7a9f]">
+                                                                  {Number.isFinite(
+                                                                    entryTs,
+                                                                  )
+                                                                    ? `Entry: ${new Date(entryTs).toLocaleString()}`
+                                                                    : ""}
+                                                                </div>
+                                                              </td>
+                                                              <td className="p-2 text-xs">
+                                                                <span
+                                                                  className={`px-2 py-0.5 rounded font-semibold ${dir === "SHORT" ? "bg-red-500/15 text-red-300" : "bg-green-500/15 text-green-300"}`}
+                                                                >
+                                                                  {dir || "—"}
+                                                                </span>
+                                                              </td>
+                                                              <td className="p-2">
+                                                                {Number.isFinite(
+                                                                  curPx,
+                                                                ) ? (
+                                                                  fmtUsd(curPx)
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                              <td className="p-2">
+                                                                {Number.isFinite(
+                                                                  entryPx,
+                                                                ) ? (
+                                                                  fmtUsd(
+                                                                    entryPx,
+                                                                  )
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                              <td className="p-2">
+                                                                {Number.isFinite(
+                                                                  tp,
+                                                                ) ? (
+                                                                  fmtUsd(tp)
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                              <td className="p-2">
+                                                                {Number.isFinite(
+                                                                  phase,
+                                                                ) ? (
+                                                                  `${(phase * 100).toFixed(1)}%`
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                              <td className="p-2">
+                                                                {Number.isFinite(
+                                                                  comp,
+                                                                ) ? (
+                                                                  `${(comp * 100).toFixed(1)}%`
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                              <td className="p-2">
+                                                                {Number.isFinite(
+                                                                  actionPx,
+                                                                ) ? (
+                                                                  <span className="text-[#93a4d6]">
+                                                                    {Number.isFinite(
+                                                                      trimPx,
+                                                                    )
+                                                                      ? `T ${fmtUsd(trimPx)}`
+                                                                      : "T —"}
+                                                                    {"  "}
+                                                                    {Number.isFinite(
+                                                                      exitPx,
+                                                                    )
+                                                                      ? `X ${fmtUsd(exitPx)}`
+                                                                      : "X —"}
+                                                                  </span>
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                              <td className="p-2 text-xs text-[#93a4d6]">
+                                                                {exitReason ? (
+                                                                  exitReason
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                              <td className="p-2 text-xs">
+                                                                {Number.isFinite(
+                                                                  remaining,
+                                                                ) ? (
+                                                                  <span className="font-semibold text-white">
+                                                                    {remaining.toFixed(
+                                                                      4,
+                                                                    )}
+                                                                  </span>
+                                                                ) : (
+                                                                  <span className="text-[#6b7a9f]">
+                                                                    —
+                                                                  </span>
+                                                                )}
+                                                              </td>
+                                                            </tr>
+                                                          );
+                                                        })}
+                                                      </tbody>
+                                                    </table>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </details>
+                                          );
+                                        }
+
                                         const dayEvents = Array.isArray(
                                           byDay[dayKey],
                                         )
