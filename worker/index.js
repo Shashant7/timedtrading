@@ -396,11 +396,13 @@ function sanitizeTickerContext(ctx, hostObj = null) {
   const cleanStr = (s, fallback = "") => {
     if (s == null) return fallback;
     let v = String(s);
-    // If a control char sneaks in (e.g. \r), prefer a known-good fallback when available.
+    // If something double-escaped upstream, normalize literal "\\r" sequences too.
+    if (v.includes("\\r")) v = v.replace(/\\r/g, "r");
+    // Some upstream strings contain a literal carriage return (\r) where "r" should be (seen in sector/name).
+    // Prefer a known-good fallback when available; otherwise treat it as "r".
     if (v.includes("\r")) {
       if (fallback) return String(fallback);
-      // best-effort: drop control chars
-      v = v.replace(/\r/g, "");
+      v = v.replace(/\r/g, "r");
     }
     return v.trim();
   };

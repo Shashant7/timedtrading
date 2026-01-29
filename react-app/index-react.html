@@ -15108,6 +15108,7 @@
                             : String(v)
                                 // Some capture strings can contain stray control chars (e.g. \r),
                                 // which render oddly in the browser.
+                                .replace(/\\r/g, "r")
                                 .replace(/\r/g, "r")
                                 .trim();
 
