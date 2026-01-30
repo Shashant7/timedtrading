@@ -14425,12 +14425,62 @@
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
 
-        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | JOURNEY | TRADE_HISTORY
+        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | CHART | TECHNICALS | JOURNEY | TRADE_HISTORY
+
+        // Right Rail: multi-timeframe candles chart (fetched on-demand)
+        const [chartTf, setChartTf] = useState("30"); // 10 | 30 | 60 | 240 | D | W
+        const [chartCandles, setChartCandles] = useState([]);
+        const [chartLoading, setChartLoading] = useState(false);
+        const [chartError, setChartError] = useState(null);
 
         // Default to Analysis when switching tickers
         useEffect(() => {
           setRailTab("ANALYSIS");
         }, [tickerSymbol]);
+
+        useEffect(() => {
+          setChartCandles([]);
+          setChartError(null);
+          setChartLoading(false);
+        }, [tickerSymbol]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "")
+            .trim()
+            .toUpperCase();
+          if (railTab !== "CHART" || !sym) return;
+
+          let cancelled = false;
+          const run = async () => {
+            try {
+              setChartLoading(true);
+              setChartError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("tf", String(chartTf || "30"));
+              qs.set("limit", "200");
+              const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, {
+                cache: "no-store",
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "candles_failed");
+              const candles = Array.isArray(json.candles) ? json.candles : [];
+              if (!cancelled) setChartCandles(candles);
+            } catch (e) {
+              if (!cancelled) {
+                setChartCandles([]);
+                setChartError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setChartLoading(false);
+            }
+          };
+          run();
+          return () => {
+            cancelled = true;
+          };
+        }, [railTab, tickerSymbol, chartTf]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")
@@ -15057,6 +15107,7 @@
                   <div className="mt-3 flex items-center gap-2 flex-wrap">
                     {[
                       { k: "ANALYSIS", label: "Analysis" },
+                      { k: "CHART", label: "Chart" },
                       { k: "TECHNICALS", label: "Technicals" },
                       { k: "JOURNEY", label: "Journey" },
                       {
@@ -17131,6 +17182,183 @@
                         })()}
 
                       {/* Trade Journey (Ledger trades) */}
+                    </>
+                  ) : null}
+
+                  {railTab === "CHART" ? (
+                    <>
+                      <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <div className="text-sm text-[#93a4d6]">Chart</div>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {[
+                              { tf: "10", label: "10m" },
+                              { tf: "30", label: "30m" },
+                              { tf: "60", label: "1H" },
+                              { tf: "240", label: "4H" },
+                              { tf: "D", label: "D" },
+                              { tf: "W", label: "W" },
+                            ].map((t) => {
+                              const active = String(chartTf) === String(t.tf);
+                              return (
+                                <button
+                                  key={`tf-${t.tf}`}
+                                  onClick={() => setChartTf(String(t.tf))}
+                                  className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
+                                    active
+                                      ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                                      : "border-[#26325f] bg-[#121a33] text-[#93a4d6] hover:text-white"
+                                  }`}
+                                  title={`Show ${t.label} candles`}
+                                >
+                                  {t.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {chartLoading ? (
+                          <div className="text-xs text-[#93a4d6]">
+                            Loading candles…
+                          </div>
+                        ) : chartError ? (
+                          <div className="text-xs text-yellow-300">
+                            Failed to load candles: {chartError}
+                          </div>
+                        ) : !Array.isArray(chartCandles) ||
+                          chartCandles.length < 2 ? (
+                          <div className="text-xs text-[#93a4d6]">
+                            No candles yet for this timeframe. (Waiting for the
+                            TradingView candle capture feed.)
+                          </div>
+                        ) : (
+                          (() => {
+                            const candles = chartCandles
+                              .slice(-200)
+                              .filter(
+                                (c) =>
+                                  c &&
+                                  Number.isFinite(Number(c.ts)) &&
+                                  Number.isFinite(Number(c.o)) &&
+                                  Number.isFinite(Number(c.h)) &&
+                                  Number.isFinite(Number(c.l)) &&
+                                  Number.isFinite(Number(c.c)),
+                              );
+                            const n = candles.length;
+                            if (n < 2) return null;
+
+                            const lows = candles.map((c) => Number(c.l));
+                            const highs = candles.map((c) => Number(c.h));
+                            let minL = Math.min(...lows);
+                            let maxH = Math.max(...highs);
+                            if (!Number.isFinite(minL) || !Number.isFinite(maxH))
+                              return null;
+                            if (maxH <= minL) {
+                              maxH = minL + 1;
+                            }
+                            const pad = (maxH - minL) * 0.02;
+                            minL -= pad;
+                            maxH += pad;
+
+                            const W = 720;
+                            const H = 180;
+                            const y = (p) =>
+                              H - ((p - minL) / (maxH - minL)) * H;
+                            const step = W / n;
+                            const bodyW = Math.max(2, Math.min(10, step * 0.6));
+
+                            const gridYs = [0.25, 0.5, 0.75].map((k) =>
+                              Math.round(H * k),
+                            );
+
+                            return (
+                              <div className="w-full">
+                                <svg
+                                  viewBox={`0 0 ${W} ${H}`}
+                                  className="w-full h-[190px] rounded border border-[#26325f] bg-[#0b1020]"
+                                  role="img"
+                                  aria-label="Candlestick chart"
+                                >
+                                  {/* Grid */}
+                                  {gridYs.map((gy) => (
+                                    <line
+                                      key={`gy-${gy}`}
+                                      x1={0}
+                                      y1={gy}
+                                      x2={W}
+                                      y2={gy}
+                                      stroke="rgba(147,164,214,0.12)"
+                                      strokeWidth="1"
+                                    />
+                                  ))}
+
+                                  {/* Candles */}
+                                  {candles.map((c, i) => {
+                                    const o = Number(c.o);
+                                    const h = Number(c.h);
+                                    const l = Number(c.l);
+                                    const cl = Number(c.c);
+                                    const up = cl >= o;
+                                    const stroke = up
+                                      ? "rgba(56,189,248,0.95)"
+                                      : "rgba(251,146,60,0.95)";
+                                    const fill = up
+                                      ? "rgba(56,189,248,0.35)"
+                                      : "rgba(251,146,60,0.35)";
+
+                                    const cx = i * step + step / 2;
+                                    const yH = y(h);
+                                    const yL = y(l);
+                                    const yO = y(o);
+                                    const yC = y(cl);
+                                    const top = Math.min(yO, yC);
+                                    const bot = Math.max(yO, yC);
+                                    const bodyH = Math.max(1, bot - top);
+
+                                    return (
+                                      <g key={`c-${Number(c.ts)}-${i}`}>
+                                        <line
+                                          x1={cx}
+                                          y1={yH}
+                                          x2={cx}
+                                          y2={yL}
+                                          stroke={stroke}
+                                          strokeWidth="1"
+                                        />
+                                        <rect
+                                          x={cx - bodyW / 2}
+                                          y={top}
+                                          width={bodyW}
+                                          height={bodyH}
+                                          fill={fill}
+                                          stroke={stroke}
+                                          strokeWidth="1"
+                                          rx="1"
+                                        />
+                                      </g>
+                                    );
+                                  })}
+                                </svg>
+                                <div className="mt-2 text-[10px] text-[#93a4d6] flex items-center justify-between">
+                                  <span>
+                                    {String(chartTf) === "D"
+                                      ? "Daily"
+                                      : String(chartTf) === "W"
+                                        ? "Weekly"
+                                        : `${chartTf}m`}{" "}
+                                    candles • {candles.length} bars
+                                  </span>
+                                  <span>
+                                    Range: ${minL.toFixed(2)}–$
+                                    {maxH.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })()
+                        )}
+                      </div>
                     </>
                   ) : null}
 
