@@ -12907,6 +12907,23 @@ export default {
 
           await kvPutText(KV, "timed:capture:last_ingest_ms", String(now));
 
+          // If payload includes tf_candles, upsert them to D1 (heartbeat can now send both capture + candles).
+          if (payload.tf_candles && typeof payload.tf_candles === "object") {
+            try {
+              await d1EnsureCandleSchema(env);
+              for (const [tf, candle] of Object.entries(payload.tf_candles)) {
+                if (candle && typeof candle === "object") {
+                  ctx.waitUntil(d1UpsertCandle(env, ticker, tf, candle));
+                }
+              }
+            } catch (candleErr) {
+              console.error(
+                `[CAPTURE CANDLES] Upsert failed for ${ticker}:`,
+                String(candleErr),
+              );
+            }
+          }
+
           // Promote capture payload into main latest/trail when it contains full score fields.
           // This fixes the “stale latest despite fresh receipts” issue when some alerts are wired to /ingest-capture.
           try {
