@@ -14442,6 +14442,7 @@
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
         const [crosshair, setCrosshair] = useState(null);
+        const chartScrollRef = useRef(null);
 
         // Default to Analysis when switching tickers
         useEffect(() => {
