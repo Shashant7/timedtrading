@@ -17274,16 +17274,18 @@
                             minL -= pad;
                             maxH += pad;
 
-                            const W = 760;
                             const H = 320;
                             const leftMargin = 5;
                             const rightMargin = 65;
-                            const plotW = W - leftMargin - rightMargin;
+                            const candleW = 8; // Fixed candle width
+                            const candleGap = 2; // Gap between candles
+                            const candleStep = candleW + candleGap;
+                            const plotW = n * candleStep;
+                            const W = plotW + leftMargin + rightMargin;
                             const plotH = H;
                             const y = (p) =>
                               plotH - ((p - minL) / (maxH - minL)) * plotH;
-                            const step = plotW / n;
-                            const bodyW = Math.max(1.5, Math.min(12, step * 0.85));
+                            const bodyW = candleW * 0.9;
 
                             const priceStep = (maxH - minL) / 5;
                             const priceTicks = [];
@@ -17316,14 +17318,16 @@
 
                             return (
                               <div className="w-full relative">
-                                <svg
-                                  viewBox={`0 0 ${W} ${H}`}
-                                  className="w-full h-[320px] rounded border border-[#26325f] bg-[#0b1020] cursor-crosshair"
-                                  role="img"
-                                  aria-label="Candlestick chart"
-                                  onMouseMove={handleMouseMove}
-                                  onMouseLeave={() => setCrosshair(null)}
-                                >
+                                <div className="overflow-x-auto overflow-y-hidden rounded border border-[#26325f] bg-[#0b1020]">
+                                  <svg
+                                    viewBox={`0 0 ${W} ${H}`}
+                                    style={{ minWidth: `${Math.max(760, W)}px`, height: "320px" }}
+                                    className="cursor-crosshair"
+                                    role="img"
+                                    aria-label="Candlestick chart"
+                                    onMouseMove={handleMouseMove}
+                                    onMouseLeave={() => setCrosshair(null)}
+                                  >
                                   {/* Price grid lines */}
                                   {priceTicks.map((p, i) => {
                                     const yPos = y(p);
@@ -17364,7 +17368,7 @@
                                       ? "rgba(56,189,248,0.35)"
                                       : "rgba(251,146,60,0.35)";
 
-                                    const cx = leftMargin + i * step + step / 2;
+                                    const cx = leftMargin + i * candleStep + candleStep / 2;
                                     const yH = y(h);
                                     const yL = y(l);
                                     const yO = y(o);
@@ -17388,9 +17392,7 @@
                                           y={top}
                                           width={bodyW}
                                           height={bodyH}
-                                          fill={fill}
-                                          stroke={stroke}
-                                          strokeWidth="1.2"
+                                          fill={stroke}
                                           rx="0.5"
                                         />
                                       </g>
@@ -17420,7 +17422,8 @@
                                       />
                                     </>
                                   ) : null}
-                                </svg>
+                                  </svg>
+                                </div>
 
                                 {/* Crosshair tooltip */}
                                 {crosshair && crosshair.candle ? (

@@ -13174,7 +13174,9 @@ export default {
           const payload = v.payload;
           const tfCandles = payload?.tf_candles || {};
 
-          // Upsert all candles into D1 (best-effort; continue on individual errors).
+          // Check if bulk mode (tf_candles values are arrays of candles instead of single candles)
+          const isBulk = Object.values(tfCandles).some((val) => Array.isArray(val));
+
           let okCount = 0;
           let errCount = 0;
           try {
@@ -13182,10 +13184,25 @@ export default {
           } catch {
             // ignore (d1UpsertCandle will surface errors)
           }
-          for (const [tf, candle] of Object.entries(tfCandles)) {
-            const res = await d1UpsertCandle(env, ticker, tf, candle);
-            if (res?.ok) okCount++;
-            else errCount++;
+
+          if (isBulk) {
+            // Bulk mode: each TF has an array of candles
+            for (const [tf, candleArray] of Object.entries(tfCandles)) {
+              if (!Array.isArray(candleArray)) continue;
+              for (const candle of candleArray) {
+                if (!candle || typeof candle !== "object") continue;
+                const res = await d1UpsertCandle(env, ticker, tf, candle);
+                if (res?.ok) okCount++;
+                else errCount++;
+              }
+            }
+          } else {
+            // Single-candle mode: each TF has one candle object
+            for (const [tf, candle] of Object.entries(tfCandles)) {
+              const res = await d1UpsertCandle(env, ticker, tf, candle);
+              if (res?.ok) okCount++;
+              else errCount++;
+            }
           }
 
           return ackJSON(
@@ -13196,6 +13213,7 @@ export default {
               ingested: okCount,
               rejected: errCount,
               tfs: Object.keys(tfCandles),
+              bulk: isBulk,
             },
             200,
             req,

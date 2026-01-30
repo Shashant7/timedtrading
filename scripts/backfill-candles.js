@@ -243,10 +243,10 @@ async function main() {
           continue;
         }
 
-        // Take last 200 candles
+        // Store full history (Worker bulk mode accepts arrays)
         const last200 = res.candles.slice(-200);
-        tfCandles[tf] = last200[last200.length - 1]; // Latest candle per TF
-        console.log(`  ${tf}: ${res.candles.length} bars (using latest)`);
+        tfCandles[tf] = last200;
+        console.log(`  ${tf}: ${last200.length} bars`);
 
         await sleep(500); // Slow down Yahoo requests to avoid rate limits
       } catch (e) {
@@ -263,7 +263,7 @@ async function main() {
     try {
       const postRes = await postCandles(ticker, tfCandles);
       if (postRes.ok) {
-        console.log(`  ✓ Posted ${Object.keys(tfCandles).length} TFs`);
+        console.log(`  ✓ Posted ${postRes.ingested || 0} candles across ${Object.keys(tfCandles).length} TFs`);
         successCount++;
       } else {
         console.log(`  ✗ POST failed: ${postRes.error || "unknown"}`);
