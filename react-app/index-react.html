@@ -12208,9 +12208,17 @@
               : "";
 
           return (
-            <button
+            <div
               key={`kanban-${t.ticker}`}
+              role="button"
+              tabIndex={0}
               onClick={() => toggleExpanded(sym)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleExpanded(sym);
+                }
+              }}
               className={
                 // Match Viewport card feel (same surface + hover), with transition overlay applied.
                 "w-full text-left px-3 py-2 rounded-lg border transition-all hover:brightness-[1.06] " +
@@ -12575,7 +12583,7 @@
                   )}
                 </>
               )}
-            </button>
+            </div>
           );
         };
 
@@ -14444,6 +14452,12 @@
         const [crosshair, setCrosshair] = useState(null);
         const chartScrollRef = useRef(null);
 
+        // Prevent stale crosshair data from crashing renders when switching
+        // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
+        useEffect(() => {
+          setCrosshair(null);
+        }, [tickerSymbol, chartTf, railTab]);
+
         // Default to Analysis when switching tickers
         useEffect(() => {
           setRailTab("ANALYSIS");
@@ -14666,11 +14680,22 @@
           };
         }, [tickerSymbol]);
 
-        if (!ticker || !tickerSymbol) return null;
+        const safeTicker =
+          ticker && typeof ticker === "object" ? ticker : null;
+        const patternFlags = safeTicker?.flags || {};
+
+        // IMPORTANT: Keep hooks unconditional (no early returns before hooks),
+        // otherwise React will throw "Rendered more hooks than during the previous render".
+        const detectedPatterns = React.useMemo(
+          () => detectPatterns(bubbleJourney, patternFlags || {}),
+          [bubbleJourney, patternFlags],
+        );
+
+        if (!safeTicker || !tickerSymbol) return null;
 
         const prime = isPrimeBubble(ticker);
         const ent = entryType(ticker);
-        const flags = ticker.flags || {};
+        const flags = patternFlags;
         const phase = Number(ticker.phase_pct) || 0;
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(ticker);
@@ -14745,10 +14770,6 @@
               return code || "";
           }
         };
-        const detectedPatterns = React.useMemo(
-          () => detectPatterns(bubbleJourney, flags || {}),
-          [bubbleJourney, flags],
-        );
 
         const baseScore = Number(ticker.rank) || 0;
         const displayScore = rankScoreForTicker(ticker);
@@ -17259,32 +17280,65 @@
                           </div>
                         ) : (
                           (() => {
-                            const candles = chartCandles
-                              .slice(-200)
-                              .filter(
-                                (c) =>
-                                  c &&
-                                  Number.isFinite(Number(c.ts)) &&
-                                  Number.isFinite(Number(c.o)) &&
-                                  Number.isFinite(Number(c.h)) &&
-                                  Number.isFinite(Number(c.l)) &&
-                                  Number.isFinite(Number(c.c)),
-                              );
-                            const n = candles.length;
-                            if (n < 2) return null;
+                            try {
+                              const toMs = (v) => {
+                                if (v == null) return NaN;
+                                if (typeof v === "number") {
+                                  // Heuristic: seconds vs ms
+                                  return v > 1e12 ? v : v * 1000;
+                                }
+                                const n = Number(v);
+                                if (Number.isFinite(n)) return n > 1e12 ? n : n * 1000;
+                                const d = new Date(String(v));
+                                const ms = d.getTime();
+                                return Number.isFinite(ms) ? ms : NaN;
+                              };
 
-                            const lows = candles.map((c) => Number(c.l));
-                            const highs = candles.map((c) => Number(c.h));
-                            let minL = Math.min(...lows);
-                            let maxH = Math.max(...highs);
-                            if (!Number.isFinite(minL) || !Number.isFinite(maxH))
-                              return null;
-                            if (maxH <= minL) {
-                              maxH = minL + 1;
-                            }
-                            const pad = (maxH - minL) * 0.05;
-                            minL -= pad;
-                            maxH += pad;
+                              const norm = (c) => {
+                                const tsRaw = c?.ts ?? c?.t ?? c?.time ?? c?.timestamp;
+                                const tsMs = toMs(tsRaw);
+                                const o = Number(c?.o ?? c?.open);
+                                const h = Number(c?.h ?? c?.high);
+                                const l = Number(c?.l ?? c?.low);
+                                const cl = Number(c?.c ?? c?.close);
+                                if (
+                                  !Number.isFinite(tsMs) ||
+                                  !Number.isFinite(o) ||
+                                  !Number.isFinite(h) ||
+                                  !Number.isFinite(l) ||
+                                  !Number.isFinite(cl)
+                                )
+                                  return null;
+                                return { ...c, ts: tsMs, __ts_ms: tsMs, o, h, l, c: cl };
+                              };
+
+                              const candles = (Array.isArray(chartCandles) ? chartCandles : [])
+                                .slice(-200)
+                                .map(norm)
+                                .filter(Boolean);
+
+                              const n = candles.length;
+                              if (n < 2) {
+                                return (
+                                  <div className="text-xs text-[#93a4d6]">
+                                    Candle data loaded, but it’s not in the expected OHLC format yet.
+                                    (Waiting for valid captures.)
+                                  </div>
+                                );
+                              }
+
+                              const lows = candles.map((c) => Number(c.l));
+                              const highs = candles.map((c) => Number(c.h));
+                              let minL = Math.min(...lows);
+                              let maxH = Math.max(...highs);
+                              if (!Number.isFinite(minL) || !Number.isFinite(maxH))
+                                throw new Error("invalid_minmax");
+                              if (maxH <= minL) {
+                                maxH = minL + 1;
+                              }
+                              const pad = (maxH - minL) * 0.05;
+                              minL -= pad;
+                              maxH += pad;
 
                             const H = 320;
                             const leftMargin = 5;
@@ -17305,36 +17359,24 @@
                               priceTicks.push(minL + priceStep * i);
                             }
 
-                            const handleMouseMove = (e) => {
-                              const svg = e.currentTarget;
-                              const rect = svg.getBoundingClientRect();
-                              const mx = e.clientX - rect.left;
-                              const my = e.clientY - rect.top;
-                              const svgX = (mx / rect.width) * W;
-                              const svgY = (my / rect.height) * H;
-                              if (
-                                svgX < leftMargin ||
-                                svgX > W - rightMargin
-                              )
-                                return;
-                              const idx = Math.floor(
-                                ((svgX - leftMargin) / plotW) * n,
-                              );
-                              if (idx >= 0 && idx < n) {
-                                const c = candles[idx];
-                                const price =
-                                  minL + ((H - svgY) / plotH) * (maxH - minL);
-                                setCrosshair({ x: svgX, y: svgY, candle: c, price });
-                              }
-                            };
-
-                            // Auto-scroll to most recent candle on load
-                            React.useEffect(() => {
-                              if (chartScrollRef.current && candles.length > 0) {
-                                chartScrollRef.current.scrollLeft =
-                                  chartScrollRef.current.scrollWidth;
-                              }
-                            }, [candles.length]);
+                              const handleMouseMove = (e) => {
+                                const svg = e.currentTarget;
+                                const rect = svg.getBoundingClientRect();
+                                if (!rect || rect.width <= 0 || rect.height <= 0) return;
+                                const mx = e.clientX - rect.left;
+                                const my = e.clientY - rect.top;
+                                const svgX = (mx / rect.width) * W;
+                                const svgY = (my / rect.height) * H;
+                                if (svgX < leftMargin || svgX > W - rightMargin) return;
+                                const idx = Math.floor(((svgX - leftMargin) / plotW) * n);
+                                if (idx >= 0 && idx < n) {
+                                  const c = candles[idx];
+                                  if (!c) return;
+                                  const price =
+                                    minL + ((H - svgY) / plotH) * (maxH - minL);
+                                  setCrosshair({ x: svgX, y: svgY, candle: c, price });
+                                }
+                              };
 
                             return (
                               <div className="w-full relative">
@@ -17460,20 +17502,29 @@
                                   >
                                     <div className="font-semibold text-white mb-1">
                                       {(() => {
-                                        const d = new Date(Number(crosshair.candle.ts));
-                                        if (String(chartTf) === "W") {
-                                          return d.toLocaleDateString("en-US", {
+                                        try {
+                                          const ts = Number(
+                                            crosshair?.candle?.__ts_ms ??
+                                              crosshair?.candle?.ts,
+                                          );
+                                          if (!Number.isFinite(ts)) return "—";
+                                          const d = new Date(ts);
+                                          if (String(chartTf) === "W") {
+                                            return d.toLocaleDateString("en-US", {
+                                              month: "short",
+                                              day: "numeric",
+                                              year: "numeric",
+                                            });
+                                          }
+                                          return d.toLocaleString("en-US", {
                                             month: "short",
                                             day: "numeric",
-                                            year: "numeric",
+                                            hour: "numeric",
+                                            minute: "2-digit",
                                           });
+                                        } catch {
+                                          return "—";
                                         }
-                                        return d.toLocaleString("en-US", {
-                                          month: "short",
-                                          day: "numeric",
-                                          hour: "numeric",
-                                          minute: "2-digit",
-                                        });
                                       })()}
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
@@ -17523,6 +17574,14 @@
                                 </div>
                               </div>
                             );
+                            } catch (e) {
+                              console.error("[RightRail Chart] render failed:", e);
+                              return (
+                                <div className="text-xs text-yellow-300">
+                                  Chart render error (data may be malformed). Check console for details.
+                                </div>
+                              );
+                            }
                           })()
                         )}
                       </div>
