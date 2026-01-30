@@ -4829,6 +4829,111 @@ async function processTradeSimulation(
       const mtm = computeTradePnlComponents(openTrade, tickerData);
       if (mtm.pnl != null) openTrade.pnl = mtm.pnl;
       if (mtm.pnlPct != null) openTrade.pnlPct = mtm.pnlPct;
+
+      // Gain protection: tighten stale SL once trade is meaningfully in profit.
+      // We DO NOT loosen stops; only tighten in the trade's favor.
+      try {
+        const dir = String(openTrade.direction || "").toUpperCase();
+        const entry = Number(openTrade.entryPrice);
+        const mark = Number(openTrade.currentPrice);
+        const oldSl = Number(openTrade.sl);
+        const trimmedPct = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+        const completion = Number(tickerData?.completion);
+
+        const sign = dir === "SHORT" ? -1 : 1;
+        const pnlPct =
+          Number.isFinite(entry) && entry > 0 && Number.isFinite(mark) && mark > 0
+            ? ((mark - entry) / entry) * 100 * sign
+            : NaN;
+
+        const lastSlTightenMs = Number(execState.lastSlTightenMs);
+        const slCooldownOk =
+          !Number.isFinite(lastSlTightenMs) || now - lastSlTightenMs >= 15 * 60 * 1000; // 15m
+
+        const shouldProtect =
+          slCooldownOk &&
+          !weekendNow &&
+          Number.isFinite(pnlPct) &&
+          (pnlPct >= 2.0 ||
+            trimmedPct > 0 ||
+            (Number.isFinite(completion) && completion >= 0.6));
+
+        if (shouldProtect && (dir === "LONG" || dir === "SHORT")) {
+          // Candidate 1: break-even once +2% (or after trim)
+          let candidate = null;
+          if (pnlPct >= 2.0 || trimmedPct > 0) {
+            candidate = entry;
+          }
+
+          // Candidate 2: use Daily EMA cloud boundary when available (acts as dynamic support/resistance)
+          const dailyCloud =
+            tickerData?.daily_ema_cloud && typeof tickerData.daily_ema_cloud === "object"
+              ? tickerData.daily_ema_cloud
+              : null;
+          if (dailyCloud) {
+            const upper = Number(dailyCloud.upper);
+            const lower = Number(dailyCloud.lower);
+            if (dir === "LONG" && Number.isFinite(lower) && lower > 0) {
+              candidate = candidate == null ? lower : Math.max(candidate, lower);
+            }
+            if (dir === "SHORT" && Number.isFinite(upper) && upper > 0) {
+              candidate = candidate == null ? upper : Math.min(candidate, upper);
+            }
+          }
+
+          // Bound the candidate so it remains a valid protective stop relative to current price
+          let newSl = null;
+          if (candidate != null && Number.isFinite(candidate) && candidate > 0) {
+            if (dir === "LONG") {
+              // Stop must be below current price; cap at 99.5% of mark.
+              newSl = Math.min(candidate, mark * 0.995);
+              // Only tighten if it moves up meaningfully.
+              if (Number.isFinite(oldSl) && oldSl > 0) {
+                if (newSl <= oldSl + entry * 0.0005) newSl = null;
+              }
+            } else if (dir === "SHORT") {
+              // Stop must be above current price; floor at 100.5% of mark.
+              newSl = Math.max(candidate, mark * 1.005);
+              if (Number.isFinite(oldSl) && oldSl > 0) {
+                if (newSl >= oldSl - entry * 0.0005) newSl = null;
+              }
+            }
+          }
+
+          if (newSl != null && Number.isFinite(newSl) && newSl > 0) {
+            const prev = Number.isFinite(oldSl) ? oldSl : null;
+            openTrade.sl = newSl;
+            openTrade.sl_protect_reason = "PROTECT_GAINS";
+            openTrade.sl_last_tighten_ts = new Date().toISOString();
+
+            const ev = {
+              type: "SL_TIGHTEN",
+              timestamp: new Date().toISOString(),
+              price: mark,
+              oldSl: prev,
+              newSl,
+              pnlPct,
+              note: `Tightened SL to protect gains (${pnlPct.toFixed(2)}% unrealized)`,
+            };
+            openTrade.history = Array.isArray(openTrade.history)
+              ? [...openTrade.history, ev]
+              : [ev];
+
+            await kvPutJSON(KV, execKey, {
+              ...execState,
+              lastSlTightenMs: now,
+            });
+
+            if (env && openTrade?.id) {
+              d1UpsertTrade(env, openTrade).catch(() => {});
+              d1InsertTradeEvent(env, openTrade.id, ev).catch(() => {});
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[KANBAN TRADE] gain-protection SL tighten error:", e);
+      }
+
       openTrade.lastUpdate = new Date().toISOString();
       if (env) d1UpsertTrade(env, openTrade).catch(() => {});
     }

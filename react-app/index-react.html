@@ -17312,10 +17312,66 @@
                                 return { ...c, ts: tsMs, __ts_ms: tsMs, o, h, l, c: cl };
                               };
 
-                              const candles = (Array.isArray(chartCandles) ? chartCandles : [])
-                                .slice(-200)
+                              let candles = (Array.isArray(chartCandles) ? chartCandles : [])
+                                .slice(-400)
                                 .map(norm)
                                 .filter(Boolean);
+
+                              // Sort + dedupe/aggregate to prevent duplicate bars (common on W captures).
+                              candles.sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
+
+                              const weekStartUtcMs = (tsMs) => {
+                                const d0 = new Date(Number(tsMs));
+                                const day = d0.getUTCDay(); // 0=Sun..6=Sat
+                                const daysSinceMon = (day + 6) % 7; // Mon->0, Tue->1, ... Sun->6
+                                const d = new Date(
+                                  d0.getTime() - daysSinceMon * 24 * 60 * 60 * 1000,
+                                );
+                                d.setUTCHours(0, 0, 0, 0);
+                                return d.getTime();
+                              };
+
+                              if (String(chartTf) === "W") {
+                                // If the backend sends multiple snapshots within a week, aggregate them
+                                // into a single weekly candle: O=first, H=max, L=min, C=last.
+                                const byWeek = new Map(); // weekStartMs -> candle
+                                for (const c of candles) {
+                                  const wk = weekStartUtcMs(c.__ts_ms);
+                                  const prev = byWeek.get(wk);
+                                  if (!prev) {
+                                    byWeek.set(wk, {
+                                      ts: wk,
+                                      __ts_ms: wk,
+                                      o: Number(c.o),
+                                      h: Number(c.h),
+                                      l: Number(c.l),
+                                      c: Number(c.c),
+                                      _last_ts: Number(c.__ts_ms),
+                                    });
+                                  } else {
+                                    prev.h = Math.max(Number(prev.h), Number(c.h));
+                                    prev.l = Math.min(Number(prev.l), Number(c.l));
+                                    if (Number(c.__ts_ms) >= Number(prev._last_ts)) {
+                                      prev.c = Number(c.c);
+                                      prev._last_ts = Number(c.__ts_ms);
+                                    }
+                                  }
+                                }
+                                candles = Array.from(byWeek.values())
+                                  .sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms))
+                                  .map((c) => {
+                                    const out = { ...c };
+                                    delete out._last_ts;
+                                    return out;
+                                  });
+                              } else {
+                                // Dedupe by timestamp (keep the latest sample per ts)
+                                const byTs = new Map();
+                                for (const c of candles) byTs.set(Number(c.__ts_ms), c);
+                                candles = Array.from(byTs.values()).sort(
+                                  (a, b) => Number(a.__ts_ms) - Number(b.__ts_ms),
+                                );
+                              }
 
                               const n = candles.length;
                               if (n < 2) {

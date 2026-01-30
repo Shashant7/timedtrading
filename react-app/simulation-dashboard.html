@@ -7022,7 +7022,8 @@
         const [ledgerTickerFilter, setLedgerTickerFilter] =
           useState(initialLedgerTicker);
         const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
-        const [ledgerRangeDays, setLedgerRangeDays] = useState(7);
+        // Default to 2 weeks for more meaningful performance review
+        const [ledgerRangeDays, setLedgerRangeDays] = useState(14);
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
           useState(true);
 
@@ -9148,102 +9149,6 @@
                                   </div>
                                 </div>
 
-                                <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                                    <div>
-                                      <div className="text-sm font-bold">
-                                        P&L by ticker
-                                      </div>
-                                      <div className="text-[11px] text-[#93a4d6]">
-                                        {windowLabel} total P&L (wins right,
-                                        losses left). Includes open positions.
-                                        Click a row to drill down.
-                                      </div>
-                                    </div>
-                                    <div className="text-[11px] text-[#6b7a9f]">
-                                      Scale:{" "}
-                                      <span className="text-white font-semibold">
-                                        {pnlByTickerWindow.maxAbs > 0
-                                          ? fmtUsd(pnlByTickerWindow.maxAbs)
-                                          : "—"}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {pnlByTickerWindow.rows.length === 0 ? (
-                                    <div className="mt-3 text-sm text-[#93a4d6]">
-                                      No P&L in this window yet.
-                                    </div>
-                                  ) : (
-                                    <div className="mt-3 space-y-2">
-                                      {pnlByTickerWindow.rows
-                                        .slice(0, 24)
-                                        .map((r) => {
-                                          const pnl = Number(r.total) || 0;
-                                          const abs = Math.abs(pnl);
-                                          const pct =
-                                            pnlByTickerWindow.maxAbs > 0
-                                              ? Math.min(
-                                                  100,
-                                                  (abs /
-                                                    pnlByTickerWindow.maxAbs) *
-                                                    100,
-                                                )
-                                              : 0;
-                                          return (
-                                            <button
-                                              key={`pnl-tkr-${r.ticker}`}
-                                              className="w-full text-left grid grid-cols-[70px_1fr_90px] items-center gap-3 bg-[#0f1630] border border-[#26325f] rounded px-3 py-2 hover:bg-[#0b1228]"
-                                              onClick={() => {
-                                                try {
-                                                  setLedgerTickerFilter(
-                                                    String(
-                                                      r.ticker || "",
-                                                    ).toUpperCase(),
-                                                  );
-                                                  setLedgerTab("trades");
-                                                } catch {}
-                                              }}
-                                              title={`Total: ${fmtUsd(pnl)} | Realized: ${fmtUsd(Number(r.realized) || 0)} | Unrealized: ${fmtUsd(Number(r.unrealized) || 0)} (click to drill down)`}
-                                            >
-                                              <div className="font-semibold">
-                                                {r.ticker}
-                                              </div>
-                                              <div className="w-full flex items-center">
-                                                <div className="w-1/2 flex justify-end pr-1">
-                                                  {pnl < 0 ? (
-                                                    <div
-                                                      className="h-3 rounded-l bg-red-500/35 border border-red-500/30"
-                                                      style={{
-                                                        width: `${pct}%`,
-                                                      }}
-                                                    />
-                                                  ) : null}
-                                                </div>
-                                                <div className="w-px h-4 bg-[#26325f]" />
-                                                <div className="w-1/2 flex justify-start pl-1">
-                                                  {pnl > 0 ? (
-                                                    <div
-                                                      className="h-3 rounded-r bg-green-500/35 border border-green-500/30"
-                                                      style={{
-                                                        width: `${pct}%`,
-                                                      }}
-                                                    />
-                                                  ) : null}
-                                                </div>
-                                              </div>
-                                              <div
-                                                className={`text-sm font-bold text-right ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                                              >
-                                                {fmtUsd(pnl)}
-                                              </div>
-                                            </button>
-                                          );
-                                        })}
-                                    </div>
-                                  )}
-                                </div>
-
                                 <details
                                   className="bg-[#0f1630] border border-[#26325f] rounded-xl p-4"
                                   open
@@ -10293,6 +10198,89 @@
                           )}
                         </div>
                       </details>
+
+                      <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div>
+                            <div className="text-sm font-bold">
+                              P&L by ticker
+                            </div>
+                            <div className="text-[11px] text-[#93a4d6]">
+                              {windowLabel} total P&L (wins right, losses left).
+                              Includes open positions. Click a row to drill down.
+                            </div>
+                          </div>
+                          <div className="text-[11px] text-[#6b7a9f]">
+                            Scale:{" "}
+                            <span className="text-white font-semibold">
+                              {pnlByTickerWindow.maxAbs > 0
+                                ? fmtUsd(pnlByTickerWindow.maxAbs)
+                                : "—"}
+                            </span>
+                          </div>
+                        </div>
+
+                        {pnlByTickerWindow.rows.length === 0 ? (
+                          <div className="mt-3 text-sm text-[#93a4d6]">
+                            No P&L in this window yet.
+                          </div>
+                        ) : (
+                          <div className="mt-3 space-y-2">
+                            {pnlByTickerWindow.rows.slice(0, 24).map((r) => {
+                              const pnl = Number(r.total) || 0;
+                              const abs = Math.abs(pnl);
+                              const pct =
+                                pnlByTickerWindow.maxAbs > 0
+                                  ? Math.min(
+                                      100,
+                                      (abs / pnlByTickerWindow.maxAbs) * 100,
+                                    )
+                                  : 0;
+                              return (
+                                <button
+                                  key={`pnl-tkr-${r.ticker}`}
+                                  className="w-full text-left grid grid-cols-[70px_1fr_90px] items-center gap-3 bg-[#0f1630] border border-[#26325f] rounded px-3 py-2 hover:bg-[#0b1228]"
+                                  onClick={() => {
+                                    try {
+                                      setLedgerTickerFilter(
+                                        String(r.ticker || "").toUpperCase(),
+                                      );
+                                      setLedgerTab("trades");
+                                    } catch {}
+                                  }}
+                                  title={`Total: ${fmtUsd(pnl)} | Realized: ${fmtUsd(Number(r.realized) || 0)} | Unrealized: ${fmtUsd(Number(r.unrealized) || 0)} (click to drill down)`}
+                                >
+                                  <div className="font-semibold">{r.ticker}</div>
+                                  <div className="w-full flex items-center">
+                                    <div className="w-1/2 flex justify-end pr-1">
+                                      {pnl < 0 ? (
+                                        <div
+                                          className="h-3.5 rounded-l bg-red-500/80 border border-red-400/60 shadow-[0_0_0_1px_rgba(248,113,113,0.25)]"
+                                          style={{ width: `${pct}%` }}
+                                        />
+                                      ) : null}
+                                    </div>
+                                    <div className="w-px h-4 bg-[#93a4d6]/30" />
+                                    <div className="w-1/2 flex justify-start pl-1">
+                                      {pnl > 0 ? (
+                                        <div
+                                          className="h-3.5 rounded-r bg-emerald-400/80 border border-emerald-300/60 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
+                                          style={{ width: `${pct}%` }}
+                                        />
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <div
+                                    className={`text-sm font-bold text-right ${pnl >= 0 ? "text-emerald-300" : "text-red-300"}`}
+                                  >
+                                    {fmtUsd(pnl)}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
