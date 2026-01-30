@@ -9833,61 +9833,6 @@ function validateCandlesPayload(body) {
   };
 }
 
-function validateCandlesPayload(body) {
-  const ticker = normTicker(body?.ticker);
-  if (!ticker) return { ok: false, error: "missing ticker" };
-
-  const tfCandles = body?.tf_candles;
-  if (!tfCandles || typeof tfCandles !== "object") {
-    return { ok: false, error: "missing tf_candles" };
-  }
-
-  // Accept either {"10":{...}} or [{"tf":"10",...}] but normalize to object.
-  let byTf = null;
-  if (Array.isArray(tfCandles)) {
-    byTf = {};
-    for (const it of tfCandles) {
-      const tf = normalizeTfKey(it?.tf);
-      if (!tf) continue;
-      byTf[tf] = it;
-    }
-  } else {
-    byTf = tfCandles;
-  }
-
-  const out = {};
-  let n = 0;
-  for (const [tfRaw, candle] of Object.entries(byTf)) {
-    const tf = normalizeTfKey(tfRaw);
-    if (!tf) continue;
-    const ts = Number(candle?.ts);
-    const o = Number(candle?.o);
-    const h = Number(candle?.h);
-    const l = Number(candle?.l);
-    const c = Number(candle?.c);
-    const v = candle?.v != null ? Number(candle?.v) : null;
-    if (!Number.isFinite(ts)) continue;
-    if (![o, h, l, c].every((x) => Number.isFinite(x))) continue;
-    out[tf] = { tf, ts, o, h, l, c, v };
-    n++;
-  }
-
-  if (n === 0) return { ok: false, error: "no_valid_candles" };
-
-  const tsTop = Number(body?.ts);
-  return {
-    ok: true,
-    ticker,
-    payload: {
-      ...body,
-      ticker,
-      ts: Number.isFinite(tsTop) ? tsTop : Date.now(),
-      tf_candles: out,
-      ingest_kind: "candles",
-    },
-  };
-}
-
 // ─────────────────────────────────────────────────────────────
 // Sector Mapping & Ratings
 // ─────────────────────────────────────────────────────────────
