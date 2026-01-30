@@ -15,6 +15,10 @@ groupContext = "Context (Optional)"
 includeContext = input.bool(true, "Include Context (throttled)", group=groupContext)
 contextEveryHours = input.int(4, "Context cadence (hours)", minval=1, maxval=24, group=groupContext)
 
+// Multi-TF candle capture (optional): send OHLCV across multiple timeframes for Right Rail charts.
+groupCandles = "Multi-TF Candles (Optional)"
+includeCandles = input.bool(true, "Include multi-TF candles", group=groupCandles)
+
 // TradingView Technical Rating library (proxy “sentiment”)
 import TradingView/TechnicalRating/3 as TR
 
