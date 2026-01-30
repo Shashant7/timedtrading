@@ -1,0 +1,64 @@
+//@version=6
+indicator("TimedTrading Sequential Export (All Tickers)", overlay=false)
+
+// Exports historical OHLCV for ALL tickers sequentially (one bar = one ticker).
+// Works around Pine's 40 security call limit by processing tickers one per bar.
+//
+// Usage:
+// 1. Add to a Daily or Weekly chart
+// 2. Paste your ticker list (comma-separated) into the input below
+// 3. Replay the chart from ~200 bars ago to present (Bar Replay feature)
+// 4. Open Pine Logs panel - CSV exports as the chart replays
+// 5. Copy CSV from logs → save to file
+// 6. Upload: node scripts/upload-candles-csv.js <file>
+
+groupExport = "Export Settings"
+tickerList = input.text_area("AAPL,AMD,NVDA,TSLA,MSFT,META,GOOGL,AMZN,NFLX,ORCL,CRM,AVGO,QCOM,TXN,INTC,CSCO,AMAT,LRCX,KLAC,ANET,CDNS,PANW,CRWD,NOW,PLTR,OKTA,PATH,TEAM,QLYS,PSTG,APLD,IOT,MU,AMD,JPM,BAC,GS,MS,AXP,BK,ALLY,V,MA,HOOD,SOFI,XOM,CVX,SLB,EOG,COP,OXY,FSLR,TRGP,VST,NRG,LNG,BA,CAT,GE,HON,DE,EMR,LMT,NOC,IR,PHM,DHI,BLDR,MLM,URI,GWW,DOV,EME,PWR,TT,ITT,DY,FIX,RSI,AOS,AWI,WTS,CMI,AAPL,MSFT,NVDA,AMD,GOOGL,META,TSLA,AMZN,NFLX,BABA,TSM,AVGO,ORCL,CRM,ADBE,CSCO,ANET,PANW,CRWD,NOW,PLTR,HD,LOW,TJX,NKE,COST,WMT,TGT,SBUX,CMG,MELI,SHOP,ETSY,GDDY,WSM,TPL,LLY,UNH,REGN,AMGN,MRK,ZTS,SYK,ELV,MOH,HCA,MCK,CVS", "Ticker list (comma-separated)", group=groupExport)
+
+tf = timeframe.period
+var int exportIdx = 0
+var bool exportComplete = false
+
+// Parse ticker list
+tickersRaw = str.split(tickerList, ",")
+tickers = array.new<string>()
+for raw in tickersRaw
+    t = str.trim(str.replace_all(raw, " ", ""))
+    if t != ""
+        array.push(tickers, t)
+
+totalTickers = array.size(tickers)
+
+// Export one ticker per bar
+if barstate.isconfirmed and not exportComplete
+    if exportIdx == 0
+        log.info("=== EXPORT START ===")
+        log.info("TF: " + tf + " | Total tickers: " + str.tostring(totalTickers))
+        log.info("ticker,tf,ts,o,h,l,c,v")
+    
+    if exportIdx < totalTickers
+        sym = array.get(tickers, exportIdx)
+        
+        // Fetch current bar data for this ticker
+        [oVal, hVal, lVal, cVal, vVal, tVal] = request.security(
+            sym,
+            tf,
+            [open, high, low, close, volume, time_close],
+            barmerge.gaps_off,
+            barmerge.lookahead_off
+        )
+        
+        if not na(oVal) and not na(tVal)
+            row = sym + "," + tf + "," + str.tostring(tVal) + "," + str.tostring(oVal) + "," + str.tostring(hVal) + "," + str.tostring(lVal) + "," + str.tostring(cVal) + "," + (na(vVal) ? "" : str.tostring(vVal))
+            log.info(row)
+        
+        exportIdx += 1
+    else
+        if not exportComplete
+            log.info("=== EXPORT COMPLETE ===")
+            log.info("Exported " + str.tostring(totalTickers) + " tickers for " + tf)
+            exportComplete := true
+
+// Show progress
+plot(exportIdx, "Progress", color=color.new(color.blue, 0))
+plot(totalTickers, "Total", color=color.new(color.gray, 50))
