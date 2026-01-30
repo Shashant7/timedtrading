@@ -40,59 +40,77 @@ const TF_MAP = {
   W: "1wk",
 };
 
-// Yahoo Finance historical data endpoint
-function fetchYahooCandles(ticker, interval, range = "1mo") {
-  return new Promise((resolve, reject) => {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${interval}&range=${range}`;
-    https
-      .get(url, { timeout: 15000 }, (res) => {
-        let data = "";
-        res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => {
-          try {
-            const json = JSON.parse(data);
-            const result = json?.chart?.result?.[0];
-            if (!result) {
-              return resolve({ ok: false, error: "no_result" });
-            }
-            const timestamps = result.timestamp || [];
-            const quote = result.indicators?.quote?.[0] || {};
-            const o = quote.open || [];
-            const h = quote.high || [];
-            const l = quote.low || [];
-            const c = quote.close || [];
-            const v = quote.volume || [];
+// Yahoo Finance historical data endpoint (with retry logic)
+async function fetchYahooCandles(ticker, interval, range = "1mo", retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await new Promise((resolve, reject) => {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${interval}&range=${range}`;
+        https
+          .get(url, { timeout: 15000 }, (res) => {
+            let data = "";
+            res.on("data", (chunk) => (data += chunk));
+            res.on("end", () => resolve({ status: res.statusCode, data }));
+          })
+          .on("error", reject);
+      });
 
-            const candles = [];
-            for (let i = 0; i < timestamps.length; i++) {
-              const ts = timestamps[i] * 1000; // Yahoo uses seconds
-              const oo = Number(o[i]);
-              const hh = Number(h[i]);
-              const ll = Number(l[i]);
-              const cc = Number(c[i]);
-              const vv = Number(v[i]);
-              if (
-                Number.isFinite(ts) &&
-                [oo, hh, ll, cc].every((x) => Number.isFinite(x))
-              ) {
-                candles.push({
-                  ts,
-                  o: oo,
-                  h: hh,
-                  l: ll,
-                  c: cc,
-                  v: Number.isFinite(vv) ? vv : null,
-                });
-              }
-            }
-            resolve({ ok: true, candles });
-          } catch (e) {
-            reject(e);
-          }
-        });
-      })
-      .on("error", reject);
-  });
+      if (res.status === 429) {
+        const backoff = Math.min(30000, 2000 * Math.pow(2, attempt - 1));
+        console.log(`  ${interval}: rate limited, retry in ${backoff}ms`);
+        await sleep(backoff);
+        continue;
+      }
+
+      if (res.status !== 200) {
+        return { ok: false, error: `HTTP ${res.status}` };
+      }
+
+      const json = JSON.parse(res.data);
+      const result = json?.chart?.result?.[0];
+      if (!result) {
+        return { ok: false, error: "no_result" };
+      }
+      const timestamps = result.timestamp || [];
+      const quote = result.indicators?.quote?.[0] || {};
+      const o = quote.open || [];
+      const h = quote.high || [];
+      const l = quote.low || [];
+      const c = quote.close || [];
+      const v = quote.volume || [];
+
+      const candles = [];
+      for (let i = 0; i < timestamps.length; i++) {
+        const ts = timestamps[i] * 1000; // Yahoo uses seconds
+        const oo = Number(o[i]);
+        const hh = Number(h[i]);
+        const ll = Number(l[i]);
+        const cc = Number(c[i]);
+        const vv = Number(v[i]);
+        if (
+          Number.isFinite(ts) &&
+          [oo, hh, ll, cc].every((x) => Number.isFinite(x))
+        ) {
+          candles.push({
+            ts,
+            o: oo,
+            h: hh,
+            l: ll,
+            c: cc,
+            v: Number.isFinite(vv) ? vv : null,
+          });
+        }
+      }
+      return { ok: true, candles };
+    } catch (e) {
+      if (attempt === retries) {
+        return { ok: false, error: e.message };
+      }
+      const backoff = 1000 * Math.pow(2, attempt - 1);
+      await sleep(backoff);
+    }
+  }
+  return { ok: false, error: "max_retries" };
 }
 
 async function postCandles(ticker, tfCandles) {
@@ -230,7 +248,7 @@ async function main() {
         tfCandles[tf] = last200[last200.length - 1]; // Latest candle per TF
         console.log(`  ${tf}: ${res.candles.length} bars (using latest)`);
 
-        await sleep(100); // Rate limit Yahoo
+        await sleep(500); // Slow down Yahoo requests to avoid rate limits
       } catch (e) {
         console.log(`  ${tf}: error - ${e.message}`);
       }
@@ -256,7 +274,7 @@ async function main() {
       errorCount++;
     }
 
-    await sleep(200); // Rate limit Worker
+    await sleep(1000); // Slow down to avoid overwhelming Yahoo + Worker
   }
 
   console.log("");
