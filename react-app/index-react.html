@@ -17266,41 +17266,87 @@
                             if (maxH <= minL) {
                               maxH = minL + 1;
                             }
-                            const pad = (maxH - minL) * 0.02;
+                            const pad = (maxH - minL) * 0.05;
                             minL -= pad;
                             maxH += pad;
 
-                            const W = 720;
-                            const H = 180;
+                            const W = 760;
+                            const H = 320;
+                            const leftMargin = 5;
+                            const rightMargin = 65;
+                            const plotW = W - leftMargin - rightMargin;
+                            const plotH = H;
                             const y = (p) =>
-                              H - ((p - minL) / (maxH - minL)) * H;
-                            const step = W / n;
-                            const bodyW = Math.max(2, Math.min(10, step * 0.6));
+                              plotH - ((p - minL) / (maxH - minL)) * plotH;
+                            const step = plotW / n;
+                            const bodyW = Math.max(1.5, Math.min(12, step * 0.85));
 
-                            const gridYs = [0.25, 0.5, 0.75].map((k) =>
-                              Math.round(H * k),
-                            );
+                            const priceStep = (maxH - minL) / 5;
+                            const priceTicks = [];
+                            for (let i = 0; i <= 5; i++) {
+                              priceTicks.push(minL + priceStep * i);
+                            }
+
+                            const [crosshair, setCrosshair] = React.useState(null);
+
+                            const handleMouseMove = (e) => {
+                              const svg = e.currentTarget;
+                              const rect = svg.getBoundingClientRect();
+                              const mx = e.clientX - rect.left;
+                              const my = e.clientY - rect.top;
+                              const svgX = (mx / rect.width) * W;
+                              const svgY = (my / rect.height) * H;
+                              if (
+                                svgX < leftMargin ||
+                                svgX > W - rightMargin
+                              )
+                                return;
+                              const idx = Math.floor(
+                                ((svgX - leftMargin) / plotW) * n,
+                              );
+                              if (idx >= 0 && idx < n) {
+                                const c = candles[idx];
+                                const price =
+                                  minL + ((H - svgY) / plotH) * (maxH - minL);
+                                setCrosshair({ x: svgX, y: svgY, candle: c, price });
+                              }
+                            };
 
                             return (
-                              <div className="w-full">
+                              <div className="w-full relative">
                                 <svg
                                   viewBox={`0 0 ${W} ${H}`}
-                                  className="w-full h-[190px] rounded border border-[#26325f] bg-[#0b1020]"
+                                  className="w-full h-[320px] rounded border border-[#26325f] bg-[#0b1020] cursor-crosshair"
                                   role="img"
                                   aria-label="Candlestick chart"
+                                  onMouseMove={handleMouseMove}
+                                  onMouseLeave={() => setCrosshair(null)}
                                 >
-                                  {/* Grid */}
-                                  {gridYs.map((gy) => (
-                                    <line
-                                      key={`gy-${gy}`}
-                                      x1={0}
-                                      y1={gy}
-                                      x2={W}
-                                      y2={gy}
-                                      stroke="rgba(147,164,214,0.12)"
-                                      strokeWidth="1"
-                                    />
-                                  ))}
+                                  {/* Price grid lines */}
+                                  {priceTicks.map((p, i) => {
+                                    const yPos = y(p);
+                                    return (
+                                      <g key={`grid-${i}`}>
+                                        <line
+                                          x1={leftMargin}
+                                          y1={yPos}
+                                          x2={W - rightMargin}
+                                          y2={yPos}
+                                          stroke="rgba(38,50,95,0.5)"
+                                          strokeWidth="1"
+                                        />
+                                        <text
+                                          x={W - rightMargin + 6}
+                                          y={yPos + 4}
+                                          fontSize="11"
+                                          fill="#93a4d6"
+                                          fontFamily="monospace"
+                                        >
+                                          ${p.toFixed(2)}
+                                        </text>
+                                      </g>
+                                    );
+                                  })}
 
                                   {/* Candles */}
                                   {candles.map((c, i) => {
@@ -17316,14 +17362,14 @@
                                       ? "rgba(56,189,248,0.35)"
                                       : "rgba(251,146,60,0.35)";
 
-                                    const cx = i * step + step / 2;
+                                    const cx = leftMargin + i * step + step / 2;
                                     const yH = y(h);
                                     const yL = y(l);
                                     const yO = y(o);
                                     const yC = y(cl);
                                     const top = Math.min(yO, yC);
                                     const bot = Math.max(yO, yC);
-                                    const bodyH = Math.max(1, bot - top);
+                                    const bodyH = Math.max(1.5, bot - top);
 
                                     return (
                                       <g key={`c-${Number(c.ts)}-${i}`}>
@@ -17333,7 +17379,7 @@
                                           x2={cx}
                                           y2={yL}
                                           stroke={stroke}
-                                          strokeWidth="1"
+                                          strokeWidth="1.2"
                                         />
                                         <rect
                                           x={cx - bodyW / 2}
@@ -17342,13 +17388,85 @@
                                           height={bodyH}
                                           fill={fill}
                                           stroke={stroke}
-                                          strokeWidth="1"
-                                          rx="1"
+                                          strokeWidth="1.2"
+                                          rx="0.5"
                                         />
                                       </g>
                                     );
                                   })}
+
+                                  {/* Crosshair */}
+                                  {crosshair ? (
+                                    <>
+                                      <line
+                                        x1={leftMargin}
+                                        y1={crosshair.y}
+                                        x2={W - rightMargin}
+                                        y2={crosshair.y}
+                                        stroke="rgba(147,164,214,0.5)"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 4"
+                                      />
+                                      <line
+                                        x1={crosshair.x}
+                                        y1={0}
+                                        x2={crosshair.x}
+                                        y2={H}
+                                        stroke="rgba(147,164,214,0.5)"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 4"
+                                      />
+                                    </>
+                                  ) : null}
                                 </svg>
+
+                                {/* Crosshair tooltip */}
+                                {crosshair && crosshair.candle ? (
+                                  <div
+                                    className="absolute top-2 left-2 px-3 py-2 bg-[#121a33]/95 border border-[#26325f] rounded-lg text-[11px] pointer-events-none z-10"
+                                    style={{
+                                      backdropFilter: "blur(8px)",
+                                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                                    }}
+                                  >
+                                    <div className="font-semibold text-white mb-1">
+                                      {new Date(
+                                        Number(crosshair.candle.ts),
+                                      ).toLocaleString("en-US", {
+                                        month: "short",
+                                        day: "numeric",
+                                        hour: "numeric",
+                                        minute: "2-digit",
+                                      })}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                                      <div className="text-[#93a4d6]">O:</div>
+                                      <div className="text-white font-mono">
+                                        ${Number(crosshair.candle.o).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#93a4d6]">H:</div>
+                                      <div className="text-sky-300 font-mono">
+                                        ${Number(crosshair.candle.h).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#93a4d6]">L:</div>
+                                      <div className="text-orange-300 font-mono">
+                                        ${Number(crosshair.candle.l).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#93a4d6]">C:</div>
+                                      <div
+                                        className={`font-mono font-semibold ${
+                                          Number(crosshair.candle.c) >=
+                                          Number(crosshair.candle.o)
+                                            ? "text-sky-300"
+                                            : "text-orange-300"
+                                        }`}
+                                      >
+                                        ${Number(crosshair.candle.c).toFixed(2)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+
                                 <div className="mt-2 text-[10px] text-[#93a4d6] flex items-center justify-between">
                                   <span>
                                     {String(chartTf) === "D"
@@ -17356,11 +17474,10 @@
                                       : String(chartTf) === "W"
                                         ? "Weekly"
                                         : `${chartTf}m`}{" "}
-                                    candles • {candles.length} bars
+                                    • {candles.length} bars
                                   </span>
-                                  <span>
-                                    Range: ${minL.toFixed(2)}–$
-                                    {maxH.toFixed(2)}
+                                  <span className="font-mono">
+                                    ${minL.toFixed(2)} – ${maxH.toFixed(2)}
                                   </span>
                                 </div>
                               </div>

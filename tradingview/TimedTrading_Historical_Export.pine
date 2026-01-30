@@ -1,0 +1,69 @@
+//@version=6
+indicator("TimedTrading Historical Candle Export", overlay=false)
+
+// Exports historical OHLCV data for multiple timeframes to backfill the Worker's D1 database.
+// 
+// Usage:
+// 1. Add this indicator to a chart
+// 2. Open the Pine Editor "Logs" panel (bottom right)
+// 3. Wait for the script to finish (it will print "EXPORT COMPLETE")
+// 4. Copy the CSV output from the logs
+// 5. Save to a file (e.g., candles_export.csv)
+// 6. Run a backfill script to POST each row to /timed/ingest-candles
+
+groupExport = "Export Settings"
+exportTicker = input.string("", "Ticker (leave empty for chart symbol)", group=groupExport)
+lookbackBars = input.int(200, "Lookback bars per TF", minval=10, maxval=5000, group=groupExport)
+batchSize = input.int(50, "Batch size (bars per log)", minval=10, maxval=100, group=groupExport)
+
+sym = exportTicker != "" ? exportTicker : syminfo.ticker
+
+// Fetch OHLCV for a given timeframe (returns arrays)
+f_history(tf, n) =>
+    o = request.security_lower_tf(syminfo.tickerid, tf, open, n, barmerge.gaps_off)
+    h = request.security_lower_tf(syminfo.tickerid, tf, high, n, barmerge.gaps_off)
+    l = request.security_lower_tf(syminfo.tickerid, tf, low, n, barmerge.gaps_off)
+    c = request.security_lower_tf(syminfo.tickerid, tf, close, n, barmerge.gaps_off)
+    v = request.security_lower_tf(syminfo.tickerid, tf, volume, n, barmerge.gaps_off)
+    t = request.security_lower_tf(syminfo.tickerid, tf, time_close, n, barmerge.gaps_off)
+    [o, h, l, c, v, t]
+
+// Export CSV header on the last historical bar
+if barstate.islast
+    log.info("=== HISTORICAL CANDLE EXPORT ===")
+    log.info("ticker,tf,ts,o,h,l,c,v")
+    
+    // Export each timeframe
+    tfs = array.from("10", "30", "60", "240", "D", "W")
+    
+    for tf in tfs
+        [oArr, hArr, lArr, cArr, vArr, tArr] = f_history(tf, lookbackBars)
+        
+        if array.size(oArr) > 0
+            // Export in batches to avoid log truncation
+            total = array.size(oArr)
+            batches = math.ceil(total / batchSize)
+            
+            for b = 0 to batches - 1
+                start = b * batchSize
+                end_ = math.min(start + batchSize, total)
+                
+                batch = ""
+                for i = start to end_ - 1
+                    if i < array.size(oArr) and i < array.size(tArr)
+                        o = array.get(oArr, i)
+                        h = array.get(hArr, i)
+                        l = array.get(lArr, i)
+                        c = array.get(cArr, i)
+                        v = array.get(vArr, i)
+                        t = array.get(tArr, i)
+                        
+                        if not na(o) and not na(h) and not na(l) and not na(c) and not na(t)
+                            row = sym + "," + tf + "," + str.tostring(t) + "," + str.tostring(o) + "," + str.tostring(h) + "," + str.tostring(l) + "," + str.tostring(c) + "," + (na(v) ? "" : str.tostring(v))
+                            batch := batch + row + "\n"
+                
+                if batch != ""
+                    log.info(batch)
+    
+    log.info("=== EXPORT COMPLETE ===")
+    log.info("Total timeframes: " + str.tostring(array.size(tfs)))
