@@ -4261,7 +4261,10 @@ async function processTradeSimulation(
     // is still no open trade, we should re-attempt entry on subsequent ingests (cooldown + cycle guard
     // prevent churn / duplicate entries).
     const isEnter = stage === "enter_now";
-    const isTrim = stageTransition && stage === "trim";
+    // IMPORTANT:
+    // Trimming only on stage *transition* can miss trims if we miss the first TRIM-lane ingest
+    // (or if the TRIM lane persists). Use cooldown + trimmedPct guard to prevent churn.
+    const isTrim = stage === "trim";
     // IMPORTANT:
     // Exiting only on stage *transition* can get stuck if we miss the first "enter exit lane"
     // ingest, or the exit is throttled by cooldown. If a ticker remains in the EXIT lane while
@@ -4323,6 +4326,15 @@ async function processTradeSimulation(
       await kvPutJSON(KV, tradesKey, allTrades);
     };
 
+    const upsertAlertSafe = async (alert) => {
+      try {
+        if (!env) return;
+        await d1UpsertAlert(env, alert);
+      } catch (e) {
+        console.error("[D1 LEDGER] alert upsert failed:", e);
+      }
+    };
+
     const closeTradeAtPrice = async (trade, closePrice, closeReason) => {
       const p = Number(closePrice);
       if (!Number.isFinite(p) || p <= 0) return;
@@ -4372,6 +4384,81 @@ async function processTradeSimulation(
       if (env) {
         d1UpsertTrade(env, trade).catch(() => {});
         if (trade?.id) d1InsertTradeEvent(env, trade.id, ev).catch(() => {});
+      }
+
+      // Discord + D1 alert (best-effort, deduped)
+      if (env && trade?.id) {
+        try {
+          const tsMs = Date.now();
+          const dedupe = await shouldSendTradeDiscordEvent(KV, {
+            tradeId: trade.id,
+            type: "TRADE_EXIT",
+            ts: tsMs,
+          });
+          if (!dedupe.deduped) {
+            const embed = createTradeClosedEmbed(
+              sym,
+              String(trade.direction || "").toUpperCase(),
+              String(trade.status || "").toUpperCase(),
+              Number(trade.entryPrice),
+              Number(trade.exitPrice),
+              Number(trade.pnl || trade.realizedPnl || 0),
+              Number(trade.pnlPct || 0),
+              Number(trade.rank || 0),
+              Number(trade.rr || 0),
+              tickerData,
+              trade,
+            );
+            const allow = shouldSendDiscordAlert(env, "TRADE_EXIT", {
+              ticker: sym,
+              direction: trade.direction,
+            });
+            const sendRes = allow
+              ? await notifyDiscord(env, embed).catch((err) => ({
+                  ok: false,
+                  error: String(err),
+                }))
+              : { ok: false, skipped: true, reason: "critical_only" };
+            await upsertAlertSafe({
+              alert_id: buildAlertId(sym, tsMs, "TRADE_EXIT"),
+              ticker: sym,
+              ts: tsMs,
+              side: String(trade.direction || "").toUpperCase(),
+              state: tickerData?.state,
+              rank: Number(trade.rank) || 0,
+              rr_at_alert: Number(trade.rr) || 0,
+              trigger_reason: closeReason || "TRADE_EXIT",
+              dedupe_day: formatDedupDay(tsMs),
+              discord_sent: !!sendRes?.ok,
+              discord_status: sendRes?.status ?? null,
+              discord_error: sendRes?.ok
+                ? null
+                : sendRes?.reason || sendRes?.statusText || sendRes?.error || null,
+              payload_json: (() => {
+                try {
+                  return JSON.stringify(tickerData || null);
+                } catch {
+                  return null;
+                }
+              })(),
+              meta_json: (() => {
+                try {
+                  return JSON.stringify({
+                    type: "TRADE_EXIT",
+                    trade_id: trade.id,
+                    status: trade.status,
+                    reason: closeReason,
+                    exit_price: trade.exitPrice,
+                  });
+                } catch {
+                  return null;
+                }
+              })(),
+            });
+          }
+        } catch (e) {
+          console.error("[KANBAN TRADE] exit discord error:", e);
+        }
       }
     };
 
@@ -4426,6 +4513,89 @@ async function processTradeSimulation(
         d1UpsertTrade(env, trade).catch(() => {});
         if (trade?.id) d1InsertTradeEvent(env, trade.id, ev).catch(() => {});
       }
+
+      // Discord + D1 alert (best-effort, deduped)
+      if (env && trade?.id) {
+        try {
+          const tsMs = Date.now();
+          const dedupe = await shouldSendTradeDiscordEvent(KV, {
+            tradeId: trade.id,
+            type: "TRADE_TRIM",
+            ts: tsMs,
+          });
+          if (!dedupe.deduped) {
+            const dir = String(trade.direction || "").toUpperCase();
+            const dirSign = dir === "SHORT" ? -1 : 1;
+            const pnlPctAtTrim =
+              Number.isFinite(Number(trade.entryPrice)) && Number(trade.entryPrice) > 0
+                ? ((p - Number(trade.entryPrice)) / Number(trade.entryPrice)) *
+                  100 *
+                  dirSign
+                : 0;
+            const allow = shouldSendDiscordAlert(env, "TRADE_TRIM", {
+              newTrimmedPct: tgt,
+              trimDeltaPctRaw: delta,
+            });
+            const embed = createTradeTrimmedEmbed(
+              sym,
+              dir,
+              Number(trade.entryPrice),
+              Number(trade.currentPrice || p),
+              Number(trade.tp || p),
+              Number(pnlRealized || 0),
+              Number(pnlPctAtTrim || 0),
+              tgt,
+              tickerData,
+              trade,
+              delta,
+            );
+            const sendRes = allow
+              ? await notifyDiscord(env, embed).catch((err) => ({
+                  ok: false,
+                  error: String(err),
+                }))
+              : { ok: false, skipped: true, reason: "critical_only" };
+            await upsertAlertSafe({
+              alert_id: buildAlertId(sym, tsMs, "TRADE_TRIM"),
+              ticker: sym,
+              ts: tsMs,
+              side: dir,
+              state: tickerData?.state,
+              rank: Number(trade.rank) || 0,
+              rr_at_alert: Number(trade.rr) || 0,
+              trigger_reason: trimReason || "TRADE_TRIM",
+              dedupe_day: formatDedupDay(tsMs),
+              discord_sent: !!sendRes?.ok,
+              discord_status: sendRes?.status ?? null,
+              discord_error: sendRes?.ok
+                ? null
+                : sendRes?.reason || sendRes?.statusText || sendRes?.error || null,
+              payload_json: (() => {
+                try {
+                  return JSON.stringify(tickerData || null);
+                } catch {
+                  return null;
+                }
+              })(),
+              meta_json: (() => {
+                try {
+                  return JSON.stringify({
+                    type: "TRADE_TRIM",
+                    trade_id: trade.id,
+                    trimmed_pct: tgt,
+                    trim_delta_pct: delta,
+                    trim_price: p,
+                  });
+                } catch {
+                  return null;
+                }
+              })(),
+            });
+          }
+        } catch (e) {
+          console.error("[KANBAN TRADE] trim discord error:", e);
+        }
+      }
     };
 
     // Market is closed on weekends — never execute TP trims/exits on Sat/Sun.
@@ -4478,11 +4648,18 @@ async function processTradeSimulation(
 
     if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade) {
       const entryPx = Number(entryPxCandidate);
+      const slCandidate = Number(tickerData?.sl);
+      const tpCandidate = Number(tickerData?.tp);
       if (
         Number.isFinite(entryPx) &&
         entryPx > 0 &&
         Number.isFinite(pxNow) &&
         pxNow > 0
+        // Require valid SL/TP to avoid creating "unmanaged" trades
+        && Number.isFinite(slCandidate) &&
+        slCandidate > 0 &&
+        Number.isFinite(tpCandidate) &&
+        tpCandidate > 0
       ) {
         const confidence = computeTradeConfidence(tickerData);
         const cash = Number(portfolio.cash);
@@ -4516,8 +4693,8 @@ async function processTradeSimulation(
               entryPrice: entryPx,
               entryTime,
               triggerTimestamp: Number(tickerData?.trigger_ts) || null,
-              sl: Number(tickerData?.sl) || null,
-              tp: Number(tickerData?.tp) || null,
+              sl: slCandidate,
+              tp: tpCandidate,
               rr: Number(tickerData?.rr) || 0,
               rank: Number(tickerData?.rank) || 0,
               state: tickerData?.state,
@@ -4552,6 +4729,86 @@ async function processTradeSimulation(
             if (env) {
               d1UpsertTrade(env, trade).catch(() => {});
               d1InsertTradeEvent(env, tradeId, ev).catch(() => {});
+            }
+
+            // Discord + D1 alert (best-effort, deduped)
+            if (env) {
+              try {
+                const tsMs = Date.now();
+                const dedupe = await shouldSendTradeDiscordEvent(KV, {
+                  tradeId,
+                  type: "TRADE_ENTRY",
+                  ts: tsMs,
+                });
+                if (!dedupe.deduped) {
+                  const allow = shouldSendDiscordAlert(env, "TRADE_ENTRY", {
+                    ticker: sym,
+                    rr: Number(trade.rr || 0),
+                    rank: Number(trade.rank || 0),
+                    momentumElite: !!trade.flags?.momentum_elite,
+                  });
+                  const embed = createTradeEntryEmbed(
+                    sym,
+                    direction,
+                    Number(entryPx),
+                    Number(slCandidate),
+                    Number(tpCandidate),
+                    Number(trade.rr || 0),
+                    Number(trade.rank || 0),
+                    trade.state,
+                    Number(pxNow),
+                    false,
+                    tickerData,
+                  );
+                  const sendRes = allow
+                    ? await notifyDiscord(env, embed).catch((err) => ({
+                        ok: false,
+                        error: String(err),
+                      }))
+                    : { ok: false, skipped: true, reason: "critical_only" };
+                  await upsertAlertSafe({
+                    alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
+                    ticker: sym,
+                    ts: tsMs,
+                    side: direction,
+                    state: tickerData?.state,
+                    rank: Number(trade.rank) || 0,
+                    rr_at_alert: Number(trade.rr) || 0,
+                    trigger_reason: reason || "TRADE_ENTRY",
+                    dedupe_day: formatDedupDay(tsMs),
+                    discord_sent: !!sendRes?.ok,
+                    discord_status: sendRes?.status ?? null,
+                    discord_error: sendRes?.ok
+                      ? null
+                      : sendRes?.reason ||
+                        sendRes?.statusText ||
+                        sendRes?.error ||
+                        null,
+                    payload_json: (() => {
+                      try {
+                        return JSON.stringify(tickerData || null);
+                      } catch {
+                        return null;
+                      }
+                    })(),
+                    meta_json: (() => {
+                      try {
+                        return JSON.stringify({
+                          type: "TRADE_ENTRY",
+                          trade_id: tradeId,
+                          entry_price: entryPx,
+                          sl: slCandidate,
+                          tp: tpCandidate,
+                        });
+                      } catch {
+                        return null;
+                      }
+                    })(),
+                  });
+                }
+              } catch (e) {
+                console.error("[KANBAN TRADE] entry discord error:", e);
+              }
             }
           }
         } else {
@@ -8527,11 +8784,18 @@ function shouldSendDiscordAlert(env, type, ctx = {}) {
   if (t === "TRADE_EXIT") return true;
 
   if (t === "TRADE_TRIM") {
-    const newTrimmedPct = Number(ctx.newTrimmedPct);
-    const deltaPct = Number(ctx.trimDeltaPctRaw);
+    // NOTE: trims are fractional (0.5 = 50%). Be tolerant if percent is passed (50 = 50%).
+    const rawTotal = Number(ctx.newTrimmedPct);
+    const rawDelta = Number(ctx.trimDeltaPctRaw);
+    const total =
+      Number.isFinite(rawTotal) && rawTotal > 1 ? rawTotal / 100 : rawTotal;
+    const delta =
+      Number.isFinite(rawDelta) && Math.abs(rawDelta) > 1
+        ? rawDelta / 100
+        : rawDelta;
     // Major trim events only (e.g. scaled out meaningfully)
-    if (Number.isFinite(newTrimmedPct) && newTrimmedPct >= 50) return true;
-    if (Number.isFinite(deltaPct) && Math.abs(deltaPct) >= 20) return true;
+    if (Number.isFinite(total) && total >= 0.5) return true; // >= 50% total trimmed
+    if (Number.isFinite(delta) && Math.abs(delta) >= 0.2) return true; // >= 20% step
     return false;
   }
 
@@ -21465,6 +21729,7 @@ Provide 3-5 actionable next steps:
     const now = new Date();
     const hour = now.getUTCHours();
     const minute = now.getUTCMinutes();
+    const processedTickers = new Set();
 
     // KV → D1 warm-up (every run) so UI reads are fast/complete
     try {
@@ -21491,6 +21756,7 @@ Provide 3-5 actionable next steps:
 
         for (const trade of openTrades) {
           try {
+            processedTickers.add(String(trade.ticker || "").toUpperCase());
             const latestData = await kvGetJSON(
               KV,
               `timed:latest:${trade.ticker}`,
@@ -21529,6 +21795,31 @@ Provide 3-5 actionable next steps:
       console.error("[TRADE UPDATE CRON ERROR]", error);
     }
 
+    // Always evaluate Kanban-driven executions for all tickers (covers missed/absent ingests).
+    // This is critical for reliability: entries/trims/exits should still happen even if a watchlist alert didn’t fire.
+    try {
+      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+      if (Array.isArray(tickers) && tickers.length > 0) {
+        console.log(`[KANBAN CRON] Evaluating ${tickers.length} tickers`);
+        for (const t of tickers) {
+          const sym = String(t || "").toUpperCase();
+          if (!sym) continue;
+          if (processedTickers.has(sym)) continue;
+          try {
+            const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
+            if (!latestData) continue;
+            await processTradeSimulation(KV, sym, latestData, null, env);
+          } catch (e) {
+            console.error(`[KANBAN CRON] Error processing ${sym}:`, e);
+          }
+        }
+      } else {
+        console.log("[KANBAN CRON] No tickers list found (timed:tickers empty)");
+      }
+    } catch (e) {
+      console.error("[KANBAN CRON] top-level error:", e);
+    }
+
     // Ingest coverage check (every 5 min during market hours)
     try {
       await checkIngestCoverage(KV, now);
@@ -21548,34 +21839,31 @@ Provide 3-5 actionable next steps:
           (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM",
         );
 
-        // Fetch current ticker data for alert generation
-        const allKeys = await KV.list({ prefix: "timed:latest:" });
-        const tickerDataPromises = allKeys.keys
-          .slice(0, 50)
-          .map(async (key) => {
+        // Fetch current ticker data for alert generation (use tickers index; don't arbitrarily truncate to 50)
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const tickerDataPromises = (Array.isArray(tickers) ? tickers : [])
+          .slice(0, 600) // safety cap
+          .map(async (t) => {
             try {
-              const data = await kvGetJSON(KV, key.name);
-              if (data) {
-                const ticker = key.name.replace("timed:latest:", "");
-                return {
-                  ticker,
-                  rank: Number(data.rank) || 0,
-                  rr: Number(data.rr) || 0,
-                  price: Number(data.price) || 0,
-                  completion: Number(data.completion) || 0,
-                  phase_pct: Number(data.phase_pct) || 0,
-                  flags: data.flags || {},
-                };
-              }
-              return null;
-            } catch (err) {
+              const sym = String(t || "").toUpperCase();
+              if (!sym) return null;
+              const data = await kvGetJSON(KV, `timed:latest:${sym}`);
+              if (!data) return null;
+              return {
+                ticker: sym,
+                rank: Number(data.rank) || 0,
+                rr: Number(data.rr) || 0,
+                price: Number(data.price) || 0,
+                completion: Number(data.completion) || 0,
+                phase_pct: Number(data.phase_pct) || 0,
+                flags: data.flags || {},
+              };
+            } catch {
               return null;
             }
           });
 
-        const allTickers = (await Promise.all(tickerDataPromises)).filter(
-          Boolean,
-        );
+        const allTickers = (await Promise.all(tickerDataPromises)).filter(Boolean);
 
         // Generate proactive alerts
         const proactiveAlerts = generateProactiveAlerts(allTickers, allTrades);
