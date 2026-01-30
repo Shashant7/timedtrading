@@ -9805,19 +9805,33 @@ function validateCandlesPayload(body) {
 
   const out = {};
   let n = 0;
-  for (const [tfRaw, candle] of Object.entries(byTf)) {
+  for (const [tfRaw, candleOrArray] of Object.entries(byTf)) {
     const tf = normalizeTfKey(tfRaw);
     if (!tf) continue;
-    const ts = Number(candle?.ts);
-    const o = Number(candle?.o);
-    const h = Number(candle?.h);
-    const l = Number(candle?.l);
-    const c = Number(candle?.c);
-    const v = candle?.v != null ? Number(candle?.v) : null;
-    if (!Number.isFinite(ts)) continue;
-    if (![o, h, l, c].every((x) => Number.isFinite(x))) continue;
-    out[tf] = { tf, ts, o, h, l, c, v };
-    n++;
+
+    // Handle both single candle and array of candles
+    const candleList = Array.isArray(candleOrArray)
+      ? candleOrArray
+      : [candleOrArray];
+
+    const validCandles = [];
+    for (const candle of candleList) {
+      if (!candle || typeof candle !== "object") continue;
+      const ts = Number(candle?.ts);
+      const o = Number(candle?.o);
+      const h = Number(candle?.h);
+      const l = Number(candle?.l);
+      const c = Number(candle?.c);
+      const v = candle?.v != null ? Number(candle?.v) : null;
+      if (!Number.isFinite(ts)) continue;
+      if (![o, h, l, c].every((x) => Number.isFinite(x))) continue;
+      validCandles.push({ tf, ts, o, h, l, c, v });
+      n++;
+    }
+
+    if (validCandles.length > 0) {
+      out[tf] = validCandles.length === 1 ? validCandles[0] : validCandles;
+    }
   }
 
   if (n === 0) return { ok: false, error: "no_valid_candles" };
