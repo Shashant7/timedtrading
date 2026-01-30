@@ -14441,6 +14441,7 @@
         const [chartCandles, setChartCandles] = useState([]);
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
+        const [crosshair, setCrosshair] = useState(null);
 
         // Default to Analysis when switching tickers
         useEffect(() => {
@@ -17289,8 +17290,6 @@
                             for (let i = 0; i <= 5; i++) {
                               priceTicks.push(minL + priceStep * i);
                             }
-
-                            const [crosshair, setCrosshair] = React.useState(null);
 
                             const handleMouseMove = (e) => {
                               const svg = e.currentTarget;
