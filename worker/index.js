@@ -12,6 +12,8 @@
 // GET  /timed/sectors - Get all sectors and ratings
 // GET  /timed/sectors/:sector/tickers?limit=10 - Get top tickers in sector
 // GET  /timed/sectors/recommendations?limit=10&totalLimit=50 - Get top tickers across overweight sectors
+// POST /timed/ingest-candles?key=... (multi-timeframe OHLCV capture)
+// GET  /timed/candles?ticker=XYZ&tf=30&limit=200 (multi-timeframe OHLCV series)
 // POST /timed/watchlist/add?key=... - Add tickers to watchlist
 // POST /timed/cleanup-no-scores?key=... - Remove tickers without score data from index
 // GET  /timed/health
@@ -7407,6 +7409,157 @@ async function d1EnsureLatestSchema(env) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// D1 Candle Storage (multi-timeframe OHLCV)
+// ─────────────────────────────────────────────────────────────
+
+async function d1EnsureCandleSchema(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+
+  // Throttle schema checks to ~once/day
+  const KV = env?.KV_TIMED;
+  const throttleKey = "timed:d1:candles:schema_ok_ms";
+  try {
+    if (KV) {
+      const last = Number(await KV.get(throttleKey));
+      if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) {
+        return { ok: true, skipped: true, reason: "throttled" };
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ticker_candles (
+          ticker TEXT NOT NULL,
+          tf TEXT NOT NULL,
+          ts INTEGER NOT NULL,
+          o REAL,
+          h REAL,
+          l REAL,
+          c REAL,
+          v REAL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (ticker, tf, ts)
+        )`,
+      )
+      .run();
+
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_ticker_candles_ticker_tf_ts
+         ON ticker_candles (ticker, tf, ts DESC)`,
+      )
+      .run();
+
+    try {
+      if (KV)
+        await KV.put(throttleKey, String(Date.now()), {
+          expirationTtl: 7 * 24 * 60 * 60,
+        });
+    } catch {
+      // ignore
+    }
+
+    return { ok: true };
+  } catch (err) {
+    console.error("[D1 CANDLES] Schema ensure failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+function normalizeTfKey(tf) {
+  const raw = String(tf == null ? "" : tf).trim().toUpperCase();
+  if (!raw) return null;
+  // Allow common forms
+  if (raw === "10" || raw === "10M") return "10";
+  if (raw === "30" || raw === "30M") return "30";
+  if (raw === "60" || raw === "1H" || raw === "1HR") return "60";
+  if (raw === "240" || raw === "4H" || raw === "4HR") return "240";
+  if (raw === "D" || raw === "1D" || raw === "DAY") return "D";
+  if (raw === "W" || raw === "1W" || raw === "WEEK") return "W";
+  return null;
+}
+
+async function d1UpsertCandle(env, ticker, tf, candle) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  const sym = String(ticker || "").toUpperCase();
+  const tfKey = normalizeTfKey(tf);
+  if (!sym || !tfKey) return { ok: false, error: "bad_params" };
+
+  const ts = Number(candle?.ts);
+  if (!Number.isFinite(ts)) return { ok: false, error: "bad_ts" };
+  const o = Number(candle?.o);
+  const h = Number(candle?.h);
+  const l = Number(candle?.l);
+  const c = Number(candle?.c);
+  const v = candle?.v != null ? Number(candle?.v) : null;
+  if (![o, h, l, c].every((x) => Number.isFinite(x))) {
+    return { ok: false, error: "bad_ohlc" };
+  }
+  const updatedAt = Date.now();
+
+  try {
+    await d1EnsureCandleSchema(env);
+    await db
+      .prepare(
+        `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+           o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v, updated_at=excluded.updated_at`,
+      )
+      .bind(sym, tfKey, ts, o, h, l, c, v, updatedAt)
+      .run();
+    return { ok: true };
+  } catch (err) {
+    console.error(`[D1 CANDLES] Upsert failed for ${sym} ${tfKey}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1GetCandles(env, ticker, tf, limit = 200) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db_binding" };
+  const sym = String(ticker || "").toUpperCase();
+  const tfKey = normalizeTfKey(tf);
+  const n = Math.max(10, Math.min(500, Number(limit) || 200));
+  if (!sym || !tfKey) return { ok: false, error: "bad_params" };
+
+  try {
+    await d1EnsureCandleSchema(env);
+    const rows = await db
+      .prepare(
+        `SELECT ts, o, h, l, c, v
+         FROM ticker_candles
+         WHERE ticker = ?1 AND tf = ?2
+         ORDER BY ts DESC
+         LIMIT ?3`,
+      )
+      .bind(sym, tfKey, n)
+      .all();
+    const out = (rows?.results || [])
+      .map((r) => ({
+        ts: Number(r?.ts),
+        o: Number(r?.o),
+        h: Number(r?.h),
+        l: Number(r?.l),
+        c: Number(r?.c),
+        v: r?.v != null ? Number(r?.v) : null,
+      }))
+      .filter((x) => Number.isFinite(x.ts) && Number.isFinite(x.o))
+      .sort((a, b) => a.ts - b.ts);
+    return { ok: true, ticker: sym, tf: tfKey, candles: out };
+  } catch (err) {
+    console.error(`[D1 CANDLES] Read failed for ${sym} ${tfKey}:`, err);
+    return { ok: false, error: String(err) };
+  }
+}
+
 async function d1UpsertTickerIndex(env, ticker, ts) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -9621,6 +9774,116 @@ function validateCapturePayload(body) {
       ts,
       price,
       ingest_kind: "capture",
+    },
+  };
+}
+
+function validateCandlesPayload(body) {
+  const ticker = normTicker(body?.ticker);
+  if (!ticker) return { ok: false, error: "missing ticker" };
+
+  const tfCandles = body?.tf_candles;
+  if (!tfCandles || typeof tfCandles !== "object") {
+    return { ok: false, error: "missing tf_candles" };
+  }
+
+  // Normalize to object keyed by tf.
+  let byTf = null;
+  if (Array.isArray(tfCandles)) {
+    byTf = {};
+    for (const it of tfCandles) {
+      const tf = normalizeTfKey(it?.tf);
+      if (!tf) continue;
+      byTf[tf] = it;
+    }
+  } else {
+    byTf = tfCandles;
+  }
+
+  const out = {};
+  let n = 0;
+  for (const [tfRaw, candle] of Object.entries(byTf)) {
+    const tf = normalizeTfKey(tfRaw);
+    if (!tf) continue;
+    const ts = Number(candle?.ts);
+    const o = Number(candle?.o);
+    const h = Number(candle?.h);
+    const l = Number(candle?.l);
+    const c = Number(candle?.c);
+    const v = candle?.v != null ? Number(candle?.v) : null;
+    if (!Number.isFinite(ts)) continue;
+    if (![o, h, l, c].every((x) => Number.isFinite(x))) continue;
+    out[tf] = { tf, ts, o, h, l, c, v };
+    n++;
+  }
+
+  if (n === 0) return { ok: false, error: "no_valid_candles" };
+
+  const tsTop = Number(body?.ts);
+  return {
+    ok: true,
+    ticker,
+    payload: {
+      ...body,
+      ticker,
+      ts: Number.isFinite(tsTop) ? tsTop : Date.now(),
+      tf_candles: out,
+      ingest_kind: "candles",
+    },
+  };
+}
+
+function validateCandlesPayload(body) {
+  const ticker = normTicker(body?.ticker);
+  if (!ticker) return { ok: false, error: "missing ticker" };
+
+  const tfCandles = body?.tf_candles;
+  if (!tfCandles || typeof tfCandles !== "object") {
+    return { ok: false, error: "missing tf_candles" };
+  }
+
+  // Accept either {"10":{...}} or [{"tf":"10",...}] but normalize to object.
+  let byTf = null;
+  if (Array.isArray(tfCandles)) {
+    byTf = {};
+    for (const it of tfCandles) {
+      const tf = normalizeTfKey(it?.tf);
+      if (!tf) continue;
+      byTf[tf] = it;
+    }
+  } else {
+    byTf = tfCandles;
+  }
+
+  const out = {};
+  let n = 0;
+  for (const [tfRaw, candle] of Object.entries(byTf)) {
+    const tf = normalizeTfKey(tfRaw);
+    if (!tf) continue;
+    const ts = Number(candle?.ts);
+    const o = Number(candle?.o);
+    const h = Number(candle?.h);
+    const l = Number(candle?.l);
+    const c = Number(candle?.c);
+    const v = candle?.v != null ? Number(candle?.v) : null;
+    if (!Number.isFinite(ts)) continue;
+    if (![o, h, l, c].every((x) => Number.isFinite(x))) continue;
+    out[tf] = { tf, ts, o, h, l, c, v };
+    n++;
+  }
+
+  if (n === 0) return { ok: false, error: "no_valid_candles" };
+
+  const tsTop = Number(body?.ts);
+  return {
+    ok: true,
+    ticker,
+    payload: {
+      ...body,
+      ticker,
+      ts: Number.isFinite(tsTop) ? tsTop : Date.now(),
+      tf_candles: out,
+      ingest_kind: "candles",
     },
   };
 }
@@ -12916,6 +13179,73 @@ export default {
         }
       }
 
+      // POST /timed/ingest-candles (multi-timeframe OHLCV)
+      if (url.pathname === "/timed/ingest-candles" && req.method === "POST") {
+        let body = null;
+        try {
+          const authFail = requireKeyOr401(req, env);
+          if (authFail) return authFail;
+
+          const { obj: bodyData, raw, err } = await readBodyAsJSON(req);
+          body = bodyData;
+          if (!body) {
+            return ackJSON(
+              env,
+              {
+                ok: false,
+                error: "bad_json",
+                sample: String(raw || "").slice(0, 200),
+                parseError: String(err || ""),
+              },
+              400,
+              req,
+            );
+          }
+
+          const v = validateCandlesPayload(body);
+          if (!v.ok) return ackJSON(env, v, 400, req);
+
+          const ticker = v.ticker;
+          const payload = v.payload;
+          const tfCandles = payload?.tf_candles || {};
+
+          // Upsert all candles into D1 (best-effort; continue on individual errors).
+          let okCount = 0;
+          let errCount = 0;
+          try {
+            await d1EnsureCandleSchema(env);
+          } catch {
+            // ignore (d1UpsertCandle will surface errors)
+          }
+          for (const [tf, candle] of Object.entries(tfCandles)) {
+            const res = await d1UpsertCandle(env, ticker, tf, candle);
+            if (res?.ok) okCount++;
+            else errCount++;
+          }
+
+          return ackJSON(
+            env,
+            {
+              ok: true,
+              ticker,
+              ingested: okCount,
+              rejected: errCount,
+              tfs: Object.keys(tfCandles),
+            },
+            200,
+            req,
+          );
+        } catch (err) {
+          console.error(`[CANDLES INGEST ERROR]`, err);
+          return ackJSON(
+            env,
+            { ok: false, error: String(err?.message || err) },
+            500,
+            req,
+          );
+        }
+      }
+
       // GET /timed/latest?ticker=
       if (url.pathname === "/timed/latest" && req.method === "GET") {
         // Rate limiting
@@ -14075,6 +14405,67 @@ export default {
         return sendJSON(responseData, 200, corsHeaders(env, req));
         */
         // END OF REMOVED ON-DEMAND COMPUTATION CODE
+      }
+
+      // GET /timed/candles?ticker=&tf=&limit=
+      if (url.pathname === "/timed/candles" && req.method === "GET") {
+        try {
+          const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+          const rateLimit = await checkRateLimitFixedWindow(
+            KV,
+            ip,
+            "/timed/candles",
+            20000,
+            3600,
+          );
+          if (!rateLimit.allowed) {
+            const retryAfter = Math.max(
+              1,
+              Math.ceil((rateLimit.resetAt - Date.now()) / 1000),
+            );
+            return sendJSON(
+              { ok: false, error: "rate_limit_exceeded", retryAfter },
+              429,
+              {
+                ...corsHeaders(env, req),
+                "Retry-After": String(retryAfter),
+                "X-RateLimit-Limit": String(rateLimit.limit ?? 20000),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": String(rateLimit.resetAt),
+              },
+            );
+          }
+
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          const tf = url.searchParams.get("tf");
+          const limitRaw = url.searchParams.get("limit");
+          const limit =
+            limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 200;
+          if (!ticker || !tf) {
+            return sendJSON(
+              { ok: false, error: "missing ticker/tf" },
+              400,
+              corsHeaders(env, req),
+            );
+          }
+
+          const res = await d1GetCandles(env, ticker, tf, limit);
+          if (!res?.ok) {
+            return sendJSON(
+              { ok: false, error: res?.error || "candles_read_failed" },
+              500,
+              corsHeaders(env, req),
+            );
+          }
+          return sendJSON(res, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error(`[CANDLES] /timed/candles failed:`, String(e));
+          return sendJSON(
+            { ok: false, error: "internal_error" },
+            500,
+            corsHeaders(env, req),
+          );
+        }
       }
 
       // GET /timed/trail?ticker=
