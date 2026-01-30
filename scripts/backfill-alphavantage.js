@@ -40,16 +40,10 @@ if (!WORKER_URL || (!API_KEY && !DRY_RUN)) {
 }
 
 // Alpha Vantage has different endpoints per TF group
-// Free tier: 25 API calls/day, 5 calls/minute
+// Free tier: 25 API calls/day, 5 calls/minute, "compact" output only (~100 most recent bars)
 const TF_CONFIG = {
-  D: { function: "TIME_SERIES_DAILY", outputsize: "full" }, // ~20 years
-  W: { function: "TIME_SERIES_WEEKLY", outputsize: "full" }, // ~20 years
-  // Intraday (1min, 5min, 15min, 30min, 60min) - use extended history
-  "1": { function: "TIME_SERIES_INTRADAY", interval: "1min", outputsize: "full", month: null },
-  "5": { function: "TIME_SERIES_INTRADAY", interval: "5min", outputsize: "full", month: null },
-  "10": { function: "TIME_SERIES_INTRADAY", interval: "15min", outputsize: "full", month: null }, // Use 15min as proxy
-  "30": { function: "TIME_SERIES_INTRADAY", interval: "30min", outputsize: "full", month: null },
-  "60": { function: "TIME_SERIES_INTRADAY", interval: "60min", outputsize: "full", month: null },
+  D: { function: "TIME_SERIES_DAILY", outputsize: "compact" }, // Last ~100 days
+  W: { function: "TIME_SERIES_WEEKLY", outputsize: "compact" }, // Last ~100 weeks (~2 years)
 };
 
 async function fetchAlphaVantage(ticker, config) {
