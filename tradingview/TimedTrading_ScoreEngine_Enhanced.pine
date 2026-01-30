@@ -96,8 +96,12 @@ clamp(x, lo, hi) => math.max(lo, math.min(hi, x))
 prevBoolSeries(b) => bar_index > 0 ? b[1] : false
 
 f_fmt(x, dec) =>
-    dec <= 0 ? str.tostring(math.round(x)) :
-     str.tostring(math.round(x * math.pow(10, dec)) / math.pow(10, dec))
+    string out = ""
+    if dec <= 0
+        out := str.tostring(math.round(x))
+    else
+        out := str.tostring(math.round(x * math.pow(10, dec)) / math.pow(10, dec))
+    out
 
 // Helpers for compact per-timeframe technical summaries (avoid arrays to reduce memory)
 // Phase dot codes (int):
@@ -676,11 +680,15 @@ ltfScoreBase = clamp(ltf30Score*w30_adj + ltf10Score*w10_adj + ltf1HScore*w1H_ad
 // State (use base LTF so small trigger bonuses don't flip state)
 htfBull = htfScore >= 0
 ltfBull = ltfScoreBase >= 0
-state =
-     htfBull and not ltfBull ? "HTF_BULL_LTF_PULLBACK" :
-     htfBull and ltfBull     ? "HTF_BULL_LTF_BULL" :
-     (not htfBull) and (not ltfBull) ? "HTF_BEAR_LTF_BEAR" :
-                                       "HTF_BEAR_LTF_PULLBACK"
+string state = "HTF_BEAR_LTF_PULLBACK"
+if htfBull and not ltfBull
+    state := "HTF_BULL_LTF_PULLBACK"
+else if htfBull and ltfBull
+    state := "HTF_BULL_LTF_BULL"
+else if (not htfBull) and (not ltfBull)
+    state := "HTF_BEAR_LTF_BEAR"
+else
+    state := "HTF_BEAR_LTF_PULLBACK"
 
 // LTF trigger bonuses (used for bubble position / ranking nuance)
 // Key idea:
@@ -1428,9 +1436,14 @@ var float  lastSentLTF   = na
 var string lastSentState = ""
 var int    lastSentTime  = na
 
-scoreMoved = (na(lastSentHTF) or na(lastSentLTF)) ? true : 
-             (scoreDelta <= 0) ? true :  // If scoreDelta is 0, always consider it moved
-             (math.abs(htfScore - lastSentHTF) >= scoreDelta) or (math.abs(ltfScore - lastSentLTF) >= scoreDelta)
+bool scoreMoved = false
+if na(lastSentHTF) or na(lastSentLTF)
+    scoreMoved := true
+else if scoreDelta <= 0
+    // If scoreDelta is 0, always consider it moved
+    scoreMoved := true
+else
+    scoreMoved := (math.abs(htfScore - lastSentHTF) >= scoreDelta) or (math.abs(ltfScore - lastSentLTF) >= scoreDelta)
 
 stateChanged = (lastSentState != state)
 
@@ -1439,11 +1452,15 @@ stateChanged = (lastSentState != state)
 // After baseline is sent, periodic updates will trigger every periodicUpdateMinutes
 periodicUpdateDue = periodicUpdateMinutes > 0 and not na(lastSentTime) and (time - lastSentTime >= periodicUpdateMinutes * 60 * 1000)
 
-throttleOK =
-     forceBaseline ? true :
-     minMinutesBetweenSends <= 0 ? true :
-     na(lastSentTime) ? true :
-     (time - lastSentTime >= minMinutesBetweenSends * 60 * 1000)
+bool throttleOK = false
+if forceBaseline
+    throttleOK := true
+else if minMinutesBetweenSends <= 0
+    throttleOK := true
+else if na(lastSentTime)
+    throttleOK := true
+else
+    throttleOK := (time - lastSentTime >= minMinutesBetweenSends * 60 * 1000)
 
 meaningful = stateChanged or scoreMoved or sq30_rel
 // Send if: first baseline, meaningful change, OR periodic update due
@@ -1778,8 +1795,13 @@ f_stack_strength(float e5, float e13, float e21, float e48, float e89, float e20
     bull >= 4 and bull > bear ? bull : bear >= 4 and bear > bull ? -bear : 0
 
 f_trend_sig(float px, float e21, float e200) =>
-    (not na(px) and not na(e21) and not na(e200) and px >= e21 and e21 >= e200) ? 1 :
-     (not na(px) and not na(e21) and not na(e200) and px <= e21 and e21 <= e200) ? -1 : 0
+    int out = 0
+    if not na(px) and not na(e21) and not na(e200)
+        if px >= e21 and e21 >= e200
+            out := 1
+        else if px <= e21 and e21 <= e200
+            out := -1
+    out
 
 f_atr_band_json(float px, float prevPx, float pc, float atr) =>
     if na(pc) or na(atr) or atr <= 0 or na(px)
