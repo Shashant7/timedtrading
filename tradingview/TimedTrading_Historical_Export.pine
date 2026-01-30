@@ -34,7 +34,7 @@ if barstate.islast
     log.info("ticker,tf,ts,o,h,l,c,v")
     
     // Export each timeframe
-    tfs = array.from("10", "30", "60", "240", "D", "W")
+    tfs = array.from("1", "3", "5", "10", "30", "60", "240", "D", "W")
     
     for tf in tfs
         [oArr, hArr, lArr, cArr, vArr, tArr] = f_history(tf, lookbackBars)
