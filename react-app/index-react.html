@@ -17430,8 +17430,8 @@
                                       ? "rgba(56,189,248,0.95)"
                                       : "rgba(251,146,60,0.95)";
                                     const fill = up
-                                      ? "rgba(56,189,248,0.35)"
-                                      : "rgba(251,146,60,0.35)";
+                                      ? "rgba(56,189,248,0.90)"
+                                      : "rgba(251,146,60,0.90)";
 
                                     const cx = leftMargin + i * candleStep + candleStep / 2;
                                     const yH = y(h);
@@ -17486,6 +17486,42 @@
                                         strokeWidth="1"
                                         strokeDasharray="4 4"
                                       />
+                                      {/* Crosshair price label (right side) */}
+                                      {(() => {
+                                        const yLabel = Math.max(
+                                          10,
+                                          Math.min(H - 10, Number(crosshair.y)),
+                                        );
+                                        const price = Number(crosshair.price);
+                                        const priceText = Number.isFinite(price)
+                                          ? `$${price.toFixed(2)}`
+                                          : "—";
+                                        return (
+                                          <g>
+                                            <rect
+                                              x={W - rightMargin + 2}
+                                              y={yLabel - 10}
+                                              width={rightMargin - 4}
+                                              height={20}
+                                              fill="rgba(18,26,51,0.92)"
+                                              stroke="rgba(38,50,95,0.9)"
+                                              strokeWidth="1"
+                                              rx="4"
+                                            />
+                                            <text
+                                              x={W - rightMargin + (rightMargin - 4) / 2}
+                                              y={yLabel + 4}
+                                              fontSize="11"
+                                              fill="#fbbf24"
+                                              fontFamily="monospace"
+                                              fontWeight="700"
+                                              textAnchor="middle"
+                                            >
+                                              {priceText}
+                                            </text>
+                                          </g>
+                                        );
+                                      })()}
                                     </>
                                   ) : null}
                                   </svg>
@@ -17508,14 +17544,22 @@
                                               crosshair?.candle?.ts,
                                           );
                                           if (!Number.isFinite(ts)) return "—";
-                                          const d = new Date(ts);
                                           if (String(chartTf) === "W") {
-                                            return d.toLocaleDateString("en-US", {
+                                            // Weekly candles: show the start-of-week (Monday) label
+                                            const d0 = new Date(ts);
+                                            const day = d0.getDay(); // 0=Sun..6=Sat
+                                            const daysSinceMon = (day + 6) % 7; // Mon->0, Tue->1, ... Sun->6
+                                            const d = new Date(
+                                              d0.getTime() - daysSinceMon * 24 * 60 * 60 * 1000,
+                                            );
+                                            d.setHours(0, 0, 0, 0);
+                                            return `Week of ${d.toLocaleDateString("en-US", {
                                               month: "short",
                                               day: "numeric",
                                               year: "numeric",
-                                            });
+                                            })}`;
                                           }
+                                          const d = new Date(ts);
                                           return d.toLocaleString("en-US", {
                                             month: "short",
                                             day: "numeric",
