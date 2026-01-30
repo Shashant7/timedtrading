@@ -101,7 +101,24 @@ divGrossJson = not na(divGross) ? str.tostring(divGross) : "null"
 
 contextStr = shouldSendContext ? ",\"context\":{" + "\"name\":\"" + companyName + "\"," + "\"description\":\"" + companyDesc + "\"," + "\"sector\":\"" + sector + "\"," + "\"industry\":\"" + industry + "\"," + "\"country\":\"" + country + "\"," + "\"exchange\":\"" + exchange + "\"," + "\"type\":\"" + assetType + "\"," + "\"currency\":\"" + currency + "\"," + "\"technical_rating\":{" + "\"value\":" + ratingTotalJson + "," + "\"status\":" + ratingStatusJson + "}," + "\"events\":{" + "\"last_earnings_ts\":" + lastEarnTsJson + "," + "\"last_earnings_actual\":" + earnActualJson + "," + "\"last_earnings_estimate\":" + earnEstimateJson + "," + "\"last_dividend_ts\":" + lastDivTsJson + "," + "\"last_dividend_gross\":" + divGrossJson + "}" + "}" : ""
 
-payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"price\":" + str.tostring(close) + sessionJson + prevCloseStr + chgStr + pctStr + avgVolStr + adrStr + momStr + (includeOHLC ? ",\"o\":" + str.tostring(open) + ",\"h\":" + str.tostring(high) + ",\"l\":" + str.tostring(low) : "") + (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") + contextStr + ",\"ingest_kind\":\"capture\"" + "}"
+// Multi-TF candles (optional): fetch OHLCV per timeframe for chart rendering in the UI.
+f_candle(tf) =>
+    [o, h, l, c, v, tc] = request.security(syminfo.tickerid, tf, [open, high, low, close, volume, time_close], barmerge.gaps_off, barmerge.lookahead_off)
+    [o, h, l, c, v, tc]
+
+f_num(x) => na(x) ? "null" : str.tostring(x)
+
+candlesStr = ""
+if includeCandles
+    [o10, h10, l10, c10, v10, t10] = f_candle("10")
+    [o30, h30, l30, c30, v30, t30] = f_candle("30")
+    [o60, h60, l60, c60, v60, t60] = f_candle("60")
+    [o240, h240, l240, c240, v240, t240] = f_candle("240")
+    [oD, hD, lD, cD, vD, tD] = f_candle("D")
+    [oW, hW, lW, cW, vW, tW] = f_candle("W")
+    candlesStr := ",\"tf_candles\":{\"10\":{\"ts\":" + f_num(t10) + ",\"o\":" + f_num(o10) + ",\"h\":" + f_num(h10) + ",\"l\":" + f_num(l10) + ",\"c\":" + f_num(c10) + ",\"v\":" + f_num(v10) + "},\"30\":{\"ts\":" + f_num(t30) + ",\"o\":" + f_num(o30) + ",\"h\":" + f_num(h30) + ",\"l\":" + f_num(l30) + ",\"c\":" + f_num(c30) + ",\"v\":" + f_num(v30) + "},\"60\":{\"ts\":" + f_num(t60) + ",\"o\":" + f_num(o60) + ",\"h\":" + f_num(h60) + ",\"l\":" + f_num(l60) + ",\"c\":" + f_num(c60) + ",\"v\":" + f_num(v60) + "},\"240\":{\"ts\":" + f_num(t240) + ",\"o\":" + f_num(o240) + ",\"h\":" + f_num(h240) + ",\"l\":" + f_num(l240) + ",\"c\":" + f_num(c240) + ",\"v\":" + f_num(v240) + "},\"D\":{\"ts\":" + f_num(tD) + ",\"o\":" + f_num(oD) + ",\"h\":" + f_num(hD) + ",\"l\":" + f_num(lD) + ",\"c\":" + f_num(cD) + ",\"v\":" + f_num(vD) + "},\"W\":{\"ts\":" + f_num(tW) + ",\"o\":" + f_num(oW) + ",\"h\":" + f_num(hW) + ",\"l\":" + f_num(lW) + ",\"c\":" + f_num(cW) + ",\"v\":" + f_num(vW) + "}}"
+
+payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"price\":" + str.tostring(close) + sessionJson + prevCloseStr + chgStr + pctStr + avgVolStr + adrStr + momStr + (includeOHLC ? ",\"o\":" + str.tostring(open) + ",\"h\":" + str.tostring(high) + ",\"l\":" + str.tostring(low) : "") + (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") + contextStr + candlesStr + ",\"ingest_kind\":\"capture\"" + "}"
 
 if barstate.isconfirmed
     if shouldSendContext
