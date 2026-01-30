@@ -17316,9 +17316,22 @@
                               }
                             };
 
+                            const scrollRef = React.useRef(null);
+
+                            // Auto-scroll to most recent candle on load
+                            React.useEffect(() => {
+                              if (scrollRef.current && candles.length > 0) {
+                                scrollRef.current.scrollLeft =
+                                  scrollRef.current.scrollWidth;
+                              }
+                            }, [candles.length]);
+
                             return (
                               <div className="w-full relative">
-                                <div className="overflow-x-auto overflow-y-hidden rounded border border-[#26325f] bg-[#0b1020]">
+                                <div
+                                  ref={scrollRef}
+                                  className="overflow-x-auto overflow-y-hidden rounded border border-[#26325f] bg-[#0b1020] scrollbar-hide"
+                                >
                                   <svg
                                     viewBox={`0 0 ${W} ${H}`}
                                     style={{ minWidth: `${Math.max(760, W)}px`, height: "320px" }}
@@ -17392,7 +17405,8 @@
                                           y={top}
                                           width={bodyW}
                                           height={bodyH}
-                                          fill={stroke}
+                                          fill={fill}
+                                          stroke="none"
                                           rx="0.5"
                                         />
                                       </g>
@@ -17435,16 +17449,28 @@
                                     }}
                                   >
                                     <div className="font-semibold text-white mb-1">
-                                      {new Date(
-                                        Number(crosshair.candle.ts),
-                                      ).toLocaleString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                        hour: "numeric",
-                                        minute: "2-digit",
-                                      })}
+                                      {(() => {
+                                        const d = new Date(Number(crosshair.candle.ts));
+                                        if (String(chartTf) === "W") {
+                                          return d.toLocaleDateString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            year: "numeric",
+                                          });
+                                        }
+                                        return d.toLocaleString("en-US", {
+                                          month: "short",
+                                          day: "numeric",
+                                          hour: "numeric",
+                                          minute: "2-digit",
+                                        });
+                                      })()}
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                                      <div className="text-[#93a4d6]">Price:</div>
+                                      <div className="text-yellow-300 font-mono font-semibold">
+                                        ${Number(crosshair.price).toFixed(2)}
+                                      </div>
                                       <div className="text-[#93a4d6]">O:</div>
                                       <div className="text-white font-mono">
                                         ${Number(crosshair.candle.o).toFixed(2)}
