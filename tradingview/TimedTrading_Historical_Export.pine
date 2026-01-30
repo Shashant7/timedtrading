@@ -18,52 +18,62 @@ batchSize = input.int(50, "Batch size (bars per log)", minval=10, maxval=100, gr
 
 sym = exportTicker != "" ? exportTicker : syminfo.ticker
 
-// Fetch OHLCV for a given timeframe (returns arrays)
-f_history(tf, n) =>
-    o = request.security_lower_tf(syminfo.tickerid, tf, open, n, barmerge.gaps_off)
-    h = request.security_lower_tf(syminfo.tickerid, tf, high, n, barmerge.gaps_off)
-    l = request.security_lower_tf(syminfo.tickerid, tf, low, n, barmerge.gaps_off)
-    c = request.security_lower_tf(syminfo.tickerid, tf, close, n, barmerge.gaps_off)
-    v = request.security_lower_tf(syminfo.tickerid, tf, volume, n, barmerge.gaps_off)
-    t = request.security_lower_tf(syminfo.tickerid, tf, time_close, n, barmerge.gaps_off)
-    [o, h, l, c, v, t]
+// Build historical arrays for a given timeframe (request.security approach)
+var oArr = array.new<float>()
+var hArr = array.new<float>()
+var lArr = array.new<float>()
+var cArr = array.new<float>()
+var vArr = array.new<float>()
+var tArr = array.new<int>()
 
-// Export CSV header on the last historical bar
-if barstate.islast
+// Populate arrays with current bar data (Pine will run this on every bar)
+if barstate.isconfirmed
+    array.push(oArr, open)
+    array.push(hArr, high)
+    array.push(lArr, low)
+    array.push(cArr, close)
+    array.push(vArr, volume)
+    array.push(tArr, time_close)
+    
+    // Keep array size bounded
+    if array.size(oArr) > lookbackBars
+        array.shift(oArr)
+        array.shift(hArr)
+        array.shift(lArr)
+        array.shift(cArr)
+        array.shift(vArr)
+        array.shift(tArr)
+
+// Export CSV on the last bar
+if barstate.islast and array.size(oArr) > 0
     log.info("=== HISTORICAL CANDLE EXPORT ===")
+    log.info("Ticker: " + sym + " | TF: " + timeframe.period + " | Bars: " + str.tostring(array.size(oArr)))
     log.info("ticker,tf,ts,o,h,l,c,v")
     
-    // Export each timeframe
-    tfs = array.from("1", "3", "5", "10", "30", "60", "240", "D", "W")
+    // Export in batches to avoid log truncation
+    total = array.size(oArr)
+    batches = math.ceil(total / batchSize)
     
-    for tf in tfs
-        [oArr, hArr, lArr, cArr, vArr, tArr] = f_history(tf, lookbackBars)
+    for b = 0 to batches - 1
+        start = b * batchSize
+        end_ = math.min(start + batchSize, total)
         
-        if array.size(oArr) > 0
-            // Export in batches to avoid log truncation
-            total = array.size(oArr)
-            batches = math.ceil(total / batchSize)
-            
-            for b = 0 to batches - 1
-                start = b * batchSize
-                end_ = math.min(start + batchSize, total)
+        batch = ""
+        for i = start to end_ - 1
+            if i < array.size(oArr)
+                o = array.get(oArr, i)
+                h = array.get(hArr, i)
+                l = array.get(lArr, i)
+                c = array.get(cArr, i)
+                v = array.get(vArr, i)
+                t = array.get(tArr, i)
                 
-                batch = ""
-                for i = start to end_ - 1
-                    if i < array.size(oArr) and i < array.size(tArr)
-                        o = array.get(oArr, i)
-                        h = array.get(hArr, i)
-                        l = array.get(lArr, i)
-                        c = array.get(cArr, i)
-                        v = array.get(vArr, i)
-                        t = array.get(tArr, i)
-                        
-                        if not na(o) and not na(h) and not na(l) and not na(c) and not na(t)
-                            row = sym + "," + tf + "," + str.tostring(t) + "," + str.tostring(o) + "," + str.tostring(h) + "," + str.tostring(l) + "," + str.tostring(c) + "," + (na(v) ? "" : str.tostring(v))
-                            batch := batch + row + "\n"
-                
-                if batch != ""
-                    log.info(batch)
+                if not na(o) and not na(h) and not na(l) and not na(c) and not na(t)
+                    row = sym + "," + timeframe.period + "," + str.tostring(t) + "," + str.tostring(o) + "," + str.tostring(h) + "," + str.tostring(l) + "," + str.tostring(c) + "," + (na(v) ? "" : str.tostring(v))
+                    batch := batch + row + "\n"
+        
+        if batch != ""
+            log.info(batch)
     
     log.info("=== EXPORT COMPLETE ===")
-    log.info("Total timeframes: " + str.tostring(array.size(tfs)))
+    log.info("IMPORTANT: Run this script on EACH timeframe chart you want to export (1m, 3m, 5m, 10m, 30m, 1H, 4H, D, W)")
