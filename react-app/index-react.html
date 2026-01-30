@@ -14455,6 +14455,17 @@
           setChartLoading(false);
         }, [tickerSymbol]);
 
+        // Auto-scroll chart to most recent candle when data loads
+        useEffect(() => {
+          if (chartScrollRef.current && chartCandles.length > 0 && railTab === "CHART") {
+            setTimeout(() => {
+              if (chartScrollRef.current) {
+                chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
+              }
+            }, 100);
+          }
+        }, [chartCandles.length, railTab]);
+
         useEffect(() => {
           const sym = String(tickerSymbol || "")
             .trim()
@@ -17317,20 +17328,18 @@
                               }
                             };
 
-                            const scrollRef = React.useRef(null);
-
                             // Auto-scroll to most recent candle on load
                             React.useEffect(() => {
-                              if (scrollRef.current && candles.length > 0) {
-                                scrollRef.current.scrollLeft =
-                                  scrollRef.current.scrollWidth;
+                              if (chartScrollRef.current && candles.length > 0) {
+                                chartScrollRef.current.scrollLeft =
+                                  chartScrollRef.current.scrollWidth;
                               }
                             }, [candles.length]);
 
                             return (
                               <div className="w-full relative">
                                 <div
-                                  ref={scrollRef}
+                                  ref={chartScrollRef}
                                   className="overflow-x-auto overflow-y-hidden rounded border border-[#26325f] bg-[#0b1020] scrollbar-hide"
                                 >
                                   <svg
