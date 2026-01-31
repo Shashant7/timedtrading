@@ -22295,6 +22295,57 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // POST /timed/ml/backfill-queue?key=... - Backfill ML queue from timed_trail
+      if (url.pathname === "/timed/ml/backfill-queue" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const db = env?.DB;
+          if (!db) {
+            return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req, true));
+          }
+
+          await d1EnsureMlV1Schema(env);
+          
+          const daysBack = Number(url.searchParams.get("days")) || 7;
+          const cutoff = Date.now() - (daysBack * 24 * 60 * 60 * 1000);
+          
+          // Get recent trail data
+          const rows = await db.prepare(
+            `SELECT ticker, ts, payload_json FROM timed_trail 
+             WHERE ts >= ?1 
+             ORDER BY ts DESC 
+             LIMIT 1000`
+          ).bind(cutoff).all();
+
+          let queued = 0;
+          const horizons = [4 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]; // 4h, 1d
+
+          for (const row of (rows?.results || [])) {
+            try {
+              const payload = JSON.parse(row.payload_json);
+              await d1EnqueueMlV1(env, row.ticker, payload, horizons);
+              queued++;
+            } catch (e) {
+              // Skip invalid entries
+            }
+          }
+
+          return sendJSON(
+            { ok: true, queued, daysBack, processed: rows?.results?.length || 0 },
+            200,
+            corsHeaders(env, req, true),
+          );
+        } catch (error) {
+          return sendJSON(
+            { ok: false, error: String(error) },
+            500,
+            corsHeaders(env, req, true),
+          );
+        }
+      }
+
       // POST /timed/admin/reset?key=... - Reset system state as if freshly launched (SAFE by default)
       // Default behavior (safe):
       // - Clears KV simulated trades + paper portfolio + activity feed
