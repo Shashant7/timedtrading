@@ -7866,7 +7866,7 @@
       function DashboardWelcomeModal({ onClose }) {
         const [currentStep, setCurrentStep] = useState(0);
 
-        const steps = [
+        const allSteps = [
           {
             title: "Start with the Action Center",
             content: (
@@ -7952,6 +7952,40 @@
                       invalidated (done)
                     </div>
                   </div>
+                </div>
+              </div>
+            ),
+          },
+          {
+            title: "Right Rail (10-second checklist)",
+            content: (
+              <div className="space-y-4">
+                <p className="text-lg text-[#e7ecff]">
+                  Click any ticker card to open the <strong>Right Rail</strong>.
+                  Then do this:
+                </p>
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-2">
+                    <li>
+                      Read the <strong className="text-white">Lane</strong> (that’s the instruction).
+                    </li>
+                    <li>
+                      Confirm <strong className="text-white">Bias</strong> (LONG/SHORT).
+                    </li>
+                    <li>
+                      Use the displayed <strong className="text-white">Entry / SL / TP</strong>.
+                    </li>
+                    <li>
+                      If lane is <strong className="text-white">Enter Now</strong>: execute.
+                      If lane is <strong className="text-white">Hold/Defend/Trim/Exit</strong>: manage only.
+                    </li>
+                  </ol>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                  <p className="text-sm text-[#93a4d6]">
+                    <strong className="text-yellow-400">Rule:</strong> Don’t add steps.
+                    Follow the lane and repeat.
+                  </p>
                 </div>
               </div>
             ),
@@ -8554,6 +8588,9 @@
             ),
           },
         ];
+
+        // Keep onboarding simple: show only the first 3 lane-first steps.
+        const steps = allSteps.slice(0, 3);
 
         const nextStep = () => {
           if (currentStep < steps.length - 1) {
