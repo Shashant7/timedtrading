@@ -19573,9 +19573,18 @@
             console.log('[TICKERS MEMO] Using timeTravelTickers:', timeTravelTickers.length);
             return timeTravelTickers;
           }
+          
+          const dataKeys = Object.keys(data || {});
+          console.log('[TICKERS MEMO] Input data:', {
+            inputDataKeys: dataKeys.length,
+            firstKeys: dataKeys.slice(0, 5),
+            dataType: typeof data,
+            isObject: data && typeof data === 'object'
+          });
+          
           const filtered = applyFilters(data, effectiveFilters, trades);
           console.log('[TICKERS MEMO] Filtered tickers:', {
-            inputDataKeys: Object.keys(data || {}).length,
+            inputDataKeys: dataKeys.length,
             filteredCount: filtered.length,
             effectiveFilters: effectiveFilters,
             tradesCount: (trades || []).length
