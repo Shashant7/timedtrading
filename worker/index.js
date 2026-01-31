@@ -12501,6 +12501,13 @@ export default {
           // Store latest (do this BEFORE alert so UI has it)
           await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
 
+          // Enqueue for ML training (4h and 1d horizons)
+          try {
+            await d1EnqueueMlV1(env, ticker, payload, [4 * 60 * 60 * 1000, 24 * 60 * 60 * 1000]);
+          } catch (e) {
+            console.error(`[ML ENQUEUE] Failed for ${ticker}:`, String(e));
+          }
+
           // Upsert latest snapshot to D1 for fast UI reads (best-effort)
           try {
             ctx.waitUntil(d1UpsertTickerLatest(env, ticker, payload));
