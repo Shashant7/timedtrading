@@ -11758,6 +11758,11 @@
           const exit = [];
 
           tickers.forEach((t) => {
+            // Skip tickers with explicitly null kanban_stage (reset/cleared state)
+            if (t?.kanban_stage === null) {
+              return;
+            }
+            
             let stage = String(t?.kanban_stage || "");
 
             // Fallback: If Worker hasn't assigned stage yet, classify client-side
