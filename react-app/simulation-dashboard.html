@@ -7078,6 +7078,11 @@
           return days === 1 ? "Today" : `Last ${days}d`;
         }, [ledgerRangeDays]);
 
+        // Safe defaults for proof UI computed inside nested blocks.
+        // Some JSX sections reference these outside the compute block; keep them defined
+        // so the page never crashes (it will just render empty state).
+        const pnlByTickerWindow = { rows: [], maxAbs: 0 };
+
         const ledgerSince = useMemo(() => {
           const days = Number(ledgerRangeDays) || 7;
           return Date.now() - days * 24 * 60 * 60 * 1000;
