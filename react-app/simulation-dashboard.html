@@ -3102,6 +3102,49 @@
                       </span>
                     </div>
                   )}
+                  {/* Model Score (Worker-provided) */}
+                  {(() => {
+                    const ml =
+                      tickerData?.ml ||
+                      tickerData?.model ||
+                      tickerData?.model_v1 ||
+                      tickerData?.ml_v1 ||
+                      null;
+                    if (!ml || typeof ml !== "object") return null;
+                    const p4h = Number(ml?.p_win_4h ?? ml?.p4h ?? ml?.pWin4h);
+                    const ev4h = Number(ml?.ev_4h ?? ml?.ev4h);
+                    const p1d = Number(ml?.p_win_1d ?? ml?.p1d ?? ml?.pWin1d);
+                    const ev1d = Number(ml?.ev_1d ?? ml?.ev1d);
+                    const has4h =
+                      Number.isFinite(p4h) || Number.isFinite(ev4h);
+                    const has1d =
+                      Number.isFinite(p1d) || Number.isFinite(ev1d);
+                    if (!has4h && !has1d) return null;
+                    const fmtPct = (x) =>
+                      Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—";
+                    const fmtEv = (x) =>
+                      Number.isFinite(x) ? `${x.toFixed(2)}%` : "—";
+                    return (
+                      <>
+                        {has4h && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">Model (4h)</span>
+                            <span className="font-semibold text-purple-300">
+                              pWin {fmtPct(p4h)} • EV {fmtEv(ev4h)}
+                            </span>
+                          </div>
+                        )}
+                        {has1d && (
+                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                            <span className="text-[#93a4d6]">Model (1d)</span>
+                            <span className="font-semibold text-purple-300">
+                              pWin {fmtPct(p1d)} • EV {fmtEv(ev1d)}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                   {isInTop40 && (
                     <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
                       <span className="text-[#93a4d6]">Top 40 Position</span>

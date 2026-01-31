@@ -7236,6 +7236,347 @@ function computeRank(d) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// ML v1: lightweight online model scaffolding (Worker-side)
+// - Writes `ml_v1` into each ticker payload so UI can display it
+// - Training/labels are added in a later step (scheduled + D1)
+// ─────────────────────────────────────────────────────────────
+
+function clamp(x, lo, hi) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return lo;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+function sigmoid(z) {
+  const x = Number(z);
+  if (!Number.isFinite(x)) return 0.5;
+  // Stable-ish sigmoid
+  if (x >= 12) return 0.9999939;
+  if (x <= -12) return 0.0000061;
+  return 1 / (1 + Math.exp(-x));
+}
+
+function mlV1Features(d) {
+  const rank = Number(d?.rank);
+  const rr = Number(d?.rr);
+  const comp = clamp01(d?.completion);
+  const phase = clamp01(d?.phase_pct);
+  const htf = Number(d?.htf_score);
+  const ltf = Number(d?.ltf_score);
+  const flags = d?.flags && typeof d.flags === "object" ? d.flags : {};
+  const state = String(d?.state || "");
+  const stage = String(d?.kanban_stage || "");
+
+  // Keep feature set intentionally small + stable.
+  const x = {
+    __bias: 1,
+    // Scale rank into ~0..1 (rank is 0..100-ish)
+    rank01: Number.isFinite(rank) ? clamp(rank / 100, 0, 1) : 0,
+    // RR is unbounded; cap for stability
+    rr_cap: Number.isFinite(rr) ? clamp(rr, 0, 5) / 5 : 0,
+    completion: Number.isFinite(comp) ? comp : 0,
+    phase: Number.isFinite(phase) ? phase : 0,
+    // HTF/LTF can be large; compress
+    htf_tanh: Number.isFinite(htf) ? Math.tanh(htf / 50) : 0,
+    ltf_tanh: Number.isFinite(ltf) ? Math.tanh(ltf / 25) : 0,
+    in_corridor: entryType(d)?.corridor ? 1 : 0,
+    sq_release: flagOn(flags, "sq30_release") ? 1 : 0,
+    sq_on: flagOn(flags, "sq30_on") ? 1 : 0,
+    thesis_match: flagOn(flags, "thesis_match") ? 1 : 0,
+    momentum_elite: flagOn(flags, "momentum_elite") ? 1 : 0,
+    pullback_state: state.includes("PULLBACK") ? 1 : 0,
+    stage_enter_now: stage === "enter_now" ? 1 : 0,
+    stage_hold: stage === "hold" ? 1 : 0,
+  };
+  return x;
+}
+
+function mlV1Dot(weights, x) {
+  if (!weights || typeof weights !== "object") return 0;
+  let z = 0;
+  for (const [k, v] of Object.entries(x || {})) {
+    const w = Number(weights[k]);
+    const xv = Number(v);
+    if (!Number.isFinite(w) || !Number.isFinite(xv)) continue;
+    z += w * xv;
+  }
+  return z;
+}
+
+function mlV1DefaultModel() {
+  // A reasonable warm-start so the UI shows something immediately.
+  // This is *not* trained yet — training is wired in the next step.
+  return {
+    version: "ml_v1",
+    trained: 0,
+    updated_at: Date.now(),
+    weights: {
+      __bias: -0.2,
+      rank01: 1.2,
+      rr_cap: 0.6,
+      completion: -0.9,
+      phase: -0.6,
+      htf_tanh: 0.5,
+      ltf_tanh: 0.4,
+      in_corridor: 0.2,
+      sq_release: 0.25,
+      sq_on: 0.05,
+      thesis_match: 0.25,
+      momentum_elite: 0.2,
+      pullback_state: 0.05,
+      stage_enter_now: 0.15,
+      stage_hold: -0.05,
+    },
+  };
+}
+
+let ML_V1_MODEL_CACHE = { ts: 0, model: null };
+
+async function mlV1GetModel(KV) {
+  const now = Date.now();
+  if (ML_V1_MODEL_CACHE.model && now - ML_V1_MODEL_CACHE.ts < 60 * 1000) {
+    return ML_V1_MODEL_CACHE.model;
+  }
+  try {
+    const m = await kvGetJSON(KV, "timed:model:ml_v1");
+    if (m && typeof m === "object" && m.weights && typeof m.weights === "object")
+      {
+        ML_V1_MODEL_CACHE = { ts: now, model: m };
+        return m;
+      }
+  } catch {
+    // ignore
+  }
+  const d = mlV1DefaultModel();
+  ML_V1_MODEL_CACHE = { ts: now, model: d };
+  return d;
+}
+
+function mlV1AttachWithModel(model, payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  if (!model || typeof model !== "object") model = mlV1DefaultModel();
+  const x = mlV1Features(payload);
+  const z = mlV1Dot(model.weights, x);
+  const p = sigmoid(z);
+
+  // EV proxy (percent): use target/stop pct if present; otherwise assume 1R.
+  const tpPct = Number(payload?.tp_target_pct);
+  const slPct = Number(payload?.sl_target_pct);
+  const tgt = Number.isFinite(tpPct) ? Math.abs(tpPct) : 2.0;
+  const stp = Number.isFinite(slPct) ? Math.abs(slPct) : 1.0;
+  const ev = p * tgt - (1 - p) * stp;
+
+  payload.ml_v1 = {
+    version: String(model?.version || "ml_v1"),
+    trained: Number(model?.trained) || 0,
+    asof_ts: Number(payload?.ts) || Date.now(),
+    p_win_4h: p,
+    ev_4h: ev,
+    // Placeholder: we’ll train a separate horizon head in the next step.
+    p_win_1d: p,
+    ev_1d: ev,
+  };
+  // Back-compat: UIs often look for `ml` first.
+  if (payload.ml == null) payload.ml = payload.ml_v1;
+  return payload;
+}
+
+async function mlV1AttachToPayload(KV, payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  const model = await mlV1GetModel(KV);
+  return mlV1AttachWithModel(model, payload);
+}
+
+function mlV1UpdateModelSGD(model, x, y) {
+  if (!model || typeof model !== "object") model = mlV1DefaultModel();
+  model.weights = model.weights && typeof model.weights === "object" ? model.weights : {};
+  const lr = clamp(Number(model.lr ?? 0.08), 0.001, 0.5);
+  const l2 = clamp(Number(model.l2 ?? 0.0005), 0, 0.01);
+
+  const z = mlV1Dot(model.weights, x);
+  const p = sigmoid(z);
+  const yy = y ? 1 : 0;
+  const g = p - yy;
+
+  for (const [k, xv0] of Object.entries(x || {})) {
+    const xv = Number(xv0);
+    if (!Number.isFinite(xv)) continue;
+    const w = Number(model.weights[k] ?? 0);
+    const grad = g * xv + l2 * w;
+    model.weights[k] = w - lr * grad;
+  }
+
+  model.trained = (Number(model.trained) || 0) + 1;
+  model.updated_at = Date.now();
+  return { model, pred: p };
+}
+
+async function d1ReadCandlesForHorizon(env, ticker, tf, fromTs, toTs) {
+  const db = env?.DB;
+  if (!db) return null;
+  const sym = String(ticker || "").toUpperCase();
+  const tfKey = normalizeTfKey(tf);
+  if (!sym || !tfKey) return null;
+  const a = Number(fromTs);
+  const b = Number(toTs);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT ts, o, h, l, c
+           FROM ticker_candles
+          WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts <= ?4
+          ORDER BY ts ASC
+          LIMIT 300`,
+      )
+      .bind(sym, tfKey, a, b)
+      .all();
+    return Array.isArray(rows?.results) ? rows.results : [];
+  } catch {
+    return null;
+  }
+}
+
+function mlV1LabelFromCandles(payload, candles, horizonMs) {
+  const ts0 = Number(payload?.ts);
+  if (!Number.isFinite(ts0)) return null;
+  const price = Number(payload?.price);
+  const tp = Number(payload?.tp_target_price ?? payload?.tp);
+  const sl = Number(payload?.sl_target_price ?? payload?.sl);
+  if (![price, tp, sl].every((n) => Number.isFinite(n) && n > 0)) return null;
+  const side = sideFromStateOrScores(payload); // "LONG" | "SHORT" | null
+  if (side !== "LONG" && side !== "SHORT") return null;
+  const endTs = ts0 + Number(horizonMs);
+  if (!Number.isFinite(endTs)) return null;
+
+  const series = Array.isArray(candles) ? candles : [];
+  // Conservative intrabar resolution: assume STOP triggers before TP if both touched in same bar.
+  let hitTp = false;
+  let hitSl = false;
+  for (const k of series) {
+    const ts = Number(k?.ts);
+    if (!Number.isFinite(ts) || ts < ts0 || ts > endTs) continue;
+    const h = Number(k?.h);
+    const l = Number(k?.l);
+    if (!Number.isFinite(h) || !Number.isFinite(l)) continue;
+
+    if (side === "LONG") {
+      if (l <= sl) {
+        hitSl = true;
+        break;
+      }
+      if (h >= tp) {
+        hitTp = true;
+        break;
+      }
+    } else {
+      // SHORT
+      if (h >= sl) {
+        hitSl = true;
+        break;
+      }
+      if (l <= tp) {
+        hitTp = true;
+        break;
+      }
+    }
+  }
+  const y = hitTp && !hitSl ? 1 : 0;
+  return { y, hitTp, hitSl };
+}
+
+async function mlV1TrainBatchFromD1(env, KV, limit = 75) {
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+
+  const now = Date.now();
+  const H4 = 4 * 60 * 60 * 1000;
+  const horizon = H4;
+
+  const maxTs = now - horizon; // only train on snapshots that have full horizon ahead
+  if (!Number.isFinite(maxTs) || maxTs <= 0) return { ok: false, reason: "bad_now" };
+
+  const lastKey = "timed:model:ml_v1:last_ts";
+  const lastRaw = Number(await KV.get(lastKey));
+  const lastTs = Number.isFinite(lastRaw) && lastRaw > 0 ? lastRaw : maxTs - 6 * 60 * 60 * 1000;
+
+  const rows = await db
+    .prepare(
+      `SELECT ticker, ts, payload_json
+         FROM timed_trail
+        WHERE ts > ?1 AND ts <= ?2
+        ORDER BY ts ASC
+        LIMIT ?3`,
+    )
+    .bind(lastTs, maxTs, Math.max(1, Math.min(250, Number(limit) || 75)))
+    .all();
+
+  const pts = Array.isArray(rows?.results) ? rows.results : [];
+  if (pts.length === 0) {
+    await KV.put(lastKey, String(lastTs), { expirationTtl: 14 * 24 * 60 * 60 });
+    return { ok: true, trained: 0, lastTs };
+  }
+
+  let model = await mlV1GetModel(KV);
+  let trained = 0;
+  let lastProcessed = lastTs;
+
+  for (const r of pts) {
+    const ts = Number(r?.ts);
+    if (!Number.isFinite(ts)) continue;
+    lastProcessed = ts;
+    const sym = String(r?.ticker || "").toUpperCase();
+    if (!sym) continue;
+
+    let payload = null;
+    try {
+      payload = JSON.parse(String(r?.payload_json || ""));
+    } catch {
+      payload = null;
+    }
+    if (!payload || typeof payload !== "object") continue;
+
+    // Ensure we have RR targets if they can be derived.
+    try {
+      if (payload.tp_target_price == null || payload.tp_target_pct == null) {
+        const derived = deriveHorizonAndMetrics(payload);
+        if (derived) Object.assign(payload, derived);
+      }
+      if (payload.rr == null) payload.rr = computeRR(payload);
+    } catch {
+      // ignore
+    }
+
+    const candles = await d1ReadCandlesForHorizon(env, sym, "30", ts, ts + horizon);
+    if (!candles) continue;
+    const lab = mlV1LabelFromCandles(payload, candles, horizon);
+    if (!lab) continue;
+
+    // Compute current stage (helps features stabilize)
+    try {
+      if (!payload.kanban_stage) payload.kanban_stage = classifyKanbanStage(payload);
+    } catch {
+      // ignore
+    }
+
+    const x = mlV1Features(payload);
+    const upd = mlV1UpdateModelSGD(model, x, lab.y);
+    model = upd.model;
+    trained += 1;
+  }
+
+  try {
+    await kvPutJSON(KV, "timed:model:ml_v1", model);
+  } catch {
+    // ignore
+  }
+  ML_V1_MODEL_CACHE = { ts: Date.now(), model };
+
+  await KV.put(lastKey, String(lastProcessed), { expirationTtl: 14 * 24 * 60 * 60 });
+  return { ok: true, trained, lastTs: lastProcessed };
+}
+
+// ─────────────────────────────────────────────────────────────
 // Live Thesis features (seq + deltas) computed from trail
 // Mirrors feature families used in scripts/analyze-best-setups.js
 // ─────────────────────────────────────────────────────────────
@@ -7832,6 +8173,351 @@ async function d1EnsureCandleSchema(env) {
     console.error("[D1 CANDLES] Schema ensure failed:", err);
     return { ok: false, error: String(err) };
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ML v1 (online, lightweight) — schema + model utils
+// ─────────────────────────────────────────────────────────────
+
+const ML_V1_MODEL_KEY = "timed:ml:v1:model";
+let ML_V1_CACHE = { model: null, loadedAt: 0 };
+
+function mlV1Sigmoid(z) {
+  const n = Number(z);
+  if (!Number.isFinite(n)) return 0.5;
+  // Clamp to avoid overflow
+  const x = Math.max(-30, Math.min(30, n));
+  return 1 / (1 + Math.exp(-x));
+}
+
+function mlV1DefaultModel() {
+  // Keep this small + stable; we can expand later once backfill exists.
+  const featureNames = [
+    "bias",
+    "rank_n",
+    "rr_n",
+    "completion",
+    "phase",
+    "abs_htf_n",
+    "abs_ltf_n",
+    "aligned",
+    "setup",
+    "sq_rel",
+    "in_corridor",
+    "momentum_elite",
+  ];
+  return {
+    version: 1,
+    featureNames,
+    w: featureNames.map(() => 0),
+    n: 0,
+    lr: 0.05,
+    l2: 0.001,
+    updated_at: Date.now(),
+  };
+}
+
+async function mlV1GetModel(KV) {
+  const now = Date.now();
+  if (ML_V1_CACHE.model && now - ML_V1_CACHE.loadedAt < 60 * 1000) {
+    return ML_V1_CACHE.model;
+  }
+  let model = null;
+  try {
+    model = KV ? await kvGetJSON(KV, ML_V1_MODEL_KEY) : null;
+  } catch {
+    model = null;
+  }
+  if (!model || typeof model !== "object" || !Array.isArray(model.w)) {
+    model = mlV1DefaultModel();
+  }
+  ML_V1_CACHE = { model, loadedAt: now };
+  return model;
+}
+
+async function mlV1PutModel(KV, model) {
+  if (!KV) return;
+  const out =
+    model && typeof model === "object" ? { ...model, updated_at: Date.now() } : null;
+  if (!out) return;
+  await kvPutJSON(KV, ML_V1_MODEL_KEY, out);
+  ML_V1_CACHE = { model: out, loadedAt: Date.now() };
+}
+
+function mlV1ExtractX(d) {
+  const flags = d?.flags && typeof d.flags === "object" ? d.flags : {};
+  const state = String(d?.state || "");
+  const rank = Number(d?.rank);
+  const rr = Number(d?.rr);
+  const completion = clamp01(d?.completion);
+  const phase = clamp01(d?.phase_pct);
+  const htf = Number(d?.htf_score);
+  const ltf = Number(d?.ltf_score);
+  const aligned =
+    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR" ? 1 : 0;
+  const setup =
+    state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK"
+      ? 1
+      : 0;
+
+  // Normalize to roughly [-1,1] where possible.
+  const rank_n = Number.isFinite(rank) ? (rank - 50) / 50 : 0;
+  const rr_n = Number.isFinite(rr) ? Math.max(0, Math.min(4, rr)) / 4 : 0;
+  const abs_htf_n = Number.isFinite(htf) ? Math.min(1, Math.abs(htf) / 100) : 0;
+  const abs_ltf_n = Number.isFinite(ltf) ? Math.min(1, Math.abs(ltf) / 100) : 0;
+
+  const inCorridor = (() => {
+    try {
+      return entryType(d)?.corridor ? 1 : 0;
+    } catch {
+      return 0;
+    }
+  })();
+
+  return [
+    1,
+    rank_n,
+    rr_n,
+    completion,
+    phase,
+    abs_htf_n,
+    abs_ltf_n,
+    aligned,
+    setup,
+    flagOn(flags, "sq30_release") ? 1 : 0,
+    inCorridor,
+    flagOn(flags, "momentum_elite") ? 1 : 0,
+  ];
+}
+
+function mlV1PredictProba(model, x) {
+  const w = Array.isArray(model?.w) ? model.w : [];
+  const n = Math.min(w.length, Array.isArray(x) ? x.length : 0);
+  let z = 0;
+  for (let i = 0; i < n; i++) z += Number(w[i] || 0) * Number(x[i] || 0);
+  return mlV1Sigmoid(z);
+}
+
+function mlV1AttachScore(d, model) {
+  const x = mlV1ExtractX(d);
+  const p = mlV1PredictProba(model, x);
+  const rr = Number(d?.rr);
+  const rrUnit = Number.isFinite(rr) && rr > 0 ? Math.min(4, rr) : 1;
+  // EV in "R units" (treat loss as -1R, win as +RR R). Expose as percent-ish for UI.
+  const evUnits = p * rrUnit - (1 - p) * 1;
+  const out = {
+    v: 1,
+    p_win_4h: p,
+    ev_4h: evUnits * 100,
+    p_win_1d: p,
+    ev_1d: evUnits * 100,
+    n: Number(model?.n) || 0,
+    updated_at: model?.updated_at || null,
+  };
+  d.ml_v1 = out;
+  // Back-compat alias used by UI snippets
+  if (d.ml == null) d.ml = out;
+  if (d.model == null) d.model = out;
+  return out;
+}
+
+async function d1EnsureMlV1Schema(env) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  try {
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ml_v1_queue (
+          id TEXT PRIMARY KEY,
+          ticker TEXT NOT NULL,
+          ts INTEGER NOT NULL,
+          horizon_ms INTEGER NOT NULL,
+          dir TEXT,
+          entry_price REAL,
+          features_json TEXT,
+          label_due_ts INTEGER NOT NULL,
+          y INTEGER,
+          labeled_at INTEGER,
+          created_at INTEGER NOT NULL
+        )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_ml_v1_queue_due ON ml_v1_queue (label_due_ts)`,
+      )
+      .run();
+    return { ok: true };
+  } catch (e) {
+    console.error("[D1 ML] Schema ensure failed:", e);
+    return { ok: false, error: String(e) };
+  }
+}
+
+async function d1EnqueueMlV1(env, ticker, payload, horizonsMs) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  const ts = Number(payload?.ts);
+  const price = Number(payload?.price);
+  if (!Number.isFinite(ts) || !Number.isFinite(price) || price <= 0)
+    return { ok: false, skipped: true, reason: "bad_ts_or_price" };
+  await d1EnsureMlV1Schema(env);
+
+  const dir = sideFromStateOrScores(payload);
+  const x = mlV1ExtractX(payload);
+  const createdAt = Date.now();
+
+  const sym = String(ticker || "").toUpperCase();
+  const hs = Array.isArray(horizonsMs) ? horizonsMs : [];
+  for (const h of hs) {
+    const hm = Number(h);
+    if (!Number.isFinite(hm) || hm <= 0) continue;
+    const due = ts + hm;
+    const id = `${sym}:${ts}:${hm}`;
+    try {
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO ml_v1_queue
+           (id, ticker, ts, horizon_ms, dir, entry_price, features_json, label_due_ts, y, labeled_at, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, ?9)`,
+        )
+        .bind(
+          id,
+          sym,
+          ts,
+          hm,
+          dir != null ? String(dir) : null,
+          price,
+          JSON.stringify({ x }),
+          due,
+          createdAt,
+        )
+        .run();
+    } catch (e) {
+      console.error(`[D1 ML] enqueue failed for ${id}:`, String(e));
+    }
+  }
+  return { ok: true };
+}
+
+async function d1NearestClose(env, ticker, tsTarget) {
+  const db = env?.DB;
+  if (!db) return null;
+  const sym = String(ticker || "").toUpperCase();
+  const t = Number(tsTarget);
+  if (!sym || !Number.isFinite(t)) return null;
+  // Prefer smallest TFs (3m then 10m then 30m).
+  const tfs = ["3", "10", "30"];
+  for (const tf of tfs) {
+    try {
+      const row = await db
+        .prepare(
+          `SELECT ts, c FROM ticker_candles
+           WHERE ticker=?1 AND tf=?2 AND ts>=?3
+           ORDER BY ts ASC LIMIT 1`,
+        )
+        .bind(sym, tf, t)
+        .first();
+      if (row && Number.isFinite(Number(row.c))) return Number(row.c);
+    } catch {
+      // ignore
+    }
+  }
+  // Fallback to last known <= target
+  for (const tf of tfs) {
+    try {
+      const row = await db
+        .prepare(
+          `SELECT ts, c FROM ticker_candles
+           WHERE ticker=?1 AND tf=?2 AND ts<=?3
+           ORDER BY ts DESC LIMIT 1`,
+        )
+        .bind(sym, tf, t)
+        .first();
+      if (row && Number.isFinite(Number(row.c))) return Number(row.c);
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function mlV1LabelFromHorizon(entryPrice, exitPrice, dir) {
+  const ep = Number(entryPrice);
+  const xp = Number(exitPrice);
+  if (!Number.isFinite(ep) || !Number.isFinite(xp) || ep <= 0) return null;
+  const side = String(dir || "").toUpperCase();
+  const ret = (xp - ep) / ep;
+  if (side === "SHORT") return ret < 0 ? 1 : 0;
+  if (side === "LONG") return ret > 0 ? 1 : 0;
+  // If direction unknown, just ask "up?"
+  return ret > 0 ? 1 : 0;
+}
+
+async function mlV1TrainFromQueue(env, KV, maxN = 75) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
+  await d1EnsureMlV1Schema(env);
+  const now = Date.now();
+  const rows = await db
+    .prepare(
+      `SELECT id, ticker, ts, horizon_ms, dir, entry_price, features_json, label_due_ts
+       FROM ml_v1_queue
+       WHERE y IS NULL AND label_due_ts <= ?1
+       ORDER BY label_due_ts ASC
+       LIMIT ?2`,
+    )
+    .bind(now, Math.max(1, Math.min(250, Number(maxN) || 75)))
+    .all();
+  const due = Array.isArray(rows?.results) ? rows.results : [];
+  if (due.length === 0) return { ok: true, trained: 0 };
+
+  let model = await mlV1GetModel(KV);
+  let trained = 0;
+
+  for (const r of due) {
+    const exit = await d1NearestClose(env, r.ticker, Number(r.label_due_ts));
+    const y = mlV1LabelFromHorizon(r.entry_price, exit, r.dir);
+    if (y == null) continue;
+    let x = null;
+    try {
+      const fj = r.features_json ? JSON.parse(String(r.features_json)) : null;
+      x = Array.isArray(fj?.x) ? fj.x : null;
+    } catch {
+      x = null;
+    }
+    if (!Array.isArray(x)) continue;
+
+    const p = mlV1PredictProba(model, x);
+    const err = Number(y) - p;
+    const lr = Number(model?.lr) || 0.05;
+    const l2 = Number(model?.l2) || 0.001;
+    const w = Array.isArray(model?.w) ? model.w.slice() : mlV1DefaultModel().w;
+
+    for (let i = 0; i < Math.min(w.length, x.length); i++) {
+      const wi = Number(w[i] || 0);
+      const xi = Number(x[i] || 0);
+      w[i] = wi + lr * (err * xi - l2 * wi);
+    }
+    model = { ...model, w, n: (Number(model?.n) || 0) + 1 };
+
+    try {
+      await db
+        .prepare(
+          `UPDATE ml_v1_queue SET y=?2, labeled_at=?3 WHERE id=?1`,
+        )
+        .bind(String(r.id), Number(y), now)
+        .run();
+      trained++;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (trained > 0) {
+    await mlV1PutModel(KV, model);
+  }
+  return { ok: true, trained, model_n: model.n };
 }
 
 function normalizeTfKey(tf) {
@@ -11995,6 +12681,16 @@ export default {
           payload.ingest_ts = now; // Timestamp when this data was ingested
           payload.ingest_time = new Date(now).toISOString(); // Human-readable format
 
+          // Attach ML v1 score so UI can display model fields immediately.
+          try {
+            await mlV1AttachToPayload(KV, payload);
+          } catch (e) {
+            console.warn(
+              `[ML V1] attach failed for ${ticker}:`,
+              String(e?.message || e),
+            );
+          }
+
           if (ticker === "ETHT") {
             console.log(`[ETHT DEBUG] About to get previous data and store`);
           }
@@ -12070,6 +12766,14 @@ export default {
             console.log(
               `[ETHT DEBUG] Previous data retrieved, about to store latest`,
             );
+          }
+
+          // Attach ML score (v1) so UI can display model output immediately.
+          // This is lightweight and does not require D1.
+          try {
+            await mlV1AttachToPayload(KV, payload);
+          } catch (e) {
+            console.warn(`[ML_V1] attach failed for ${ticker}:`, String(e));
           }
 
           // Store latest (do this BEFORE alert so UI has it)
@@ -13472,6 +14176,16 @@ export default {
                 );
               }
 
+              // Attach ML score (v1) so UI can display model output immediately.
+              try {
+                await mlV1AttachToPayload(KV, payload);
+              } catch (e) {
+                console.warn(
+                  `[ML_V1] attach failed (capture-promote) for ${ticker}:`,
+                  String(e),
+                );
+              }
+
               await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
 
               // Upsert latest snapshot to D1 for fast UI reads (best-effort)
@@ -13898,6 +14612,20 @@ export default {
             console.error(
               `[ENTRY DECISION] /timed/latest failed for ${ticker}:`,
               String(e),
+            );
+          }
+
+          // Back-compat: attach ML v1 fields if missing (for older payloads).
+          try {
+            if (!data.ml_v1) {
+              await mlV1AttachToPayload(KV, data);
+            } else if (data.ml == null) {
+              data.ml = data.ml_v1;
+            }
+          } catch (e) {
+            console.error(
+              `[ML V1] /timed/latest failed for ${ticker}:`,
+              String(e?.message || e),
             );
           }
 

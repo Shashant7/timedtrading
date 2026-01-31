@@ -1804,26 +1804,29 @@ f_trend_sig(float px, float e21, float e200) =>
     out
 
 f_atr_band_json(float px, float prevPx, float pc, float atr) =>
-    if na(pc) or na(atr) or atr <= 0 or na(px)
-        "null"
-    else
-        side = px >= pc ? 1 : -1
-        dist = math.abs(px - pc) / atr
+    // NOTE: Implemented as a statement-based function (vs if-expression)
+    // to avoid Pine parser "end of line without line continuation" errors.
+    string out = "null"
+    if not (na(pc) or na(atr) or atr <= 0 or na(px))
+        int side = px >= pc ? 1 : -1
+        float dist = math.abs(px - pc) / atr
         float lo = 0.0
         float hi = 0.382
+
         // Determine band (0.0–0.382, 0.382–0.5, ..., 2.618–3.0, 3.0+)
         for i = 0 to 13
-            mult = f_get_mult(i)
+            float mult = f_get_mult(i)
             if not na(mult) and dist >= mult
                 lo := mult
+
         // Find next higher multiplier
-        hiSet = false
+        bool hiSet = false
         for i = 0 to 13
-            mult = f_get_mult(i)
+            float mult = f_get_mult(i)
             if not na(mult) and dist < mult and not hiSet
                 hi := mult
                 hiSet := true
-        hiFinal = hiSet ? f_fmt(hi, 3) : "null"
+        string hiFinal = hiSet ? f_fmt(hi, 3) : "null"
 
         // Last ATR level crossed (pick largest mult crossed on this bar)
         float crossMult = na
@@ -1831,7 +1834,7 @@ f_atr_band_json(float px, float prevPx, float pc, float atr) =>
         int crossSide = 0
         if not na(prevPx)
             for i = 0 to 13
-                mult = f_get_mult(i)
+                float mult = f_get_mult(i)
                 if not na(mult)
                     float lvlUp = pc + mult * atr
                     float lvlDn = pc - mult * atr
@@ -1846,10 +1849,10 @@ f_atr_band_json(float px, float prevPx, float pc, float atr) =>
                             crossDir := (crossUpUp or crossUpDn) ? "up" : "dn"
                             crossSide := (crossUpUp or crossDnUp) ? 1 : -1
 
-        xStr = na(crossMult) ? "null" : f_fmt(crossMult, 3)
-        // Keep this as a single expression to avoid Pine "end of line without line continuation" errors.
-        s = "{\"s\":" + str.tostring(side) + ",\"lo\":" + f_fmt(lo, 3) + ",\"hi\":" + hiFinal + ",\"x\":" + xStr + ",\"xd\":\"" + crossDir + "\",\"xs\":" + str.tostring(crossSide) + "}"
-        s
+        string xStr = na(crossMult) ? "null" : f_fmt(crossMult, 3)
+        // Keep this as a single expression to avoid Pine parser issues.
+        out := "{\"s\":" + str.tostring(side) + ",\"lo\":" + f_fmt(lo, 3) + ",\"hi\":" + hiFinal + ",\"x\":" + xStr + ",\"xd\":\"" + crossDir + "\",\"xs\":" + str.tostring(crossSide) + "}"
+    out
 
 f_tf_entry(string tfKey, float px, float prevPx, float pc, float atr, float e5, float e13, float e21, float e48, float e89, float e200, float e233,
            bool comp, bool sqOn, bool sqRel, float phaseV,
