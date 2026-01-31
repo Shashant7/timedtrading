@@ -22253,6 +22253,24 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // POST /timed/ml/train?key=... - Trigger ML model training from labeled queue
+      if (url.pathname === "/timed/ml/train" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const limit = Number(url.searchParams.get("limit")) || 75;
+          const result = await mlV1TrainFromQueue(env, KV, limit);
+          return sendJSON(result, 200, corsHeaders(env, req, true));
+        } catch (error) {
+          return sendJSON(
+            { ok: false, error: String(error) },
+            500,
+            corsHeaders(env, req, true),
+          );
+        }
+      }
+
       // POST /timed/admin/reset?key=... - Reset system state as if freshly launched (SAFE by default)
       // Default behavior (safe):
       // - Clears KV simulated trades + paper portfolio + activity feed
