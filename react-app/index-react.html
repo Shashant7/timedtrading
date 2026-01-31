@@ -19719,23 +19719,16 @@
           });
         }, []);
 
-        // Apply thesis preset once per page-load if enabled.
+        // Disable auto-apply thesis preset (user wants no default filters)
         useEffect(() => {
+          // Clear the auto-thesis flag and disable auto-apply
           try {
-            const raw = localStorage.getItem("timedTrading_thesisAuto");
-            // Default ON if unset
-            const enabled =
-              raw == null
-                ? true
-                : raw === "1" || String(raw).toLowerCase() === "true";
-            if (!enabled) return;
+            localStorage.setItem("timedTrading_thesisAuto", "0");
           } catch {
-            // If storage is blocked, still apply once (better UX for first-load)
+            // ignore
           }
-          if (thesisAppliedRef.current) return;
-          thesisAppliedRef.current = true;
-          handleFilterChange({ ...THESIS_PRESET });
-        }, [handleFilterChange]);
+          thesisAppliedRef.current = true; // Mark as applied so it never triggers
+        }, []);
 
         const handleWelcomeDashboardClose = () => {
           setShowWelcomeDashboard(false);
