@@ -7070,6 +7070,14 @@
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
           useState(true);
 
+        // Shared label used across the ledger/proof UI. Keep it defined at App scope
+        // to avoid any accidental block-scope ReferenceError in JSX.
+        const windowLabel = useMemo(() => {
+          const daysRaw = Math.max(1, Number(ledgerRangeDays) || 7);
+          const days = Math.min(60, daysRaw);
+          return days === 1 ? "Today" : `Last ${days}d`;
+        }, [ledgerRangeDays]);
+
         const ledgerSince = useMemo(() => {
           const days = Number(ledgerRangeDays) || 7;
           return Date.now() - days * 24 * 60 * 60 * 1000;
