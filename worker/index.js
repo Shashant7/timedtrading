@@ -22578,17 +22578,25 @@ Provide 3-5 actionable next steps:
         }
       }
 
-      // POST /timed/admin/reset?key=... - Reset system state (lanes + simulated ledger) as if freshly launched
-      // This clears: Kanban entry stamps, lane transition memory, flip-watch stickiness,
-      // paper portfolio + simulated trades (KV), and D1 ledger tables (alerts/trades/events).
+      // POST /timed/admin/reset?key=... - Reset system state as if freshly launched (SAFE by default)
+      // Default behavior (safe):
+      // - Clears KV simulated trades + paper portfolio + activity feed
+      // - Clears per-ticker Kanban entry stamps + lane transition memory + flip-watch stickiness
+      // - Recomputes kanban_stage immediately (so UI is clean right away)
+      // Optional (DANGEROUS; opt-in via query params):
+      // - resetMl=1      -> clears ML model + training queue
+      // - resetLedger=1  -> clears D1 ledger tables (alerts/trades/events)
       if (url.pathname === "/timed/admin/reset" && req.method === "POST") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
+        const resetLedger =
+          url.searchParams.get("resetLedger") === "1" ||
+          url.searchParams.get("resetLedger") === "true";
+
         const resetMl =
-          url.searchParams.get("resetMl") == null
-            ? true
-            : url.searchParams.get("resetMl") !== "0";
+          url.searchParams.get("resetMl") === "1" ||
+          url.searchParams.get("resetMl") === "true";
 
         const now = Date.now();
         const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
@@ -22663,7 +22671,7 @@ Provide 3-5 actionable next steps:
           kvCleared.push("timed:activity:feed");
         } catch {}
 
-        // Clear ML model (optional)
+        // Clear ML model (optional; OFF by default)
         if (resetMl) {
           try {
             await KV.delete("timed:model:ml_v1");
@@ -22675,21 +22683,23 @@ Provide 3-5 actionable next steps:
           } catch {}
         }
 
-        // Clear D1 ledger + ML queue (best-effort)
+        // Clear D1 ledger (optional; OFF by default) + ML queue (only when resetMl)
         let d1Cleared = [];
         try {
           if (env?.DB) {
-            // Ledger
-            for (const sql of [
-              "DELETE FROM trade_events",
-              "DELETE FROM trades",
-              "DELETE FROM alerts",
-            ]) {
-              try {
-                const r = await env.DB.prepare(sql).run();
-                d1Cleared.push({ sql, changes: r?.meta?.changes ?? null });
-              } catch {
-                // ignore missing tables
+            if (resetLedger) {
+              // Ledger
+              for (const sql of [
+                "DELETE FROM trade_events",
+                "DELETE FROM trades",
+                "DELETE FROM alerts",
+              ]) {
+                try {
+                  const r = await env.DB.prepare(sql).run();
+                  d1Cleared.push({ sql, changes: r?.meta?.changes ?? null });
+                } catch {
+                  // ignore missing tables
+                }
               }
             }
             // ML queue
@@ -22738,7 +22748,8 @@ Provide 3-5 actionable next steps:
             kvCleared,
             d1Cleared,
             resetMl,
-            note: "New lanes will recompute from fresh state; new trades/alerts will be created as new data/alerts come in.",
+            resetLedger,
+            note: "Lanes recompute from fresh state; new KV simulated trades will be created as new data/alerts come in. D1 ledger is preserved unless resetLedger=1.",
           },
           200,
           corsHeaders(env, req),
