@@ -8683,7 +8683,7 @@
       function TrackerWelcomeModal({ onClose }) {
         const [currentStep, setCurrentStep] = useState(0);
 
-        const steps = [
+        const allSteps = [
           {
             title: "Trade Tracker = feedback loop",
             content: (
@@ -8727,163 +8727,89 @@
             ),
           },
           {
-            title: "Understanding Trade Statuses 🏷️",
+            title: "Lane-first review (Right Rail)",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
-                  Each trade has a <strong>status</strong> that tells you its
-                  current state:
+                <p className="text-lg text-[#e7ecff]">
+                  Trade Tracker helps you <strong>audit lane decisions</strong>{" "}
+                  so we repeat winners and stop feeding losers.
                 </p>
-                <div className="grid grid-cols-1 gap-3">
-                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                    <div className="font-bold text-green-400 mb-2 flex items-center gap-2">
-                      <span>🟢 OPEN</span>
-                    </div>
-                    <p className="text-sm text-[#93a4d6]">
-                      Trade is active and being tracked. P&L updates in
-                      real-time as price moves. The trade will close when it
-                      hits Stop Loss or Take Profit.
-                    </p>
-                  </div>
-                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                    <div className="font-bold text-blue-400 mb-2 flex items-center gap-2">
-                      <span>🔵 TP_HIT_TRIM</span>
-                    </div>
-                    <p className="text-sm text-[#93a4d6]">
-                      First Take Profit level was hit! The system automatically
-                      trimmed (sold) part of the position to lock in profits.
-                      The remaining position stays open to target higher TP
-                      levels.
-                    </p>
-                  </div>
-                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                    <div className="font-bold text-green-400 mb-2 flex items-center gap-2">
-                      <span>✅ WIN</span>
-                    </div>
-                    <p className="text-sm text-[#93a4d6]">
-                      Trade closed profitably! Either hit a Take Profit level or
-                      was manually closed in profit. Check the trade history to
-                      see the exit details.
-                    </p>
-                  </div>
-                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                    <div className="font-bold text-red-400 mb-2 flex items-center gap-2">
-                      <span>❌ LOSS</span>
-                    </div>
-                    <p className="text-sm text-[#93a4d6]">
-                      Trade hit Stop Loss and closed at a loss. This is normal -
-                      not every trade wins! Review what went wrong to improve
-                      future setups.
-                    </p>
-                  </div>
+
+                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <h3 className="text-white font-semibold mb-2">
+                    What to do daily
+                  </h3>
+                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-2">
+                    <li>
+                      Check <strong className="text-white">Portfolio</strong>{" "}
+                      for open trades (P&L + risk).
+                    </li>
+                    <li>
+                      Open <strong className="text-white">By Day Activity</strong>{" "}
+                      to replay lane changes + entries/exits.
+                    </li>
+                    <li>
+                      Click any row to open the{" "}
+                      <strong className="text-white">Right Rail</strong> — it
+                      shows the lane + why (trigger/decision).
+                    </li>
+                  </ol>
                 </div>
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <h3 className="text-blue-400 font-semibold mb-2">
+                    The only question
+                  </h3>
                   <p className="text-sm text-[#93a4d6]">
-                    <strong className="text-yellow-400">Tip:</strong> Click on
-                    any trade row to see detailed information including entry
-                    price, stop loss, take profit levels, and full trade
-                    history.
+                    “If I followed the lane + decision exactly, did it pay?” If
+                    not: which lane/trigger combo should be demoted or blocked?
                   </p>
                 </div>
               </div>
             ),
           },
           {
-            title: "Reading the Trade Table 📋",
+            title: "Trim & exit discipline (no AGQ disasters)",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
-                  The trade table shows all your simulated trades. Here's what
-                  each column means:
+                <p className="text-lg text-[#e7ecff]">
+                  We win by being ruthless on{" "}
+                  <strong>risk management</strong>: trim winners, exit losers
+                  early, and don’t “hope” in HOLD.
                 </p>
-                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
-                  <div className="space-y-3 text-sm">
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        Ticker
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        The stock or futures contract symbol
-                      </span>
+
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                  <h3 className="text-red-400 font-semibold mb-2">
+                    What to flag immediately
+                  </h3>
+                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-2">
+                    <li>
+                      “Enter Now” when entry decision is not green-lit (should
+                      never happen)
+                    </li>
+                    <li>Big adverse move after entry (exit/defend faster)</li>
+                    <li>Lane backtracking (enter → just flipped → hold)</li>
+                  </ul>
+                </div>
+
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+                  <h3 className="text-green-400 font-semibold mb-2">
+                    What to record (so we compound)
+                  </h3>
+                  <div className="text-sm text-[#93a4d6] space-y-2">
+                    <div>
+                      <strong className="text-white">Lane</strong> +{" "}
+                      <strong className="text-white">trigger</strong> at entry
                     </div>
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        Direction
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        LONG (buy) or SHORT (sell)
-                      </span>
+                    <div>
+                      <strong className="text-white">Exit reason</strong>{" "}
+                      (trim/defend/stop/target)
                     </div>
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        Entry Price
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        Price when the trade was opened
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        Current Price
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        Live market price (updates every 30 seconds)
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        P&L
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        Profit or Loss in dollars.{" "}
-                        <span className="text-green-400">Green = profit</span>,
-                        <span className="text-red-400"> red = loss</span>
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        P&L %
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        Profit or Loss as a percentage
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        Shares/Contracts
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        For stocks: number of shares (based on $1,000 position).
-                        For futures: number of contracts (usually 1)
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-3">
-                      <span className="font-bold text-white min-w-[120px]">
-                        Status
-                      </span>
-                      <span className="text-[#93a4d6]">
-                        Current trade status (OPEN, WIN, LOSS, etc.)
-                      </span>
+                    <div>
+                      <strong className="text-white">Outcome</strong> (did the
+                      lane rule work?)
                     </div>
                   </div>
-                </div>
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                  <h3 className="text-blue-400 font-semibold mb-2">
-                    💡 Pro Tips:
-                  </h3>
-                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
-                    <li>
-                      Click any trade row to see detailed information and trade
-                      history
-                    </li>
-                    <li>
-                      Use the version filter to compare different model versions
-                    </li>
-                    <li>
-                      Open trades show live P&L that updates automatically
-                    </li>
-                    <li>Closed trades show final P&L and exit reason</li>
-                  </ul>
                 </div>
               </div>
             ),
@@ -9154,6 +9080,7 @@
             ),
           },
         ];
+        const steps = allSteps.slice(0, 3);
 
         const nextStep = () => {
           if (currentStep < steps.length - 1) {
@@ -19406,21 +19333,24 @@
         } = useTickerData();
         const { trades } = useTrades();
         const { sectors } = useSectors();
-        const [filters, setFilters] = useState({
-          search: "",
-          tickerFilter: "", // Comma-separated ticker symbols for filtering specific tickers
-          quadrants: [
-            "HTF_BULL_LTF_PULLBACK",
-            "HTF_BULL_LTF_BULL",
-            "HTF_BEAR_LTF_BEAR",
-            "HTF_BEAR_LTF_PULLBACK",
-          ],
-          minRank: 0,
-          minRR: 0,
-          maxCompletion: 1.01,
-          group: "ALL",
-          sector: null, // Filter by sector name
-          td9Setup: null, // Filter by TD9 setup: "bullish", "bearish", or null for all
+        const [filters, setFilters] = useState(() => {
+          // Safety check: reset to defaults if localStorage was cleared
+          return {
+            search: "",
+            tickerFilter: "", // Comma-separated ticker symbols for filtering specific tickers
+            quadrants: [
+              "HTF_BULL_LTF_PULLBACK",
+              "HTF_BULL_LTF_BULL",
+              "HTF_BEAR_LTF_BEAR",
+              "HTF_BEAR_LTF_PULLBACK",
+            ],
+            minRank: 0,
+            minRR: 0,
+            maxCompletion: 1.01,
+            group: "ALL",
+            sector: null, // Filter by sector name
+            td9Setup: null, // Filter by TD9 setup: "bullish", "bearish", or null for all
+          };
         });
         const thesisAppliedRef = useRef(false);
         const [selectedTicker, setSelectedTicker] = useState(null);
@@ -19640,9 +19570,17 @@
         const tickers = useMemo(() => {
           // If time travel is active, use time travel tickers, otherwise use filtered tickers
           if (timeTravelTickers !== null) {
+            console.log('[TICKERS MEMO] Using timeTravelTickers:', timeTravelTickers.length);
             return timeTravelTickers;
           }
-          return applyFilters(data, effectiveFilters, trades);
+          const filtered = applyFilters(data, effectiveFilters, trades);
+          console.log('[TICKERS MEMO] Filtered tickers:', {
+            inputDataKeys: Object.keys(data || {}).length,
+            filteredCount: filtered.length,
+            effectiveFilters: effectiveFilters,
+            tradesCount: (trades || []).length
+          });
+          return filtered;
         }, [data, effectiveFilters, trades, timeTravelTickers]);
 
         // Base filtered tickers for Time Travel slider controls.
