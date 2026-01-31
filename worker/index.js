@@ -8200,21 +8200,28 @@ function mlV1LabelFromHorizon(entryPrice, exitPrice, dir) {
   return ret > 0 ? 1 : 0;
 }
 
-async function mlV1TrainFromQueue(env, KV, maxN = 75) {
+async function mlV1TrainFromQueue(env, KV, maxN = 75, force = false) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   await d1EnsureMlV1Schema(env);
   const now = Date.now();
-  const rows = await db
-    .prepare(
-      `SELECT id, ticker, ts, horizon_ms, dir, entry_price, features_json, label_due_ts
+  
+  // Force mode: ignore label_due_ts check (for backfilling old data)
+  const query = force
+    ? `SELECT id, ticker, ts, horizon_ms, dir, entry_price, features_json, label_due_ts
+       FROM ml_v1_queue
+       WHERE y IS NULL
+       ORDER BY ts ASC
+       LIMIT ?1`
+    : `SELECT id, ticker, ts, horizon_ms, dir, entry_price, features_json, label_due_ts
        FROM ml_v1_queue
        WHERE y IS NULL AND label_due_ts <= ?1
        ORDER BY label_due_ts ASC
-       LIMIT ?2`,
-    )
-    .bind(now, Math.max(1, Math.min(250, Number(maxN) || 75)))
-    .all();
+       LIMIT ?2`;
+  
+  const rows = force
+    ? await db.prepare(query).bind(Math.max(1, Math.min(250, Number(maxN) || 75))).all()
+    : await db.prepare(query).bind(now, Math.max(1, Math.min(250, Number(maxN) || 75))).all();
   const due = Array.isArray(rows?.results) ? rows.results : [];
   if (due.length === 0) return { ok: true, trained: 0 };
 
@@ -22284,7 +22291,8 @@ Provide 3-5 actionable next steps:
 
         try {
           const limit = Number(url.searchParams.get("limit")) || 75;
-          const result = await mlV1TrainFromQueue(env, KV, limit);
+          const force = url.searchParams.get("force") === "1";
+          const result = await mlV1TrainFromQueue(env, KV, limit, force);
           return sendJSON(result, 200, corsHeaders(env, req, true));
         } catch (error) {
           return sendJSON(

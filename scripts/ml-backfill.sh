@@ -26,7 +26,7 @@ for i in {1..20}; do
   echo "📊 Batch $i/20..."
   
   RESPONSE=$(curl -s -X POST \
-    "${API_BASE}/timed/ml/train?key=${API_KEY}&limit=75" \
+    "${API_BASE}/timed/ml/train?key=${API_KEY}&limit=75&force=1" \
     -H "Content-Type: application/json")
   
   TRAINED=$(echo "$RESPONSE" | grep -o '"trained":[0-9]*' | cut -d':' -f2)
