@@ -22578,6 +22578,173 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // POST /timed/admin/reset?key=... - Reset system state (lanes + simulated ledger) as if freshly launched
+      // This clears: Kanban entry stamps, lane transition memory, flip-watch stickiness,
+      // paper portfolio + simulated trades (KV), and D1 ledger tables (alerts/trades/events).
+      if (url.pathname === "/timed/admin/reset" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const resetMl =
+          url.searchParams.get("resetMl") == null
+            ? true
+            : url.searchParams.get("resetMl") !== "0";
+
+        const now = Date.now();
+        const tickerIndex = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const tickers = Array.isArray(tickerIndex) ? tickerIndex : [];
+
+        const resetPayload = (p) => {
+          if (!p || typeof p !== "object") return p;
+
+          // Clear Kanban state + entry stamps
+          p.kanban_stage = null;
+          p.prev_kanban_stage = null;
+          p.prev_kanban_stage_ts = null;
+          p.kanban_meta = null;
+          p.kanban_cycle_enter_now_ts = null;
+          p.kanban_cycle_trigger_ts = null;
+          p.kanban_cycle_side = null;
+
+          p.entry_price = null;
+          p.entry_ts = null;
+          p.entry_change_pct = null;
+
+          // Clear flip watch stickiness
+          p.flip_watch_score = null;
+          p.flip_watch_reasons = null;
+          p.flip_watch_until_ts = null;
+
+          // Force recompute on next read/ingest
+          p.move_status = null;
+
+          // Clear forcing flags
+          p.flags = p.flags && typeof p.flags === "object" ? p.flags : {};
+          p.flags.flip_watch = false;
+          for (const k of Object.keys(p.flags)) {
+            if (
+              k.startsWith("forced_") ||
+              k === "recycled_from_archive" ||
+              k === "move_invalidated" ||
+              k === "move_completed"
+            ) {
+              try {
+                delete p.flags[k];
+              } catch {}
+            }
+          }
+
+          // Recompute stage immediately so UI is clean after reset
+          try {
+            const stage = classifyKanbanStage(p);
+            p.kanban_stage = stage;
+            p.kanban_meta = deriveKanbanMeta(p, stage);
+          } catch {
+            p.kanban_stage = null;
+            p.kanban_meta = null;
+          }
+
+          p.reset_at = now;
+          return p;
+        };
+
+        // Clear KV simulated trades + paper portfolio + activity feed
+        const kvCleared = [];
+        try {
+          await KV.delete("timed:trades:all");
+          kvCleared.push("timed:trades:all");
+        } catch {}
+        try {
+          await KV.delete(PORTFOLIO_KEY);
+          kvCleared.push(PORTFOLIO_KEY);
+        } catch {}
+        try {
+          await KV.delete("timed:activity:feed");
+          kvCleared.push("timed:activity:feed");
+        } catch {}
+
+        // Clear ML model (optional)
+        if (resetMl) {
+          try {
+            await KV.delete("timed:model:ml_v1");
+            kvCleared.push("timed:model:ml_v1");
+          } catch {}
+          try {
+            await KV.delete("timed:model:ml_v1:last_ts");
+            kvCleared.push("timed:model:ml_v1:last_ts");
+          } catch {}
+        }
+
+        // Clear D1 ledger + ML queue (best-effort)
+        let d1Cleared = [];
+        try {
+          if (env?.DB) {
+            // Ledger
+            for (const sql of [
+              "DELETE FROM trade_events",
+              "DELETE FROM trades",
+              "DELETE FROM alerts",
+            ]) {
+              try {
+                const r = await env.DB.prepare(sql).run();
+                d1Cleared.push({ sql, changes: r?.meta?.changes ?? null });
+              } catch {
+                // ignore missing tables
+              }
+            }
+            // ML queue
+            if (resetMl) {
+              try {
+                const r = await env.DB.prepare("DELETE FROM ml_v1_queue").run();
+                d1Cleared.push({
+                  sql: "DELETE FROM ml_v1_queue",
+                  changes: r?.meta?.changes ?? null,
+                });
+              } catch {}
+            }
+          }
+        } catch {}
+
+        // Reset per-ticker latest payloads (KV + D1 latest)
+        const results = { processed: 0, updated: 0, skipped: 0, errors: [] };
+        for (const t of tickers) {
+          const ticker = normTicker(t);
+          if (!ticker) continue;
+          try {
+            const latest = await kvGetJSON(KV, `timed:latest:${ticker}`);
+            if (!latest || typeof latest !== "object") {
+              results.skipped++;
+              continue;
+            }
+            const next = resetPayload({ ...latest });
+            await kvPutJSON(KV, `timed:latest:${ticker}`, next);
+            try {
+              ctx.waitUntil(d1UpsertTickerLatest(env, ticker, next));
+              ctx.waitUntil(d1UpsertTickerIndex(env, ticker, next?.ts));
+            } catch {}
+            results.updated++;
+            results.processed++;
+          } catch (e) {
+            results.errors.push({ ticker: String(t), error: String(e?.message || e) });
+          }
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            message: "System reset complete (as-of now).",
+            now,
+            tickers: { total: tickers.length, ...results },
+            kvCleared,
+            d1Cleared,
+            resetMl,
+            note: "New lanes will recompute from fresh state; new trades/alerts will be created as new data/alerts come in.",
+          },
+          200,
+          corsHeaders(env, req),
+        );
+      }
+
       return sendJSON(
         { ok: false, error: "not_found" },
         404,
