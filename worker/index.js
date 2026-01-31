@@ -1389,6 +1389,9 @@ function classifyKanbanStage(tickerData) {
   const htfScore = Number(tickerData?.htf_score) || 0;
   const ltfScore = Number(tickerData?.ltf_score) || 0;
   const rank = Number(tickerData?.rank) || 999;
+  const ed = tickerData?.entry_decision || null;
+  const edAction = String(ed?.action || "").toUpperCase();
+  const edOk = ed?.ok === true;
 
   // Terminal/administrative stages -> ARCHIVE
   const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
@@ -1431,12 +1434,18 @@ function classifyKanbanStage(tickerData) {
 
   // Stage 2: Just Flipped - recently entered momentum
   if (isMomentum && seq.corridorEntry_60m === true) {
-    return "just_flipped";
+    // If ENTRY is actually green-lit, allow Enter Now to take priority below.
+    // This prevents backwards lane motion (Enter Now → Just Flipped) as corridorEntry timestamps update.
+    if (!(edAction === "ENTRY" && edOk)) return "just_flipped";
   }
 
   // Stage 3: Enter Now - high-confidence entry opportunities
   // Must be in momentum and meet quality thresholds
   if (isMomentum) {
+    // Hard gate: never show ENTER_NOW if the entry decision is explicitly blocked.
+    // This avoids false positives like "rank-only" ENTER_NOW when corridor/trigger gates fail.
+    if (edAction === "ENTRY" && !edOk) return "watch";
+
     // Top-ranked tickers
     if (rank <= 10) {
       return "enter_now";
@@ -1555,7 +1564,12 @@ function computeMoveStatus(tickerData) {
   const price = Number(tickerData?.price);
   const sl = Number(tickerData?.sl);
   const tp = computeTpMaxFromLevels(tickerData) ?? Number(tickerData?.tp);
-  const triggerTs = Number(tickerData?.trigger_ts);
+  const triggerTsRaw = Number(tickerData?.trigger_ts);
+  const entryTsRaw = Number(
+    tickerData?.entry_ts ?? tickerData?.kanban_cycle_enter_now_ts,
+  );
+  const entryPriceRaw = Number(tickerData?.entry_price);
+  let triggerTs = triggerTsRaw;
   const curTs = Number(tickerData?.ts ?? tickerData?.ingest_ts ?? Date.now());
 
   const reasons = [];
@@ -1570,15 +1584,34 @@ function computeMoveStatus(tickerData) {
     };
   }
 
-  // If we don't have a trigger timestamp, this isn't an active "move" yet.
-  // This prevents labeling the entire universe as ACTIVE/HOLD/TRIM/EXIT.
-  if (!Number.isFinite(triggerTs) || triggerTs <= 0) {
+  // Only consider a "move" ACTIVE once we've actually entered the cycle.
+  // ENTER_NOW stamps entry_ts/entry_price (or cycle enter ts), which is our proxy for “we took it”.
+  // Without this, tickers can incorrectly show HOLD/DEFEND/TRIM/EXIT just because they have a trigger_ts.
+  const hasEntered = Number.isFinite(entryTsRaw) && entryTsRaw > 0;
+  if (!hasEntered) {
     return {
       status: "NONE",
       side,
       severity: "NONE",
       reasons: [],
     };
+  }
+
+  // If we don't have a trigger timestamp, this isn't an active "move" yet.
+  // This prevents labeling the entire universe as ACTIVE/HOLD/TRIM/EXIT.
+  if (!Number.isFinite(triggerTs) || triggerTs <= 0) {
+    // Back-compat: if the user has acted (ENTER_NOW stamps entry_ts/entry_price),
+    // we still need move-status logic even if trigger_ts is missing.
+    if (Number.isFinite(entryTsRaw) && entryTsRaw > 0) {
+      triggerTs = entryTsRaw;
+    } else {
+      return {
+        status: "NONE",
+        side,
+        severity: "NONE",
+        reasons: [],
+      };
+    }
   }
 
   // If the trigger is stale, don't keep the ticker stuck in "move" lanes forever.
@@ -1588,12 +1621,44 @@ function computeMoveStatus(tickerData) {
     const ageMs = curTs - triggerTs;
     const STALE_TRIGGER_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
     if (Number.isFinite(ageMs) && ageMs > STALE_TRIGGER_MS) {
-      return {
-        status: "NONE",
-        side,
-        severity: "NONE",
-        reasons: [],
-      };
+      const entryAgeMs =
+        Number.isFinite(entryTsRaw) && entryTsRaw > 0 ? curTs - entryTsRaw : null;
+      const entryFresh =
+        entryAgeMs != null &&
+        Number.isFinite(entryAgeMs) &&
+        entryAgeMs >= 0 &&
+        entryAgeMs <= STALE_TRIGGER_MS;
+      if (entryFresh) {
+        triggerTs = entryTsRaw;
+      } else {
+        return {
+          status: "NONE",
+          side,
+          severity: "NONE",
+          reasons: [],
+        };
+      }
+    }
+  }
+
+  // Soft invalidation: breached trigger/entry anchor (clear “get out” signal even before SL).
+  // This avoids cases like AGQ: ENTER_NOW → large adverse move → no EXIT lane until SL.
+  const anchorPrice = (() => {
+    const trigPx = Number(tickerData?.trigger_price);
+    if (Number.isFinite(trigPx) && trigPx > 0) return trigPx;
+    if (Number.isFinite(entryPriceRaw) && entryPriceRaw > 0) return entryPriceRaw;
+    return null;
+  })();
+  if (Number.isFinite(price) && Number.isFinite(anchorPrice) && anchorPrice > 0) {
+    if (side === "LONG" && price < anchorPrice) reasons.push("below_trigger");
+    if (side === "SHORT" && price > anchorPrice) reasons.push("above_trigger");
+    const pctMove = Math.abs((price - anchorPrice) / anchorPrice);
+    if (
+      (reasons.includes("below_trigger") || reasons.includes("above_trigger")) &&
+      Number.isFinite(pctMove) &&
+      pctMove >= 0.05
+    ) {
+      reasons.push("trigger_breached_5pct");
     }
   }
 
@@ -1645,7 +1710,7 @@ function computeMoveStatus(tickerData) {
 
   // Severity is used by Kanban stage logic and UI; keep it consistent:
   // NONE | WARNING | CRITICAL
-  const severity = reasons.includes("sl_breached")
+  const severity = reasons.includes("sl_breached") || reasons.includes("trigger_breached_5pct")
     ? "CRITICAL"
     : reasons.length
       ? "WARNING"
@@ -1718,20 +1783,9 @@ function isLateCycle(tickerData) {
 
 // Helper function: entryType (check if ticker is in corridor)
 function entryType(ticker) {
-  const state = String(ticker.state || "");
-  const price = Number(ticker.price) || 0;
-  const triggerPrice = Number(ticker.trigger_price) || 0;
-  const sl = Number(ticker.sl) || 0;
-  const tp = Number(ticker.tp) || 0;
-
-  const isLong = state.includes("BULL");
-  const isShort = state.includes("BEAR");
-
-  const inCorridor =
-    (isLong && price >= triggerPrice && price <= tp) ||
-    (isShort && price <= triggerPrice && price >= tp);
-
-  return { corridor: inCorridor };
+  // Corridor is defined in score-space (HTF/LTF bands), not by TP/SL price bounds.
+  // This must match `corridorSide()` and the UI corridor filters.
+  return { corridor: corridorSide(ticker) != null };
 }
 
 // Dynamic SCORE calculation that considers real-time conditions
