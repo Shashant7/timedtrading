@@ -59,5 +59,6 @@ crons = [
   "30 20 * * 1-5",  # 3:30 PM ET (20:30 UTC) on weekdays - AI Market Update
   "*/5 * * * *",    # Every 5 minutes - Update open trades
   "*/15 * * * 1-5", # Every 15 minutes during market hours (weekdays) - Proactive Alerts & Pattern Recognition
+  "0 */6 * * *",    # Every 6 hours - ML model training from labeled queue
 ]
 

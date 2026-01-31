@@ -22843,5 +22843,20 @@ Be concise (3-5 sentences per section).`;
     } catch (error) {
       console.error("[SCHEDULED ERROR]", error);
     }
+
+    // ML Model Training (every 6 hours)
+    // Train model from labeled queue entries
+    try {
+      const result = await mlV1TrainFromQueue(env, KV, 75);
+      if (result.ok && result.trained > 0) {
+        console.log(
+          `[ML TRAINING] Trained on ${result.trained} examples, model n=${result.model_n}`,
+        );
+      } else if (result.ok) {
+        console.log(`[ML TRAINING] No new labels ready for training`);
+      }
+    } catch (error) {
+      console.error("[ML TRAINING ERROR]", error);
+    }
   },
 };
