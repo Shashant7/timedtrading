@@ -8128,7 +8128,31 @@ async function d1NearestClose(env, ticker, tsTarget) {
   const sym = String(ticker || "").toUpperCase();
   const t = Number(tsTarget);
   if (!sym || !Number.isFinite(t)) return null;
-  // Prefer smallest TFs (3m then 10m then 30m).
+  
+  // Query timed_trail for ingest data (has price from TradingView scripts)
+  try {
+    const row = await db
+      .prepare(
+        `SELECT ts, payload_json FROM timed_trail
+         WHERE ticker=?1 AND ts>=?2
+         ORDER BY ts ASC LIMIT 1`,
+      )
+      .bind(sym, t)
+      .first();
+    if (row && row.payload_json) {
+      try {
+        const p = JSON.parse(row.payload_json);
+        const price = Number(p?.price || p?.close);
+        if (Number.isFinite(price) && price > 0) return price;
+      } catch {
+        // ignore parse error
+      }
+    }
+  } catch (e) {
+    console.error(`[ML LABEL] Failed to get exit price for ${sym}:`, String(e));
+  }
+  
+  // Fallback to ticker_candles if available (for chart backfill data)
   const tfs = ["3", "10", "30"];
   for (const tf of tfs) {
     try {
