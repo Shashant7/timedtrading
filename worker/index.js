@@ -1406,19 +1406,28 @@ function classifyKanbanStage(tickerData) {
     // Stage 6: Exit - position invalidated or critical issues
     const reasons = moveStatus?.reasons || [];
     const severity = moveStatus?.severity || "NONE";
-    if (severity === "CRITICAL" || reasons.includes("left_entry_corridor")) {
+    if (
+      severity === "CRITICAL" || 
+      reasons.includes("left_entry_corridor") ||
+      reasons.includes("large_adverse_move") ||
+      reasons.includes("sl_breached")
+    ) {
       return "exit";
     }
 
-    // Stage 4.5: Defend - open position has warning conditions but is not yet a trim/exit
-    // This is a "pay attention" lane that keeps risk flags visible without forcing action.
-    if (severity === "WARNING" && completion < 0.7 && phase < 0.7) {
-      return "defend";
+    // Stage 5: Trim - take profits when signs of exhaustion appear
+    // Tightened from 70% to 60% completion for earlier profit-taking
+    if (
+      completion >= 0.6 || 
+      (phase >= 0.65 && severity === "WARNING") ||
+      reasons.includes("adverse_move_warning")
+    ) {
+      return "trim";
     }
 
-    // Stage 5: Trim - high completion (>70%) or late phase with warnings
-    if (completion >= 0.7 || (phase >= 0.7 && severity === "WARNING")) {
-      return "trim";
+    // Stage 4.5: Defend - open position has warning conditions but not yet trim
+    if (severity === "WARNING" && completion < 0.6 && phase < 0.65) {
+      return "defend";
     }
 
     // Stage 4: Hold - all other open positions
