@@ -1697,10 +1697,25 @@ function computeMoveStatus(tickerData) {
     if (ent && ent.corridor === false) reasons.push("left_entry_corridor");
   }
 
+  // Large adverse move (>15% against position) = hard exit signal
+  if (Number.isFinite(price) && Number.isFinite(anchorPrice) && anchorPrice > 0) {
+    const adverseMove = Math.abs((price - anchorPrice) / anchorPrice);
+    if (adverseMove >= 0.15) {
+      const isAdverse = 
+        (side === "LONG" && price < anchorPrice) ||
+        (side === "SHORT" && price > anchorPrice);
+      if (isAdverse) {
+        reasons.push("large_adverse_move");
+      }
+    }
+  }
+
   // IMPORTANT: do NOT mark the entire universe invalidated for "soft" reasons.
   // Only hard-stop conditions should become INVALIDATED / COMPLETED.
   const isCompleted = reasons.includes("tp_reached");
-  const isInvalidated = reasons.includes("sl_breached");
+  const isInvalidated = 
+    reasons.includes("sl_breached") || 
+    reasons.includes("large_adverse_move");
 
   const status = isCompleted
     ? "COMPLETED"
