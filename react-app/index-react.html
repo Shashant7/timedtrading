@@ -16167,7 +16167,8 @@
                                 >
                                   <svg
                                     viewBox={`0 0 ${W} ${H}`}
-                                    style={{ width: `${W}px`, height: "280px", display: "block" }}
+                                    preserveAspectRatio="none"
+                                    style={{ width: `${W}px`, height: `${H}px`, display: "block" }}
                                     className="cursor-crosshair"
                                     onMouseMove={handleMouseMove}
                                     onMouseLeave={() => setCrosshair(null)}
