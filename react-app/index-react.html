@@ -15246,8 +15246,6 @@
                           !!ticker?.momentum_elite_criteria;
                         if (!hasInputs && !flags.momentum_elite) return null;
 
-                        const adr14 = Number(ticker?.adr_14);
-                        const avgVol30 = Number(ticker?.avg_vol_30);
                         const okAdr = Number.isFinite(adr14) && adr14 >= 2;
                         const okVol =
                           Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
