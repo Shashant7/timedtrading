@@ -14615,6 +14615,10 @@
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(ticker);
         const decisionSummary = summarizeEntryDecision(ticker);
+        // Accordion states (must be at component level to avoid hooks errors)
+        const [scoreExpanded, setScoreExpanded] = React.useState(false);
+        const [tpExpanded, setTpExpanded] = React.useState(false);
+
         const triggerItems = (() => {
           const items = [];
 
@@ -15682,7 +15686,6 @@
 
                         {/* Score Breakdown (Accordion) */}
                         {(() => {
-                          const [scoreExpanded, setScoreExpanded] = React.useState(false);
                           const breakdown = calculateScoreBreakdown(ticker);
                           const breakdownComponents = [
                             {
@@ -15861,7 +15864,6 @@
 
                         {/* TP Levels Array (Accordion) */}
                         {(() => {
-                          const [tpExpanded, setTpExpanded] = React.useState(false);
                           const tpLevels = ticker.tp_levels || [];
                           if (!Array.isArray(tpLevels) || tpLevels.length === 0) return null;
                           
