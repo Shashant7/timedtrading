@@ -22364,6 +22364,23 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // POST /timed/admin/force-sync?key=... - Force D1 sync from KV (refresh all tickers)
+      if (url.pathname === "/timed/admin/force-sync" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const result = await d1SyncLatestBatchFromKV(env, { waitUntil: () => {} }, 200);
+          return sendJSON(result, 200, corsHeaders(env, req, true));
+        } catch (error) {
+          return sendJSON(
+            { ok: false, error: String(error) },
+            500,
+            corsHeaders(env, req, true),
+          );
+        }
+      }
+
       // POST /timed/admin/reset?key=... - Reset system state as if freshly launched (SAFE by default)
       // Default behavior (safe):
       // - Clears KV simulated trades + paper portfolio + activity feed
