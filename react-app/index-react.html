@@ -15726,6 +15726,49 @@
                           ) : null;
                         })()}
 
+                        {/* Momentum Elite (Compact) */}
+                        {(() => {
+                          const mp = ticker?.momentum_pct || {};
+                          const adr14 = Number(ticker?.adr_14);
+                          const avgVol30 = Number(ticker?.avg_vol_30);
+                          const w = mp.week != null ? Number(mp.week) : null;
+                          const m = mp.month != null ? Number(mp.month) : null;
+                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
+                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
+                          
+                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
+                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
+                          const okW = Number.isFinite(w) && w >= 10;
+                          const okM = Number.isFinite(m) && m >= 25;
+                          const ok3 = Number.isFinite(m3) && m3 >= 50;
+                          const ok6 = Number.isFinite(m6) && m6 >= 100;
+                          const okAnyMomentum = okW || okM || ok3 || ok6;
+                          const okBase = okAdr && okVol;
+                          const computedElite = okBase && okAnyMomentum;
+                          const elite = !!flags.momentum_elite || computedElite;
+                          
+                          if (!elite) return null;
+                          
+                          return (
+                            <div className="border-t border-[#26325f] my-3 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-[#93a4d6] font-semibold">🚀 Momentum Elite</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded border bg-purple-500/20 border-purple-500/40 text-purple-200">
+                                  ACTIVE
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-purple-200/70 space-y-0.5">
+                                {okAdr && <div>✅ ADR(14D) ≥ $2 • ${adr14.toFixed(2)}</div>}
+                                {okVol && <div>✅ Vol(30D) ≥ 2M • {(avgVol30 / 1_000_000).toFixed(2)}M</div>}
+                                {okW && <div>✅ 1W momentum {w.toFixed(1)}%</div>}
+                                {okM && <div>✅ 1M momentum {m.toFixed(1)}%</div>}
+                                {ok3 && <div>✅ 3M momentum {m3.toFixed(1)}%</div>}
+                                {ok6 && <div>✅ 6M momentum {m6.toFixed(1)}%</div>}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* TP Levels Array (Accordion) */}
                         {(() => {
                           const [tpExpanded, setTpExpanded] = React.useState(false);
