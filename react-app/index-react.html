@@ -18048,7 +18048,7 @@
                               // Generate LLM-style interpretation
                               const getInterpretation = () => {
                                 const absChg = Math.abs(changePct);
-                                const ticker Symbol = String(ticker.ticker).toUpperCase();
+                                const tickerSymbol = String(ticker.ticker).toUpperCase();
                                 
                                 if (absChg < 2) {
                                   return `${tickerSymbol} is trading relatively flat over the past ${label.toLowerCase()}, showing ${absChg.toFixed(1)}% ${isUp ? 'gain' : 'loss'}. Price action suggests consolidation.`;
