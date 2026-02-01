@@ -15959,15 +15959,21 @@
                         })()}
                       </div>
 
-                      {/* Rank Chart (Default 1H) */}
+                      {/* Chart */}
                       <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="text-sm text-[#93a4d6]">Rank Chart (1H)</div>
+                          <div className="text-sm text-[#93a4d6]">Chart</div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
+                              { tf: "1", label: "1m" },
+                              { tf: "3", label: "3m" },
+                              { tf: "5", label: "5m" },
+                              { tf: "10", label: "10m" },
+                              { tf: "30", label: "30m" },
                               { tf: "60", label: "1H" },
                               { tf: "240", label: "4H" },
                               { tf: "D", label: "D" },
+                              { tf: "W", label: "W" },
                             ].map((t) => {
                               const active = String(chartTf) === String(t.tf);
                               return (
