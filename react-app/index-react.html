@@ -17973,47 +17973,121 @@
 
                   {railTab === "JOURNEY" ? (
                     <>
-                      <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm text-[#93a4d6]">Phase</span>
-                          <span
-                            className="text-sm font-semibold"
-                            style={{ color: phaseColor }}
-                          >
-                            {(phase * 100).toFixed(2)}%
-                            {ticker.phase_zone && ` (${ticker.phase_zone})`}
-                          </span>
-                        </div>
-                        <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${phase * 100}%`,
-                              backgroundColor: phaseColor,
-                              boxShadow: `0 0 8px ${phaseColor}40`,
-                            }}
-                          />
-                        </div>
-                        <div className="mt-2 flex items-center justify-between text-xs">
-                          <span className="text-[#93a4d6]">Completion</span>
-                          <span className="font-semibold text-white">
-                            {ticker.completion != null
-                              ? `${(Number(ticker.completion) * 100).toFixed(2)}%`
-                              : "—"}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between text-xs">
-                          <span className="text-[#93a4d6]">Dynamic ETA</span>
-                          <span className="font-semibold text-white">
-                            {(() => {
-                              const eta = computeEtaDays(ticker);
-                              return Number.isFinite(eta)
-                                ? `${eta.toFixed(1)}d`
-                                : "—";
-                            })()}
-                          </span>
-                        </div>
-                      </div>
+                      {/* Performance Overview */}
+                      {(() => {
+                        const currentPrice = Number(ticker.price);
+                        if (!Number.isFinite(currentPrice) || currentPrice <= 0) return null;
+                        
+                        // Calculate performance for different time periods
+                        const calculatePerformance = (daysBack) => {
+                          const now = Date.now();
+                          const cutoff = now - (daysBack * 24 * 60 * 60 * 1000);
+                          
+                          // Find price at cutoff from bubbleJourney
+                          let oldPrice = null;
+                          if (Array.isArray(bubbleJourney) && bubbleJourney.length > 0) {
+                            const sorted = bubbleJourney
+                              .filter(p => {
+                                const ts = Number(p.__ts_ms || p.ts);
+                                return Number.isFinite(ts) && ts >= cutoff;
+                              })
+                              .sort((a, b) => {
+                                const tsA = Number(a.__ts_ms || a.ts);
+                                const tsB = Number(b.__ts_ms || b.ts);
+                                return tsA - tsB;
+                              });
+                            
+                            if (sorted.length > 0) {
+                              const p = Number(sorted[0].price);
+                              if (Number.isFinite(p) && p > 0) {
+                                oldPrice = p;
+                              }
+                            }
+                          }
+                          
+                          if (!oldPrice) return null;
+                          
+                          const changePct = ((currentPrice - oldPrice) / oldPrice) * 100;
+                          const changePoints = currentPrice - oldPrice;
+                          
+                          return {
+                            oldPrice,
+                            changePct,
+                            changePoints,
+                            isUp: changePct >= 0
+                          };
+                        };
+                        
+                        const periods = [
+                          { label: 'Today', days: 1 },
+                          { label: '5D', days: 5 },
+                          { label: '15D', days: 15 },
+                          { label: '30D', days: 30 },
+                          { label: '90D', days: 90 }
+                        ];
+                        
+                        const performanceData = periods.map(p => ({
+                          ...p,
+                          perf: calculatePerformance(p.days)
+                        })).filter(p => p.perf !== null);
+                        
+                        if (performanceData.length === 0) {
+                          return (
+                            <div className="mb-4 p-3 bg-[#0f1630] border border-[#26325f] rounded-lg text-xs text-[#93a4d6]">
+                              Performance data loading... Check back after we collect more history.
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div className="mb-4 space-y-3">
+                            {performanceData.map((item, idx) => {
+                              const { label, days, perf } = item;
+                              const { changePct, changePoints, isUp } = perf;
+                              
+                              // Generate LLM-style interpretation
+                              const getInterpretation = () => {
+                                const absChg = Math.abs(changePct);
+                                const ticker Symbol = String(ticker.ticker).toUpperCase();
+                                
+                                if (absChg < 2) {
+                                  return `${tickerSymbol} is trading relatively flat over the past ${label.toLowerCase()}, showing ${absChg.toFixed(1)}% ${isUp ? 'gain' : 'loss'}. Price action suggests consolidation.`;
+                                } else if (absChg < 5) {
+                                  return `${tickerSymbol} is ${isUp ? 'up' : 'down'} ${absChg.toFixed(1)}% over the past ${label.toLowerCase()}, showing ${isUp ? 'modest bullish momentum' : 'mild weakness'}. Watch for ${isUp ? 'continuation or profit-taking' : 'support levels'}.`;
+                                } else if (absChg < 10) {
+                                  return `${tickerSymbol} has ${isUp ? 'gained' : 'lost'} ${absChg.toFixed(1)}% in the past ${label.toLowerCase()}, indicating ${isUp ? 'strong momentum' : 'significant selling pressure'}. ${isUp ? 'Momentum players may be accumulating' : 'Consider risk management'}.`;
+                                } else if (absChg < 20) {
+                                  return `${tickerSymbol} is showing ${isUp ? 'explosive' : 'severe'} ${isUp ? 'upside' : 'downside'} with a ${absChg.toFixed(1)}% ${isUp ? 'rally' : 'decline'} over ${label.toLowerCase()}. ${isUp ? 'High volatility suggests strong interest' : 'Caution warranted at these levels'}.`;
+                                } else {
+                                  return `${tickerSymbol} has ${isUp ? 'surged' : 'plunged'} ${absChg.toFixed(1)}% in ${label.toLowerCase()}—a ${isUp ? 'parabolic' : 'dramatic'} move. ${isUp ? 'Extreme momentum, watch for exhaustion' : 'Oversold conditions may present opportunity'}.`;
+                                }
+                              };
+                              
+                              return (
+                                <div
+                                  key={label}
+                                  className="p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg"
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-bold text-[#93a4d6]">{label}</span>
+                                    <div className="text-right">
+                                      <div className={`text-lg font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
+                                        {isUp ? '+' : ''}{changePct.toFixed(2)}%
+                                      </div>
+                                      <div className={`text-xs ${isUp ? 'text-green-300/70' : 'text-red-300/70'}`}>
+                                        {isUp ? '+' : ''}${changePoints.toFixed(2)} pts
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-xs text-[#cbd5ff] leading-relaxed bg-[#121a33] p-2 rounded border border-[#26325f]/50">
+                                    {getInterpretation()}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
 
                       {/* Bubble Journey (15m increments) */}
                       <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
@@ -18186,8 +18260,35 @@
                         )}
                       </div>
 
-                      {/* Quadrant Progression */}
-                      <QuadrantProgression ticker={ticker} flags={flags} />
+                      {/* Current State Summary */}
+                      <div className="mb-4 p-3 bg-[#0f1630] border border-[#26325f] rounded-lg">
+                        <div className="text-xs text-[#93a4d6] mb-2 font-semibold">Current Status</div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <div className="text-[#93a4d6] text-[10px]">Phase</div>
+                            <div className="text-white font-semibold" style={{ color: phaseColor }}>
+                              {(phase * 100).toFixed(0)}%
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#93a4d6] text-[10px]">Completion</div>
+                            <div className="text-white font-semibold">
+                              {ticker.completion != null
+                                ? `${(Number(ticker.completion) * 100).toFixed(0)}%`
+                                : "—"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#93a4d6] text-[10px]">ETA</div>
+                            <div className="text-white font-semibold">
+                              {(() => {
+                                const eta = computeEtaDays(ticker);
+                                return Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—";
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </>
                   ) : null}
                 </div>
