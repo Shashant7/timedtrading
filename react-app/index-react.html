@@ -15589,6 +15589,92 @@
                             </>
                           );
                         })()}
+                        
+                        {/* Momentum Elite (near scores) */}
+                        {(() => {
+                          const mp = ticker?.momentum_pct || {};
+                          const hasMomentumData =
+                            mp.week != null ||
+                            mp.month != null ||
+                            mp.three_months != null ||
+                            mp.six_months != null;
+                          const adr14 = Number(ticker?.adr_14);
+                          const avgVol30 = Number(ticker?.avg_vol_30);
+                          
+                          if (!hasMomentumData && !flags.momentum_elite) return null;
+
+                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
+                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
+
+                          const w = mp.week != null ? Number(mp.week) : null;
+                          const m = mp.month != null ? Number(mp.month) : null;
+                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
+                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
+                          const okW = Number.isFinite(w) && w >= 10;
+                          const okM = Number.isFinite(m) && m >= 25;
+                          const ok3 = Number.isFinite(m3) && m3 >= 50;
+                          const ok6 = Number.isFinite(m6) && m6 >= 100;
+                          const okAnyMomentum = okW || okM || ok3 || ok6;
+
+                          const okBase = okAdr && okVol;
+                          const computedElite = okBase && okAnyMomentum;
+                          const elite = !!flags.momentum_elite || computedElite;
+
+                          const fmtVol = (v) => {
+                            const n = Number(v);
+                            if (!Number.isFinite(n) || n <= 0) return "—";
+                            if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+                            if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+                            return String(Math.round(n));
+                          };
+                          
+                          if (!elite) return null;
+
+                          return (
+                            <div className="border-t border-[#26325f] my-3 pt-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs text-purple-300 font-bold">🚀 Momentum Elite</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded border bg-purple-500/20 border-purple-500/40 text-purple-200">
+                                  ACTIVE
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5 text-[9px]">
+                                {Number.isFinite(w) && (
+                                  <div className="flex justify-between">
+                                    <span className="text-[#93a4d6]">1W:</span>
+                                    <span className={`font-semibold ${okW ? 'text-green-400' : 'text-[#93a4d6]'}`}>
+                                      {w.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                )}
+                                {Number.isFinite(m) && (
+                                  <div className="flex justify-between">
+                                    <span className="text-[#93a4d6]">1M:</span>
+                                    <span className={`font-semibold ${okM ? 'text-green-400' : 'text-[#93a4d6]'}`}>
+                                      {m.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                )}
+                                {Number.isFinite(m3) && (
+                                  <div className="flex justify-between">
+                                    <span className="text-[#93a4d6]">3M:</span>
+                                    <span className={`font-semibold ${ok3 ? 'text-green-400' : 'text-[#93a4d6]'}`}>
+                                      {m3.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                )}
+                                {Number.isFinite(m6) && (
+                                  <div className="flex justify-between">
+                                    <span className="text-[#93a4d6]">6M:</span>
+                                    <span className={`font-semibold ${ok6 ? 'text-green-400' : 'text-[#93a4d6]'}`}>
+                                      {m6.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Score Breakdown (Accordion) */}
                         {(() => {
