@@ -15267,8 +15267,6 @@
                         const okBase = okAdr && okVol;
                         const computedElite = okBase && okAnyMomentum;
                         const elite = !!flags.momentum_elite || computedElite;
-                        
-                        if (!elite) return null;
 
                         const fmtVol = (v) => {
                           const n = Number(v);
@@ -15294,6 +15292,8 @@
                             </div>
                           </div>
                         );
+                        
+                        if (!elite) return null;
 
                         return (
                           <div
