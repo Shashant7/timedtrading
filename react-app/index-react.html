@@ -15061,7 +15061,6 @@
                   <div className="mt-3 flex items-center gap-2 flex-wrap">
                     {[
                       { k: "ANALYSIS", label: "Analysis" },
-                      { k: "CHART", label: "Chart" },
                       { k: "TECHNICALS", label: "Technicals" },
                       { k: "JOURNEY", label: "Journey" },
                       {
@@ -15195,41 +15194,34 @@
                                 .join(" • ") || "—"}
                             </div>
 
-                            {trStatus || trValue != null ? (
-                              <div className="mt-2 p-2 bg-[#121a33] border border-[#26325f] rounded">
-                                <div className="text-[10px] text-[#93a4d6] mb-1">
-                                  Technical Rating
-                                  {trValue != null ? (
-                                    <span className="ml-1 text-[#6b7a9f]" title="Normalized score: 0=Strong Sell, 0.5=Neutral, 1=Strong Buy">
-                                      (score: {trValue.toFixed(2)})
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="text-xs font-semibold text-white no-ligatures">
-                                  {trStatus || "—"}
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {lastEarnTs || events?.next_earnings_ts ? (
-                              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-                                {lastEarnTs ? (
+                            {(trStatus || trValue != null || lastEarnTs || events?.next_earnings_ts) ? (
+                              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
+                                {(trStatus || trValue != null) ? (
                                   <div className="p-2 bg-[#121a33] border border-[#26325f] rounded">
-                                    <div className="text-[10px] text-[#93a4d6] mb-1">
-                                      Last Earnings
+                                    <div className="text-[9px] text-[#93a4d6] mb-1" title="Normalized score: 0=Strong Sell, 0.5=Neutral, 1=Strong Buy">
+                                      Tech Rating {trValue != null ? `(${trValue.toFixed(2)})` : ''}
                                     </div>
-                                    <div className="text-xs font-semibold text-white">
-                                      {fmtDate(lastEarnTs)}
+                                    <div className="text-xs font-semibold text-white no-ligatures">
+                                      {trStatus || "—"}
                                     </div>
                                   </div>
                                 ) : null}
                                 {events?.next_earnings_ts ? (
                                   <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded">
-                                    <div className="text-[10px] text-blue-400 mb-1">
+                                    <div className="text-[9px] text-blue-400 mb-1">
                                       Next Earnings
                                     </div>
                                     <div className="text-xs font-semibold text-white">
                                       {fmtDate(events.next_earnings_ts)}
+                                    </div>
+                                  </div>
+                                ) : lastEarnTs ? (
+                                  <div className="p-2 bg-[#121a33] border border-[#26325f] rounded">
+                                    <div className="text-[9px] text-[#93a4d6] mb-1">
+                                      Last Earnings
+                                    </div>
+                                    <div className="text-xs font-semibold text-white">
+                                      {fmtDate(lastEarnTs)}
                                     </div>
                                   </div>
                                 ) : null}
@@ -15254,8 +15246,8 @@
                           !!ticker?.momentum_elite_criteria;
                         if (!hasInputs && !flags.momentum_elite) return null;
 
-                        const price = Number(ticker?.price);
-                        const okPrice = Number.isFinite(price) && price >= 4;
+                        const adr14 = Number(ticker?.adr_14);
+                        const avgVol30 = Number(ticker?.avg_vol_30);
                         const okAdr = Number.isFinite(adr14) && adr14 >= 2;
                         const okVol =
                           Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
@@ -15274,9 +15266,11 @@
                         const ok6 = Number.isFinite(m6) && m6 >= 100;
                         const okAnyMomentum = okW || okM || ok3 || ok6;
 
-                        const okBase = okPrice && okAdr && okVol;
+                        const okBase = okAdr && okVol;
                         const computedElite = okBase && okAnyMomentum;
                         const elite = !!flags.momentum_elite || computedElite;
+                        
+                        if (!elite) return null;
 
                         const fmtVol = (v) => {
                           const n = Number(v);
@@ -15326,21 +15320,7 @@
                               </span>
                             </div>
 
-                            <div className="mt-2 text-[10px] text-purple-200/80">
-                              Criteria (base + momentum). Market cap is not
-                              enforced in this build.
-                            </div>
-
-                            <div className="mt-2 grid grid-cols-1 gap-1.5">
-                              <Row
-                                label="Price ≥ $4"
-                                value={
-                                  Number.isFinite(price)
-                                    ? `$${price.toFixed(2)}`
-                                    : "—"
-                                }
-                                ok={okPrice}
-                              />
+                            <div className="mt-2 grid grid-cols-2 gap-1.5 text-[9px]">
                               <Row
                                 label="ADR(14D) ≥ $2"
                                 value={
@@ -15351,7 +15331,7 @@
                                 ok={okAdr}
                               />
                               <Row
-                                label="Avg Vol(30D) ≥ 2.00M"
+                                label="Vol(30D) ≥ 2M"
                                 value={fmtVol(avgVol30)}
                                 ok={okVol}
                               />
