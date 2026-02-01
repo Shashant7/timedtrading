@@ -8529,6 +8529,13 @@ async function d1SyncLatestBatchFromKV(env, ctx, batchSize = 50) {
       await d1UpsertTickerIndex(env, sym, Date.now());
       const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
       if (latest && typeof latest === "object") {
+        // Attach ML predictions before syncing to D1
+        try {
+          await mlV1AttachToPayload(KV, latest);
+        } catch (e) {
+          console.warn(`[D1 SYNC] ML attach failed for ${sym}:`, String(e));
+        }
+        
         // Ensure stage exists for D1 consumers
         try {
           if (latest.kanban_stage == null) {
