@@ -14356,12 +14356,16 @@
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | CHART | TECHNICALS | JOURNEY | TRADE_HISTORY
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
-        const [chartTf, setChartTf] = useState("30"); // 10 | 30 | 60 | 240 | D | W
+        const [chartTf, setChartTf] = useState("60"); // Default to 1H
         const [chartCandles, setChartCandles] = useState([]);
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
         const [crosshair, setCrosshair] = useState(null);
         const chartScrollRef = useRef(null);
+        
+        // Accordion states (MUST be at component level, not inside IIFE blocks)
+        const [scoreExpanded, setScoreExpanded] = useState(false);
+        const [tpExpanded, setTpExpanded] = useState(false);
 
         // Prevent stale crosshair data from crashing renders when switching
         // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
