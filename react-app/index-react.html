@@ -16177,7 +16177,6 @@
                                 >
                                   <svg
                                     viewBox={`0 0 ${W} ${H}`}
-                                    preserveAspectRatio="none"
                                     style={{ width: `${W}px`, height: `${H}px`, display: "block", minWidth: "100%" }}
                                     className="cursor-crosshair"
                                     onMouseMove={handleMouseMove}
@@ -18366,22 +18365,30 @@
                           const now = Date.now();
                           const cutoff = now - (daysBack * 24 * 60 * 60 * 1000);
                           
-                          // Find price at cutoff from bubbleJourney
+                          // Find price at cutoff from bubbleJourney (closest to cutoff time, going back)
                           let oldPrice = null;
                           if (Array.isArray(bubbleJourney) && bubbleJourney.length > 0) {
+                            // Get all points before now, sorted newest to oldest
                             const sorted = bubbleJourney
                               .filter(p => {
                                 const ts = Number(p.__ts_ms || p.ts);
-                                return Number.isFinite(ts) && ts >= cutoff;
+                                const price = Number(p.price);
+                                return Number.isFinite(ts) && Number.isFinite(price) && price > 0 && ts <= now;
                               })
                               .sort((a, b) => {
                                 const tsA = Number(a.__ts_ms || a.ts);
                                 const tsB = Number(b.__ts_ms || b.ts);
-                                return tsA - tsB;
+                                return tsB - tsA; // Descending: newest first
                               });
                             
-                            if (sorted.length > 0) {
-                              const p = Number(sorted[0].price);
+                            // Find closest point at or before cutoff
+                            const historicalPoint = sorted.find(p => {
+                              const ts = Number(p.__ts_ms || p.ts);
+                              return ts <= cutoff;
+                            });
+                            
+                            if (historicalPoint) {
+                              const p = Number(historicalPoint.price);
                               if (Number.isFinite(p) && p > 0) {
                                 oldPrice = p;
                               }
