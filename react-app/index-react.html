@@ -14508,7 +14508,9 @@
               if (!json.ok)
                 throw new Error(json.error || "ledger_trades_failed");
               const trades = Array.isArray(json.trades) ? json.trades : [];
-              if (!cancelled) setLedgerTrades(trades);
+              // Filter out archived trades
+              const activeTrades = trades.filter(t => t.status !== 'ARCHIVED');
+              if (!cancelled) setLedgerTrades(activeTrades);
             } catch (e) {
               if (!cancelled) {
                 setLedgerTrades([]);
@@ -18371,30 +18373,34 @@
                           // Find price at cutoff from bubbleJourney (closest to cutoff time, going back)
                           let oldPrice = null;
                           if (Array.isArray(bubbleJourney) && bubbleJourney.length > 0) {
-                            // Get all points before now, sorted newest to oldest
-                            const sorted = bubbleJourney
-                              .filter(p => {
-                                const ts = Number(p.__ts_ms || p.ts);
-                                const price = Number(p.price);
-                                return Number.isFinite(ts) && Number.isFinite(price) && price > 0 && ts <= now;
-                              })
-                              .sort((a, b) => {
-                                const tsA = Number(a.__ts_ms || a.ts);
-                                const tsB = Number(b.__ts_ms || b.ts);
-                                return tsB - tsA; // Descending: newest first
-                              });
+                            // Get all valid points with timestamps and prices
+                            const validPoints = bubbleJourney
+                              .map(p => ({
+                                ts: Number(p.__ts_ms || p.ts),
+                                price: Number(p.price)
+                              }))
+                              .filter(p => Number.isFinite(p.ts) && Number.isFinite(p.price) && p.price > 0)
+                              .sort((a, b) => a.ts - b.ts); // Ascending: oldest first
+                            
+                            if (validPoints.length === 0) return null;
                             
                             // Find closest point at or before cutoff
-                            const historicalPoint = sorted.find(p => {
-                              const ts = Number(p.__ts_ms || p.ts);
-                              return ts <= cutoff;
-                            });
-                            
-                            if (historicalPoint) {
-                              const p = Number(historicalPoint.price);
-                              if (Number.isFinite(p) && p > 0) {
-                                oldPrice = p;
+                            let closestPoint = null;
+                            for (const p of validPoints) {
+                              if (p.ts <= cutoff) {
+                                closestPoint = p;
+                              } else {
+                                break; // Since sorted, we can stop
                               }
+                            }
+                            
+                            // If no point before cutoff, use oldest available
+                            if (!closestPoint && validPoints.length > 0) {
+                              closestPoint = validPoints[0];
+                            }
+                            
+                            if (closestPoint) {
+                              oldPrice = closestPoint.price;
                             }
                           }
                           
