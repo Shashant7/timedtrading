@@ -15198,37 +15198,41 @@
                             {trStatus || trValue != null ? (
                               <div className="mt-2 p-2 bg-[#121a33] border border-[#26325f] rounded">
                                 <div className="text-[10px] text-[#93a4d6] mb-1">
-                                  Technical Rating (proxy)
+                                  Technical Rating
+                                  {trValue != null ? (
+                                    <span className="ml-1 text-[#6b7a9f]" title="Normalized score: 0=Strong Sell, 0.5=Neutral, 1=Strong Buy">
+                                      (score: {trValue.toFixed(2)})
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <div className="text-xs font-semibold text-white no-ligatures">
                                   {trStatus || "—"}
-                                  {trValue != null ? (
-                                    <span className="ml-2 text-[10px] text-[#6b7a9f]">
-                                      ({trValue.toFixed(2)})
-                                    </span>
-                                  ) : null}
                                 </div>
                               </div>
                             ) : null}
 
-                            {lastEarnTs || lastDivTs ? (
+                            {lastEarnTs || events?.next_earnings_ts ? (
                               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
-                                <div className="p-2 bg-[#121a33] border border-[#26325f] rounded">
-                                  <div className="text-[10px] text-[#93a4d6] mb-1">
-                                    Last Earnings
+                                {lastEarnTs ? (
+                                  <div className="p-2 bg-[#121a33] border border-[#26325f] rounded">
+                                    <div className="text-[10px] text-[#93a4d6] mb-1">
+                                      Last Earnings
+                                    </div>
+                                    <div className="text-xs font-semibold text-white">
+                                      {fmtDate(lastEarnTs)}
+                                    </div>
                                   </div>
-                                  <div className="text-xs font-semibold text-white">
-                                    {fmtDate(lastEarnTs)}
+                                ) : null}
+                                {events?.next_earnings_ts ? (
+                                  <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded">
+                                    <div className="text-[10px] text-blue-400 mb-1">
+                                      Next Earnings
+                                    </div>
+                                    <div className="text-xs font-semibold text-white">
+                                      {fmtDate(events.next_earnings_ts)}
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="p-2 bg-[#121a33] border border-[#26325f] rounded">
-                                  <div className="text-[10px] text-[#93a4d6] mb-1">
-                                    Last Dividend
-                                  </div>
-                                  <div className="text-xs font-semibold text-white">
-                                    {fmtDate(lastDivTs)}
-                                  </div>
-                                </div>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>
