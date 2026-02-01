@@ -15642,27 +15642,68 @@
                             Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—";
                           const fmtEv = (x) =>
                             Number.isFinite(x) ? `${x.toFixed(2)}%` : "—";
+                          
+                          // Plain English interpretation
+                          const interpretML = (pWin, ev) => {
+                            const p = Number(pWin) * 100;
+                            const e = Number(ev);
+                            if (!Number.isFinite(p) || !Number.isFinite(e)) return null;
+                            
+                            // Strong signals
+                            if (p >= 70 && e >= 15) return { text: "🎯 Strong buy - high win%, great reward", color: "text-green-400", bg: "bg-green-500/10" };
+                            if (p >= 60 && e >= 10) return { text: "✅ Good setup - favorable odds", color: "text-green-400", bg: "bg-green-500/10" };
+                            
+                            // Positive but cautious
+                            if (e >= 5 && p >= 55) return { text: "🟢 Decent - small edge, manage risk", color: "text-blue-400", bg: "bg-blue-500/10" };
+                            if (e >= 0 && p >= 60) return { text: "⚖️ Neutral - breakeven odds", color: "text-yellow-400", bg: "bg-yellow-500/10" };
+                            
+                            // Warning signals
+                            if (p >= 70 && e < 0) return { text: "⚠️ Too late - missed the entry", color: "text-orange-400", bg: "bg-orange-500/10" };
+                            if (e < -5 && p >= 50) return { text: "🛑 Skip - poor risk/reward", color: "text-red-400", bg: "bg-red-500/10" };
+                            if (p < 45) return { text: "❌ Avoid - low probability", color: "text-red-400", bg: "bg-red-500/10" };
+                            
+                            // Default
+                            return { text: "🤔 Unclear signal - use caution", color: "text-gray-400", bg: "bg-gray-500/10" };
+                          };
+                          
+                          const interp4h = has4h ? interpretML(p4h, ev4h) : null;
+                          const interp1d = has1d ? interpretML(p1d, ev1d) : null;
+                          
                           return (
                             <>
                               {has4h && (
-                                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                                  <span className="text-[#93a4d6]">
-                                    Model (4h)
-                                  </span>
-                                  <span className="font-semibold text-purple-300">
-                                    pWin {fmtPct(p4h)} • EV {fmtEv(ev4h)}
-                                  </span>
-                                </div>
+                                <>
+                                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                                    <span className="text-[#93a4d6]">
+                                      Model (4h)
+                                    </span>
+                                    <span className="font-semibold text-purple-300">
+                                      pWin {fmtPct(p4h)} • EV {fmtEv(ev4h)}
+                                    </span>
+                                  </div>
+                                  {interp4h && (
+                                    <div className={`text-xs py-2 px-3 rounded ${interp4h.bg} border border-${interp4h.color.replace('text-', '')}/30 mb-2`}>
+                                      <span className={interp4h.color}>{interp4h.text}</span>
+                                    </div>
+                                  )}
+                                </>
                               )}
                               {has1d && (
-                                <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                                  <span className="text-[#93a4d6]">
-                                    Model (1d)
-                                  </span>
-                                  <span className="font-semibold text-purple-300">
-                                    pWin {fmtPct(p1d)} • EV {fmtEv(ev1d)}
-                                  </span>
-                                </div>
+                                <>
+                                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
+                                    <span className="text-[#93a4d6]">
+                                      Model (1d)
+                                    </span>
+                                    <span className="font-semibold text-purple-300">
+                                      pWin {fmtPct(p1d)} • EV {fmtEv(ev1d)}
+                                    </span>
+                                  </div>
+                                  {interp1d && (
+                                    <div className={`text-xs py-2 px-3 rounded ${interp1d.bg} border border-${interp1d.color.replace('text-', '')}/30 mb-2`}>
+                                      <span className={interp1d.color}>{interp1d.text}</span>
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </>
                           );
