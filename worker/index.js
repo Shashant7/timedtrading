@@ -22493,12 +22493,21 @@ Provide 3-5 actionable next steps:
           } catch {}
         }
 
-        // Clear D1 ledger (optional; OFF by default) + ML queue (only when resetMl)
+        // Archive open trades (always) + optionally clear ledger (OFF by default)
         let d1Cleared = [];
         try {
           if (env?.DB) {
+            // Archive all open trades by default (non-destructive)
+            try {
+              const archiveSql = "UPDATE trades SET status = 'ARCHIVED' WHERE status NOT IN ('WIN', 'LOSS', 'ARCHIVED')";
+              const archiveResult = await env.DB.prepare(archiveSql).run();
+              d1Cleared.push({ sql: archiveSql, changes: archiveResult?.meta?.changes ?? 0 });
+            } catch (archiveErr) {
+              // ignore if table doesn't exist
+            }
+            
             if (resetLedger) {
-              // Ledger
+              // Full ledger clear (DANGEROUS; opt-in only)
               for (const sql of [
                 "DELETE FROM trade_events",
                 "DELETE FROM trades",
