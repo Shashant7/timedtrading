@@ -8223,15 +8223,24 @@ async function mlV1TrainFromQueue(env, KV, maxN = 75, force = false) {
     ? await db.prepare(query).bind(Math.max(1, Math.min(250, Number(maxN) || 75))).all()
     : await db.prepare(query).bind(now, Math.max(1, Math.min(250, Number(maxN) || 75))).all();
   const due = Array.isArray(rows?.results) ? rows.results : [];
+  console.log(`[ML TRAIN] Found ${due.length} entries to process (force=${force})`);
   if (due.length === 0) return { ok: true, trained: 0 };
 
   let model = await mlV1GetModel(KV);
   let trained = 0;
+  let skipped = { no_exit: 0, no_label: 0, no_features: 0 };
 
   for (const r of due) {
     const exit = await d1NearestClose(env, r.ticker, Number(r.label_due_ts));
+    if (exit == null) {
+      skipped.no_exit++;
+      continue;
+    }
     const y = mlV1LabelFromHorizon(r.entry_price, exit, r.dir);
-    if (y == null) continue;
+    if (y == null) {
+      skipped.no_label++;
+      continue;
+    }
     let x = null;
     try {
       const fj = r.features_json ? JSON.parse(String(r.features_json)) : null;
@@ -8270,7 +8279,8 @@ async function mlV1TrainFromQueue(env, KV, maxN = 75, force = false) {
   if (trained > 0) {
     await mlV1PutModel(KV, model);
   }
-  return { ok: true, trained, model_n: model.n };
+  console.log(`[ML TRAIN] Result: trained=${trained}, skipped=${JSON.stringify(skipped)}`);
+  return { ok: true, trained, model_n: model.n, skipped, checked: due.length };
 }
 
 function normalizeTfKey(tf) {
