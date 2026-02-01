@@ -14615,9 +14615,6 @@
         const phaseColor = phaseToColor(phase);
         const actionInfo = getActionDescription(ticker);
         const decisionSummary = summarizeEntryDecision(ticker);
-        // Accordion states (must be at component level to avoid hooks errors)
-        const [scoreExpanded, setScoreExpanded] = React.useState(false);
-        const [tpExpanded, setTpExpanded] = React.useState(false);
 
         const triggerItems = (() => {
           const items = [];
