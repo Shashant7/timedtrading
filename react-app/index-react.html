@@ -14509,7 +14509,10 @@
                 throw new Error(json.error || "ledger_trades_failed");
               const trades = Array.isArray(json.trades) ? json.trades : [];
               // Filter out archived trades
-              const activeTrades = trades.filter(t => t.status !== 'ARCHIVED');
+              const activeTrades = trades.filter(t => {
+                const status = String(t.status || "").toUpperCase();
+                return status !== "ARCHIVED";
+              });
               if (!cancelled) setLedgerTrades(activeTrades);
             } catch (e) {
               if (!cancelled) {
