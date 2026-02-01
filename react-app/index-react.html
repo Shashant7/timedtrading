@@ -17494,10 +17494,19 @@
                                 const svg = e.currentTarget;
                                 const rect = svg.getBoundingClientRect();
                                 if (!rect || rect.width <= 0 || rect.height <= 0) return;
+                                
+                                // Get mouse position relative to SVG element
                                 const mx = e.clientX - rect.left;
                                 const my = e.clientY - rect.top;
-                                const svgX = (mx / rect.width) * W;
-                                const svgY = (my / rect.height) * H;
+                                
+                                // Use SVG's getScreenCTM() for accurate coordinate mapping
+                                const pt = svg.createSVGPoint();
+                                pt.x = e.clientX;
+                                pt.y = e.clientY;
+                                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+                                const svgX = svgP.x;
+                                const svgY = svgP.y;
+                                
                                 if (svgX < leftMargin || svgX > W - rightMargin) return;
                                 const idx = Math.floor(((svgX - leftMargin) / plotW) * n);
                                 if (idx >= 0 && idx < n) {
@@ -17514,10 +17523,15 @@
                                 <div
                                   ref={chartScrollRef}
                                   className="overflow-x-auto overflow-y-hidden rounded border border-[#26325f] bg-[#0b1020] scrollbar-hide"
+                                  style={{
+                                    scrollbarWidth: "thin",
+                                    scrollbarColor: "#26325f #0b1020"
+                                  }}
                                 >
                                   <svg
                                     viewBox={`0 0 ${W} ${H}`}
-                                    style={{ minWidth: `${Math.max(760, W)}px`, height: "320px" }}
+                                    preserveAspectRatio="none"
+                                    style={{ minWidth: `${Math.max(760, W)}px`, width: `${W}px`, height: "320px" }}
                                     className="cursor-crosshair"
                                     role="img"
                                     aria-label="Candlestick chart"
