@@ -29,8 +29,8 @@ for i in {1..20}; do
     "${API_BASE}/timed/ml/train?key=${API_KEY}&limit=75&force=1" \
     -H "Content-Type: application/json")
   
-  TRAINED=$(echo "$RESPONSE" | grep -o '"trained":[0-9]*' | cut -d':' -f2)
-  MODEL_N=$(echo "$RESPONSE" | grep -o '"model_n":[0-9]*' | cut -d':' -f2)
+  TRAINED=$(echo "$RESPONSE" | jq -r '.trained // 0' 2>/dev/null)
+  MODEL_N=$(echo "$RESPONSE" | jq -r '.model_n // 0' 2>/dev/null)
   
   if [ -n "$TRAINED" ]; then
     echo "✅ Trained on $TRAINED examples (model total: $MODEL_N)"
