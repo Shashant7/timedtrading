@@ -16162,19 +16162,20 @@
                               };
 
                             return (
-                              <div className="w-full relative">
+                              <div className="w-full relative -mx-3 px-3">
                                 <div
                                   ref={chartScrollRef}
-                                  className="overflow-x-auto overflow-y-hidden rounded border border-[#26325f] bg-[#0b1020]"
+                                  className="overflow-x-auto overflow-y-hidden bg-[#0b1020]"
                                   style={{
                                     scrollbarWidth: "thin",
-                                    scrollbarColor: "#26325f #0b1020"
+                                    scrollbarColor: "#26325f #0b1020",
+                                    WebkitOverflowScrolling: "touch"
                                   }}
                                 >
                                   <svg
                                     viewBox={`0 0 ${W} ${H}`}
                                     preserveAspectRatio="none"
-                                    style={{ width: `${W}px`, height: `${H}px`, display: "block" }}
+                                    style={{ width: `${W}px`, height: `${H}px`, display: "block", minWidth: "100%" }}
                                     className="cursor-crosshair"
                                     onMouseMove={handleMouseMove}
                                     onMouseLeave={() => setCrosshair(null)}
