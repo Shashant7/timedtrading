@@ -1697,15 +1697,22 @@ function computeMoveStatus(tickerData) {
     if (ent && ent.corridor === false) reasons.push("left_entry_corridor");
   }
 
-  // Large adverse move (>15% against position) = hard exit signal
+  // Adverse move detection (tightened from 15% to 10% for earlier exits)
   if (Number.isFinite(price) && Number.isFinite(anchorPrice) && anchorPrice > 0) {
-    const adverseMove = Math.abs((price - anchorPrice) / anchorPrice);
-    if (adverseMove >= 0.15) {
-      const isAdverse = 
-        (side === "LONG" && price < anchorPrice) ||
-        (side === "SHORT" && price > anchorPrice);
-      if (isAdverse) {
+    const adverseMove = (price - anchorPrice) / anchorPrice;
+    const isAdverse = 
+      (side === "LONG" && adverseMove < 0) ||
+      (side === "SHORT" && adverseMove > 0);
+    
+    if (isAdverse) {
+      const absMove = Math.abs(adverseMove);
+      // Critical: >10% adverse move = hard exit (was 15%)
+      if (absMove >= 0.10) {
         reasons.push("large_adverse_move");
+      }
+      // Warning: >5% adverse move = defensive signal
+      else if (absMove >= 0.05) {
+        reasons.push("adverse_move_warning");
       }
     }
   }
