@@ -14577,8 +14577,9 @@
                 })
                 .filter(Boolean)
                 .sort((a, b) => a.__ts_ms - b.__ts_ms);
-              const last20 = withTs.slice(-20);
-              if (!cancelled) setBubbleJourney(last20);
+              // Keep more history for Journey time-period analysis
+              const last200 = withTs.slice(-200);
+              if (!cancelled) setBubbleJourney(last200);
             } catch (e) {
               if (!cancelled) {
                 setBubbleJourney([]);
@@ -16176,8 +16177,10 @@
                                   }}
                                 >
                                   <svg
+                                    width={W}
+                                    height={H}
                                     viewBox={`0 0 ${W} ${H}`}
-                                    style={{ width: `${W}px`, height: `${H}px`, display: "block", minWidth: "100%" }}
+                                    style={{ display: "block" }}
                                     className="cursor-crosshair"
                                     onMouseMove={handleMouseMove}
                                     onMouseLeave={() => setCrosshair(null)}
