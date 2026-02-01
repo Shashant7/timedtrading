@@ -14382,7 +14382,7 @@
 
         // Auto-scroll chart to most recent candle when data loads
         useEffect(() => {
-          if (chartScrollRef.current && chartCandles.length > 0 && railTab === "CHART") {
+          if (chartScrollRef.current && chartCandles.length > 0 && railTab === "ANALYSIS") {
             setTimeout(() => {
               if (chartScrollRef.current) {
                 chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
@@ -14395,7 +14395,7 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          if (railTab !== "CHART" || !sym) return;
+          if (railTab !== "ANALYSIS" || !sym) return;
 
           let cancelled = false;
           const run = async () => {
@@ -14811,6 +14811,62 @@
                               : ""}
                           </div>
                         );
+                      })()}
+                      
+                      {/* Bias - Inline */}
+                      {(() => {
+                        const dir = getDirection(ticker);
+                        return (
+                          <div className="mt-2">
+                            <span
+                              className={`inline-block px-3 py-1 rounded-lg font-bold text-sm ${dir.bg} ${dir.color} border border-current/30`}
+                            >
+                              {dir.text === "LONG"
+                                ? "📈 LONG"
+                                : dir.text === "SHORT"
+                                  ? "📉 SHORT"
+                                  : dir.text}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                      
+                      {/* Groups - Inline */}
+                      {(() => {
+                        try {
+                          const gs = groupsForTicker(ticker.ticker);
+                          if (!Array.isArray(gs) || gs.length === 0)
+                            return null;
+                          const ordered = Array.isArray(GROUP_ORDER)
+                            ? [...gs].sort(
+                                (a, b) =>
+                                  GROUP_ORDER.indexOf(a) -
+                                  GROUP_ORDER.indexOf(b),
+                              )
+                            : gs;
+                          return (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {ordered.map((g) => {
+                                const label = GROUP_LABELS[g] || g;
+                                const isSocial = g === "Social";
+                                return (
+                                  <span
+                                    key={`group-${g}`}
+                                    className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                                      isSocial
+                                        ? "bg-purple-500/15 border-purple-500/40 text-purple-200"
+                                        : "bg-[#121a33] border-[#26325f] text-[#e7ecff]"
+                                    }`}
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          );
+                        } catch {
+                          return null;
+                        }
                       })()}
                     </div>
                     <button
@@ -15425,12 +15481,12 @@
                                 Sector
                               </div>
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-lg">{emoji}</span>
-                                <span className="font-semibold text-white">
+                                <span className="text-base">{emoji}</span>
+                                <span className="font-semibold text-white text-sm">
                                   {displaySector}
                                 </span>
                                 <span
-                                  className={`text-xs px-2 py-1 rounded ${
+                                  className={`text-[10px] px-2 py-0.5 rounded ${
                                     rating === "overweight"
                                       ? "bg-green-500/20 text-green-400"
                                       : rating === "underweight"
@@ -15442,7 +15498,7 @@
                                     rating.slice(1)}
                                 </span>
                                 {Number.isFinite(boost) && boost !== 0 && (
-                                  <span className="text-[10px] text-[#93a4d6]">
+                                  <span className="text-[9px] text-[#93a4d6]">
                                     Boost {boost > 0 ? `+${boost}` : boost}
                                   </span>
                                 )}
@@ -15451,70 +15507,6 @@
                           );
                         }
                         return null;
-                      })()}
-
-                      {/* Groups */}
-                      {(() => {
-                        try {
-                          const gs = groupsForTicker(tickerSymbol);
-                          if (!Array.isArray(gs) || gs.length === 0)
-                            return null;
-                          const ordered = Array.isArray(GROUP_ORDER)
-                            ? [...gs].sort(
-                                (a, b) =>
-                                  GROUP_ORDER.indexOf(a) -
-                                  GROUP_ORDER.indexOf(b),
-                              )
-                            : gs;
-                          return (
-                            <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                              <div className="text-sm text-[#93a4d6] mb-2">
-                                Groups
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {ordered.map((g) => {
-                                  const label = GROUP_LABELS[g] || g;
-                                  const isSocial = g === "Social";
-                                  return (
-                                    <span
-                                      key={`group-${g}`}
-                                      className={`text-[11px] px-2 py-1 rounded border ${
-                                        isSocial
-                                          ? "bg-purple-500/15 border-purple-500/40 text-purple-200"
-                                          : "bg-[#121a33] border-[#26325f] text-[#e7ecff]"
-                                      }`}
-                                    >
-                                      {label}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        } catch {
-                          return null;
-                        }
-                      })()}
-
-                      {/* Bias/Direction */}
-                      {(() => {
-                        const dir = getDirection(ticker);
-                        return (
-                          <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                            <div className="text-sm text-[#93a4d6] mb-2">
-                              Bias / Direction
-                            </div>
-                            <div
-                              className={`inline-block px-4 py-2 rounded-lg font-bold text-lg ${dir.bg} ${dir.color} border-2 border-current/30`}
-                            >
-                              {dir.text === "LONG"
-                                ? "📈 LONG"
-                                : dir.text === "SHORT"
-                                  ? "📉 SHORT"
-                                  : dir.text}
-                            </div>
-                          </div>
-                        );
                       })()}
 
                       {/* Merged Guidance + System Decision */}
@@ -15989,7 +15981,432 @@
                         })()}
                       </div>
 
-                      {/* TD Sequential */}
+                      {/* Rank Chart (Default 1H) */}
+                      <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                          <div className="text-sm text-[#93a4d6]">Rank Chart (1H)</div>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {[
+                              { tf: "60", label: "1H" },
+                              { tf: "240", label: "4H" },
+                              { tf: "D", label: "D" },
+                            ].map((t) => {
+                              const active = String(chartTf) === String(t.tf);
+                              return (
+                                <button
+                                  key={`tf-${t.tf}`}
+                                  onClick={() => setChartTf(String(t.tf))}
+                                  className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
+                                    active
+                                      ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                                      : "border-[#26325f] bg-[#121a33] text-[#93a4d6] hover:text-white"
+                                  }`}
+                                  title={`Show ${t.label} candles`}
+                                >
+                                  {t.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {chartLoading ? (
+                          <div className="text-xs text-[#93a4d6]">
+                            Loading candles…
+                          </div>
+                        ) : chartError ? (
+                          <div className="text-xs text-yellow-300">
+                            Failed to load candles: {chartError}
+                          </div>
+                        ) : !Array.isArray(chartCandles) ||
+                          chartCandles.length < 2 ? (
+                          <div className="text-xs text-[#93a4d6]">
+                            No candles yet for this timeframe.
+                          </div>
+                        ) : (
+                          (() => {
+                            try {
+                              const toMs = (v) => {
+                                if (v == null) return NaN;
+                                if (typeof v === "number") {
+                                  return v > 1e12 ? v : v * 1000;
+                                }
+                                const n = Number(v);
+                                if (Number.isFinite(n)) return n > 1e12 ? n : n * 1000;
+                                const d = new Date(String(v));
+                                const ms = d.getTime();
+                                return Number.isFinite(ms) ? ms : NaN;
+                              };
+
+                              const norm = (c) => {
+                                const tsRaw = c?.ts ?? c?.t ?? c?.time ?? c?.timestamp;
+                                const tsMs = toMs(tsRaw);
+                                const o = Number(c?.o ?? c?.open);
+                                const h = Number(c?.h ?? c?.high);
+                                const l = Number(c?.l ?? c?.low);
+                                const cl = Number(c?.c ?? c?.close);
+                                if (
+                                  !Number.isFinite(tsMs) ||
+                                  !Number.isFinite(o) ||
+                                  !Number.isFinite(h) ||
+                                  !Number.isFinite(l) ||
+                                  !Number.isFinite(cl)
+                                )
+                                  return null;
+                                return { ...c, ts: tsMs, __ts_ms: tsMs, o, h, l, c: cl };
+                              };
+
+                              let candles = (Array.isArray(chartCandles) ? chartCandles : [])
+                                .slice(-400)
+                                .map(norm)
+                                .filter(Boolean);
+
+                              candles.sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
+
+                              const weekStartUtcMs = (tsMs) => {
+                                const d0 = new Date(Number(tsMs));
+                                const day = d0.getUTCDay();
+                                const daysSinceMon = (day + 6) % 7;
+                                const d = new Date(
+                                  d0.getTime() - daysSinceMon * 24 * 60 * 60 * 1000,
+                                );
+                                d.setUTCHours(0, 0, 0, 0);
+                                return d.getTime();
+                              };
+
+                              if (String(chartTf) === "W") {
+                                const byWeek = new Map();
+                                for (const c of candles) {
+                                  const wk = weekStartUtcMs(c.__ts_ms);
+                                  const prev = byWeek.get(wk);
+                                  if (!prev) {
+                                    byWeek.set(wk, {
+                                      ts: wk,
+                                      __ts_ms: wk,
+                                      o: Number(c.o),
+                                      h: Number(c.h),
+                                      l: Number(c.l),
+                                      c: Number(c.c),
+                                      _last_ts: Number(c.__ts_ms),
+                                    });
+                                  } else {
+                                    prev.h = Math.max(Number(prev.h), Number(c.h));
+                                    prev.l = Math.min(Number(prev.l), Number(c.l));
+                                    if (Number(c.__ts_ms) >= Number(prev._last_ts)) {
+                                      prev.c = Number(c.c);
+                                      prev._last_ts = Number(c.__ts_ms);
+                                    }
+                                  }
+                                }
+                                candles = Array.from(byWeek.values())
+                                  .sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms))
+                                  .map((c) => {
+                                    const out = { ...c };
+                                    delete out._last_ts;
+                                    return out;
+                                  });
+                              } else {
+                                const byTs = new Map();
+                                for (const c of candles) byTs.set(Number(c.__ts_ms), c);
+                                candles = Array.from(byTs.values()).sort(
+                                  (a, b) => Number(a.__ts_ms) - Number(b.__ts_ms),
+                                );
+                              }
+
+                              const n = candles.length;
+                              if (n < 2) {
+                                return (
+                                  <div className="text-xs text-[#93a4d6]">
+                                    Candle data loaded, but not in expected format.
+                                  </div>
+                                );
+                              }
+
+                              const lows = candles.map((c) => Number(c.l));
+                              const highs = candles.map((c) => Number(c.h));
+                              let minL = Math.min(...lows);
+                              let maxH = Math.max(...highs);
+                              if (!Number.isFinite(minL) || !Number.isFinite(maxH))
+                                throw new Error("invalid_minmax");
+                              if (maxH <= minL) {
+                                maxH = minL + 1;
+                              }
+                              const pad = (maxH - minL) * 0.05;
+                              minL -= pad;
+                              maxH += pad;
+
+                            const H = 280;
+                            const leftMargin = 5;
+                            const rightMargin = 65;
+                            const candleW = 8;
+                            const candleGap = 2;
+                            const candleStep = candleW + candleGap;
+                            const plotW = n * candleStep;
+                            const W = plotW + leftMargin + rightMargin;
+                            const plotH = H;
+                            const y = (p) =>
+                              plotH - ((p - minL) / (maxH - minL)) * plotH;
+                            const bodyW = candleW * 0.9;
+
+                            const priceStep = (maxH - minL) / 5;
+                            const priceTicks = [];
+                            for (let i = 0; i <= 5; i++) {
+                              priceTicks.push(minL + priceStep * i);
+                            }
+
+                              const handleMouseMove = (e) => {
+                                const svg = e.currentTarget;
+                                const rect = svg.getBoundingClientRect();
+                                if (!rect || rect.width <= 0 || rect.height <= 0) return;
+                                
+                                const pt = svg.createSVGPoint();
+                                pt.x = e.clientX;
+                                pt.y = e.clientY;
+                                const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+                                const svgX = svgP.x;
+                                const svgY = svgP.y;
+                                
+                                if (svgX < leftMargin || svgX > W - rightMargin) return;
+                                const idx = Math.floor(((svgX - leftMargin) / plotW) * n);
+                                if (idx >= 0 && idx < n) {
+                                  const c = candles[idx];
+                                  if (!c) return;
+                                  const price =
+                                    minL + ((H - svgY) / plotH) * (maxH - minL);
+                                  setCrosshair({ x: svgX, y: svgY, candle: c, price });
+                                }
+                              };
+
+                            return (
+                              <div className="w-full relative">
+                                <div
+                                  ref={chartScrollRef}
+                                  className="overflow-x-auto overflow-y-hidden rounded border border-[#26325f] bg-[#0b1020]"
+                                  style={{
+                                    scrollbarWidth: "thin",
+                                    scrollbarColor: "#26325f #0b1020"
+                                  }}
+                                >
+                                  <svg
+                                    viewBox={`0 0 ${W} ${H}`}
+                                    preserveAspectRatio="none"
+                                    style={{ minWidth: `${Math.max(760, W)}px`, width: `${W}px`, height: "280px" }}
+                                    className="cursor-crosshair"
+                                    onMouseMove={handleMouseMove}
+                                    onMouseLeave={() => setCrosshair(null)}
+                                  >
+                                  {priceTicks.map((p, i) => {
+                                    const yPos = y(p);
+                                    return (
+                                      <g key={`grid-${i}`}>
+                                        <line
+                                          x1={leftMargin}
+                                          y1={yPos}
+                                          x2={W - rightMargin}
+                                          y2={yPos}
+                                          stroke="rgba(38,50,95,0.5)"
+                                          strokeWidth="1"
+                                        />
+                                        <text
+                                          x={W - rightMargin + 6}
+                                          y={yPos + 4}
+                                          fontSize="11"
+                                          fill="#93a4d6"
+                                          fontFamily="monospace"
+                                        >
+                                          ${p.toFixed(2)}
+                                        </text>
+                                      </g>
+                                    );
+                                  })}
+
+                                  {candles.map((c, i) => {
+                                    const o = Number(c.o);
+                                    const h = Number(c.h);
+                                    const l = Number(c.l);
+                                    const cl = Number(c.c);
+                                    const up = cl >= o;
+                                    const stroke = up
+                                      ? "rgba(56,189,248,0.95)"
+                                      : "rgba(251,146,60,0.95)";
+                                    const fill = up
+                                      ? "rgba(56,189,248,0.90)"
+                                      : "rgba(251,146,60,0.90)";
+
+                                    const cx = leftMargin + i * candleStep + candleStep / 2;
+                                    const yH = y(h);
+                                    const yL = y(l);
+                                    const yO = y(o);
+                                    const yC = y(cl);
+                                    const top = Math.min(yO, yC);
+                                    const bot = Math.max(yO, yC);
+                                    const bodyH = Math.max(1.5, bot - top);
+
+                                    return (
+                                      <g key={`c-${Number(c.ts)}-${i}`}>
+                                        <line
+                                          x1={cx}
+                                          y1={yH}
+                                          x2={cx}
+                                          y2={yL}
+                                          stroke={stroke}
+                                          strokeWidth="1.2"
+                                        />
+                                        <rect
+                                          x={cx - bodyW / 2}
+                                          y={top}
+                                          width={bodyW}
+                                          height={bodyH}
+                                          fill={fill}
+                                          stroke="none"
+                                          rx="0.5"
+                                        />
+                                      </g>
+                                    );
+                                  })}
+
+                                  {crosshair ? (
+                                    <>
+                                      <line
+                                        x1={leftMargin}
+                                        y1={crosshair.y}
+                                        x2={W - rightMargin}
+                                        y2={crosshair.y}
+                                        stroke="rgba(147,164,214,0.5)"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 4"
+                                      />
+                                      <line
+                                        x1={crosshair.x}
+                                        y1={0}
+                                        x2={crosshair.x}
+                                        y2={H}
+                                        stroke="rgba(147,164,214,0.5)"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 4"
+                                      />
+                                      {(() => {
+                                        const yLabel = Math.max(
+                                          10,
+                                          Math.min(H - 10, Number(crosshair.y)),
+                                        );
+                                        const price = Number(crosshair.price);
+                                        const priceText = Number.isFinite(price)
+                                          ? `$${price.toFixed(2)}`
+                                          : "—";
+                                        return (
+                                          <g>
+                                            <rect
+                                              x={W - rightMargin + 2}
+                                              y={yLabel - 10}
+                                              width={rightMargin - 4}
+                                              height={20}
+                                              fill="rgba(18,26,51,0.92)"
+                                              stroke="rgba(38,50,95,0.9)"
+                                              strokeWidth="1"
+                                              rx="4"
+                                            />
+                                            <text
+                                              x={W - rightMargin + (rightMargin - 4) / 2}
+                                              y={yLabel + 4}
+                                              fontSize="11"
+                                              fill="#fbbf24"
+                                              fontFamily="monospace"
+                                              fontWeight="700"
+                                              textAnchor="middle"
+                                            >
+                                              {priceText}
+                                            </text>
+                                          </g>
+                                        );
+                                      })()}
+                                    </>
+                                  ) : null}
+                                  </svg>
+                                </div>
+
+                                {crosshair && crosshair.candle ? (
+                                  <div
+                                    className="absolute top-2 left-2 px-3 py-2 bg-[#121a33]/95 border border-[#26325f] rounded-lg text-[11px] pointer-events-none z-10"
+                                    style={{
+                                      backdropFilter: "blur(8px)",
+                                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                                    }}
+                                  >
+                                    <div className="font-semibold text-white mb-1">
+                                      {(() => {
+                                        try {
+                                          const ts = Number(
+                                            crosshair?.candle?.__ts_ms ??
+                                              crosshair?.candle?.ts,
+                                          );
+                                          if (!Number.isFinite(ts)) return "—";
+                                          const d = new Date(ts);
+                                          return d.toLocaleString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                            hour: "numeric",
+                                            minute: "2-digit",
+                                          });
+                                        } catch {
+                                          return "—";
+                                        }
+                                      })()}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                                      <div className="text-[#93a4d6]">O:</div>
+                                      <div className="text-white font-mono">
+                                        ${Number(crosshair.candle.o).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#93a4d6]">H:</div>
+                                      <div className="text-sky-300 font-mono">
+                                        ${Number(crosshair.candle.h).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#93a4d6]">L:</div>
+                                      <div className="text-orange-300 font-mono">
+                                        ${Number(crosshair.candle.l).toFixed(2)}
+                                      </div>
+                                      <div className="text-[#93a4d6]">C:</div>
+                                      <div
+                                        className={`font-mono font-semibold ${
+                                          Number(crosshair.candle.c) >=
+                                          Number(crosshair.candle.o)
+                                            ? "text-sky-300"
+                                            : "text-orange-300"
+                                        }`}
+                                      >
+                                        ${Number(crosshair.candle.c).toFixed(2)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                <div className="mt-2 text-[10px] text-[#93a4d6] flex items-center justify-between">
+                                  <span>
+                                    {String(chartTf) === "D"
+                                      ? "Daily"
+                                      : String(chartTf) === "W"
+                                        ? "Weekly"
+                                        : `${chartTf}m`}{" "}
+                                    • {candles.length} bars
+                                  </span>
+                                  <span className="font-mono">
+                                    ${minL.toFixed(2)} – ${maxH.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                            } catch (e) {
+                              console.error("[RightRail Chart] render failed:", e);
+                              return (
+                                <div className="text-xs text-yellow-300">
+                                  Chart render error. Check console for details.
+                                </div>
+                              );
+                            }
+                          })()
+                        )}
+                      </div>
                     </>
                   ) : null}
 
