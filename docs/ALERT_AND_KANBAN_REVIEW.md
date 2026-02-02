@@ -136,9 +136,28 @@ Discord notifications fire when a ticker **transitions** into one of these lanes
 
 **Hold vs Watch (critical fix):** Tickers with an active position must show in Hold, not Watch. We merge `entry_ts` and `entry_price` from the previous ingest (and from the ledger’s open trade if missing) into the payload before `classifyKanbanStage`, so `computeMoveStatus` sees `hasEntered` and returns ACTIVE. Without this, tickers that should be in Hold would incorrectly land in Watch.
 
+**Enter Now → Exit:** A ticker showing "came from Enter Now" but now in Exit can happen when `entry_ts`/`entry_price` exist (from a previous position or merged from ledger) and the move has invalidated (left corridor, SL breach, large adverse move). That is correct if there was an actual open position. To avoid phantom lanes when **re-running reprocess**, use `resetTrades=1` so trades and entry state are cleared before reprocessing; entries are then rebuilt from scratch from Enter Now transitions.
+
 ---
 
-## 8. Quick checklist
+## 8. Reprocess Kanban (admin)
+
+`POST /timed/admin/reprocess-kanban` re-runs Kanban classification and trade simulation for all tickers. Use `scripts/reprocess-kanban.sh` to batch automatically.
+
+| Param | Description |
+|-------|-------------|
+| `resetTrades=1` | Purge open trades for batch tickers and clear `entry_ts`/`entry_price` before reprocess. Entries are rebuilt from Enter Now. **Default in script.** |
+| `from=YYYY-MM-DD` | (With resetTrades) Only purge trades with `entry_ts` on or after this day (ET). |
+| `to=YYYY-MM-DD` | (With resetTrades) Only purge trades with `entry_ts` on or before this day (ET). |
+| `limit`, `offset` | Batch size and pagination (default limit=15). |
+
+**Example:**  
+`RESET_TRADES=1 TIMED_API_KEY=x ./scripts/reprocess-kanban.sh` — full reprocess with trade reset.  
+`RESET_TRADES=0 TIMED_API_KEY=x ./scripts/reprocess-kanban.sh` — keep existing trades.
+
+---
+
+## 9. Quick checklist
 
 - [x] Enter Now uses score + position (no score-only path).
 - [x] 1H 13/48 EMA Cross path added for pivot + pullback setups.

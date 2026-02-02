@@ -22686,9 +22686,10 @@ Provide 3-5 actionable next steps:
         }
       }
 
-      // POST /timed/admin/reprocess-kanban?key=...&limit=...&offset=...&ticker=...
+      // POST /timed/admin/reprocess-kanban?key=...&limit=...&offset=...&ticker=...&resetTrades=1&from=YYYY-MM-DD&to=YYYY-MM-DD
       // Re-run Kanban classification + trade sim for all tickers. Batched to avoid subrequest limits.
       // Default limit=15 per call; use offset to process remaining (e.g. offset=15, offset=30).
+      // resetTrades=1: purge open trades for batch tickers (optionally in from/to range) and clear entry state before reprocess.
       if (
         url.pathname === "/timed/admin/reprocess-kanban" &&
         req.method === "POST"
@@ -22699,6 +22700,9 @@ Provide 3-5 actionable next steps:
         const qLimit = Number(url.searchParams.get("limit") || "15");
         const qOffset = Number(url.searchParams.get("offset") || "0");
         const tickerFilter = normTicker(url.searchParams.get("ticker"));
+        const resetTrades = url.searchParams.get("resetTrades") === "1" || url.searchParams.get("resetTrades") === "true";
+        const fromDay = url.searchParams.get("from") || null; // YYYY-MM-DD
+        const toDay = url.searchParams.get("to") || null;
         const DEFAULT_BATCH = 15;
 
         const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
@@ -22718,6 +22722,34 @@ Provide 3-5 actionable next steps:
         const offset = Math.max(0, Number.isFinite(qOffset) ? qOffset : 0);
         const slice = filtered.slice(offset, offset + limit);
 
+        // resetTrades: purge open trades for batch tickers so we rebuild from scratch
+        let tradesPurged = 0;
+        if (resetTrades && slice.length > 0) {
+          const allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+          const sliceSet = new Set(slice.map((t) => String(t || "").toUpperCase()));
+          let tsMin = null;
+          let tsMax = null;
+          if (fromDay && /^\d{4}-\d{2}-\d{2}$/.test(fromDay)) {
+            tsMin = nyWallMidnightToUtcMs(fromDay) ?? null;
+          }
+          if (toDay && /^\d{4}-\d{2}-\d{2}$/.test(toDay)) {
+            const endOfDay = nyWallTimeToUtcMs(toDay, 23, 59, 59);
+            tsMax = endOfDay != null ? endOfDay + 999 : null;
+          }
+          const kept = allTrades.filter((t) => {
+            const ticker = String(t?.ticker || "").toUpperCase();
+            if (!sliceSet.has(ticker)) return true;
+            if (!isOpenTradeStatus(t?.status)) return true;
+            const entryTs = Number(t?.entry_ts ?? t?.entryTime);
+            if (!Number.isFinite(entryTs)) return true;
+            if (tsMin != null && entryTs < tsMin) return true;
+            if (tsMax != null && entryTs > tsMax) return true;
+            tradesPurged += 1;
+            return false;
+          });
+          await kvPutJSON(KV, "timed:trades:all", kept);
+        }
+
         let updated = 0;
         let tradesCreated = 0;
         const laneCounts = {};
@@ -22733,20 +22765,29 @@ Provide 3-5 actionable next steps:
             const existing = latest;
             const payload = { ...latest };
 
-            // Merge entry_ts/entry_price from existing + ledger (Hold vs Watch fix)
-            if (existing?.entry_ts != null || existing?.entry_price != null) {
-              if (payload.entry_ts == null && Number.isFinite(Number(existing?.entry_ts)))
-                payload.entry_ts = Number(existing.entry_ts);
-              if (payload.entry_price == null && Number.isFinite(Number(existing?.entry_price)))
-                payload.entry_price = Number(existing.entry_price);
-            }
-            const openTrade = await findOpenTradeForTicker(KV, ticker, null);
-            if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
-              const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
-              const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
-              if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
-              if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
-                payload.entry_price = ep;
+            // resetTrades: clear entry state so we reprocess from scratch (no phantom Enter Now -> Exit)
+            if (resetTrades) {
+              payload.entry_ts = null;
+              payload.entry_price = null;
+              payload.kanban_cycle_enter_now_ts = null;
+              payload.kanban_cycle_trigger_ts = null;
+              payload.kanban_cycle_side = null;
+            } else {
+              // Merge entry_ts/entry_price from existing + ledger (Hold vs Watch fix)
+              if (existing?.entry_ts != null || existing?.entry_price != null) {
+                if (payload.entry_ts == null && Number.isFinite(Number(existing?.entry_ts)))
+                  payload.entry_ts = Number(existing.entry_ts);
+                if (payload.entry_price == null && Number.isFinite(Number(existing?.entry_price)))
+                  payload.entry_price = Number(existing.entry_price);
+              }
+              const openTrade = await findOpenTradeForTicker(KV, ticker, null);
+              if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
+                const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
+                const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
+                if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
+                if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
+                  payload.entry_price = ep;
+              }
             }
 
             payload.move_status = computeMoveStatus(payload);
@@ -22855,6 +22896,7 @@ Provide 3-5 actionable next steps:
             ok: true,
             tickersProcessed: updated,
             tradesCreated,
+            tradesPurged: resetTrades ? tradesPurged : undefined,
             laneCounts,
             offset,
             nextOffset: hasMore ? nextOffset : null,
