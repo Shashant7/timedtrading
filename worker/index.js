@@ -9421,6 +9421,13 @@ function shouldSendDiscordAlert(env, type, ctx = {}) {
     return false;
   }
 
+  // Kanban stage transitions (Enter Now and beyond) - always allow in critical mode
+  if (t === "KANBAN_ENTER_NOW") return true;
+  if (t === "KANBAN_HOLD") return true;
+  if (t === "KANBAN_DEFEND") return true;
+  if (t === "KANBAN_TRIM") return true;
+  if (t === "KANBAN_EXIT") return true;
+
   // Suppress noisy/secondary alerts in critical mode:
   // - flip_watch: early heads-up (nice-to-have, not critical)
   // - tdseq_defense: internal SL tightening (can be frequent/noisy)
@@ -10360,6 +10367,86 @@ function createTDSeqDefenseEmbed(
     fields,
     timestamp: new Date().toISOString(),
     footer: { text: "TD Sequential Defensive Rule" },
+  };
+}
+
+// Helper: Create Discord embed for Kanban stage transition (Enter Now and beyond)
+function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null) {
+  const stageLabels = {
+    enter_now: "🎯 Enter Now",
+    hold: "📌 Hold",
+    defend: "🛡️ Defend",
+    trim: "✂️ Trim",
+    exit: "🚪 Exit",
+  };
+  const label = stageLabels[stage] || stage?.replace(/_/g, " ").toUpperCase();
+  const prevLabel =
+    stageLabels[prevStage] ||
+    (prevStage ? prevStage.replace(/_/g, " ").toUpperCase() : "—");
+  const direction =
+    tickerData?.state?.includes("BULL")
+      ? "LONG"
+      : tickerData?.state?.includes("BEAR")
+        ? "SHORT"
+        : null;
+  const price = Number(tickerData?.price);
+  const rr = Number(tickerData?.rr);
+  const score = Number(tickerData?.score ?? tickerData?.rank);
+  const completion = Number(tickerData?.completion) * 100;
+  const phase = Number(tickerData?.phase_pct) * 100;
+
+  const fields = [
+    {
+      name: "📊 Transition",
+      value: `**${prevLabel}** → **${label}**${direction ? ` (${direction})` : ""}`,
+      inline: false,
+    },
+  ];
+  if (Number.isFinite(price) && price > 0) {
+    fields.push({
+      name: "💰 Price",
+      value: `$${price.toFixed(2)}`,
+      inline: true,
+    });
+  }
+  if (Number.isFinite(rr) && rr > 0) {
+    fields.push({ name: "⚖️ R:R", value: rr.toFixed(2) + ":1", inline: true });
+  }
+  if (Number.isFinite(score)) {
+    fields.push({ name: "⭐ Score", value: String(score), inline: true });
+  }
+  if (
+    (stage === "trim" || stage === "exit") &&
+    (Number.isFinite(completion) || Number.isFinite(phase))
+  ) {
+    const parts = [];
+    if (Number.isFinite(completion)) parts.push(`Completion: ${completion.toFixed(1)}%`);
+    if (Number.isFinite(phase)) parts.push(`Phase: ${phase.toFixed(1)}%`);
+    fields.push({
+      name: "📈 Metrics",
+      value: parts.join(" | ") || "—",
+      inline: true,
+    });
+  }
+
+  const color =
+    stage === "enter_now"
+      ? 0x22c55e
+      : stage === "hold"
+        ? 0x3b82f6
+        : stage === "defend"
+          ? 0xf59e0b
+          : stage === "trim"
+            ? 0x8b5cf6
+            : 0xef4444; // exit: red
+
+  return {
+    title: `${label}: ${ticker}`,
+    description: `Ticker moved from **${prevLabel}** to **${label}**`,
+    color,
+    fields,
+    timestamp: new Date().toISOString(),
+    footer: { text: "Kanban Lane Transition" },
   };
 }
 
@@ -11690,6 +11777,9 @@ export default {
 
           // Trail (light) - store immediately after derived metrics
           try {
+            // Load previous state for Flip Watch, Kanban lifecycle, and stage transition detection
+            const existing =
+              (await kvGetJSON(KV, `timed:latest:${ticker}`)) || {};
             const trailPoint = {
               ts: payload.ts,
               price: payload.price, // Add price to trail for momentum calculations
@@ -11791,7 +11881,40 @@ export default {
             }
 
             // Kanban Stage classification - ALWAYS run (independent of thesis/flip-watch logic)
+            // CRITICAL: Merge entry_ts/entry_price from existing BEFORE classifyKanbanStage.
+            // Otherwise computeMoveStatus sees hasEntered=false and tickers that should be HOLD
+            // (move passed) end up in Watch. Same for cycle fields (lifecycle gate).
             try {
+              if (existing?.entry_ts != null || existing?.entry_price != null) {
+                if (payload.entry_ts == null && Number.isFinite(Number(existing?.entry_ts)))
+                  payload.entry_ts = Number(existing.entry_ts);
+                if (payload.entry_price == null && Number.isFinite(Number(existing?.entry_price)))
+                  payload.entry_price = Number(existing.entry_price);
+              }
+              if (existing?.kanban_cycle_enter_now_ts != null)
+                payload.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
+              if (existing?.kanban_cycle_trigger_ts != null)
+                payload.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
+              if (existing?.kanban_cycle_side != null)
+                payload.kanban_cycle_side = existing.kanban_cycle_side;
+
+              // Fallback: if we have an open trade in the ledger but no entry_ts on payload,
+              // inject from the trade so we correctly show HOLD (not Watch).
+              const openTrade = await findOpenTradeForTicker(KV, ticker, null);
+              if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
+                const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
+                const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
+                if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
+                if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
+                  payload.entry_price = ep;
+              }
+              // Recompute move_status so stored payload reflects merged entry_ts (HOLD vs Watch)
+              payload.move_status = computeMoveStatus(payload);
+              if (payload.flags) {
+                payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
+                payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+              }
+
               const stage = classifyKanbanStage(payload);
               const prevStage = existing?.kanban_stage;
               // Recycle rule: if something was in ARCHIVE, it must re-enter via opportunity lanes
@@ -11935,6 +12058,54 @@ export default {
                     `[KANBAN] ${ticker} entered ENTER_NOW at $${price.toFixed(2)}`,
                   );
                 }
+              }
+
+              // Discord notification for Enter Now and beyond lane transitions
+              const actionableStages = [
+                "enter_now",
+                "hold",
+                "defend",
+                "trim",
+                "exit",
+              ];
+              if (
+                prevStage != null &&
+                finalStage != null &&
+                String(prevStage) !== String(finalStage) &&
+                actionableStages.includes(finalStage)
+              ) {
+                const alertType = `KANBAN_${finalStage.toUpperCase()}`;
+                const tsMs = Number(payload?.ts) || Date.now();
+                const dedupeBucket = Math.floor(tsMs / 900000); // 15 min
+                const dedupeKey = `timed:discord:kanban:${ticker}:${finalStage}:${dedupeBucket}`;
+                ctx.waitUntil(
+                  (async () => {
+                    try {
+                      const already = await KV.get(dedupeKey);
+                      if (already) return;
+                      await kvPutText(KV, dedupeKey, "1", 60 * 60); // 1h TTL
+                      if (!shouldSendDiscordAlert(env, alertType, { ticker }))
+                        return;
+                      const embed = createKanbanStageEmbed(
+                        ticker,
+                        finalStage,
+                        prevStage,
+                        payload,
+                      );
+                      await notifyDiscord(env, embed).catch((err) => {
+                        console.error(
+                          `[KANBAN DISCORD] ${ticker} ${finalStage}:`,
+                          err,
+                        );
+                      });
+                    } catch (e) {
+                      console.error(
+                        `[KANBAN DISCORD] ${ticker} ${finalStage}:`,
+                        e,
+                      );
+                    }
+                  })(),
+                );
               }
 
               // Preserve entry_price if already set and still in the pipeline
@@ -13857,6 +14028,32 @@ export default {
               // Ensure kanban_stage is always computed even on capture-promote path
               try {
                 const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+                // CRITICAL: Merge entry_ts/entry_price from existing so HOLD (not Watch) when move passed
+                if (existing?.entry_ts != null || existing?.entry_price != null) {
+                  if (payload.entry_ts == null && Number.isFinite(Number(existing?.entry_ts)))
+                    payload.entry_ts = Number(existing.entry_ts);
+                  if (payload.entry_price == null && Number.isFinite(Number(existing?.entry_price)))
+                    payload.entry_price = Number(existing.entry_price);
+                }
+                if (existing?.kanban_cycle_enter_now_ts != null)
+                  payload.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
+                if (existing?.kanban_cycle_trigger_ts != null)
+                  payload.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
+                if (existing?.kanban_cycle_side != null)
+                  payload.kanban_cycle_side = existing.kanban_cycle_side;
+                const openTrade = await findOpenTradeForTicker(KV, ticker, null);
+                if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
+                  const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
+                  const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
+                  if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
+                  if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
+                    payload.entry_price = ep;
+                }
+                payload.move_status = computeMoveStatus(payload);
+                if (payload.flags) {
+                  payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
+                  payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+                }
                 const stage = classifyKanbanStage(payload);
                 const prevStage = existing?.kanban_stage;
                 let finalStage = stage;
@@ -13966,6 +14163,54 @@ export default {
                 } else {
                   payload.prev_kanban_stage = null;
                   payload.prev_kanban_stage_ts = null;
+                }
+
+                // Discord notification for Enter Now and beyond (capture-promote path)
+                const actionableStages = [
+                  "enter_now",
+                  "hold",
+                  "defend",
+                  "trim",
+                  "exit",
+                ];
+                if (
+                  prevStage != null &&
+                  finalStage != null &&
+                  String(prevStage) !== String(finalStage) &&
+                  actionableStages.includes(finalStage)
+                ) {
+                  const alertType = `KANBAN_${finalStage.toUpperCase()}`;
+                  const tsMs = Number(payload?.ts) || Date.now();
+                  const dedupeBucket = Math.floor(tsMs / 900000);
+                  const dedupeKey = `timed:discord:kanban:${ticker}:${finalStage}:${dedupeBucket}`;
+                  ctx.waitUntil(
+                    (async () => {
+                      try {
+                        const already = await KV.get(dedupeKey);
+                        if (already) return;
+                        await kvPutText(KV, dedupeKey, "1", 60 * 60);
+                        if (!shouldSendDiscordAlert(env, alertType, { ticker }))
+                          return;
+                        const embed = createKanbanStageEmbed(
+                          ticker,
+                          finalStage,
+                          prevStage,
+                          payload,
+                        );
+                        await notifyDiscord(env, embed).catch((err) => {
+                          console.error(
+                            `[KANBAN DISCORD] ${ticker} ${finalStage}:`,
+                            err,
+                          );
+                        });
+                      } catch (e) {
+                        console.error(
+                          `[KANBAN DISCORD] ${ticker} ${finalStage}:`,
+                          e,
+                        );
+                      }
+                    })(),
+                  );
                 }
 
                 if (stage === "enter_now" && prevStage !== "enter_now") {
@@ -14802,7 +15047,6 @@ export default {
                   } catch {
                     // ignore
                   }
-                }
               } catch {
                 // ignore
               }

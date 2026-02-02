@@ -94,9 +94,54 @@ Quick reference for alert thresholds, Kanban lane logic, and refinements.
 
 ---
 
-## 6. Quick checklist
+---
+
+## 6. Discord alerts (Enter Now and beyond)
+
+Discord notifications fire when a ticker **transitions** into one of these lanes:
+
+| Lane | Alert type | When |
+|------|------------|------|
+| **Enter Now** | KANBAN_ENTER_NOW | Ticker meets one of the 5 Enter Now paths (momentum + quality gates) |
+| **Hold** | KANBAN_HOLD | Position is active, no trim/defend/exit signals |
+| **Defend** | KANBAN_DEFEND | Position has WARNING (e.g. adverse move), completion &lt; 60%, phase &lt; 65% |
+| **Trim** | KANBAN_TRIM | Completion ≥ 60%, phase 65%+ with WARNING, or adverse_move_warning |
+| **Exit** | KANBAN_EXIT | CRITICAL, left_entry_corridor, large_adverse_move, or sl_breached |
+
+- **Deduplication:** One alert per ticker per lane per 15-minute bucket (1h TTL).
+- **Lifecycle gate:** Hold/Defend/Trim/Exit require the ticker to have passed through Enter Now first (same trigger+side cycle).
+- **Config:** `DISCORD_ENABLE=true`, `DISCORD_WEBHOOK_URL` set. In critical mode, all Kanban transitions are allowed.
+
+---
+
+## 7. Enter Now trust & validation
+
+**Why Enter Now is trustworthy:**
+
+1. **No score-only path** – Every path requires score + at least one other signal (corridor, thesis, HTF/LTF strength, squeeze release, or 1H EMA cross).
+2. **Entry decision gate** – If `entry_decision.ok === false`, the ticker goes to Watch instead of Enter Now.
+3. **Lifecycle gate** – Management lanes (Hold, Defend, Trim, Exit) only apply after Enter Now for the same trigger+side cycle.
+4. **Five distinct paths** – Diversified entry logic reduces over-reliance on any single signal.
+
+**Validation checklist:**
+
+- [x] Hard gate: `edAction === "ENTRY" && !edOk` → Watch (never Enter Now).
+- [x] Path 1: Top tier (score ≥ 75 or position ≤ 20) requires `in_corridor`.
+- [x] Path 2: Thesis/Momentum Elite requires score ≥ 60.
+- [x] Path 3: Strong HTF/LTF requires htfAbs ≥ 40, ltfAbs ≥ 20, score ≥ 70.
+- [x] Path 4: Squeeze release requires corridor + sq30_release + score ≥ 70.
+- [x] Path 5: 1H 13/48 EMA Cross requires corridor + flag + score ≥ 68.
+
+**Transition stability:** Tickers are kept in Enter Now until they move to Hold (position opened) or regress (entry blocked). The previous-lane marker (`prev_kanban_stage`) helps the UI show transition context.
+
+**Hold vs Watch (critical fix):** Tickers with an active position must show in Hold, not Watch. We merge `entry_ts` and `entry_price` from the previous ingest (and from the ledger’s open trade if missing) into the payload before `classifyKanbanStage`, so `computeMoveStatus` sees `hasEntered` and returns ACTIVE. Without this, tickers that should be in Hold would incorrectly land in Watch.
+
+---
+
+## 8. Quick checklist
 
 - [x] Enter Now uses score + position (no score-only path).
 - [x] 1H 13/48 EMA Cross path added for pivot + pullback setups.
 - [x] Trigger weights bumped (EMA Cross, Buyable Dip).
 - [x] score/position added to /timed/all responses (backward compat with rank/rank_position).
+- [x] Discord alerts for Enter Now, Hold, Defend, Trim, Exit lane transitions.

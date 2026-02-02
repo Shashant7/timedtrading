@@ -425,9 +425,9 @@
           try {
             setLoading(true);
             setError(null); // Clear any previous errors
-            // Add timeout to prevent hanging - increased to 30s for large datasets
+            // Add timeout to prevent hanging - 60s for cold start + D1 + rank computation
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
             // Fetch both ticker data and ticker index to ensure all 133 tickers are shown
             const timestamp = Date.now();
@@ -562,6 +562,7 @@
               setData(mergedData);
               setLastUpdate(new Date());
               setError(null);
+              sessionStorage.removeItem("fetchData_abortRetry");
 
               // Log ticker counts for debugging
               const tickersWithData = Object.keys(mergedData).filter((t) => {
@@ -664,6 +665,12 @@
           } catch (e) {
             if (e.name === "AbortError") {
               setError("Request timeout - please try again");
+              // Retry once after 2s (helps with worker cold start)
+              const retryKey = "fetchData_abortRetry";
+              if (!sessionStorage.getItem(retryKey)) {
+                sessionStorage.setItem(retryKey, "1");
+                setTimeout(() => fetchData(), 2000);
+              }
             } else if (
               e.message.includes("Failed to fetch") ||
               e.message.includes("Load failed")
@@ -2819,26 +2826,6 @@
           }
         }
 
-        // Debug: Check if BMNR/BABA are in the data object at all
-        if (dataObj["BMNR"] || dataObj["BABA"]) {
-          console.log(`[DATA CHECK] BMNR/BABA found in dataObj:`, {
-            BMNR: !!dataObj["BMNR"],
-            BABA: !!dataObj["BABA"],
-            BMNR_keys: dataObj["BMNR"] ? Object.keys(dataObj["BMNR"]) : [],
-            BABA_keys: dataObj["BABA"] ? Object.keys(dataObj["BABA"]) : [],
-            BMNR_htf: dataObj["BMNR"]?.htf_score,
-            BMNR_ltf: dataObj["BMNR"]?.ltf_score,
-            BABA_htf: dataObj["BABA"]?.htf_score,
-            BABA_ltf: dataObj["BABA"]?.ltf_score,
-          });
-        } else {
-          console.log(
-            `[DATA CHECK] BMNR/BABA NOT found in dataObj. Total tickers: ${
-              Object.keys(dataObj).length
-            }`,
-          );
-        }
-
         // Parse ticker filter (comma-separated ticker symbols)
         const tickerFilterSet = new Set();
         // Support tickerFilter from dedicated field OR from search query if it's a multi-ticker query
@@ -2882,19 +2869,6 @@
             }
           }
 
-          // Debug BMNR/BABA at the very start of the loop
-          if (ticker === "BMNR" || ticker === "BABA") {
-            console.log(`[FILTER START] ${ticker}:`, {
-              tickerRaw,
-              hasData: !!d,
-              dataKeys: d ? Object.keys(d) : [],
-              htf_score: d?.htf_score,
-              ltf_score: d?.ltf_score,
-              state: d?.state,
-              price: d?.price,
-            });
-          }
-
           // Show all tickers - they will be in a group (including "No Group" if unmapped)
           // S&P Sectors and Futures are always visible, and unmapped tickers go to "No Group"
           const isSPSector =
@@ -2922,20 +2896,6 @@
             d.htf_score = d.htf_score !== undefined ? d.htf_score : 0;
             d.ltf_score = d.ltf_score !== undefined ? d.ltf_score : 0;
             d.waitingForData = true; // Flag to indicate waiting for TradingView data
-          }
-
-          // Debug BMNR/BABA after score check
-          if (ticker === "BMNR" || ticker === "BABA") {
-            console.log(`[BMNR DEBUG] After score check:`, {
-              ticker,
-              hasScores,
-              htf_score: d.htf_score,
-              ltf_score: d.ltf_score,
-              state: d.state,
-              price: d.price,
-              groups: groupsForTicker(normTicker(ticker)),
-              inGroups,
-            });
           }
 
           // Multi-ticker search
@@ -12187,14 +12147,14 @@
                     return (
                       <span
                         className={
-                          "px-1 py-0.5 rounded text-[9px] font-semibold border whitespace-nowrap " +
+                          "px-1.5 py-0.5 rounded text-[9px] font-semibold border whitespace-nowrap " +
                           (movedRecently
                             ? isBacktrack
                               ? "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30"
                               : isForward
                                 ? "bg-white/10 text-white border-white/20"
                                 : "bg-cyan-500/15 text-cyan-200 border-cyan-400/30"
-                            : "bg-white/5 text-[#9fb0df] border-white/10")
+                            : "bg-[#26325f] text-[#93a4d6] border-[#3a4a7f]")
                         }
                         title={`Previous lane: ${label}`}
                       >
