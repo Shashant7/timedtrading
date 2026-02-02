@@ -35,6 +35,7 @@ Quick reference for alert thresholds, Kanban lane logic, and refinements.
 | **just_flipped** | momentum + corridorEntry_60m, unless enter_now wins |
 | **enter_now** | momentum + entry not blocked + one of 5 paths (see below) |
 | **watch** | momentum but entry blocked by meaningful blocker |
+| **setup_watch** | setup state (PULLBACK) + in corridor — waiting for momentum flip |
 
 ### Enter Now paths (score + other signals; no score-only)
 

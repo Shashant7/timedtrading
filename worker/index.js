@@ -1511,6 +1511,13 @@ function classifyKanbanStage(tickerData) {
     return "archive";
   }
 
+  // Setup-state tickers in corridor (not yet momentum, not late-cycle)
+  // Prevents fall-through to null so they appear in Kanban (e.g. BE)
+  const ent = entryType(tickerData);
+  if (!isMomentum && !!ent?.corridor) {
+    return "setup_watch";
+  }
+
   // Default: no stage (not in trading pipeline)
   return null;
 }

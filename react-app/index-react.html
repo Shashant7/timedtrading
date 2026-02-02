@@ -7040,7 +7040,7 @@
 
         // Lane-aware guidance: when the Kanban lane is explicit, keep the headline aligned
         // with the lane so the UI doesn't contradict itself. Add phase/completion as caution.
-        if (stage === "enter_now" || stage === "just_flipped" || stage === "flip_watch") {
+        if (stage === "enter_now" || stage === "just_flipped" || stage === "flip_watch" || stage === "setup_watch") {
           const late =
             (Number.isFinite(phase) && phase > 0.7) ||
             (Number.isFinite(comp) && comp > 0.8);
@@ -7054,6 +7054,14 @@
           const caution =
             cautionParts.length > 0 ? `Caution: ${cautionParts.join(" • ")}.` : "";
 
+          if (stage === "setup_watch") {
+            return {
+              action: "Setup Watch",
+              description: `Ticker is in corridor but still in setup (pullback) state. Waiting for flip to momentum (HTF_BULL_LTF_BULL or HTF_BEAR_LTF_BEAR) before entry. ${caution}`.trim(),
+              color: "text-violet-300",
+              bg: "bg-violet-500/15",
+            };
+          }
           if (stage === "flip_watch") {
             return {
               action: late ? "Flip Watch (Late-cycle)" : "Flip Watch",
@@ -11748,6 +11756,7 @@
         // Categorize tickers into Kanban columns using Worker-provided stage (with client-side fallback)
         const categories = React.useMemo(() => {
           const watch = [];
+          const setupWatch = [];
           const archive = [];
           const flipWatch = [];
           const justFlipped = [];
@@ -11825,6 +11834,11 @@
                 } else {
                   stage = "watch";
                 }
+              } else if (!isMomentum) {
+                const ent = entryType(t);
+                if (ent?.corridor) {
+                  stage = "setup_watch";
+                }
               }
             }
 
@@ -11832,6 +11846,9 @@
             switch (stage) {
               case "watch":
                 watch.push(t);
+                break;
+              case "setup_watch":
+                setupWatch.push(t);
                 break;
               case "flip_watch":
                 flipWatch.push(t);
@@ -11865,6 +11882,7 @@
 
           return {
             watch,
+            setupWatch,
             flipWatch,
             justFlipped,
             enterNow,
@@ -11878,6 +11896,7 @@
 
         const {
           watch,
+          setupWatch,
           flipWatch,
           justFlipped,
           enterNow,
@@ -11983,14 +12002,15 @@
           // Transition direction (forward progression vs backtrack) for styling.
           const laneOrder = {
             watch: 0,
-            flip_watch: 1,
-            just_flipped: 2,
-            enter_now: 3,
-            hold: 4,
-            defend: 5,
-            trim: 6,
-            exit: 7,
-            archive: 8,
+            setup_watch: 1,
+            flip_watch: 2,
+            just_flipped: 3,
+            enter_now: 4,
+            hold: 5,
+            defend: 6,
+            trim: 7,
+            exit: 8,
+            archive: 9,
           };
           const prevIdx =
             prevLane && laneOrder[prevLane] != null
@@ -12500,6 +12520,7 @@
 
         if (
           watch.length === 0 &&
+          setupWatch.length === 0 &&
           flipWatch.length === 0 &&
           justFlipped.length === 0 &&
           enterNow.length === 0 &&
@@ -12609,6 +12630,15 @@
                   icon="👀"
                   color="border-[#3a4a7f]"
                   items={watch}
+                />
+                <KanbanColumn
+                  laneKey="setup_watch"
+                  title="Setup Watch"
+                  subtitle="In corridor, waiting for momentum"
+                  count={setupWatch.length}
+                  icon="📋"
+                  color="border-violet-500"
+                  items={setupWatch}
                 />
                 <KanbanColumn
                   laneKey="flip_watch"
