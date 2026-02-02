@@ -1455,8 +1455,8 @@ function classifyKanbanStage(tickerData) {
     // This avoids false positives like "rank-only" ENTER_NOW when corridor/trigger gates fail.
     if (edAction === "ENTRY" && !edOk) return "watch";
 
-    // Top-ranked tickers
-    if (rank <= 10) {
+    // Top-ranked tickers (relaxed to 20 so more movement when market moves)
+    if (rank <= 20) {
       return "enter_now";
     }
 
@@ -1465,10 +1465,10 @@ function classifyKanbanStage(tickerData) {
       return "enter_now";
     }
 
-    // Strong HTF/LTF alignment
+    // Strong HTF/LTF alignment (relaxed 50/25 → 40/20 for more enter_now)
     const htfAbs = Math.abs(htfScore);
     const ltfAbs = Math.abs(ltfScore);
-    if (htfAbs >= 50 && ltfAbs >= 25) {
+    if (htfAbs >= 40 && ltfAbs >= 20) {
       return "enter_now";
     }
 
@@ -2722,10 +2722,9 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
     ? Math.min(0.7, baseMaxPhase * 1.17)
     : baseMaxPhase;
 
-  // Be more selective: require a minimum rank threshold for simulated entries.
-  // This reduces over-trading in noisy regimes.
+  // Rank threshold: 70 (env-aligned); Momentum Elite 60 for more movement when market moves.
   const rank = Number(tickerData.rank) || 0;
-  const minRank = 75;
+  const minRank = momentumElite ? 60 : 70;
   const rankOk = rank >= minRank;
 
   const rr = Number(tickerData.rr) || 0;
@@ -2753,13 +2752,15 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   if (!dailyEmaRegimeOk(tickerData, inferredSide)) return false;
   if (!ichimokuRegimeOk(tickerData, inferredSide)) return false;
   if (isLateCycle(tickerData) && !momentumElite) return false;
-  // Pullback-only entry: require a pullback→re-alignment transition OR a squeeze release.
-  // This avoids chasing late/extended moves that are merely "in corridor".
+  // Fresh trigger: pullback→re-align, squeeze release, or just entered corridor (market moved in).
   const prevStateStr = prevData ? String(prevData.state || "") : "";
   const enteredFromPullback =
     !!enteredAligned && prevStateStr.includes("PULLBACK");
   const freshPullbackOk =
-    enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
+    enteredFromPullback ||
+    sqRelease ||
+    trigReason === "SQUEEZE_RELEASE" ||
+    justEnteredCorridor;
   if (!freshPullbackOk) return false;
 
   return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
@@ -2909,7 +2910,7 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const phaseOk = phase <= maxPhase;
 
   const rank = Number(tickerData.rank) || 0;
-  const minRank = 75;
+  const minRank = momentumElite ? 60 : 70;
   const rankOk = rank >= minRank;
 
   if (FUTURES_TICKERS.has(tickerUpper)) blockers.push("futures_disabled");

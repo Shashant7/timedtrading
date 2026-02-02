@@ -27,10 +27,14 @@ This CloudFlare Worker handles data ingestion from TradingView alerts, stores da
    wrangler secret put DISCORD_ENABLE  # Set to "true" to enable
    ```
 
-5. **Deploy**:
+5. **Deploy** (must run from `worker/` or use script so `index.js` is found):
    ```bash
-   wrangler deploy
+   # From repo root:
+   npm run deploy:worker
+   # Or from this directory:
+   wrangler deploy --env production
    ```
+   Using `--env production` applies KV/D1 bindings and vars from `wrangler.toml`.
 
 ## API Endpoints
 

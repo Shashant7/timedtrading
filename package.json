@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "deploy": "cd worker && wrangler deploy --env production",
+    "deploy:worker": "cd worker && wrangler deploy --env production"
+  },
   "devDependencies": {
     "wrangler": "^4.61.0"
   }

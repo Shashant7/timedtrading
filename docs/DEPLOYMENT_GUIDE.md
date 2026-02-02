@@ -120,8 +120,17 @@ wrangler secret put DISCORD_ENABLE
 ```
 
 ### Step 2.7: Deploy Worker
+Deploy **must** be run from the `worker` directory so the entry point `index.js` is found (otherwise you may see "Missing entry-point to Worker script" or "No environment found in configuration with name 'production'"). Use the production environment so KV/D1 bindings and vars are applied.
+
+**Option A** (from repo root):
 ```bash
-wrangler deploy
+npm run deploy:worker
+```
+
+**Option B** (from worker directory):
+```bash
+cd worker
+wrangler deploy --env production
 ```
 
 **Success Output**:
@@ -133,6 +142,10 @@ wrangler deploy
 **✅ Copy this URL!** You'll need it for:
 - TradingView webhook (Step 1.3)
 - UI configuration (Part 3)
+
+### Step 2.7a: Troubleshooting deploy
+- **"Missing entry-point to Worker script"** — Wrangler can’t find `index.js`. Run deploy from the `worker` directory (e.g. `cd worker && wrangler deploy --env production`) or use `npm run deploy:worker` from the repo root.
+- **"No environment found in configuration with name 'production'"** — You’re not in `worker/` so `worker/wrangler.toml` isn’t being read. Use one of the options in Step 2.7 (from root: `npm run deploy:worker`; or `cd worker` then `wrangler deploy --env production`).
 
 ### Step 2.8: Verify Deployment
 Test the health endpoint:
@@ -244,6 +257,23 @@ Upload the `dist/` folder contents to:
 - Any static hosting
 
 **✅ UI Deployment Complete!**
+
+---
+
+## Admin reset (Worker)
+
+**Endpoint:** `POST /timed/admin/reset?key=YOUR_API_KEY`
+
+Resets system state (KV simulated trades, paper portfolio, activity feed, per-ticker Kanban state). Lanes recompute from fresh state.
+
+**Query params (optional):**
+- **`resetLedger=1`** — Clears D1 ledger: deletes all rows in `trade_events`, `trades`, and `alerts`. Use when you want a completely empty ledger (no trades after reset). Without this, open trades are only archived (status → `ARCHIVED`); the UI hides archived trades so you see “no trades” either way.
+- **`resetMl=1`** — Clears ML model and training queue (KV keys + D1 `ml_v1_queue`).
+
+**Example (full ledger clear):**
+```bash
+curl -X POST "https://YOUR-WORKER-URL.workers.dev/timed/admin/reset?key=YOUR_API_KEY&resetLedger=1"
+```
 
 ---
 
@@ -360,11 +390,13 @@ This shows real-time logs from your Worker.
 
 ### Commands
 ```bash
-# Worker
+# Worker (deploy from repo root or from worker/)
+npm run deploy:worker
+# Or: cd worker && wrangler deploy --env production
+
 wrangler login
 wrangler kv:namespace create "KV_TIMED"
 wrangler secret put TIMED_API_KEY
-wrangler deploy
 wrangler tail
 
 # UI (if using Vite)
