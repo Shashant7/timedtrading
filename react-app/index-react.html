@@ -11840,11 +11840,14 @@
             }
           });
 
+          // Merge setup phases into one "Setup" lane with sub-stage labels
+          const setupItems = [];
+          for (const t of watch) setupItems.push({ ...t, _setupSubStage: "beginning" });
+          for (const t of setupWatch) setupItems.push({ ...t, _setupSubStage: "not_yet" });
+          for (const t of flipWatch) setupItems.push({ ...t, _setupSubStage: "nearing" });
+          for (const t of justFlipped) setupItems.push({ ...t, _setupSubStage: "just_flipped" });
           return {
-            watch,
-            setupWatch,
-            flipWatch,
-            justFlipped,
+            setup: setupItems,
             enterNow,
             hold,
             defend,
@@ -11855,10 +11858,7 @@
         }, [tickers]);
 
         const {
-          watch,
-          setupWatch,
-          flipWatch,
-          justFlipped,
+          setup,
           enterNow,
           hold,
           defend,
@@ -11866,6 +11866,13 @@
           exit,
           archive,
         } = categories;
+
+        const setupSubLabels = {
+          beginning: "Beginning to setup",
+          not_yet: "Setup, not yet time",
+          nearing: "Nearing entry",
+          just_flipped: "Just flipped",
+        };
 
         // Compact card renderer for Kanban layout
         const renderCompactCard = (
@@ -12121,15 +12128,15 @@
               }
               style={{ backgroundColor: "#121a33", backgroundImage: bgImage }}
             >
-              {/* Header row: Ticker + LONG/SHORT pill (no emoji) + Previous lane | Open button */}
+              {/* Header row: Ticker + LONG/SHORT pill + Prev lane + Setup sub-label (consistent layout, no wrap) */}
               <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                  <span className="text-xs font-bold text-white truncate">
+                <div className="flex items-center gap-1.5 min-w-0 flex-nowrap overflow-hidden">
+                  <span className="text-xs font-bold text-white truncate shrink-0 max-w-[60px]">
                     {t.ticker}
                   </span>
                   <span
                     className={
-                      "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide border whitespace-nowrap " +
+                      "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide border shrink-0 " +
                       (dir === "LONG"
                         ? "bg-cyan-400/15 text-cyan-200 border-cyan-300/50 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]"
                         : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-300/50 shadow-[0_0_0_1px_rgba(217,70,239,0.18)]")
@@ -12138,30 +12145,28 @@
                   >
                     {dir}
                   </span>
-                  {(() => {
-                    const prev = prevLane;
-                    if (!prev) return null;
-                    if (prev === stage) return null;
-                    if (stage === "archive") return null;
-                    const label = prev.replaceAll("_", " ").toUpperCase();
-                    return (
-                      <span
-                        className={
-                          "px-1.5 py-0.5 rounded text-[9px] font-semibold border whitespace-nowrap " +
-                          (movedRecently
-                            ? isBacktrack
-                              ? "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30"
-                              : isForward
-                                ? "bg-white/10 text-white border-white/20"
-                                : "bg-cyan-500/15 text-cyan-200 border-cyan-400/30"
-                            : "bg-[#26325f] text-[#93a4d6] border-[#3a4a7f]")
-                        }
-                        title={`Previous lane: ${label}`}
-                      >
-                        ← {label}
-                      </span>
-                    );
-                  })()}
+                  {prevLane && prevLane !== stage && stage !== "archive" ? (
+                    <span
+                      className={
+                        "px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 " +
+                        (movedRecently
+                          ? isBacktrack
+                            ? "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30"
+                            : isForward
+                              ? "bg-white/10 text-white border-white/20"
+                              : "bg-cyan-500/15 text-cyan-200 border-cyan-400/30"
+                          : "bg-[#26325f] text-[#93a4d6] border-[#3a4a7f]")
+                      }
+                      title={`Previous lane: ${String(prevLane).replaceAll("_", " ").toUpperCase()}`}
+                    >
+                      ← {String(prevLane).replaceAll("_", " ").toUpperCase()}
+                    </span>
+                  ) : null}
+                  {t._setupSubStage && setupSubLabels[t._setupSubStage] ? (
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 bg-violet-500/15 text-violet-200 border-violet-400/30 truncate max-w-[100px]" title={setupSubLabels[t._setupSubStage]}>
+                      {setupSubLabels[t._setupSubStage]}
+                    </span>
+                  ) : null}
                 </div>
 
                 {/* Open full ticker view without toggling accordion */}
@@ -12479,10 +12484,7 @@
         };
 
         if (
-          watch.length === 0 &&
-          setupWatch.length === 0 &&
-          flipWatch.length === 0 &&
-          justFlipped.length === 0 &&
+          setup.length === 0 &&
           enterNow.length === 0 &&
           hold.length === 0 &&
           defend.length === 0 &&
@@ -12505,6 +12507,7 @@
           showProgress,
           showOpen,
           showDetails,
+          setupSubLabels,
         }) => {
           const listRef = React.useRef(null);
 
@@ -12583,40 +12586,14 @@
             <div className="overflow-x-auto">
               <div className="flex gap-1.5 pb-1.5">
                 <KanbanColumn
-                  laneKey="watch"
-                  title="Watch"
-                  subtitle="Momentum-aligned, not entry yet"
-                  count={watch.length}
-                  icon="👀"
-                  color="border-[#3a4a7f]"
-                  items={watch}
-                />
-                <KanbanColumn
-                  laneKey="setup_watch"
-                  title="Setup Watch"
-                  subtitle="In corridor, waiting for momentum"
-                  count={setupWatch.length}
+                  laneKey="setup"
+                  title="Setup"
+                  subtitle="Beginning → Not yet → Nearing → Just flipped"
+                  count={setup.length}
                   icon="📋"
                   color="border-violet-500"
-                  items={setupWatch}
-                />
-                <KanbanColumn
-                  laneKey="flip_watch"
-                  title="Flip Watch"
-                  subtitle="About to flip to momentum"
-                  count={flipWatch.length}
-                  icon="🎯"
-                  color="border-amber-500"
-                  items={flipWatch}
-                />
-                <KanbanColumn
-                  laneKey="just_flipped"
-                  title="Just Flipped"
-                  subtitle="Entered momentum recently"
-                  count={justFlipped.length}
-                  icon="⚡"
-                  color="border-green-500"
-                  items={justFlipped}
+                  items={setup}
+                  setupSubLabels={setupSubLabels}
                 />
                 <KanbanColumn
                   laneKey="enter_now"

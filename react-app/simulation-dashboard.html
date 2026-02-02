@@ -8942,8 +8942,76 @@
                               return { rows, maxAbs };
                             };
 
-                            const pnlByTickerWindow =
+                            let pnlByTickerWindow =
                               pnlByTickerForKeys(windowKeys);
+                            // Fallback: derive from trades when execution tape has no rows (e.g. after reset/replay)
+                            if (
+                              pnlByTickerWindow.rows.length === 0 &&
+                              (Array.isArray(ledgerClosedTrades) ||
+                                Array.isArray(openPos))
+                            ) {
+                              const realized = new Map();
+                              for (const t of ledgerClosedTrades || []) {
+                                const tkr = String(t?.ticker || "").toUpperCase();
+                                if (!tkr) continue;
+                                const pnl = Number(t?.pnl);
+                                if (!Number.isFinite(pnl)) continue;
+                                realized.set(
+                                  tkr,
+                                  (realized.get(tkr) || 0) + pnl,
+                                );
+                              }
+                              const unreal = new Map();
+                              for (const pos of openPos || []) {
+                                const tkr = String(pos?.ticker || "").toUpperCase();
+                                if (!tkr) continue;
+                                const dir = String(pos?.direction || "").toUpperCase();
+                                const sign = dir === "SHORT" ? -1 : 1;
+                                const avg = Number(pos?.avgEntry);
+                                const mark = Number(pos?.mark);
+                                const sh = Number(pos?.shares);
+                                if (
+                                  !Number.isFinite(avg) ||
+                                  !Number.isFinite(mark) ||
+                                  !Number.isFinite(sh)
+                                )
+                                  continue;
+                                unreal.set(
+                                  tkr,
+                                  (unreal.get(tkr) || 0) +
+                                    (mark - avg) * sh * sign,
+                                );
+                              }
+                              const tickers = new Set([
+                                ...realized.keys(),
+                                ...unreal.keys(),
+                              ]);
+                              const rows = Array.from(tickers)
+                                .map((ticker) => {
+                                  const r = Number(realized.get(ticker) || 0);
+                                  const u = Number(unreal.get(ticker) || 0);
+                                  return {
+                                    ticker,
+                                    realized: r,
+                                    unrealized: u,
+                                    total: r + u,
+                                  };
+                                })
+                                .filter(
+                                  (r) =>
+                                    Number.isFinite(r.total) && r.total !== 0,
+                                );
+                              rows.sort(
+                                (a, b) =>
+                                  Math.abs(b.total) - Math.abs(a.total),
+                              );
+                              const maxAbs = rows.reduce(
+                                (m, r) =>
+                                  Math.max(m, Math.abs(Number(r.total) || 0)),
+                                0,
+                              );
+                              pnlByTickerWindow = { rows, maxAbs };
+                            }
 
                             const renderStatCard = (title, subtitle, items) => (
                               <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">

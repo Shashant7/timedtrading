@@ -146,7 +146,7 @@ Discord notifications fire when a ticker **transitions** into one of these lanes
 
 | Param | Description |
 |-------|-------------|
-| `resetTrades=1` | Purge open trades for batch tickers and clear `entry_ts`/`entry_price` before reprocess. Entries are rebuilt from Enter Now. **Default in script.** |
+| `resetTrades=1` | Purge **all** trades (open + closed) for batch tickers in the from/to window and clear `entry_ts`/`entry_price` before reprocess. Gives a clean slate for re-runs. **Default in script.** |
 | `from=YYYY-MM-DD` | (With resetTrades) Only purge trades with `entry_ts` on or after this day (ET). |
 | `to=YYYY-MM-DD` | (With resetTrades) Only purge trades with `entry_ts` on or before this day (ET). |
 | `limit`, `offset` | Batch size and pagination (default limit=15). |
@@ -154,6 +154,21 @@ Discord notifications fire when a ticker **transitions** into one of these lanes
 **Example:**  
 `RESET_TRADES=1 TIMED_API_KEY=x ./scripts/reprocess-kanban.sh` — full reprocess with trade reset.  
 `RESET_TRADES=0 TIMED_API_KEY=x ./scripts/reprocess-kanban.sh` — keep existing trades.
+
+### Replay Day (chronological ingest replay)
+
+`POST /timed/admin/replay-day` replays today's (or a given date's) `timed_trail` ingests in chronological order. Trades for the day are reset, then each ingest is processed as if it arrived live — Kanban classification and trade simulation. Use `scripts/replay-day.sh`.
+
+| Param | Description |
+|-------|-------------|
+| `date=YYYY-MM-DD` | Replay this day (default: today ET). |
+| `limit`, `offset` | Batch size and pagination (default limit=50). |
+
+Replay purges **all** trades (open + closed) whose `entry_ts` falls within the replay day, so you get a clean slate for "today as first day" re-runs.
+
+**Example:**  
+`TIMED_API_KEY=x ./scripts/replay-day.sh` — replay today's ingests.  
+`DATE=2025-02-02 TIMED_API_KEY=x ./scripts/replay-day.sh` — replay a specific day.
 
 ---
 

@@ -3260,39 +3260,37 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
 
   const horizonConfigMap = {
     SHORT_TERM: {
-      minDistancePct: 0.03,
+      minDistancePct: 0.05, // 5% min run-up before first trim (was 3%)
       sweetMin: 0.05,
       sweetMax: 0.12,
       okMin: 0.03,
       okMax: 0.18,
       tooFarPct: 0.25,
-      minDistanceBetweenTPs: 0.03,
+      minDistanceBetweenTPs: 0.04,
       maxTPs: 3,
-      // Let winners run: smaller early trims
       trimLevels: [0.2, 0.5, 1.0],
       fallbackMultipliers: [0.7, 1.0, 1.4],
     },
     SWING: {
-      minDistancePct: 0.04,
+      minDistancePct: 0.06, // 6% min run-up before first trim (was 4%)
       sweetMin: 0.08,
       sweetMax: 0.2,
       okMin: 0.05,
       okMax: 0.3,
       tooFarPct: 0.45,
-      minDistanceBetweenTPs: 0.05,
+      minDistanceBetweenTPs: 0.06,
       maxTPs: 4,
-      // Let winners run: smaller early trims
       trimLevels: [0.1, 0.25, 0.5, 1.0],
       fallbackMultipliers: [0.6, 1.0, 1.6],
     },
     POSITIONAL: {
-      minDistancePct: 0.06,
+      minDistancePct: 0.08, // 8% min run-up before first trim (was 6%)
       sweetMin: 0.15,
       sweetMax: 0.4,
       okMin: 0.1,
       okMax: 0.6,
       tooFarPct: 0.8,
-      minDistanceBetweenTPs: 0.08,
+      minDistanceBetweenTPs: 0.1,
       maxTPs: 4,
       trimLevels: [0.1, 0.25, 0.5, 1.0],
       fallbackMultipliers: [0.5, 1.0, 1.8],
@@ -3373,15 +3371,21 @@ function buildIntelligentTPArray(tickerData, entryPrice, direction) {
     });
 
   if (validTPs.length === 0) {
-    // Fallback: create basic TP array from primary TP
+    // Fallback: create basic TP array from primary TP, enforcing min run-up
     if (Number.isFinite(primaryTP) && primaryTP > 0) {
-      const tp1 = primaryTP;
+      const rawDist = Math.abs(primaryTP - entryPrice) / entryPrice;
+      const minRun = horizonConfig.minDistancePct;
+      const scale = rawDist >= minRun ? 1 : minRun / Math.max(rawDist, 0.001);
+      const baseDist = Math.abs(primaryTP - entryPrice) * scale;
+      const tp1 = isLong
+        ? entryPrice + baseDist
+        : entryPrice - baseDist;
       const tp2 = isLong
-        ? entryPrice + (tp1 - entryPrice) * 1.5
-        : entryPrice - (entryPrice - tp1) * 1.5;
+        ? entryPrice + baseDist * 1.5
+        : entryPrice - baseDist * 1.5;
       const tp3 = isLong
-        ? entryPrice + (tp1 - entryPrice) * 2.0
-        : entryPrice - (entryPrice - tp1) * 2.0;
+        ? entryPrice + baseDist * 2.0
+        : entryPrice - baseDist * 2.0;
 
       return [
         { price: tp1, trimPct: 0.25, label: "TP1 (25%)" },
@@ -4318,6 +4322,7 @@ function generateProactiveAlerts(allTickers, allTrades) {
 }
 
 // Process trade simulation for a ticker (called on ingest)
+// options.replayBatchContext: { allTrades } - use pre-loaded trades, skip KV reads/writes for trades+exec (replay perf)
 async function processTradeSimulation(
   KV,
   ticker,
@@ -4327,9 +4332,13 @@ async function processTradeSimulation(
   options = {},
 ) {
   const forceUseIngestTs = !!options?.forceUseIngestTs;
+  const replayCtx = options?.replayBatchContext;
+  const isReplay = !!replayCtx;
   try {
     const tradesKey = "timed:trades:all";
-    const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+    const allTrades = isReplay
+      ? (replayCtx.allTrades || [])
+      : (await kvGetJSON(KV, tradesKey)) || [];
 
     const sym = String(ticker || "").toUpperCase();
     const stage = String(tickerData?.kanban_stage || "")
@@ -4351,7 +4360,9 @@ async function processTradeSimulation(
     const now = Date.now();
 
     // Portfolio (cash gating + bookkeeping)
-    let portfolio = await getPortfolioState(KV);
+    let portfolio = isReplay
+      ? { cash: 1e9 }
+      : await getPortfolioState(KV);
 
     const stageTransition = stage && stage !== prevStage;
     // IMPORTANT:
@@ -4371,9 +4382,9 @@ async function processTradeSimulation(
     // ingests (cooldown prevents churn).
     const isExit = stage === "exit";
 
-    // Idempotency / anti-flap guards (per ticker)
+    // Idempotency / anti-flap guards (per ticker) — skipped in replay (no cooldown for historical)
     const execKey = `timed:exec:last:${sym}`;
-    const execState = (await kvGetJSON(KV, execKey)) || {};
+    const execState = isReplay ? {} : (await kvGetJSON(KV, execKey)) || {};
     const lastEnterMs = Number(execState.lastEnterMs);
     const lastTrimMs = Number(execState.lastTrimMs);
     const lastExitMs = Number(execState.lastExitMs);
@@ -4422,7 +4433,7 @@ async function processTradeSimulation(
         const timeB = new Date(b.entryTime || 0).getTime();
         return timeB - timeA;
       });
-      await kvPutJSON(KV, tradesKey, allTrades);
+      if (!isReplay) await kvPutJSON(KV, tradesKey, allTrades);
     };
 
     const upsertAlertSafe = async (alert) => {
@@ -4704,10 +4715,7 @@ async function processTradeSimulation(
     // 1) EXIT: close any open trade while in EXIT lane
     if (isExit && !weekendNow && exitCooldownOk && openTrade) {
       await closeTradeAtPrice(openTrade, pxNow, reason);
-      await kvPutJSON(KV, execKey, {
-        ...execState,
-        lastExitMs: now,
-      });
+      if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastExitMs: now });
     }
 
     // 2) TRIM: apply progressive trim on transition into TRIM lane
@@ -4721,10 +4729,7 @@ async function processTradeSimulation(
       else if (Number.isFinite(phase) && phase >= 0.8) target = 0.75;
       else if (Number.isFinite(phase) && phase >= 0.7) target = 0.5;
       await trimTradeToPct(openTrade, target, pxNow, reason);
-      await kvPutJSON(KV, execKey, {
-        ...execState,
-        lastTrimMs: now,
-      });
+      if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastTrimMs: now });
     }
 
     // 3) ENTER: open trade while in ENTER_NOW lane
@@ -4737,10 +4742,7 @@ async function processTradeSimulation(
         exitCooldownOk
       ) {
         await closeTradeAtPrice(openTrade, pxNow, `FLIP_${reason}`);
-        await kvPutJSON(KV, execKey, {
-          ...execState,
-          lastExitMs: now,
-        });
+        if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastExitMs: now });
         openTrade = null;
       }
     }
@@ -4816,7 +4818,7 @@ async function processTradeSimulation(
             portfolio.cash = Number(portfolio.cash) - entryPx * shares;
 
             allTrades.push(trade);
-            await kvPutJSON(KV, execKey, {
+            if (!isReplay) await kvPutJSON(KV, execKey, {
               ...execState,
               lastEnterMs: now,
               lastEnterTriggerTs:
@@ -5018,7 +5020,7 @@ async function processTradeSimulation(
               ? [...openTrade.history, ev]
               : [ev];
 
-            await kvPutJSON(KV, execKey, {
+            if (!isReplay) await kvPutJSON(KV, execKey, {
               ...execState,
               lastSlTightenMs: now,
             });
@@ -5037,7 +5039,7 @@ async function processTradeSimulation(
       if (env) d1UpsertTrade(env, openTrade).catch(() => {});
     }
 
-    portfolio = await putPortfolioState(KV, portfolio);
+    if (!isReplay) portfolio = await putPortfolioState(KV, portfolio);
     await persistTrades();
 
     // Legacy price-based simulation path removed from Kanban-driven execution.
@@ -19342,6 +19344,32 @@ export default {
           );
         }
 
+        // Dedupe by (ticker, direction, entry_ts) — replay can create duplicates
+        const entryTsForTrade = (t) => {
+          const et = Number(t?.entry_ts ?? t?.entryTs);
+          if (Number.isFinite(et)) return et;
+          const iso = t?.entryTime;
+          if (iso) return isoToMs(iso) || null;
+          const hist = Array.isArray(t?.history) ? t.history : [];
+          const ent = hist.find((e) => String(e?.type || "").toUpperCase() === "ENTRY");
+          return ent ? isoToMs(ent.timestamp ?? ent.ts) || null : null;
+        };
+        const seen = new Set();
+        const deduped = [];
+        for (const t of allTrades) {
+          const ticker = String(t?.ticker || "").toUpperCase();
+          const dir = String(t?.direction || "").toUpperCase();
+          const et = entryTsForTrade(t);
+          const key = `${ticker}:${dir}:${et != null ? et : t?.id || ""}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          deduped.push(t);
+        }
+        if (deduped.length < allTrades.length) {
+          await kvPutJSON(KV, tradesKey, deduped);
+          allTrades = deduped;
+        }
+
         let filteredTrades = allTrades;
         if (versionFilter && versionFilter !== "all") {
           filteredTrades = allTrades.filter(
@@ -19453,6 +19481,19 @@ export default {
             });
           }
         }
+
+        // Dedupe events (same ticker+direction+type+ts) — prevents duplicate tape entries
+        const eventKey = (e) => `${e.ticker}:${e.direction}:${e.type}:${e.ts}`;
+        const seenEvents = new Set();
+        const dedupedEvents = [];
+        for (const e of events) {
+          const k = eventKey(e);
+          if (seenEvents.has(k)) continue;
+          seenEvents.add(k);
+          dedupedEvents.push(e);
+        }
+        events.length = 0;
+        events.push(...dedupedEvents);
 
         events.sort((a, b) => a.ts - b.ts);
 
@@ -22722,7 +22763,7 @@ Provide 3-5 actionable next steps:
         const offset = Math.max(0, Number.isFinite(qOffset) ? qOffset : 0);
         const slice = filtered.slice(offset, offset + limit);
 
-        // resetTrades: purge open trades for batch tickers so we rebuild from scratch
+        // resetTrades: purge ALL trades (open + closed) for batch tickers in from/to window for clean slate
         let tradesPurged = 0;
         if (resetTrades && slice.length > 0) {
           const allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
@@ -22739,7 +22780,6 @@ Provide 3-5 actionable next steps:
           const kept = allTrades.filter((t) => {
             const ticker = String(t?.ticker || "").toUpperCase();
             if (!sliceSet.has(ticker)) return true;
-            if (!isOpenTradeStatus(t?.status)) return true;
             const entryTs = Number(t?.entry_ts ?? t?.entryTime);
             if (!Number.isFinite(entryTs)) return true;
             if (tsMin != null && entryTs < tsMin) return true;
@@ -22908,6 +22948,345 @@ Provide 3-5 actionable next steps:
           200,
           corsHeaders(env, req),
         );
+      }
+
+      // POST /timed/admin/replay-day?key=...&date=YYYY-MM-DD&limit=...&offset=...
+      // Replay today's (or date's) timed_trail ingests in chronological order: reset trades for the day,
+      // then process each ingest as if it arrived live — Kanban classification + trade simulation.
+      // Batched to avoid subrequest limits. Use offset/limit for pagination.
+      if (url.pathname === "/timed/admin/replay-day" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "no_db_binding" },
+            500,
+            corsHeaders(env, req),
+          );
+        }
+
+        const dateParam = url.searchParams.get("date") || null;
+        const dayKey =
+          dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)
+            ? dateParam
+            : nyTradingDayKey(Date.now());
+        const marketOpen = nyWallTimeToUtcMs(dayKey, 9, 30, 0);
+        const dayEnd = nyWallTimeToUtcMs(dayKey, 23, 59, 59);
+        const tsEnd = dayEnd != null ? dayEnd + 999 : Date.now();
+        const tsStart = marketOpen != null ? marketOpen : Date.now() - 24 * 60 * 60 * 1000;
+
+        const qLimit = Math.min(Number(url.searchParams.get("limit")) || 30, 50);
+        const qOffset = Number(url.searchParams.get("offset")) || 0;
+
+        let rows = [];
+        let totalRows = null;
+        try {
+          if (qOffset === 0) {
+            const countRow = await db
+              .prepare(
+                `SELECT COUNT(*) as n FROM timed_trail WHERE ts >= ?1 AND ts <= ?2`,
+              )
+              .bind(tsStart, tsEnd)
+              .first();
+            totalRows = Number(countRow?.n) || 0;
+          }
+          const stmt = db.prepare(
+            `SELECT ticker, ts, payload_json FROM timed_trail
+             WHERE ts >= ?1 AND ts <= ?2
+             ORDER BY ts ASC
+             LIMIT ?3 OFFSET ?4`,
+          );
+          const result = await stmt.bind(tsStart, tsEnd, qLimit, qOffset).all();
+          rows = result?.results || [];
+        } catch (e) {
+          return sendJSON(
+            { ok: false, error: String(e?.message || e) },
+            500,
+            corsHeaders(env, req),
+          );
+        }
+
+        let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+        let tradesPurged = 0;
+        if (qOffset === 0 && rows.length > 0) {
+          // Purge ALL trades (open + closed) in the re-run window for a clean slate
+          const kept = allTrades.filter((t) => {
+            const entryTs = Number(t?.entry_ts ?? t?.entryTime);
+            if (!Number.isFinite(entryTs)) return true;
+            if (entryTs < tsStart || entryTs > tsEnd) return true;
+            tradesPurged += 1;
+            return false;
+          });
+          allTrades = kept;
+          await kvPutJSON(KV, "timed:trades:all", kept);
+        }
+
+        const uniqueTickers = [...new Set(rows.map((r) => String(r?.ticker || "").toUpperCase()).filter(Boolean))];
+        const existingMap = await Promise.all(
+          uniqueTickers.map((t) => kvGetJSON(KV, `timed:latest:${t}`)),
+        ).then((arr) => Object.fromEntries(uniqueTickers.map((t, i) => [t, arr[i] || {}])));
+        const stateMap = {};
+        for (const t of uniqueTickers) stateMap[t] = existingMap[t] ? { ...existingMap[t] } : {};
+
+        const findOpenInArray = (trades, sym) =>
+          trades.find(
+            (x) =>
+              String(x?.ticker || "").toUpperCase() === sym &&
+              isOpenTradeStatus(x?.status),
+          ) || null;
+
+        const replayCtx = { allTrades };
+
+        let processed = 0;
+        let tradesCreated = 0;
+        const laneCounts = {};
+        const errors = [];
+
+        for (const row of rows) {
+          try {
+            const ticker = String(row?.ticker || "").toUpperCase();
+            if (!ticker) continue;
+            let payload;
+            try {
+              payload = row.payload_json ? JSON.parse(row.payload_json) : null;
+            } catch {
+              continue;
+            }
+            if (!payload || typeof payload !== "object") continue;
+
+            const rowTs = Number(row?.ts);
+            if (!Number.isFinite(rowTs)) continue;
+            payload.ts = rowTs;
+            payload.ingest_ts = rowTs;
+
+            const existing = stateMap[ticker] || {};
+            const existingTs = Number(existing?.ts ?? existing?.ingest_ts);
+            const isEarlierThanStored = !Number.isFinite(existingTs) || rowTs < existingTs;
+
+            if (isEarlierThanStored) {
+              payload.entry_ts = null;
+              payload.entry_price = null;
+              payload.kanban_cycle_enter_now_ts = null;
+              payload.kanban_cycle_trigger_ts = null;
+              payload.kanban_cycle_side = null;
+            } else {
+              if (existing?.entry_ts != null && payload.entry_ts == null)
+                payload.entry_ts = Number(existing.entry_ts);
+              if (existing?.entry_price != null && payload.entry_price == null)
+                payload.entry_price = Number(existing.entry_price);
+              if (existing?.kanban_cycle_enter_now_ts != null)
+                payload.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
+              if (existing?.kanban_cycle_trigger_ts != null)
+                payload.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
+              if (existing?.kanban_cycle_side != null)
+                payload.kanban_cycle_side = existing.kanban_cycle_side;
+            }
+
+            const openTrade = findOpenInArray(replayCtx.allTrades, ticker);
+            if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
+              const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
+              const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
+              if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
+              if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
+                payload.entry_price = ep;
+            }
+
+            payload.move_status = computeMoveStatus(payload);
+            if (payload.flags) {
+              payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
+              payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+            }
+
+            const prevStage = existing?.kanban_stage;
+            const stage = classifyKanbanStage(payload);
+            let finalStage = stage;
+
+            if (
+              prevStage === "archive" &&
+              ["hold", "defend", "trim", "exit"].includes(stage)
+            ) {
+              finalStage = "watch";
+              if (!payload.flags) payload.flags = {};
+              payload.flags.recycled_from_archive = true;
+            }
+
+            const mgmt = ["hold", "defend", "trim", "exit"].includes(finalStage);
+            if (mgmt) {
+              const curTriggerTs = Number(payload?.trigger_ts);
+              const curSide = sideFromStateOrScores(payload);
+              const cycleEnterTs = Number(existing?.kanban_cycle_enter_now_ts);
+              const cycleTrig = Number(existing?.kanban_cycle_trigger_ts);
+              const cycleSide = existing?.kanban_cycle_side != null ? String(existing.kanban_cycle_side) : null;
+              const sameTrig =
+                Number.isFinite(curTriggerTs) &&
+                curTriggerTs > 0 &&
+                Number.isFinite(cycleTrig) &&
+                cycleTrig > 0 &&
+                cycleTrig === curTriggerTs;
+              const cycleOk =
+                Number.isFinite(cycleEnterTs) &&
+                cycleEnterTs > 0 &&
+                sameTrig &&
+                !!cycleSide &&
+                !!curSide &&
+                cycleSide === curSide;
+
+              if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
+                finalStage = "watch";
+                if (!payload.flags) payload.flags = {};
+                payload.flags.forced_watch_missing_trigger = true;
+              } else if (!cycleOk) {
+                finalStage = "enter_now";
+                if (!payload.flags) payload.flags = {};
+                payload.flags.forced_enter_now_gate = true;
+              }
+            }
+
+            if (finalStage === "enter_now") {
+              payload.kanban_cycle_enter_now_ts = rowTs;
+              payload.kanban_cycle_trigger_ts =
+                Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0
+                  ? payload.trigger_ts
+                  : null;
+              payload.kanban_cycle_side = sideFromStateOrScores(payload);
+            } else if (["hold", "defend", "trim", "exit"].includes(finalStage)) {
+              payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts ?? null;
+              payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts ?? null;
+              payload.kanban_cycle_side = existing?.kanban_cycle_side ?? null;
+            } else {
+              payload.kanban_cycle_enter_now_ts = null;
+              payload.kanban_cycle_trigger_ts = null;
+              payload.kanban_cycle_side = null;
+            }
+
+            if (
+              prevStage != null &&
+              finalStage != null &&
+              String(prevStage) !== String(finalStage)
+            ) {
+              payload.prev_kanban_stage = String(prevStage);
+              payload.prev_kanban_stage_ts = rowTs;
+            }
+
+            if (finalStage === "enter_now" && prevStage !== "enter_now") {
+              const price = Number(payload?.price);
+              if (Number.isFinite(price) && price > 0) {
+                payload.entry_price = price;
+                payload.entry_ts = rowTs;
+              }
+            }
+            if (finalStage && existing?.entry_price) {
+              payload.entry_price = existing.entry_price;
+              payload.entry_ts = existing.entry_ts;
+            }
+
+            payload.kanban_stage = finalStage;
+            payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
+
+            laneCounts[finalStage || "null"] = (laneCounts[finalStage || "null"] || 0) + 1;
+
+            stateMap[ticker] = payload;
+
+            const countBefore = replayCtx.allTrades.filter(
+              (x) => String(x?.ticker).toUpperCase() === ticker,
+            ).length;
+            await processTradeSimulation(KV, ticker, payload, existing, env, {
+              forceUseIngestTs: true,
+              replayBatchContext: replayCtx,
+            });
+            const countAfter = replayCtx.allTrades.filter(
+              (x) => String(x?.ticker).toUpperCase() === ticker,
+            ).length;
+            if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+
+            processed += 1;
+          } catch (e) {
+            errors.push({ ticker: row?.ticker || null, error: String(e?.message || e) });
+          }
+        }
+
+        await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
+        await Promise.all(
+          Object.entries(stateMap).map(([t, p]) =>
+            kvPutJSON(KV, `timed:latest:${t}`, p),
+          ),
+        );
+
+        const nextOffset = qOffset + rows.length;
+        const hasMore = rows.length >= qLimit;
+
+        try {
+          await d1SyncLatestBatchFromKV(env, { waitUntil: () => {} }, 50);
+        } catch (syncErr) {
+          errors.push({ sync: String(syncErr?.message || syncErr) });
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            day: dayKey,
+            tsStart,
+            tsEnd,
+            totalRows: totalRows ?? undefined,
+            rowsProcessed: processed,
+            tradesCreated,
+            tradesPurged: qOffset === 0 ? tradesPurged : undefined,
+            laneCounts,
+            offset: qOffset,
+            nextOffset: hasMore ? nextOffset : null,
+            hasMore,
+            errorsCount: errors.length,
+            errors: errors.slice(0, 10),
+          },
+          200,
+          corsHeaders(env, req),
+        );
+      }
+
+      // POST /timed/admin/dedupe-trades?key=... - Remove duplicate trades (same ticker+direction+entry_ts)
+      if (url.pathname === "/timed/admin/dedupe-trades" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const tradesKey = "timed:trades:all";
+          const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const entryTsFor = (t) => {
+            const et = Number(t?.entry_ts ?? t?.entryTs);
+            if (Number.isFinite(et)) return et;
+            const iso = t?.entryTime;
+            if (iso) return isoToMs(iso) || null;
+            const hist = Array.isArray(t?.history) ? t.history : [];
+            const ent = hist.find((e) => String(e?.type || "").toUpperCase() === "ENTRY");
+            return ent ? isoToMs(ent.timestamp ?? ent.ts) || null : null;
+          };
+          const seen = new Set();
+          const deduped = [];
+          for (const t of allTrades) {
+            const ticker = String(t?.ticker || "").toUpperCase();
+            const dir = String(t?.direction || "").toUpperCase();
+            const et = entryTsFor(t);
+            const key = `${ticker}:${dir}:${et != null ? et : t?.id || ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            deduped.push(t);
+          }
+          const removed = allTrades.length - deduped.length;
+          if (removed > 0) await kvPutJSON(KV, tradesKey, deduped);
+          return sendJSON(
+            { ok: true, before: allTrades.length, after: deduped.length, removed },
+            200,
+            corsHeaders(env, req),
+          );
+        } catch (e) {
+          return sendJSON(
+            { ok: false, error: String(e?.message || e) },
+            500,
+            corsHeaders(env, req),
+          );
+        }
       }
 
       // POST /timed/admin/force-sync?key=... - Force D1 sync from KV (refresh all tickers)
