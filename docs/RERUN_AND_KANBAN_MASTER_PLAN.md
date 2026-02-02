@@ -55,6 +55,5 @@ ingest_receipts (D1)
 |-----------|--------|
 | Worker: 8 Kanban stages (just_entered, defend→hold) | ✅ Done |
 | UI: 8 lanes, filter pills, Right Rail guidance | ✅ Done |
-| Re-run: ingest_receipts bucket-by-bucket | 📋 Planned |
-| Re-run: POST /timed/admin/replay-ingest | 📋 Planned |
-| Re-run: scripts/replay-ingest.js | 📋 Planned |
+| Re-run: POST /timed/admin/replay-ingest | ✅ Done |
+| Re-run: scripts/replay-ingest.js | ✅ Done |
