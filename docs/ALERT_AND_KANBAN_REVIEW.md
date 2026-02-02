@@ -157,18 +157,20 @@ Discord notifications fire when a ticker **transitions** into one of these lanes
 
 ### Replay Day (chronological ingest replay)
 
-`POST /timed/admin/replay-day` replays today's (or a given date's) `timed_trail` ingests in chronological order. Trades for the day are reset, then each ingest is processed as if it arrived live — Kanban classification and trade simulation. Use `scripts/replay-day.sh`.
+`POST /timed/admin/replay-day` replays a day's `timed_trail` ingests from **9:30 AM ET** (market open) in chronological order. Each ingest is processed as if it arrived live — Kanban classification and trade simulation. Use `scripts/replay-day.js` or `scripts/replay-day.sh`.
 
 | Param | Description |
 |-------|-------------|
 | `date=YYYY-MM-DD` | Replay this day (default: today ET). |
+| `cleanSlate=1` | **Recommended.** Purge ALL trades and reset entry state for a clean simulation of the day only. No mixing with prior days. |
+| `bucketMinutes=5` | Group ingests into 5-min buckets (latest per ticker per bucket) for structured time progression. |
 | `limit`, `offset` | Batch size and pagination (default limit=50). |
 
-Replay purges **all** trades (open + closed) whose `entry_ts` falls within the replay day, so you get a clean slate for "today as first day" re-runs.
+**Clean simulation:** Use `cleanSlate=1` so the replay starts with zero trades and no prior positions. Event timestamps use the ingest timestamp, so the tape reflects when trades actually would have occurred.
 
-**Example:**  
-`TIMED_API_KEY=x ./scripts/replay-day.sh` — replay today's ingests.  
-`DATE=2025-02-02 TIMED_API_KEY=x ./scripts/replay-day.sh` — replay a specific day.
+**Examples:**  
+`CLEAN_SLATE=1 TIMED_API_KEY=x node scripts/replay-day.js` — clean replay of today.  
+`DATE=2026-02-02 CLEAN_SLATE=1 BUCKET_MINUTES=5 TIMED_API_KEY=x node scripts/replay-day.js` — clean replay with 5-min buckets.
 
 ---
 

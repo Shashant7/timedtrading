@@ -1372,9 +1372,9 @@ function detectFlipWatch(tickerData, trail = []) {
   };
 }
 
-/**
- * Classify ticker into Kanban stage based on trading lifecycle
- * Stages: watch, flip_watch, just_flipped, enter_now, hold, defend, trim, exit, archive
+/** 8 Kanban lanes (Worker = source of truth):
+ *  watch, setup_watch | flip_watch, just_flipped | enter_now | just_entered | hold | trim | exit | archive
+ *  UI maps: Watching | Almost Ready | Enter Now | Just Entered | Hold | Trim | Exit | Archived
  */
 function classifyKanbanStage(tickerData) {
   const state = String(tickerData?.state || "");
@@ -1426,9 +1426,18 @@ function classifyKanbanStage(tickerData) {
       return "trim";
     }
 
-    // Stage 4.5: Defend - open position has warning conditions but not yet trim
+    // Stage 4.5: Defend - fold into Hold (UI shows Defend badge via deriveKanbanMeta)
     if (severity === "WARNING" && completion < 0.6 && phase < 0.65) {
-      return "defend";
+      return "hold";
+    }
+
+    // Stage 4.1: Just Entered - recently entered (within 15 min)
+    const entryTsRaw = Number(tickerData?.entry_ts ?? tickerData?.kanban_cycle_enter_now_ts);
+    const curTs = Number(tickerData?.ts ?? tickerData?.ingest_ts ?? Date.now());
+    if (Number.isFinite(entryTsRaw) && entryTsRaw > 0 && Number.isFinite(curTs)) {
+      const entryMs = entryTsRaw < 1e12 ? entryTsRaw * 1000 : entryTsRaw;
+      const ageMs = curTs - entryMs;
+      if (ageMs >= 0 && ageMs < 15 * 60 * 1000) return "just_entered";
     }
 
     // Stage 4: Hold - all other open positions
@@ -1536,7 +1545,16 @@ function deriveKanbanMeta(tickerData, stage) {
   const isMomentum =
     state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
 
-  // Only attach meta for Archive (keeps noise down)
+  // Hold + warning conditions = Defend (UI shows badge)
+  if (stage === "hold") {
+    const severity = String(ms?.severity || "").toUpperCase();
+    if (severity === "WARNING" && completion < 0.6 && phase < 0.65) {
+      return { bucket: "defend", emoji: "🛡", reason: "warning", reasons: ms?.reasons || [] };
+    }
+    return null;
+  }
+
+  // Archive meta
   if (stage !== "archive") return null;
 
   if (ms?.status === "INVALIDATED") {
@@ -4334,6 +4352,13 @@ async function processTradeSimulation(
   const forceUseIngestTs = !!options?.forceUseIngestTs;
   const replayCtx = options?.replayBatchContext;
   const isReplay = !!replayCtx;
+  // During replay, use ingest timestamp for all event timestamps (not Date.now())
+  const asOfMsRaw = options?.asOfTs ?? tickerData?.ts ?? tickerData?.ingest_ts;
+  const asOfMs = (isReplay && asOfMsRaw != null)
+    ? (Number(asOfMsRaw) < 1e12 ? Number(asOfMsRaw) * 1000 : Number(asOfMsRaw))
+    : null;
+  const eventTs = () =>
+    Number.isFinite(asOfMs) ? new Date(asOfMs).toISOString() : new Date().toISOString();
   try {
     const tradesKey = "timed:trades:all";
     const allTrades = isReplay
@@ -4465,7 +4490,7 @@ async function processTradeSimulation(
 
       const ev = {
         type: "EXIT",
-        timestamp: new Date().toISOString(),
+        timestamp: eventTs(),
         price: p,
         shares: remainingShares,
         value: p * remainingShares,
@@ -4485,7 +4510,7 @@ async function processTradeSimulation(
         Number.isFinite(Number(trade.notional)) && Number(trade.notional) > 0
           ? (trade.pnl / Number(trade.notional)) * 100
           : null;
-      trade.lastUpdate = new Date().toISOString();
+      trade.lastUpdate = eventTs();
 
       // Portfolio cash increases by proceeds
       portfolio.cash = Number(portfolio.cash) + p * remainingShares;
@@ -4601,7 +4626,7 @@ async function processTradeSimulation(
 
       const ev = {
         type: "TRIM",
-        timestamp: new Date().toISOString(),
+        timestamp: eventTs(),
         price: p,
         shares: trimShares,
         value: p * trimShares,
@@ -4614,7 +4639,7 @@ async function processTradeSimulation(
       trade.history = Array.isArray(trade.history)
         ? [...trade.history, ev]
         : [ev];
-      trade.lastUpdate = new Date().toISOString();
+      trade.lastUpdate = eventTs();
 
       // Portfolio cash increases by proceeds
       portfolio.cash = Number(portfolio.cash) + p * trimShares;
@@ -4776,7 +4801,7 @@ async function processTradeSimulation(
           );
           if (Number.isFinite(shares) && shares > 0) {
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
-            const entryTime = new Date().toISOString();
+            const entryTime = eventTs();
             const ev = {
               type: "ENTRY",
               timestamp: entryTime,
@@ -4810,7 +4835,7 @@ async function processTradeSimulation(
               pointValue: pointValue,
               realizedPnl: 0,
               currentPrice: pxNow,
-              lastUpdate: new Date().toISOString(),
+              lastUpdate: eventTs(),
               source: "KANBAN_ENTER_NOW",
             };
 
@@ -5005,11 +5030,11 @@ async function processTradeSimulation(
             const prev = Number.isFinite(oldSl) ? oldSl : null;
             openTrade.sl = newSl;
             openTrade.sl_protect_reason = "PROTECT_GAINS";
-            openTrade.sl_last_tighten_ts = new Date().toISOString();
+            openTrade.sl_last_tighten_ts = eventTs();
 
             const ev = {
               type: "SL_TIGHTEN",
-              timestamp: new Date().toISOString(),
+              timestamp: eventTs(),
               price: mark,
               oldSl: prev,
               newSl,
@@ -5035,7 +5060,7 @@ async function processTradeSimulation(
         console.error("[KANBAN TRADE] gain-protection SL tighten error:", e);
       }
 
-      openTrade.lastUpdate = new Date().toISOString();
+      openTrade.lastUpdate = eventTs();
       if (env) d1UpsertTrade(env, openTrade).catch(() => {});
     }
 
@@ -5607,7 +5632,7 @@ async function processTradeSimulation(
         ) {
           const ev = {
             type: "ENTRY_CORRECTION",
-            timestamp: new Date().toISOString(),
+            timestamp: eventTs(),
             price: correctedEntryPrice,
             shares: correctedShares,
             value: correctedEntryPrice * correctedShares,
@@ -5679,7 +5704,7 @@ async function processTradeSimulation(
               trimDeltaPctRaw; // Allow fractional shares
             const ev = {
               type: "TRIM",
-              timestamp: new Date().toISOString(),
+              timestamp: eventTs(),
               price: Number.isFinite(trimPrice) ? trimPrice : null,
               shares: trimShares,
               value:
@@ -5715,7 +5740,7 @@ async function processTradeSimulation(
             Math.max(0, 1 - oldTrimmedPct);
           const ev = {
             type: "EXIT",
-            timestamp: new Date().toISOString(),
+            timestamp: eventTs(),
             price: exitPrice,
             shares: remainingShares,
             value: exitPrice * remainingShares,
@@ -5739,7 +5764,7 @@ async function processTradeSimulation(
             entryPriceCorrected, // Mark as corrected
           status: newStatus,
           trimmedPct: tradeCalc.trimmedPct || existingOpenTrade.trimmedPct || 0,
-          lastUpdate: new Date().toISOString(),
+          lastUpdate: eventTs(),
           // Prefer the trade's current SL (may be tightened defensively)
           sl: Number.isFinite(Number(existingOpenTrade.sl))
             ? Number(existingOpenTrade.sl)
@@ -6338,7 +6363,7 @@ async function processTradeSimulation(
 
               history.push({
                 type: "SCALE_IN",
-                timestamp: new Date().toISOString(),
+                timestamp: eventTs(),
                 price: entryPrice,
                 shares: newShares,
                 value: newValue,
@@ -6353,7 +6378,7 @@ async function processTradeSimulation(
                 shares: totalShares,
                 ...tradeCalc,
                 history: history,
-                lastUpdate: new Date().toISOString(),
+                lastUpdate: eventTs(),
               };
 
               const tradeIndex = allTrades.findIndex(
@@ -6542,13 +6567,15 @@ async function processTradeSimulation(
                 2,
               )}, RR: ${entryRR?.toFixed(2) || "N/A"}`,
             );
-            // Determine entry time: use ingest ts when reprocessing, or trigger_ts for backfill, otherwise now
+            // Determine entry time: use ingest ts when reprocessing/replay, or trigger_ts for backfill, otherwise now
             const entryTime =
-              forceUseIngestTs && (tickerData.ts != null || triggerTimestamp)
-                ? (tickerData.ts != null ? new Date(Number(tickerData.ts)).toISOString() : triggerTimestamp)
-                : isBackfill && triggerTimestamp
-                  ? triggerTimestamp
-                  : new Date().toISOString();
+              Number.isFinite(asOfMs)
+                ? new Date(asOfMs).toISOString()
+                : forceUseIngestTs && (tickerData.ts != null || triggerTimestamp)
+                  ? (tickerData.ts != null ? new Date(Number(tickerData.ts) < 1e12 ? Number(tickerData.ts) * 1000 : Number(tickerData.ts)).toISOString() : triggerTimestamp)
+                  : isBackfill && triggerTimestamp
+                    ? triggerTimestamp
+                    : new Date().toISOString();
 
             // Build intelligent TP array with progressive trim levels (25%, 50%, 75%)
             const tpArray = buildIntelligentTPArray(
@@ -10379,8 +10406,8 @@ function createTDSeqDefenseEmbed(
 function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null) {
   const stageLabels = {
     enter_now: "🎯 Enter Now",
+    just_entered: "🆕 Just Entered",
     hold: "📌 Hold",
-    defend: "🛡️ Defend",
     trim: "✂️ Trim",
     exit: "🚪 Exit",
   };
@@ -10437,10 +10464,10 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null) {
   const color =
     stage === "enter_now"
       ? 0x22c55e
-      : stage === "hold"
-        ? 0x3b82f6
-        : stage === "defend"
-          ? 0xf59e0b
+      : stage === "just_entered"
+        ? 0x0ea5e9
+        : stage === "hold"
+          ? 0x3b82f6
           : stage === "trim"
             ? 0x8b5cf6
             : 0xef4444; // exit: red
@@ -11928,7 +11955,7 @@ export default {
               if (
                 prevStage === "archive" &&
                 (stage === "hold" ||
-                  stage === "defend" ||
+                  stage === "just_entered" ||
                   stage === "trim" ||
                   stage === "exit")
               ) {
@@ -11945,7 +11972,7 @@ export default {
               try {
                 const mgmt =
                   finalStage === "hold" ||
-                  finalStage === "defend" ||
+                  finalStage === "just_entered" ||
                   finalStage === "trim" ||
                   finalStage === "exit";
                 if (mgmt) {
@@ -12004,7 +12031,7 @@ export default {
                     curSide != null ? String(curSide) : null;
                 } else if (
                   finalStage === "hold" ||
-                  finalStage === "defend" ||
+                  finalStage === "just_entered" ||
                   finalStage === "trim" ||
                   finalStage === "exit"
                 ) {
@@ -12069,7 +12096,7 @@ export default {
               const actionableStages = [
                 "enter_now",
                 "hold",
-                "defend",
+                "just_entered",
                 "trim",
                 "exit",
               ];
@@ -14067,7 +14094,7 @@ export default {
                 try {
                   const mgmt =
                     finalStage === "hold" ||
-                    finalStage === "defend" ||
+                    finalStage === "just_entered" ||
                     finalStage === "trim" ||
                     finalStage === "exit";
                   if (mgmt) {
@@ -14125,7 +14152,7 @@ export default {
                       curSide != null ? String(curSide) : null;
                   } else if (
                     finalStage === "hold" ||
-                    finalStage === "defend" ||
+                    finalStage === "just_entered" ||
                     finalStage === "trim" ||
                     finalStage === "exit"
                   ) {
@@ -14174,7 +14201,7 @@ export default {
                 const actionableStages = [
                   "enter_now",
                   "hold",
-                  "defend",
+                  "just_entered",
                   "trim",
                   "exit",
                 ];
@@ -22842,14 +22869,14 @@ Provide 3-5 actionable next steps:
 
             if (
               prevStage === "archive" &&
-              ["hold", "defend", "trim", "exit"].includes(stage)
+              ["hold", "just_entered", "trim", "exit"].includes(stage)
             ) {
               finalStage = "watch";
               if (!payload.flags) payload.flags = {};
               payload.flags.recycled_from_archive = true;
             }
 
-            const mgmt = ["hold", "defend", "trim", "exit"].includes(finalStage);
+            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
               const curSide = sideFromStateOrScores(payload);
@@ -22876,7 +22903,7 @@ Provide 3-5 actionable next steps:
               payload.kanban_cycle_enter_now_ts = tsNow;
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
-            } else if (["hold", "defend", "trim", "exit"].includes(finalStage)) {
+            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
               payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts || null;
               payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts || null;
               payload.kanban_cycle_side = existing?.kanban_cycle_side || null;
@@ -22950,10 +22977,413 @@ Provide 3-5 actionable next steps:
         );
       }
 
-      // POST /timed/admin/replay-day?key=...&date=YYYY-MM-DD&limit=...&offset=...
-      // Replay today's (or date's) timed_trail ingests in chronological order: reset trades for the day,
-      // then process each ingest as if it arrived live — Kanban classification + trade simulation.
-      // Batched to avoid subrequest limits. Use offset/limit for pagination.
+      // POST /timed/admin/replay-ticker?key=...&ticker=BE&date=YYYY-MM-DD
+      // Single-ticker replay: fetches trail via d1GetTrailRange (no payload_json), processes chronologically.
+      // Use this for ticker-by-ticker replay; avoids D1 large-result limits.
+      if (url.pathname === "/timed/admin/replay-ticker" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const tickerParam = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        if (!tickerParam) {
+          return sendJSON({ ok: false, error: "missing ticker" }, 400, corsHeaders(env, req));
+        }
+        const dateParam = url.searchParams.get("date") || null;
+        const dayKey = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : nyTradingDayKey(Date.now());
+        const marketOpen = nyWallTimeToUtcMs(dayKey, 9, 30, 0);
+        const dayEnd = nyWallTimeToUtcMs(dayKey, 23, 59, 59);
+        const tsStart = marketOpen != null ? marketOpen : Date.now() - 24 * 60 * 60 * 1000;
+        const tsEnd = dayEnd != null ? dayEnd + 999 : Date.now();
+        const cleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+
+        const trailRes = await d1GetTrailRange(env, tickerParam, Math.floor(tsStart), 500);
+        if (!trailRes?.ok) {
+          return sendJSON(
+            { ok: false, error: "trail_fetch_failed", detail: trailRes?.error || "unknown" },
+            500,
+            corsHeaders(env, req),
+          );
+        }
+        const trail = (trailRes?.trail || []).filter(
+          (p) => { const ts = Number(p?.ts); return Number.isFinite(ts) && ts >= tsStart && ts <= tsEnd; },
+        );
+        const rows = trail.map((p) => {
+          const obj = { ticker: tickerParam, ts: Number(p?.ts), price: p?.price, htf_score: p?.htf_score, ltf_score: p?.ltf_score, completion: p?.completion, phase_pct: p?.phase_pct, state: p?.state, rank: p?.rank, flags: p?.flags || {}, trigger_reason: p?.trigger_reason, trigger_dir: p?.trigger_dir };
+          return { ticker: tickerParam, ts: obj.ts, payload_json: JSON.stringify(obj) };
+        });
+
+        let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+        let tradesPurged = 0;
+        if (cleanSlate && rows.length > 0) {
+          const kept = allTrades.filter((t) => {
+            if (String(t?.ticker || "").toUpperCase() !== tickerParam) return true;
+            const entryTs = Number(t?.entry_ts ?? t?.entryTime);
+            if (!Number.isFinite(entryTs)) return true;
+            if (entryTs < tsStart || entryTs > tsEnd) return true;
+            tradesPurged += 1;
+            return false;
+          });
+          allTrades = kept;
+          await kvPutJSON(KV, "timed:trades:all", kept);
+        }
+
+        const existing = (await kvGetJSON(KV, `timed:latest:${tickerParam}`)) || {};
+        const stateMap = { [tickerParam]: cleanSlate ? { ...existing, entry_ts: null, entry_price: null, kanban_cycle_enter_now_ts: null, kanban_cycle_trigger_ts: null, kanban_cycle_side: null } : { ...existing } };
+        const findOpenInArray = (trades, sym) => trades.find((x) => String(x?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(x?.status)) || null;
+        const replayCtx = { allTrades };
+        let processed = 0, tradesCreated = 0;
+        const laneCounts = {};
+
+        for (const row of rows) {
+          try {
+            const ticker = tickerParam;
+            let payload;
+            try { payload = row.payload_json ? JSON.parse(row.payload_json) : null; } catch { continue; }
+            if (!payload || typeof payload !== "object") continue;
+            const rowTs = Number(row?.ts);
+            if (!Number.isFinite(rowTs)) continue;
+            payload.ts = rowTs;
+            payload.ingest_ts = rowTs;
+            const existingState = stateMap[ticker] || {};
+            const existingTs = Number(existingState?.ts ?? existingState?.ingest_ts);
+            const isEarlierThanStored = !Number.isFinite(existingTs) || rowTs < existingTs;
+            if (isEarlierThanStored) {
+              payload.entry_ts = null;
+              payload.entry_price = null;
+              payload.kanban_cycle_enter_now_ts = null;
+              payload.kanban_cycle_trigger_ts = null;
+              payload.kanban_cycle_side = null;
+            } else {
+              if (existingState?.entry_ts != null && payload.entry_ts == null) payload.entry_ts = Number(existingState.entry_ts);
+              if (existingState?.entry_price != null && payload.entry_price == null) payload.entry_price = Number(existingState.entry_price);
+              if (existingState?.kanban_cycle_enter_now_ts != null) payload.kanban_cycle_enter_now_ts = existingState.kanban_cycle_enter_now_ts;
+              if (existingState?.kanban_cycle_trigger_ts != null) payload.kanban_cycle_trigger_ts = existingState.kanban_cycle_trigger_ts;
+              if (existingState?.kanban_cycle_side != null) payload.kanban_cycle_side = existingState.kanban_cycle_side;
+            }
+            const openTrade = findOpenInArray(replayCtx.allTrades, ticker);
+            if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
+              const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
+              const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
+              if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
+              if (payload.entry_price == null && Number.isFinite(ep) && ep > 0) payload.entry_price = ep;
+            }
+            payload.move_status = computeMoveStatus(payload);
+            if (payload.flags) { payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED"; payload.flags.move_completed = payload.move_status?.status === "COMPLETED"; }
+            const prevStage = existingState?.kanban_stage;
+            const stage = classifyKanbanStage(payload);
+            let finalStage = stage;
+            if (prevStage === "archive" && ["hold", "just_entered", "trim", "exit"].includes(stage)) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.recycled_from_archive = true; }
+            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+            if (mgmt) {
+              const curTriggerTs = Number(payload?.trigger_ts);
+              const curSide = sideFromStateOrScores(payload);
+              const cycleEnterTs = Number(existingState?.kanban_cycle_enter_now_ts);
+              const cycleTrig = Number(existingState?.kanban_cycle_trigger_ts);
+              const cycleSide = existingState?.kanban_cycle_side != null ? String(existingState.kanban_cycle_side) : null;
+              const sameTrig = Number.isFinite(curTriggerTs) && curTriggerTs > 0 && Number.isFinite(cycleTrig) && cycleTrig > 0 && cycleTrig === curTriggerTs;
+              const cycleOk = Number.isFinite(cycleEnterTs) && cycleEnterTs > 0 && sameTrig && !!cycleSide && !!curSide && cycleSide === curSide;
+              if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.forced_watch_missing_trigger = true; }
+              else if (!cycleOk) { finalStage = "enter_now"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_now_gate = true; }
+            }
+            if (finalStage === "enter_now") {
+              payload.kanban_cycle_enter_now_ts = rowTs;
+              payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
+              payload.kanban_cycle_side = sideFromStateOrScores(payload);
+            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+              payload.kanban_cycle_enter_now_ts = existingState?.kanban_cycle_enter_now_ts ?? null;
+              payload.kanban_cycle_trigger_ts = existingState?.kanban_cycle_trigger_ts ?? null;
+              payload.kanban_cycle_side = existingState?.kanban_cycle_side ?? null;
+            } else {
+              payload.kanban_cycle_enter_now_ts = null;
+              payload.kanban_cycle_trigger_ts = null;
+              payload.kanban_cycle_side = null;
+            }
+            if (prevStage != null && finalStage != null && String(prevStage) !== String(finalStage)) {
+              payload.prev_kanban_stage = String(prevStage);
+              payload.prev_kanban_stage_ts = rowTs;
+            }
+            if (finalStage === "enter_now" && prevStage !== "enter_now") {
+              const price = Number(payload?.price);
+              if (Number.isFinite(price) && price > 0) { payload.entry_price = price; payload.entry_ts = rowTs; }
+            }
+            if (finalStage && existingState?.entry_price) { payload.entry_price = existingState.entry_price; payload.entry_ts = existingState.entry_ts; }
+            payload.kanban_stage = finalStage;
+            payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
+            laneCounts[finalStage || "null"] = (laneCounts[finalStage || "null"] || 0) + 1;
+            stateMap[ticker] = payload;
+            const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+            await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
+            const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+            if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+            processed += 1;
+          } catch (e) {
+            console.error(`[REPLAY-TICKER] ${tickerParam} row error:`, e);
+          }
+        }
+
+        await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
+        await kvPutJSON(KV, `timed:latest:${tickerParam}`, stateMap[tickerParam] || {});
+        try { await d1SyncLatestBatchFromKV(env, { waitUntil: () => {} }, 50); } catch {}
+        return sendJSON({
+          ok: true,
+          ticker: tickerParam,
+          day: dayKey,
+          rowsProcessed: processed,
+          tradesCreated,
+          tradesPurged,
+          laneCounts,
+        }, 200, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/replay-ingest?key=...&date=YYYY-MM-DD&bucket=...&ticker=...&scriptVersion=2.5.0&cleanSlate=1
+      // Bucket-by-bucket replay from ingest_receipts (Script Version 2.5.0). Avoids D1 memory limits.
+      // Client iterates buckets from 9:30 ET; pass bucket= to process one bucket per request.
+      if (url.pathname === "/timed/admin/replay-ingest" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+        }
+
+        const dateParam = url.searchParams.get("date") || null;
+        const dayKey = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : nyTradingDayKey(Date.now());
+        const marketOpen = nyWallTimeToUtcMs(dayKey, 9, 30, 0);
+        const dayEnd = nyWallTimeToUtcMs(dayKey, 16, 0, 0);
+        const tsStart = marketOpen != null ? marketOpen : Date.now() - 24 * 60 * 60 * 1000;
+        const tsEnd = dayEnd != null ? dayEnd : Date.now();
+        const bucketParam = url.searchParams.get("bucket");
+        const bucketMs = 5 * 60 * 1000;
+        const tickerFilter = (url.searchParams.get("ticker") || "").trim().toUpperCase() || null;
+        const scriptVersion = url.searchParams.get("scriptVersion") || "2.5.0";
+        const cleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+        const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10)));
+
+        let currentBucket;
+        if (bucketParam != null && bucketParam !== "") {
+          currentBucket = parseInt(bucketParam, 10);
+          if (!Number.isFinite(currentBucket)) {
+            return sendJSON({ ok: false, error: "invalid_bucket" }, 400, corsHeaders(env, req));
+          }
+        } else {
+          currentBucket = Math.floor(tsStart / bucketMs) * bucketMs;
+        }
+
+        if (currentBucket < tsStart || currentBucket > tsEnd) {
+          return sendJSON({
+            ok: true,
+            date: dayKey,
+            bucketProcessed: currentBucket,
+            rowsProcessed: 0,
+            tradesCreated: 0,
+            tradesPurged: 0,
+            nextBucket: null,
+            hasMore: false,
+          }, 200, corsHeaders(env, req));
+        }
+
+        try {
+          const metaStmt = db.prepare(
+            tickerFilter
+              ? `SELECT receipt_id, ticker, ts FROM ingest_receipts
+                 WHERE bucket_5m = ?1 AND (script_version = ?2 OR script_version IS NULL)
+                 AND ticker = ?3
+                 ORDER BY ts ASC LIMIT ?4`
+              : `SELECT receipt_id, ticker, ts FROM ingest_receipts
+                 WHERE bucket_5m = ?1 AND (script_version = ?2 OR script_version IS NULL)
+                 ORDER BY ts ASC LIMIT ?4`,
+          );
+          const metaResult = tickerFilter
+            ? await metaStmt.bind(currentBucket, scriptVersion, tickerFilter, limit).all()
+            : await metaStmt.bind(currentBucket, scriptVersion, limit).all();
+          const metaRows = metaResult?.results || [];
+
+          const rows = [];
+          for (const m of metaRows) {
+            const receiptId = m?.receipt_id;
+            if (!receiptId) continue;
+            try {
+              const payRow = await db.prepare(
+                `SELECT payload_json FROM ingest_receipts WHERE receipt_id = ?1 LIMIT 1`,
+              ).bind(String(receiptId)).first();
+              const ticker = String(m?.ticker || "").toUpperCase();
+              const ts = Number(m?.ts);
+              if (ticker && Number.isFinite(ts)) {
+                rows.push({ ticker, ts, payload_json: payRow?.payload_json ?? null });
+              }
+            } catch {
+              // skip
+            }
+          }
+
+          let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+          let tradesPurged = 0;
+          const tickersInBucket = [...new Set(rows.map((r) => r.ticker))];
+
+          if (cleanSlate) {
+            const toRemove = allTrades.filter((t) => {
+              const tkr = String(t?.ticker || "").toUpperCase();
+              if (tickerFilter && tkr !== tickerFilter) return false;
+              const entryTs = Number(t?.entry_ts ?? t?.entryTime);
+              if (!Number.isFinite(entryTs)) return false;
+              if (entryTs < tsStart || entryTs > tsEnd + 86400000) return false;
+              return true;
+            });
+            tradesPurged = toRemove.length;
+            const purgedTickers = new Set(toRemove.map((t) => String(t?.ticker || "").toUpperCase()).filter(Boolean));
+            tickersInBucket.forEach((t) => purgedTickers.add(t));
+            allTrades = allTrades.filter((t) => !toRemove.includes(t));
+            await kvPutJSON(KV, "timed:trades:all", allTrades);
+            for (const tkr of purgedTickers) {
+              if (!tkr) continue;
+              const existing = (await kvGetJSON(KV, `timed:latest:${tkr}`)) || {};
+              const reset = { ...existing, entry_ts: null, entry_price: null, kanban_cycle_enter_now_ts: null, kanban_cycle_trigger_ts: null, kanban_cycle_side: null };
+              await kvPutJSON(KV, `timed:latest:${tkr}`, reset);
+            }
+          }
+
+          const stateMap = {};
+          const findOpenInArray = (trades, sym) => trades.find((x) => String(x?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(x?.status)) || null;
+          const replayCtx = { allTrades };
+          let tradesCreated = 0;
+
+          for (const row of rows) {
+            try {
+              const ticker = row.ticker;
+              let payload;
+              try {
+                payload = row.payload_json ? JSON.parse(row.payload_json) : null;
+              } catch {
+                continue;
+              }
+              if (!payload || typeof payload !== "object") continue;
+              const rowTs = row.ts;
+              payload.ts = rowTs;
+              payload.ingest_ts = rowTs;
+              const existingState = stateMap[ticker] || (await kvGetJSON(KV, `timed:latest:${ticker}`)) || {};
+              const existingTs = Number(existingState?.ts ?? existingState?.ingest_ts);
+              const isEarlierThanStored = !Number.isFinite(existingTs) || rowTs < existingTs;
+              if (isEarlierThanStored) {
+                payload.entry_ts = null;
+                payload.entry_price = null;
+                payload.kanban_cycle_enter_now_ts = null;
+                payload.kanban_cycle_trigger_ts = null;
+                payload.kanban_cycle_side = null;
+              } else {
+                if (existingState?.entry_ts != null && payload.entry_ts == null) payload.entry_ts = Number(existingState.entry_ts);
+                if (existingState?.entry_price != null && payload.entry_price == null) payload.entry_price = Number(existingState.entry_price);
+                if (existingState?.kanban_cycle_enter_now_ts != null) payload.kanban_cycle_enter_now_ts = existingState.kanban_cycle_enter_now_ts;
+                if (existingState?.kanban_cycle_trigger_ts != null) payload.kanban_cycle_trigger_ts = existingState.kanban_cycle_trigger_ts;
+                if (existingState?.kanban_cycle_side != null) payload.kanban_cycle_side = existingState.kanban_cycle_side;
+              }
+              const openTrade = findOpenInArray(replayCtx.allTrades, ticker);
+              if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
+                const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
+                const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
+                if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
+                if (payload.entry_price == null && Number.isFinite(ep) && ep > 0) payload.entry_price = ep;
+              }
+              payload.move_status = computeMoveStatus(payload);
+              if (payload.flags) {
+                payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
+                payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+              }
+              const prevStage = existingState?.kanban_stage;
+              const stage = classifyKanbanStage(payload);
+              let finalStage = stage;
+              if (prevStage === "archive" && ["hold", "just_entered", "trim", "exit"].includes(stage)) {
+                finalStage = "watch";
+                if (!payload.flags) payload.flags = {};
+                payload.flags.recycled_from_archive = true;
+              }
+              const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+              if (mgmt) {
+                const curTriggerTs = Number(payload?.trigger_ts);
+                const curSide = sideFromStateOrScores(payload);
+                const cycleEnterTs = Number(existingState?.kanban_cycle_enter_now_ts);
+                const cycleTrig = Number(existingState?.kanban_cycle_trigger_ts);
+                const cycleSide = existingState?.kanban_cycle_side != null ? String(existingState.kanban_cycle_side) : null;
+                const sameTrig = Number.isFinite(curTriggerTs) && curTriggerTs > 0 && Number.isFinite(cycleTrig) && cycleTrig > 0 && cycleTrig === curTriggerTs;
+                const cycleOk = Number.isFinite(cycleEnterTs) && cycleEnterTs > 0 && sameTrig && !!cycleSide && !!curSide && cycleSide === curSide;
+                if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
+                  finalStage = "watch";
+                  if (!payload.flags) payload.flags = {};
+                  payload.flags.forced_watch_missing_trigger = true;
+                } else if (!cycleOk) {
+                  finalStage = "enter_now";
+                  if (!payload.flags) payload.flags = {};
+                  payload.flags.forced_enter_now_gate = true;
+                }
+              }
+              if (finalStage === "enter_now") {
+                payload.kanban_cycle_enter_now_ts = rowTs;
+                payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
+                payload.kanban_cycle_side = sideFromStateOrScores(payload);
+              } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+                payload.kanban_cycle_enter_now_ts = existingState?.kanban_cycle_enter_now_ts ?? null;
+                payload.kanban_cycle_trigger_ts = existingState?.kanban_cycle_trigger_ts ?? null;
+                payload.kanban_cycle_side = existingState?.kanban_cycle_side ?? null;
+              } else {
+                payload.kanban_cycle_enter_now_ts = null;
+                payload.kanban_cycle_trigger_ts = null;
+                payload.kanban_cycle_side = null;
+              }
+              if (prevStage != null && finalStage != null && String(prevStage) !== String(finalStage)) {
+                payload.prev_kanban_stage = String(prevStage);
+                payload.prev_kanban_stage_ts = rowTs;
+              }
+              if (finalStage === "enter_now" && prevStage !== "enter_now") {
+                const price = Number(payload?.price);
+                if (Number.isFinite(price) && price > 0) {
+                  payload.entry_price = price;
+                  payload.entry_ts = rowTs;
+                }
+              }
+              if (finalStage && existingState?.entry_price) {
+                payload.entry_price = existingState.entry_price;
+                payload.entry_ts = existingState.entry_ts;
+              }
+              payload.kanban_stage = finalStage;
+              payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
+              stateMap[ticker] = payload;
+              const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+              await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
+              const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+              if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+            } catch (e) {
+              console.error(`[REPLAY-INGEST] row error:`, e);
+            }
+          }
+
+          for (const [ticker, payload] of Object.entries(stateMap)) {
+            await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+          }
+          await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
+
+          const nextBucket = currentBucket + bucketMs;
+          const hasMore = nextBucket <= tsEnd;
+
+          return sendJSON({
+            ok: true,
+            date: dayKey,
+            ticker: tickerFilter || null,
+            bucketProcessed: currentBucket,
+            rowsProcessed: rows.length,
+            tradesCreated,
+            tradesPurged,
+            nextBucket: hasMore ? nextBucket : null,
+            hasMore,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[REPLAY-INGEST] error:", e);
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/replay-day?key=...&date=YYYY-MM-DD&limit=...&offset=...&cleanSlate=1&bucketMinutes=5
+      // Replay a day's timed_trail ingests from 9:30 AM ET, chronologically. Kanban + trade simulation.
+      // cleanSlate=1: purge ALL trades and reset entry state for a clean simulation of the day only.
+      // bucketMinutes=5: group ingests into 5-min buckets (latest per ticker per bucket) for structured progression.
       if (url.pathname === "/timed/admin/replay-day" && req.method === "POST") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
@@ -22976,30 +23406,117 @@ Provide 3-5 actionable next steps:
         const dayEnd = nyWallTimeToUtcMs(dayKey, 23, 59, 59);
         const tsEnd = dayEnd != null ? dayEnd + 999 : Date.now();
         const tsStart = marketOpen != null ? marketOpen : Date.now() - 24 * 60 * 60 * 1000;
+        const tsStartInt = Math.floor(Number(tsStart));
+        const tsEndInt = Math.floor(Number(tsEnd));
 
-        const qLimit = Math.min(Number(url.searchParams.get("limit")) || 30, 50);
+        const cleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+        const bucketMinutes = Math.max(1, Math.min(60, Number(url.searchParams.get("bucketMinutes")) || 0));
+        const tickerFilter = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        const qLimit = tickerFilter ? 200 : Math.min(Number(url.searchParams.get("limit")) || 50, 100);
         const qOffset = Number(url.searchParams.get("offset")) || 0;
 
         let rows = [];
         let totalRows = null;
         try {
-          if (qOffset === 0) {
-            const countRow = await db
-              .prepare(
-                `SELECT COUNT(*) as n FROM timed_trail WHERE ts >= ?1 AND ts <= ?2`,
-              )
-              .bind(tsStart, tsEnd)
-              .first();
-            totalRows = Number(countRow?.n) || 0;
+          if (bucketMinutes > 0) {
+            // Bucket mode: fetch all rows, group by 5-min (or N-min) buckets, latest per ticker per bucket
+            const allRes = await db.prepare(
+              `SELECT ticker, ts, payload_json FROM ingest_receipts
+               WHERE ts >= ?1 AND ts <= ?2
+               ORDER BY ts ASC`,
+            ).bind(tsStart, tsEnd).all();
+            const rawRows = allRes?.results || [];
+            const bucketMs = bucketMinutes * 60 * 1000;
+            const byBucket = {};
+            for (const r of rawRows) {
+              const ts = Number(r?.ts);
+              if (!Number.isFinite(ts)) continue;
+              const bucketTs = Math.floor(ts / bucketMs) * bucketMs;
+              if (!byBucket[bucketTs]) byBucket[bucketTs] = {};
+              const tkr = String(r?.ticker || "").toUpperCase();
+              if (!tkr) continue;
+              byBucket[bucketTs][tkr] = r;
+            }
+            const buckets = Object.keys(byBucket).map(Number).sort((a, b) => a - b);
+            const bucketedRows = [];
+            for (const bt of buckets) {
+              for (const r of Object.values(byBucket[bt])) bucketedRows.push(r);
+            }
+            totalRows = bucketedRows.length;
+            rows = bucketedRows.slice(qOffset, qOffset + qLimit);
+          } else if (tickerFilter) {
+            // Single-ticker: use d1GetTrailRange (NO payload_json - avoids D1 string limits), build minimal payload
+            let trailRes;
+            try {
+              trailRes = await d1GetTrailRange(env, tickerFilter, tsStartInt, 500);
+              if (!trailRes?.ok) {
+                return sendJSON(
+                  { ok: false, error: "trail_range_failed", detail: trailRes?.error || "unknown" },
+                  500,
+                  corsHeaders(env, req),
+                );
+              }
+            } catch (trailErr) {
+              return sendJSON(
+                { ok: false, error: "trail_fetch_failed", detail: String(trailErr?.message || trailErr) },
+                500,
+                corsHeaders(env, req),
+              );
+            }
+            const trail = trailRes?.trail || [];
+            const inRange = trail.filter((p) => {
+              const ts = Number(p?.ts);
+              return Number.isFinite(ts) && ts >= tsStartInt && ts <= tsEndInt;
+            });
+            rows = inRange.map((p) => {
+              const obj = {
+                ticker: tickerFilter,
+                ts: Number(p?.ts),
+                price: p?.price,
+                htf_score: p?.htf_score,
+                ltf_score: p?.ltf_score,
+                completion: p?.completion,
+                phase_pct: p?.phase_pct,
+                state: p?.state,
+                rank: p?.rank,
+                flags: p?.flags || {},
+                trigger_reason: p?.trigger_reason,
+                trigger_dir: p?.trigger_dir,
+              };
+              return { ticker: tickerFilter, ts: obj.ts, payload_json: JSON.stringify(obj) };
+            });
+            totalRows = rows.length;
+          } else {
+            // Multi-ticker: lightweight meta then fetch payload per row
+            const metaStmt = db.prepare(
+              `SELECT ticker, ts FROM timed_trail
+               WHERE ts >= ?1 AND ts <= ?2
+               ORDER BY ts ASC
+               LIMIT ?3 OFFSET ?4`,
+            );
+            const metaResult = await metaStmt.bind(
+              tsStartInt,
+              tsEndInt,
+              Math.min(20, Math.floor(qLimit)),
+              Math.floor(qOffset),
+            ).all();
+            const metaRows = metaResult?.results || [];
+            rows = [];
+            for (const m of metaRows) {
+              const rawTicker = String(m?.ticker || "").trim();
+              const tsVal = Number(m?.ts);
+              if (!rawTicker || !Number.isFinite(tsVal)) continue;
+              try {
+                const payRow = await db.prepare(
+                  `SELECT payload_json FROM timed_trail WHERE ticker = ?1 AND ts = ?2 LIMIT 1`,
+                ).bind(rawTicker, tsVal).first();
+                rows.push({ ticker: rawTicker, ts: tsVal, payload_json: payRow?.payload_json ?? null });
+              } catch {
+                rows.push({ ticker: rawTicker, ts: tsVal, payload_json: null });
+              }
+            }
+            if (qOffset === 0) totalRows = rows.length;
           }
-          const stmt = db.prepare(
-            `SELECT ticker, ts, payload_json FROM timed_trail
-             WHERE ts >= ?1 AND ts <= ?2
-             ORDER BY ts ASC
-             LIMIT ?3 OFFSET ?4`,
-          );
-          const result = await stmt.bind(tsStart, tsEnd, qLimit, qOffset).all();
-          rows = result?.results || [];
         } catch (e) {
           return sendJSON(
             { ok: false, error: String(e?.message || e) },
@@ -23011,16 +23528,38 @@ Provide 3-5 actionable next steps:
         let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
         let tradesPurged = 0;
         if (qOffset === 0 && rows.length > 0) {
-          // Purge ALL trades (open + closed) in the re-run window for a clean slate
-          const kept = allTrades.filter((t) => {
-            const entryTs = Number(t?.entry_ts ?? t?.entryTime);
-            if (!Number.isFinite(entryTs)) return true;
-            if (entryTs < tsStart || entryTs > tsEnd) return true;
-            tradesPurged += 1;
-            return false;
-          });
-          allTrades = kept;
-          await kvPutJSON(KV, "timed:trades:all", kept);
+          if (cleanSlate) {
+            if (tickerFilter) {
+              // Single-ticker mode: purge only this ticker's trades in the day range
+              const kept = allTrades.filter((t) => {
+                const tkr = String(t?.ticker || "").toUpperCase();
+                if (tkr !== tickerFilter) return true;
+                const entryTs = Number(t?.entry_ts ?? t?.entryTime);
+                if (!Number.isFinite(entryTs)) return true;
+                if (entryTs < tsStart || entryTs > tsEnd) return true;
+                tradesPurged += 1;
+                return false;
+              });
+              allTrades = kept;
+              await kvPutJSON(KV, "timed:trades:all", kept);
+            } else {
+              // Full replay: purge ALL trades
+              tradesPurged = allTrades.length;
+              allTrades = [];
+              await kvPutJSON(KV, "timed:trades:all", []);
+            }
+          } else {
+            // Purge trades in the day window only
+            const kept = allTrades.filter((t) => {
+              const entryTs = Number(t?.entry_ts ?? t?.entryTime);
+              if (!Number.isFinite(entryTs)) return true;
+              if (entryTs < tsStart || entryTs > tsEnd) return true;
+              tradesPurged += 1;
+              return false;
+            });
+            allTrades = kept;
+            await kvPutJSON(KV, "timed:trades:all", kept);
+          }
         }
 
         const uniqueTickers = [...new Set(rows.map((r) => String(r?.ticker || "").toUpperCase()).filter(Boolean))];
@@ -23028,7 +23567,16 @@ Provide 3-5 actionable next steps:
           uniqueTickers.map((t) => kvGetJSON(KV, `timed:latest:${t}`)),
         ).then((arr) => Object.fromEntries(uniqueTickers.map((t, i) => [t, arr[i] || {}])));
         const stateMap = {};
-        for (const t of uniqueTickers) stateMap[t] = existingMap[t] ? { ...existingMap[t] } : {};
+        for (const t of uniqueTickers) {
+          const ex = existingMap[t] || {};
+          const exEntryTs = Number(ex?.entry_ts ?? ex?.entryTs);
+          const shouldReset = cleanSlate && (qOffset === 0 || (Number.isFinite(exEntryTs) && exEntryTs < tsStart));
+          if (shouldReset) {
+            stateMap[t] = { ...ex, entry_ts: null, entry_price: null, kanban_cycle_enter_now_ts: null, kanban_cycle_trigger_ts: null, kanban_cycle_side: null };
+          } else {
+            stateMap[t] = ex ? { ...ex } : {};
+          }
+        }
 
         const findOpenInArray = (trades, sym) =>
           trades.find(
@@ -23105,14 +23653,14 @@ Provide 3-5 actionable next steps:
 
             if (
               prevStage === "archive" &&
-              ["hold", "defend", "trim", "exit"].includes(stage)
+              ["hold", "just_entered", "trim", "exit"].includes(stage)
             ) {
               finalStage = "watch";
               if (!payload.flags) payload.flags = {};
               payload.flags.recycled_from_archive = true;
             }
 
-            const mgmt = ["hold", "defend", "trim", "exit"].includes(finalStage);
+            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
               const curSide = sideFromStateOrScores(payload);
@@ -23151,7 +23699,7 @@ Provide 3-5 actionable next steps:
                   ? payload.trigger_ts
                   : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
-            } else if (["hold", "defend", "trim", "exit"].includes(finalStage)) {
+            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
               payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts ?? null;
               payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts ?? null;
               payload.kanban_cycle_side = existing?.kanban_cycle_side ?? null;
@@ -23195,6 +23743,7 @@ Provide 3-5 actionable next steps:
             await processTradeSimulation(KV, ticker, payload, existing, env, {
               forceUseIngestTs: true,
               replayBatchContext: replayCtx,
+              asOfTs: rowTs,
             });
             const countAfter = replayCtx.allTrades.filter(
               (x) => String(x?.ticker).toUpperCase() === ticker,
@@ -23227,6 +23776,9 @@ Provide 3-5 actionable next steps:
           {
             ok: true,
             day: dayKey,
+            ticker: tickerFilter || undefined,
+            cleanSlate: cleanSlate || undefined,
+            bucketMinutes: bucketMinutes > 0 ? bucketMinutes : undefined,
             tsStart,
             tsEnd,
             totalRows: totalRows ?? undefined,

@@ -21,6 +21,9 @@ fi
 
 QUERY="key=${API_KEY}"
 [ -n "$DATE" ] && QUERY="${QUERY}&date=${DATE}"
+CLEAN_SLATE="${CLEAN_SLATE:-1}"
+[ "$CLEAN_SLATE" = "1" ] && QUERY="${QUERY}&cleanSlate=1"
+[ -n "$BUCKET_MINUTES" ] && [ "$BUCKET_MINUTES" -gt 0 ] 2>/dev/null && QUERY="${QUERY}&bucketMinutes=${BUCKET_MINUTES}"
 
 echo "Replaying day (date=${DATE:-today})..."
 OFFSET=0
