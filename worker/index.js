@@ -1122,23 +1122,23 @@ function triggerSummaryAndScore(tickerData) {
   };
 
   if (has("SQUEEZE_RELEASE_30M")) score += 6;
-  score += 4 * matchSide("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR");
+  score += 6 * matchSide("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR");
   score +=
     2 * matchSide("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR");
   if (has("ST_FLIP_1H")) score += 1;
   if (has("ST_FLIP_30M")) score += 1;
   score +=
-    5 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");
+    7 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");
 
   // Fallback for legacy payloads without triggers[] populated
   const flags = tickerData?.flags || {};
   if (uniq.length === 0) {
     if (flags.sq30_release) score += 4;
-    if (flags.ema_cross_1h_13_48) score += 2;
-    if (flags.buyable_dip_1h_13_48) score += 4;
+    if (flags.ema_cross_1h_13_48) score += 5;
+    if (flags.buyable_dip_1h_13_48) score += 7;
   }
 
-  score = Math.max(-6, Math.min(12, score));
+  score = Math.max(-6, Math.min(18, score));
 
   return {
     score,
@@ -1388,7 +1388,8 @@ function classifyKanbanStage(tickerData) {
   const isActive = moveStatus?.status === "ACTIVE";
   const htfScore = Number(tickerData?.htf_score) || 0;
   const ltfScore = Number(tickerData?.ltf_score) || 0;
-  const rank = Number(tickerData?.rank) || 999;
+  const score = Number(tickerData?.score ?? tickerData?.rank) ?? 0;
+  const position = Number(tickerData?.position ?? tickerData?.rank_position) || 0;
   const ed = tickerData?.entry_decision || null;
   const edAction = String(ed?.action || "").toUpperCase();
   const edOk = ed?.ok === true;
@@ -1449,34 +1450,37 @@ function classifyKanbanStage(tickerData) {
   }
 
   // Stage 3: Enter Now - high-confidence entry opportunities
-  // Must be in momentum and meet quality thresholds
+  // Must be in momentum and meet quality thresholds (score + other signals, no score-only path)
   if (isMomentum) {
     // Hard gate: never show ENTER_NOW if the entry decision is explicitly blocked.
-    // This avoids false positives like "rank-only" ENTER_NOW when corridor/trigger gates fail.
     if (edAction === "ENTRY" && !edOk) return "watch";
 
-    // Top-ranked tickers (relaxed to 20 so more movement when market moves)
-    if (rank <= 20) {
-      return "enter_now";
-    }
-
-    // Thesis match or momentum elite
-    if (flags.thesis_match || flags.momentum_elite) {
-      return "enter_now";
-    }
-
-    // Strong HTF/LTF alignment (relaxed 50/25 → 40/20 for more enter_now)
+    const ent = entryType(tickerData);
+    const inCorridor = !!ent?.corridor;
     const htfAbs = Math.abs(htfScore);
     const ltfAbs = Math.abs(ltfScore);
-    if (htfAbs >= 40 && ltfAbs >= 20) {
-      return "enter_now";
-    }
+    const ema1H1348 = !!flags.ema_cross_1h_13_48;
+    const buyableDip1H = !!flags.buyable_dip_1h_13_48;
 
-    // Corridor + Squeeze combo
-    const ent = entryType(tickerData);
-    if (ent?.corridor && flags.sq30_release) {
+    // Path 1: Top tier + corridor (never score alone)
+    if ((score >= 75 || (position > 0 && position <= 20)) && inCorridor)
       return "enter_now";
-    }
+
+    // Path 2: Thesis / Momentum Elite (with score gate)
+    if ((flags.thesis_match || flags.momentum_elite) && score >= 60)
+      return "enter_now";
+
+    // Path 3: Strong HTF/LTF
+    if (htfAbs >= 40 && ltfAbs >= 20 && score >= 70)
+      return "enter_now";
+
+    // Path 4: Corridor + Squeeze
+    if (inCorridor && flags.sq30_release && score >= 70)
+      return "enter_now";
+
+    // Path 5: 1H 13/48 EMA Cross — pivot change + pullback opportunity
+    if (inCorridor && (ema1H1348 || buyableDip1H) && score >= 68)
+      return "enter_now";
 
     // Watch: Momentum-aligned, but ENTRY is blocked (meaningful "next-up" lane)
     const ed = tickerData?.entry_decision;
@@ -7293,10 +7297,10 @@ function computeRank(d) {
   if (momentumElite) score += 15; // Reduced from 20
 
   // 1H 13/48 cross + buyable-dip nuance
-  // - Cross is a pivot/confirmation marker
-  // - Dip-after-cross is a higher-quality entry context
-  if (emaCross1H1348) score += 2;
-  if (buyableDip1H1348) score += 5;
+  // - Cross is a strong pivot/confirmation marker
+  // - Dip-after-cross is a premium pullback entry opportunity
+  if (emaCross1H1348) score += 5;
+  if (buyableDip1H1348) score += 7;
 
   // RSI Divergence boost/penalty
   const rsi = d.rsi;
@@ -11667,6 +11671,7 @@ export default {
           }
 
           payload.rank = computeRank(payload);
+          payload.score = payload.rank;
 
           // Derived: horizon + % metrics (ETA v2 + risk/return)
           try {
@@ -12172,6 +12177,7 @@ export default {
                   0,
                   Math.min(100, baseRank + valuationBoost),
                 );
+                payload.score = payload.rank;
 
                 // Store valuation boost for debugging/display
                 if (!payload.rank_components) payload.rank_components = {};
@@ -14832,6 +14838,28 @@ export default {
           } catch {
             // ignore
           }
+
+          // Compute rank positions and add score/position (canonical) alongside rank/rank_position
+          const ranked = Object.entries(data)
+            .map(([ticker, value]) => {
+              const sc = Number(value?.dynamicScore ?? value?.rank);
+              const safeScore = Number.isFinite(sc)
+                ? sc
+                : (value && computeDynamicScore(value)) || Number(value?.rank) || 0;
+              return { ticker, score: safeScore };
+            })
+            .sort((a, b) => b.score - a.score);
+          const rankTotal = ranked.length;
+          ranked.forEach((item, idx) => {
+            const entry = data[item.ticker];
+            if (!entry) return;
+            const pos = idx + 1;
+            entry.rank_position = pos;
+            entry.position = pos;
+            entry.rank_total = rankTotal;
+            entry.rank_score = item.score;
+            entry.score = Number(entry?.rank ?? item.score);
+          });
 
           return sendJSON(
             {

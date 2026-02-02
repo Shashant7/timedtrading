@@ -101,7 +101,9 @@ Discord alerts are sent when:
 
 ## Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Comprehensive system architecture, data flow, and scoring logic documentation
+- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture, data flow, and scoring logic
+- [docs/README.md](docs/README.md) - Full documentation index
+- [tasks/WORKFLOW_ORCHESTRATION.md](tasks/WORKFLOW_ORCHESTRATION.md) - Development workflow (plan, verify, lessons)
 
 ## License
 

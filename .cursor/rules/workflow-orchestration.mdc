@@ -1,0 +1,23 @@
+---
+description: Workflow orchestration - plan first, verify, capture lessons
+alwaysApply: true
+---
+
+# Workflow Orchestration
+
+Follow `tasks/WORKFLOW_ORCHESTRATION.md`. Key principles:
+
+## Plan Mode Default
+- Non-trivial tasks (3+ steps): write plan to `tasks/todo.md` first
+- If something goes sideways: STOP and re-plan, don't push through
+
+## Verification Before Done
+- Never mark complete without proving it works
+- "Would a staff engineer approve this?"
+
+## Self-Improvement
+- After user corrections: update `tasks/lessons.md`
+- Review lessons at session start
+
+## Core
+- Simplicity first. Minimal impact. No temporary fixes.

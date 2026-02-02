@@ -1,25 +1,24 @@
 # Alert & Kanban Lane Review
 
-Quick reference for **today’s** alert thresholds, Kanban lane logic, and refinements.
+Quick reference for alert thresholds, Kanban lane logic, and refinements.
 
 ---
 
-## Optimizations applied (for more movement when market moves)
+## Terminology
 
-1. **Rank:** Trade sim + entry decision use **70** (Momentum Elite **60**) instead of hardcoded 75 — more trades/enter_now when market moves.
-2. **Fresh trigger:** **Just-entered-corridor** now counts as a valid trigger (in addition to pullback→re-align and squeeze release) so trades can fire when tickers move into corridor without a prior pullback.
-3. **Enter Now lane:** **Rank ≤ 20** (was 10) and **HTF/LTF ≥ 40/20** (was 50/25) so more tickers show in Enter Now when conditions align.
+- **Score** (0–100): Composite quality from `computeRank()`. Higher = better setup. Stored as `rank` in DB; exposed as `score` in API.
+- **Position** (1-based): Ordinal after sorting by score. 1 = best in watchlist. Aliased as `rank_position`.
 
 ---
 
 ## 1. Alert thresholds (Discord / trade simulation)
 
-| Setting | wrangler.toml (env) | Code (after optimization) | Notes |
-|--------|----------------------|---------------------------|--------|
+| Setting | wrangler.toml (env) | Code | Notes |
+|--------|----------------------|------|--------|
 | **RR** | ALERT_MIN_RR = 1.5 | Uses env; ME: ≥1.2 | OK |
 | **Completion** | ALERT_MAX_COMPLETION = 0.4 | Uses env; ME: ≤0.5 | OK |
 | **Phase** | ALERT_MAX_PHASE = 0.6 | Uses env; ME: ≤0.7 | OK |
-| **Rank** | ALERT_MIN_RANK = 70 | **70 (ME: 60)** in trade sim + entry decision | Aligned |
+| **Score** | ALERT_MIN_RANK = 70 | **70 (ME: 60)** in trade sim + entry decision | Aligned |
 
 ---
 
@@ -34,12 +33,26 @@ Quick reference for **today’s** alert thresholds, Kanban lane logic, and refin
 | **hold** | ACTIVE, none of the above |
 | **flip_watch** | flags.flip_watch |
 | **just_flipped** | momentum + corridorEntry_60m, unless enter_now wins |
-| **enter_now** | momentum + (rank ≤ 10 \| thesis_match \| momentum_elite \| HTF/LTF strong \| corridor + sq30_release) and entry not blocked |
+| **enter_now** | momentum + entry not blocked + one of 5 paths (see below) |
 | **watch** | momentum but entry blocked by meaningful blocker |
 
-- **Trim:** 60% completion (was 70%); phase 65% + WARNING; or adverse_move_warning.
+### Enter Now paths (score + other signals; no score-only)
+
+| Path | Condition |
+|------|-----------|
+| 1. Top tier + corridor | (score ≥ 75 OR position ≤ 20) AND in_corridor |
+| 2. Thesis / Momentum Elite | (thesis_match OR momentum_elite) AND score ≥ 60 |
+| 3. Strong HTF/LTF | htfAbs ≥ 40 AND ltfAbs ≥ 20 AND score ≥ 70 |
+| 4. Corridor + Squeeze | in_corridor AND sq30_release AND score ≥ 70 |
+| 5. 1H 13/48 EMA Cross | in_corridor AND (ema_cross_1h_13_48 OR buyable_dip_1h_13_48) AND score ≥ 68 |
+
+- **Trim:** 60% completion; phase 65% + WARNING; or adverse_move_warning.
 - **Exit:** large_adverse_move (≥10% adverse), sl_breached, left_entry_corridor, or severity CRITICAL.
-- **Refinement:** No change required unless you want trim earlier (e.g. 55%) or a different phase band; current values are consistent.
+
+### Trigger score contributions (1H 13/48 EMA Cross)
+
+- 1H 13/48 EMA Cross: +5 (flag) / +6 (triggers)
+- Buyable Dip 1H 13/48: +7
 
 ---
 
@@ -82,6 +95,7 @@ Quick reference for **today’s** alert thresholds, Kanban lane logic, and refin
 
 ## 6. Quick checklist
 
-- [ ] Use ALERT_MIN_RANK from env (70) and ME override (e.g. 60) instead of hardcoded 75.
-- [ ] Confirm Discord alert path also requires rank (entry decision already blocks; ensure ingest gate includes rank).
-- [ ] No Kanban threshold change unless you want trim earlier or env-based tuning.
+- [x] Enter Now uses score + position (no score-only path).
+- [x] 1H 13/48 EMA Cross path added for pivot + pullback setups.
+- [x] Trigger weights bumped (EMA Cross, Buyable Dip).
+- [x] score/position added to /timed/all responses (backward compat with rank/rank_position).
