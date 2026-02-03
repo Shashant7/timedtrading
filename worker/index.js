@@ -2825,6 +2825,92 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   return enhancedTrigger && rrOk && compOk && phaseOk && rankOk;
 }
 
+// Debug: return blockers for trade entry (same logic as shouldTriggerTradeSimulation)
+function getEntryBlockers(ticker, tickerData, prevData) {
+  const blockers = [];
+  const tickerUpper = String(ticker || "").toUpperCase();
+  if (FUTURES_TICKERS.has(tickerUpper)) return ["futures_disabled"];
+
+  const slVal = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
+  const tpVal = Number(tickerData?.tp ?? tickerData?.tp_max_price ?? tickerData?.tp_target_price ?? tickerData?.tp_target);
+  if (!tickerData.price || !Number.isFinite(slVal) || slVal <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) {
+    blockers.push("missing_levels");
+    return blockers;
+  }
+
+  const flags = tickerData.flags || {};
+  const flipWatch = !!flags.flip_watch;
+  const state = String(tickerData.state || "");
+  const alignedLong = state === "HTF_BULL_LTF_BULL";
+  const alignedShort = state === "HTF_BEAR_LTF_BEAR";
+  const aligned = alignedLong || alignedShort;
+  const h = Number(tickerData.htf_score);
+  const l = Number(tickerData.ltf_score);
+  const inCorridor = Number.isFinite(h) && Number.isFinite(l) &&
+    ((h > 0 && l >= -10 && l <= 22) || (h < 0 && l >= -12 && l <= 10));
+  const side = h > 0 && l >= -10 && l <= 22 ? "LONG" : h < 0 && l >= -12 && l <= 10 ? "SHORT" : null;
+  const corridorAlignedOK = (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+
+  if (!inCorridor) blockers.push("not_in_corridor");
+  if (inCorridor && !corridorAlignedOK) blockers.push("corridor_misaligned");
+
+  const prevH = prevData ? Number(prevData.htf_score) : NaN;
+  const prevL = prevData ? Number(prevData.ltf_score) : NaN;
+  const prevInCorridor = Number.isFinite(prevH) && Number.isFinite(prevL) &&
+    ((prevH > 0 && prevL >= -10 && prevL <= 22) || (prevH < 0 && prevL >= -12 && prevL <= 10));
+  const justEnteredCorridor = !!prevData && !prevInCorridor && inCorridor;
+  const trigReason = String(tickerData.trigger_reason || "");
+  const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE" ||
+    trigReason.includes("EMA_CROSS") || trigReason.includes("SQUEEZE_RELEASE");
+  const sqRelease = !!flags.sq30_release;
+  const enteredAligned = prevData && prevData.state !== state && aligned;
+
+  const shouldConsiderAlert = inCorridor && corridorAlignedOK &&
+    (justEnteredCorridor || enteredAligned || trigOk || sqRelease || flipWatch);
+  const momentumElite = !!flags.momentum_elite;
+  const momentumEliteTrigger = momentumElite && inCorridor && corridorAlignedOK &&
+    (trigOk || sqRelease || flipWatch || justEnteredCorridor);
+  const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
+
+  const rank = Number(tickerData.rank ?? tickerData.rank_position ?? tickerData.position) || 0;
+  const minRank = momentumElite ? 60 : 70;
+  if (rank < minRank) blockers.push(`rank_below_min(${rank}<${minRank})`);
+
+  const rr = Number(tickerData.rr) || 0;
+  const minRR = momentumElite ? Math.max(1.0, 1.2 * 0.9) : 1.2;
+  if (rr < minRR) blockers.push(`rr_below_min(${rr?.toFixed(2)}<${minRR})`);
+
+  const compRaw = completionForSize(tickerData);
+  const compToMax = computeCompletionToTpMax(tickerData);
+  const comp = Number.isFinite(compToMax) ? compToMax : compRaw;
+  const maxComp = flipWatch || sqRelease ? 0.6 : momentumElite ? 0.55 : 0.5;
+  if (comp > maxComp) blockers.push(`completion_high(${(comp*100).toFixed(0)}%>${(maxComp*100).toFixed(0)}%)`);
+
+  const phase = Number(tickerData.phase_pct) || 0;
+  const maxPhase = momentumElite ? 0.75 : 0.65;
+  if (phase > maxPhase) blockers.push(`phase_high(${(phase*100).toFixed(0)}%>${(maxPhase*100).toFixed(0)}%)`);
+
+  const ms = tickerData?.move_status || computeMoveStatus(tickerData);
+  if (ms?.status === "INVALIDATED") blockers.push("move_invalidated");
+  if (ms?.status === "COMPLETED") blockers.push("move_completed");
+
+  const inferredSide = side || sideFromStateOrScores(tickerData);
+  if (!dailyEmaRegimeOk(tickerData, inferredSide)) blockers.push("htf_regime_gate");
+  if (!ichimokuRegimeOk(tickerData, inferredSide)) blockers.push("ichimoku_regime_gate");
+  if (isLateCycle(tickerData) && !momentumElite) blockers.push("late_cycle");
+
+  const prevStateStr = prevData ? String(prevData.state || "") : "";
+  const enteredFromPullback = !!enteredAligned && prevStateStr.includes("PULLBACK");
+  const freshPullbackOk = enteredFromPullback || sqRelease ||
+    (trigReason === "SQUEEZE_RELEASE" || trigReason.includes("SQUEEZE_RELEASE")) ||
+    trigReason.includes("EMA_CROSS") || flipWatch || justEnteredCorridor;
+  if (!freshPullbackOk) blockers.push("no_fresh_pullback");
+
+  if (!enhancedTrigger) blockers.push("no_enhanced_trigger");
+
+  return blockers;
+}
+
 function isOpenTradeStatus(status) {
   const s = String(status || "").toUpperCase();
   return s === "OPEN" || s === "TP_HIT_TRIM" || !s;
@@ -23213,7 +23299,9 @@ Provide 3-5 actionable next steps:
         const tickerFilter = (url.searchParams.get("ticker") || "").trim().toUpperCase() || null;
         const scriptVersion = url.searchParams.get("scriptVersion") || "2.5.0";
         const cleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
-        const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10)));
+        const debug = url.searchParams.get("debug") === "1" || url.searchParams.get("debug") === "true";
+        const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10)));
+        const bucketOffset = Math.max(0, parseInt(url.searchParams.get("bucketOffset") || "0", 10));
 
         let currentBucket;
         if (bucketParam != null && bucketParam !== "") {
@@ -23235,6 +23323,7 @@ Provide 3-5 actionable next steps:
             tradesPurged: 0,
             nextBucket: null,
             hasMore: false,
+            hasMoreInBucket: false,
           }, 200, corsHeaders(env, req));
         }
 
@@ -23244,14 +23333,14 @@ Provide 3-5 actionable next steps:
               ? `SELECT receipt_id, ticker, ts FROM ingest_receipts
                  WHERE bucket_5m = ?1 AND (script_version = ?2 OR script_version IS NULL)
                  AND ticker = ?3
-                 ORDER BY ts ASC LIMIT ?4`
+                 ORDER BY ts ASC LIMIT ?4 OFFSET ?5`
               : `SELECT receipt_id, ticker, ts FROM ingest_receipts
                  WHERE bucket_5m = ?1 AND (script_version = ?2 OR script_version IS NULL)
-                 ORDER BY ts ASC LIMIT ?3`,
+                 ORDER BY ts ASC LIMIT ?3 OFFSET ?4`,
           );
           const metaResult = tickerFilter
-            ? await metaStmt.bind(currentBucket, scriptVersion, tickerFilter, limit).all()
-            : await metaStmt.bind(currentBucket, scriptVersion, limit).all();
+            ? await metaStmt.bind(currentBucket, scriptVersion, tickerFilter, limit, bucketOffset).all()
+            : await metaStmt.bind(currentBucket, scriptVersion, limit, bucketOffset).all();
           const metaRows = metaResult?.results || [];
 
           const rows = [];
@@ -23276,7 +23365,7 @@ Provide 3-5 actionable next steps:
           let tradesPurged = 0;
           const tickersInBucket = [...new Set(rows.map((r) => r.ticker))];
 
-          if (cleanSlate) {
+          if (cleanSlate && bucketOffset === 0) {
             const toRemove = allTrades.filter((t) => {
               const tkr = String(t?.ticker || "").toUpperCase();
               if (tickerFilter && tkr !== tickerFilter) return false;
@@ -23353,6 +23442,11 @@ Provide 3-5 actionable next steps:
                 payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
                 payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
               }
+              if (payload.score == null && payload.rank == null && payload.rank_position == null) {
+                const dyn = computeDynamicScore(payload);
+                payload.score = dyn;
+                if (dyn >= 70) payload.rank_position = Math.max(1, Math.min(50, Math.round(160 - dyn)));
+              }
               const prevStage = existingState?.kanban_stage;
               const stage = classifyKanbanStage(payload);
               let finalStage = stage;
@@ -23412,6 +23506,20 @@ Provide 3-5 actionable next steps:
               payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
               stateMap[ticker] = payload;
               const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+              const shouldTrigger = finalStage === "enter_now" ? shouldTriggerTradeSimulation(ticker, payload, existingState) : false;
+              if (debug && tickerFilter) {
+                replayCtx.debugRows = replayCtx.debugRows || [];
+                replayCtx.debugEnterNow = (replayCtx.debugEnterNow || 0) + (finalStage === "enter_now" ? 1 : 0);
+                if (finalStage === "enter_now" && replayCtx.debugRows.length < 15) {
+                  const blockers = getEntryBlockers(ticker, payload, existingState);
+                  replayCtx.debugRows.push({ ticker, ts: rowTs, stage: finalStage, shouldTrigger, blockers, rank: payload.rank ?? payload.rank_position, rr: payload.rr, comp: payload.completion, trigger_reason: payload.trigger_reason });
+                } else if (finalStage === "watch" && payload.state === "HTF_BULL_LTF_BULL" && replayCtx.debugRows.length < 5) {
+                  const ent = entryType(payload);
+                  if (ent?.corridor) {
+                    replayCtx.debugRows.push({ ticker, ts: rowTs, stage: "watch", reason: "momentum_in_corridor_but_watch", rank: payload.rank ?? payload.rank_position, score: payload.score, trigger_reason: payload.trigger_reason });
+                  }
+                }
+              }
               await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
               const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
               if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
@@ -23426,19 +23534,28 @@ Provide 3-5 actionable next steps:
           await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
 
           const nextBucket = currentBucket + bucketMs;
-          const hasMore = nextBucket <= tsEnd;
+          const hasMoreInBucket = rows.length >= limit;
+          const nextBucketOffset = hasMoreInBucket ? bucketOffset + rows.length : null;
+          const hasMore = hasMoreInBucket || nextBucket <= tsEnd;
 
-          return sendJSON({
+          const resp = {
             ok: true,
             date: dayKey,
             ticker: tickerFilter || null,
             bucketProcessed: currentBucket,
+            bucketOffset,
             rowsProcessed: rows.length,
             tradesCreated,
             tradesPurged,
-            nextBucket: hasMore ? nextBucket : null,
+            nextBucket: !hasMoreInBucket && nextBucket <= tsEnd ? nextBucket : null,
+            nextBucketOffset: hasMoreInBucket ? nextBucketOffset : null,
             hasMore,
-          }, 200, corsHeaders(env, req));
+            hasMoreInBucket,
+          };
+          if (debug) {
+            resp.debug = { rows: replayCtx?.debugRows || [], enterNowCount: replayCtx?.debugEnterNow || 0 };
+          }
+          return sendJSON(resp, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[REPLAY-INGEST] error:", e);
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));

@@ -15,6 +15,7 @@ const DATE = process.env.DATE || "";
 const TICKER = (process.env.TICKER || "").trim().toUpperCase();
 const CLEAN_SLATE = process.env.CLEAN_SLATE !== "0" && process.env.CLEAN_SLATE !== "false";
 const DELAY_MS = parseInt(process.env.DELAY_MS || "200", 10) || 0;
+const DEBUG = process.env.DEBUG === "1" || process.env.DEBUG === "true";
 
 if (!API_KEY) {
   console.error("Error: TIMED_API_KEY is required");
@@ -39,13 +40,16 @@ async function replay() {
   let bucketCount = 0;
   let cleanSlate = CLEAN_SLATE;
 
-  console.log(`Replaying ingest (date=${dayKey})${TICKER ? ` ticker=${TICKER}` : ""}${cleanSlate ? " [clean slate]" : ""}...`);
+  console.log(`Replaying ingest (date=${dayKey})${TICKER ? ` ticker=${TICKER}` : ""}${cleanSlate ? " [clean slate]" : ""}${DEBUG ? " [debug]" : ""}...`);
 
+  let bucketOffset = 0;
   while (true) {
     const params = new URLSearchParams({ key: API_KEY, date: dayKey });
     if (TICKER) params.set("ticker", TICKER);
     if (cleanSlate) params.set("cleanSlate", "1");
     if (bucket != null) params.set("bucket", String(bucket));
+    if (bucketOffset > 0) params.set("bucketOffset", String(bucketOffset));
+    if (DEBUG) params.set("debug", "1");
 
     const url = `${API_BASE}/timed/admin/replay-ingest?${params}`;
     const resp = await fetch(url, { method: "POST" });
@@ -59,17 +63,28 @@ async function replay() {
     totalRows += data.rowsProcessed || 0;
     totalTrades += data.tradesCreated || 0;
     totalPurged += data.tradesPurged || 0;
-    bucketCount += 1;
 
+    const pageMsg = data.hasMoreInBucket ? ` (page to ${data.nextBucketOffset})` : "";
     const purgedMsg = data.tradesPurged ? `, purged: ${data.tradesPurged}` : "";
     console.log(
-      `  bucket ${bucketCount}: ${data.rowsProcessed || 0} rows, +${data.tradesCreated || 0} trades${purgedMsg}`,
+      `  bucket ${bucketCount + 1}: ${data.rowsProcessed || 0} rows, +${data.tradesCreated || 0} trades${pageMsg}${purgedMsg}`,
     );
+    if (DEBUG && data.debug) {
+      if (data.debug.enterNowCount) console.log(`    [debug] enter_now count this page: ${data.debug.enterNowCount}`);
+      if (data.debug.rows?.length) data.debug.rows.forEach((r) => console.log(`    [debug] ${JSON.stringify(r)}`));
+    }
 
     cleanSlate = false;
 
-    if (!data.hasMore || data.nextBucket == null) break;
+    if (data.hasMoreInBucket) {
+      bucketOffset = data.nextBucketOffset;
+      if (DELAY_MS > 0) await new Promise((r) => setTimeout(r, DELAY_MS));
+      continue;
+    }
 
+    bucketCount += 1;
+    bucketOffset = 0;
+    if (!data.hasMore || data.nextBucket == null) break;
     bucket = data.nextBucket;
     if (DELAY_MS > 0) await new Promise((r) => setTimeout(r, DELAY_MS));
   }
