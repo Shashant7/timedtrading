@@ -4850,6 +4850,7 @@ async function processTradeSimulation(
         ? [...trade.history, ev]
         : [ev];
       trade.lastUpdate = eventTs();
+      trade.trim_ts = Number.isFinite(asOfMs) ? asOfMs : (isoToMs(ev.timestamp) || null);
 
       // Portfolio cash increases by proceeds
       portfolio.cash = Number(portfolio.cash) + p * trimShares;
@@ -6045,6 +6046,11 @@ async function processTradeSimulation(
           })(),
           rank: Number(tickerData.rank) || existingOpenTrade.rank,
           history: history,
+          trim_ts: (() => {
+            const trimEv = Array.isArray(newHistoryEvents) ? newHistoryEvents.find((e) => e && e.type === "TRIM") : null;
+            if (trimEv) return Number.isFinite(asOfMs) ? asOfMs : (isoToMs(trimEv.timestamp) || null);
+            return existingOpenTrade.trim_ts ?? null;
+          })(),
           exitReason:
             newStatus === "WIN" || newStatus === "LOSS" ? exitReason : null,
           exitCategory:
@@ -9170,6 +9176,19 @@ async function d1UpsertTrade(env, trade) {
       ? String(trade.exitReason)
       : inferExitReasonForLegacyTrade(trade, exitEvent);
 
+  let trimTs = Number(trade.trim_ts);
+  if (!Number.isFinite(trimTs) && Array.isArray(trade.history)) {
+    for (let i = trade.history.length - 1; i >= 0; i--) {
+      const e = trade.history[i];
+      if (e && e.type === "TRIM") {
+        trimTs = isoToMs(e.timestamp) || Number(e.ts) || 0;
+        if (trimTs < 1e12) trimTs = trimTs * 1000;
+        break;
+      }
+    }
+  }
+  if (Number.isFinite(trimTs) && trimTs < 1e12) trimTs = trimTs * 1000;
+
   try {
     // Preserve created_at by inserting once.
     await db
@@ -9177,9 +9196,9 @@ async function d1UpsertTrade(env, trade) {
         `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
-           created_at, updated_at)
+           created_at, updated_at, trim_ts)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
       )
       .bind(
         tradeId,
@@ -9203,6 +9222,7 @@ async function d1UpsertTrade(env, trade) {
             : null,
         createdAt,
         updatedAt,
+        Number.isFinite(trimTs) ? trimTs : null,
       )
       .run();
 
@@ -9212,7 +9232,7 @@ async function d1UpsertTrade(env, trade) {
           ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
-          updated_at=?16
+          updated_at=?16, trim_ts=?17
          WHERE trade_id=?1`,
       )
       .bind(
@@ -9236,6 +9256,7 @@ async function d1UpsertTrade(env, trade) {
             ? String(trade.script_version)
             : null,
         updatedAt,
+        Number.isFinite(trimTs) ? trimTs : null,
       )
       .run();
 
@@ -18499,7 +18520,7 @@ export default {
         const sql = `SELECT
             trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at
+            script_version, created_at, updated_at, trim_ts
           FROM trades
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC

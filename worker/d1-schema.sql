@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS trades (
   script_version TEXT,
 
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  trim_ts INTEGER
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_ticker_dir_entry_ts

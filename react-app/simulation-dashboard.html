@@ -7208,6 +7208,8 @@
         const trackerMode = "ledger";
         // Make Proof the default landing view (high-signal summary).
         const [ledgerTab, setLedgerTab] = useState("proof"); // proof | trades | alerts
+        const [accountChartRange, setAccountChartRange] = useState("1D"); // 1D | 5D | 10D | 30D | 1Y
+        const [expandedPositionTicker, setExpandedPositionTicker] = useState(null); // ticker for expanded card
         const initialLedgerTicker = (() => {
           try {
             const t =
@@ -7453,7 +7455,7 @@
                 price: Number(t.entry_price),
               });
             }
-            const trimTsRaw = t.updated_at ?? t.exit_ts ?? t.entry_ts;
+            const trimTsRaw = t.trim_ts ?? t.updated_at ?? t.exit_ts ?? t.entry_ts;
             if (
               (t.status === "TP_HIT_TRIM" || Number(t.trimmed_pct) > 0) &&
               trimTsRaw != null &&
@@ -7595,7 +7597,14 @@
           };
         };
 
-        // Overall account value over time (Robinhood-style line chart data)
+        // Range in ms for account chart (1D, 5D, 10D, 30D, 1Y)
+        const accountChartRangeMs = useMemo(() => {
+          const day = 24 * 60 * 60 * 1000;
+          const map = { "1D": 1 * day, "5D": 5 * day, "10D": 10 * day, "30D": 30 * day, "1Y": 365 * day };
+          return map[accountChartRange] ?? 1 * day;
+        }, [accountChartRange]);
+
+        // Overall account value over time (Robinhood-style line chart data), filtered by accountChartRange
         const portfolioChartPoints = useMemo(() => {
           const points = [{ ts: 0, value: 0 }];
           const closed = ledgerFilteredTrades.filter(
@@ -7629,6 +7638,22 @@
           data,
         ]);
 
+        // Filter chart points to selected time frame; add start-of-range point for clean line
+        const portfolioChartPointsInRange = useMemo(() => {
+          const now = Date.now();
+          const start = now - accountChartRangeMs;
+          const sorted = [...portfolioChartPoints].sort((a, b) => a.ts - b.ts);
+          const beforeStart = sorted.filter((p) => p.ts <= start);
+          const startValue = beforeStart.length > 0 ? beforeStart[beforeStart.length - 1].value : 0;
+          const inRange = sorted.filter((p) => p.ts >= start);
+          if (inRange.length === 0) return [{ ts: start, value: startValue }, { ts: now, value: startValue }];
+          const firstInRange = inRange[0];
+          const withStart = firstInRange.ts > start
+            ? [{ ts: start, value: startValue }, ...inRange]
+            : inRange;
+          return withStart;
+        }, [portfolioChartPoints, accountChartRangeMs]);
+
         // Positions with trade history in asc time order (Robinhood-style)
         const positionsWithHistory = useMemo(() => {
           const byTicker = new Map();
@@ -7645,7 +7670,7 @@
                 price: Number(t.entry_price),
               });
             }
-            const trimTs = tsToMs(t.updated_at ?? t.exit_ts ?? t.entry_ts);
+            const trimTs = tsToMs(t.trim_ts ?? t.updated_at ?? t.exit_ts ?? t.entry_ts);
             if (
               (t.status === "TP_HIT_TRIM" || Number(t.trimmed_pct) > 0) &&
               trimTs != null
@@ -8162,62 +8187,75 @@
                               </div>
                             ) : (
                               <div className="space-y-6">
-                                {/* Robinhood-style: Overall Account Value line chart */}
-                                {portfolioChartPoints.length > 1 && (
+                                {/* Robinhood-style: Overall Account Value line chart with 1D/5D/10D/30D/1Y toggles */}
+                                {portfolioChartPointsInRange.length > 0 && (
                                   <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden p-4">
-                                    <div className="text-sm font-bold mb-2">
-                                      Overall Account Value
+                                    <div className="text-sm font-bold mb-1">
+                                      Total Account Value
                                     </div>
-                                    <div className="text-xs text-[#93a4d6] mb-3">
+                                    <div className="text-xs text-[#93a4d6] mb-2">
                                       Cumulative P&L over time (closed + open)
                                     </div>
-                                    <div className="h-24 flex items-end gap-px">
-                                      {portfolioChartPoints.map((p, i) => {
-                                        const maxV = Math.max(
-                                          ...portfolioChartPoints.map(
-                                            (x) => Math.abs(x.value),
-                                          ),
-                                          1,
-                                        );
-                                        const h =
-                                          maxV === 0
-                                            ? 0
-                                            : Math.max(
-                                                2,
-                                                (Math.abs(p.value) / maxV) * 80,
-                                              );
-                                        const isPos = p.value >= 0;
-                                        return (
-                                          <div
-                                            key={i}
-                                            className={`flex-1 min-w-[4px] rounded-t ${
-                                              isPos
-                                                ? "bg-green-500/40"
-                                                : "bg-red-500/40"
-                                            }`}
-                                            style={{ height: `${h}%` }}
-                                            title={`${new Date(p.ts).toLocaleString()}: ${fmtUsd(p.value)}`}
-                                          />
-                                        );
-                                      })}
-                                    </div>
-                                    <div className="flex justify-between text-[10px] text-[#6b7a9f] mt-1">
-                                      <span>
-                                        {portfolioChartPoints.length > 0
-                                          ? new Date(
-                                              portfolioChartPoints[0].ts,
-                                            ).toLocaleDateString()
-                                          : ""}
-                                      </span>
-                                      <span className="font-semibold text-white">
+                                    <div className="flex items-baseline gap-2 mb-2">
+                                      <span className="text-lg font-semibold text-white">
                                         {fmtUsd(
-                                          portfolioChartPoints.length > 0
-                                            ? portfolioChartPoints[
-                                                portfolioChartPoints.length - 1
+                                          portfolioChartPointsInRange.length > 0
+                                            ? portfolioChartPointsInRange[
+                                                portfolioChartPointsInRange.length - 1
                                               ].value
                                             : 0,
                                         )}
                                       </span>
+                                    </div>
+                                    <div className="h-24 relative" style={{ minHeight: "96px" }}>
+                                      {portfolioChartPointsInRange.length >= 2 && (() => {
+                                        const pts = portfolioChartPointsInRange;
+                                        const xs = pts.map((p) => p.ts);
+                                        const xMin = Math.min(...xs);
+                                        const xMax = Math.max(...xs);
+                                        const xRange = xMax - xMin || 1;
+                                        const vals = pts.map((p) => p.value);
+                                        const vMin = Math.min(...vals);
+                                        const vMax = Math.max(...vals);
+                                        const vRange = vMax - vMin || 1;
+                                        const w = 400;
+                                        const h = 96;
+                                        const pad = { left: 4, right: 4, top: 4, bottom: 4 };
+                                        const plotW = w - pad.left - pad.right;
+                                        const plotH = h - pad.top - pad.bottom;
+                                        const toX = (ts) => pad.left + ((ts - xMin) / xRange) * plotW;
+                                        const toY = (v) => pad.top + plotH - ((v - vMin) / vRange) * plotH;
+                                        const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.ts)} ${toY(p.value)}`).join(" ");
+                                        const lineColor = (pts[pts.length - 1]?.value ?? 0) >= 0 ? "#22c55e" : "#ef4444";
+                                        return (
+                                          <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="overflow-visible">
+                                            <path d={d} fill="none" stroke={lineColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                                          </svg>
+                                        );
+                                      })()}
+                                    </div>
+                                    <div className="flex justify-between items-center mt-2">
+                                      <span className="text-[10px] text-[#6b7a9f]">
+                                        {portfolioChartPointsInRange.length > 0
+                                          ? new Date(portfolioChartPointsInRange[0].ts).toLocaleDateString()
+                                          : ""}
+                                      </span>
+                                      <div className="flex gap-1">
+                                        {["1D", "5D", "10D", "30D", "1Y"].map((r) => (
+                                          <button
+                                            key={r}
+                                            type="button"
+                                            onClick={() => setAccountChartRange(r)}
+                                            className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
+                                              accountChartRange === r
+                                                ? "bg-green-500/30 text-green-400 border border-green-500/50"
+                                                : "bg-[#121a33] text-[#93a4d6] border border-[#26325f] hover:border-[#3b82f6]/50"
+                                            }`}
+                                          >
+                                            {r}
+                                          </button>
+                                        ))}
+                                      </div>
                                     </div>
                                   </div>
                                 )}
@@ -8235,93 +8273,110 @@
                                       </div>
                                     </div>
                                     <div className="divide-y divide-[#26325f]/50">
-                                      {positionsWithHistory.map((pos) => (
-                                        <div
-                                          key={pos.ticker}
-                                          className="p-3 hover:bg-[#121a33]/50"
-                                        >
-                                          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                                            <span className="font-semibold">
-                                              {pos.ticker}
-                                            </span>
-                                            {pos.isOpen && (
-                                              <span className="px-2 py-0.5 rounded text-xs bg-green-500/20 text-green-400">
-                                                OPEN
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                                            <div>
-                                              <span className="text-[#6b7a9f]">Qty </span>
-                                              {pos.qty != null
-                                                ? Number(pos.qty).toFixed(
-                                                    FUTURES_SPECS[pos.ticker]
-                                                      ? 0
-                                                      : 4,
-                                                  )
-                                                : "—"}
-                                            </div>
-                                            <div>
-                                              <span className="text-[#6b7a9f]">Entry </span>
-                                              {pos.entryPrice != null
-                                                ? fmtUsd(pos.entryPrice)
-                                                : "—"}
-                                            </div>
-                                            <div>
-                                              <span className="text-[#6b7a9f]">Mkt value </span>
-                                              {pos.mktValue != null
-                                                ? fmtUsd(pos.mktValue)
-                                                : "—"}
-                                            </div>
-                                            {pos.pnlOpen != null && (
-                                              <div>
-                                                <span className="text-[#6b7a9f]">Open P&L </span>
-                                                <span
-                                                  className={
-                                                    pos.pnlOpen >= 0
-                                                      ? "text-green-400"
-                                                      : "text-red-400"
-                                                  }
-                                                >
-                                                  {fmtUsd(pos.pnlOpen)}
+                                      {positionsWithHistory.map((pos) => {
+                                        const isExpanded = expandedPositionTicker === pos.ticker;
+                                        const hasHistory = pos.events.length > 0;
+                                        return (
+                                          <div
+                                            key={pos.ticker}
+                                            className="p-3 hover:bg-[#121a33]/50"
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={() => setExpandedPositionTicker(isExpanded ? null : pos.ticker)}
+                                              className="w-full text-left"
+                                            >
+                                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                                <span className="font-semibold">
+                                                  {pos.ticker}
                                                 </span>
+                                                <div className="flex items-center gap-2">
+                                                  {pos.isOpen && (
+                                                    <span className="px-2 py-0.5 rounded text-xs bg-green-500/20 text-green-400">
+                                                      OPEN
+                                                    </span>
+                                                  )}
+                                                  {hasHistory && (
+                                                    <span className="text-[#6b7a9f]">
+                                                      {isExpanded ? "▼" : "▶"}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                                                <div>
+                                                  <span className="text-[#6b7a9f]">Qty </span>
+                                                  {pos.qty != null
+                                                    ? Number(pos.qty).toFixed(
+                                                        FUTURES_SPECS[pos.ticker]
+                                                          ? 0
+                                                          : 4,
+                                                      )
+                                                    : "—"}
+                                                </div>
+                                                <div>
+                                                  <span className="text-[#6b7a9f]">Entry </span>
+                                                  {pos.entryPrice != null
+                                                    ? fmtUsd(pos.entryPrice)
+                                                    : "—"}
+                                                </div>
+                                                <div>
+                                                  <span className="text-[#6b7a9f]">Mkt value </span>
+                                                  {pos.mktValue != null
+                                                    ? fmtUsd(pos.mktValue)
+                                                    : "—"}
+                                                </div>
+                                                {pos.pnlOpen != null && (
+                                                  <div>
+                                                    <span className="text-[#6b7a9f]">Open P&L </span>
+                                                    <span
+                                                      className={
+                                                        pos.pnlOpen >= 0
+                                                          ? "text-green-400"
+                                                          : "text-red-400"
+                                                      }
+                                                    >
+                                                      {fmtUsd(pos.pnlOpen)}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </button>
+                                            {isExpanded && hasHistory && (
+                                              <div className="mt-2 pt-2 border-t border-[#26325f]/50">
+                                                <div className="text-[10px] text-[#6b7a9f] mb-1">
+                                                  Trade history (asc)
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                  {pos.events.map((ev, idx) => (
+                                                    <span
+                                                      key={idx}
+                                                      className={`px-2 py-0.5 rounded text-xs ${
+                                                        ev.type === "ENTRY"
+                                                          ? "bg-green-500/20 text-green-400"
+                                                          : ev.type === "TRIM"
+                                                            ? "bg-yellow-500/20 text-yellow-300"
+                                                            : "bg-purple-500/20 text-purple-300"
+                                                      }`}
+                                                      title={new Date(
+                                                        ev.ts,
+                                                      ).toLocaleString()}
+                                                    >
+                                                      {ev.type}{" "}
+                                                      {new Date(
+                                                        ev.ts,
+                                                      ).toLocaleTimeString()}
+                                                      {ev.price != null
+                                                        ? ` @ ${fmtUsd(ev.price)}`
+                                                        : ""}
+                                                    </span>
+                                                  ))}
+                                                </div>
                                               </div>
                                             )}
                                           </div>
-                                          {pos.events.length > 0 && (
-                                            <div className="mt-2 pt-2 border-t border-[#26325f]/50">
-                                              <div className="text-[10px] text-[#6b7a9f] mb-1">
-                                                Trade history (asc)
-                                              </div>
-                                              <div className="flex flex-wrap gap-2">
-                                                {pos.events.map((ev, idx) => (
-                                                  <span
-                                                    key={idx}
-                                                    className={`px-2 py-0.5 rounded text-xs ${
-                                                      ev.type === "ENTRY"
-                                                        ? "bg-green-500/20 text-green-400"
-                                                        : ev.type === "TRIM"
-                                                          ? "bg-yellow-500/20 text-yellow-300"
-                                                          : "bg-purple-500/20 text-purple-300"
-                                                    }`}
-                                                    title={new Date(
-                                                      ev.ts,
-                                                    ).toLocaleString()}
-                                                  >
-                                                    {ev.type}{" "}
-                                                    {new Date(
-                                                      ev.ts,
-                                                    ).toLocaleTimeString()}
-                                                    {ev.price != null
-                                                      ? ` @ ${fmtUsd(ev.price)}`
-                                                      : ""}
-                                                  </span>
-                                                ))}
-                                              </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   </div>
                                 )}
