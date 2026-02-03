@@ -1892,8 +1892,8 @@
         );
       }
 
-      // Ledger trade history (date asc): execution timeline with full details (type, date/time, qty, price, value, net P&L)
-      function LedgerTradeHistory({ events = [], fmtUsd }) {
+      // Ledger trade history (date asc): execution timeline — mirrors Trade Journey image (cards with type · date time, then details)
+      function LedgerTradeHistory({ events = [], trade = null, fmtUsd }) {
         if (!events || events.length === 0) {
           return (
             <div className="text-xs text-[var(--tt-text-faint)] italic p-3">
@@ -1915,37 +1915,38 @@
             {sorted.map((ev, idx) => {
               const d = ev.ts != null ? new Date(Number(ev.ts)) : null;
               const dateStr = d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
-              const timeStr = d ? d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
-              const t = ev.trade || {};
+              const timeStr = d ? d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }) : "—";
+              const t = ev.trade || trade || {};
               const qty = ev.shares ?? ev.qty ?? (t.shares != null ? t.shares : (t.entry_price > 0 ? Math.round(TRADE_SIZE / t.entry_price) : null));
-              const price = ev.price != null ? Number(ev.price) : (ev.type === "ENTRY" || ev.type === "ADD_ENTRY" || ev.type === "SCALE_IN" ? Number(t.entry_price) : ev.type === "EXIT" ? Number(t.exit_price) : null);
+              const price = ev.price != null ? Number(ev.price) : (ev.type === "ENTRY" || ev.type === "ADD_ENTRY" || ev.type === "SCALE_IN" ? Number(t.entry_price ?? t.entryPrice) : ev.type === "EXIT" ? Number(t.exit_price ?? t.exitPrice) : null);
               const value = ev.value != null ? Number(ev.value) : (Number.isFinite(price) && Number.isFinite(qty) ? price * qty : null);
               const pnl = ev.pnl_realized != null ? Number(ev.pnl_realized) : null;
+              const trimmedPct = ev.trimmed_pct != null ? Number(ev.trimmed_pct) : (t.trimmed_pct != null ? Number(t.trimmed_pct) : (t.trimmedPct != null ? Number(t.trimmedPct) : null));
               const label = actionLabel(ev.type);
+              const typeUpper = String(ev.type || "").toUpperCase();
               return (
                 <div
                   key={idx}
-                  className="rounded-lg p-3 border text-sm"
-                  style={{ background: "var(--tt-bg-elevated)", borderColor: "var(--tt-border)" }}
+                  className="rounded-lg p-3 border border-[var(--tt-border)] bg-[var(--tt-bg-surface)]"
                 >
-                  <div className="font-medium text-[var(--tt-text)]">
+                  <div className="font-medium text-white text-sm">
                     {label} · {dateStr} {timeStr}
                   </div>
-                  <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-[var(--tt-text-muted)]">
-                    {Number.isFinite(price) && <span>Price: {fmtUsd(price)}</span>}
-                    {Number.isFinite(qty) && <span>Qty: {Number(qty).toFixed(FUTURES_SPECS[t?.ticker] ? 0 : 4)}</span>}
-                    {Number.isFinite(value) && <span>Value: {fmtUsd(value)}</span>}
+                  <div className="mt-1.5 space-y-0.5 text-xs text-[var(--tt-text-muted)]">
+                    {Number.isFinite(price) && <div>Price: {fmtUsd(price)}</div>}
+                    {Number.isFinite(value) && <div>Value: {fmtUsd(value)}</div>}
+                    {Number.isFinite(qty) && <div>Qty: {Number(qty).toFixed(FUTURES_SPECS[t?.ticker] ? 0 : 4)}</div>}
+                    {typeUpper === "TRIM" && (() => {
+                      const pct = trimmedPct ?? t.trimmed_pct ?? t.trimmedPct;
+                      if (pct == null || !Number.isFinite(Number(pct))) return null;
+                      return <div>Trimmed {Math.round(Number(pct) * 100)}%</div>;
+                    })()}
                     {Number.isFinite(pnl) && (
-                      <span className={pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>
+                      <div className={pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>
                         Net P&L: {fmtUsd(pnl)}
-                      </span>
+                      </div>
                     )}
                   </div>
-                  {ev.type === "TRIM" && !Number.isFinite(value) && Number(t.trimmed_pct) > 0 && (
-                    <div className="mt-1 text-xs text-[var(--tt-text-muted)]">
-                      Trimmed {Number(t.trimmed_pct * 100).toFixed(0)}%
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -2387,63 +2388,61 @@
                   }
                 })()}
 
-                {/* Right Rail Tabs — hidden when opened from position card (Trade History only) */}
-                {(!positionEvents || positionEvents.length === 0) && (
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
-                    {[
-                      { k: "ANALYSIS", label: "Analysis" },
-                      { k: "TECHNICALS", label: "Technicals" },
-                      { k: "JOURNEY", label: "Journey" },
-                      {
-                        k: "TRADE_HISTORY",
-                        label: `Trade History (${(positionEvents && positionEvents.length) || trade?.history?.length || 0})`,
-                      },
-                    ].map((t) => {
-                      const active = railTab === t.k;
-                      return (
-                        <button
-                          key={`rail-tab-${t.k}`}
-                          onClick={() => setRailTab(t.k)}
-                          className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
-                            active
-                              ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                              : "border-[var(--tt-border)] bg-[var(--tt-bg-surface)] text-[var(--tt-text-muted)] hover:text-white"
-                          }`}
-                        >
-                          {t.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                {/* Right Rail Tabs — always visible; default to Trade History when opened from position card */}
+                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  {[
+                    { k: "ANALYSIS", label: "Analysis" },
+                    { k: "TECHNICALS", label: "Technicals" },
+                    { k: "JOURNEY", label: "Journey" },
+                    {
+                      k: "TRADE_HISTORY",
+                      label: `Trade History (${(positionEvents && positionEvents.length) || trade?.history?.length || 0})`,
+                    },
+                  ].map((t) => {
+                    const active = railTab === t.k;
+                    return (
+                      <button
+                        key={`rail-tab-${t.k}`}
+                        onClick={() => setRailTab(t.k)}
+                        className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
+                          active
+                            ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                            : "border-[var(--tt-border)] bg-[var(--tt-bg-surface)] text-[var(--tt-text-muted)] hover:text-white"
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* Padded body: when opened from position card, show only Trade Journey; else full content */}
+              {/* Padded body: tab-driven; Trade History tab shows Trade Journey block only */}
               <div className="p-6 pt-4">
-                {positionEvents && positionEvents.length > 0 ? (
-                  /* Position card mode — Trade History only */
-                  <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
-                    <div className="text-sm text-[var(--tt-text-muted)] mb-2">Trade Journey</div>
+                {railTab === "TRADE_HISTORY" ? (
+                  /* Trade History tab — Trade Journey (mirrors image: Entry/Current price + action cards) */
+                  <div className="mb-4">
+                    <div className="text-sm font-semibold text-[var(--tt-text-muted)] mb-3">Trade Journey</div>
                     {trade ? (
                       <>
-                        <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                        <div className="grid grid-cols-2 gap-4 text-sm mb-4">
                           <div>
-                            <div className="text-[var(--tt-text-muted)] text-xs mb-1">Entry Price</div>
-                            <div className="font-semibold text-white text-lg">
+                            <div className="text-[var(--tt-text-faint)] text-xs mb-0.5">Entry Price</div>
+                            <div className="font-bold text-white text-xl">
                               {Number.isFinite(tradeEntryPrice) ? `$${tradeEntryPrice.toFixed(2)}` : "—"}
                             </div>
                           </div>
                           <div>
-                            <div className="text-[var(--tt-text-muted)] text-xs mb-1">Current Price</div>
-                            <div className="font-semibold text-yellow-400 text-lg">
+                            <div className="text-[var(--tt-text-faint)] text-xs mb-0.5">Current Price</div>
+                            <div className="font-bold text-yellow-400 text-xl">
                               {Number.isFinite(currentPrice) ? `$${Number(currentPrice).toFixed(2)}` : "—"}
                             </div>
                           </div>
                         </div>
-                        <LedgerTradeHistory events={positionEvents} fmtUsd={fmtUsd} />
+                        <LedgerTradeHistory events={positionEvents || trade?.history || []} trade={trade} fmtUsd={fmtUsd} />
                       </>
                     ) : (
-                      <LedgerTradeHistory events={positionEvents} fmtUsd={fmtUsd} />
+                      <LedgerTradeHistory events={positionEvents || []} trade={null} fmtUsd={fmtUsd} />
                     )}
                   </div>
                 ) : (
@@ -2998,10 +2997,8 @@
                           </div>
                         </div>
                       </div>
-                      {positionEvents && positionEvents.length > 0 ? (
-                        <LedgerTradeHistory events={positionEvents} fmtUsd={fmtUsd} />
-                      ) : trade.history && trade.history.length > 0 ? (
-                        <TradeHistory history={trade.history} />
+                      {(positionEvents && positionEvents.length > 0) || (trade.history && trade.history.length > 0) ? (
+                        <LedgerTradeHistory events={positionEvents || trade.history || []} trade={trade} fmtUsd={fmtUsd} />
                       ) : (
                         <div className="text-xs text-[var(--tt-text-muted)]">
                           No trade history for this ticker.
