@@ -4137,6 +4137,10 @@
                               const entryPrice = Number(t.entry_price || 0);
                               const exitPrice = Number(t.exit_price || 0);
                               const quantity = Number(t.quantity || 0);
+                              const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
+                              const trimPrice = Number(t.trim_price || 0);
+                              const trimTs = t.trim_ts;
+                              const hasTrimmed = trimmedPct > 0;
                               
                               const formatDateTime = (ts) => {
                                 if (!ts) return "—";
@@ -4186,6 +4190,12 @@
                                       >
                                         {t.direction}
                                       </span>
+                                      {/* Trim badge if trimmed */}
+                                      {hasTrimmed && (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                                          {Math.round(trimmedPct * 100)}% trimmed
+                                        </span>
+                                      )}
                                     </div>
                                     {isClosed && (
                                       <div
@@ -4221,6 +4231,33 @@
                                           {quantity.toFixed(0)} shares
                                         </span>
                                       </div>
+                                    )}
+                                    
+                                    {/* Trim info (if trimmed) */}
+                                    {hasTrimmed && (
+                                      <>
+                                        <div className="border-t border-yellow-500/20 my-1.5"></div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-yellow-400">📊 Trimmed:</span>
+                                          <span className="text-yellow-300 font-semibold">
+                                            {formatDateTime(trimTs)}
+                                          </span>
+                                        </div>
+                                        {trimPrice > 0 && (
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[#8b92a0]">Trim Price:</span>
+                                            <span className="text-yellow-300 font-semibold">
+                                              ${trimPrice.toFixed(2)}
+                                            </span>
+                                          </div>
+                                        )}
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[#8b92a0]">Amount Trimmed:</span>
+                                          <span className="text-yellow-300 font-semibold">
+                                            {Math.round(trimmedPct * 100)}%
+                                          </span>
+                                        </div>
+                                      </>
                                     )}
                                     
                                     {/* Exit (if closed) */}

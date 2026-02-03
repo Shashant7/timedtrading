@@ -6879,71 +6879,53 @@
                           );
                         })()}
 
-                        {/* Open positions — Kanban-style lanes by lifecycle stage */}
+                        {/* Open positions — Compact cards split by LONG/SHORT with stage badges */}
                         {openPositionCards.length > 0 ? (
                           (() => {
                             const dirPillLong = "bg-green-500/10 text-green-400 border-green-500/30";
                             const dirPillShort = "bg-red-500/10 text-red-400 border-red-500/30";
                             
-                            // Categorize positions by Kanban stage
-                            const categorizePosition = (pos) => {
+                            // Get stage for a position
+                            const getPositionStage = (pos) => {
                               const trade = pos.trade;
                               const trimmedPct = Number(trade?.trimmedPct || 0);
                               const entryTs = Number(trade?.entry_ts || trade?.entryTime || 0);
                               const now = Date.now();
                               const entryMs = entryTs < 1e12 ? entryTs * 1000 : entryTs;
                               const ageMs = now - entryMs;
-                              const isJustEntered = ageMs >= 0 && ageMs < 15 * 60 * 1000; // 15 min
+                              const isJustEntered = ageMs >= 0 && ageMs < 15 * 60 * 1000;
                               
-                              // Get kanban stage from ticker data if available
                               const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
                               const kanbanStage = tickerData?.kanban_stage || trade?.kanban_stage;
                               
-                              if (kanbanStage === "exit") return "exit";
-                              if (trimmedPct >= 0.6 || kanbanStage === "trim") return "trim";
-                              if (isJustEntered || kanbanStage === "just_entered") return "just_entered";
-                              return "hold";
+                              if (trimmedPct >= 0.6 || kanbanStage === "trim") return { stage: "trim", label: "TRIM", color: "text-yellow-400", bg: "bg-yellow-500/15" };
+                              if (isJustEntered || kanbanStage === "just_entered") return { stage: "just_entered", label: "NEW", color: "text-cyan-400", bg: "bg-cyan-500/15" };
+                              return { stage: "hold", label: "HOLD", color: "text-blue-400", bg: "bg-blue-500/15" };
                             };
                             
-                            const justEnteredPositions = openPositionCards.filter(p => categorizePosition(p) === "just_entered");
-                            const holdPositions = openPositionCards.filter(p => categorizePosition(p) === "hold");
-                            const trimPositions = openPositionCards.filter(p => categorizePosition(p) === "trim");
-                            const exitPositions = openPositionCards.filter(p => categorizePosition(p) === "exit");
+                            const longPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "LONG");
+                            const shortPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "SHORT");
                             
-                            const renderCard = (pos) => {
+                            const renderCompactCard = (pos) => {
                               const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                               const isLong = dir === "LONG";
                               const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
                               const completion = completionForSize(tickerData || {});
                               const completionPct = Math.min(100, Math.max(0, completion * 100));
-                              const fillBg = isLong ? "bg-green-500/15" : "bg-red-500/15";
                               
-                              // Current price from ticker data
                               const currentPrice = pos.current || Number(tickerData?.price) || null;
                               const entryPrice = pos.entryPrice || Number(pos.trade?.entryPrice) || null;
-                              
-                              // Calculate P&L
                               const pnlOpen = pos.pnlOpen;
                               const retOpenPct = pos.retOpenPct;
-                              
-                              // 3-Tier TP System info
                               const trimmedPct = Number(pos.trade?.trimmedPct || 0);
-                              const slProtectReason = pos.trade?.sl_protect_reason || null;
                               
-                              // Determine current tier status
-                              let currentTier = null;
-                              if (trimmedPct >= 0.8) currentTier = "RUNNER";
-                              else if (trimmedPct >= 0.6) currentTier = "EXIT";
-                              else if (trimmedPct > 0) currentTier = "TRIM";
+                              const stageInfo = getPositionStage(pos);
                               
-                              // Card background based on P&L
-                              let cardBg = "bg-[var(--tt-bg-elevated)]";
-                              if (Number.isFinite(retOpenPct)) {
-                                if (retOpenPct >= 3) cardBg = "bg-emerald-500/15";
-                                else if (retOpenPct >= 1) cardBg = "bg-emerald-500/10";
-                                else if (retOpenPct <= -3) cardBg = "bg-rose-500/15";
-                                else if (retOpenPct <= -1) cardBg = "bg-rose-500/10";
-                              }
+                              // Tier badge
+                              let tierBadge = null;
+                              if (trimmedPct >= 0.8) tierBadge = { label: "🚀", color: "text-green-300" };
+                              else if (trimmedPct >= 0.6) tierBadge = { label: "💰", color: "text-orange-300" };
+                              else if (trimmedPct > 0) tierBadge = { label: "🎯", color: "text-yellow-300" };
                               
                               return (
                                 <button
@@ -6956,94 +6938,50 @@
                                     const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
                                     setSelectedPositionEvents(Array.isArray(events) ? events : []);
                                   }}
-                                  className={`w-full text-left px-3 py-2.5 rounded-lg border border-[var(--tt-border)] ${cardBg} hover:border-[var(--tt-border-strong)] transition-all overflow-hidden relative`}
+                                  className={`w-full text-left px-2.5 py-2 rounded border border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:border-[var(--tt-border-strong)] transition-all overflow-hidden relative`}
                                   title="Open in right rail"
                                 >
-                                  {/* Completion fill overlay */}
-                                  <div className={`absolute inset-y-0 left-0 ${fillBg}`} style={{ width: `${completionPct}%` }} aria-hidden="true" />
+                                  {/* Subtle TP progress fill */}
+                                  <div className={`absolute inset-y-0 left-0 ${isLong ? "bg-green-500/10" : "bg-red-500/10"}`} style={{ width: `${completionPct}%` }} aria-hidden="true" />
                                   <div className="relative z-10">
-                                    {/* Row 1: Ticker + Direction + Tier Badge | Current Price (prominent) */}
-                                    <div className="flex items-start justify-between gap-2 mb-2">
-                                      <div className="flex items-center gap-2 flex-wrap">
+                                    {/* Row 1: Ticker + Stage | Current Price */}
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-1.5">
                                         <span className="font-bold text-white text-sm">{pos.ticker}</span>
-                                        <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${isLong ? dirPillLong : dirPillShort}`}>
-                                          {dir}
+                                        <span className={`text-[9px] px-1 py-0.5 rounded ${stageInfo.bg} ${stageInfo.color} font-medium`}>
+                                          {stageInfo.label}
                                         </span>
-                                        {currentTier && (
-                                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
-                                            currentTier === "RUNNER" ? "bg-green-500/20 text-green-300 border-green-500/30" :
-                                            currentTier === "EXIT" ? "bg-orange-500/20 text-orange-300 border-orange-500/30" :
-                                            "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
-                                          }`}>
-                                            {currentTier} ✓
-                                          </span>
-                                        )}
+                                        {tierBadge && <span className={`text-xs ${tierBadge.color}`}>{tierBadge.label}</span>}
                                       </div>
-                                      {/* Current Price - prominent like everywhere else */}
-                                      <div className="text-right">
-                                        <div className="text-white font-bold text-lg">
-                                          {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
-                                        </div>
-                                      </div>
+                                      <span className="text-white font-bold text-base">
+                                        {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
+                                      </span>
                                     </div>
                                     
-                                    {/* Row 2: Entry Price | Net Change % | Net P&L */}
-                                    <div className="grid grid-cols-3 gap-2 text-[11px]">
-                                      <div>
-                                        <div className="text-[var(--tt-text-faint)] text-[9px] mb-0.5">Entry</div>
-                                        <div className="text-[var(--tt-text-muted)] font-medium">
-                                          {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-[var(--tt-text-faint)] text-[9px] mb-0.5">Change</div>
-                                        <div className={`font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                          {retOpenPct != null ? `${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(2)}%` : "—"}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-[var(--tt-text-faint)] text-[9px] mb-0.5">P&L</div>
-                                        <div className={`font-semibold ${(pnlOpen ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                    {/* Row 2: Entry | Change | P&L */}
+                                    <div className="flex items-center justify-between mt-1 text-[10px]">
+                                      <span className="text-[var(--tt-text-faint)]">
+                                        Entry {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                          {retOpenPct != null ? `${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(1)}%` : "—"}
+                                        </span>
+                                        <span className={`font-semibold ${(pnlOpen ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
                                           {pnlOpen != null ? fmtUsd(pnlOpen) : "—"}
-                                        </div>
+                                        </span>
                                       </div>
                                     </div>
                                     
-                                    {/* Row 3: Trim Progress Bar (if trimmed) */}
+                                    {/* Row 3: Trim progress (if trimmed) */}
                                     {trimmedPct > 0 && (
-                                      <div className="mt-2 pt-2 border-t border-[var(--tt-border)]">
-                                        <div className="flex items-center justify-between text-[9px] mb-1">
-                                          <div className="flex items-center gap-1">
-                                            <span className={`px-1 py-0.5 rounded ${trimmedPct >= 0.6 ? "bg-yellow-500/30 text-yellow-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>🎯</span>
-                                            <span className={`px-1 py-0.5 rounded ${trimmedPct >= 0.8 ? "bg-orange-500/30 text-orange-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>💰</span>
-                                            <span className={`px-1 py-0.5 rounded ${trimmedPct >= 1.0 ? "bg-green-500/30 text-green-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>🚀</span>
-                                          </div>
-                                          <span className="text-[var(--tt-text-muted)]">{Math.round(trimmedPct * 100)}% trimmed</span>
-                                        </div>
-                                        <div className="h-1.5 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden flex">
+                                      <div className="mt-1.5 flex items-center gap-2">
+                                        <div className="flex-1 h-1 rounded bg-[var(--tt-bg-surface)] overflow-hidden flex">
                                           <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, trimmedPct * 100)}%` }} />
                                           <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, (trimmedPct * 100) - 60))}%` }} />
                                           <div className="h-full bg-green-500/70" style={{ width: `${Math.max(0, (trimmedPct * 100) - 80)}%` }} />
                                         </div>
-                                        {slProtectReason && (
-                                          <div className="mt-1 text-[9px] text-[var(--tt-text-faint)]">
-                                            SL: {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "@ Breakeven" :
-                                                 slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "@ TRIM TP" :
-                                                 slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR Trailing" :
-                                                 slProtectReason === "PROTECT_GAINS" ? "Protected" : ""}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                    
-                                    {/* Row 3 Alt: TP Progress (if not trimmed) */}
-                                    {trimmedPct === 0 && (
-                                      <div className="mt-2 flex items-center gap-2">
-                                        <div className="text-[9px] text-[var(--tt-text-faint)]">TP</div>
-                                        <div className="flex-1 h-1.5 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
-                                          <div className={`h-full ${isLong ? "bg-green-500/70" : "bg-red-500/70"}`} style={{ width: `${completionPct}%` }} />
-                                        </div>
-                                        <div className="text-[9px] text-[var(--tt-text-muted)]">{completionPct.toFixed(0)}%</div>
+                                        <span className="text-[9px] text-[var(--tt-text-muted)]">{Math.round(trimmedPct * 100)}%</span>
                                       </div>
                                     )}
                                   </div>
@@ -7051,58 +6989,42 @@
                               );
                             };
                             
-                            // Lane component
-                            const Lane = ({ title, emoji, positions, color, emptyText }) => (
-                              <div className={`rounded-lg border border-[var(--tt-border)] bg-[var(--tt-bg-surface)] p-3`}>
-                                <div className="flex items-center justify-between mb-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-lg">{emoji}</span>
-                                    <h3 className={`text-sm font-semibold ${color}`}>{title}</h3>
-                                  </div>
-                                  <span className="text-xs text-[var(--tt-text-faint)] bg-[var(--tt-bg-elevated)] px-2 py-0.5 rounded">
-                                    {positions.length}
-                                  </span>
-                                </div>
-                                <div className="space-y-2">
-                                  {positions.length > 0 ? (
-                                    positions.map(renderCard)
-                                  ) : (
-                                    <p className="text-xs text-[var(--tt-text-faint)] text-center py-4">{emptyText}</p>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                            
                             return (
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                <Lane 
-                                  title="Just Entered" 
-                                  emoji="🚀" 
-                                  positions={justEnteredPositions} 
-                                  color="text-cyan-400"
-                                  emptyText="No recent entries"
-                                />
-                                <Lane 
-                                  title="Hold" 
-                                  emoji="💎" 
-                                  positions={holdPositions} 
-                                  color="text-blue-400"
-                                  emptyText="No positions holding"
-                                />
-                                <Lane 
-                                  title="Trim" 
-                                  emoji="📊" 
-                                  positions={trimPositions} 
-                                  color="text-yellow-400"
-                                  emptyText="No positions to trim"
-                                />
-                                <Lane 
-                                  title="Exit" 
-                                  emoji="🚪" 
-                                  positions={exitPositions} 
-                                  color="text-orange-400"
-                                  emptyText="No positions to exit"
-                                />
+                              <div className="tt-card p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h2 className="text-sm font-semibold text-[var(--tt-text)]">Open Positions</h2>
+                                  <span className="text-xs text-[var(--tt-text-faint)]">{openPositionCards.length} total</span>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                  {/* LONG positions */}
+                                  <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <span className="text-emerald-400 font-semibold text-xs">LONG</span>
+                                      <span className="text-[var(--tt-text-faint)] text-[10px]">({longPositions.length})</span>
+                                    </div>
+                                    {longPositions.length > 0 ? (
+                                      <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                                        {longPositions.map(renderCompactCard)}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-[var(--tt-text-faint)]">No long positions</p>
+                                    )}
+                                  </div>
+                                  {/* SHORT positions */}
+                                  <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <span className="text-rose-400 font-semibold text-xs">SHORT</span>
+                                      <span className="text-[var(--tt-text-faint)] text-[10px]">({shortPositions.length})</span>
+                                    </div>
+                                    {shortPositions.length > 0 ? (
+                                      <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+                                        {shortPositions.map(renderCompactCard)}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-[var(--tt-text-faint)]">No short positions</p>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
                             );
                           })()
