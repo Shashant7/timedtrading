@@ -8350,9 +8350,9 @@
                   </div>
                 </header>
 
-                {/* Single view: account value ($100k baseline) + open position cards */}
+                {/* Single view: account value ($100k baseline) + open position cards (wider content when no rail) */}
                 <div className="flex gap-4 items-start">
-                  <div className={`flex-1 min-w-0 ${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
+                  <div className={`flex-1 min-w-0 max-w-full ${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`} style={{ minWidth: selectedTicker || selectedTrade ? undefined : "min(100%, 1200px)" }}>
                     {(ledgerTrades ?? {}).loading ? (
                       <div className="text-sm text-[var(--tt-text-muted)] py-8">Loading…</div>
                     ) : (ledgerTrades ?? {}).error ? (
@@ -8410,7 +8410,7 @@
                           </div>
                         </div>
 
-                        {/* Open positions — split LONG / SHORT; card background = progress toward TP MAX (left-to-right fill); contrasting kanban-style colors */}
+                        {/* Open positions — LONG (3 cols) | SHORT (3 cols) side by side; no pill on card; entry/current up; Net P&L prominent */}
                         {openPositionCards.length > 0 ? (
                           (() => {
                             const longPositions = openPositionCards.filter((p) => String(p.trade?.direction || "").toUpperCase() === "LONG");
@@ -8419,9 +8419,9 @@
                               const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                               const isLong = dir === "LONG";
                               const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
-                              const completion = completionForSize(tickerData || {}); // 0–1 progress toward TP MAX / stretch goal
+                              const completion = completionForSize(tickerData || {});
                               const completionPct = Math.min(100, Math.max(0, completion * 100));
-                              const fillBg = isLong ? "bg-emerald-500/40" : "bg-rose-500/40"; // contrasting kanban-style
+                              const fillBg = isLong ? "bg-emerald-500/40" : "bg-rose-500/40";
                               const borderColor = isLong ? "border-emerald-500/50" : "border-rose-500/50";
                               return (
                                 <button
@@ -8436,57 +8436,41 @@
                                   }}
                                   className={`tt-card w-full text-left overflow-hidden border ${borderColor} hover:bg-[var(--tt-bg-hover)] transition-colors relative`}
                                 >
-                                  {/* Left-to-right progress fill (completion toward TP MAX) */}
-                                  <div
-                                    className={`absolute inset-y-0 left-0 ${fillBg}`}
-                                    style={{ width: `${completionPct}%` }}
-                                    title={`${completionPct.toFixed(0)}% toward TP max`}
-                                  />
+                                  <div className={`absolute inset-y-0 left-0 ${fillBg}`} style={{ width: `${completionPct}%` }} title={`${completionPct.toFixed(0)}% toward TP max`} />
                                   <div className="relative z-10 p-4">
-                                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                                      <span className="font-semibold text-[var(--tt-text)]">{pos.ticker}</span>
-                                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isLong ? "bg-emerald-500/30 text-emerald-200 border border-emerald-400/50" : "bg-rose-500/30 text-rose-200 border border-rose-400/50"}`}>
-                                        {dir}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center justify-between gap-2 mt-2">
-                                      <span className={`text-sm font-medium ${(pos.retOpenPct ?? 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                                        {pos.retOpenPct != null ? `${pos.retOpenPct >= 0 ? "+" : ""}${pos.retOpenPct.toFixed(2)}%` : "—"}
-                                      </span>
-                                      <span className={`text-sm font-medium ${(pos.pnlOpen ?? 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                                        {pos.pnlOpen != null ? fmtUsd(pos.pnlOpen) : "—"}
-                                      </span>
-                                    </div>
-                                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 text-xs text-[var(--tt-text-faint)]">
-                                      <span>Qty {pos.qty != null ? Number(pos.qty).toFixed(FUTURES_SPECS[pos.ticker] ? 0 : 4) : "—"}</span>
+                                    <div className="font-semibold text-[var(--tt-text)]">{pos.ticker}</div>
+                                    <div className="mt-2 text-xs text-[var(--tt-text-faint)] flex flex-wrap gap-x-3 gap-y-0.5">
                                       <span>Entry {pos.entryPrice != null ? fmtUsd(pos.entryPrice) : "—"}</span>
                                       <span>Current {pos.current != null ? fmtUsd(pos.current) : "—"}</span>
                                     </div>
-                                    <div className="mt-2 text-[10px] text-[var(--tt-text-faint)]">
-                                      TP progress: {completionPct.toFixed(0)}%
+                                    <div className="mt-2 text-sm font-medium text-[var(--tt-text)]">
+                                      <span className={(pos.pnlOpen ?? 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>
+                                        Net P&L {pos.pnlOpen != null ? fmtUsd(pos.pnlOpen) : "—"}
+                                      </span>
                                     </div>
+                                    <div className="mt-1.5 text-xs text-[var(--tt-text-faint)] flex flex-wrap gap-x-3">
+                                      <span>{pos.retOpenPct != null ? `${pos.retOpenPct >= 0 ? "+" : ""}${pos.retOpenPct.toFixed(2)}%` : "—"}</span>
+                                      <span>Qty {pos.qty != null ? Number(pos.qty).toFixed(FUTURES_SPECS[pos.ticker] ? 0 : 4) : "—"}</span>
+                                    </div>
+                                    <div className="mt-1.5 text-[10px] text-[var(--tt-text-faint)]">TP progress: {completionPct.toFixed(0)}%</div>
                                   </div>
                                 </button>
                               );
                             };
                             return (
-                              <div className="space-y-6">
-                                {longPositions.length > 0 && (
-                                  <div>
-                                    <h2 className="text-sm font-semibold text-emerald-400/90 mb-3">LONG</h2>
-                                    <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                                      {longPositions.map(renderCard)}
-                                    </div>
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                <div>
+                                  <h2 className="text-sm font-semibold text-emerald-400/90 mb-3">LONG</h2>
+                                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                                    {longPositions.length > 0 ? longPositions.map(renderCard) : <p className="text-xs text-[var(--tt-text-faint)] col-span-full">No long positions</p>}
                                   </div>
-                                )}
-                                {shortPositions.length > 0 && (
-                                  <div>
-                                    <h2 className="text-sm font-semibold text-rose-400/90 mb-3">SHORT</h2>
-                                    <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                                      {shortPositions.map(renderCard)}
-                                    </div>
+                                </div>
+                                <div>
+                                  <h2 className="text-sm font-semibold text-rose-400/90 mb-3">SHORT</h2>
+                                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                                    {shortPositions.length > 0 ? shortPositions.map(renderCard) : <p className="text-xs text-[var(--tt-text-faint)] col-span-full">No short positions</p>}
                                   </div>
-                                )}
+                                </div>
                               </div>
                             );
                           })()
