@@ -1921,10 +1921,29 @@ function computeMoveStatus(tickerData) {
   if (Number.isFinite(comp) && comp >= 0.95) reasons.push("overextended");
 
   // If we have a trigger timestamp and we're not in the entry corridor anymore,
-  // treat it as "not an entry" for this move (soft).
+  // only flag as "left_entry_corridor" if price moved ADVERSELY (not in our favor).
+  // A favorable move out of corridor is a good thing (price going our way).
   if (Number.isFinite(triggerTs) && triggerTs > 0) {
     const ent = entryType(tickerData);
-    if (ent && ent.corridor === false) reasons.push("left_entry_corridor");
+    if (ent && ent.corridor === false) {
+      // Only count as "left corridor" if the move was adverse
+      // Check if price moved against our position
+      const isAdverseCorridorExit = (() => {
+        if (!Number.isFinite(price) || !Number.isFinite(anchorPrice) || anchorPrice <= 0) {
+          return false; // Can't determine, don't trigger
+        }
+        const priceDelta = price - anchorPrice;
+        // For LONG: adverse if price went DOWN
+        // For SHORT: adverse if price went UP
+        if (side === "LONG") return priceDelta < 0;
+        if (side === "SHORT") return priceDelta > 0;
+        return false;
+      })();
+      
+      if (isAdverseCorridorExit) {
+        reasons.push("left_entry_corridor");
+      }
+    }
   }
 
   // Adverse move detection (tightened from 15% to 10% for earlier exits)
@@ -5616,6 +5635,21 @@ async function processTradeSimulation(
               note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)}`,
             };
 
+            // Build 3-tier TP array for this trade
+            const tpArray = build3TierTPArray(tickerData, entryPx, direction);
+            const validTP = tpArray.length > 0 ? tpArray[0].price : tpCandidate;
+            
+            // Calculate R:R using RUNNER TP (furthest target)
+            const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
+            const calculatedRR = (() => {
+              if (!runnerTp || !Number.isFinite(slCandidate) || !Number.isFinite(entryPx)) {
+                return Number(tickerData?.rr) || 0;
+              }
+              const risk = Math.abs(entryPx - slCandidate);
+              const reward = Math.abs(runnerTp.price - entryPx);
+              return risk > 0 ? reward / risk : 0;
+            })();
+            
             const trade = {
               id: tradeId,
               ticker: sym,
@@ -5625,8 +5659,15 @@ async function processTradeSimulation(
               entry_ts: entryTsMs || undefined,
               triggerTimestamp: Number(tickerData?.trigger_ts) || null,
               sl: slCandidate,
-              tp: tpCandidate,
-              rr: Number(tickerData?.rr) || 0,
+              tp: validTP, // Use TRIM TP (first tier) as primary TP
+              tpArray: tpArray, // Store full 3-tier TP array
+              // Track which tiers have been hit
+              trimTiers: [
+                { tier: "TRIM", pct: THREE_TIER_CONFIG.TRIM.trimPct, hit: false, hitTs: null },
+                { tier: "EXIT", pct: THREE_TIER_CONFIG.EXIT.trimPct, hit: false, hitTs: null },
+                { tier: "RUNNER", pct: THREE_TIER_CONFIG.RUNNER.trimPct, hit: false, hitTs: null },
+              ],
+              rr: calculatedRR,
               rank: Number(tickerData?.rank) || 0,
               state: tickerData?.state,
               flags: tickerData?.flags || {},
