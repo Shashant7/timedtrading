@@ -8289,7 +8289,7 @@
         return (
           <div className="tt-root">
             <div className="min-h-screen px-5 py-8" style={{ background: "var(--tt-bg-base)" }}>
-              <div className="w-full mx-auto max-w-[1200px]">
+              <div className="w-full mx-auto">
                 {/* Header — minimal */}
                 <header className="flex items-center justify-between gap-4 flex-wrap mb-8">
                   <div className="flex items-center gap-4">
@@ -8352,7 +8352,7 @@
 
                 {/* Single view: account value ($100k baseline) + open position cards (wider content when no rail) */}
                 <div className="flex gap-4 items-start">
-                  <div className={`flex-1 min-w-0 max-w-full ${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`} style={{ minWidth: selectedTicker || selectedTrade ? undefined : "min(100%, 1200px)" }}>
+                  <div className={`flex-1 min-w-0 max-w-full ${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
                     {(ledgerTrades ?? {}).loading ? (
                       <div className="text-sm text-[var(--tt-text-muted)] py-8">Loading…</div>
                     ) : (ledgerTrades ?? {}).error ? (
@@ -8424,6 +8424,20 @@
                               const completion = completionForSize(tickerData || {});
                               const completionPct = Math.min(100, Math.max(0, completion * 100));
                               const fillBg = isLong ? "bg-green-500/25" : "bg-red-500/25";
+                              const daily = getDailyChange(tickerData || {});
+                              const dayPct = daily.dayPct;
+                              let cardBg = "bg-[var(--tt-bg-elevated)]";
+                              if (Number.isFinite(dayPct)) {
+                                if (dayPct > 0) {
+                                  if (dayPct >= 3) cardBg = "bg-emerald-500/20";
+                                  else if (dayPct >= 1) cardBg = "bg-emerald-500/15";
+                                  else cardBg = "bg-emerald-500/10";
+                                } else {
+                                  if (dayPct <= -3) cardBg = "bg-rose-500/20";
+                                  else if (dayPct <= -1) cardBg = "bg-rose-500/15";
+                                  else cardBg = "bg-rose-500/10";
+                                }
+                              }
                               return (
                                 <button
                                   key={pos.ticker}
@@ -8435,7 +8449,7 @@
                                     const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
                                     setSelectedPositionEvents(Array.isArray(events) ? events : []);
                                   }}
-                                  className="w-full text-left px-3 py-2 rounded-lg border border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:bg-[var(--tt-bg-elevated)] hover:border-[var(--tt-border-strong)] transition-all overflow-hidden relative"
+                                  className={`w-full text-left px-3 py-2 rounded-lg border border-[var(--tt-border)] ${cardBg} hover:border-[var(--tt-border-strong)] transition-all overflow-hidden relative`}
                                   title="Open in right rail"
                                 >
                                   {/* Left-to-right TP progress fill (Kanban-style subtle) */}
