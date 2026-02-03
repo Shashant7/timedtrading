@@ -1,7 +1,7 @@
 {
   "scripts": {
-    "deploy": "cd worker && wrangler deploy --env production",
-    "deploy:worker": "cd worker && wrangler deploy --env production"
+    "deploy": "node scripts/embed-dashboard.js && cd worker && wrangler deploy --env production",
+    "deploy:worker": "node scripts/embed-dashboard.js && cd worker && wrangler deploy --env production"
   },
   "devDependencies": {
     "wrangler": "^4.61.0"

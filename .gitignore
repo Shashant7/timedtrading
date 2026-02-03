@@ -18,6 +18,7 @@ yarn.lock
 # Build outputs
 dist/
 build/
+worker/dashboard-html.js
 
 # IDE
 .vscode/

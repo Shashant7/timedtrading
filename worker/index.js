@@ -1,4 +1,5 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
+import { DASHBOARD_HTML } from "./dashboard-html.js";
 // Routes:
 // POST /timed/ingest?key=...
 // GET  /timed/all
@@ -12173,6 +12174,13 @@ export default {
     // Top-level error handler to prevent 500 errors from crashing the worker
     try {
       const url = new URL(req.url);
+
+      // Serve Trade Tracker dashboard at / and /dashboard (no KV required)
+      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/dashboard")) {
+        return new Response(DASHBOARD_HTML, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
 
       // Always satisfy CORS preflight before touching bindings.
       // This prevents the dashboard from being blocked by CORS when KV/D1 are misconfigured.
