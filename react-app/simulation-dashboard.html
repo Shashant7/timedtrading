@@ -6679,64 +6679,272 @@
                           </div>
                         </div>
 
-                        {/* Open positions — Kanban-style cards: LONG (3 cols) | SHORT (3 cols); same layout as pipeline lane cards */}
+                        {/* Today's Trading Summary */}
+                        {(() => {
+                          const todayKey = (() => {
+                            const d = new Date();
+                            const yyyy = d.getFullYear();
+                            const mm = String(d.getMonth() + 1).padStart(2, "0");
+                            const dd = String(d.getDate()).padStart(2, "0");
+                            return `${yyyy}-${mm}-${dd}`;
+                          })();
+                          
+                          const todayStartMs = new Date(todayKey + "T00:00:00").getTime();
+                          const todayEndMs = todayStartMs + 24 * 60 * 60 * 1000;
+                          
+                          // Gather today's events
+                          const todayActions = [];
+                          const seenActionKeys = new Set();
+                          
+                          for (const t of (ledgerFilteredTrades || [])) {
+                            // Entry today?
+                            const entryTs = tsToMs(t.entry_ts);
+                            if (entryTs >= todayStartMs && entryTs < todayEndMs) {
+                              const key = `entry-${t.ticker}-${entryTs}`;
+                              if (!seenActionKeys.has(key)) {
+                                seenActionKeys.add(key);
+                                todayActions.push({
+                                  ts: entryTs,
+                                  type: "ENTRY",
+                                  ticker: t.ticker,
+                                  direction: t.direction || "LONG",
+                                  price: Number(t.entry_price),
+                                  pnl: null,
+                                  trade: t,
+                                });
+                              }
+                            }
+                            
+                            // Trim today?
+                            const trimTsRaw = t.trim_ts ?? t.updated_at;
+                            const trimTs = trimTsRaw ? tsToMs(trimTsRaw) : null;
+                            if (trimTs >= todayStartMs && trimTs < todayEndMs && Number(t.trimmed_pct) > 0) {
+                              const key = `trim-${t.ticker}-${trimTs}`;
+                              if (!seenActionKeys.has(key)) {
+                                seenActionKeys.add(key);
+                                todayActions.push({
+                                  ts: trimTs,
+                                  type: "TRIM",
+                                  ticker: t.ticker,
+                                  direction: t.direction || "LONG",
+                                  price: Number(t.trim_price) || null,
+                                  trimmedPct: Number(t.trimmed_pct) || 0,
+                                  pnl: null,
+                                  trade: t,
+                                });
+                              }
+                            }
+                            
+                            // Exit today?
+                            const exitTs = tsToMs(t.exit_ts);
+                            if (exitTs >= todayStartMs && exitTs < todayEndMs && (t.status === "WIN" || t.status === "LOSS")) {
+                              const key = `exit-${t.ticker}-${exitTs}`;
+                              if (!seenActionKeys.has(key)) {
+                                seenActionKeys.add(key);
+                                todayActions.push({
+                                  ts: exitTs,
+                                  type: "EXIT",
+                                  ticker: t.ticker,
+                                  direction: t.direction || "LONG",
+                                  price: Number(t.exit_price),
+                                  pnl: Number(t.pnl || 0),
+                                  status: t.status,
+                                  trade: t,
+                                });
+                              }
+                            }
+                          }
+                          
+                          // Sort by time (most recent first)
+                          todayActions.sort((a, b) => b.ts - a.ts);
+                          
+                          // Compute totals
+                          const entries = todayActions.filter(a => a.type === "ENTRY");
+                          const trims = todayActions.filter(a => a.type === "TRIM");
+                          const exits = todayActions.filter(a => a.type === "EXIT");
+                          const todayPnl = exits.reduce((sum, e) => sum + (e.pnl || 0), 0);
+                          const wins = exits.filter(e => e.status === "WIN").length;
+                          const losses = exits.filter(e => e.status === "LOSS").length;
+                          const winRate = exits.length > 0 ? (wins / exits.length * 100) : 0;
+                          
+                          // Format time
+                          const fmtTime = (ms) => {
+                            const d = new Date(ms);
+                            return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+                          };
+                          
+                          // Get action icon and color
+                          const getActionStyle = (action) => {
+                            switch(action.type) {
+                              case "ENTRY": return { icon: "🚀", color: "text-cyan-400", bgColor: "bg-cyan-500/10", label: "Entered" };
+                              case "TRIM": return { icon: "📊", color: "text-yellow-400", bgColor: "bg-yellow-500/10", label: "Trimmed" };
+                              case "EXIT": return action.status === "WIN" 
+                                ? { icon: "✅", color: "text-green-400", bgColor: "bg-green-500/10", label: "Exited" }
+                                : { icon: "❌", color: "text-red-400", bgColor: "bg-red-500/10", label: "Stopped" };
+                              default: return { icon: "•", color: "text-gray-400", bgColor: "bg-gray-500/10", label: "" };
+                            }
+                          };
+                          
+                          return (
+                            <div className="tt-card p-4">
+                              <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">📅</span>
+                                  <h2 className="text-sm font-semibold text-[var(--tt-text)]">Today's Trading Summary</h2>
+                                </div>
+                                <div className="text-xs text-[var(--tt-text-faint)]">
+                                  {new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                                </div>
+                              </div>
+                              
+                              {/* Stats row */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Entries</div>
+                                  <div className="text-lg font-bold text-cyan-400">{entries.length}</div>
+                                </div>
+                                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Trims</div>
+                                  <div className="text-lg font-bold text-yellow-400">{trims.length}</div>
+                                </div>
+                                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Exits</div>
+                                  <div className="flex items-baseline gap-1">
+                                    <span className="text-lg font-bold text-orange-400">{exits.length}</span>
+                                    {exits.length > 0 && (
+                                      <span className="text-[10px] text-[var(--tt-text-muted)]">
+                                        ({wins}W / {losses}L)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Realized P&L</div>
+                                  <div className={`text-lg font-bold ${todayPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                    {fmtUsd(todayPnl)}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Action timeline */}
+                              {todayActions.length > 0 ? (
+                                <div className="border-t border-[var(--tt-border)] pt-3">
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">Activity Timeline</div>
+                                  <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                                    {todayActions.map((action, idx) => {
+                                      const style = getActionStyle(action);
+                                      const isLong = (action.direction || "LONG").toUpperCase() === "LONG";
+                                      return (
+                                        <div
+                                          key={`${action.type}-${action.ticker}-${idx}`}
+                                          className={`flex items-center gap-3 px-2 py-1.5 rounded ${style.bgColor} border border-transparent hover:border-[var(--tt-border)] transition-colors cursor-pointer`}
+                                          onClick={() => {
+                                            if (action.trade) {
+                                              setSelectedTicker(action.ticker);
+                                              setSelectedTrade(action.trade);
+                                              const events = action.trade?.history || [];
+                                              setSelectedPositionEvents(Array.isArray(events) ? events : []);
+                                            }
+                                          }}
+                                        >
+                                          <span className="text-sm">{style.icon}</span>
+                                          <span className="text-xs text-[var(--tt-text-faint)] w-14">{fmtTime(action.ts)}</span>
+                                          <span className="font-semibold text-white text-sm">{action.ticker}</span>
+                                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${isLong ? "bg-green-500/10 text-green-400 border-green-500/30" : "bg-red-500/10 text-red-400 border-red-500/30"}`}>
+                                            {isLong ? "LONG" : "SHORT"}
+                                          </span>
+                                          <span className={`text-xs ${style.color}`}>{style.label}</span>
+                                          {action.price != null && (
+                                            <span className="text-xs text-[var(--tt-text-muted)] ml-auto">@ ${action.price.toFixed(2)}</span>
+                                          )}
+                                          {action.type === "TRIM" && action.trimmedPct != null && (
+                                            <span className="text-xs text-yellow-400 ml-2">{Math.round(action.trimmedPct * 100)}%</span>
+                                          )}
+                                          {action.type === "EXIT" && action.pnl != null && (
+                                            <span className={`text-xs font-semibold ml-2 ${action.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                              {fmtUsd(action.pnl)}
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-center py-4 text-sm text-[var(--tt-text-faint)]">
+                                  No trading activity yet today
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Open positions — Kanban-style lanes by lifecycle stage */}
                         {openPositionCards.length > 0 ? (
                           (() => {
-                            const longPositions = openPositionCards.filter((p) => String(p.trade?.direction || "").toUpperCase() === "LONG");
-                            const shortPositions = openPositionCards.filter((p) => String(p.trade?.direction || "").toUpperCase() === "SHORT");
                             const dirPillLong = "bg-green-500/10 text-green-400 border-green-500/30";
                             const dirPillShort = "bg-red-500/10 text-red-400 border-red-500/30";
+                            
+                            // Categorize positions by Kanban stage
+                            const categorizePosition = (pos) => {
+                              const trade = pos.trade;
+                              const trimmedPct = Number(trade?.trimmedPct || 0);
+                              const entryTs = Number(trade?.entry_ts || trade?.entryTime || 0);
+                              const now = Date.now();
+                              const entryMs = entryTs < 1e12 ? entryTs * 1000 : entryTs;
+                              const ageMs = now - entryMs;
+                              const isJustEntered = ageMs >= 0 && ageMs < 15 * 60 * 1000; // 15 min
+                              
+                              // Get kanban stage from ticker data if available
+                              const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
+                              const kanbanStage = tickerData?.kanban_stage || trade?.kanban_stage;
+                              
+                              if (kanbanStage === "exit") return "exit";
+                              if (trimmedPct >= 0.6 || kanbanStage === "trim") return "trim";
+                              if (isJustEntered || kanbanStage === "just_entered") return "just_entered";
+                              return "hold";
+                            };
+                            
+                            const justEnteredPositions = openPositionCards.filter(p => categorizePosition(p) === "just_entered");
+                            const holdPositions = openPositionCards.filter(p => categorizePosition(p) === "hold");
+                            const trimPositions = openPositionCards.filter(p => categorizePosition(p) === "trim");
+                            const exitPositions = openPositionCards.filter(p => categorizePosition(p) === "exit");
+                            
                             const renderCard = (pos) => {
                               const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                               const isLong = dir === "LONG";
                               const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
                               const completion = completionForSize(tickerData || {});
                               const completionPct = Math.min(100, Math.max(0, completion * 100));
-                              const fillBg = isLong ? "bg-green-500/25" : "bg-red-500/25";
-                              const daily = getDailyChange(tickerData || {});
-                              const dayPct = daily.dayPct;
+                              const fillBg = isLong ? "bg-green-500/15" : "bg-red-500/15";
+                              
+                              // Current price from ticker data
+                              const currentPrice = pos.current || Number(tickerData?.price) || null;
+                              const entryPrice = pos.entryPrice || Number(pos.trade?.entryPrice) || null;
+                              
+                              // Calculate P&L
+                              const pnlOpen = pos.pnlOpen;
+                              const retOpenPct = pos.retOpenPct;
                               
                               // 3-Tier TP System info
                               const trimmedPct = Number(pos.trade?.trimmedPct || 0);
-                              const tpArray = pos.trade?.tpArray || [];
-                              const trimTiers = pos.trade?.trimTiers || [];
                               const slProtectReason = pos.trade?.sl_protect_reason || null;
-                              const has3TierSystem = tpArray.length > 0 && tpArray.some(tp => tp.tier);
                               
                               // Determine current tier status
                               let currentTier = null;
-                              let nextTier = null;
-                              if (trimmedPct >= 0.8) {
-                                currentTier = "RUNNER";
-                              } else if (trimmedPct >= 0.6) {
-                                currentTier = "EXIT";
-                                nextTier = "RUNNER";
-                              } else if (trimmedPct > 0) {
-                                currentTier = "TRIM";
-                                nextTier = "EXIT";
-                              } else {
-                                nextTier = "TRIM";
-                              }
+                              if (trimmedPct >= 0.8) currentTier = "RUNNER";
+                              else if (trimmedPct >= 0.6) currentTier = "EXIT";
+                              else if (trimmedPct > 0) currentTier = "TRIM";
                               
-                              // Tier colors and labels
-                              const tierConfig = {
-                                TRIM: { label: "TRIM", color: "yellow", pct: 60 },
-                                EXIT: { label: "EXIT", color: "orange", pct: 80 },
-                                RUNNER: { label: "RUNNER", color: "green", pct: 100 },
-                              };
-                              
+                              // Card background based on P&L
                               let cardBg = "bg-[var(--tt-bg-elevated)]";
-                              if (Number.isFinite(dayPct)) {
-                                if (dayPct > 0) {
-                                  if (dayPct >= 3) cardBg = "bg-emerald-500/20";
-                                  else if (dayPct >= 1) cardBg = "bg-emerald-500/15";
-                                  else cardBg = "bg-emerald-500/10";
-                                } else {
-                                  if (dayPct <= -3) cardBg = "bg-rose-500/20";
-                                  else if (dayPct <= -1) cardBg = "bg-rose-500/15";
-                                  else cardBg = "bg-rose-500/10";
-                                }
+                              if (Number.isFinite(retOpenPct)) {
+                                if (retOpenPct >= 3) cardBg = "bg-emerald-500/15";
+                                else if (retOpenPct >= 1) cardBg = "bg-emerald-500/10";
+                                else if (retOpenPct <= -3) cardBg = "bg-rose-500/15";
+                                else if (retOpenPct <= -1) cardBg = "bg-rose-500/10";
                               }
+                              
                               return (
                                 <button
                                   key={pos.ticker}
@@ -6748,131 +6956,153 @@
                                     const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
                                     setSelectedPositionEvents(Array.isArray(events) ? events : []);
                                   }}
-                                  className={`w-full text-left px-3 py-2 rounded-lg border border-[var(--tt-border)] ${cardBg} hover:border-[var(--tt-border-strong)] transition-all overflow-hidden relative`}
+                                  className={`w-full text-left px-3 py-2.5 rounded-lg border border-[var(--tt-border)] ${cardBg} hover:border-[var(--tt-border-strong)] transition-all overflow-hidden relative`}
                                   title="Open in right rail"
                                 >
-                                  {/* Left-to-right TP progress fill (Kanban-style subtle) */}
+                                  {/* Completion fill overlay */}
                                   <div className={`absolute inset-y-0 left-0 ${fillBg}`} style={{ width: `${completionPct}%` }} aria-hidden="true" />
                                   <div className="relative z-10">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <div className="font-bold text-white">{pos.ticker}</div>
-                                          <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${isLong ? dirPillLong : dirPillShort}`}>
-                                            {dir}
+                                    {/* Row 1: Ticker + Direction + Tier Badge | Current Price (prominent) */}
+                                    <div className="flex items-start justify-between gap-2 mb-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-bold text-white text-sm">{pos.ticker}</span>
+                                        <span className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${isLong ? dirPillLong : dirPillShort}`}>
+                                          {dir}
+                                        </span>
+                                        {currentTier && (
+                                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border ${
+                                            currentTier === "RUNNER" ? "bg-green-500/20 text-green-300 border-green-500/30" :
+                                            currentTier === "EXIT" ? "bg-orange-500/20 text-orange-300 border-orange-500/30" :
+                                            "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
+                                          }`}>
+                                            {currentTier} ✓
                                           </span>
-                                          {/* 3-Tier Status Badge */}
-                                          {trimmedPct > 0 && (
-                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                                              currentTier === "RUNNER" ? "bg-green-500/20 text-green-300 border border-green-500/30" :
-                                              currentTier === "EXIT" ? "bg-orange-500/20 text-orange-300 border border-orange-500/30" :
-                                              "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
-                                            }`}>
-                                              {currentTier} ✓
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="mt-0.5 text-[11px] text-[var(--tt-text-muted)]">
-                                          Entry {pos.entryPrice != null ? fmtUsd(pos.entryPrice) : "—"} → Current {pos.current != null ? fmtUsd(pos.current) : "—"}
-                                        </div>
+                                        )}
                                       </div>
-                                      <div className="flex-shrink-0 text-right text-[11px]">
-                                        <div className={(pos.pnlOpen ?? 0) >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
-                                          {pos.pnlOpen != null ? fmtUsd(pos.pnlOpen) : "—"}
-                                        </div>
-                                        <div className="text-[var(--tt-text-faint)]">
-                                          {pos.retOpenPct != null ? `${pos.retOpenPct >= 0 ? "+" : ""}${pos.retOpenPct.toFixed(2)}%` : "—"}
+                                      {/* Current Price - prominent like everywhere else */}
+                                      <div className="text-right">
+                                        <div className="text-white font-bold text-lg">
+                                          {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
                                         </div>
                                       </div>
                                     </div>
                                     
-                                    {/* 3-Tier Progress Section */}
-                                    {has3TierSystem ? (
-                                      <div className="mt-1.5">
-                                        <div className="flex items-center gap-1 text-[9px] mb-1">
-                                          <span className={`px-1 py-0.5 rounded ${trimmedPct >= 0.6 ? "bg-yellow-500/30 text-yellow-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>🎯60%</span>
-                                          <span className={`px-1 py-0.5 rounded ${trimmedPct >= 0.8 ? "bg-orange-500/30 text-orange-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>💰80%</span>
-                                          <span className={`px-1 py-0.5 rounded ${trimmedPct >= 1.0 ? "bg-green-500/30 text-green-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>🚀100%</span>
-                                          <span className="ml-auto text-[var(--tt-text-muted)]">
-                                            {Math.round(trimmedPct * 100)}% trimmed
-                                          </span>
+                                    {/* Row 2: Entry Price | Net Change % | Net P&L */}
+                                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                                      <div>
+                                        <div className="text-[var(--tt-text-faint)] text-[9px] mb-0.5">Entry</div>
+                                        <div className="text-[var(--tt-text-muted)] font-medium">
+                                          {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}
                                         </div>
-                                        <div className="flex items-center gap-1">
-                                          <div className="flex-1 h-2 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden flex">
-                                            {/* TRIM segment (0-60%) */}
-                                            <div 
-                                              className="h-full bg-yellow-500/70" 
-                                              style={{ width: `${Math.min(60, trimmedPct * 100)}%` }} 
-                                            />
-                                            {/* EXIT segment (60-80%) */}
-                                            <div 
-                                              className="h-full bg-orange-500/70" 
-                                              style={{ width: `${Math.max(0, Math.min(20, (trimmedPct * 100) - 60))}%` }} 
-                                            />
-                                            {/* RUNNER segment (80-100%) */}
-                                            <div 
-                                              className="h-full bg-green-500/70" 
-                                              style={{ width: `${Math.max(0, (trimmedPct * 100) - 80)}%` }} 
-                                            />
+                                      </div>
+                                      <div>
+                                        <div className="text-[var(--tt-text-faint)] text-[9px] mb-0.5">Change</div>
+                                        <div className={`font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                          {retOpenPct != null ? `${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(2)}%` : "—"}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[var(--tt-text-faint)] text-[9px] mb-0.5">P&L</div>
+                                        <div className={`font-semibold ${(pnlOpen ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                          {pnlOpen != null ? fmtUsd(pnlOpen) : "—"}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Row 3: Trim Progress Bar (if trimmed) */}
+                                    {trimmedPct > 0 && (
+                                      <div className="mt-2 pt-2 border-t border-[var(--tt-border)]">
+                                        <div className="flex items-center justify-between text-[9px] mb-1">
+                                          <div className="flex items-center gap-1">
+                                            <span className={`px-1 py-0.5 rounded ${trimmedPct >= 0.6 ? "bg-yellow-500/30 text-yellow-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>🎯</span>
+                                            <span className={`px-1 py-0.5 rounded ${trimmedPct >= 0.8 ? "bg-orange-500/30 text-orange-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>💰</span>
+                                            <span className={`px-1 py-0.5 rounded ${trimmedPct >= 1.0 ? "bg-green-500/30 text-green-300" : "bg-[var(--tt-bg-surface)] text-[var(--tt-text-faint)]"}`}>🚀</span>
                                           </div>
+                                          <span className="text-[var(--tt-text-muted)]">{Math.round(trimmedPct * 100)}% trimmed</span>
+                                        </div>
+                                        <div className="h-1.5 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden flex">
+                                          <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, trimmedPct * 100)}%` }} />
+                                          <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, (trimmedPct * 100) - 60))}%` }} />
+                                          <div className="h-full bg-green-500/70" style={{ width: `${Math.max(0, (trimmedPct * 100) - 80)}%` }} />
                                         </div>
                                         {slProtectReason && (
                                           <div className="mt-1 text-[9px] text-[var(--tt-text-faint)]">
-                                            SL: {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "@ BE" :
+                                            SL: {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "@ Breakeven" :
                                                  slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "@ TRIM TP" :
-                                                 slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR Trail" :
+                                                 slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR Trailing" :
                                                  slProtectReason === "PROTECT_GAINS" ? "Protected" : ""}
                                           </div>
                                         )}
                                       </div>
-                                    ) : (
-                                      /* Legacy TP progress display */
-                                      <>
-                                        <div className="mt-1 grid grid-cols-3 gap-2 text-[10px] text-[var(--tt-text-muted)]">
-                                          <div>
-                                            <span className="text-[var(--tt-text-faint)]">Net P&L</span>{" "}
-                                            <span className={`font-semibold ${(pos.pnlOpen ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                              {pos.pnlOpen != null ? fmtUsd(pos.pnlOpen) : "—"}
-                                            </span>
-                                          </div>
-                                          <div>
-                                            <span className="text-[var(--tt-text-faint)]">Qty</span>{" "}
-                                            <span className="text-white font-semibold">
-                                              {pos.qty != null ? Number(pos.qty).toFixed(FUTURES_SPECS[pos.ticker] ? 0 : 4) : "—"}
-                                            </span>
-                                          </div>
-                                          <div>
-                                            <span className="text-[var(--tt-text-faint)]">TP</span>{" "}
-                                            <span className="text-white font-semibold">{completionPct.toFixed(0)}%</span>
-                                          </div>
+                                    )}
+                                    
+                                    {/* Row 3 Alt: TP Progress (if not trimmed) */}
+                                    {trimmedPct === 0 && (
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <div className="text-[9px] text-[var(--tt-text-faint)]">TP</div>
+                                        <div className="flex-1 h-1.5 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
+                                          <div className={`h-full ${isLong ? "bg-green-500/70" : "bg-red-500/70"}`} style={{ width: `${completionPct}%` }} />
                                         </div>
-                                        <div className="mt-1 flex items-center gap-2">
-                                          <div className="w-14 text-[10px] text-[var(--tt-text-faint)]">TP progress</div>
-                                          <div className="flex-1 h-1.5 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
-                                            <div className={`h-full ${isLong ? "bg-green-500/70" : "bg-red-500/70"}`} style={{ width: `${completionPct}%` }} />
-                                          </div>
-                                          <div className="w-8 text-right text-[10px] text-[var(--tt-text-muted)]">{completionPct.toFixed(0)}%</div>
-                                        </div>
-                                      </>
+                                        <div className="text-[9px] text-[var(--tt-text-muted)]">{completionPct.toFixed(0)}%</div>
+                                      </div>
                                     )}
                                   </div>
                                 </button>
                               );
                             };
+                            
+                            // Lane component
+                            const Lane = ({ title, emoji, positions, color, emptyText }) => (
+                              <div className={`rounded-lg border border-[var(--tt-border)] bg-[var(--tt-bg-surface)] p-3`}>
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">{emoji}</span>
+                                    <h3 className={`text-sm font-semibold ${color}`}>{title}</h3>
+                                  </div>
+                                  <span className="text-xs text-[var(--tt-text-faint)] bg-[var(--tt-bg-elevated)] px-2 py-0.5 rounded">
+                                    {positions.length}
+                                  </span>
+                                </div>
+                                <div className="space-y-2">
+                                  {positions.length > 0 ? (
+                                    positions.map(renderCard)
+                                  ) : (
+                                    <p className="text-xs text-[var(--tt-text-faint)] text-center py-4">{emptyText}</p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                            
                             return (
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                                <div>
-                                  <h2 className="text-sm font-semibold text-emerald-400/90 mb-3">LONG</h2>
-                                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                                    {longPositions.length > 0 ? longPositions.map(renderCard) : <p className="text-xs text-[var(--tt-text-faint)] col-span-full">No long positions</p>}
-                                  </div>
-                                </div>
-                                <div>
-                                  <h2 className="text-sm font-semibold text-rose-400/90 mb-3">SHORT</h2>
-                                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                                    {shortPositions.length > 0 ? shortPositions.map(renderCard) : <p className="text-xs text-[var(--tt-text-faint)] col-span-full">No short positions</p>}
-                                  </div>
-                                </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <Lane 
+                                  title="Just Entered" 
+                                  emoji="🚀" 
+                                  positions={justEnteredPositions} 
+                                  color="text-cyan-400"
+                                  emptyText="No recent entries"
+                                />
+                                <Lane 
+                                  title="Hold" 
+                                  emoji="💎" 
+                                  positions={holdPositions} 
+                                  color="text-blue-400"
+                                  emptyText="No positions holding"
+                                />
+                                <Lane 
+                                  title="Trim" 
+                                  emoji="📊" 
+                                  positions={trimPositions} 
+                                  color="text-yellow-400"
+                                  emptyText="No positions to trim"
+                                />
+                                <Lane 
+                                  title="Exit" 
+                                  emoji="🚪" 
+                                  positions={exitPositions} 
+                                  color="text-orange-400"
+                                  emptyText="No positions to exit"
+                                />
                               </div>
                             );
                           })()
