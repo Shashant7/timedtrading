@@ -2042,11 +2042,13 @@
       }
 
       // Universal Right Rail (shared component from shared-right-rail.js)
+      const _fmtUsd = typeof fmtUsd === "function" ? fmtUsd : (v) => (Number.isFinite(Number(v)) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(Number(v)) : "—");
+      const _fmtUsdAbs = typeof fmtUsdAbs === "function" ? fmtUsdAbs : (n) => (Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—");
       const TickerDetailRightRail = window.TickerDetailRightRailFactory({
         React,
         API_BASE,
-        fmtUsd,
-        fmtUsdAbs,
+        fmtUsd: _fmtUsd,
+        fmtUsdAbs: _fmtUsdAbs,
         getDailyChange,
         isPrimeBubble,
         entryType,
