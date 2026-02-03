@@ -11682,21 +11682,21 @@
         }
 
         return (
-          <div className="mb-4 rounded-xl border-2 border-[#3a4a7f] bg-[#0a0f24] p-4">
+          <div className="mb-4 rounded-xl border-2 border-[var(--tt-border)] p-4" style={{ background: "#13171e" }}>
             <div className="mb-4">
               <div className="text-lg font-bold text-white flex items-center gap-2">
                 🎯 Action Center
-                <span className="text-[13px] font-normal text-[#5c6475]">
+                <span className="text-[13px] font-normal text-[var(--tt-text-faint)]">
                   Trading Lifecycle Flow
                 </span>
               </div>
-              <div className="mt-1 text-[10px] text-[#5c6475]">
+              <div className="mt-1 text-[10px] text-[var(--tt-text-faint)]">
                 Rank = viewport score rank (relative strength)
                 {rankTotal ? ` (1–${rankTotal}, 1 is strongest)` : ""}. “Enter
-                Now” also requires trigger/corridor/completion gates, so a top-5
+                Now” also requires trigger/corridor/completion gates,             so a top-5
                 name can still be Watch/Hold/Trim.
               </div>
-              <div className="mt-1 text-[11px] text-[#8b92a0]">
+              <div className="mt-1 text-[11px] text-[var(--tt-text-muted)]">
                 {kanbanCount} tickers in play • Flip Watch → Enter → Hold →
                 Defend → Trim → Exit
               </div>
@@ -11707,7 +11707,7 @@
               <div className="mb-4">
                 <button
                   onClick={() => toggleSection("earlyMovers")}
-                  className="w-full flex items-center justify-between p-3 rounded-lg bg-gradient-to-r from-amber-500/10 via-blue-500/10 to-green-500/10 border-2 border-[#3a4a7f] hover:border-[#4a5a8f] transition-all mb-3"
+                  className="w-full flex items-center justify-between p-3 rounded-lg bg-[var(--tt-bg-elevated)] border-2 border-[var(--tt-border)] hover:border-[var(--tt-border-strong)] transition-all mb-3"
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-bold text-white">
@@ -11716,23 +11716,23 @@
                     <span className="px-2 py-0.5 rounded bg-purple-500/30 text-purple-200 text-[10px] font-bold border border-purple-400/60">
                       {kanbanCount} active
                     </span>
-                    <span className="text-[10px] text-[#8b92a0]">
+                    <span className="text-[10px] text-[var(--tt-text-muted)]">
                       🎯 Watch → ⚡ Flip → 🚀 Enter → 💎 Hold → 🛡 Defend → 📊
                       Trim → 🚪 Exit
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[#5c6475]">
+                    <span className="text-[10px] text-[var(--tt-text-faint)]">
                       Horizontal flow
                     </span>
-                    <span className="text-[#8b92a0]">
+                    <span className="text-[var(--tt-text-muted)]">
                       {expandedSections.earlyMovers ? "▼" : "▶"}
                     </span>
                   </div>
                 </button>
 
                 {expandedSections.earlyMovers && (
-                  <div className="bg-[#1a1f28] rounded-lg p-3 border border-[#252b36]">
+                  <div className="bg-[var(--tt-bg-elevated)] rounded-lg p-3 border border-[var(--tt-border)]">
                     <EarlyMoversPanel
                       tickers={tickers}
                       onSelectTicker={onSelectTicker}
