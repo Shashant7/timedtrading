@@ -144,6 +144,44 @@ const normTicker = (t) => {
 };
 const isNum = (x) => Number.isFinite(Number(x));
 
+// Kanban stage ordering for monotonicity enforcement (positions can only move forward)
+const KANBAN_STAGE_ORDER = {
+  watch: 0,
+  setup_watch: 1,
+  flip_watch: 2,
+  enter_now: 3,
+  just_entered: 4,
+  hold: 5,
+  trim: 6,
+  exit: 7,
+  archive: 8,
+};
+
+/**
+ * Enforce stage monotonicity for open positions: management lanes can only progress forward.
+ * Prevents bouncing from EXIT→TRIM→HOLD due to price fluctuations.
+ * @param {string} newStage - Newly computed stage
+ * @param {string} prevStage - Previous stage
+ * @param {boolean} hasOpenPosition - Whether there's an open position
+ * @returns {string} - Finalized stage
+ */
+function enforceStageMonotonicity(newStage, prevStage, hasOpenPosition) {
+  if (!hasOpenPosition) return newStage; // Allow free movement for opportunity lanes
+  if (!prevStage || !newStage) return newStage;
+  
+  const newOrder = KANBAN_STAGE_ORDER[newStage] ?? 0;
+  const prevOrder = KANBAN_STAGE_ORDER[prevStage] ?? 0;
+  
+  // Management lanes (just_entered+) can only move forward, not regress
+  // Exception: if previous was archive, allow re-entry (handled elsewhere by recycle rule)
+  if (prevOrder >= KANBAN_STAGE_ORDER.just_entered && prevStage !== "archive") {
+    if (newOrder < prevOrder) {
+      return prevStage; // Don't regress
+    }
+  }
+  return newStage;
+}
+
 // Trading day key in US/Eastern (for daily change vs yesterday close)
 const NY_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York",
@@ -1455,7 +1493,13 @@ function detectFlipWatch(tickerData, trail = []) {
  *  watch, setup_watch | flip_watch, just_flipped | enter_now | just_entered | hold | trim | exit | archive
  *  UI maps: Watching | Almost Ready | Enter Now | Just Entered | Hold | Trim | Exit | Archived
  */
-function classifyKanbanStage(tickerData) {
+/**
+ * Classify kanban stage for a ticker.
+ * @param {object} tickerData - Ticker payload with scores, state, flags, etc.
+ * @param {object|null} openPosition - Optional: open position from D1 (for position-aware classification)
+ * @returns {string|null} - Kanban stage or null
+ */
+function classifyKanbanStage(tickerData, openPosition = null) {
   const state = String(tickerData?.state || "");
   const flags = tickerData?.flags || {};
   const moveStatus = computeMoveStatus(tickerData);
@@ -1472,6 +1516,9 @@ function classifyKanbanStage(tickerData) {
   const ed = tickerData?.entry_decision || null;
   const edAction = String(ed?.action || "").toUpperCase();
   const edOk = ed?.ok === true;
+  
+  // Position-aware: if we have an open position in D1, use position-driven logic
+  const hasOpenPosition = !!(openPosition && openPosition.status === "OPEN");
 
   // Terminal/administrative stages -> ARCHIVE
   const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
@@ -4642,6 +4689,8 @@ async function processTradeSimulation(
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
     // Require position to be open at least N minutes before allowing first/next trim (avoid trim 1m after entry)
     const MIN_MINUTES_SINCE_ENTRY_BEFORE_TRIM = 5;
+    // Require position to be open at least N minutes before exit (prevents rapid enter→exit churn)
+    const MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT = 15;
     const entryMs =
       openTrade == null
         ? null
@@ -4655,6 +4704,12 @@ async function processTradeSimulation(
       openTrade == null ||
       !Number.isFinite(entryMsNorm) ||
       now - entryMsNorm >= minEntryAgeMs;
+    // Exit minimum age: position must be open for at least 15 min before exit is allowed
+    const minExitAgeMs = MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT * 60 * 1000;
+    const exitMinAgeOk =
+      openTrade == null ||
+      !Number.isFinite(entryMsNorm) ||
+      now - entryMsNorm >= minExitAgeMs;
     const exitCooldownOk =
       !Number.isFinite(lastExitMs) || now - lastExitMs >= 5 * 60 * 1000; // 5m
     const sameEnterCycle =
@@ -4779,6 +4834,34 @@ async function processTradeSimulation(
             status: "CLOSED",
             closed_at: tsExit,
           }).catch(() => {});
+        }
+        
+        // Clear entry state from ticker's KV record to prevent stale position showing in kanban
+        // This ensures ticker returns to opportunity lanes after position closes
+        try {
+          const latestKey = `timed:latest:${sym}`;
+          const existingPayload = await kvGetJSON(KV, latestKey);
+          if (existingPayload) {
+            existingPayload.entry_ts = null;
+            existingPayload.entry_price = null;
+            existingPayload.kanban_cycle_enter_now_ts = null;
+            existingPayload.kanban_cycle_trigger_ts = null;
+            existingPayload.kanban_cycle_side = null;
+            // Recompute kanban stage now that position is closed
+            existingPayload.move_status = computeMoveStatus(existingPayload);
+            if (existingPayload.flags) {
+              existingPayload.flags.move_invalidated = existingPayload.move_status?.status === "INVALIDATED";
+              existingPayload.flags.move_completed = existingPayload.move_status?.status === "COMPLETED";
+              existingPayload.flags.position_closed_cleared = true;
+            }
+            const newStage = classifyKanbanStage(existingPayload, null);
+            existingPayload.kanban_stage = newStage;
+            existingPayload.kanban_meta = deriveKanbanMeta(existingPayload, newStage);
+            await kvPutJSON(KV, latestKey, existingPayload);
+            console.log(`[TRADE SIM] ${sym} position closed: cleared entry state, stage → ${newStage}`);
+          }
+        } catch (clearErr) {
+          console.error(`[TRADE SIM] ${sym} failed to clear entry state:`, clearErr);
         }
       }
 
@@ -5032,9 +5115,16 @@ async function processTradeSimulation(
     const weekendNow = isNyWeekend(Date.now());
 
     // 1) EXIT: close any open trade while in EXIT lane
-    if (isExit && !weekendNow && exitCooldownOk && openTrade) {
+    // Guard: position must be open for at least MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT (15 min)
+    // to prevent rapid enter→exit churn from volatile price movements
+    if (isExit && !weekendNow && exitCooldownOk && exitMinAgeOk && openTrade) {
       await closeTradeAtPrice(openTrade, pxNow, reason);
       if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastExitMs: now });
+    } else if (isExit && openTrade && !exitMinAgeOk) {
+      const ageMin = Number.isFinite(entryMsNorm) ? Math.round((now - entryMsNorm) / 60000) : 0;
+      console.log(
+        `[TRADE SIM] ${sym} exit blocked: position only ${ageMin}m old (min ${MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT}m)`
+      );
     }
 
     // 2) TRIM: apply progressive trim on transition into TRIM lane (only after position has been open long enough)
@@ -9092,18 +9182,23 @@ async function d1CleanupOldTrail(env, ttlDays = 35) {
   }
 }
 
-async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
+async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000, includeKanban = false) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   const t = String(ticker || "").toUpperCase();
   const lim = Math.max(1, Math.min(20000, Number(limit) || 5000));
 
   try {
+    // Include payload_json when kanban data is requested (for Time Travel)
+    const cols = includeKanban
+      ? `ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, payload_json`
+      : `ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir`;
+    
     let stmt;
     if (sinceTs != null && Number.isFinite(Number(sinceTs))) {
       stmt = db
         .prepare(
-          `SELECT ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir
+          `SELECT ${cols}
            FROM timed_trail
            WHERE ticker = ?1 AND ts >= ?2
            ORDER BY ts ASC
@@ -9113,7 +9208,7 @@ async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
     } else {
       stmt = db
         .prepare(
-          `SELECT ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir
+          `SELECT ${cols}
            FROM timed_trail
            WHERE ticker = ?1
            ORDER BY ts DESC
@@ -9125,30 +9220,48 @@ async function d1GetTrailRange(env, ticker, sinceTs = null, limit = 5000) {
     const rows = await stmt.all();
     const out = Array.isArray(rows?.results) ? rows.results : [];
     const trail = out
-      .map((r) => ({
-        ts: Number(r.ts),
-        price: r.price != null ? Number(r.price) : null,
-        htf_score: r.htf_score != null ? Number(r.htf_score) : null,
-        ltf_score: r.ltf_score != null ? Number(r.ltf_score) : null,
-        completion: r.completion != null ? Number(r.completion) : null,
-        phase_pct: r.phase_pct != null ? Number(r.phase_pct) : null,
-        state: r.state != null ? String(r.state) : null,
-        rank: r.rank != null ? Number(r.rank) : null,
-        flags:
-          r.flags_json && typeof r.flags_json === "string"
-            ? (() => {
-                try {
-                  return JSON.parse(r.flags_json);
-                } catch {
-                  return {};
-                }
-              })()
-            : {},
-        momentum_elite: false, // derived in UI/logic from flags when needed
-        trigger_reason:
-          r.trigger_reason != null ? String(r.trigger_reason) : null,
-        trigger_dir: r.trigger_dir != null ? String(r.trigger_dir) : null,
-      }))
+      .map((r) => {
+        const base = {
+          ts: Number(r.ts),
+          price: r.price != null ? Number(r.price) : null,
+          htf_score: r.htf_score != null ? Number(r.htf_score) : null,
+          ltf_score: r.ltf_score != null ? Number(r.ltf_score) : null,
+          completion: r.completion != null ? Number(r.completion) : null,
+          phase_pct: r.phase_pct != null ? Number(r.phase_pct) : null,
+          state: r.state != null ? String(r.state) : null,
+          rank: r.rank != null ? Number(r.rank) : null,
+          flags:
+            r.flags_json && typeof r.flags_json === "string"
+              ? (() => {
+                  try {
+                    return JSON.parse(r.flags_json);
+                  } catch {
+                    return {};
+                  }
+                })()
+              : {},
+          momentum_elite: false, // derived in UI/logic from flags when needed
+          trigger_reason:
+            r.trigger_reason != null ? String(r.trigger_reason) : null,
+          trigger_dir: r.trigger_dir != null ? String(r.trigger_dir) : null,
+        };
+        
+        // Extract kanban data from payload_json if requested
+        if (includeKanban && r.payload_json) {
+          try {
+            const payload = JSON.parse(r.payload_json);
+            base.kanban_stage = payload.kanban_stage || null;
+            base.entry_ts = payload.entry_ts || null;
+            base.entry_price = payload.entry_price || null;
+            base.move_status = payload.move_status || null;
+            base.kanban_meta = payload.kanban_meta || null;
+          } catch {
+            base.kanban_stage = null;
+          }
+        }
+        
+        return base;
+      })
       .filter((p) => Number.isFinite(p.ts));
 
     // If we queried DESC (no since), normalize to ASC for consumers
@@ -9626,6 +9739,22 @@ async function d1GetOpenPosition(env, ticker, direction) {
   } catch (err) {
     if (err && (err.message || "").includes("no such table")) return null;
     console.error("[D1 LEDGER] get open position failed:", err);
+    return null;
+  }
+}
+
+/** Get any open position for ticker (either direction). Returns null if none. */
+async function d1GetAnyOpenPosition(env, ticker) {
+  const db = env?.DB;
+  if (!db || !ticker) return null;
+  try {
+    const row = await db.prepare(
+      `SELECT position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at
+       FROM positions WHERE ticker = ?1 AND status = 'OPEN' LIMIT 1`
+    ).bind(String(ticker).toUpperCase()).first();
+    return row || null;
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return null;
     return null;
   }
 }
@@ -12742,6 +12871,8 @@ export default {
               // Fallback: if we have an open trade in the ledger but no entry_ts on payload,
               // inject from the trade so we correctly show HOLD (not Watch).
               const openTrade = await findOpenTradeForTicker(KV, ticker, null);
+              // Also check D1 positions table for position-aware kanban classification
+              const d1OpenPosition = env?.DB ? await d1GetAnyOpenPosition(env, ticker) : null;
               if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
                 const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
                 const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
@@ -12756,7 +12887,8 @@ export default {
                 payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
               }
 
-              const stage = classifyKanbanStage(payload);
+              // Pass open position to classifyKanbanStage for position-aware classification
+              const stage = classifyKanbanStage(payload, d1OpenPosition);
               const prevStage = existing?.kanban_stage;
               // Recycle rule: if something was in ARCHIVE, it must re-enter via opportunity lanes
               // so users clearly see it "recycled" rather than jumping into position-management lanes.
@@ -12790,7 +12922,31 @@ export default {
                   finalStage === "just_entered" ||
                   finalStage === "trim" ||
                   finalStage === "exit";
-                if (mgmt) {
+                  
+                // Verify open position exists before allowing management lanes
+                // If no position exists, clear stale entry data and force to watch
+                const hasOpenPos = !!(openTrade || d1OpenPosition);
+                if (mgmt && !hasOpenPos) {
+                  // Position closed but ticker still shows in management lane
+                  // Clear stale entry data and force to watch/opportunity lanes
+                  payload.entry_ts = null;
+                  payload.entry_price = null;
+                  payload.kanban_cycle_enter_now_ts = null;
+                  payload.kanban_cycle_trigger_ts = null;
+                  payload.kanban_cycle_side = null;
+                  finalStage = "watch";
+                  payload.flags =
+                    payload.flags && typeof payload.flags === "object"
+                      ? payload.flags
+                      : {};
+                  payload.flags.position_closed_cleared = true;
+                  payload.flags.forced_watch_no_position = true;
+                  console.log(
+                    `[KANBAN] ${ticker} forced to watch: was in ${prevStage}→${mgmt ? "mgmt" : ""} but no open position`
+                  );
+                }
+                  
+                if (mgmt && hasOpenPos) {
                   const curTriggerTs = Number(payload?.trigger_ts);
                   const curSide = sideFromStateOrScores(payload); // "LONG" | "SHORT" | null
                   const cycleEnterTs = Number(
@@ -12878,6 +13034,20 @@ export default {
                 console.error(
                   `[KANBAN] lifecycle gate failed for ${ticker}:`,
                   String(e),
+                );
+              }
+
+              // Stage monotonicity: open positions can only move forward in management lanes
+              // Prevents bouncing EXIT→TRIM→HOLD due to price fluctuations
+              const hasOpenPosForMono = !!(openTrade || d1OpenPosition);
+              const preMonotonicityStage = finalStage;
+              finalStage = enforceStageMonotonicity(finalStage, prevStage, hasOpenPosForMono);
+              if (finalStage !== preMonotonicityStage) {
+                if (!payload.flags) payload.flags = {};
+                payload.flags.stage_monotonicity_enforced = true;
+                payload.flags.stage_before_monotonicity = preMonotonicityStage;
+                console.log(
+                  `[KANBAN] ${ticker} stage monotonicity: ${preMonotonicityStage} → ${finalStage} (kept prev, has open position)`
                 );
               }
 
@@ -12987,6 +13157,26 @@ export default {
               }
 
               if (finalStage) console.log(`[KANBAN] ${ticker} → ${finalStage}`);
+              
+              // Update the last KV trail point with kanban data for Time Travel replay
+              try {
+                const trailKey = `timed:trail:${ticker}`;
+                const currentTrail = await kvGetJSON(KV, trailKey);
+                if (Array.isArray(currentTrail) && currentTrail.length > 0) {
+                  const lastPoint = currentTrail[currentTrail.length - 1];
+                  if (lastPoint && lastPoint.ts === payload.ts) {
+                    lastPoint.kanban_stage = finalStage;
+                    lastPoint.entry_ts = payload.entry_ts || null;
+                    lastPoint.entry_price = payload.entry_price || null;
+                    lastPoint.move_status = payload.move_status?.status || null;
+                    lastPoint.kanban_meta = payload.kanban_meta || null;
+                    await kvPutJSON(KV, trailKey, currentTrail);
+                  }
+                }
+              } catch (trailUpdateErr) {
+                // Non-critical - don't fail ingestion
+                console.error(`[TRAIL] Failed to update KV trail with kanban for ${ticker}:`, trailUpdateErr);
+              }
             } catch (e) {
               console.error(
                 `[KANBAN] Stage classification failed for ${ticker}:`,
@@ -16572,13 +16762,17 @@ export default {
 
           const sinceRaw = url.searchParams.get("since");
           const limitRaw = url.searchParams.get("limit");
+          const includeKanbanRaw = url.searchParams.get("include_kanban");
           const since =
             sinceRaw != null && sinceRaw !== "" ? Number(sinceRaw) : null;
           const limit =
             limitRaw != null && limitRaw !== "" ? Number(limitRaw) : 5000;
+          // include_kanban=1 or include_kanban=true to get kanban_stage, entry_ts, move_status in trail points
+          // Useful for Time Travel replay feature
+          const includeKanban = includeKanbanRaw === "1" || includeKanbanRaw === "true";
 
           // Prefer D1 for longer history, but fall back to KV if D1 is empty/sparse.
-          const d1Result = await d1GetTrailRange(env, ticker, since, limit);
+          const d1Result = await d1GetTrailRange(env, ticker, since, limit, includeKanban);
           const d1Trail =
             d1Result && Array.isArray(d1Result.trail) ? d1Result.trail : [];
 
