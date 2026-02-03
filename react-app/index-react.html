@@ -1847,6 +1847,16 @@
         return null;
       }
 
+      const USD_FMT = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2,
+      });
+      function fmtUsd(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        return USD_FMT.format(n);
+      }
       function fmtUsdAbs(n) {
         const x = numFromAny(n);
         if (!Number.isFinite(x)) return "—";
