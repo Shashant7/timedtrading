@@ -345,7 +345,7 @@
       </div>
     </div>
 
-    <script src="shared-right-rail.compiled.js"></script>
+    <script src="shared-right-rail.compiled.js?v=2"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -14413,6 +14413,8 @@
         isNyRegularMarketOpen,
         downsampleByInterval,
         getTickerSector,
+        normalizeSectorKey,
+        sectorKeyToCanonicalName,
       });
 
       // Legacy TickerDetails component - kept for backward compatibility but now uses unified component

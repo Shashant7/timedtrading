@@ -94,7 +94,7 @@
   <body>
     <div id="root"></div>
 
-    <script src="shared-right-rail.compiled.js"></script>
+    <script src="shared-right-rail.compiled.js?v=2"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
 
@@ -1111,6 +1111,32 @@
         return SECTOR_MAP[T] || "";
       }
 
+      // Normalize sector names to match worker sector ratings (same as main dashboard).
+      function normalizeSectorKey(sectorName) {
+        const raw = String(sectorName || "").trim().toLowerCase().replace(/[-_/]+/g, " ").replace(/&/g, "and").replace(/\s+/g, " ");
+        if (!raw) return "";
+        const ALIASES = {
+          "health care": "healthcare", healthcare: "healthcare", materials: "basic materials", "basic materials": "basic materials",
+          "non energy minerals": "basic materials", "consumer durables": "consumer discretionary", "consumer non durables": "consumer staples",
+          "consumer cyclical": "consumer discretionary", "consumer discretionary": "consumer discretionary", "consumer defensive": "consumer staples",
+          "consumer staples": "consumer staples", "financial services": "financials", finance: "financials", financials: "financials",
+          technology: "information technology", "technology services": "information technology", "electronic technology": "information technology",
+          "information technology": "information technology", communications: "communication services", "communication services": "communication services",
+          "energy minerals": "energy", energy: "energy", industrials: "industrials", utilities: "utilities", "real estate": "real estate",
+        };
+        return ALIASES[raw] || raw;
+      }
+
+      function sectorKeyToCanonicalName(key) {
+        const K = String(key || "").trim().toLowerCase();
+        const CANON = {
+          "consumer discretionary": "Consumer Discretionary", industrials: "Industrials", "information technology": "Information Technology",
+          "communication services": "Communication Services", "basic materials": "Basic Materials", energy: "Energy", financials: "Financials",
+          "real estate": "Real Estate", "consumer staples": "Consumer Staples", healthcare: "Healthcare", utilities: "Utilities",
+        };
+        return CANON[K] || key;
+      }
+
       function calculateTrade(ticker, entryPrice, existingTrade = null) {
         const directionObj = getDirection(ticker);
         const direction = directionObj.text;
@@ -2052,6 +2078,8 @@
         isNyRegularMarketOpen,
         downsampleByInterval,
         getTickerSector,
+        normalizeSectorKey,
+        sectorKeyToCanonicalName,
       });
 
       function TradeRow({ trade, tickerData, onTickerClick, onTradeClick }) {

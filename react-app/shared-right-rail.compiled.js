@@ -7,7 +7,8 @@
  * computeHorizonBucket, computeEtaDays, computeReturnPct, computeRiskPct, computeTpTargetPrice,
  * computeTpMaxPrice, summarizeEntryDecision, getDirectionFromState, getDirection, numFromAny,
  * groupsForTicker, GROUP_ORDER, GROUP_LABELS, TRADE_SIZE, FUTURES_SPECS, getStaleInfo,
- * isNyRegularMarketOpen, downsampleByInterval, getTickerSector.
+ * isNyRegularMarketOpen, downsampleByInterval, getTickerSector,
+ * normalizeSectorKey, sectorKeyToCanonicalName.
  */
 (function () {
   window.TickerDetailRightRailFactory = function (deps) {
@@ -20,6 +21,8 @@
     } = React;
     const API_BASE = deps.API_BASE;
     const getTickerSector = deps.getTickerSector || (() => "");
+    const sectorNorm = deps.normalizeSectorKey != null && typeof deps.normalizeSectorKey === "function" ? deps.normalizeSectorKey : s => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    const sectorCanon = deps.sectorKeyToCanonicalName != null && typeof deps.sectorKeyToCanonicalName === "function" ? deps.sectorKeyToCanonicalName : k => k || "";
     const fmtUsd = deps.fmtUsd;
     const fmtUsdAbs = deps.fmtUsdAbs;
     const getDailyChange = deps.getDailyChange;
@@ -684,13 +687,13 @@
         className: "mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow"
       }, "\u2B50 PRIME SETUP \u2B50"), (() => {
         const tickerSectorRaw = getTickerSector(ticker.ticker) || ticker.sector || ticker.fundamentals?.sector || "";
-        const sectorKey = normalizeSectorKey(tickerSectorRaw);
+        const sectorKey = sectorNorm(tickerSectorRaw);
         if (sectorKey && sectors.length > 0) {
           const sectorInfo = sectors.find(s => {
             const name = s?.sector || s?.name || "";
-            return normalizeSectorKey(name) === sectorKey;
+            return sectorNorm(name) === sectorKey;
           });
-          const displaySector = sectorInfo?.sector || sectorInfo?.name || sectorKeyToCanonicalName(sectorKey);
+          const displaySector = sectorInfo?.sector || sectorInfo?.name || sectorCanon(sectorKey);
           const rating = String(sectorInfo?.rating || "neutral").toLowerCase();
           const boost = sectorInfo?.boost != null ? Number(sectorInfo.boost) : null;
           // Match emojis used in the filter pills
