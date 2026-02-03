@@ -259,6 +259,15 @@ function prevTradingDayKey(dayKey) {
   return null;
 }
 
+// True when previous state is from before today's market open and current bar is at/after open (AH/PM gap bridge).
+function isFirstBarOfDayAfterGap(existingTs, currentTs, marketOpenTs) {
+  if (!Number.isFinite(marketOpenTs)) return false;
+  const cur = Number(currentTs);
+  if (!Number.isFinite(cur) || cur < marketOpenTs) return false;
+  const prev = Number(existingTs);
+  return !Number.isFinite(prev) || prev < marketOpenTs;
+}
+
 async function computePrevCloseFromTrail(db, ticker, asOfTs) {
   if (!db || !ticker) return null;
   const dayKey = nyTradingDayKey(asOfTs);
@@ -1130,12 +1139,38 @@ function triggerSummaryAndScore(tickerData) {
   score +=
     7 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");
 
+  // LTF triggers (1m, 3m, 5m, 10m) — early timing: weight below 30m/1H
+  if (has("SQUEEZE_RELEASE_10M")) score += 3;
+  if (has("SQUEEZE_RELEASE_5M")) score += 2;
+  if (has("SQUEEZE_RELEASE_3M")) score += 1;
+  if (has("SQUEEZE_RELEASE_1M")) score += 1;
+  score += 2 * matchSide("EMA_CROSS_10M_13_48_BULL", "EMA_CROSS_10M_13_48_BEAR");
+  score += 1 * matchSide("EMA_CROSS_5M_13_48_BULL", "EMA_CROSS_5M_13_48_BEAR");
+  score += 1 * matchSide("EMA_CROSS_3M_13_48_BULL", "EMA_CROSS_3M_13_48_BEAR");
+  score += 1 * matchSide("EMA_CROSS_1M_13_48_BULL", "EMA_CROSS_1M_13_48_BEAR");
+  if (has("ST_FLIP_10M")) score += 0.5;
+  if (has("ST_FLIP_5M")) score += 0.5;
+  if (has("ST_FLIP_3M")) score += 0.5;
+  if (has("ST_FLIP_1M")) score += 0.5;
+
   // Fallback for legacy payloads without triggers[] populated
   const flags = tickerData?.flags || {};
   if (uniq.length === 0) {
     if (flags.sq30_release) score += 4;
     if (flags.ema_cross_1h_13_48) score += 5;
     if (flags.buyable_dip_1h_13_48) score += 7;
+    if (flags.sq10_release) score += 3;
+    if (flags.sq5_release) score += 2;
+    if (flags.sq3_release) score += 1;
+    if (flags.sq1_release) score += 1;
+    if (flags.ema_cross_10m_13_48) score += 2;
+    if (flags.ema_cross_5m_13_48) score += 1;
+    if (flags.ema_cross_3m_13_48) score += 1;
+    if (flags.ema_cross_1m_13_48) score += 1;
+    if (flags.st_flip_10m) score += 0.5;
+    if (flags.st_flip_5m) score += 0.5;
+    if (flags.st_flip_3m) score += 0.5;
+    if (flags.st_flip_1m) score += 0.5;
   }
 
   score = Math.max(-6, Math.min(18, score));
@@ -1187,6 +1222,49 @@ function triggerReasonCorroboration(tickerData) {
     const ok =
       hasAny("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR") ||
       !!flags.ema_cross_30m_13_48;
+    return {
+      corroborated: ok,
+      note: ok
+        ? ""
+        : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
+    };
+  }
+  // LTF EMA cross (10m, 5m, 3m, 1m): corroborate if triggers[] or flags match
+  if (
+    /^EMA_CROSS_(10M|5M|3M|1M)_13_48$/i.test(rawReason) ||
+    (rawReason.includes("EMA_CROSS") && /10M|5M|3M|1M/.test(rawReason))
+  ) {
+    const hasEmaTrigger =
+      triggers.some(
+        (t) =>
+          /^EMA_CROSS_(10M|5M|3M|1M)_13_48_(BULL|BEAR)$/i.test(t),
+      );
+    const hasEmaFlag =
+      !!(
+        flags.ema_cross_10m_13_48 ||
+        flags.ema_cross_5m_13_48 ||
+        flags.ema_cross_3m_13_48 ||
+        flags.ema_cross_1m_13_48
+      );
+    const ok = hasEmaTrigger || hasEmaFlag;
+    return {
+      corroborated: ok,
+      note: ok
+        ? ""
+        : `uncorroborated ${rawReason}${rawDir ? " (" + rawDir + ")" : ""}`,
+    };
+  }
+  // LTF squeeze release (10m, 5m, 3m, 1m)
+  if (
+    /^SQUEEZE_RELEASE_(10M|5M|3M|1M)$/i.test(rawReason) ||
+    (rawReason.includes("SQUEEZE_RELEASE") && /10M|5M|3M|1M/.test(rawReason))
+  ) {
+    const hasSqTrigger = triggers.some((t) =>
+      /^SQUEEZE_RELEASE_(10M|5M|3M|1M)$/i.test(t),
+    );
+    const hasSqFlag =
+      !!(flags.sq10_release || flags.sq5_release || flags.sq3_release || flags.sq1_release);
+    const ok = hasSqTrigger || hasSqFlag;
     return {
       corroborated: ok,
       note: ok
@@ -4938,6 +5016,8 @@ async function processTradeSimulation(
           if (Number.isFinite(shares) && shares > 0) {
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
             const entryTime = eventTs();
+            // Ingest/replay time in ms for D1 and display (not replay run time)
+            const entryTsMs = Number.isFinite(asOfMs) ? asOfMs : (entryTime ? new Date(entryTime).getTime() : null);
             const ev = {
               type: "ENTRY",
               timestamp: entryTime,
@@ -4954,6 +5034,7 @@ async function processTradeSimulation(
               direction,
               entryPrice: entryPx,
               entryTime,
+              entry_ts: entryTsMs || undefined,
               triggerTimestamp: Number(tickerData?.trigger_ts) || null,
               sl: slCandidate,
               tp: tpCandidate,
@@ -6703,15 +6784,18 @@ async function processTradeSimulation(
                 2,
               )}, RR: ${entryRR?.toFixed(2) || "N/A"}`,
             );
-            // Determine entry time: use ingest ts when reprocessing/replay, or trigger_ts for backfill, otherwise now
-            const entryTime =
+            // Determine entry time: use ingest ts when reprocessing/replay (not replay run time)
+            const entryTsMs =
               Number.isFinite(asOfMs)
-                ? new Date(asOfMs).toISOString()
-                : forceUseIngestTs && (tickerData.ts != null || triggerTimestamp)
-                  ? (tickerData.ts != null ? new Date(Number(tickerData.ts) < 1e12 ? Number(tickerData.ts) * 1000 : Number(tickerData.ts)).toISOString() : triggerTimestamp)
-                  : isBackfill && triggerTimestamp
-                    ? triggerTimestamp
-                    : new Date().toISOString();
+                ? asOfMs
+                : forceUseIngestTs && tickerData?.ts != null
+                  ? (Number(tickerData.ts) < 1e12 ? Number(tickerData.ts) * 1000 : Number(tickerData.ts))
+                  : forceUseIngestTs && triggerTimestamp
+                    ? new Date(triggerTimestamp).getTime()
+                    : isBackfill && triggerTimestamp
+                      ? new Date(triggerTimestamp).getTime()
+                      : Date.now();
+            const entryTime = new Date(entryTsMs).toISOString();
 
             // Build intelligent TP array with progressive trim levels (25%, 50%, 75%)
             const tpArray = buildIntelligentTPArray(
@@ -6742,7 +6826,8 @@ async function processTradeSimulation(
               ticker,
               direction,
               entryPrice,
-              entryTime: entryTime, // When trade was actually created
+              entryTime, // When trade was actually created (ingest time in replay)
+              entry_ts: entryTsMs, // Numeric ms for D1/display (ingest time, not replay run time)
               triggerTimestamp: triggerTimestamp, // When signal was generated (for reference)
               sl: Number(tickerData.sl),
               tp: validTP, // Primary TP (first level, 25% trim)
@@ -9051,7 +9136,11 @@ async function d1UpsertTrade(env, trade) {
 
   const ticker = String(trade.ticker || "").toUpperCase();
   const direction = String(trade.direction || "").toUpperCase();
-  const entryTs = isoToMs(trade.entryTime) || Number(trade.entry_ts) || null;
+  // Prefer numeric entry_ts (ms); normalize seconds to ms so display is correct
+  let entryTs = Number(trade.entry_ts);
+  if (!Number.isFinite(entryTs) || entryTs <= 0)
+    entryTs = isoToMs(trade.entryTime) || null;
+  if (Number.isFinite(entryTs) && entryTs < 1e12) entryTs = entryTs * 1000;
   const createdAt = entryTs || Date.now();
   const updatedAt = Date.now();
 
@@ -12104,8 +12193,14 @@ export default {
               }
 
               // Lifecycle gate: HOLD/DEFEND/TRIM/EXIT must pass through ENTER_NOW first (per trigger+side cycle).
-              // This prevents "jumping" into management lanes when a ticker flips sides or has stale trigger state.
+              // Exception: first bar of day after AH/PM gap — accept hold/trim (move already in progress).
               try {
+                const tsNow = Number(payload?.ts) || Date.now();
+                const dayKey = nyTradingDayKey(tsNow);
+                const marketOpen = dayKey ? nyWallTimeToUtcMs(dayKey, 9, 30, 0) : null;
+                const existingTs = existing?.ts ?? existing?.ingest_ts;
+                const firstBarAfterGap = isFirstBarOfDayAfterGap(existingTs, tsNow, marketOpen);
+
                 const mgmt =
                   finalStage === "hold" ||
                   finalStage === "just_entered" ||
@@ -12136,25 +12231,28 @@ export default {
                     !!curSide &&
                     cycleSide === curSide;
 
-                  if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
-                    // Can't be in management lanes without a valid trigger.
-                    finalStage = "watch";
-                    payload.flags =
-                      payload.flags && typeof payload.flags === "object"
-                        ? payload.flags
-                        : {};
-                    payload.flags.forced_watch_missing_trigger = true;
-                  } else if (!cycleOk) {
-                    finalStage = "enter_now";
-                    payload.flags =
-                      payload.flags && typeof payload.flags === "object"
-                        ? payload.flags
-                        : {};
-                    payload.flags.forced_enter_now_gate = true;
+                  if (firstBarAfterGap) {
+                    if (!payload.flags) payload.flags = {};
+                    payload.flags.first_bar_of_day_bridge = true;
+                  } else {
+                    if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
+                      finalStage = "watch";
+                      payload.flags =
+                        payload.flags && typeof payload.flags === "object"
+                          ? payload.flags
+                          : {};
+                      payload.flags.forced_watch_missing_trigger = true;
+                    } else if (!cycleOk) {
+                      finalStage = "enter_now";
+                      payload.flags =
+                        payload.flags && typeof payload.flags === "object"
+                          ? payload.flags
+                          : {};
+                      payload.flags.forced_enter_now_gate = true;
+                    }
                   }
                 }
 
-                const tsNow = Number(payload?.ts) || Date.now();
                 if (finalStage === "enter_now") {
                   const curTriggerTs = Number(payload?.trigger_ts);
                   const curSide = sideFromStateOrScores(payload);
@@ -12171,13 +12269,21 @@ export default {
                   finalStage === "trim" ||
                   finalStage === "exit"
                 ) {
-                  // Carry forward the cycle markers while in management lanes.
-                  payload.kanban_cycle_enter_now_ts =
-                    existing?.kanban_cycle_enter_now_ts || null;
-                  payload.kanban_cycle_trigger_ts =
-                    existing?.kanban_cycle_trigger_ts || null;
-                  payload.kanban_cycle_side =
-                    existing?.kanban_cycle_side || null;
+                  if (firstBarAfterGap) {
+                    payload.kanban_cycle_enter_now_ts = tsNow;
+                    payload.kanban_cycle_trigger_ts =
+                      Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : tsNow;
+                    payload.kanban_cycle_side = sideFromStateOrScores(payload) != null ? String(sideFromStateOrScores(payload)) : null;
+                    if (payload.entry_price == null && Number.isFinite(Number(payload?.price))) payload.entry_price = Number(payload.price);
+                    if (payload.entry_ts == null && Number.isFinite(tsNow)) payload.entry_ts = tsNow;
+                  } else {
+                    payload.kanban_cycle_enter_now_ts =
+                      existing?.kanban_cycle_enter_now_ts || null;
+                    payload.kanban_cycle_trigger_ts =
+                      existing?.kanban_cycle_trigger_ts || null;
+                    payload.kanban_cycle_side =
+                      existing?.kanban_cycle_side || null;
+                  }
                 } else {
                   // Reset cycle when we're not in ENTER_NOW or management lanes.
                   payload.kanban_cycle_enter_now_ts = null;
@@ -14227,7 +14333,13 @@ export default {
                 const prevStage = existing?.kanban_stage;
                 let finalStage = stage;
 
-                // Lifecycle gate: HOLD/DEFEND/TRIM/EXIT must pass through ENTER_NOW first (per trigger+side cycle).
+                const tsNowCap = Number(payload?.ts) || Date.now();
+                const dayKeyCap = nyTradingDayKey(tsNowCap);
+                const marketOpenCap = dayKeyCap ? nyWallTimeToUtcMs(dayKeyCap, 9, 30, 0) : null;
+                const existingTsCap = existing?.ts ?? existing?.ingest_ts;
+                const firstBarAfterGapCap = isFirstBarOfDayAfterGap(existingTsCap, tsNowCap, marketOpenCap);
+
+                // Lifecycle gate: HOLD/DEFEND/TRIM/EXIT must pass through ENTER_NOW first. Exception: first bar of day after AH/PM gap.
                 try {
                   const mgmt =
                     finalStage === "hold" ||
@@ -14259,24 +14371,29 @@ export default {
                       !!curSide &&
                       cycleSide === curSide;
 
-                    if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
-                      finalStage = "watch";
-                      payload.flags =
-                        payload.flags && typeof payload.flags === "object"
-                          ? payload.flags
-                          : {};
-                      payload.flags.forced_watch_missing_trigger = true;
-                    } else if (!cycleOk) {
-                      finalStage = "enter_now";
-                      payload.flags =
-                        payload.flags && typeof payload.flags === "object"
-                          ? payload.flags
-                          : {};
-                      payload.flags.forced_enter_now_gate = true;
+                    if (firstBarAfterGapCap) {
+                      if (!payload.flags) payload.flags = {};
+                      payload.flags.first_bar_of_day_bridge = true;
+                    } else {
+                      if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
+                        finalStage = "watch";
+                        payload.flags =
+                          payload.flags && typeof payload.flags === "object"
+                            ? payload.flags
+                            : {};
+                        payload.flags.forced_watch_missing_trigger = true;
+                      } else if (!cycleOk) {
+                        finalStage = "enter_now";
+                        payload.flags =
+                          payload.flags && typeof payload.flags === "object"
+                            ? payload.flags
+                            : {};
+                        payload.flags.forced_enter_now_gate = true;
+                      }
                     }
                   }
 
-                  const tsNow = Number(payload?.ts) || Date.now();
+                  const tsNow = tsNowCap;
                   if (finalStage === "enter_now") {
                     const curTriggerTs = Number(payload?.trigger_ts);
                     const curSide = sideFromStateOrScores(payload);
@@ -14293,12 +14410,21 @@ export default {
                     finalStage === "trim" ||
                     finalStage === "exit"
                   ) {
-                    payload.kanban_cycle_enter_now_ts =
-                      existing?.kanban_cycle_enter_now_ts || null;
-                    payload.kanban_cycle_trigger_ts =
-                      existing?.kanban_cycle_trigger_ts || null;
-                    payload.kanban_cycle_side =
-                      existing?.kanban_cycle_side || null;
+                    if (firstBarAfterGapCap) {
+                      payload.kanban_cycle_enter_now_ts = tsNow;
+                      payload.kanban_cycle_trigger_ts =
+                        Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : tsNow;
+                      payload.kanban_cycle_side = sideFromStateOrScores(payload) != null ? String(sideFromStateOrScores(payload)) : null;
+                      if (payload.entry_price == null && Number.isFinite(Number(payload?.price))) payload.entry_price = Number(payload.price);
+                      if (payload.entry_ts == null && Number.isFinite(tsNow)) payload.entry_ts = tsNow;
+                    } else {
+                      payload.kanban_cycle_enter_now_ts =
+                        existing?.kanban_cycle_enter_now_ts || null;
+                      payload.kanban_cycle_trigger_ts =
+                        existing?.kanban_cycle_trigger_ts || null;
+                      payload.kanban_cycle_side =
+                        existing?.kanban_cycle_side || null;
+                    }
                   } else {
                     payload.kanban_cycle_enter_now_ts = null;
                     payload.kanban_cycle_trigger_ts = null;
@@ -19907,6 +20033,8 @@ export default {
                   },
                   last_action_type: null,
                   last_action_ts: null,
+                  trim_ts: null,
+                  exit_ts: null,
                   trim_price: null,
                   exit_price: null,
                   exit_reason: null,
@@ -19919,13 +20047,18 @@ export default {
               const t = tradesById.get(tradeId);
               const px = Number(e?.price);
               const sh = Number(e?.shares);
-              if (Number.isFinite(Number(e?.ts)))
-                t.last_action_ts = Number(e.ts);
+              const eventTs = Number.isFinite(Number(e?.ts)) ? Number(e.ts) : null;
+              if (eventTs != null) t.last_action_ts = eventTs;
               t.last_action_type = type || t.last_action_type;
-              if (type === "TRIM" && Number.isFinite(px)) t.trim_price = px;
-              if (type === "EXIT" && Number.isFinite(px)) t.exit_price = px;
-              if (type === "EXIT" && e?.reason)
-                t.exit_reason = String(e.reason);
+              if (type === "TRIM") {
+                if (Number.isFinite(px)) t.trim_price = px;
+                if (eventTs != null) t.trim_ts = eventTs;
+              }
+              if (type === "EXIT") {
+                if (Number.isFinite(px)) t.exit_price = px;
+                if (eventTs != null) t.exit_ts = eventTs;
+                if (e?.reason) t.exit_reason = String(e.reason);
+              }
 
               // realized pnl for trim/exit if entry is known
               const entryPx = Number(t?.entry?.price);
@@ -19962,10 +20095,14 @@ export default {
                 losses,
                 realizedPnl,
               },
-              trades: Array.from(tradesById.values()).sort(
-                (a, b) =>
-                  Number(b.last_action_ts || 0) - Number(a.last_action_ts || 0),
-              ),
+              trades: Array.from(tradesById.values()).sort((a, b) => {
+                const tickerA = String(a.ticker || "").toUpperCase();
+                const tickerB = String(b.ticker || "").toUpperCase();
+                if (tickerA !== tickerB) return tickerA.localeCompare(tickerB);
+                const entryA = Number(a.entry?.ts ?? a.entry_ts ?? 0);
+                const entryB = Number(b.entry?.ts ?? b.entry_ts ?? 0);
+                return entryA - entryB;
+              }),
             };
           }
         } catch (e) {
@@ -23017,6 +23154,12 @@ Provide 3-5 actionable next steps:
               payload.flags.recycled_from_archive = true;
             }
 
+            const tsNow = Number(payload?.ts) || Date.now();
+            const dayKeyLive = nyTradingDayKey(tsNow);
+            const marketOpenLive = dayKeyLive ? nyWallTimeToUtcMs(dayKeyLive, 9, 30, 0) : null;
+            const existingTsLive = existing?.ts ?? existing?.ingest_ts;
+            const firstBarAfterGapLive = isFirstBarOfDayAfterGap(existingTsLive, tsNow, marketOpenLive);
+
             const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
@@ -23028,26 +23171,38 @@ Provide 3-5 actionable next steps:
                 Number.isFinite(cycleTrig) && cycleTrig > 0 && cycleTrig === curTriggerTs;
               const cycleOk = Number.isFinite(cycleEnterTs) && cycleEnterTs > 0 && sameTrig &&
                 !!cycleSide && !!curSide && cycleSide === curSide;
-              if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
-                finalStage = "watch";
+              if (firstBarAfterGapLive) {
                 if (!payload.flags) payload.flags = {};
-                payload.flags.forced_watch_missing_trigger = true;
-              } else if (!cycleOk) {
-                finalStage = "enter_now";
-                if (!payload.flags) payload.flags = {};
-                payload.flags.forced_enter_now_gate = true;
+                payload.flags.first_bar_of_day_bridge = true;
+              } else {
+                if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) {
+                  finalStage = "watch";
+                  if (!payload.flags) payload.flags = {};
+                  payload.flags.forced_watch_missing_trigger = true;
+                } else if (!cycleOk) {
+                  finalStage = "enter_now";
+                  if (!payload.flags) payload.flags = {};
+                  payload.flags.forced_enter_now_gate = true;
+                }
               }
             }
 
-            const tsNow = Number(payload?.ts) || Date.now();
             if (finalStage === "enter_now") {
               payload.kanban_cycle_enter_now_ts = tsNow;
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
             } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
-              payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts || null;
-              payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts || null;
-              payload.kanban_cycle_side = existing?.kanban_cycle_side || null;
+              if (firstBarAfterGapLive) {
+                payload.kanban_cycle_enter_now_ts = tsNow;
+                payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : tsNow;
+                payload.kanban_cycle_side = sideFromStateOrScores(payload) != null ? String(sideFromStateOrScores(payload)) : null;
+                if (payload.entry_price == null && Number.isFinite(Number(payload?.price))) payload.entry_price = Number(payload.price);
+                if (payload.entry_ts == null && Number.isFinite(tsNow)) payload.entry_ts = tsNow;
+              } else {
+                payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts || null;
+                payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts || null;
+                payload.kanban_cycle_side = existing?.kanban_cycle_side || null;
+              }
             } else {
               payload.kanban_cycle_enter_now_ts = null;
               payload.kanban_cycle_trigger_ts = null;
@@ -23274,6 +23429,333 @@ Provide 3-5 actionable next steps:
           tradesPurged,
           laneCounts,
         }, 200, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/replay-ticker-d1?key=...&ticker=AAPL&date=YYYY-MM-DD&cleanSlate=1
+      // Single-ticker replay from D1 timed_trail (payload_json). Processes all rows in one request, writes KV only at end (avoids 429).
+      if (url.pathname === "/timed/admin/replay-ticker-d1" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+        }
+        const tickerParam = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        if (!tickerParam) {
+          return sendJSON({ ok: false, error: "missing ticker" }, 400, corsHeaders(env, req));
+        }
+        const dateParam = url.searchParams.get("date") || null;
+        const dayKey = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : nyTradingDayKey(Date.now());
+        const marketOpen = nyWallTimeToUtcMs(dayKey, 9, 30, 0);
+        const dayEnd = nyWallTimeToUtcMs(dayKey, 23, 59, 59);
+        const tsStart = marketOpen != null ? marketOpen : Date.now() - 24 * 60 * 60 * 1000;
+        const tsEnd = dayEnd != null ? dayEnd + 999 : Date.now();
+        const cleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
+        const debug = url.searchParams.get("debug") === "1" || url.searchParams.get("debug") === "true";
+        const limit = Math.min(2000, Math.max(1, parseInt(url.searchParams.get("limit") || "1000", 10)));
+
+        let rows = [];
+        try {
+          const res = await db.prepare(
+            `SELECT ts, payload_json FROM timed_trail
+             WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3 AND payload_json IS NOT NULL
+             ORDER BY ts ASC LIMIT ?4`,
+          ).bind(tickerParam, Math.floor(tsStart), Math.floor(tsEnd), limit).all();
+          const results = res?.results || [];
+          rows = results.map((r) => ({
+            ticker: tickerParam,
+            ts: Number(r?.ts),
+            payload_json: r?.payload_json ?? null,
+          })).filter((r) => r.ts != null && Number.isFinite(r.ts));
+        } catch (e) {
+          return sendJSON({ ok: false, error: "d1_query_failed", detail: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+
+        let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+        let tradesPurged = 0;
+        if (cleanSlate && rows.length > 0) {
+          const kept = allTrades.filter((t) => {
+            if (String(t?.ticker || "").toUpperCase() !== tickerParam) return true;
+            const entryTs = isoToMs(t?.entry_ts ?? t?.entryTime) ?? Number(t?.entry_ts ?? t?.entryTs);
+            if (!Number.isFinite(entryTs) || entryTs <= 0) return true;
+            if (entryTs < tsStart || entryTs > tsEnd) return true;
+            tradesPurged += 1;
+            return false;
+          });
+          allTrades = kept;
+          await kvPutJSON(KV, "timed:trades:all", kept);
+        }
+
+        const existing = (await kvGetJSON(KV, `timed:latest:${tickerParam}`)) || {};
+        let stateMap = { [tickerParam]: cleanSlate ? { ...existing, entry_ts: null, entry_price: null, kanban_cycle_enter_now_ts: null, kanban_cycle_trigger_ts: null, kanban_cycle_side: null } : { ...existing } };
+
+        // Bridge 4pm–9:30am: seed with last known state before tsStart so first row can detect justEnteredCorridor / enteredAligned
+        const includePrevPeriod = url.searchParams.get("includePrevPeriod") !== "0" && url.searchParams.get("includePrevPeriod") !== "false";
+        let prevPeriodSeeded = false;
+        if (includePrevPeriod && rows.length > 0) {
+          try {
+            const prevRow = await db.prepare(
+              `SELECT ts, payload_json FROM timed_trail
+               WHERE ticker = ?1 AND ts < ?2 AND payload_json IS NOT NULL
+               ORDER BY ts DESC LIMIT 1`,
+            ).bind(tickerParam, Math.floor(tsStart)).first();
+            if (prevRow?.payload_json) {
+              let prevPayload = null;
+              try { prevPayload = JSON.parse(prevRow.payload_json); } catch {}
+              if (prevPayload && typeof prevPayload === "object") {
+                const prevTs = Number(prevRow?.ts);
+                prevPayload.ts = prevTs;
+                prevPayload.ingest_ts = prevTs;
+                if ((prevPayload.trigger_ts == null || !Number.isFinite(Number(prevPayload.trigger_ts))) && Number.isFinite(prevTs)) prevPayload.trigger_ts = prevTs < 1e12 ? prevTs * 1000 : prevTs;
+                if ((prevPayload.sl == null || !Number.isFinite(Number(prevPayload.sl))) && prevPayload.sl_price != null) prevPayload.sl = prevPayload.sl_price;
+                const tpVal = prevPayload.tp ?? prevPayload.tp_max_price ?? prevPayload.tp_target_price ?? prevPayload.tp_target;
+                if ((prevPayload.tp == null || !Number.isFinite(Number(prevPayload.tp))) && tpVal != null && Number.isFinite(Number(tpVal))) prevPayload.tp = Number(tpVal);
+                prevPayload.move_status = computeMoveStatus(prevPayload);
+                if (prevPayload.flags) { prevPayload.flags.move_invalidated = prevPayload.move_status?.status === "INVALIDATED"; prevPayload.flags.move_completed = prevPayload.move_status?.status === "COMPLETED"; }
+                prevPayload.kanban_stage = classifyKanbanStage(prevPayload);
+                prevPayload.kanban_meta = deriveKanbanMeta(prevPayload, prevPayload.kanban_stage);
+                stateMap = { [tickerParam]: prevPayload };
+                prevPeriodSeeded = true;
+              }
+            }
+          } catch (e) {
+            console.error("[REPLAY-TICKER-D1] prev-period seed failed:", e?.message || e);
+          }
+        }
+
+        const findOpenInArray = (trades, sym) => trades.find((x) => String(x?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(x?.status)) || null;
+        const replayCtx = { allTrades };
+        let processed = 0, tradesCreated = 0;
+        const laneCounts = {};
+
+        for (const row of rows) {
+          try {
+            const ticker = tickerParam;
+            let payload;
+            try { payload = row.payload_json ? JSON.parse(row.payload_json) : null; } catch { continue; }
+            if (!payload || typeof payload !== "object") continue;
+            const rowTs = Number(row?.ts);
+            if (!Number.isFinite(rowTs)) continue;
+            payload.ts = rowTs;
+            payload.ingest_ts = rowTs;
+            if ((payload.trigger_ts == null || !Number.isFinite(Number(payload.trigger_ts))) && Number.isFinite(rowTs)) {
+              payload.trigger_ts = rowTs < 1e12 ? rowTs * 1000 : rowTs;
+            }
+            if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.sl_price != null) payload.sl = payload.sl_price;
+            if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.stop_loss != null) payload.sl = payload.stop_loss;
+            const tpVal = payload.tp ?? payload.tp_max_price ?? payload.tp_target_price ?? payload.tp_target;
+            if ((payload.tp == null || !Number.isFinite(Number(payload.tp))) && tpVal != null && Number.isFinite(Number(tpVal))) payload.tp = Number(tpVal);
+
+            const existingState = stateMap[ticker] || {};
+            const existingTs = Number(existingState?.ts ?? existingState?.ingest_ts);
+            const isEarlierThanStored = !Number.isFinite(existingTs) || rowTs < existingTs;
+            if (isEarlierThanStored) {
+              payload.entry_ts = null;
+              payload.entry_price = null;
+              payload.kanban_cycle_enter_now_ts = null;
+              payload.kanban_cycle_trigger_ts = null;
+              payload.kanban_cycle_side = null;
+            } else {
+              if (existingState?.entry_ts != null && payload.entry_ts == null) payload.entry_ts = Number(existingState.entry_ts);
+              if (existingState?.entry_price != null && payload.entry_price == null) payload.entry_price = Number(existingState.entry_price);
+              if (existingState?.kanban_cycle_enter_now_ts != null) payload.kanban_cycle_enter_now_ts = existingState.kanban_cycle_enter_now_ts;
+              if (existingState?.kanban_cycle_trigger_ts != null) payload.kanban_cycle_trigger_ts = existingState.kanban_cycle_trigger_ts;
+              if (existingState?.kanban_cycle_side != null) payload.kanban_cycle_side = existingState.kanban_cycle_side;
+            }
+            const openTrade = findOpenInArray(replayCtx.allTrades, ticker);
+            if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
+              const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
+              const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
+              if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
+              if (payload.entry_price == null && Number.isFinite(ep) && ep > 0) payload.entry_price = ep;
+            }
+            payload.move_status = computeMoveStatus(payload);
+            if (payload.flags) { payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED"; payload.flags.move_completed = payload.move_status?.status === "COMPLETED"; }
+            const prevStage = existingState?.kanban_stage;
+            const stage = classifyKanbanStage(payload);
+            let finalStage = stage;
+            if (prevStage === "archive" && ["hold", "just_entered", "trim", "exit"].includes(stage)) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.recycled_from_archive = true; }
+            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+            const firstBarAfterGap = isFirstBarOfDayAfterGap(existingTs, rowTs, tsStart);
+            if (mgmt) {
+              const curTriggerTs = Number(payload?.trigger_ts);
+              const curSide = sideFromStateOrScores(payload);
+              const cycleEnterTs = Number(existingState?.kanban_cycle_enter_now_ts);
+              const cycleTrig = Number(existingState?.kanban_cycle_trigger_ts);
+              const cycleSide = existingState?.kanban_cycle_side != null ? String(existingState.kanban_cycle_side) : null;
+              const sameTrig = Number.isFinite(curTriggerTs) && curTriggerTs > 0 && Number.isFinite(cycleTrig) && cycleTrig > 0 && cycleTrig === curTriggerTs;
+              const cycleOk = Number.isFinite(cycleEnterTs) && cycleEnterTs > 0 && sameTrig && !!cycleSide && !!curSide && cycleSide === curSide;
+              if (firstBarAfterGap) {
+                if (!payload.flags) payload.flags = {};
+                payload.flags.first_bar_of_day_bridge = true;
+              } else {
+                if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.forced_watch_missing_trigger = true; }
+                else if (!cycleOk) { finalStage = "enter_now"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_now_gate = true; }
+              }
+            }
+            if (finalStage === "enter_now") {
+              payload.kanban_cycle_enter_now_ts = rowTs;
+              payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
+              payload.kanban_cycle_side = sideFromStateOrScores(payload);
+            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+              if (firstBarAfterGap) {
+                payload.kanban_cycle_enter_now_ts = rowTs;
+                payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : rowTs;
+                payload.kanban_cycle_side = sideFromStateOrScores(payload);
+                if (payload.entry_price == null && Number.isFinite(Number(payload?.price))) payload.entry_price = Number(payload.price);
+                if (payload.entry_ts == null && Number.isFinite(rowTs)) payload.entry_ts = rowTs;
+              } else {
+                payload.kanban_cycle_enter_now_ts = existingState?.kanban_cycle_enter_now_ts ?? null;
+                payload.kanban_cycle_trigger_ts = existingState?.kanban_cycle_trigger_ts ?? null;
+                payload.kanban_cycle_side = existingState?.kanban_cycle_side ?? null;
+              }
+            } else {
+              payload.kanban_cycle_enter_now_ts = null;
+              payload.kanban_cycle_trigger_ts = null;
+              payload.kanban_cycle_side = null;
+            }
+            if (prevStage != null && finalStage != null && String(prevStage) !== String(finalStage)) {
+              payload.prev_kanban_stage = String(prevStage);
+              payload.prev_kanban_stage_ts = rowTs;
+            }
+            if (finalStage === "enter_now" && prevStage !== "enter_now") {
+              const price = Number(payload?.price);
+              if (Number.isFinite(price) && price > 0) { payload.entry_price = price; payload.entry_ts = rowTs; }
+            }
+            if (finalStage && existingState?.entry_price) { payload.entry_price = existingState.entry_price; payload.entry_ts = existingState.entry_ts; }
+            payload.kanban_stage = finalStage;
+            payload.kanban_meta = deriveKanbanMeta(payload, finalStage);
+            laneCounts[finalStage || "null"] = (laneCounts[finalStage || "null"] || 0) + 1;
+            stateMap[ticker] = payload;
+
+            if (debug) {
+              replayCtx.analysisRows = replayCtx.analysisRows || [];
+              if (replayCtx.analysisRows.length < 300) {
+                const shouldTrigger = finalStage === "enter_now" ? shouldTriggerTradeSimulation(ticker, payload, existingState) : false;
+                const blockers = finalStage === "enter_now" ? getEntryBlockers(ticker, payload, existingState) : [];
+                const compRaw = completionForSize(payload);
+                const compToMax = computeCompletionToTpMax(payload);
+                const compUsed = Number.isFinite(compToMax) ? compToMax : compRaw;
+                const forcedReason = payload.flags?.forced_watch_missing_trigger ? "forced_watch_missing_trigger" : payload.flags?.forced_enter_now_gate ? "forced_enter_now_gate" : payload.flags?.first_bar_of_day_bridge ? "first_bar_of_day_bridge" : null;
+                replayCtx.analysisRows.push({
+                  ts: rowTs,
+                  time: new Date(rowTs < 1e12 ? rowTs * 1000 : rowTs).toISOString(),
+                  stage,
+                  finalStage,
+                  shouldTrigger: finalStage === "enter_now" ? shouldTrigger : null,
+                  blockers: finalStage === "enter_now" && blockers.length ? blockers : null,
+                  forcedReason,
+                  rank: payload.rank ?? payload.rank_position ?? payload.position,
+                  rr: payload.rr != null ? Number(payload.rr) : null,
+                  comp: compUsed,
+                  phase: payload.phase_pct != null ? Number(payload.phase_pct) : null,
+                  state: payload.state,
+                  trigger_reason: payload.trigger_reason || null,
+                  price: payload.price != null ? Number(payload.price) : null,
+                  htf: payload.htf_score != null ? Number(payload.htf_score) : null,
+                  ltf: payload.ltf_score != null ? Number(payload.ltf_score) : null,
+                  prevStage: existingState?.kanban_stage || null,
+                });
+              }
+            }
+
+            const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+            await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
+            const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+            if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+            processed += 1;
+          } catch (e) {
+            console.error(`[REPLAY-TICKER-D1] ${tickerParam} row error:`, e);
+          }
+        }
+
+        await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
+        await kvPutJSON(KV, `timed:latest:${tickerParam}`, stateMap[tickerParam] || {});
+        try { await d1SyncLatestBatchFromKV(env, { waitUntil: () => {} }, 50); } catch {}
+        const resp = {
+          ok: true,
+          ticker: tickerParam,
+          day: dayKey,
+          source: "timed_trail",
+          rowsProcessed: processed,
+          tradesCreated,
+          tradesPurged,
+          laneCounts,
+          prevPeriodSeeded,
+        };
+        if (debug && replayCtx.analysisRows) {
+          const enterNowRows = replayCtx.analysisRows.filter((r) => r.finalStage === "enter_now");
+          const forcedWatch = replayCtx.analysisRows.filter((r) => r.forcedReason === "forced_watch_missing_trigger");
+          const forcedEnterNow = replayCtx.analysisRows.filter((r) => r.forcedReason === "forced_enter_now_gate");
+          resp.analysis = {
+            rows: replayCtx.analysisRows,
+            enterNowCount: enterNowRows.length,
+            forcedWatchCount: forcedWatch.length,
+            forcedEnterNowCount: forcedEnterNow.length,
+            firstBarBridgeCount: replayCtx.analysisRows.filter((r) => r.forcedReason === "first_bar_of_day_bridge").length,
+          };
+        }
+        return sendJSON(resp, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/admin/replay-data-stats?key=...&date=YYYY-MM-DD&ticker=AAPL
+      // Returns row counts and payload_json presence for timed_trail vs ingest_receipts (confirm D1 as replay source).
+      if (url.pathname === "/timed/admin/replay-data-stats" && req.method === "GET") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+        }
+        const dateParam = url.searchParams.get("date") || null;
+        const dayKey = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : nyTradingDayKey(Date.now());
+        const marketOpen = nyWallTimeToUtcMs(dayKey, 9, 30, 0);
+        const dayEnd = nyWallTimeToUtcMs(dayKey, 23, 59, 59);
+        const tsStart = marketOpen != null ? marketOpen : Date.now() - 24 * 60 * 60 * 1000;
+        const tsEnd = dayEnd != null ? dayEnd + 999 : Date.now();
+        const tsStartInt = Math.floor(Number(tsStart));
+        const tsEndInt = Math.floor(Number(tsEnd));
+        const tickerParam = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+
+        try {
+          const trailTotal = tickerParam
+            ? await db.prepare(
+                `SELECT count(*) AS n, sum(CASE WHEN payload_json IS NOT NULL AND length(payload_json) > 0 THEN 1 ELSE 0 END) AS with_payload
+                 FROM timed_trail WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3`,
+              ).bind(tickerParam, tsStartInt, tsEndInt).first()
+            : await db.prepare(
+                `SELECT count(*) AS n, sum(CASE WHEN payload_json IS NOT NULL AND length(payload_json) > 0 THEN 1 ELSE 0 END) AS with_payload
+                 FROM timed_trail WHERE ts >= ?1 AND ts <= ?2`,
+              ).bind(tsStartInt, tsEndInt).first();
+          const receiptTotal = tickerParam
+            ? await db.prepare(
+                `SELECT count(*) AS n FROM ingest_receipts WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3`,
+              ).bind(tickerParam, tsStartInt, tsEndInt).first()
+            : await db.prepare(
+                `SELECT count(*) AS n FROM ingest_receipts WHERE ts >= ?1 AND ts <= ?2`,
+              ).bind(tsStartInt, tsEndInt).first();
+
+          const trailN = Number(trailTotal?.n) || 0;
+          const trailWithPayload = Number(trailTotal?.with_payload) || 0;
+          const receiptN = Number(receiptTotal?.n) || 0;
+
+          return sendJSON({
+            ok: true,
+            date: dayKey,
+            ticker: tickerParam || null,
+            tsStart: tsStartInt,
+            tsEnd: tsEndInt,
+            timed_trail: { rows: trailN, rows_with_payload_json: trailWithPayload, usable: trailWithPayload > 0 },
+            ingest_receipts: { rows: receiptN },
+            recommendation: trailWithPayload > 0
+              ? "Use replay-ticker-d1 (timed_trail) for single-ticker replay to avoid KV 429."
+              : receiptN > 0
+                ? "timed_trail has no payload_json; use replay-ingest (ingest_receipts) or backfill timed_trail from ingest."
+                : "No data for this date/ticker; run ingest or backfill first.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: "query_failed", detail: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
       }
 
       // POST /timed/admin/replay-ingest?key=...&date=YYYY-MM-DD&bucket=...&ticker=...&scriptVersion=2.5.0&cleanSlate=1
@@ -23512,7 +23994,26 @@ Provide 3-5 actionable next steps:
                 replayCtx.debugEnterNow = (replayCtx.debugEnterNow || 0) + (finalStage === "enter_now" ? 1 : 0);
                 if (finalStage === "enter_now" && replayCtx.debugRows.length < 15) {
                   const blockers = getEntryBlockers(ticker, payload, existingState);
-                  replayCtx.debugRows.push({ ticker, ts: rowTs, stage: finalStage, shouldTrigger, blockers, rank: payload.rank ?? payload.rank_position, rr: payload.rr, comp: payload.completion, trigger_reason: payload.trigger_reason });
+                  const compRaw = completionForSize(payload);
+                  const compToMax = computeCompletionToTpMax(payload);
+                  const compUsed = Number.isFinite(compToMax) ? compToMax : compRaw;
+                  replayCtx.debugRows.push({
+                    ticker,
+                    ts: rowTs,
+                    stage: finalStage,
+                    shouldTrigger,
+                    blockers,
+                    rank: payload.rank ?? payload.rank_position,
+                    rr: payload.rr,
+                    compFromPayload: payload.completion != null ? Number(payload.completion) : null,
+                    compUsed,
+                    compToMax: Number.isFinite(compToMax) ? compToMax : null,
+                    price: payload.price != null ? Number(payload.price) : null,
+                    trigger_price: payload.trigger_price != null ? Number(payload.trigger_price) : null,
+                    tp: payload.tp != null ? Number(payload.tp) : null,
+                    tp_max: computeTpMaxFromLevels(payload),
+                    trigger_reason: payload.trigger_reason,
+                  });
                 } else if (finalStage === "watch" && payload.state === "HTF_BULL_LTF_BULL" && replayCtx.debugRows.length < 5) {
                   const ent = entryType(payload);
                   if (ent?.corridor) {
