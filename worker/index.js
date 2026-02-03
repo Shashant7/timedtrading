@@ -1493,6 +1493,49 @@ function detectFlipWatch(tickerData, trail = []) {
  *  watch, setup_watch | flip_watch, just_flipped | enter_now | just_entered | hold | trim | exit | archive
  *  UI maps: Watching | Almost Ready | Enter Now | Just Entered | Hold | Trim | Exit | Archived
  */
+
+/**
+ * Compute completion towards a specific TP tier (for 3-tier system).
+ * Uses the TRIM TP (first tier) for trim lane decisions instead of generic completion.
+ * @param {object} tickerData - Ticker payload
+ * @param {string} tier - "TRIM", "EXIT", or "RUNNER"
+ * @returns {number} - Completion percentage (0-1) towards the specified tier's TP
+ */
+function computeCompletionToTier(tickerData, tier = "TRIM") {
+  const price = Number(tickerData?.price);
+  const entryPrice = Number(tickerData?.entry_price);
+  const direction = sideFromStateOrScores(tickerData); // LONG | SHORT | null
+  
+  if (!Number.isFinite(price) || !Number.isFinite(entryPrice) || !direction) {
+    return Number(tickerData?.completion) || 0; // Fallback to generic completion
+  }
+  
+  // Build or get TP array
+  const tpArray = tickerData?.tpArray || build3TierTPArray(tickerData, entryPrice, direction);
+  if (!Array.isArray(tpArray) || tpArray.length === 0) {
+    return Number(tickerData?.completion) || 0;
+  }
+  
+  // Find the target tier's TP
+  const targetTp = tpArray.find(tp => tp.tier === tier);
+  if (!targetTp || !Number.isFinite(targetTp.price)) {
+    return Number(tickerData?.completion) || 0;
+  }
+  
+  const tpPrice = targetTp.price;
+  const isLong = direction === "LONG";
+  
+  // Calculate completion: how much of the move from entry to TP has been achieved
+  const totalMove = Math.abs(tpPrice - entryPrice);
+  if (totalMove <= 0) return 0;
+  
+  const currentMove = isLong
+    ? Math.max(0, price - entryPrice)
+    : Math.max(0, entryPrice - price);
+  
+  return Math.min(1, currentMove / totalMove);
+}
+
 /**
  * Classify kanban stage for a ticker.
  * @param {object} tickerData - Ticker payload with scores, state, flags, etc.
@@ -1542,10 +1585,15 @@ function classifyKanbanStage(tickerData, openPosition = null) {
       return "exit";
     }
 
-    // Stage 5: Trim - take profits when signs of exhaustion appear
-    // Tightened from 70% to 60% completion for earlier profit-taking
+    // Stage 5: Trim - take profits when approaching TRIM TP (first tier)
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3-TIER SYSTEM: Use completion towards TRIM TP specifically (not EXIT TP)
+    // This prevents early exits just because a nearby TP was hit
+    // ─────────────────────────────────────────────────────────────────────────
+    const completionToTrimTp = computeCompletionToTier(tickerData, "TRIM");
     if (
-      completion >= 0.6 || 
+      completionToTrimTp >= 0.9 || // 90% of way to TRIM TP
+      completion >= 0.6 ||  // Fallback: generic completion still triggers
       (phase >= 0.65 && severity === "WARNING") ||
       reasons.includes("adverse_move_warning")
     ) {
@@ -3510,8 +3558,268 @@ function fuseTPCandidates(
   return fused;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 3-TIER TP SYSTEM CONFIGURATION
+// ─────────────────────────────────────────────────────────────────────────────
+// Instead of variable 4-5 TP levels with 10-25-50-100% trims, we normalize to
+// exactly 3 tiers with fixed quantities and progressive SL trailing.
+const THREE_TIER_CONFIG = {
+  // ATR multiplier ranges for each tier (based on ATR-Fibonacci levels from Pine)
+  TRIM: { minMult: 0.5, maxMult: 1.0, trimPct: 0.6, label: "TRIM TP" },    // 60% off
+  EXIT: { minMult: 1.0, maxMult: 1.618, trimPct: 0.8, label: "EXIT TP" },  // additional 20% (cumulative 80%)
+  RUNNER: { minMult: 1.618, maxMult: 3.0, trimPct: 1.0, label: "RUNNER TP" }, // final 20% (cumulative 100%)
+};
+
+// Helper: Infer ATR from TP levels when not directly available
+function inferAtrFromTPLevels(tickerData, entryPrice) {
+  const tpLevels = tickerData?.tp_levels;
+  if (!Array.isArray(tpLevels) || tpLevels.length === 0) return null;
+  
+  // Find a TP with a known multiplier to back-calculate ATR
+  for (const tp of tpLevels) {
+    const price = Number(typeof tp === "object" ? tp.price : tp);
+    const mult = Number(typeof tp === "object" ? tp.multiplier : null);
+    if (Number.isFinite(price) && Number.isFinite(mult) && mult > 0 && Number.isFinite(entryPrice)) {
+      const distance = Math.abs(price - entryPrice);
+      return distance / mult;
+    }
+  }
+  
+  // Fallback: estimate ATR as ~2% of entry price (typical for stocks)
+  return Number.isFinite(entryPrice) ? entryPrice * 0.02 : null;
+}
+
+// Helper: Build 3-tier TP array with ATR-based selection
+// Normalizes variable TP levels to exactly 3 tiers: TRIM (60%), EXIT (80%), RUNNER (100%)
+function build3TierTPArray(tickerData, entryPrice, direction) {
+  const isLong = direction === "LONG";
+  const sl = Number(tickerData.sl);
+
+  if (!Number.isFinite(entryPrice) || !Number.isFinite(sl)) {
+    return [];
+  }
+
+  // Get ATR from ticker data or infer from TP levels
+  let atr = Number(tickerData.atr);
+  if (!Number.isFinite(atr) || atr <= 0) {
+    atr = inferAtrFromTPLevels(tickerData, entryPrice);
+  }
+  if (!Number.isFinite(atr) || atr <= 0) {
+    // Last resort: use distance to SL as ATR proxy
+    atr = Math.abs(entryPrice - sl);
+  }
+
+  // Extract all TP levels with metadata
+  let tpLevels = [];
+  if (
+    tickerData.tp_levels &&
+    Array.isArray(tickerData.tp_levels) &&
+    tickerData.tp_levels.length > 0
+  ) {
+    tpLevels = tickerData.tp_levels
+      .map((tpItem) => {
+        if (typeof tpItem === "object" && tpItem !== null) {
+          const price = Number(tpItem.price);
+          const mult = tpItem.multiplier ? Number(tpItem.multiplier) : null;
+          // If no multiplier, calculate it from ATR
+          const calculatedMult = Number.isFinite(mult) ? mult :
+            (Number.isFinite(price) && Number.isFinite(atr) && atr > 0
+              ? Math.abs(price - entryPrice) / atr
+              : null);
+          return {
+            price,
+            source: tpItem.source || "ATR Level",
+            type: tpItem.type || "ATR_FIB",
+            timeframe: tpItem.timeframe || "D",
+            confidence: Number(tpItem.confidence || 0.75),
+            multiplier: calculatedMult,
+            label: tpItem.label || "TP",
+          };
+        }
+        const price = Number(tpItem);
+        const calculatedMult = Number.isFinite(price) && Number.isFinite(atr) && atr > 0
+          ? Math.abs(price - entryPrice) / atr
+          : null;
+        return {
+          price,
+          source: "ATR Level",
+          type: "ATR_FIB",
+          timeframe: "D",
+          confidence: 0.75,
+          multiplier: calculatedMult,
+          label: "TP",
+        };
+      })
+      .filter((item) => Number.isFinite(item.price) && item.price > 0);
+  }
+
+  // Add primary TP if valid
+  const primaryTP = Number(tickerData.tp);
+  if (Number.isFinite(primaryTP) && primaryTP > 0) {
+    const calculatedMult = Number.isFinite(atr) && atr > 0
+      ? Math.abs(primaryTP - entryPrice) / atr
+      : null;
+    tpLevels.push({
+      price: primaryTP,
+      source: "Primary TP",
+      type: "ATR_FIB",
+      timeframe: "D",
+      confidence: 0.75,
+      multiplier: calculatedMult,
+      label: "TP",
+    });
+  }
+
+  // Filter by direction (TP must be in profit direction)
+  const validTPs = tpLevels.filter((item) => {
+    const price = Number(item.price);
+    if (!Number.isFinite(price) || price <= 0) return false;
+    return isLong ? price > entryPrice : price < entryPrice;
+  });
+
+  // Group TPs by tier based on ATR multiplier
+  const tiers = {
+    TRIM: [],
+    EXIT: [],
+    RUNNER: [],
+  };
+
+  for (const tp of validTPs) {
+    const mult = tp.multiplier;
+    if (!Number.isFinite(mult)) continue;
+
+    if (mult >= THREE_TIER_CONFIG.TRIM.minMult && mult < THREE_TIER_CONFIG.EXIT.minMult) {
+      tiers.TRIM.push(tp);
+    } else if (mult >= THREE_TIER_CONFIG.EXIT.minMult && mult < THREE_TIER_CONFIG.RUNNER.minMult) {
+      tiers.EXIT.push(tp);
+    } else if (mult >= THREE_TIER_CONFIG.RUNNER.minMult) {
+      tiers.RUNNER.push(tp);
+    }
+  }
+
+  // Select best TP from each tier (prefer HTF, then highest confidence)
+  const selectBestFromTier = (tierTPs) => {
+    if (tierTPs.length === 0) return null;
+    
+    // HTF priority: W > D > 4H > others
+    const htfPriority = (tf) => {
+      const t = String(tf || "D").toUpperCase();
+      if (t === "W") return 3;
+      if (t === "D") return 2;
+      if (t === "240" || t === "4H") return 1;
+      return 0;
+    };
+    
+    tierTPs.sort((a, b) => {
+      const htfDiff = htfPriority(b.timeframe) - htfPriority(a.timeframe);
+      if (htfDiff !== 0) return htfDiff;
+      return (b.confidence || 0) - (a.confidence || 0);
+    });
+    
+    return tierTPs[0];
+  };
+
+  const trimTp = selectBestFromTier(tiers.TRIM);
+  const exitTp = selectBestFromTier(tiers.EXIT);
+  const runnerTp = selectBestFromTier(tiers.RUNNER);
+
+  // Build the 3-tier array, interpolating missing tiers
+  const result = [];
+
+  // TRIM TP (0.618x - 1.0x ATR) - 60% off
+  if (trimTp) {
+    result.push({
+      price: trimTp.price,
+      trimPct: THREE_TIER_CONFIG.TRIM.trimPct,
+      tier: "TRIM",
+      label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%)`,
+      source: trimTp.source,
+      timeframe: trimTp.timeframe,
+      multiplier: trimTp.multiplier,
+    });
+  } else {
+    // Interpolate: use 0.75x ATR
+    const interpPrice = isLong
+      ? entryPrice + atr * 0.75
+      : entryPrice - atr * 0.75;
+    result.push({
+      price: interpPrice,
+      trimPct: THREE_TIER_CONFIG.TRIM.trimPct,
+      tier: "TRIM",
+      label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%)`,
+      source: "ATR Interpolated",
+      timeframe: "D",
+      multiplier: 0.75,
+    });
+  }
+
+  // EXIT TP (1.0x - 1.618x ATR) - 80% cumulative
+  if (exitTp) {
+    result.push({
+      price: exitTp.price,
+      trimPct: THREE_TIER_CONFIG.EXIT.trimPct,
+      tier: "EXIT",
+      label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%)`,
+      source: exitTp.source,
+      timeframe: exitTp.timeframe,
+      multiplier: exitTp.multiplier,
+    });
+  } else {
+    // Interpolate: use 1.272x ATR (Fibonacci extension)
+    const interpPrice = isLong
+      ? entryPrice + atr * 1.272
+      : entryPrice - atr * 1.272;
+    result.push({
+      price: interpPrice,
+      trimPct: THREE_TIER_CONFIG.EXIT.trimPct,
+      tier: "EXIT",
+      label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%)`,
+      source: "ATR Interpolated",
+      timeframe: "D",
+      multiplier: 1.272,
+    });
+  }
+
+  // RUNNER TP (1.618x+ ATR) - 100% cumulative
+  if (runnerTp) {
+    result.push({
+      price: runnerTp.price,
+      trimPct: THREE_TIER_CONFIG.RUNNER.trimPct,
+      tier: "RUNNER",
+      label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%)`,
+      source: runnerTp.source,
+      timeframe: runnerTp.timeframe,
+      multiplier: runnerTp.multiplier,
+    });
+  } else {
+    // Interpolate: use 2.0x ATR
+    const interpPrice = isLong
+      ? entryPrice + atr * 2.0
+      : entryPrice - atr * 2.0;
+    result.push({
+      price: interpPrice,
+      trimPct: THREE_TIER_CONFIG.RUNNER.trimPct,
+      tier: "RUNNER",
+      label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%)`,
+      source: "ATR Interpolated",
+      timeframe: "D",
+      multiplier: 2.0,
+    });
+  }
+
+  // Ensure TPs are sorted by distance from entry (closest first)
+  result.sort((a, b) => {
+    const distA = Math.abs(a.price - entryPrice);
+    const distB = Math.abs(b.price - entryPrice);
+    return distA - distB;
+  });
+
+  return result;
+}
+
 // Helper: Build intelligent TP array with progressive trim levels (25%, 50%, 75%)
 // This creates a systematic TP array that allows holding winners longer
+// DEPRECATED: Use build3TierTPArray instead - kept for backward compatibility
 function buildIntelligentTPArray(tickerData, entryPrice, direction) {
   const isLong = direction === "LONG";
   const sl = Number(tickerData.sl);
@@ -4014,18 +4322,18 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
     shares = TRADE_SIZE / entryPrice;
   }
 
-  // Get or build intelligent TP array
+  // Get or build 3-tier TP array
   let tpArray = existingTrade?.tpArray || [];
   if (tpArray.length === 0) {
-    // Build TP array if not stored in trade
-    tpArray = buildIntelligentTPArray(tickerData, entryPrice, direction);
+    // Build 3-tier TP array if not stored in trade
+    tpArray = build3TierTPArray(tickerData, entryPrice, direction);
   }
 
   // Defensive: If an entry price was corrected after the trade was created,
   // an older stored tpArray may no longer be on the profit side (e.g. TP < entry for LONG),
   // which can cause "TP trims" at a loss. Filter + rebuild if needed.
   const isLong = direction === "LONG";
-  const minDistancePct = 0.01; // keep consistent with buildIntelligentTPArray
+  const minDistancePct = 0.01; // keep consistent with build3TierTPArray
   const isProfitSide = (tpPrice) =>
     isLong
       ? tpPrice > entryPrice &&
@@ -4039,6 +4347,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
           ...tp,
           price: Number(tp?.price),
           trimPct: Number(tp?.trimPct),
+          tier: tp?.tier,
           label: tp?.label,
         }))
         .filter(
@@ -4054,7 +4363,7 @@ function calculateTradePnl(tickerData, entryPrice, existingTrade = null) {
 
   // If the stored TP plan becomes invalid after entry corrections, rebuild it.
   if (sanitizedTpArray.length === 0) {
-    const rebuilt = buildIntelligentTPArray(tickerData, entryPrice, direction);
+    const rebuilt = build3TierTPArray(tickerData, entryPrice, direction);
     if (Array.isArray(rebuilt) && rebuilt.length > 0) {
       tpArray = rebuilt;
     } else {
@@ -4973,6 +5282,67 @@ async function processTradeSimulation(
       trade.trimmedPct = tgt;
       trade.status = tgt > 0 ? "TP_HIT_TRIM" : "OPEN";
 
+      // ─────────────────────────────────────────────────────────────────────
+      // 3-TIER SL ADJUSTMENT: Move SL based on which tier was just hit
+      // ─────────────────────────────────────────────────────────────────────
+      const entryPrice = Number(trade.entryPrice);
+      const oldSl = Number(trade.sl);
+      const dir = String(trade.direction || "").toUpperCase();
+      const tpArray = Array.isArray(trade.tpArray) ? trade.tpArray : [];
+      let slAdjusted = false;
+      let slAdjustReason = null;
+
+      // Update trimTiers tracking if present
+      if (Array.isArray(trade.trimTiers)) {
+        for (const tier of trade.trimTiers) {
+          if (!tier.hit && tgt >= tier.pct) {
+            tier.hit = true;
+            tier.hitTs = eventTs();
+          }
+        }
+      }
+
+      // Tier 1: TRIM TP hit (60%) -> Move SL to Breakeven (entry price)
+      if (tgt >= THREE_TIER_CONFIG.TRIM.trimPct && oldTrim < THREE_TIER_CONFIG.TRIM.trimPct) {
+        if (Number.isFinite(entryPrice) && entryPrice > 0) {
+          const beStop = entryPrice;
+          // For LONG: only tighten if new SL is higher; for SHORT: only if lower
+          const shouldTighten = dir === "LONG"
+            ? beStop > oldSl || !Number.isFinite(oldSl)
+            : beStop < oldSl || !Number.isFinite(oldSl);
+          if (shouldTighten) {
+            trade.sl = beStop;
+            slAdjusted = true;
+            slAdjustReason = "TRIM_TP_HIT_SL_TO_BE";
+            console.log(`[3-TIER] ${sym} TRIM TP hit: SL moved to BE at $${beStop.toFixed(2)}`);
+          }
+        }
+      }
+
+      // Tier 2: EXIT TP hit (80%) -> Move SL to TRIM TP price
+      if (tgt >= THREE_TIER_CONFIG.EXIT.trimPct && oldTrim < THREE_TIER_CONFIG.EXIT.trimPct) {
+        const trimTpItem = tpArray.find(tp => tp.tier === "TRIM");
+        const trimTpPrice = trimTpItem?.price;
+        if (Number.isFinite(trimTpPrice) && trimTpPrice > 0) {
+          // For LONG: only tighten if new SL is higher; for SHORT: only if lower
+          const currentSl = Number(trade.sl);
+          const shouldTighten = dir === "LONG"
+            ? trimTpPrice > currentSl || !Number.isFinite(currentSl)
+            : trimTpPrice < currentSl || !Number.isFinite(currentSl);
+          if (shouldTighten) {
+            trade.sl = trimTpPrice;
+            slAdjusted = true;
+            slAdjustReason = "EXIT_TP_HIT_SL_TO_TRIM_TP";
+            console.log(`[3-TIER] ${sym} EXIT TP hit: SL moved to TRIM TP at $${trimTpPrice.toFixed(2)}`);
+          }
+        }
+      }
+
+      if (slAdjusted) {
+        trade.sl_protect_reason = slAdjustReason;
+        trade.sl_last_tighten_ts = eventTs();
+      }
+
       const ev = {
         type: "TRIM",
         timestamp: eventTs(),
@@ -4983,7 +5353,10 @@ async function processTradeSimulation(
         trimDeltaPct: delta,
         reason: trimReason,
         pnl_realized: pnlRealized,
-        note: `Trimmed ${Math.round(delta * 100)}% at $${p.toFixed(2)} (${trimReason})`,
+        sl_adjusted: slAdjusted,
+        sl_adjust_reason: slAdjustReason,
+        new_sl: slAdjusted ? trade.sl : null,
+        note: `Trimmed ${Math.round(delta * 100)}% at $${p.toFixed(2)} (${trimReason})${slAdjusted ? ` - SL moved to $${trade.sl.toFixed(2)}` : ""}`,
       };
       trade.history = Array.isArray(trade.history)
         ? [...trade.history, ev]
@@ -5128,17 +5501,58 @@ async function processTradeSimulation(
     }
 
     // 2) TRIM: apply progressive trim on transition into TRIM lane (only after position has been open long enough)
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3-TIER SYSTEM: TRIM TP (60%), EXIT TP (80%), RUNNER TP (100%)
+    // Trim targets are based on which TP level price has reached
+    // ─────────────────────────────────────────────────────────────────────────
     if (isTrim && !weekendNow && trimCooldownOk && trimMinAgeOk && openTrade && Number.isFinite(pxNow)) {
-      const comp = Number(tickerData?.completion);
-      const phase = Number(tickerData?.phase_pct);
-      // progressive ladder driven by lifecycle: 25% -> 50% -> 75%
-      let target = 0.25;
-      if (Number.isFinite(comp) && comp >= 0.85) target = 0.75;
-      else if (Number.isFinite(comp) && comp >= 0.7) target = 0.5;
-      else if (Number.isFinite(phase) && phase >= 0.8) target = 0.75;
-      else if (Number.isFinite(phase) && phase >= 0.7) target = 0.5;
-      await trimTradeToPct(openTrade, target, pxNow, reason);
-      if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastTrimMs: now });
+      const tpArray = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : [];
+      const entryPx = Number(openTrade.entryPrice);
+      const dir = String(openTrade.direction || "").toUpperCase();
+      const isLong = dir === "LONG";
+      
+      // Find which TP level price has reached
+      let target = THREE_TIER_CONFIG.TRIM.trimPct; // Default to TRIM (60%)
+      
+      if (tpArray.length > 0 && Number.isFinite(entryPx)) {
+        // Check if price has reached each tier's TP
+        const trimTp = tpArray.find(tp => tp.tier === "TRIM");
+        const exitTp = tpArray.find(tp => tp.tier === "EXIT");
+        const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
+        
+        const reachedTp = (tp) => {
+          if (!tp || !Number.isFinite(tp.price)) return false;
+          return isLong ? pxNow >= tp.price : pxNow <= tp.price;
+        };
+        
+        if (reachedTp(runnerTp)) {
+          target = THREE_TIER_CONFIG.RUNNER.trimPct; // 100%
+          console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached RUNNER TP $${runnerTp?.price?.toFixed(2)}`);
+        } else if (reachedTp(exitTp)) {
+          target = THREE_TIER_CONFIG.EXIT.trimPct; // 80%
+          console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached EXIT TP $${exitTp?.price?.toFixed(2)}`);
+        } else if (reachedTp(trimTp)) {
+          target = THREE_TIER_CONFIG.TRIM.trimPct; // 60%
+          console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached TRIM TP $${trimTp?.price?.toFixed(2)}`);
+        } else {
+          // Price hasn't reached TRIM TP yet - use completion-based approach as fallback
+          const comp = Number(tickerData?.completion);
+          const phase = Number(tickerData?.phase_pct);
+          // Progressive: start with 60% trim at 90% completion to TRIM TP
+          const completionToTrim = computeCompletionToTier(tickerData, "TRIM");
+          if (completionToTrim >= 0.9 || (Number.isFinite(comp) && comp >= 0.6)) {
+            target = THREE_TIER_CONFIG.TRIM.trimPct; // 60%
+          } else {
+            // Don't trim yet if we're not close to TRIM TP
+            target = 0;
+          }
+        }
+      }
+      
+      if (target > 0) {
+        await trimTradeToPct(openTrade, target, pxNow, reason);
+        if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastTrimMs: now });
+      }
     }
 
     // 3) ENTER: open trade while in ENTER_NOW lane
@@ -5395,6 +5809,9 @@ async function processTradeSimulation(
 
       // Gain protection: tighten stale SL once trade is meaningfully in profit.
       // We DO NOT loosen stops; only tighten in the trade's favor.
+      // ─────────────────────────────────────────────────────────────────────────
+      // 3-TIER SL TRAILING: After EXIT TP (80% trimmed), use ATR-based trailing
+      // ─────────────────────────────────────────────────────────────────────────
       try {
         const dir = String(openTrade.direction || "").toUpperCase();
         const entry = Number(openTrade.entryPrice);
@@ -5402,6 +5819,7 @@ async function processTradeSimulation(
         const oldSl = Number(openTrade.sl);
         const trimmedPct = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
         const completion = Number(tickerData?.completion);
+        const tpArray = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : [];
 
         const sign = dir === "SHORT" ? -1 : 1;
         const pnlPct =
@@ -5413,6 +5831,9 @@ async function processTradeSimulation(
         const slCooldownOk =
           !Number.isFinite(lastSlTightenMs) || now - lastSlTightenMs >= 15 * 60 * 1000; // 15m
 
+        // Check if we're in RUNNER phase (80%+ trimmed)
+        const isRunnerPhase = trimmedPct >= THREE_TIER_CONFIG.EXIT.trimPct;
+
         const shouldProtect =
           slCooldownOk &&
           !weekendNow &&
@@ -5422,25 +5843,64 @@ async function processTradeSimulation(
             (Number.isFinite(completion) && completion >= 0.6));
 
         if (shouldProtect && (dir === "LONG" || dir === "SHORT")) {
-          // Candidate 1: break-even once +2% (or after trim)
           let candidate = null;
-          if (pnlPct >= 2.0 || trimmedPct > 0) {
-            candidate = entry;
+          let slReason = "PROTECT_GAINS";
+
+          // ─────────────────────────────────────────────────────────────────────
+          // RUNNER PHASE: ATR-based trailing stop (1.5x ATR below current high)
+          // ─────────────────────────────────────────────────────────────────────
+          if (isRunnerPhase) {
+            // Get ATR from ticker data or infer from TP levels
+            let atr = Number(tickerData?.atr);
+            if (!Number.isFinite(atr) || atr <= 0) {
+              atr = inferAtrFromTPLevels(tickerData, entry);
+            }
+            if (!Number.isFinite(atr) || atr <= 0) {
+              // Fallback: use 2% of entry as ATR proxy
+              atr = entry * 0.02;
+            }
+
+            // ATR trailing: 1.5x ATR from current price
+            const atrMultiplier = 1.5;
+            const trailStop = dir === "LONG"
+              ? mark - (atr * atrMultiplier)
+              : mark + (atr * atrMultiplier);
+
+            // Only use ATR trail if it's better than current SL
+            if (dir === "LONG" && trailStop > oldSl) {
+              candidate = trailStop;
+              slReason = "ATR_TRAILING_RUNNER";
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (1.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
+            } else if (dir === "SHORT" && trailStop < oldSl) {
+              candidate = trailStop;
+              slReason = "ATR_TRAILING_RUNNER";
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (1.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
+            }
           }
 
-          // Candidate 2: use Daily EMA cloud boundary when available (acts as dynamic support/resistance)
-          const dailyCloud =
-            tickerData?.daily_ema_cloud && typeof tickerData.daily_ema_cloud === "object"
-              ? tickerData.daily_ema_cloud
-              : null;
-          if (dailyCloud) {
-            const upper = Number(dailyCloud.upper);
-            const lower = Number(dailyCloud.lower);
-            if (dir === "LONG" && Number.isFinite(lower) && lower > 0) {
-              candidate = candidate == null ? lower : Math.max(candidate, lower);
+          // ─────────────────────────────────────────────────────────────────────
+          // NON-RUNNER: Standard protection logic
+          // ─────────────────────────────────────────────────────────────────────
+          if (!isRunnerPhase || candidate == null) {
+            // Candidate 1: break-even once +2% (or after trim)
+            if (pnlPct >= 2.0 || trimmedPct > 0) {
+              candidate = entry;
             }
-            if (dir === "SHORT" && Number.isFinite(upper) && upper > 0) {
-              candidate = candidate == null ? upper : Math.min(candidate, upper);
+
+            // Candidate 2: use Daily EMA cloud boundary when available (acts as dynamic support/resistance)
+            const dailyCloud =
+              tickerData?.daily_ema_cloud && typeof tickerData.daily_ema_cloud === "object"
+                ? tickerData.daily_ema_cloud
+                : null;
+            if (dailyCloud) {
+              const upper = Number(dailyCloud.upper);
+              const lower = Number(dailyCloud.lower);
+              if (dir === "LONG" && Number.isFinite(lower) && lower > 0) {
+                candidate = candidate == null ? lower : Math.max(candidate, lower);
+              }
+              if (dir === "SHORT" && Number.isFinite(upper) && upper > 0) {
+                candidate = candidate == null ? upper : Math.min(candidate, upper);
+              }
             }
           }
 
@@ -5466,7 +5926,7 @@ async function processTradeSimulation(
           if (newSl != null && Number.isFinite(newSl) && newSl > 0) {
             const prev = Number.isFinite(oldSl) ? oldSl : null;
             openTrade.sl = newSl;
-            openTrade.sl_protect_reason = "PROTECT_GAINS";
+            openTrade.sl_protect_reason = slReason;
             openTrade.sl_last_tighten_ts = eventTs();
 
             const ev = {
@@ -5476,7 +5936,11 @@ async function processTradeSimulation(
               oldSl: prev,
               newSl,
               pnlPct,
-              note: `Tightened SL to protect gains (${pnlPct.toFixed(2)}% unrealized)`,
+              reason: slReason,
+              isRunnerPhase,
+              note: isRunnerPhase
+                ? `ATR trailing SL for RUNNER (${pnlPct.toFixed(2)}% unrealized)`
+                : `Tightened SL to protect gains (${pnlPct.toFixed(2)}% unrealized)`,
             };
             openTrade.history = Array.isArray(openTrade.history)
               ? [...openTrade.history, ev]
@@ -7070,8 +7534,10 @@ async function processTradeSimulation(
                       : Date.now();
             const entryTime = new Date(entryTsMs).toISOString();
 
-            // Build intelligent TP array with progressive trim levels (25%, 50%, 75%)
-            const tpArray = buildIntelligentTPArray(
+            // ─────────────────────────────────────────────────────────────────────
+            // BUILD 3-TIER TP ARRAY (TRIM 60%, EXIT 80%, RUNNER 100%)
+            // ─────────────────────────────────────────────────────────────────────
+            const tpArray = build3TierTPArray(
               tickerData,
               entryPrice,
               direction,
@@ -7083,16 +7549,22 @@ async function processTradeSimulation(
               return; // Exit early if no valid TP array
             }
 
-            // Use first TP (25% trim level) as primary TP for backward compatibility
+            // Use first TP (TRIM level, 60%) as primary TP for backward compatibility
             const validTP = tpArray[0].price;
 
-            // Calculate RR using max TP from array
-            const maxTP = Math.max(...tpArray.map((tp) => tp.price));
+            // Calculate RR using RUNNER TP (max/furthest) from array
+            const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
+            const maxTP = runnerTp?.price || Math.max(...tpArray.map((tp) => tp.price));
             const sl = Number(tickerData.sl);
             const risk = Math.abs(entryPrice - sl);
             const gain =
               direction === "LONG" ? maxTP - entryPrice : entryPrice - maxTP;
             const calculatedRR = risk > 0 && gain > 0 ? gain / risk : null;
+
+            // Log the 3-tier TP array for debugging
+            console.log(`[3-TIER] ${ticker} ${direction} TP array:`, tpArray.map(tp => 
+              `${tp.tier} $${tp.price.toFixed(2)} (${Math.round(tp.trimPct * 100)}%)`
+            ).join(", "));
 
             const trade = {
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
@@ -7103,9 +7575,15 @@ async function processTradeSimulation(
               entry_ts: entryTsMs, // Numeric ms for D1/display (ingest time, not replay run time)
               triggerTimestamp: triggerTimestamp, // When signal was generated (for reference)
               sl: Number(tickerData.sl),
-              tp: validTP, // Primary TP (first level, 25% trim)
-              tpArray: tpArray, // Store full TP array for progressive trimming
-              rr: calculatedRR || entryRR || Number(tickerData.rr) || 0, // Use calculated RR from max TP
+              tp: validTP, // Primary TP (TRIM level, 60% off)
+              tpArray: tpArray, // Store full 3-tier TP array
+              // Track which tiers have been hit
+              trimTiers: [
+                { tier: "TRIM", pct: THREE_TIER_CONFIG.TRIM.trimPct, hit: false, hitTs: null },
+                { tier: "EXIT", pct: THREE_TIER_CONFIG.EXIT.trimPct, hit: false, hitTs: null },
+                { tier: "RUNNER", pct: THREE_TIER_CONFIG.RUNNER.trimPct, hit: false, hitTs: null },
+              ],
+              rr: calculatedRR || entryRR || Number(tickerData.rr) || 0, // Use calculated RR from RUNNER TP
               rank: Number(tickerData.rank) || 0,
               state: tickerData.state,
               flags: tickerData.flags || {},
