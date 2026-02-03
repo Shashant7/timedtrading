@@ -7087,11 +7087,12 @@
 
         // P&L by ticker: computed at component level so Engine calibration / P&L section (outside paperPortfolio IIFE) can use it.
         const pnlByTickerWindow = useMemo(() => {
-          const openPos = Array.isArray(paperPortfolio.data?.portfolio?.openPositions)
-            ? paperPortfolio.data.portfolio.openPositions
+          const pp = paperPortfolio ?? {};
+          const openPos = Array.isArray(pp.data?.portfolio?.openPositions)
+            ? pp.data.portfolio.openPositions
             : [];
-          const byDay = paperPortfolio.data?.executions?.byDay && typeof paperPortfolio.data.executions.byDay === "object"
-            ? paperPortfolio.data.executions.byDay
+          const byDay = pp.data?.executions?.byDay && typeof pp.data.executions.byDay === "object"
+            ? pp.data.executions.byDay
             : {};
           const windowDays = Math.max(1, Number(ledgerRangeDays) || 7);
           const daysBackKeys = (n) => {
@@ -7209,7 +7210,7 @@
             out = { rows, maxAbs };
           }
           return out;
-        }, [paperPortfolio.data, ledgerClosedTrades, ledgerRangeDays]);
+        }, [paperPortfolio?.data, ledgerClosedTrades, ledgerRangeDays]);
 
         const ledgerSince = useMemo(() => {
           const days = Number(ledgerRangeDays) || 7;
@@ -7256,9 +7257,8 @@
         }, [rankedTickers]);
 
         const ledgerFilteredTrades = useMemo(() => {
-          const items = Array.isArray(ledgerTrades.items)
-            ? ledgerTrades.items
-            : [];
+          const lt = ledgerTrades ?? {};
+          const items = Array.isArray(lt.items) ? lt.items : [];
           if (horizonFilter === "ALL") return items;
           return items.filter((t) => {
             const sym = String(t.ticker || "").toUpperCase();
@@ -7266,7 +7266,7 @@
             const key = computeHorizonKey(live || t);
             return key === horizonFilter;
           });
-        }, [ledgerTrades.items, horizonFilter, data]);
+        }, [ledgerTrades?.items, horizonFilter, data]);
 
         const ledgerOpenTrades = useMemo(
           () =>
@@ -7998,13 +7998,13 @@
                       <div
                         className={`flex-1 ${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}
                       >
-                        {ledgerTrades.loading ? (
+                        {(ledgerTrades ?? {}).loading ? (
                           <div className="text-sm text-[#93a4d6]">
                             Loading trades…
                           </div>
-                        ) : ledgerTrades.error ? (
+                        ) : (ledgerTrades ?? {}).error ? (
                           <div className="text-sm text-red-400">
-                            Ledger trades unavailable: {ledgerTrades.error}
+                            Ledger trades unavailable: {(ledgerTrades ?? {}).error}
                           </div>
                         ) : (
                           <>
@@ -8837,7 +8837,7 @@
 
                             <div className="mt-3 flex items-center justify-between">
                               <div className="text-xs text-[#93a4d6]">
-                                Showing {ledgerTrades.items.length}
+                                Showing {(ledgerTrades?.items ?? []).length}
                               </div>
                               <div className="flex items-center gap-2">
                                 <button
@@ -8850,11 +8850,11 @@
                                   onClick={() => ledgerTrades.fetchMore()}
                                   disabled={
                                     !ledgerTrades.hasMore ||
-                                    ledgerTrades.loadingMore
+                                    (ledgerTrades ?? {}).loadingMore
                                   }
                                   className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white disabled:opacity-50"
                                 >
-                                  {ledgerTrades.loadingMore
+                                  {(ledgerTrades ?? {}).loadingMore
                                     ? "Loading…"
                                     : ledgerTrades.hasMore
                                       ? "Load more"
@@ -9035,10 +9035,10 @@
                           </div>
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => paperPortfolio.refetch()}
+                              onClick={() => (paperPortfolio ?? {}).refetch?.()}
                               className="px-3 py-1.5 text-xs bg-[#121a33] border border-[#26325f] rounded text-[#93a4d6] hover:text-white"
                             >
-                              {paperPortfolio.refreshing
+                              {(paperPortfolio ?? {}).refreshing
                                 ? "Refreshing…"
                                 : "Refresh"}
                             </button>
@@ -9055,27 +9055,28 @@
 
                       {/* Paper portfolio + tape (primary proof) */}
                       <div className="bg-[#0f1630] border border-[#26325f] rounded-xl p-4">
-                        {paperPortfolio.loading ? (
+                        {(paperPortfolio ?? {}).loading ? (
                           <div className="text-sm text-[#93a4d6]">
                             Loading paper portfolio…
                           </div>
-                        ) : paperPortfolio.error ? (
+                        ) : (paperPortfolio ?? {}).error ? (
                           <div className="text-sm text-yellow-400">
-                            Paper portfolio unavailable: {paperPortfolio.error}
+                            Paper portfolio unavailable: {(paperPortfolio ?? {}).error}
                             <div className="text-[11px] text-[#6b7a9f] mt-1">
                               (If you just deployed: wait for the Worker to pick
                               up the new endpoint.)
                             </div>
                           </div>
-                        ) : paperPortfolio.data ? (
+                        ) : (paperPortfolio ?? {}).data ? (
                           (() => {
-                            const p = paperPortfolio.data?.portfolio || {};
-                            const ex = paperPortfolio.data?.executions || {};
+                            const pp = paperPortfolio ?? {};
+                            const p = pp.data?.portfolio || {};
+                            const ex = pp.data?.executions || {};
                             const byDay =
                               ex.byDay && typeof ex.byDay === "object"
                                 ? ex.byDay
                                 : {};
-                            const proof = paperPortfolio.data?.proof;
+                            const proof = pp.data?.proof;
                             const proofByDay =
                               proof && typeof proof.byDay === "object"
                                 ? proof.byDay
@@ -10710,15 +10711,20 @@
                           <div className="text-[11px] text-[#6b7a9f] mb-2">
                             Proof Center uses KV paper tape; calibration uses D1 ledger. Numbers may differ.
                           </div>
-                          {ledgerSummary.loading ? (
+                          {(ledgerSummary ?? {}).loading ? (
                             <div className="text-sm text-[#93a4d6]">
                               Loading calibration metrics…
                             </div>
-                          ) : ledgerSummary.error ? (
+                          ) : (ledgerSummary ?? {}).error ? (
                             <div className="text-sm text-red-400">
-                              Ledger summary unavailable: {ledgerSummary.error}
+                              Ledger summary unavailable: {(ledgerSummary ?? {}).error}
                             </div>
-                          ) : ledgerSummary.data ? (
+                          ) : (ledgerSummary ?? {}).data ? (
+                            (() => {
+                              const ls = ledgerSummary ?? {};
+                              const totals = ls.data?.totals ?? {};
+                              const breakdown = ls.data?.breakdown ?? {};
+                              return (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4">
                                 <div className="text-xs text-[#93a4d6] mb-2">
@@ -10730,7 +10736,7 @@
                                       Closed trades
                                     </div>
                                     <div className="text-lg font-bold">
-                                      {ledgerSummary.data.totals.closedTrades}
+                                      {totals.closedTrades}
                                     </div>
                                   </div>
                                   <div>
@@ -10738,9 +10744,7 @@
                                       Win rate
                                     </div>
                                     <div className="text-lg font-bold">
-                                      {ledgerSummary.data.totals.winRate.toFixed(
-                                        1,
-                                      )}
+                                      {Number(totals.winRate).toFixed(1)}
                                       %
                                     </div>
                                   </div>
@@ -10749,12 +10753,10 @@
                                       Closed P&L
                                     </div>
                                     <div
-                                      className={`text-lg font-bold ${ledgerSummary.data.totals.closedPnl >= 0 ? "text-green-400" : "text-red-400"}`}
+                                      className={`text-lg font-bold ${Number(totals.closedPnl) >= 0 ? "text-green-400" : "text-red-400"}`}
                                     >
                                       $
-                                      {ledgerSummary.data.totals.closedPnl.toFixed(
-                                        2,
-                                      )}
+                                      {Number(totals.closedPnl).toFixed(2)}
                                     </div>
                                   </div>
                                   <div>
@@ -10762,9 +10764,7 @@
                                       Profit factor
                                     </div>
                                     <div className="text-lg font-bold">
-                                      {Number(
-                                        ledgerSummary.data.totals.profitFactor,
-                                      ).toFixed(2)}
+                                      {Number(totals.profitFactor).toFixed(2)}
                                     </div>
                                   </div>
                                 </div>
@@ -10775,9 +10775,7 @@
                                   Calibration by Rank
                                 </div>
                                 <div className="space-y-1 text-xs">
-                                  {(
-                                    ledgerSummary.data.breakdown.byRank || []
-                                  ).map((r) => {
+                                  {(breakdown.byRank || []).map((r) => {
                                     const n = Number(r.n || 0);
                                     const wr =
                                       n > 0
@@ -10801,6 +10799,8 @@
                                 </div>
                               </div>
                             </div>
+                            );
+                            })()}
                           ) : (
                             <div className="text-sm text-[#93a4d6]">
                               No ledger summary data available.
