@@ -349,6 +349,23 @@
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
+      // Currency formatters — must be defined first (used by TickerDetailRightRailFactory and inline)
+      const USD_FMT = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2,
+      });
+      function fmtUsd(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return "—";
+        return USD_FMT.format(n);
+      }
+      function fmtUsdAbs(n) {
+        const x = Number(n);
+        if (!Number.isFinite(x)) return "—";
+        return `$${Math.abs(x).toFixed(2)}`;
+      }
+
       // Get Recharts components with fallback
       let RechartsComponents = null;
       if (typeof Recharts !== "undefined") {
@@ -1845,22 +1862,6 @@
         if (typeof v === "object" && v.price != null)
           return numFromAny(v.price);
         return null;
-      }
-
-      const USD_FMT = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        maximumFractionDigits: 2,
-      });
-      function fmtUsd(v) {
-        const n = Number(v);
-        if (!Number.isFinite(n)) return "—";
-        return USD_FMT.format(n);
-      }
-      function fmtUsdAbs(n) {
-        const x = numFromAny(n);
-        if (!Number.isFinite(x)) return "—";
-        return `$${Math.abs(x).toFixed(2)}`;
       }
 
       function getIngestMs(src) {

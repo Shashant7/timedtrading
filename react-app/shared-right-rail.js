@@ -22,8 +22,12 @@
     const sectorCanon = (deps.sectorKeyToCanonicalName != null && typeof deps.sectorKeyToCanonicalName === "function")
       ? deps.sectorKeyToCanonicalName
       : (k) => k || "";
-    const fmtUsd = deps.fmtUsd;
-    const fmtUsdAbs = deps.fmtUsdAbs;
+    const fmtUsd = (deps.fmtUsd != null && typeof deps.fmtUsd === "function")
+      ? deps.fmtUsd
+      : (v) => (Number.isFinite(Number(v)) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(Number(v)) : "—");
+    const fmtUsdAbs = (deps.fmtUsdAbs != null && typeof deps.fmtUsdAbs === "function")
+      ? deps.fmtUsdAbs
+      : (n) => (Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—");
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
