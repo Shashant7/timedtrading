@@ -101,6 +101,7 @@
       // API_KEY removed for security - write operations disabled for public access
       // To enable trade management, implement proper authentication
       const TRADE_SIZE = 1000; // $1000 per trade
+      const BASELINE_ACCOUNT = 100000; // starting account value for P&L display
       const FUTURES_TICKERS = new Set([
         "ES",
         "NQ",
@@ -1889,6 +1890,55 @@
         );
       }
 
+      // Ledger trade history (date asc): events from D1 ledger { ts, type, trade, price }
+      function LedgerTradeHistory({ events = [], fmtUsd }) {
+        if (!events || events.length === 0) {
+          return (
+            <div className="text-xs text-[var(--tt-text-faint)] italic p-3">
+              No actions yet for this position.
+            </div>
+          );
+        }
+        const sorted = [...events].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+        return (
+          <div className="space-y-3">
+            {sorted.map((ev, idx) => {
+              const d = ev.ts != null ? new Date(ev.ts) : null;
+              const dateStr = d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+              const timeStr = d ? d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
+              const t = ev.trade || {};
+              const shares = t.shares ?? (t.entry_price > 0 ? Math.round(TRADE_SIZE / t.entry_price) : null);
+              const price = ev.price != null ? Number(ev.price) : (ev.type === "ENTRY" ? Number(t.entry_price) : ev.type === "EXIT" ? Number(t.exit_price) : null);
+              const total = Number.isFinite(price) && Number.isFinite(shares) ? price * shares : null;
+              const label = ev.type === "ENTRY" ? "Entered" : ev.type === "TRIM" ? "Trim" : ev.type === "EXIT" ? "Exited" : ev.type;
+              return (
+                <div
+                  key={idx}
+                  className="rounded-lg p-3 border text-sm"
+                  style={{ background: "var(--tt-bg-elevated)", borderColor: "var(--tt-border)" }}
+                >
+                  <div className="font-medium text-[var(--tt-text)]">
+                    {label} at {dateStr} {timeStr}
+                  </div>
+                  {(ev.type === "ENTRY" || ev.type === "EXIT") && Number.isFinite(price) && (
+                    <div className="mt-1 text-xs text-[var(--tt-text-muted)]">
+                      @ {fmtUsd(price)}
+                      {Number.isFinite(shares) && ` for qty ${shares}`}
+                      {Number.isFinite(total) && ` · total ${fmtUsd(total)}`}
+                    </div>
+                  )}
+                  {ev.type === "TRIM" && (
+                    <div className="mt-1 text-xs text-[var(--tt-text-muted)]">
+                      {Number(t.trimmed_pct) > 0 ? `Trimmed ${Number(t.trimmed_pct * 100).toFixed(0)}%` : "Trim"}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Unified Ticker Detail Right Rail Component
       // Reusable component that shows comprehensive ticker information
@@ -1902,6 +1952,7 @@
         sectors = [],
         rankedTickers = null,
         rankedTickerPositions = null,
+        positionEvents = null,
       }) {
         if (!ticker) return null;
 
@@ -1994,10 +2045,10 @@
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | JOURNEY | TRADE_HISTORY
 
-        // Default to Analysis when switching tickers
+        // Default to Trade History when opened from Trade Tracker (positionEvents), else Analysis
         useEffect(() => {
-          setRailTab("ANALYSIS");
-        }, [tickerSymbol]);
+          setRailTab(positionEvents && positionEvents.length > 0 ? "TRADE_HISTORY" : "ANALYSIS");
+        }, [tickerSymbol, positionEvents]);
 
         // Discord-style decision card (ENTRY/TRIM/EXIT) for selected activity rows.
         const [decisionCard, setDecisionCard] = useState(null);
@@ -2329,7 +2380,7 @@
                     { k: "JOURNEY", label: "Journey" },
                     {
                       k: "TRADE_HISTORY",
-                      label: `Trade History (${trade?.history?.length ? trade.history.length : 0})`,
+                      label: `Trade History (${(positionEvents && positionEvents.length) || trade?.history?.length || 0})`,
                     },
                   ].map((t) => {
                     const active = railTab === t.k;
@@ -2902,8 +2953,14 @@
                           </div>
                         </div>
                       </div>
-                      {trade.history && trade.history.length > 0 && (
+                      {positionEvents && positionEvents.length > 0 ? (
+                        <LedgerTradeHistory events={positionEvents} fmtUsd={fmtUsd} />
+                      ) : trade.history && trade.history.length > 0 ? (
                         <TradeHistory history={trade.history} />
+                      ) : (
+                        <div className="text-xs text-[#93a4d6]">
+                          No trade history for this ticker.
+                        </div>
                       )}
                     </>
                   ) : (
@@ -5761,6 +5818,7 @@
         sectors = [],
         rankedTickers = null,
         rankedTickerPositions = null,
+        positionEvents = null,
       }) => {
         const [tickerData, setTickerData] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -5830,6 +5888,7 @@
             sectors={sectors}
             rankedTickers={rankedTickers}
             rankedTickerPositions={rankedTickerPositions}
+            positionEvents={positionEvents}
           />
         );
       };
@@ -7249,7 +7308,7 @@
         // Unified experience: D1-backed Trade Journey (single mode)
         const trackerMode = "ledger";
         // Make Proof the default landing view (high-signal summary).
-        const [ledgerTab, setLedgerTab] = useState("proof"); // proof | trades | alerts
+        // Single view: no Proof/Trades/Alerts tabs
         const [accountChartRange, setAccountChartRange] = useState("1D"); // 1D | 5D | 10D | 30D | 1Y
         const [expandedPositionTicker, setExpandedPositionTicker] = useState(null); // ticker for expanded card
         const initialLedgerTicker = (() => {
@@ -7763,6 +7822,7 @@
                   : null,
               current: metrics.current,
               pnlOpen: metrics.pnlOpen,
+              retOpenPct: metrics.retOpenPct,
               trade: t,
               events,
             });
@@ -7791,6 +7851,11 @@
           return result;
         }, [ledgerFilteredTrades, ledgerOpenTrades, data]);
 
+        const openPositionCards = useMemo(
+          () => positionsWithHistory.filter((p) => p.isOpen),
+          [positionsWithHistory],
+        );
+
         // Daily summary state
         const [dailySummary, setDailySummary] = useState(null);
         const [summaryLoading, setSummaryLoading] = useState(false);
@@ -7799,8 +7864,9 @@
         // Selected ticker for detail view
         const [selectedTicker, setSelectedTicker] = useState(null);
 
-        // Selected trade for history modal
+        // Selected trade for right rail; positionEvents for Trade Tracker history
         const [selectedTrade, setSelectedTrade] = useState(null);
+        const [selectedPositionEvents, setSelectedPositionEvents] = useState(null);
 
         // Trade Tracker date range filter
         const [tradeDateRange, setTradeDateRange] = useState({
@@ -8051,1336 +8117,98 @@
                   </div>
                 </header>
 
-                {/* Tabs + filters */}
-                <div className="mb-6">
-                  <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-                    <div className="flex items-center gap-1 rounded-full p-1" style={{ background: "var(--tt-bg-surface)", border: "1px solid var(--tt-border)" }}>
-                      <button
-                        onClick={() => setLedgerTab("proof")}
-                        className={`tt-pill ${ledgerTab === "proof" ? "tt-pill-active" : "tt-pill-inactive"}`}
-                      >
-                        Proof
-                      </button>
-                      <button
-                        onClick={() => setLedgerTab("trades")}
-                        className={`tt-pill ${ledgerTab === "trades" ? "tt-pill-active" : "tt-pill-inactive"}`}
-                      >
-                        Trades
-                      </button>
-                      <button
-                        onClick={() => setLedgerTab("alerts")}
-                        className={`tt-pill ${ledgerTab === "alerts" ? "tt-pill-active" : "tt-pill-inactive"}`}
-                      >
-                        Alerts
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-4 flex-wrap">
-                      {ledgerTab === "proof" && (
-                        <div className="flex items-center gap-2">
-                          <span className="tt-label">Window</span>
-                          <select
-                            value={ledgerRangeDays}
-                            onChange={(e) => setLedgerRangeDays(Number(e.target.value))}
-                            className="tt-pill tt-pill-inactive text-[13px] border-0 bg-transparent cursor-pointer"
-                          >
-                            <option value={1}>Today</option>
-                            <option value={7}>7d</option>
-                            <option value={14}>14d</option>
-                            <option value={30}>30d</option>
-                          </select>
+                {/* Single view: account value ($100k baseline) + open position cards */}
+                <div className="flex gap-4 items-start">
+                  <div className={`flex-1 min-w-0 ${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}>
+                    {(ledgerTrades ?? {}).loading ? (
+                      <div className="text-sm text-[var(--tt-text-muted)] py-8">Loading…</div>
+                    ) : (ledgerTrades ?? {}).error ? (
+                      <div className="text-sm text-[var(--tt-negative)] py-4">Ledger unavailable: {(ledgerTrades ?? {}).error}</div>
+                    ) : (
+                      <div className="space-y-6">
+                        {/* Account value: $100k baseline + up/down */}
+                        <div className="tt-card overflow-hidden p-6">
+                          <p className="tt-label mb-0.5">Account value</p>
+                          <p className="text-2xl font-semibold tracking-tight text-[var(--tt-text)]">
+                            {fmtUsd(BASELINE_ACCOUNT + (portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0))}
+                          </p>
+                          {(() => {
+                            const pnl = portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0;
+                            const pct = BASELINE_ACCOUNT ? (pnl / BASELINE_ACCOUNT) * 100 : 0;
+                            return (
+                              <p className={`text-sm font-medium mt-1 ${pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                {pnl >= 0 ? "Up" : "Down"} {fmtUsd(Math.abs(pnl))} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%)
+                              </p>
+                            );
+                          })()}
+                          <p className="text-xs text-[var(--tt-text-faint)] mt-0.5">Starting point {fmtUsd(BASELINE_ACCOUNT)}</p>
                         </div>
-                      )}
-                      {ledgerTab !== "proof" && (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className="tt-label">Ticker</span>
-                            <input
-                              value={ledgerTickerFilter}
-                              onChange={(e) => setLedgerTickerFilter(e.target.value.toUpperCase())}
-                              placeholder="e.g. AMD"
-                              className="tt-pill tt-pill-inactive w-24 border-0 bg-transparent placeholder-[var(--tt-text-faint)] text-[13px]"
-                            />
+
+                        {/* Open positions — cards: Net P&L $ and %, Qty, Price entered, Current price; tap → right rail with trade history */}
+                        {openPositionCards.length > 0 ? (
+                          <div>
+                            <h2 className="text-sm font-semibold text-[var(--tt-text)] mb-3">Open positions</h2>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              {openPositionCards.map((pos) => (
+                                <button
+                                  key={pos.ticker}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTicker(pos.ticker);
+                                    setSelectedTrade(pos.trade);
+                                    setSelectedPositionEvents(pos.events || []);
+                                  }}
+                                  className="tt-card w-full text-left p-4 hover:bg-[var(--tt-bg-hover)] transition-colors"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <span className="font-semibold text-[var(--tt-text)]">{pos.ticker}</span>
+                                    <span className={`text-sm font-medium ${(pos.pnlOpen ?? 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                      {pos.pnlOpen != null ? fmtUsd(pos.pnlOpen) : "—"}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-[var(--tt-text-muted)] mt-1">
+                                    {pos.retOpenPct != null ? `${pos.retOpenPct >= 0 ? "+" : ""}${pos.retOpenPct.toFixed(2)}%` : ""}
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 text-xs text-[var(--tt-text-faint)]">
+                                    <span>Qty {pos.qty != null ? Number(pos.qty).toFixed(FUTURES_SPECS[pos.ticker] ? 0 : 4) : "—"}</span>
+                                    <span>Entry {pos.entryPrice != null ? fmtUsd(pos.entryPrice) : "—"}</span>
+                                    <span>Current {pos.current != null ? fmtUsd(pos.current) : "—"}</span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="tt-label">Range</span>
-                            <select
-                              value={ledgerRangeDays}
-                              onChange={(e) => setLedgerRangeDays(Number(e.target.value))}
-                              className="tt-pill tt-pill-inactive text-[13px] border-0 bg-transparent cursor-pointer"
-                            >
-                              <option value={1}>1d</option>
-                              <option value={7}>7d</option>
-                              <option value={14}>14d</option>
-                              <option value={30}>30d</option>
-                            </select>
+                        ) : (
+                          <div className="tt-card p-6 text-center text-[var(--tt-text-muted)] text-sm">
+                            No open positions in this range.
                           </div>
-                        </>
-                      )}
-                      {ledgerTab === "trades" && (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className="tt-label">Status</span>
-                            <select
-                              value={ledgerStatusFilter}
-                              onChange={(e) => setLedgerStatusFilter(e.target.value)}
-                              className="tt-pill tt-pill-inactive text-[13px] border-0 bg-transparent cursor-pointer"
-                            >
-                              <option value="all">All</option>
-                              <option value="open">Open</option>
-                              <option value="closed">Closed</option>
-                            </select>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="tt-label">Horizon</span>
-                            <select
-                              value={horizonFilter}
-                              onChange={(e) => setHorizonFilter(e.target.value)}
-                              className="tt-pill tt-pill-inactive text-[13px] border-0 bg-transparent cursor-pointer"
-                            >
-                              <option value="ALL">All</option>
-                              <option value="SHORT_TERM">Short-Term</option>
-                              <option value="SWING">Swing</option>
-                              <option value="POSITIONAL">Positional</option>
-                            </select>
-                          </div>
-                          <label className="flex items-center gap-2 text-[13px] text-[var(--tt-text-muted)] cursor-pointer">
-                            <input type="checkbox" checked={ledgerIncludeEvidence} onChange={(e) => setLedgerIncludeEvidence(e.target.checked)} className="rounded" />
-                            Evidence
-                          </label>
-                        </>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  {ledgerTab === "trades" && (
-                    <div className="flex gap-4 items-start">
-                      <div
-                        className={`flex-1 ${selectedTicker || selectedTrade ? "mr-[470px]" : ""}`}
-                      >
-                        {(ledgerTrades ?? {}).loading ? (
-                          <div className="text-sm text-[var(--tt-text-muted)] py-8">
-                            Loading trades…
-                          </div>
-                        ) : (ledgerTrades ?? {}).error ? (
-                          <div className="text-sm text-[var(--tt-negative)] py-4">
-                            Ledger unavailable: {(ledgerTrades ?? {}).error}
-                          </div>
-                        ) : (
-                          <>
-                            {ledgerFilteredTrades.length === 0 ? (
-                              <div className="py-12 text-center text-[var(--tt-text-muted)] text-sm">
-                                No trades for this filter or range.
-                              </div>
-                            ) : (
-                              <div className="space-y-6">
-                                {/* Total Account Value — hero card */}
-                                {portfolioChartPointsInRange.length > 0 && (
-                                  <div className="tt-card overflow-hidden p-6">
-                                    <div className="flex items-baseline justify-between gap-4 mb-4">
-                                      <div>
-                                        <p className="tt-label mb-0.5">Total account value</p>
-                                        <p className="text-2xl font-semibold tracking-tight text-[var(--tt-text)]">
-                                          {fmtUsd(
-                                            portfolioChartPointsInRange.length > 0
-                                              ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value
-                                              : 0,
-                                          )}
-                                        </p>
-                                        <p className="text-xs text-[var(--tt-text-faint)] mt-0.5">
-                                          Cumulative P&L (closed + open)
-                                        </p>
-                                      </div>
-                                      <div className="flex gap-1 rounded-full p-1" style={{ background: "var(--tt-bg-elevated)" }}>
-                                        {["1D", "5D", "10D", "30D", "1Y"].map((r) => (
-                                          <button
-                                            key={r}
-                                            type="button"
-                                            onClick={() => setAccountChartRange(r)}
-                                            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                                              accountChartRange === r
-                                                ? "bg-[var(--tt-bg-surface)] text-[var(--tt-text)]"
-                                                : "text-[var(--tt-text-muted)] hover:text-[var(--tt-text)]"
-                                            }`}
-                                          >
-                                            {r}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                    <div className="h-20 w-full rounded-lg overflow-hidden" style={{ background: "var(--tt-bg-elevated)" }}>
-                                      {portfolioChartPointsInRange.length >= 2 && (() => {
-                                        const pts = portfolioChartPointsInRange;
-                                        const xs = pts.map((p) => p.ts);
-                                        const xMin = Math.min(...xs);
-                                        const xMax = Math.max(...xs);
-                                        const xRange = xMax - xMin || 1;
-                                        const vals = pts.map((p) => p.value);
-                                        const vMin = Math.min(...vals);
-                                        const vMax = Math.max(...vals);
-                                        const vRange = vMax - vMin || 1;
-                                        const w = 400;
-                                        const h = 80;
-                                        const pad = { left: 8, right: 8, top: 8, bottom: 8 };
-                                        const plotW = w - pad.left - pad.right;
-                                        const plotH = h - pad.top - pad.bottom;
-                                        const toX = (ts) => pad.left + ((ts - xMin) / xRange) * plotW;
-                                        const toY = (v) => pad.top + plotH - ((v - vMin) / vRange) * plotH;
-                                        const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.ts)} ${toY(p.value)}`).join(" ");
-                                        const lineColor = (pts[pts.length - 1]?.value ?? 0) >= 0 ? "var(--tt-accent)" : "var(--tt-negative)";
-                                        return (
-                                          <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="overflow-visible">
-                                            <path d={d} fill="none" stroke={lineColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                                          </svg>
-                                        );
-                                      })()}
-                                    </div>
-                                    <p className="text-[11px] text-[var(--tt-text-faint)] mt-2">
-                                      {portfolioChartPointsInRange.length > 0
-                                        ? new Date(portfolioChartPointsInRange[0].ts).toLocaleDateString() + " → now"
-                                        : ""}
-                                    </p>
-                                  </div>
-                                )}
-
-                                {/* Positions — clean cards, expandable history */}
-                                {positionsWithHistory.length > 0 && (
-                                  <div className="tt-card overflow-hidden">
-                                    <div className="px-5 py-4 border-b" style={{ borderColor: "var(--tt-border)" }}>
-                                      <h2 className="text-sm font-semibold text-[var(--tt-text)]">Positions</h2>
-                                      <p className="text-xs text-[var(--tt-text-faint)] mt-0.5">Qty, entry, market value · tap to see history</p>
-                                    </div>
-                                    <div className="divide-y" style={{ borderColor: "var(--tt-border)" }}>
-                                      {positionsWithHistory.map((pos) => {
-                                        const isExpanded = expandedPositionTicker === pos.ticker;
-                                        const hasHistory = pos.events.length > 0;
-                                        return (
-                                          <div
-                                            key={pos.ticker}
-                                            className="transition-colors hover:bg-[var(--tt-bg-hover)]"
-                                            style={{ background: isExpanded ? "var(--tt-bg-hover)" : undefined }}
-                                          >
-                                            <button
-                                              type="button"
-                                              onClick={() => setExpandedPositionTicker(isExpanded ? null : pos.ticker)}
-                                              className="w-full text-left px-5 py-4"
-                                            >
-                                              <div className="flex items-start justify-between gap-3">
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                  <span className="font-semibold text-[var(--tt-text)]">{pos.ticker}</span>
-                                                  {pos.isOpen && (
-                                                    <span className="shrink-0 px-2 py-0.5 rounded-md text-[11px] font-medium bg-[var(--tt-accent-dim)] text-[var(--tt-accent)]">
-                                                      Open
-                                                    </span>
-                                                  )}
-                                                  {hasHistory && (
-                                                    <span className="text-[var(--tt-text-faint)] text-xs">
-                                                      {isExpanded ? "▾" : "▸"}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                                {pos.pnlOpen != null && (
-                                                  <span
-                                                    className={`shrink-0 text-sm font-medium ${pos.pnlOpen >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}
-                                                  >
-                                                    {fmtUsd(pos.pnlOpen)}
-                                                  </span>
-                                                )}
-                                              </div>
-                                              <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-2 text-xs text-[var(--tt-text-muted)]">
-                                                {pos.qty != null && (
-                                                  <span>Qty {Number(pos.qty).toFixed(FUTURES_SPECS[pos.ticker] ? 0 : 4)}</span>
-                                                )}
-                                                {pos.entryPrice != null && <span>Entry {fmtUsd(pos.entryPrice)}</span>}
-                                                {pos.mktValue != null && <span>Mkt {fmtUsd(pos.mktValue)}</span>}
-                                              </div>
-                                            </button>
-                                            {isExpanded && hasHistory && (
-                                              <div className="px-5 pb-4 pt-0 border-t" style={{ borderColor: "var(--tt-border)" }}>
-                                                <p className="tt-label mb-2">Trade history</p>
-                                                <div className="flex flex-wrap gap-2">
-                                                  {pos.events.map((ev, idx) => (
-                                                    <span
-                                                      key={idx}
-                                                      className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
-                                                        ev.type === "ENTRY"
-                                                          ? "bg-[var(--tt-accent-dim)] text-[var(--tt-accent)]"
-                                                          : ev.type === "TRIM"
-                                                            ? "bg-amber-500/15 text-amber-400"
-                                                            : "bg-[var(--tt-negative-dim)] text-[var(--tt-negative)]"
-                                                      }`}
-                                                      title={new Date(ev.ts).toLocaleString()}
-                                                    >
-                                                      {ev.type} {new Date(ev.ts).toLocaleTimeString()}
-                                                      {ev.price != null ? ` @ ${fmtUsd(ev.price)}` : ""}
-                                                    </span>
-                                                  ))}
-                                                </div>
-                                              </div>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-
-                                <div className="tt-card overflow-hidden">
-                                  <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-4 border-b" style={{ borderColor: "var(--tt-border)" }}>
-                                    <div>
-                                      <h2 className="text-sm font-semibold text-[var(--tt-text)]">Portfolio</h2>
-                                      <p className="text-xs text-[var(--tt-text-faint)] mt-0.5">{fmtInt(ledgerOpenTrades.length)} open positions</p>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-4 text-sm">
-                                      <div className={`font-medium ${portfolioSummary.netPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                                        Net {fmtUsd(portfolioSummary.netPnl)}
-                                      </div>
-                                      <div className="text-[var(--tt-text-muted)]">
-                                        <span className="text-[var(--tt-accent)]">{fmtUsd(portfolioSummary.totalGain)}</span>
-                                        <span className="mx-1">/</span>
-                                        <span className="text-[var(--tt-negative)]">{fmtUsd(Math.abs(portfolioSummary.totalLoss))}</span>
-                                      </div>
-                                      <div className="text-[var(--tt-text-faint)]">
-                                        {fmtInt(portfolioSummary.totalTrades)} trades
-                                      </div>
-                                    </div>
-                                  </div>
-                                  {ledgerOpenTrades.length === 0 ? (
-                                    <div className="px-5 py-8 text-center text-[var(--tt-text-muted)] text-sm">
-                                      No open trades in this range.
-                                    </div>
-                                  ) : (
-                                    <div className="overflow-x-auto">
-                                      <table className="w-full min-w-full">
-                                        <thead>
-                                          <tr className="border-b text-left" style={{ borderColor: "var(--tt-border)" }}>
-                                            <th className="px-5 py-3 tt-label">Ticker</th>
-                                            <th className="px-5 py-3 tt-label">Action</th>
-                                            <th className="px-5 py-3 tt-label">Entry</th>
-                                            <th className="px-5 py-3 tt-label">Price</th>
-                                            <th className="px-5 py-3 tt-label">Qty</th>
-                                            <th className="px-5 py-3 tt-label">Return %</th>
-                                            <th className="px-5 py-3 tt-label">Open P&L</th>
-                                            <th className="px-5 py-3 tt-label">Trim P&L</th>
-                                            <th className="px-5 py-3 tt-label">TP Max</th>
-                                            <th className="px-5 py-3 tt-label">ETA</th>
-                                            <th className="px-5 py-3 tt-label">SL</th>
-                                            <th className="px-5 py-3 tt-label">Exit</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {ledgerOpenTrades.map((t) => {
-                                            const sym = String(
-                                              t.ticker || "",
-                                            ).toUpperCase();
-                                            const live =
-                                              data &&
-                                              (data[sym] || data[t.ticker]);
-                                            const metrics = getPositionMetrics(
-                                              t,
-                                              live,
-                                            );
-                                            const eta = computeEtaDays(
-                                              live || t,
-                                            );
-                                            const tpMax = computeTpMaxPrice(
-                                              live || t,
-                                            );
-                                            const entryTs = tsToMs(t.entry_ts);
-                                            const trimmedPct = Number(
-                                              t.trimmed_pct || 0,
-                                            );
-                                            const sl = Number(
-                                              live?.sl ?? t.sl ?? t.sl_price,
-                                            );
-                                            const trimPnl =
-                                              Number.isFinite(tpMax) &&
-                                              Number.isFinite(
-                                                metrics.entryPrice,
-                                              ) &&
-                                              metrics.entryPrice &&
-                                              trimmedPct > 0
-                                                ? (tpMax - metrics.entryPrice) *
-                                                  metrics.shares *
-                                                  metrics.pointValue *
-                                                  trimmedPct *
-                                                  (String(
-                                                    t.direction || "",
-                                                  ).toUpperCase() === "SHORT"
-                                                    ? -1
-                                                    : 1)
-                                                : null;
-                                            return (
-                                              <tr
-                                                key={t.trade_id}
-                                                className="border-b cursor-pointer transition-colors hover:bg-[var(--tt-bg-hover)]"
-                                                style={{ borderColor: "var(--tt-border)" }}
-                                                onClick={() => {
-                                                  setSelectedTicker(t.ticker);
-                                                  setSelectedTrade(t);
-                                                }}
-                                              >
-                                                <td className="px-5 py-3">
-                                                  <div className="font-semibold">
-                                                    {t.ticker}
-                                                  </div>
-                                                  <div className="text-[10px] text-[#93a4d6]">
-                                                    {Number.isFinite(
-                                                      metrics.current,
-                                                    )
-                                                      ? `Current: ${fmtUsd(metrics.current)}`
-                                                      : "Current: —"}
-                                                  </div>
-                                                </td>
-                                                <td className="p-2 text-xs">
-                                                  <span className="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/15 text-yellow-300">
-                                                    {t.status || "OPEN"}
-                                                  </span>
-                                                </td>
-                                                <td className="p-2 text-xs text-[#93a4d6]" title="Ingest time (bar time, not replay run time)">
-                                                  {entryTs != null
-                                                    ? new Date(
-                                                        entryTs,
-                                                      ).toLocaleString()
-                                                    : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm">
-                                                  {fmtUsd(
-                                                    metrics.entryPrice || 0,
-                                                  )}
-                                                </td>
-                                                <td className="p-2 text-sm">
-                                                  {metrics.isFutures
-                                                    ? metrics.shares.toFixed(0)
-                                                    : metrics.shares.toFixed(4)}
-                                                </td>
-                                                <td className="p-2 text-sm text-green-400">
-                                                  {Number.isFinite(
-                                                    metrics.retOpenPct,
-                                                  )
-                                                    ? `${metrics.retOpenPct.toFixed(2)}%`
-                                                    : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm">
-                                                  {Number.isFinite(
-                                                    metrics.pnlOpen,
-                                                  ) ? (
-                                                    <span
-                                                      className={`font-semibold ${metrics.pnlOpen >= 0 ? "text-green-400" : "text-red-400"}`}
-                                                    >
-                                                      {fmtUsd(metrics.pnlOpen)}
-                                                    </span>
-                                                  ) : (
-                                                    <span className="text-[#6b7a9f]">
-                                                      —
-                                                    </span>
-                                                  )}
-                                                </td>
-                                                <td className="p-2 text-sm">
-                                                  {Number.isFinite(trimPnl) ? (
-                                                    <span
-                                                      className={`font-semibold ${trimPnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                                                    >
-                                                      {fmtUsd(trimPnl)}
-                                                    </span>
-                                                  ) : (
-                                                    <span className="text-[#6b7a9f]">
-                                                      —
-                                                    </span>
-                                                  )}
-                                                </td>
-                                                <td className="p-2 text-sm text-green-400">
-                                                  {Number.isFinite(tpMax)
-                                                    ? fmtUsd(tpMax)
-                                                    : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm">
-                                                  {Number.isFinite(eta)
-                                                    ? `${eta.toFixed(1)}d`
-                                                    : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm text-red-400">
-                                                  {Number.isFinite(sl)
-                                                    ? fmtUsd(sl)
-                                                    : "—"}
-                                                </td>
-                                                <td className="p-2 text-sm text-[#93a4d6]">
-                                                  —
-                                                </td>
-                                              </tr>
-                                            );
-                                          })}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
-                                  <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
-                                    <div>
-                                      <div className="text-sm font-bold">
-                                        By Day Activity
-                                      </div>
-                                      <div className="text-xs text-[#93a4d6]">
-                                        Entries, trims, and exits logged by day.
-                                      </div>
-                                    </div>
-                                  </div>
-                                  {ledgerActivityDays.length === 0 ? (
-                                    <div className="p-6 text-center text-[#93a4d6]">
-                                      No activity found in this range.
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-4 p-3">
-                                      {ledgerActivityDays.map((g) => (
-                                        <div
-                                          key={g.key}
-                                          className="bg-[#121a33] border border-[#26325f] rounded-xl overflow-hidden"
-                                        >
-                                          <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
-                                            <div>
-                                              <div className="text-sm font-bold">
-                                                {g.label}
-                                              </div>
-                                              <div className="text-xs text-[#93a4d6]">
-                                                {fmtInt(g.stats.entries)}{" "}
-                                                entries •{" "}
-                                                {fmtInt(g.stats.trims)} trims •{" "}
-                                                {fmtInt(g.stats.exits)} exits
-                                              </div>
-                                            </div>
-                                            <div
-                                              className={`px-2 py-1 rounded bg-[#0f1630] border border-[#26325f] text-xs font-semibold ${g.stats.closedPnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                                            >
-                                              {fmtUsd(g.stats.closedPnl)}
-                                            </div>
-                                          </div>
-                                          <div className="overflow-x-auto">
-                                            <table className="w-full min-w-full">
-                                              <thead>
-                                                <tr className="border-b border-[#26325f] text-left">
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Time
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Entry Date/Time
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Ticker
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Action
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Side
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Entry Price
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Qty
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Price
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Exit Price
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Status
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    P&L
-                                                  </th>
-                                                </tr>
-                                              </thead>
-                                              <tbody>
-                                                {g.events.map((ev, idx) => {
-                                                  const t = ev.trade;
-                                                  const pnl = Number(
-                                                    t.pnl || 0,
-                                                  );
-                                                  const entryTs = tsToMs(
-                                                    t.entry_ts,
-                                                  );
-                                                  const entryPrice = Number(
-                                                    t.entry_price,
-                                                  );
-                                                  const exitPrice = Number(
-                                                    t.exit_price,
-                                                  );
-                                                  const trimPrice = Number(
-                                                    t.trimPrice ??
-                                                      t.trim_price ??
-                                                      t.trim_price,
-                                                  );
-                                                  const isTrimExit =
-                                                    ev.type === "TRIM" &&
-                                                    Number.isFinite(
-                                                      exitPrice,
-                                                    ) &&
-                                                    Number.isFinite(
-                                                      trimPrice,
-                                                    ) &&
-                                                    Math.abs(
-                                                      exitPrice - trimPrice,
-                                                    ) <= 0.01;
-                                                  const actionLabel =
-                                                    ev.type === "TRIM" &&
-                                                    isTrimExit
-                                                      ? "EXIT"
-                                                      : ev.type;
-                                                  const actionColor =
-                                                    actionLabel === "ENTRY"
-                                                      ? "bg-green-500/20 text-green-400"
-                                                      : actionLabel === "TRIM"
-                                                        ? "bg-yellow-500/20 text-yellow-300"
-                                                        : "bg-purple-500/20 text-purple-300";
-                                                  const statusLabel =
-                                                    ev.type === "EXIT"
-                                                      ? t.exit_reason ||
-                                                        t.status ||
-                                                        "EXIT"
-                                                      : ev.type === "TRIM"
-                                                        ? "TRIMMED"
-                                                        : t.status || "OPEN";
-                                                  const metrics =
-                                                    getPositionMetrics(
-                                                      t,
-                                                      data &&
-                                                        (data[
-                                                          String(
-                                                            t.ticker || "",
-                                                          ).toUpperCase()
-                                                        ] ||
-                                                          data[t.ticker]),
-                                                    );
-                                                  return (
-                                                    <tr
-                                                      key={`${t.trade_id}-${idx}-${ev.type}`}
-                                                      className="border-b border-[#26325f]/50 hover:bg-[#0f1630] cursor-pointer"
-                                                      onClick={() => {
-                                                        setSelectedTicker(
-                                                          t.ticker,
-                                                        );
-                                                        // Preserve which lifecycle event/day row was clicked so the right rail
-                                                        // can show a Discord-style "decision card" for that moment.
-                                                        setSelectedTrade({
-                                                          ...t,
-                                                          __activity: {
-                                                            type: actionLabel, // ENTRY | TRIM | EXIT (note: TRIM rows can be shown as EXIT)
-                                                            ts: Number(ev.ts),
-                                                            dayKey: g.key,
-                                                          },
-                                                        });
-                                                      }}
-                                                    >
-                                                      <td className="p-2 text-xs text-[#93a4d6] whitespace-nowrap">
-                                                        {ev.ts != null && Number.isFinite(ev.ts)
-                                                          ? new Date(
-                                                              ev.ts,
-                                                            ).toLocaleTimeString()
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2 text-xs text-[#93a4d6] whitespace-nowrap">
-                                                        {entryTs != null
-                                                          ? new Date(
-                                                              entryTs,
-                                                            ).toLocaleString()
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2 font-semibold">
-                                                        {t.ticker}
-                                                      </td>
-                                                      <td className="p-2 text-xs">
-                                                        <span
-                                                          className={`px-2 py-0.5 rounded font-semibold ${actionColor}`}
-                                                        >
-                                                          {actionLabel}
-                                                        </span>
-                                                      </td>
-                                                      <td className="p-2">
-                                                        <span
-                                                          className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                                            t.direction ===
-                                                            "LONG"
-                                                              ? "bg-green-500/20 text-green-400"
-                                                              : "bg-red-500/20 text-red-400"
-                                                          }`}
-                                                        >
-                                                          {t.direction}
-                                                        </span>
-                                                      </td>
-                                                      <td className="p-2 text-sm">
-                                                        {Number.isFinite(
-                                                          entryPrice,
-                                                        )
-                                                          ? fmtUsd(entryPrice)
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2 text-xs">
-                                                        {metrics.isFutures
-                                                          ? metrics.shares.toFixed(
-                                                              0,
-                                                            )
-                                                          : metrics.shares.toFixed(
-                                                              4,
-                                                            )}
-                                                      </td>
-                                                      <td className="p-2 text-sm">
-                                                        {Number.isFinite(
-                                                          ev.price,
-                                                        )
-                                                          ? fmtUsd(ev.price)
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2 text-sm">
-                                                        {(actionLabel ===
-                                                          "EXIT" ||
-                                                          ev.type === "EXIT") &&
-                                                        Number.isFinite(
-                                                          exitPrice,
-                                                        )
-                                                          ? fmtUsd(exitPrice)
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2 text-xs text-[#93a4d6]">
-                                                        {statusLabel}
-                                                      </td>
-                                                      <td className="p-2 text-xs">
-                                                        {ev.type === "EXIT" ? (
-                                                          <span
-                                                            className={`font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                                                          >
-                                                            {fmtUsd(pnl)}
-                                                          </span>
-                                                        ) : (
-                                                          <span className="text-[#6b7a9f]">
-                                                            —
-                                                          </span>
-                                                        )}
-                                                      </td>
-                                                    </tr>
-                                                  );
-                                                })}
-                                              </tbody>
-                                            </table>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="bg-[#0f1630] border border-[#26325f] rounded-xl overflow-hidden">
-                                  <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
-                                    <div>
-                                      <div className="text-sm font-bold">
-                                        Closed Trades by Ticker
-                                      </div>
-                                      <div className="text-xs text-[#93a4d6]">
-                                        {fmtInt(ledgerClosedTrades.length)}{" "}
-                                        closed trades
-                                      </div>
-                                    </div>
-                                  </div>
-                                  {ledgerClosedByTicker.length === 0 ? (
-                                    <div className="p-6 text-center text-[#93a4d6]">
-                                      No closed trades in this range.
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-3 p-3">
-                                      {ledgerClosedByTicker.map((group) => (
-                                        <div
-                                          key={group.ticker}
-                                          className="border border-[#26325f] rounded-lg overflow-hidden bg-[#121a33]"
-                                        >
-                                          <div className="p-3 flex items-center justify-between gap-3 flex-wrap border-b border-[#26325f]">
-                                            <div className="text-sm font-bold">
-                                              {group.ticker}
-                                            </div>
-                                            <div
-                                              className={`text-sm font-semibold ${group.totalPnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                                            >
-                                              {fmtUsd(group.totalPnl)}
-                                            </div>
-                                          </div>
-                                          <div className="overflow-x-auto">
-                                            <table className="w-full min-w-full">
-                                              <thead>
-                                                <tr className="border-b border-[#26325f] text-left">
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Entry
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Action
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Exit
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Side
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Qty
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Exit Price
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    P&L
-                                                  </th>
-                                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                                    Status
-                                                  </th>
-                                                </tr>
-                                              </thead>
-                                              <tbody>
-                                                {group.trades.map((t) => {
-                                                  const entryTs = Number(
-                                                    t.entry_ts,
-                                                  );
-                                                  const exitTs = Number(
-                                                    t.exit_ts,
-                                                  );
-                                                  const pnl = Number(
-                                                    t.pnl || 0,
-                                                  );
-                                                  const metrics =
-                                                    getPositionMetrics(
-                                                      t,
-                                                      data &&
-                                                        (data[
-                                                          String(
-                                                            t.ticker || "",
-                                                          ).toUpperCase()
-                                                        ] ||
-                                                          data[t.ticker]),
-                                                    );
-                                                  const exitPrice = Number(
-                                                    t.exit_price,
-                                                  );
-                                                  return (
-                                                    <tr
-                                                      key={t.trade_id}
-                                                      className="border-b border-[#26325f]/50 hover:bg-[#0f1630] cursor-pointer"
-                                                      onClick={() => {
-                                                        setSelectedTicker(
-                                                          t.ticker,
-                                                        );
-                                                        setSelectedTrade(t);
-                                                      }}
-                                                    >
-                                                      <td className="p-2 text-xs text-[#93a4d6]">
-                                                        {Number.isFinite(
-                                                          entryTs,
-                                                        )
-                                                          ? new Date(
-                                                              entryTs,
-                                                            ).toLocaleString()
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2 text-xs">
-                                                        <span className="px-2 py-0.5 rounded text-xs font-semibold bg-purple-500/20 text-purple-300">
-                                                          EXIT
-                                                        </span>
-                                                      </td>
-                                                      <td className="p-2 text-xs text-[#93a4d6]">
-                                                        {Number.isFinite(exitTs)
-                                                          ? new Date(
-                                                              exitTs,
-                                                            ).toLocaleString()
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2">
-                                                        <span
-                                                          className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                                            t.direction ===
-                                                            "LONG"
-                                                              ? "bg-green-500/20 text-green-400"
-                                                              : "bg-red-500/20 text-red-400"
-                                                          }`}
-                                                        >
-                                                          {t.direction}
-                                                        </span>
-                                                      </td>
-                                                      <td className="p-2 text-xs">
-                                                        {metrics.isFutures
-                                                          ? metrics.shares.toFixed(
-                                                              0,
-                                                            )
-                                                          : metrics.shares.toFixed(
-                                                              4,
-                                                            )}
-                                                      </td>
-                                                      <td className="p-2 text-xs text-[#93a4d6]">
-                                                        {Number.isFinite(
-                                                          exitPrice,
-                                                        )
-                                                          ? fmtUsd(exitPrice)
-                                                          : "—"}
-                                                      </td>
-                                                      <td className="p-2 text-sm">
-                                                        <span
-                                                          className={`font-semibold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                                                        >
-                                                          {fmtUsd(pnl)}
-                                                        </span>
-                                                      </td>
-                                                      <td className="p-2 text-xs text-[#93a4d6]">
-                                                        {t.status}
-                                                      </td>
-                                                    </tr>
-                                                  );
-                                                })}
-                                              </tbody>
-                                            </table>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="mt-3 flex items-center justify-between">
-                              <div className="text-xs text-[#93a4d6]">
-                                Showing {(ledgerTrades?.items ?? []).length}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => ledgerTrades.refetch()}
-                                  className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white"
-                                >
-                                  Refresh
-                                </button>
-                                <button
-                                  onClick={() => ledgerTrades.fetchMore()}
-                                  disabled={
-                                    !ledgerTrades.hasMore ||
-                                    (ledgerTrades ?? {}).loadingMore
-                                  }
-                                  className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white disabled:opacity-50"
-                                >
-                                  {(ledgerTrades ?? {}).loadingMore
-                                    ? "Loading…"
-                                    : ledgerTrades.hasMore
-                                      ? "Load more"
-                                      : "No more"}
-                                </button>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Right Rail - Unified Detail View */}
-                      {(selectedTicker || selectedTrade) && (
-                        <div className="fixed right-0 top-0 w-[450px] h-screen bg-[#0f1630] border-l border-[#26325f] z-40 slide-in-right shadow-2xl overflow-y-auto">
-                          <TickerDetailsLoader
-                            tickerSymbol={
-                              selectedTrade
-                                ? selectedTrade.ticker
-                                : selectedTicker
-                            }
-                            trade={selectedTrade}
-                            onClose={() => {
-                              setSelectedTrade(null);
-                              setSelectedTicker(null);
-                            }}
-                            allLoadedData={data}
-                            sectors={sectors}
-                            rankedTickers={rankedTickers}
-                            rankedTickerPositions={rankedTickerPositions}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {ledgerTab === "alerts" && (
-                    <div>
-                      {ledgerAlerts.loading ? (
-                        <div className="text-sm text-[#93a4d6]">
-                          Loading alerts…
-                        </div>
-                      ) : ledgerAlerts.error ? (
-                        <div className="text-sm text-red-400">
-                          Ledger alerts unavailable: {ledgerAlerts.error}
-                        </div>
-                      ) : (
-                        <>
-                          <div className="overflow-x-auto -mx-4 px-4">
-                            <table className="w-full min-w-full">
-                              <thead>
-                                <tr className="border-b border-[#26325f] text-left">
-                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                    Time
-                                  </th>
-                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                    Ticker
-                                  </th>
-                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                    Side
-                                  </th>
-                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                    Rank
-                                  </th>
-                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                    RR
-                                  </th>
-                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                    Trigger
-                                  </th>
-                                  <th className="p-2 text-xs text-[#93a4d6]">
-                                    Discord
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {ledgerAlerts.items.length === 0 ? (
-                                  <tr>
-                                    <td
-                                      colSpan="7"
-                                      className="p-6 text-center text-[#93a4d6]"
-                                    >
-                                      No ledger alerts found for this
-                                      filter/range.
-                                    </td>
-                                  </tr>
-                                ) : (
-                                  ledgerAlerts.items.map((a) => (
-                                    <tr
-                                      key={a.alert_id}
-                                      className="border-b border-[#26325f]/50"
-                                    >
-                                      <td className="p-2 text-xs text-[#93a4d6]">
-                                        {a.ts
-                                          ? new Date(
-                                              Number(a.ts),
-                                            ).toLocaleString()
-                                          : "—"}
-                                      </td>
-                                      <td className="p-2 font-semibold">
-                                        {a.ticker}
-                                      </td>
-                                      <td className="p-2 text-sm">
-                                        {a.side || "—"}
-                                      </td>
-                                      <td className="p-2 text-sm text-blue-400 font-semibold">
-                                        {a.rank ?? "—"}
-                                      </td>
-                                      <td className="p-2 text-sm">
-                                        {a.rr_at_alert != null
-                                          ? Number(a.rr_at_alert).toFixed(2)
-                                          : "—"}
-                                      </td>
-                                      <td className="p-2 text-xs text-[#93a4d6]">
-                                        {a.trigger_reason || "—"}
-                                      </td>
-                                      <td className="p-2 text-xs">
-                                        {a.discord_sent ? (
-                                          <span className="text-green-400 font-semibold">
-                                            Sent
-                                          </span>
-                                        ) : (
-                                          <span className="text-yellow-400">
-                                            {a.discord_error || "Skipped"}
-                                          </span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  ))
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
-
-                          <div className="mt-3 flex items-center justify-between">
-                            <div className="text-xs text-[#93a4d6]">
-                              Showing {ledgerAlerts.items.length}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => ledgerAlerts.refetch()}
-                                className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white"
-                              >
-                                Refresh
-                              </button>
-                              <button
-                                onClick={() => ledgerAlerts.fetchMore()}
-                                disabled={
-                                  !ledgerAlerts.hasMore ||
-                                  ledgerAlerts.loadingMore
-                                }
-                                className="px-3 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-[#93a4d6] hover:text-white disabled:opacity-50"
-                              >
-                                {ledgerAlerts.loadingMore
-                                  ? "Loading…"
-                                  : ledgerAlerts.hasMore
-                                    ? "Load more"
-                                    : "No more"}
-                              </button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {ledgerTab === "proof" && (
-                    <div className="space-y-6">
-                      <div className="tt-card p-6">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                          <div>
-                            <h2 className="text-lg font-semibold text-[var(--tt-text)]">
-                              Proof Center
-                            </h2>
-                            <p className="text-sm text-[var(--tt-text-muted)] mt-0.5">
-                              Daily/weekly summary of paper portfolio execution and performance.
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => (paperPortfolio ?? {}).refetch?.()}
-                              className="px-3 py-1.5 text-xs bg-[#121a33] border border-[#26325f] rounded text-[#93a4d6] hover:text-white"
-                            >
-                              {(paperPortfolio ?? {}).refreshing
-                                ? "Refreshing…"
-                                : "Refresh"}
-                            </button>
-                            <button
-                              onClick={() => setLedgerTab("trades")}
-                              className="px-3 py-1.5 text-xs bg-[#121a33] border border-[#26325f] rounded text-[#93a4d6] hover:text-white"
-                              title="Open trades & drilldowns"
-                            >
-                              Open Trades →
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Paper portfolio + tape (primary proof) */}
-                      <div className="bg-[#0f1630] border border-[#26325f] rounded-xl p-4">
-                        {(paperPortfolio ?? {}).loading ? (
-                          <div className="text-sm text-[#93a4d6]">
-                            Loading paper portfolio…
-                          </div>
-                        ) : (paperPortfolio ?? {}).error ? (
-                          <div className="text-sm text-yellow-400">
-                            Paper portfolio unavailable: {(paperPortfolio ?? {}).error}
-                            <div className="text-[11px] text-[#6b7a9f] mt-1">
-                              (If you just deployed: wait for the Worker to pick
-                              up the new endpoint.)
-                            </div>
-                          </div>
-                        ) : (paperPortfolio ?? {}).data ? (
-                          <PaperPortfolioProofSection
-                            paperPortfolio={paperPortfolio}
-                            ledgerRangeDays={ledgerRangeDays}
-                            ledgerClosedTrades={ledgerClosedTrades}
-                            setLedgerTab={setLedgerTab}
-                            setSelectedTicker={setSelectedTicker}
-                            setSelectedTrade={setSelectedTrade}
-                          />
-                        ) : (
-                          <div className="text-sm text-[#93a4d6]">
-                            No paper portfolio data.
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Secondary: D1 ledger calibration (engine-level stats) */}
-                      <details className="bg-[#0f1630] border border-[#26325f] rounded-xl p-4">
-                        <summary className="cursor-pointer select-none">
-                          <span className="text-sm font-bold">
-                            Engine calibration (D1 ledger)
-                          </span>
-                          <span className="text-xs text-[#93a4d6] ml-2">
-                            Closed trades only • D1 trades table
-                          </span>
-                        </summary>
-                        <div className="mt-3">
-                          <div className="text-[11px] text-[#6b7a9f] mb-2">
-                            Proof Center uses KV paper tape; calibration uses D1 ledger. Numbers may differ.
-                          </div>
-                          {(ledgerSummary ?? {}).loading ? (
-                            <div className="text-sm text-[#93a4d6]">
-                              Loading calibration metrics…
-                            </div>
-                          ) : (ledgerSummary ?? {}).error ? (
-                            <div className="text-sm text-red-400">
-                              Ledger summary unavailable: {(ledgerSummary ?? {}).error}
-                            </div>
-                          ) : (ledgerSummary ?? {}).data ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4">
-                                <div className="text-xs text-[#93a4d6] mb-2">
-                                  Totals (closed trades only)
-                                </div>
-                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                  <div>
-                                    <div className="text-xs text-[#93a4d6]">
-                                      Closed trades
-                                    </div>
-                                    <div className="text-lg font-bold">
-                                      {(ledgerSummary ?? {}).data?.totals?.closedTrades ?? 0}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs text-[#93a4d6]">
-                                      Win rate
-                                    </div>
-                                    <div className="text-lg font-bold">
-                                      {Number((ledgerSummary ?? {}).data?.totals?.winRate ?? 0).toFixed(1)}
-                                      %
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs text-[#93a4d6]">
-                                      Closed P&L
-                                    </div>
-                                    <div
-                                      className={`text-lg font-bold ${Number((ledgerSummary ?? {}).data?.totals?.closedPnl ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}
-                                    >
-                                      $
-                                      {Number((ledgerSummary ?? {}).data?.totals?.closedPnl ?? 0).toFixed(2)}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs text-[#93a4d6]">
-                                      Profit factor
-                                    </div>
-                                    <div className="text-lg font-bold">
-                                      {Number((ledgerSummary ?? {}).data?.totals?.profitFactor ?? 0).toFixed(2)}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-4">
-                                <div className="text-xs text-[#93a4d6] mb-2">
-                                  Calibration by Rank
-                                </div>
-                                <div className="space-y-1 text-xs">
-                                  {((ledgerSummary ?? {}).data?.breakdown?.byRank || []).map((r) => {
-                                    const n = Number(r.n || 0);
-                                    const wr =
-                                      n > 0
-                                        ? (Number(r.wins || 0) / n) * 100
-                                        : 0;
-                                    return (
-                                      <div
-                                        key={r.bucket}
-                                        className="flex items-center justify-between"
-                                      >
-                                        <span className="text-[#93a4d6]">
-                                          {r.bucket}
-                                        </span>
-                                        <span className="font-semibold">
-                                          {r.wins}W/{r.losses}L ({wr.toFixed(1)}
-                                          %) ${Number(r.pnl || 0).toFixed(2)}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm text-[#93a4d6]">
-                              No ledger summary data available.
-                            </div>
-                          )}
-                        </div>
-                      </details>
-
-                      <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div>
-                            <div className="text-sm font-bold">
-                              P&L by ticker
-                            </div>
-                            <div className="text-[11px] text-[#93a4d6]">
-                              {windowLabel} total P&L (wins right, losses left).
-                              Includes open positions. Click a row to drill down.
-                            </div>
-                          </div>
-                          <div className="text-[11px] text-[#6b7a9f]">
-                            Scale:{" "}
-                            <span className="text-white font-semibold">
-                              {pnlByTickerWindow.maxAbs > 0
-                                ? fmtUsd(pnlByTickerWindow.maxAbs)
-                                : "—"}
-                            </span>
-                          </div>
-                        </div>
-
-                        {pnlByTickerWindow.rows.length === 0 ? (
-                          <div className="mt-3 text-sm text-[#93a4d6]">
-                            No P&L in this window yet.
-                          </div>
-                        ) : (
-                          <div className="mt-3 space-y-2">
-                            {pnlByTickerWindow.rows.slice(0, 24).map((r) => {
-                              const pnl = Number(r.total) || 0;
-                              const abs = Math.abs(pnl);
-                              const pct =
-                                pnlByTickerWindow.maxAbs > 0
-                                  ? Math.min(
-                                      100,
-                                      (abs / pnlByTickerWindow.maxAbs) * 100,
-                                    )
-                                  : 0;
-                              return (
-                                <button
-                                  key={`pnl-tkr-${r.ticker}`}
-                                  className="w-full text-left grid grid-cols-[70px_1fr_90px] items-center gap-3 bg-[#0f1630] border border-[#26325f] rounded px-3 py-2 hover:bg-[#0b1228]"
-                                  onClick={() => {
-                                    try {
-                                      setLedgerTickerFilter(
-                                        String(r.ticker || "").toUpperCase(),
-                                      );
-                                      setLedgerTab("trades");
-                                    } catch {}
-                                  }}
-                                  title={`Total: ${fmtUsd(pnl)} | Realized: ${fmtUsd(Number(r.realized) || 0)} | Unrealized: ${fmtUsd(Number(r.unrealized) || 0)} (click to drill down)`}
-                                >
-                                  <div className="font-semibold">{r.ticker}</div>
-                                  <div className="w-full flex items-center">
-                                    <div className="w-1/2 flex justify-end pr-1">
-                                      {pnl < 0 ? (
-                                        <div
-                                          className="h-3.5 rounded-l bg-red-500/80 border border-red-400/60 shadow-[0_0_0_1px_rgba(248,113,113,0.25)]"
-                                          style={{ width: `${pct}%` }}
-                                        />
-                                      ) : null}
-                                    </div>
-                                    <div className="w-px h-4 bg-[#93a4d6]/30" />
-                                    <div className="w-1/2 flex justify-start pl-1">
-                                      {pnl > 0 ? (
-                                        <div
-                                          className="h-3.5 rounded-r bg-emerald-400/80 border border-emerald-300/60 shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
-                                          style={{ width: `${pct}%` }}
-                                        />
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                  <div
-                                    className={`text-sm font-bold text-right ${pnl >= 0 ? "text-emerald-300" : "text-red-300"}`}
-                                  >
-                                    {fmtUsd(pnl)}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
+                  {/* Right rail — Trades History when opened from a position card */}
+                  {(selectedTicker || selectedTrade) && (
+                    <div className="fixed right-0 top-0 w-[450px] h-screen z-40 slide-in-right shadow-2xl overflow-y-auto" style={{ background: "var(--tt-bg-surface)", borderLeft: "1px solid var(--tt-border)" }}>
+                      <TickerDetailsLoader
+                        tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
+                        trade={selectedTrade}
+                        positionEvents={selectedPositionEvents}
+                        onClose={() => {
+                          setSelectedTrade(null);
+                          setSelectedTicker(null);
+                          setSelectedPositionEvents(null);
+                        }}
+                        allLoadedData={data}
+                        sectors={sectors}
+                        rankedTickers={rankedTickers}
+                        rankedTickerPositions={rankedTickerPositions}
+                      />
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
 
                 {/* Daily Summary Modal */}
                 {showSummary && dailySummary && (
