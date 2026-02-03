@@ -8,10 +8,13 @@
 - **Dashboard (index-react):** Right rail = `TickerDetailRightRail` with ticker from viewport data, `trade=null`; fetches ledger/candles; tabs Analysis, Technicals, Journey, Trade History.
 - **Trade Tracker (simulation-dashboard):** Right rail = same component name but in a different file; receives `ticker` (from `/timed/latest`), `trade`, `positionEvents`; defaults to Trade History when opened from position card.
 
-**To make them seamless:**
-- Ensure Trade Tracker’s right rail has the **same header** (ticker, price, daily change, “Entry $X Since entry Y%”), **same four tabs**, and **same content** per tab as the dashboard.
-- Keep defaulting to Trade History when opened from a position card (`positionEvents` set).
-- Optional: share one right-rail implementation (e.g. shared bundle or dashboard iframe) so both pages literally use the same component.
+**Implemented (right rail parity):**
+- Trade Tracker’s right rail now uses the **same data and UI** for all four tabs as the Dashboard:
+  - **Trade History:** Fetches `/timed/ledger/trades?ticker=X` and shows the same ledger trade cards (OPEN/WIN/LOSS, entry/exit, P&L) as the Dashboard.
+  - **Journey:** Fetches `/timed/trail` with `normalizeTrailPoints` and `limit=250`, same as Dashboard; Bubble Journey (15m) renders with the same shape.
+  - **Technicals:** Uses the same `tickerData` (from TickerDetailsLoader’s `/timed/latest` fetch) for Triggers and Timeframes; same layout.
+- Default to Trade History when opened from a position card is unchanged.
+- Optional future: share one right-rail implementation (e.g. shared bundle or iframe) so both pages use the same component.
 
 ---
 

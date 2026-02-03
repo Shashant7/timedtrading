@@ -2058,12 +2058,55 @@
         const [bubbleJourney, setBubbleJourney] = useState([]);
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
+        const [ledgerTrades, setLedgerTrades] = useState([]);
+        const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
+        const [ledgerTradesError, setLedgerTradesError] = useState(null);
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | JOURNEY | TRADE_HISTORY
 
         // Default to Trade History when opened from Trade Tracker (positionEvents), else Analysis
         useEffect(() => {
           setRailTab(positionEvents && positionEvents.length > 0 ? "TRADE_HISTORY" : "ANALYSIS");
         }, [tickerSymbol, positionEvents]);
+
+        // Fetch ledger trades (same as Dashboard) so Trade History tab is identical in both rails
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) {
+            setLedgerTrades([]);
+            setLedgerTradesError(null);
+            setLedgerTradesLoading(false);
+            return;
+          }
+          let cancelled = false;
+          const run = async () => {
+            try {
+              setLedgerTradesLoading(true);
+              setLedgerTradesError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("limit", "20");
+              const res = await fetch(`${API_BASE}/timed/ledger/trades?${qs.toString()}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "ledger_trades_failed");
+              const trades = Array.isArray(json.trades) ? json.trades : [];
+              const activeTrades = trades.filter((t) => {
+                const status = String(t.status || "").toUpperCase();
+                return status !== "ARCHIVED";
+              });
+              if (!cancelled) setLedgerTrades(activeTrades);
+            } catch (e) {
+              if (!cancelled) {
+                setLedgerTrades([]);
+                setLedgerTradesError(String(e.message || e));
+              }
+            } finally {
+              if (!cancelled) setLedgerTradesLoading(false);
+            }
+          };
+          run();
+          return () => { cancelled = true; };
+        }, [tickerSymbol]);
 
         // Discord-style decision card (ENTRY/TRIM/EXIT) for selected activity rows.
         const [decisionCard, setDecisionCard] = useState(null);
@@ -2126,27 +2169,28 @@
             try {
               setBubbleJourneyLoading(true);
               setBubbleJourneyError(null);
+              const qs = new URLSearchParams();
+              qs.set("ticker", sym);
+              qs.set("limit", "250");
               const res = await fetch(
-                `${API_BASE}/timed/trail?ticker=${encodeURIComponent(sym)}`,
+                `${API_BASE}/timed/trail?${qs.toString()}`,
                 { cache: "no-store" },
               );
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const json = await res.json();
               const raw = Array.isArray(json.trail) ? json.trail : [];
-              const withTs = raw
+              const normalized = normalizeTrailPoints(raw);
+              const withTs = normalized
                 .map((p) => {
-                  const tsRaw =
-                    p.ts ?? p.timestamp ?? p.ingest_ts ?? p.ingest_time;
-                  const ts =
-                    typeof tsRaw === "string"
-                      ? new Date(tsRaw).getTime()
-                      : Number(tsRaw);
+                  const tsRaw = p.ts ?? p.timestamp ?? p.ingest_ts ?? p.ingest_time;
+                  const ts = typeof tsRaw === "string" ? new Date(tsRaw).getTime() : Number(tsRaw);
                   if (!Number.isFinite(ts)) return null;
                   return { ...p, __ts_ms: ts };
                 })
                 .filter(Boolean)
                 .sort((a, b) => a.__ts_ms - b.__ts_ms);
-              if (!cancelled) setBubbleJourney(withTs);
+              const last200 = withTs.slice(-200);
+              if (!cancelled) setBubbleJourney(last200);
             } catch (e) {
               if (!cancelled) {
                 setBubbleJourney([]);
@@ -2396,7 +2440,7 @@
                     { k: "JOURNEY", label: "Journey" },
                     {
                       k: "TRADE_HISTORY",
-                      label: `Trade History (${(positionEvents && positionEvents.length) || trade?.history?.length || 0})`,
+                      label: `Trade History (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
                     },
                   ].map((t) => {
                     const active = railTab === t.k;
@@ -2417,10 +2461,10 @@
                 </div>
               </div>
 
-              {/* Padded body: tab-driven; Trade History tab shows Trade Journey block only */}
+              {/* Padded body: tab-driven (same as dashboard — Analysis, Technicals, Journey, Trade History each load their content) */}
               <div className="p-6 pt-4">
                 {railTab === "TRADE_HISTORY" ? (
-                  /* Trade History tab — Trade Journey (mirrors image: Entry/Current price + action cards) */
+                  /* Trade History tab — same as Dashboard: ledger trades from API */
                   <div className="mb-4">
                     <div className="text-sm font-semibold text-[var(--tt-text-muted)] mb-3">Trade Journey</div>
                     {trade ? (
@@ -2439,13 +2483,164 @@
                             </div>
                           </div>
                         </div>
-                        <LedgerTradeHistory events={positionEvents || trade?.history || []} trade={trade} fmtUsd={fmtUsd} />
                       </>
+                    ) : null}
+                    {ledgerTradesLoading ? (
+                      <div className="text-xs text-[var(--tt-text-muted)] flex items-center gap-2">
+                        <div className="loading-spinner"></div>
+                        Loading ledger trades…
+                      </div>
+                    ) : ledgerTradesError ? (
+                      <div className="text-xs text-red-400">Ledger unavailable: {ledgerTradesError}</div>
+                    ) : ledgerTrades.length === 0 ? (
+                      <div className="text-xs text-[var(--tt-text-muted)]">No ledger trades found for this ticker.</div>
                     ) : (
-                      <LedgerTradeHistory events={positionEvents || []} trade={null} fmtUsd={fmtUsd} />
+                      <div className="space-y-3">
+                        {ledgerTrades.slice(0, 5).map((t) => {
+                          const isClosed = t.status === "WIN" || t.status === "LOSS";
+                          const pnl = Number(t.pnl || 0);
+                          const entryPrice = Number(t.entry_price || 0);
+                          const exitPrice = Number(t.exit_price || 0);
+                          const quantity = Number(t.quantity || 0);
+                          const formatDateTime = (ts) => {
+                            if (!ts) return "—";
+                            try {
+                              const d = new Date(Number(ts));
+                              return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+                            } catch { return "—"; }
+                          };
+                          return (
+                            <div key={t.trade_id} className="p-3 bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  {isClosed ? (
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${t.status === "WIN" ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-red-500/20 text-red-400 border border-red-500/30"}`}>{t.status}</span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30">OPEN</span>
+                                  )}
+                                  <span className={`text-xs font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>{t.direction}</span>
+                                </div>
+                                {isClosed && (
+                                  <div className={`text-sm font-bold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>{pnl >= 0 ? "+" : ""}{fmtUsd(pnl)}</div>
+                                )}
+                              </div>
+                              <div className="space-y-1 text-xs">
+                                <div className="flex justify-between"><span className="text-[var(--tt-text-muted)]">Entered:</span><span className="text-white font-semibold">{formatDateTime(t.entry_ts)}</span></div>
+                                <div className="flex justify-between"><span className="text-[var(--tt-text-muted)]">Entry Price:</span><span className="text-green-400 font-semibold">{entryPrice > 0 ? "$" + entryPrice.toFixed(2) : "—"}</span></div>
+                                {quantity > 0 && <div className="flex justify-between"><span className="text-[var(--tt-text-muted)]">Quantity:</span><span className="text-white font-semibold">{quantity.toFixed(0)} shares</span></div>}
+                                {isClosed && (
+                                  <>
+                                    <div className="border-t border-[var(--tt-border)]/50 my-1.5"></div>
+                                    <div className="flex justify-between"><span className="text-[var(--tt-text-muted)]">Exited:</span><span className="text-white font-semibold">{formatDateTime(t.exit_ts)}</span></div>
+                                    <div className="flex justify-between"><span className="text-[var(--tt-text-muted)]">Exit Price:</span><span className="text-red-400 font-semibold">{exitPrice > 0 ? "$" + exitPrice.toFixed(2) : "—"}</span></div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {ledgerTrades.length > 5 && (
+                          <div className="text-[10px] text-[var(--tt-text-muted)] text-center">Showing 5 of {ledgerTrades.length} recent trades</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : railTab === "TECHNICALS" ? (
+                  /* Technicals tab — Triggers + Timeframes only */
+                  <>
+                    <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                      <div className="text-sm text-[var(--tt-text-muted)] mb-2">⚡ Triggers</div>
+                      {triggerItems.length > 0 ? (
+                        <div className="space-y-1">
+                          {triggerItems.slice(0, 10).map((t, idx) => (
+                            <div key={idx} className="text-xs text-[var(--tt-text)]">• {t}</div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-[var(--tt-text-muted)]">No trigger signals detected.</div>
+                      )}
+                    </div>
+                    <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                      <div className="text-sm text-[var(--tt-text-muted)] mb-2">⏱ Timeframes</div>
+                      {tfTech ? (
+                        <div className="space-y-2">
+                          {tfOrder.map(({ k, label }) => {
+                            const row = tfTech[k] || null;
+                            const atr = row && row.atr ? row.atr : null;
+                            const ema = row && row.ema ? row.ema : null;
+                            const ph = row && row.ph ? row.ph : null;
+                            const sq = row && row.sq ? row.sq : null;
+                            const rsi = row && row.rsi ? row.rsi : null;
+                            const vis = ema && Number.isFinite(Number(ema.vis)) ? Number(ema.vis) : 0;
+                            const sig = ema && Number.isFinite(Number(ema.sig)) ? Number(ema.sig) : 0;
+                            const sigLabel = sig === 1 ? "Bull" : sig === -1 ? "Bear" : "Neu";
+                            const sqIcons = (sq && sq.c ? "🗜️" : "") + (sq && sq.s ? "🧨" : "") + (sq && sq.r ? "⚡️" : "");
+                            const atrBand = (() => {
+                              if (!atr) return null;
+                              const side = Number(atr.s) === -1 ? "-" : "+";
+                              const lo = atr.lo != null ? String(atr.lo) : null;
+                              const hi = atr.hi != null ? String(atr.hi) : null;
+                              if (!lo) return null;
+                              return hi ? `${side}${lo}–${hi}` : `${side}${lo}+`;
+                            })();
+                            return (
+                              <div key={k} className="border border-[var(--tt-border)] rounded-lg p-2 bg-[var(--tt-bg-elevated)]">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-semibold text-white">{label}</div>
+                                  <div className="text-[10px] text-[var(--tt-text-muted)] flex items-center gap-2">
+                                    <span>{sqIcons}</span>
+                                    <span className={`font-semibold ${sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[var(--tt-text-muted)]"}`}>{sigLabel}</span>
+                                  </div>
+                                </div>
+                                <div className="mt-1 text-[10px] text-[var(--tt-text-muted)]">
+                                  <span className="text-white">{atrBand || "—"}</span>
+                                  {ema && ema.stack != null ? <span className="ml-2">stack {ema.stack}</span> : null}
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {emaLevels.map((n, idx) => {
+                                    const on = (vis & (1 << idx)) !== 0;
+                                    return (
+                                      <span key={n} className={`px-1 py-0.5 rounded text-[10px] border ${on ? "bg-green-500/15 border-green-500/30 text-green-300" : "bg-red-500/10 border-red-500/30 text-red-300"}`}>{n}</span>
+                                    );
+                                  })}
+                                </div>
+                                <div className="mt-1 text-[10px] text-[var(--tt-text-muted)] flex justify-between">
+                                  <span>PH {ph && ph.v != null ? ph.v : "—"} {(ph && Array.isArray(ph.div) ? ph.div : []).slice(0, 2).map(divIcon).filter(Boolean).join(" ")}</span>
+                                  <span>RSI {rsi && rsi.r5 != null ? rsi.r5 : "—"}/{rsi && rsi.r14 != null ? rsi.r14 : "—"} {(rsi && Array.isArray(rsi.div) ? rsi.div : []).slice(0, 2).map(divIcon).filter(Boolean).join(" ")}</span>
+                                </div>
+                                <div className="mt-1 text-[10px] text-[var(--tt-text-muted)]">
+                                  {(ph && Array.isArray(ph.dots) ? ph.dots : []).slice(0, 5).map(phaseDotLabel).filter(Boolean).join("  ")}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-[var(--tt-text-muted)]">No per-timeframe technicals available yet.</div>
+                      )}
+                    </div>
+                  </>
+                ) : railTab === "JOURNEY" ? (
+                  /* Journey tab — Bubble Journey (same as Dashboard) */
+                  <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                    <div className="text-sm text-[var(--tt-text-muted)] mb-2">Bubble Journey (15m)</div>
+                    {bubbleJourneyLoading ? (
+                      <div className="text-xs text-[var(--tt-text-muted)]">Loading trail…</div>
+                    ) : bubbleJourneyError ? (
+                      <div className="text-xs text-red-400">{bubbleJourneyError}</div>
+                    ) : (
+                      <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                        {downsampleByInterval(Array.isArray(bubbleJourney) ? bubbleJourney : [], 15 * 60 * 1000).slice().reverse().slice(0, 24).map((p, idx) => (
+                          <div key={`${p.__bucket || p.__ts_ms}-${idx}`} className="text-[10px] text-[var(--tt-text-muted)] flex justify-between">
+                            <span>{Number.isFinite(p.__ts_ms) ? new Date(p.__ts_ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"}</span>
+                            <span className="text-white">{p.state || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ) : (
+                  /* Analysis tab — full analysis content */
                   <>
                 {/* Discord-style Decision Card (from ledger snapshot at event time) */}
                 {trade &&
@@ -5258,6 +5453,26 @@
             </div>
           </div>
         );
+      }
+
+      function normalizeTrailPoints(trail) {
+        if (!Array.isArray(trail)) return [];
+        return trail
+          .map((p) => {
+            if (!p || typeof p !== "object") return null;
+            const ltf = p.ltf_score ?? p.ltfScore ?? p.ltf ?? p.x ?? p.ltf_value ?? p.ltfValue ?? p.ltf_score_value;
+            const htf = p.htf_score ?? p.htfScore ?? p.htf ?? p.y ?? p.htf_value ?? p.htfValue ?? p.htf_score_value;
+            const phase = p.phase_pct ?? p.phasePct ?? p.phase ?? p.phase_completion ?? p.phaseCompletion;
+            const completion = p.completion ?? p.comp ?? p.completion_pct ?? p.completionPct;
+            return {
+              ...p,
+              ltf_score: Number.isFinite(Number(ltf)) ? Number(ltf) : 0,
+              htf_score: Number.isFinite(Number(htf)) ? Number(htf) : 0,
+              phase_pct: Number.isFinite(Number(phase)) ? Math.max(0, Math.min(1, Number(phase))) : Number.isFinite(Number(p.phase_pct)) ? Number(p.phase_pct) : 0,
+              completion: Number.isFinite(Number(completion)) ? Math.max(0, Math.min(1, Number(completion))) : Number.isFinite(Number(p.completion)) ? Number(p.completion) : 0,
+            };
+          })
+          .filter(Boolean);
       }
 
       function downsampleByInterval(points, intervalMs) {
