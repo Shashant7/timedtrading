@@ -92,7 +92,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-      const { useState, useEffect, useMemo, useCallback, memo } = React;
+      const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
 
       // ─────────────────────────────────────────────────────────────
       // Constants
@@ -7266,6 +7266,98 @@
         );
       }
 
+      // Date range slider: start and end date thumbs, default full range
+      function DateRangeSlider({ range, onRangeChange, sliderDays = 90 }) {
+        const trackRef = useRef(null);
+        const [dragging, setDragging] = useState(null); // 'start' | 'end'
+
+        const minDate = (() => {
+          const d = new Date();
+          d.setDate(d.getDate() - sliderDays);
+          d.setHours(0, 0, 0, 0);
+          return d.getTime();
+        })();
+        const maxDate = (() => {
+          const d = new Date();
+          d.setHours(23, 59, 59, 999);
+          return d.getTime();
+        })();
+
+        const rangeMs = maxDate - minDate;
+        const startPct = Math.max(0, Math.min(100, ((range.start.getTime() - minDate) / rangeMs) * 100));
+        const endPct = Math.max(0, Math.min(100, ((range.end.getTime() - minDate) / rangeMs) * 100));
+
+        const moveToX = useCallback(
+          (clientX, which) => {
+            const el = trackRef.current;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
+            const t = minDate + (pct / 100) * rangeMs;
+            const d = new Date(t);
+            if (which === "start") {
+              const endTs = range.end.getTime();
+              d.setTime(Math.min(d.getTime(), endTs));
+              onRangeChange({ start: d, end: range.end });
+            } else {
+              const startTs = range.start.getTime();
+              d.setTime(Math.max(d.getTime(), startTs));
+              onRangeChange({ start: range.start, end: d });
+            }
+          },
+          [minDate, rangeMs, range, onRangeChange],
+        );
+
+        useEffect(() => {
+          if (!dragging) return;
+          const onMove = (e) => moveToX(e.clientX, dragging);
+          const onUp = () => setDragging(null);
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+          return () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+          };
+        }, [dragging, moveToX]);
+
+        const fmt = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        return (
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-1">
+              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Start</div>
+              <div className="text-xs font-medium text-[var(--tt-text)]">{fmt(range.start)}</div>
+            </div>
+            <div className="relative flex-1 min-w-[120px] max-w-[200px] h-6 flex items-center" ref={trackRef}>
+              <div className="absolute inset-0 rounded-full bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)]" />
+              <div
+                className="absolute h-full rounded-full bg-[var(--tt-accent)]/30"
+                style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
+              />
+              <div
+                role="slider"
+                aria-label="Start date"
+                tabIndex={0}
+                className="absolute w-4 h-4 rounded-full border-2 border-[var(--tt-accent)] bg-[var(--tt-bg-surface)] cursor-ew-resize touch-none"
+                style={{ left: `calc(${startPct}% - 8px)`, top: "50%", transform: "translateY(-50%)" }}
+                onMouseDown={() => setDragging("start")}
+              />
+              <div
+                role="slider"
+                aria-label="End date"
+                tabIndex={0}
+                className="absolute w-4 h-4 rounded-full border-2 border-[var(--tt-accent)] bg-[var(--tt-bg-surface)] cursor-ew-resize touch-none"
+                style={{ left: `calc(${endPct}% - 8px)`, top: "50%", transform: "translateY(-50%)" }}
+                onMouseDown={() => setDragging("end")}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">End</div>
+              <div className="text-xs font-medium text-[var(--tt-text)]">{fmt(range.end)}</div>
+            </div>
+          </div>
+        );
+      }
+
       // ─────────────────────────────────────────────────────────────
       // Main App
       // ─────────────────────────────────────────────────────────────
@@ -7323,16 +7415,25 @@
         const [ledgerTickerFilter, setLedgerTickerFilter] =
           useState(initialLedgerTicker);
         const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
-        // Default to 2 weeks for more meaningful performance review
-        const [ledgerRangeDays, setLedgerRangeDays] = useState(14);
+        // Date range for Trade Tracker: start and end (default full slider range)
+        const SLIDER_RANGE_DAYS = 90;
+        const [ledgerDateRange, setLedgerDateRange] = useState(() => {
+          const end = new Date();
+          const start = new Date();
+          start.setDate(start.getDate() - SLIDER_RANGE_DAYS);
+          return { start, end };
+        });
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
           useState(true);
 
-        // Shared label used across the ledger/proof UI. Keep it defined at App scope
-        // to avoid any accidental block-scope ReferenceError in JSX.
+        const ledgerRangeDays = useMemo(() => {
+          const a = ledgerDateRange.start.getTime();
+          const b = ledgerDateRange.end.getTime();
+          return Math.max(1, Math.round((b - a) / (24 * 60 * 60 * 1000)));
+        }, [ledgerDateRange]);
+
         const windowLabel = useMemo(() => {
-          const daysRaw = Math.max(1, Number(ledgerRangeDays) || 7);
-          const days = Math.min(60, daysRaw);
+          const days = ledgerRangeDays;
           return days === 1 ? "Today" : `Last ${days}d`;
         }, [ledgerRangeDays]);
 
@@ -7463,27 +7564,41 @@
           return out;
         }, [paperPortfolio?.data, ledgerClosedTrades, ledgerRangeDays]);
 
-        const ledgerSince = useMemo(() => {
-          const days = Number(ledgerRangeDays) || 7;
-          return Date.now() - days * 24 * 60 * 60 * 1000;
-        }, [ledgerRangeDays]);
+        const startOfDay = (d) => {
+          const x = new Date(d);
+          x.setHours(0, 0, 0, 0);
+          return x;
+        };
+        const endOfDay = (d) => {
+          const x = new Date(d);
+          x.setHours(23, 59, 59, 999);
+          return x;
+        };
+        const ledgerSince = useMemo(
+          () => startOfDay(ledgerDateRange.start).getTime(),
+          [ledgerDateRange.start],
+        );
+        const ledgerUntil = useMemo(
+          () => endOfDay(ledgerDateRange.end).getTime(),
+          [ledgerDateRange.end],
+        );
 
         const ledgerTrades = useLedgerTrades({
           ticker: ledgerTickerFilter.trim(),
           status: ledgerStatusFilter,
           since: ledgerSince,
-          until: null,
+          until: ledgerUntil,
           pageSize: 200,
         });
         const ledgerAlerts = useLedgerAlerts({
           ticker: ledgerTickerFilter.trim(),
           since: ledgerSince,
-          until: null,
+          until: ledgerUntil,
           pageSize: 200,
         });
         const ledgerSummary = useLedgerSummary({
           since: ledgerSince,
-          until: null,
+          until: ledgerUntil,
         });
         const paperPortfolio = usePaperPortfolio();
         // Legacy "Trade Detail" right rail removed; use unified ticker right rail instead.
@@ -8098,7 +8213,12 @@
                       Trade Tracker
                     </h1>
                   </div>
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <DateRangeSlider
+                      range={ledgerDateRange}
+                      onRangeChange={setLedgerDateRange}
+                      sliderDays={SLIDER_RANGE_DAYS}
+                    />
                     {(loading || tradesLoading) && (
                       <div className="loading-spinner" />
                     )}
