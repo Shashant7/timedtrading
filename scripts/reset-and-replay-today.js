@@ -6,6 +6,7 @@
  * Usage:
  *   TIMED_API_KEY=your_key node scripts/reset-and-replay-today.js
  *   TIMED_API_KEY=your_key DATE=2026-02-02 TICKERS=AAPL,AMD,AMZN,BE,GOLD node scripts/reset-and-replay-today.js
+ *   TIMED_API_KEY=your_key TICKERS_FILE=tradingview/WATCHLIST_Q1_2026.txt node scripts/reset-and-replay-today.js  # full data set
  *   Or set TIMED_API_KEY in .env in project root (loaded automatically if present).
  */
 const fs = require("fs");
@@ -25,7 +26,10 @@ try {
 const API_BASE = process.env.TIMED_API_BASE || "https://timed-trading-ingest.shashant.workers.dev";
 const API_KEY = process.env.TIMED_API_KEY || "";
 const DATE = process.env.DATE || "";
-const TICKERS_STR = process.env.TICKERS || "AAPL,AMD,AMZN,BE,GOLD";
+const TICKERS_FILE = process.env.TICKERS_FILE || "";
+const TICKERS_STR = process.env.TICKERS || (TICKERS_FILE && fs.existsSync(TICKERS_FILE)
+  ? fs.readFileSync(TICKERS_FILE, "utf8").split(/\s+/).filter(Boolean).join(",")
+  : "") || "AAPL,AMD,AMZN,BE,GOLD";
 
 function todayKey() {
   const d = new Date();
@@ -42,7 +46,8 @@ async function main() {
   }
 
   const dayKey = DATE && /^\d{4}-\d{2}-\d{2}$/.test(DATE) ? DATE : todayKey();
-  const tickers = TICKERS_STR.split(",").map((t) => t.trim().toUpperCase()).filter(Boolean);
+  const raw = TICKERS_STR.split(/[\s,]+/).map((t) => t.trim().toUpperCase()).filter(Boolean);
+  const tickers = [...new Set(raw)];
   if (tickers.length === 0) {
     console.error("TICKERS is required (e.g. TICKERS=AAPL,AMD)");
     process.exit(1);
