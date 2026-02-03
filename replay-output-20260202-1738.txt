@@ -1,0 +1,92 @@
+Replaying ingest (date=2026-02-02) [clean slate]...
+  bucket 1: 50 rows, +0 trades, purged: 1
+  bucket 2: 50 rows, +0 trades
+  bucket 3: 50 rows, +0 trades
+  bucket 4: 50 rows, +0 trades
+  bucket 5: 50 rows, +0 trades
+  bucket 6: 50 rows, +0 trades
+  bucket 7: 50 rows, +0 trades
+  bucket 8: 50 rows, +0 trades
+  bucket 9: 50 rows, +0 trades
+  bucket 10: 50 rows, +0 trades
+  bucket 11: 50 rows, +0 trades
+  bucket 12: 50 rows, +0 trades
+  bucket 13: 50 rows, +0 trades
+  bucket 14: 50 rows, +0 trades
+  bucket 15: 50 rows, +0 trades
+  bucket 16: 50 rows, +0 trades
+  bucket 17: 50 rows, +0 trades
+  bucket 18: 50 rows, +0 trades
+  bucket 19: 50 rows, +0 trades
+  bucket 20: 50 rows, +0 trades
+  bucket 21: 50 rows, +0 trades
+  bucket 22: 50 rows, +0 trades
+  bucket 23: 50 rows, +0 trades
+  bucket 24: 50 rows, +0 trades
+  bucket 25: 50 rows, +0 trades
+  bucket 26: 50 rows, +0 trades
+  bucket 27: 50 rows, +0 trades
+  bucket 28: 50 rows, +0 trades
+  bucket 29: 50 rows, +0 trades
+  bucket 30: 50 rows, +0 trades
+  bucket 31: 49 rows, +0 trades
+  bucket 32: 50 rows, +0 trades
+  bucket 33: 50 rows, +0 trades
+  bucket 34: 50 rows, +0 trades
+  bucket 35: 50 rows, +0 trades
+  bucket 36: 50 rows, +0 trades
+  bucket 37: 50 rows, +0 trades
+  bucket 38: 50 rows, +0 trades
+  bucket 39: 50 rows, +0 trades
+  bucket 40: 50 rows, +0 trades
+  bucket 41: 50 rows, +0 trades
+  bucket 42: 50 rows, +0 trades
+  bucket 43: 50 rows, +0 trades
+  bucket 44: 50 rows, +0 trades
+  bucket 45: 50 rows, +0 trades
+  bucket 46: 50 rows, +0 trades
+  bucket 47: 50 rows, +0 trades
+  bucket 48: 50 rows, +0 trades
+  bucket 49: 50 rows, +0 trades
+  bucket 50: 50 rows, +0 trades
+  bucket 51: 50 rows, +0 trades
+  bucket 52: 50 rows, +0 trades
+  bucket 53: 50 rows, +0 trades
+  bucket 54: 50 rows, +0 trades
+  bucket 55: 50 rows, +0 trades
+  bucket 56: 50 rows, +0 trades
+  bucket 57: 50 rows, +0 trades
+  bucket 58: 50 rows, +0 trades
+  bucket 59: 50 rows, +0 trades
+  bucket 60: 50 rows, +0 trades
+  bucket 61: 50 rows, +0 trades
+  bucket 62: 50 rows, +0 trades
+  bucket 63: 50 rows, +0 trades
+  bucket 64: 50 rows, +0 trades
+  bucket 65: 50 rows, +0 trades
+  bucket 66: 50 rows, +0 trades
+  bucket 67: 50 rows, +0 trades
+  bucket 68: 50 rows, +0 trades
+  bucket 69: 50 rows, +0 trades
+  bucket 70: 50 rows, +0 trades
+  bucket 71: 50 rows, +0 trades
+  bucket 72: 50 rows, +0 trades
+  bucket 73: 50 rows, +0 trades
+  bucket 74: 50 rows, +0 trades
+  bucket 75: 50 rows, +0 trades
+  bucket 76: 50 rows, +0 trades
+  bucket 77: 50 rows, +0 trades
+  bucket 78: 50 rows, +0 trades
+  bucket 79: 24 rows, +0 trades
+
+Done. Buckets: 79, rows: 3923, trades created: 0, trades purged: 1
+
+Syncing to D1...
+{
+  "ok": true,
+  "synced": 85,
+  "total": 160,
+  "ms": 7519,
+  "cursor": 75,
+  "nextCursor": 0
+}

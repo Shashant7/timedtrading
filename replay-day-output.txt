@@ -1,0 +1,9378 @@
+Replaying day (date=today)...
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "totalRows": 13050,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "tradesPurged": 0,
+  "laneCounts": {
+    "just_flipped": 12,
+    "flip_watch": 13,
+    "archive": 8,
+    "exit": 1,
+    "enter_now": 1,
+    "null": 15
+  },
+  "offset": 0,
+  "nextOffset": 50,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 50 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 16,
+    "null": 16,
+    "exit": 3,
+    "archive": 6,
+    "enter_now": 1,
+    "flip_watch": 8
+  },
+  "offset": 50,
+  "nextOffset": 100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 19,
+    "flip_watch": 12,
+    "just_flipped": 12,
+    "archive": 6,
+    "trim": 1
+  },
+  "offset": 100,
+  "nextOffset": 150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "flip_watch": 12,
+    "just_flipped": 12,
+    "exit": 3,
+    "trim": 1,
+    "archive": 5
+  },
+  "offset": 150,
+  "nextOffset": 200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 12,
+    "flip_watch": 21,
+    "exit": 1,
+    "just_flipped": 11,
+    "archive": 5
+  },
+  "offset": 200,
+  "nextOffset": 250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 21,
+    "flip_watch": 14,
+    "enter_now": 1,
+    "just_flipped": 9,
+    "exit": 2,
+    "archive": 3
+  },
+  "offset": 250,
+  "nextOffset": 300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 4,
+    "flip_watch": 18,
+    "null": 12,
+    "just_flipped": 12,
+    "exit": 3,
+    "enter_now": 1
+  },
+  "offset": 300,
+  "nextOffset": 350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "just_flipped": 15,
+    "exit": 3,
+    "flip_watch": 14,
+    "archive": 1
+  },
+  "offset": 350,
+  "nextOffset": 400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "trim": 1,
+    "just_flipped": 15,
+    "flip_watch": 9,
+    "null": 20,
+    "archive": 2,
+    "exit": 2,
+    "enter_now": 1
+  },
+  "offset": 400,
+  "nextOffset": 450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "flip_watch": 23,
+    "exit": 2,
+    "just_flipped": 7,
+    "archive": 1
+  },
+  "offset": 450,
+  "nextOffset": 500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 14,
+    "null": 17,
+    "flip_watch": 16,
+    "enter_now": 1,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 500,
+  "nextOffset": 550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 12,
+    "null": 16,
+    "exit": 3,
+    "flip_watch": 17,
+    "archive": 2
+  },
+  "offset": 550,
+  "nextOffset": 600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 12,
+    "null": 18,
+    "flip_watch": 16,
+    "trim": 1,
+    "exit": 3
+  },
+  "offset": 600,
+  "nextOffset": 650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 12,
+    "exit": 3,
+    "flip_watch": 14,
+    "null": 20,
+    "enter_now": 1
+  },
+  "offset": 650,
+  "nextOffset": 700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 16,
+    "just_flipped": 13,
+    "null": 17,
+    "archive": 2,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 700,
+  "nextOffset": 750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 19,
+    "exit": 3,
+    "null": 15,
+    "just_flipped": 10,
+    "archive": 3
+  },
+  "offset": 750,
+  "nextOffset": 800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 14,
+    "null": 20,
+    "enter_now": 2,
+    "exit": 1
+  },
+  "offset": 800,
+  "nextOffset": 850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 20,
+    "flip_watch": 21
+  },
+  "offset": 850,
+  "nextOffset": 900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 4,
+    "null": 16,
+    "flip_watch": 18,
+    "just_flipped": 10,
+    "trim": 1,
+    "archive": 1
+  },
+  "offset": 900,
+  "nextOffset": 950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "flip_watch": 21,
+    "just_flipped": 10,
+    "enter_now": 3,
+    "archive": 1,
+    "null": 15
+  },
+  "offset": 950,
+  "nextOffset": 1000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 22,
+    "null": 17,
+    "just_flipped": 8,
+    "exit": 2,
+    "archive": 1
+  },
+  "offset": 1000,
+  "nextOffset": 1050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 19,
+    "null": 17,
+    "enter_now": 1,
+    "flip_watch": 13
+  },
+  "offset": 1050,
+  "nextOffset": 1100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 15,
+    "archive": 2,
+    "flip_watch": 20,
+    "just_flipped": 9,
+    "enter_now": 2,
+    "exit": 2
+  },
+  "offset": 1100,
+  "nextOffset": 1150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 21,
+    "flip_watch": 18,
+    "just_flipped": 10,
+    "enter_now": 1
+  },
+  "offset": 1150,
+  "nextOffset": 1200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 14,
+    "exit": 2,
+    "flip_watch": 19,
+    "null": 12,
+    "trim": 1,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 1200,
+  "nextOffset": 1250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "null": 18,
+    "just_flipped": 12,
+    "exit": 2,
+    "archive": 1
+  },
+  "offset": 1250,
+  "nextOffset": 1300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "exit": 1,
+    "flip_watch": 24,
+    "null": 15,
+    "archive": 1
+  },
+  "offset": 1300,
+  "nextOffset": 1350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 14,
+    "exit": 5,
+    "null": 18,
+    "just_flipped": 11,
+    "trim": 1,
+    "archive": 1
+  },
+  "offset": 1350,
+  "nextOffset": 1400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 20,
+    "flip_watch": 17,
+    "just_flipped": 10,
+    "trim": 1,
+    "exit": 2
+  },
+  "offset": 1400,
+  "nextOffset": 1450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 17,
+    "archive": 1,
+    "null": 16,
+    "exit": 3
+  },
+  "offset": 1450,
+  "nextOffset": 1500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 1,
+    "flip_watch": 23,
+    "null": 17,
+    "exit": 2,
+    "just_flipped": 7
+  },
+  "offset": 1500,
+  "nextOffset": 1550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 19,
+    "null": 13,
+    "exit": 4,
+    "just_flipped": 13,
+    "archive": 1
+  },
+  "offset": 1550,
+  "nextOffset": 1600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 18,
+    "just_flipped": 10,
+    "exit": 1,
+    "enter_now": 1,
+    "null": 18,
+    "archive": 2
+  },
+  "offset": 1600,
+  "nextOffset": 1650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 14,
+    "just_flipped": 10,
+    "flip_watch": 20,
+    "exit": 5,
+    "archive": 1
+  },
+  "offset": 1650,
+  "nextOffset": 1700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 20,
+    "just_flipped": 13,
+    "flip_watch": 14,
+    "trim": 1,
+    "archive": 2
+  },
+  "offset": 1700,
+  "nextOffset": 1750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 13,
+    "null": 20,
+    "enter_now": 1,
+    "exit": 3
+  },
+  "offset": 1750,
+  "nextOffset": 1800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 17,
+    "just_flipped": 14,
+    "null": 14,
+    "trim": 1,
+    "exit": 2,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 1800,
+  "nextOffset": 1850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "archive": 1,
+    "flip_watch": 20,
+    "null": 16,
+    "exit": 2
+  },
+  "offset": 1850,
+  "nextOffset": 1900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 14,
+    "just_flipped": 18,
+    "flip_watch": 17,
+    "trim": 1
+  },
+  "offset": 1900,
+  "nextOffset": 1950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 1950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "null": 19,
+    "just_flipped": 9,
+    "exit": 5
+  },
+  "offset": 1950,
+  "nextOffset": 2000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 21,
+    "flip_watch": 14,
+    "just_flipped": 10,
+    "exit": 3,
+    "archive": 1,
+    "trim": 1
+  },
+  "offset": 2000,
+  "nextOffset": 2050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 16,
+    "null": 11,
+    "exit": 3,
+    "just_flipped": 19,
+    "archive": 1
+  },
+  "offset": 2050,
+  "nextOffset": 2100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 18,
+    "flip_watch": 21,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 2100,
+  "nextOffset": 2150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 12,
+    "flip_watch": 17,
+    "exit": 3,
+    "archive": 2,
+    "enter_now": 1,
+    "null": 14,
+    "trim": 1
+  },
+  "offset": 2150,
+  "nextOffset": 2200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 21,
+    "flip_watch": 15,
+    "just_flipped": 11,
+    "enter_now": 1,
+    "archive": 2
+  },
+  "offset": 2200,
+  "nextOffset": 2250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 16,
+    "flip_watch": 20,
+    "archive": 1,
+    "just_flipped": 10,
+    "exit": 2,
+    "enter_now": 1
+  },
+  "offset": 2250,
+  "nextOffset": 2300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "just_flipped": 13,
+    "enter_now": 1,
+    "null": 15,
+    "archive": 2,
+    "exit": 2
+  },
+  "offset": 2300,
+  "nextOffset": 2350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "archive": 4,
+    "null": 15,
+    "just_flipped": 12,
+    "exit": 2
+  },
+  "offset": 2350,
+  "nextOffset": 2400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 17,
+    "null": 16,
+    "flip_watch": 13,
+    "archive": 1,
+    "trim": 1,
+    "exit": 2
+  },
+  "offset": 2400,
+  "nextOffset": 2450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 22,
+    "just_flipped": 11,
+    "null": 13,
+    "exit": 1,
+    "archive": 1,
+    "enter_now": 2
+  },
+  "offset": 2450,
+  "nextOffset": 2500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 13,
+    "just_flipped": 15,
+    "null": 19,
+    "archive": 1,
+    "enter_now": 2
+  },
+  "offset": 2500,
+  "nextOffset": 2550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 14,
+    "flip_watch": 18,
+    "null": 13,
+    "enter_now": 1,
+    "exit": 4
+  },
+  "offset": 2550,
+  "nextOffset": 2600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 20,
+    "archive": 3,
+    "null": 14,
+    "enter_now": 3,
+    "just_flipped": 9,
+    "exit": 1
+  },
+  "offset": 2600,
+  "nextOffset": 2650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "archive": 3,
+    "flip_watch": 17,
+    "null": 15,
+    "just_flipped": 11,
+    "exit": 1,
+    "enter_now": 2,
+    "trim": 1
+  },
+  "offset": 2650,
+  "nextOffset": 2700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 16,
+    "just_flipped": 12,
+    "null": 20,
+    "exit": 2
+  },
+  "offset": 2700,
+  "nextOffset": 2750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 22,
+    "null": 14,
+    "exit": 1
+  },
+  "offset": 2750,
+  "nextOffset": 2800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 16,
+    "null": 17,
+    "flip_watch": 15,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 2800,
+  "nextOffset": 2850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 4,
+  "laneCounts": {
+    "null": 14,
+    "flip_watch": 19,
+    "exit": 2,
+    "enter_now": 4,
+    "just_flipped": 10,
+    "archive": 1
+  },
+  "offset": 2850,
+  "nextOffset": 2900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "flip_watch": 16,
+    "enter_now": 3,
+    "null": 18,
+    "just_flipped": 11,
+    "exit": 2
+  },
+  "offset": 2900,
+  "nextOffset": 2950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 2950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 21,
+    "null": 13,
+    "just_flipped": 12,
+    "archive": 1,
+    "enter_now": 1,
+    "exit": 2
+  },
+  "offset": 2950,
+  "nextOffset": 3000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 14,
+    "enter_now": 2,
+    "null": 16,
+    "just_flipped": 15,
+    "archive": 1,
+    "exit": 2
+  },
+  "offset": 3000,
+  "nextOffset": 3050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 16,
+    "just_flipped": 12,
+    "exit": 3,
+    "null": 13,
+    "archive": 3,
+    "enter_now": 2,
+    "hold": 1
+  },
+  "offset": 3050,
+  "nextOffset": 3100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 12,
+    "null": 16,
+    "flip_watch": 20,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 3100,
+  "nextOffset": 3150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 20,
+    "null": 14,
+    "exit": 1,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 3150,
+  "nextOffset": 3200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 13,
+    "exit": 5,
+    "null": 16,
+    "flip_watch": 16
+  },
+  "offset": 3200,
+  "nextOffset": 3250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 15,
+    "just_flipped": 14,
+    "flip_watch": 15,
+    "archive": 1,
+    "enter_now": 1,
+    "exit": 4
+  },
+  "offset": 3250,
+  "nextOffset": 3300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 15,
+    "enter_now": 1,
+    "flip_watch": 16,
+    "just_flipped": 11,
+    "exit": 4,
+    "archive": 2,
+    "hold": 1
+  },
+  "offset": 3300,
+  "nextOffset": 3350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 14,
+    "archive": 2,
+    "null": 16,
+    "flip_watch": 16,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 3350,
+  "nextOffset": 3400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "flip_watch": 15,
+    "just_flipped": 10,
+    "exit": 3,
+    "null": 18,
+    "archive": 1,
+    "enter_now": 3
+  },
+  "offset": 3400,
+  "nextOffset": 3450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 15,
+    "null": 15,
+    "just_flipped": 16,
+    "exit": 2,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 3450,
+  "nextOffset": 3500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 21,
+    "null": 13,
+    "just_flipped": 13,
+    "enter_now": 2,
+    "archive": 1
+  },
+  "offset": 3500,
+  "nextOffset": 3550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "exit": 4,
+    "flip_watch": 18,
+    "just_flipped": 14,
+    "null": 11,
+    "enter_now": 2,
+    "defend": 1
+  },
+  "offset": 3550,
+  "nextOffset": 3600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 20,
+    "exit": 1,
+    "flip_watch": 13,
+    "just_flipped": 13,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 3600,
+  "nextOffset": 3650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 19,
+    "null": 17,
+    "just_flipped": 9,
+    "exit": 4,
+    "enter_now": 1
+  },
+  "offset": 3650,
+  "nextOffset": 3700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 15,
+    "just_flipped": 14,
+    "null": 18,
+    "enter_now": 1,
+    "exit": 1,
+    "archive": 1
+  },
+  "offset": 3700,
+  "nextOffset": 3750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 21,
+    "null": 17,
+    "exit": 1,
+    "just_flipped": 9,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 3750,
+  "nextOffset": 3800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "just_flipped": 16,
+    "null": 14,
+    "exit": 3,
+    "flip_watch": 14,
+    "enter_now": 3
+  },
+  "offset": 3800,
+  "nextOffset": 3850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "null": 18,
+    "flip_watch": 16,
+    "just_flipped": 9,
+    "enter_now": 3,
+    "archive": 2,
+    "exit": 2
+  },
+  "offset": 3850,
+  "nextOffset": 3900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 2,
+    "flip_watch": 19,
+    "just_flipped": 15,
+    "null": 12,
+    "exit": 2
+  },
+  "offset": 3900,
+  "nextOffset": 3950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 3950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 5,
+    "just_flipped": 10,
+    "flip_watch": 12,
+    "null": 22,
+    "defend": 1
+  },
+  "offset": 3950,
+  "nextOffset": 4000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "exit": 2,
+    "flip_watch": 19,
+    "null": 12,
+    "just_flipped": 15,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 4000,
+  "nextOffset": 4050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "flip_watch": 15,
+    "just_flipped": 16,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 4050,
+  "nextOffset": 4100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "null": 21,
+    "just_flipped": 9,
+    "enter_now": 3,
+    "flip_watch": 17
+  },
+  "offset": 4100,
+  "nextOffset": 4150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "null": 16,
+    "just_flipped": 14,
+    "flip_watch": 18,
+    "enter_now": 2
+  },
+  "offset": 4150,
+  "nextOffset": 4200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 17,
+    "flip_watch": 19,
+    "just_flipped": 11,
+    "archive": 1,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 4200,
+  "nextOffset": 4250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 4,
+  "laneCounts": {
+    "flip_watch": 16,
+    "null": 16,
+    "just_flipped": 12,
+    "enter_now": 4,
+    "defend": 1,
+    "archive": 1
+  },
+  "offset": 4250,
+  "nextOffset": 4300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 17,
+    "archive": 1,
+    "just_flipped": 14,
+    "flip_watch": 15,
+    "exit": 2,
+    "enter_now": 1
+  },
+  "offset": 4300,
+  "nextOffset": 4350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "null": 16,
+    "flip_watch": 13,
+    "just_flipped": 17,
+    "enter_now": 2,
+    "archive": 2
+  },
+  "offset": 4350,
+  "nextOffset": 4400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 18,
+    "flip_watch": 21,
+    "enter_now": 1,
+    "just_flipped": 7,
+    "archive": 1,
+    "exit": 2
+  },
+  "offset": 4400,
+  "nextOffset": 4450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "just_flipped": 10,
+    "null": 16,
+    "flip_watch": 19,
+    "enter_now": 2,
+    "exit": 3
+  },
+  "offset": 4450,
+  "nextOffset": 4500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 19,
+    "flip_watch": 14,
+    "archive": 2,
+    "just_flipped": 13,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 4500,
+  "nextOffset": 4550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "just_flipped": 14,
+    "flip_watch": 14,
+    "null": 19,
+    "enter_now": 2,
+    "exit": 1
+  },
+  "offset": 4550,
+  "nextOffset": 4600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "exit": 3,
+    "flip_watch": 19,
+    "null": 10,
+    "just_flipped": 14,
+    "enter_now": 3,
+    "archive": 1
+  },
+  "offset": 4600,
+  "nextOffset": 4650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 16,
+    "null": 19,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 4650,
+  "nextOffset": 4700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 16,
+    "null": 17,
+    "just_flipped": 11,
+    "exit": 3,
+    "archive": 2,
+    "hold": 1
+  },
+  "offset": 4700,
+  "nextOffset": 4750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 16,
+    "just_flipped": 15,
+    "null": 14,
+    "exit": 3,
+    "enter_now": 2
+  },
+  "offset": 4750,
+  "nextOffset": 4800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 14,
+    "flip_watch": 21,
+    "enter_now": 1,
+    "just_flipped": 11,
+    "exit": 3
+  },
+  "offset": 4800,
+  "nextOffset": 4850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 15,
+    "just_flipped": 14,
+    "exit": 3,
+    "flip_watch": 15,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 4850,
+  "nextOffset": 4900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 18,
+    "hold": 1,
+    "just_flipped": 11,
+    "flip_watch": 16,
+    "exit": 3,
+    "enter_now": 1
+  },
+  "offset": 4900,
+  "nextOffset": 4950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 4950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 15,
+    "just_flipped": 20,
+    "flip_watch": 11,
+    "enter_now": 1,
+    "exit": 2,
+    "hold": 1
+  },
+  "offset": 4950,
+  "nextOffset": 5000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "flip_watch": 22,
+    "just_flipped": 10,
+    "exit": 1
+  },
+  "offset": 5000,
+  "nextOffset": 5050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 20,
+    "archive": 2,
+    "flip_watch": 14,
+    "just_flipped": 11,
+    "enter_now": 1,
+    "exit": 2
+  },
+  "offset": 5050,
+  "nextOffset": 5100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "just_flipped": 14,
+    "flip_watch": 16,
+    "null": 13,
+    "exit": 3,
+    "enter_now": 3,
+    "archive": 1
+  },
+  "offset": 5100,
+  "nextOffset": 5150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 8,
+    "null": 18,
+    "flip_watch": 20,
+    "trim": 1,
+    "enter_now": 1,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 5150,
+  "nextOffset": 5200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 10,
+    "null": 17,
+    "flip_watch": 19,
+    "exit": 2,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 5200,
+  "nextOffset": 5250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 19,
+    "null": 13,
+    "just_flipped": 12,
+    "archive": 2,
+    "enter_now": 3,
+    "exit": 1
+  },
+  "offset": 5250,
+  "nextOffset": 5300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 22,
+    "just_flipped": 13,
+    "flip_watch": 12,
+    "archive": 1,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 5300,
+  "nextOffset": 5350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "archive": 3,
+    "null": 20,
+    "just_flipped": 12,
+    "enter_now": 1,
+    "flip_watch": 12,
+    "exit": 1,
+    "defend": 1
+  },
+  "offset": 5350,
+  "nextOffset": 5400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "just_flipped": 10,
+    "null": 14,
+    "flip_watch": 20,
+    "archive": 3,
+    "enter_now": 3
+  },
+  "offset": 5400,
+  "nextOffset": 5450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 15,
+    "just_flipped": 15,
+    "flip_watch": 17,
+    "exit": 2,
+    "enter_now": 1
+  },
+  "offset": 5450,
+  "nextOffset": 5500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 18,
+    "null": 20,
+    "just_flipped": 9,
+    "archive": 2,
+    "exit": 1
+  },
+  "offset": 5500,
+  "nextOffset": 5550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 16,
+    "null": 17,
+    "archive": 3,
+    "exit": 4,
+    "enter_now": 1
+  },
+  "offset": 5550,
+  "nextOffset": 5600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "just_flipped": 14,
+    "null": 16,
+    "flip_watch": 13,
+    "exit": 1,
+    "enter_now": 2,
+    "archive": 4
+  },
+  "offset": 5600,
+  "nextOffset": 5650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 12,
+    "flip_watch": 18,
+    "null": 15,
+    "archive": 3,
+    "enter_now": 2
+  },
+  "offset": 5650,
+  "nextOffset": 5700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "null": 20,
+    "exit": 3,
+    "archive": 2,
+    "just_flipped": 12,
+    "defend": 1
+  },
+  "offset": 5700,
+  "nextOffset": 5750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "null": 17,
+    "archive": 4,
+    "just_flipped": 12
+  },
+  "offset": 5750,
+  "nextOffset": 5800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 16,
+    "exit": 1,
+    "null": 14,
+    "flip_watch": 12,
+    "archive": 6,
+    "enter_now": 1
+  },
+  "offset": 5800,
+  "nextOffset": 5850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "null": 16,
+    "enter_now": 3,
+    "flip_watch": 12,
+    "archive": 3,
+    "just_flipped": 15,
+    "exit": 1
+  },
+  "offset": 5850,
+  "nextOffset": 5900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 21,
+    "just_flipped": 8,
+    "flip_watch": 16,
+    "defend": 1,
+    "exit": 1,
+    "archive": 3
+  },
+  "offset": 5900,
+  "nextOffset": 5950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 5950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 4,
+    "flip_watch": 17,
+    "null": 15,
+    "just_flipped": 11,
+    "archive": 3
+  },
+  "offset": 5950,
+  "nextOffset": 6000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 14,
+    "archive": 4,
+    "null": 17,
+    "flip_watch": 13,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 6000,
+  "nextOffset": 6050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 17,
+    "null": 18,
+    "just_flipped": 9,
+    "trim": 2,
+    "archive": 2,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 6050,
+  "nextOffset": 6100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 20,
+    "flip_watch": 13,
+    "just_flipped": 14,
+    "archive": 3
+  },
+  "offset": 6100,
+  "nextOffset": 6150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 18,
+    "flip_watch": 16,
+    "just_flipped": 11,
+    "archive": 4,
+    "exit": 1
+  },
+  "offset": 6150,
+  "nextOffset": 6200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 13,
+    "just_flipped": 16,
+    "null": 16,
+    "exit": 1,
+    "enter_now": 1,
+    "archive": 3
+  },
+  "offset": 6200,
+  "nextOffset": 6250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 11,
+    "flip_watch": 14,
+    "null": 19,
+    "archive": 4,
+    "enter_now": 1,
+    "trim": 1
+  },
+  "offset": 6250,
+  "nextOffset": 6300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "null": 19,
+    "just_flipped": 10,
+    "archive": 4
+  },
+  "offset": 6300,
+  "nextOffset": 6350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 13,
+    "null": 19,
+    "just_flipped": 12,
+    "archive": 4,
+    "exit": 1,
+    "defend": 1
+  },
+  "offset": 6350,
+  "nextOffset": 6400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 17,
+    "just_flipped": 15,
+    "enter_now": 1,
+    "flip_watch": 14,
+    "archive": 2,
+    "exit": 1
+  },
+  "offset": 6400,
+  "nextOffset": 6450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 14,
+    "null": 18,
+    "just_flipped": 14,
+    "archive": 2,
+    "exit": 1,
+    "trim": 1
+  },
+  "offset": 6450,
+  "nextOffset": 6500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 23,
+    "archive": 2,
+    "just_flipped": 9,
+    "flip_watch": 15,
+    "exit": 1
+  },
+  "offset": 6500,
+  "nextOffset": 6550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 21,
+    "null": 16,
+    "archive": 3,
+    "enter_now": 1
+  },
+  "offset": 6550,
+  "nextOffset": 6600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "null": 19,
+    "just_flipped": 11,
+    "archive": 2,
+    "exit": 1
+  },
+  "offset": 6600,
+  "nextOffset": 6650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 14,
+    "trim": 1,
+    "null": 21,
+    "exit": 1
+  },
+  "offset": 6650,
+  "nextOffset": 6700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 16,
+    "null": 12,
+    "archive": 6,
+    "exit": 1,
+    "just_flipped": 14,
+    "enter_now": 1
+  },
+  "offset": 6700,
+  "nextOffset": 6750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 17,
+    "null": 16,
+    "flip_watch": 16,
+    "exit": 1
+  },
+  "offset": 6750,
+  "nextOffset": 6800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 21,
+    "flip_watch": 17,
+    "just_flipped": 5,
+    "trim": 1,
+    "exit": 3,
+    "archive": 3
+  },
+  "offset": 6800,
+  "nextOffset": 6850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 17,
+    "flip_watch": 13,
+    "null": 17,
+    "archive": 1,
+    "exit": 2
+  },
+  "offset": 6850,
+  "nextOffset": 6900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 16,
+    "trim": 1,
+    "just_flipped": 10,
+    "flip_watch": 17,
+    "exit": 2,
+    "archive": 4
+  },
+  "offset": 6900,
+  "nextOffset": 6950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 16,
+    "just_flipped": 16,
+    "flip_watch": 16,
+    "exit": 2
+  },
+  "offset": 6950,
+  "nextOffset": 7000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "just_flipped": 12,
+    "null": 18,
+    "archive": 1,
+    "exit": 2
+  },
+  "offset": 7000,
+  "nextOffset": 7050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 15,
+    "null": 22,
+    "just_flipped": 9,
+    "archive": 1,
+    "trim": 1,
+    "exit": 2
+  },
+  "offset": 7050,
+  "nextOffset": 7100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "trim": 1,
+    "null": 14,
+    "flip_watch": 12,
+    "just_flipped": 21,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 7100,
+  "nextOffset": 7150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "flip_watch": 19,
+    "exit": 2,
+    "null": 15,
+    "archive": 3
+  },
+  "offset": 7150,
+  "nextOffset": 7200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 22,
+    "flip_watch": 16,
+    "exit": 1,
+    "archive": 1,
+    "just_flipped": 10
+  },
+  "offset": 7200,
+  "nextOffset": 7250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 16,
+    "null": 17,
+    "exit": 2,
+    "flip_watch": 12,
+    "archive": 3
+  },
+  "offset": 7250,
+  "nextOffset": 7300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 17,
+    "exit": 1,
+    "null": 20,
+    "archive": 1,
+    "enter_now": 1,
+    "trim": 1
+  },
+  "offset": 7300,
+  "nextOffset": 7350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 13,
+    "null": 17,
+    "just_flipped": 15,
+    "archive": 2,
+    "exit": 2,
+    "trim": 1
+  },
+  "offset": 7350,
+  "nextOffset": 7400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 15,
+    "flip_watch": 16,
+    "null": 17,
+    "archive": 2
+  },
+  "offset": 7400,
+  "nextOffset": 7450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 14,
+    "exit": 2,
+    "just_flipped": 10,
+    "flip_watch": 22,
+    "archive": 2
+  },
+  "offset": 7450,
+  "nextOffset": 7500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 15,
+    "just_flipped": 13,
+    "null": 19,
+    "exit": 1,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 7500,
+  "nextOffset": 7550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 20,
+    "just_flipped": 11,
+    "null": 16,
+    "enter_now": 1,
+    "archive": 2
+  },
+  "offset": 7550,
+  "nextOffset": 7600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 16,
+    "null": 23,
+    "just_flipped": 8,
+    "defend": 1,
+    "archive": 2
+  },
+  "offset": 7600,
+  "nextOffset": 7650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "null": 12,
+    "just_flipped": 15,
+    "flip_watch": 18,
+    "enter_now": 2,
+    "exit": 2,
+    "archive": 1
+  },
+  "offset": 7650,
+  "nextOffset": 7700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 21,
+    "null": 14,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 7700,
+  "nextOffset": 7750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 14,
+    "null": 15,
+    "flip_watch": 19,
+    "enter_now": 1,
+    "defend": 1
+  },
+  "offset": 7750,
+  "nextOffset": 7800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "exit": 3,
+    "null": 20,
+    "just_flipped": 14,
+    "archive": 1
+  },
+  "offset": 7800,
+  "nextOffset": 7850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 24,
+    "just_flipped": 12,
+    "flip_watch": 12,
+    "exit": 2
+  },
+  "offset": 7850,
+  "nextOffset": 7900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 16,
+    "null": 12,
+    "defend": 1,
+    "archive": 2,
+    "flip_watch": 19
+  },
+  "offset": 7900,
+  "nextOffset": 7950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "just_flipped": 13,
+    "null": 17,
+    "flip_watch": 17,
+    "enter_now": 2,
+    "archive": 1
+  },
+  "offset": 7950,
+  "nextOffset": 8000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 19,
+    "just_flipped": 13,
+    "flip_watch": 16,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 8000,
+  "nextOffset": 8050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 14,
+    "exit": 1,
+    "null": 18,
+    "flip_watch": 13,
+    "archive": 2,
+    "enter_now": 1,
+    "trim": 1
+  },
+  "offset": 8050,
+  "nextOffset": 8100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 20,
+    "just_flipped": 12,
+    "null": 14,
+    "archive": 1,
+    "exit": 3
+  },
+  "offset": 8100,
+  "nextOffset": 8150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 22,
+    "just_flipped": 14,
+    "flip_watch": 10,
+    "exit": 1,
+    "archive": 2,
+    "trim": 1
+  },
+  "offset": 8150,
+  "nextOffset": 8200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 13,
+    "enter_now": 1,
+    "just_flipped": 11,
+    "flip_watch": 21,
+    "archive": 4
+  },
+  "offset": 8200,
+  "nextOffset": 8250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 13,
+    "null": 18,
+    "just_flipped": 14,
+    "archive": 3,
+    "exit": 2
+  },
+  "offset": 8250,
+  "nextOffset": 8300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 17,
+    "trim": 1,
+    "null": 18,
+    "just_flipped": 10,
+    "archive": 2,
+    "exit": 2
+  },
+  "offset": 8300,
+  "nextOffset": 8350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "archive": 1,
+    "just_flipped": 15,
+    "null": 18,
+    "flip_watch": 14,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 8350,
+  "nextOffset": 8400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 15,
+    "just_flipped": 9,
+    "archive": 3,
+    "flip_watch": 20,
+    "exit": 2,
+    "enter_now": 1
+  },
+  "offset": 8400,
+  "nextOffset": 8450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "just_flipped": 13,
+    "flip_watch": 14,
+    "archive": 4,
+    "exit": 2
+  },
+  "offset": 8450,
+  "nextOffset": 8500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 18,
+    "just_flipped": 10,
+    "archive": 1,
+    "flip_watch": 19,
+    "exit": 2
+  },
+  "offset": 8500,
+  "nextOffset": 8550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 14,
+    "null": 19,
+    "flip_watch": 13,
+    "trim": 1,
+    "archive": 1,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 8550,
+  "nextOffset": 8600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 20,
+    "flip_watch": 18,
+    "just_flipped": 8,
+    "exit": 2,
+    "archive": 2
+  },
+  "offset": 8600,
+  "nextOffset": 8650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 12,
+    "just_flipped": 19,
+    "null": 16,
+    "enter_now": 1,
+    "archive": 1,
+    "trim": 1
+  },
+  "offset": 8650,
+  "nextOffset": 8700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 21,
+    "null": 16,
+    "exit": 1,
+    "archive": 1,
+    "enter_now": 2
+  },
+  "offset": 8700,
+  "nextOffset": 8750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "enter_now": 2,
+    "null": 22,
+    "just_flipped": 11,
+    "flip_watch": 13,
+    "archive": 2
+  },
+  "offset": 8750,
+  "nextOffset": 8800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 18,
+    "just_flipped": 15,
+    "null": 14,
+    "enter_now": 1,
+    "exit": 1,
+    "archive": 1
+  },
+  "offset": 8800,
+  "nextOffset": 8850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 16,
+    "archive": 4,
+    "null": 18,
+    "flip_watch": 11,
+    "exit": 1
+  },
+  "offset": 8850,
+  "nextOffset": 8900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 18,
+    "null": 20,
+    "just_flipped": 10,
+    "exit": 1,
+    "trim": 1
+  },
+  "offset": 8900,
+  "nextOffset": 8950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 21,
+    "null": 13,
+    "archive": 4,
+    "just_flipped": 10,
+    "exit": 2
+  },
+  "offset": 8950,
+  "nextOffset": 9000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 14,
+    "flip_watch": 8,
+    "null": 21,
+    "exit": 2,
+    "archive": 4,
+    "trim": 1
+  },
+  "offset": 9000,
+  "nextOffset": 9050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "flip_watch": 19,
+    "just_flipped": 10,
+    "archive": 4
+  },
+  "offset": 9050,
+  "nextOffset": 9100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "just_flipped": 12,
+    "null": 15,
+    "flip_watch": 15,
+    "enter_now": 2,
+    "exit": 1,
+    "archive": 4,
+    "trim": 1
+  },
+  "offset": 9100,
+  "nextOffset": 9150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 17,
+    "flip_watch": 14,
+    "null": 15,
+    "archive": 2,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 9150,
+  "nextOffset": 9200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 7,
+    "null": 22,
+    "flip_watch": 12,
+    "just_flipped": 8,
+    "exit": 1
+  },
+  "offset": 9200,
+  "nextOffset": 9250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 20,
+    "flip_watch": 11,
+    "just_flipped": 13,
+    "enter_now": 1,
+    "archive": 4,
+    "exit": 1
+  },
+  "offset": 9250,
+  "nextOffset": 9300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 13,
+    "flip_watch": 13,
+    "null": 20,
+    "archive": 3,
+    "exit": 1
+  },
+  "offset": 9300,
+  "nextOffset": 9350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 15,
+    "archive": 5,
+    "just_flipped": 11,
+    "null": 18,
+    "exit": 1
+  },
+  "offset": 9350,
+  "nextOffset": 9400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 17,
+    "flip_watch": 9,
+    "null": 18,
+    "archive": 4,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 9400,
+  "nextOffset": 9450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 10,
+    "flip_watch": 18,
+    "null": 18,
+    "exit": 2,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 9450,
+  "nextOffset": 9500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "archive": 5,
+    "null": 19,
+    "flip_watch": 14,
+    "exit": 2
+  },
+  "offset": 9500,
+  "nextOffset": 9550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 19,
+    "flip_watch": 12,
+    "just_flipped": 18,
+    "enter_now": 1
+  },
+  "offset": 9550,
+  "nextOffset": 9600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 3,
+    "null": 19,
+    "flip_watch": 16,
+    "just_flipped": 9,
+    "hold": 1,
+    "exit": 2
+  },
+  "offset": 9600,
+  "nextOffset": 9650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 2,
+    "just_flipped": 12,
+    "flip_watch": 13,
+    "null": 23
+  },
+  "offset": 9650,
+  "nextOffset": 9700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "archive": 6,
+    "exit": 2,
+    "flip_watch": 13,
+    "just_flipped": 14,
+    "null": 13,
+    "enter_now": 2
+  },
+  "offset": 9700,
+  "nextOffset": 9750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 19,
+    "archive": 5,
+    "flip_watch": 14,
+    "just_flipped": 11,
+    "exit": 1
+  },
+  "offset": 9750,
+  "nextOffset": 9800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 14,
+    "null": 18,
+    "flip_watch": 13,
+    "enter_now": 1,
+    "archive": 3,
+    "hold": 1
+  },
+  "offset": 9800,
+  "nextOffset": 9850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 18,
+    "flip_watch": 14,
+    "archive": 4,
+    "just_flipped": 12,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 9850,
+  "nextOffset": 9900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 18,
+    "flip_watch": 14,
+    "just_flipped": 14,
+    "exit": 1,
+    "archive": 3
+  },
+  "offset": 9900,
+  "nextOffset": 9950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 5,
+  "laneCounts": {
+    "flip_watch": 12,
+    "just_flipped": 12,
+    "enter_now": 5,
+    "null": 16,
+    "archive": 4,
+    "exit": 1
+  },
+  "offset": 9950,
+  "nextOffset": 10000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 6,
+    "just_flipped": 9,
+    "flip_watch": 16,
+    "null": 18,
+    "exit": 1
+  },
+  "offset": 10000,
+  "nextOffset": 10050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 50,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 11,
+    "just_flipped": 18,
+    "null": 16,
+    "exit": 2,
+    "hold": 1,
+    "archive": 2
+  },
+  "offset": 10050,
+  "nextOffset": 10100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10100 ---
+  },
+  "offset": 6210,
+  "nextOffset": 6240,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6240 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 6,
+    "flip_watch": 9,
+    "archive": 4,
+    "null": 8,
+    "exit": 2,
+    "enter_now": 1
+  },
+  "offset": 6240,
+  "nextOffset": 6270,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6270 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 12,
+    "flip_watch": 8,
+    "just_flipped": 6,
+    "archive": 2,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 6270,
+  "nextOffset": 6300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 9,
+    "null": 11,
+    "just_flipped": 7,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 6300,
+  "nextOffset": 6330,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6330 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 8,
+    "exit": 1,
+    "flip_watch": 11,
+    "just_flipped": 6,
+    "archive": 4
+  },
+  "offset": 6330,
+  "nextOffset": 6360,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6360 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 7,
+    "archive": 2,
+    "null": 14,
+    "just_flipped": 5,
+    "exit": 2
+  },
+  "offset": 6360,
+  "nextOffset": 6390,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6390 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 6,
+    "exit": 2,
+    "flip_watch": 10,
+    "just_flipped": 11,
+    "defend": 1
+  },
+  "offset": 6390,
+  "nextOffset": 6420,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6420 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "flip_watch": 7,
+    "null": 10,
+    "exit": 3,
+    "archive": 2
+  },
+  "offset": 6420,
+  "nextOffset": 6450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 9,
+    "null": 10,
+    "just_flipped": 7,
+    "exit": 2,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 6450,
+  "nextOffset": 6480,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6480 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 10,
+    "archive": 2,
+    "just_flipped": 10,
+    "flip_watch": 7,
+    "trim": 1
+  },
+  "offset": 6480,
+  "nextOffset": 6510,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6510 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 5,
+    "null": 12,
+    "flip_watch": 11,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 6510,
+  "nextOffset": 6540,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6540 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 13,
+    "flip_watch": 10,
+    "just_flipped": 5,
+    "archive": 2
+  },
+  "offset": 6540,
+  "nextOffset": 6570,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6570 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 5,
+    "null": 9,
+    "flip_watch": 13,
+    "enter_now": 1,
+    "exit": 1,
+    "archive": 1
+  },
+  "offset": 6570,
+  "nextOffset": 6600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "exit": 1,
+    "just_flipped": 6,
+    "null": 13,
+    "archive": 1
+  },
+  "offset": 6600,
+  "nextOffset": 6630,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6630 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 10,
+    "null": 8,
+    "archive": 1,
+    "exit": 1,
+    "trim": 1
+  },
+  "offset": 6630,
+  "nextOffset": 6660,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6660 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 8,
+    "null": 12,
+    "flip_watch": 9,
+    "enter_now": 1
+  },
+  "offset": 6660,
+  "nextOffset": 6690,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6690 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "null": 9,
+    "just_flipped": 5,
+    "archive": 3,
+    "exit": 1
+  },
+  "offset": 6690,
+  "nextOffset": 6720,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6720 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "flip_watch": 7,
+    "just_flipped": 10,
+    "exit": 1,
+    "archive": 3
+  },
+  "offset": 6720,
+  "nextOffset": 6750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 12,
+    "null": 10,
+    "flip_watch": 7,
+    "enter_now": 1
+  },
+  "offset": 6750,
+  "nextOffset": 6780,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6780 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "just_flipped": 7,
+    "null": 10,
+    "trim": 1
+  },
+  "offset": 6780,
+  "nextOffset": 6810,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6810 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 12,
+    "flip_watch": 11,
+    "exit": 2,
+    "enter_now": 1,
+    "just_flipped": 1,
+    "archive": 3
+  },
+  "offset": 6810,
+  "nextOffset": 6840,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6840 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "null": 11,
+    "just_flipped": 9,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 6840,
+  "nextOffset": 6870,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6870 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "null": 11,
+    "just_flipped": 10,
+    "exit": 1
+  },
+  "offset": 6870,
+  "nextOffset": 6900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 10,
+    "trim": 1,
+    "just_flipped": 8,
+    "flip_watch": 10,
+    "exit": 1
+  },
+  "offset": 6900,
+  "nextOffset": 6930,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6930 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "flip_watch": 11,
+    "archive": 4,
+    "just_flipped": 4
+  },
+  "offset": 6930,
+  "nextOffset": 6960,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6960 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 2,
+    "just_flipped": 9,
+    "null": 12,
+    "flip_watch": 7
+  },
+  "offset": 6960,
+  "nextOffset": 6990,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 6990 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "flip_watch": 11,
+    "null": 6,
+    "archive": 1,
+    "exit": 2
+  },
+  "offset": 6990,
+  "nextOffset": 7020,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7020 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "flip_watch": 11,
+    "null": 12
+  },
+  "offset": 7020,
+  "nextOffset": 7050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 13,
+    "just_flipped": 5,
+    "archive": 1,
+    "trim": 1
+  },
+  "offset": 7050,
+  "nextOffset": 7080,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7080 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 5,
+    "flip_watch": 8,
+    "null": 16,
+    "trim": 1
+  },
+  "offset": 7080,
+  "nextOffset": 7110,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7110 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 7,
+    "just_flipped": 16,
+    "enter_now": 1,
+    "null": 6
+  },
+  "offset": 7110,
+  "nextOffset": 7140,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7140 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "flip_watch": 10,
+    "null": 9,
+    "archive": 1
+  },
+  "offset": 7140,
+  "nextOffset": 7170,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7170 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 5,
+    "flip_watch": 11,
+    "archive": 2,
+    "exit": 1
+  },
+  "offset": 7170,
+  "nextOffset": 7200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 17,
+    "flip_watch": 9,
+    "archive": 1,
+    "just_flipped": 3
+  },
+  "offset": 7200,
+  "nextOffset": 7230,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7230 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "just_flipped": 10,
+    "null": 11
+  },
+  "offset": 7230,
+  "nextOffset": 7260,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7260 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "archive": 2,
+    "null": 11,
+    "flip_watch": 7
+  },
+  "offset": 7260,
+  "nextOffset": 7290,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7290 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "flip_watch": 10,
+    "null": 10,
+    "archive": 2
+  },
+  "offset": 7290,
+  "nextOffset": 7320,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7320 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 10,
+    "enter_now": 1,
+    "null": 12,
+    "just_flipped": 4,
+    "trim": 1,
+    "exit": 2
+  },
+  "offset": 7320,
+  "nextOffset": 7350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 8,
+    "just_flipped": 10,
+    "archive": 2
+  },
+  "offset": 7350,
+  "nextOffset": 7380,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7380 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 14,
+    "flip_watch": 7,
+    "just_flipped": 7,
+    "exit": 1,
+    "trim": 1
+  },
+  "offset": 7380,
+  "nextOffset": 7410,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7410 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 12,
+    "flip_watch": 8,
+    "null": 9,
+    "archive": 1
+  },
+  "offset": 7410,
+  "nextOffset": 7440,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7440 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "null": 11,
+    "just_flipped": 4,
+    "archive": 3
+  },
+  "offset": 7440,
+  "nextOffset": 7470,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7470 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 8,
+    "flip_watch": 14,
+    "just_flipped": 7,
+    "enter_now": 1
+  },
+  "offset": 7470,
+  "nextOffset": 7500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 11,
+    "just_flipped": 8,
+    "null": 11
+  },
+  "offset": 7500,
+  "nextOffset": 7530,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7530 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 6,
+    "exit": 1,
+    "flip_watch": 10,
+    "null": 11,
+    "archive": 1,
+    "defend": 1
+  },
+  "offset": 7530,
+  "nextOffset": 7560,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7560 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 10,
+    "just_flipped": 7,
+    "archive": 2,
+    "exit": 1
+  },
+  "offset": 7560,
+  "nextOffset": 7590,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7590 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 13,
+    "flip_watch": 11,
+    "just_flipped": 5,
+    "defend": 1
+  },
+  "offset": 7590,
+  "nextOffset": 7620,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7620 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "just_flipped": 6,
+    "archive": 2,
+    "null": 13
+  },
+  "offset": 7620,
+  "nextOffset": 7650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 9,
+    "just_flipped": 12,
+    "flip_watch": 8,
+    "enter_now": 1
+  },
+  "offset": 7650,
+  "nextOffset": 7680,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7680 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 7,
+    "just_flipped": 7,
+    "flip_watch": 14,
+    "exit": 1,
+    "archive": 1
+  },
+  "offset": 7680,
+  "nextOffset": 7710,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7710 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 5,
+    "null": 10,
+    "flip_watch": 15
+  },
+  "offset": 7710,
+  "nextOffset": 7740,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7740 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "archive": 1,
+    "flip_watch": 8,
+    "just_flipped": 9,
+    "exit": 1
+  },
+  "offset": 7740,
+  "nextOffset": 7770,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7770 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "flip_watch": 13,
+    "null": 7
+  },
+  "offset": 7770,
+  "nextOffset": 7800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "null": 14,
+    "just_flipped": 7,
+    "exit": 1
+  },
+  "offset": 7800,
+  "nextOffset": 7830,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7830 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 13,
+    "archive": 1,
+    "flip_watch": 7
+  },
+  "offset": 7830,
+  "nextOffset": 7860,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7860 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 15,
+    "just_flipped": 8,
+    "flip_watch": 7
+  },
+  "offset": 7860,
+  "nextOffset": 7890,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7890 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 12,
+    "flip_watch": 9,
+    "just_flipped": 8,
+    "archive": 1
+  },
+  "offset": 7890,
+  "nextOffset": 7920,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7920 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "null": 6,
+    "flip_watch": 12,
+    "archive": 1
+  },
+  "offset": 7920,
+  "nextOffset": 7950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 6,
+    "null": 13,
+    "flip_watch": 9,
+    "exit": 1,
+    "archive": 1
+  },
+  "offset": 7950,
+  "nextOffset": 7980,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 7980 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 10,
+    "just_flipped": 10
+  },
+  "offset": 7980,
+  "nextOffset": 8010,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8010 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 1,
+    "null": 12,
+    "just_flipped": 9,
+    "flip_watch": 7,
+    "exit": 1
+  },
+  "offset": 8010,
+  "nextOffset": 8040,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8040 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 11,
+    "just_flipped": 8,
+    "null": 10,
+    "archive": 1
+  },
+  "offset": 8040,
+  "nextOffset": 8070,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8070 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 12,
+    "archive": 1,
+    "flip_watch": 9,
+    "just_flipped": 7,
+    "trim": 1
+  },
+  "offset": 8070,
+  "nextOffset": 8100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 11,
+    "just_flipped": 7,
+    "null": 10,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 8100,
+  "nextOffset": 8130,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8130 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "just_flipped": 8,
+    "null": 12
+  },
+  "offset": 8130,
+  "nextOffset": 8160,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8160 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 10,
+    "just_flipped": 10,
+    "flip_watch": 8,
+    "archive": 2
+  },
+  "offset": 8160,
+  "nextOffset": 8190,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8190 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 5,
+    "null": 13,
+    "flip_watch": 10,
+    "exit": 1,
+    "archive": 1
+  },
+  "offset": 8190,
+  "nextOffset": 8220,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8220 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 7,
+    "flip_watch": 12,
+    "just_flipped": 8,
+    "archive": 3
+  },
+  "offset": 8220,
+  "nextOffset": 8250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "null": 11,
+    "just_flipped": 9,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 8250,
+  "nextOffset": 8280,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8280 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 10,
+    "just_flipped": 8,
+    "flip_watch": 9,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 8280,
+  "nextOffset": 8310,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8310 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 8,
+    "archive": 1,
+    "flip_watch": 13,
+    "just_flipped": 7,
+    "enter_now": 1
+  },
+  "offset": 8310,
+  "nextOffset": 8340,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8340 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 4,
+    "null": 17,
+    "archive": 2,
+    "flip_watch": 7
+  },
+  "offset": 8340,
+  "nextOffset": 8370,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8370 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 7,
+    "just_flipped": 12,
+    "null": 11
+  },
+  "offset": 8370,
+  "nextOffset": 8400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 12,
+    "just_flipped": 5,
+    "archive": 1,
+    "flip_watch": 11,
+    "exit": 1
+  },
+  "offset": 8400,
+  "nextOffset": 8430,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8430 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 11,
+    "null": 10,
+    "just_flipped": 7,
+    "archive": 2
+  },
+  "offset": 8430,
+  "nextOffset": 8460,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8460 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "flip_watch": 10,
+    "null": 9,
+    "archive": 3
+  },
+  "offset": 8460,
+  "nextOffset": 8490,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8490 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "flip_watch": 7,
+    "just_flipped": 10,
+    "archive": 2
+  },
+  "offset": 8490,
+  "nextOffset": 8520,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8520 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 14,
+    "null": 12,
+    "enter_now": 1,
+    "just_flipped": 3
+  },
+  "offset": 8520,
+  "nextOffset": 8550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "null": 12,
+    "flip_watch": 9,
+    "archive": 1
+  },
+  "offset": 8550,
+  "nextOffset": 8580,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8580 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 9,
+    "flip_watch": 10
+  },
+  "offset": 8580,
+  "nextOffset": 8610,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8610 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 13,
+    "flip_watch": 10,
+    "just_flipped": 5,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 8610,
+  "nextOffset": 8640,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8640 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 13,
+    "just_flipped": 11,
+    "flip_watch": 5,
+    "archive": 1
+  },
+  "offset": 8640,
+  "nextOffset": 8670,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8670 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 9,
+    "flip_watch": 9,
+    "exit": 1,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 8670,
+  "nextOffset": 8700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "flip_watch": 10,
+    "null": 10,
+    "exit": 2,
+    "archive": 1
+  },
+  "offset": 8700,
+  "nextOffset": 8730,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8730 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 13,
+    "null": 12,
+    "enter_now": 2,
+    "just_flipped": 3
+  },
+  "offset": 8730,
+  "nextOffset": 8760,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8760 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 10,
+    "just_flipped": 8,
+    "archive": 2
+  },
+  "offset": 8760,
+  "nextOffset": 8790,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8790 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 6,
+    "null": 12,
+    "exit": 1,
+    "just_flipped": 10,
+    "enter_now": 1
+  },
+  "offset": 8790,
+  "nextOffset": 8820,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8820 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 13,
+    "null": 8,
+    "just_flipped": 7,
+    "exit": 1,
+    "archive": 1
+  },
+  "offset": 8820,
+  "nextOffset": 8850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "archive": 3,
+    "null": 10,
+    "flip_watch": 9,
+    "exit": 1
+  },
+  "offset": 8850,
+  "nextOffset": 8880,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8880 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "flip_watch": 7,
+    "just_flipped": 12,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 8880,
+  "nextOffset": 8910,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8910 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "flip_watch": 10,
+    "just_flipped": 6,
+    "exit": 2,
+    "trim": 1
+  },
+  "offset": 8910,
+  "nextOffset": 8940,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8940 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "null": 10,
+    "just_flipped": 6,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 8940,
+  "nextOffset": 8970,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 8970 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 8,
+    "flip_watch": 12,
+    "exit": 2,
+    "just_flipped": 5,
+    "archive": 3
+  },
+  "offset": 8970,
+  "nextOffset": 9000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 6,
+    "flip_watch": 4,
+    "null": 16,
+    "archive": 3,
+    "enter_now": 1
+  },
+  "offset": 9000,
+  "nextOffset": 9030,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9030 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "flip_watch": 7,
+    "null": 12,
+    "archive": 1
+  },
+  "offset": 9030,
+  "nextOffset": 9060,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9060 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 14,
+    "just_flipped": 6,
+    "null": 9,
+    "archive": 1
+  },
+  "offset": 9060,
+  "nextOffset": 9090,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9090 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "archive": 5,
+    "flip_watch": 8,
+    "just_flipped": 7,
+    "null": 9,
+    "enter_now": 1
+  },
+  "offset": 9090,
+  "nextOffset": 9120,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9120 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "flip_watch": 9,
+    "just_flipped": 7,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 9120,
+  "nextOffset": 9150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 10,
+    "null": 10,
+    "archive": 1
+  },
+  "offset": 9150,
+  "nextOffset": 9180,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9180 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "null": 10,
+    "flip_watch": 6,
+    "archive": 2,
+    "exit": 1
+  },
+  "offset": 9180,
+  "nextOffset": 9210,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9210 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 14,
+    "flip_watch": 6,
+    "just_flipped": 4,
+    "archive": 6
+  },
+  "offset": 9210,
+  "nextOffset": 9240,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9240 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 14,
+    "flip_watch": 11,
+    "just_flipped": 4,
+    "enter_now": 1
+  },
+  "offset": 9240,
+  "nextOffset": 9270,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9270 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 4,
+    "just_flipped": 10,
+    "archive": 4,
+    "null": 12
+  },
+  "offset": 9270,
+  "nextOffset": 9300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 6,
+    "null": 13,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 9300,
+  "nextOffset": 9330,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9330 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 8,
+    "flip_watch": 11,
+    "just_flipped": 6,
+    "archive": 3,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 9330,
+  "nextOffset": 9360,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9360 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 14,
+    "just_flipped": 6,
+    "flip_watch": 8,
+    "archive": 2
+  },
+  "offset": 9360,
+  "nextOffset": 9390,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9390 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "just_flipped": 10,
+    "archive": 2,
+    "null": 10
+  },
+  "offset": 9390,
+  "nextOffset": 9420,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9420 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 13,
+    "archive": 4,
+    "just_flipped": 9,
+    "flip_watch": 4
+  },
+  "offset": 9420,
+  "nextOffset": 9450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "flip_watch": 10,
+    "exit": 2,
+    "null": 9,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 9450,
+  "nextOffset": 9480,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9480 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "null": 13,
+    "just_flipped": 6,
+    "archive": 2
+  },
+  "offset": 9480,
+  "nextOffset": 9510,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9510 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 5,
+    "enter_now": 1,
+    "flip_watch": 11,
+    "archive": 2
+  },
+  "offset": 9510,
+  "nextOffset": 9540,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9540 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 15,
+    "just_flipped": 9,
+    "flip_watch": 5,
+    "archive": 1
+  },
+  "offset": 9540,
+  "nextOffset": 9570,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9570 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "null": 10,
+    "flip_watch": 9
+  },
+  "offset": 9570,
+  "nextOffset": 9600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 2,
+    "null": 12,
+    "flip_watch": 12,
+    "just_flipped": 3,
+    "enter_now": 1
+  },
+  "offset": 9600,
+  "nextOffset": 9630,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9630 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 10,
+    "flip_watch": 8,
+    "just_flipped": 9,
+    "exit": 1,
+    "archive": 2
+  },
+  "offset": 9630,
+  "nextOffset": 9660,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9660 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "null": 14,
+    "flip_watch": 8
+  },
+  "offset": 9660,
+  "nextOffset": 9690,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9690 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 6,
+    "archive": 3,
+    "exit": 2,
+    "flip_watch": 7,
+    "enter_now": 1
+  },
+  "offset": 9690,
+  "nextOffset": 9720,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9720 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 9,
+    "archive": 4,
+    "flip_watch": 7,
+    "enter_now": 1
+  },
+  "offset": 9720,
+  "nextOffset": 9750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 15,
+    "archive": 3,
+    "flip_watch": 8,
+    "just_flipped": 3,
+    "enter_now": 1
+  },
+  "offset": 9750,
+  "nextOffset": 9780,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9780 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "archive": 2,
+    "flip_watch": 10,
+    "null": 9,
+    "exit": 1
+  },
+  "offset": 9780,
+  "nextOffset": 9810,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9810 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "exit": 1,
+    "null": 11,
+    "flip_watch": 8,
+    "archive": 1
+  },
+  "offset": 9810,
+  "nextOffset": 9840,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9840 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "enter_now": 1,
+    "flip_watch": 6,
+    "archive": 4,
+    "just_flipped": 9,
+    "null": 9,
+    "exit": 1
+  },
+  "offset": 9840,
+  "nextOffset": 9870,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9870 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "archive": 2,
+    "null": 12,
+    "just_flipped": 7
+  },
+  "offset": 9870,
+  "nextOffset": 9900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "flip_watch": 11,
+    "just_flipped": 8
+  },
+  "offset": 9900,
+  "nextOffset": 9930,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9930 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 12,
+    "just_flipped": 8,
+    "flip_watch": 6,
+    "archive": 3,
+    "exit": 1
+  },
+  "offset": 9930,
+  "nextOffset": 9960,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9960 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "archive": 3,
+    "null": 10,
+    "flip_watch": 8,
+    "exit": 1
+  },
+  "offset": 9960,
+  "nextOffset": 9990,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 9990 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 5,
+    "flip_watch": 5,
+    "enter_now": 1,
+    "archive": 6,
+    "exit": 2
+  },
+  "offset": 9990,
+  "nextOffset": 10020,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10020 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "just_flipped": 6,
+    "flip_watch": 12,
+    "exit": 2,
+    "archive": 1
+  },
+  "offset": 10020,
+  "nextOffset": 10050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "just_flipped": 11,
+    "null": 6,
+    "exit": 3,
+    "hold": 1
+  },
+  "offset": 10050,
+  "nextOffset": 10080,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10080 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 4,
+    "null": 13,
+    "just_flipped": 10,
+    "archive": 3
+  },
+  "offset": 10080,
+  "nextOffset": 10110,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10110 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "just_flipped": 8,
+    "archive": 4,
+    "flip_watch": 9
+  },
+  "offset": 10110,
+  "nextOffset": 10140,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10140 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 12,
+    "flip_watch": 7,
+    "just_flipped": 10,
+    "enter_now": 1
+  },
+  "offset": 10140,
+  "nextOffset": 10170,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10170 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "flip_watch": 11,
+    "just_flipped": 8,
+    "archive": 1,
+    "enter_now": 1
+  },
+  "offset": 10170,
+  "nextOffset": 10200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 9,
+    "flip_watch": 9,
+    "archive": 1
+  },
+  "offset": 10200,
+  "nextOffset": 10230,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10230 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "exit": 1,
+    "flip_watch": 12,
+    "just_flipped": 3,
+    "trim": 1,
+    "archive": 4
+  },
+  "offset": 10230,
+  "nextOffset": 10260,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10260 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "just_flipped": 11,
+    "null": 9,
+    "exit": 2
+  },
+  "offset": 10260,
+  "nextOffset": 10290,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10290 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 7,
+    "flip_watch": 9,
+    "null": 11,
+    "enter_now": 1,
+    "archive": 2
+  },
+  "offset": 10290,
+  "nextOffset": 10320,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10320 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "flip_watch": 9,
+    "null": 13,
+    "exit": 1
+  },
+  "offset": 10320,
+  "nextOffset": 10350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 10,
+    "flip_watch": 9,
+    "just_flipped": 9,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 10350,
+  "nextOffset": 10380,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10380 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 6,
+    "just_flipped": 6,
+    "flip_watch": 15,
+    "archive": 1,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 10380,
+  "nextOffset": 10410,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10410 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "flip_watch": 8,
+    "null": 12,
+    "archive": 2
+  },
+  "offset": 10410,
+  "nextOffset": 10440,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10440 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "null": 11,
+    "just_flipped": 9,
+    "exit": 1,
+    "defend": 1
+  },
+  "offset": 10440,
+  "nextOffset": 10470,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10470 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 7,
+    "just_flipped": 9,
+    "null": 9,
+    "archive": 3,
+    "exit": 2
+  },
+  "offset": 10470,
+  "nextOffset": 10500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10500 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 14,
+    "null": 6,
+    "archive": 2,
+    "just_flipped": 6,
+    "exit": 2
+  },
+  "offset": 10500,
+  "nextOffset": 10530,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10530 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 9,
+    "enter_now": 2,
+    "flip_watch": 7,
+    "archive": 3
+  },
+  "offset": 10530,
+  "nextOffset": 10560,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10560 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 12,
+    "just_flipped": 7,
+    "trim": 1
+  },
+  "offset": 10560,
+  "nextOffset": 10590,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10590 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 13,
+    "just_flipped": 9,
+    "flip_watch": 8
+  },
+  "offset": 10590,
+  "nextOffset": 10620,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10620 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "null": 9,
+    "flip_watch": 7,
+    "just_flipped": 9,
+    "archive": 3,
+    "enter_now": 2
+  },
+  "offset": 10620,
+  "nextOffset": 10650,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10650 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 10,
+    "flip_watch": 10,
+    "enter_now": 1
+  },
+  "offset": 10650,
+  "nextOffset": 10680,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10680 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "null": 13,
+    "flip_watch": 6,
+    "archive": 1
+  },
+  "offset": 10680,
+  "nextOffset": 10710,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10710 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "flip_watch": 12,
+    "just_flipped": 7,
+    "defend": 1,
+    "exit": 1
+  },
+  "offset": 10710,
+  "nextOffset": 10740,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10740 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 13,
+    "just_flipped": 7,
+    "flip_watch": 7,
+    "archive": 3
+  },
+  "offset": 10740,
+  "nextOffset": 10770,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10770 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "null": 9,
+    "just_flipped": 6,
+    "flip_watch": 12,
+    "enter_now": 2,
+    "archive": 1
+  },
+  "offset": 10770,
+  "nextOffset": 10800,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10800 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 11,
+    "null": 9,
+    "flip_watch": 5,
+    "enter_now": 1,
+    "exit": 2,
+    "archive": 2
+  },
+  "offset": 10800,
+  "nextOffset": 10830,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10830 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "trim": 1,
+    "null": 8,
+    "just_flipped": 10,
+    "exit": 1
+  },
+  "offset": 10830,
+  "nextOffset": 10860,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10860 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 13,
+    "flip_watch": 7,
+    "archive": 4,
+    "just_flipped": 6
+  },
+  "offset": 10860,
+  "nextOffset": 10890,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10890 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "archive": 4,
+    "flip_watch": 8,
+    "just_flipped": 8,
+    "exit": 1
+  },
+  "offset": 10890,
+  "nextOffset": 10920,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10920 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "archive": 2,
+    "just_flipped": 10,
+    "flip_watch": 7,
+    "null": 9,
+    "exit": 1,
+    "enter_now": 1
+  },
+  "offset": 10920,
+  "nextOffset": 10950,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10950 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 11,
+    "flip_watch": 11,
+    "enter_now": 1,
+    "null": 6,
+    "archive": 1
+  },
+  "offset": 10950,
+  "nextOffset": 10980,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 10980 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 7,
+    "archive": 2,
+    "just_flipped": 5,
+    "exit": 2,
+    "trim": 1,
+    "null": 13
+  },
+  "offset": 10980,
+  "nextOffset": 11010,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11010 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 9,
+    "null": 7,
+    "flip_watch": 9,
+    "exit": 1,
+    "archive": 2,
+    "enter_now": 1,
+    "defend": 1
+  },
+  "offset": 11010,
+  "nextOffset": 11040,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11040 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 7,
+    "enter_now": 1,
+    "archive": 1,
+    "exit": 2,
+    "flip_watch": 7,
+    "null": 12
+  },
+  "offset": 11040,
+  "nextOffset": 11070,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11070 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 9,
+    "just_flipped": 11,
+    "enter_now": 2,
+    "flip_watch": 6,
+    "archive": 2
+  },
+  "offset": 11070,
+  "nextOffset": 11100,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11100 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 12,
+    "null": 9,
+    "just_flipped": 6,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 11100,
+  "nextOffset": 11130,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11130 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 8,
+    "archive": 1,
+    "null": 8,
+    "flip_watch": 10,
+    "exit": 2,
+    "enter_now": 1
+  },
+  "offset": 11130,
+  "nextOffset": 11160,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11160 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 8,
+    "flip_watch": 8,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 11160,
+  "nextOffset": 11190,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11190 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 10,
+    "exit": 1,
+    "flip_watch": 8,
+    "null": 10,
+    "enter_now": 1
+  },
+  "offset": 11190,
+  "nextOffset": 11220,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11220 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "enter_now": 1,
+    "flip_watch": 10,
+    "just_flipped": 9,
+    "archive": 1
+  },
+  "offset": 11220,
+  "nextOffset": 11250,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11250 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "defend": 1,
+    "null": 10,
+    "just_flipped": 9,
+    "archive": 1
+  },
+  "offset": 11250,
+  "nextOffset": 11280,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11280 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 10,
+    "flip_watch": 7,
+    "just_flipped": 10,
+    "archive": 1,
+    "enter_now": 1,
+    "exit": 1
+  },
+  "offset": 11280,
+  "nextOffset": 11310,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11310 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "flip_watch": 6,
+    "null": 12,
+    "enter_now": 1
+  },
+  "offset": 11310,
+  "nextOffset": 11340,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11340 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 8,
+    "trim": 1,
+    "archive": 1,
+    "flip_watch": 10,
+    "just_flipped": 9,
+    "exit": 1
+  },
+  "offset": 11340,
+  "nextOffset": 11370,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11370 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "null": 10,
+    "just_flipped": 5,
+    "archive": 3
+  },
+  "offset": 11370,
+  "nextOffset": 11400,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11400 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 3,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 8,
+    "just_flipped": 7,
+    "enter_now": 4,
+    "trim": 1
+  },
+  "offset": 11400,
+  "nextOffset": 11430,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11430 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 2,
+  "laneCounts": {
+    "flip_watch": 7,
+    "null": 12,
+    "just_flipped": 8,
+    "enter_now": 2,
+    "archive": 1
+  },
+  "offset": 11430,
+  "nextOffset": 11460,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11460 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "just_flipped": 7,
+    "null": 11,
+    "flip_watch": 7,
+    "exit": 2,
+    "archive": 2,
+    "enter_now": 1
+  },
+  "offset": 11460,
+  "nextOffset": 11490,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11490 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "exit": 2,
+    "null": 6,
+    "flip_watch": 10,
+    "just_flipped": 10,
+    "enter_now": 1,
+    "archive": 1
+  },
+  "offset": 11490,
+  "nextOffset": 11520,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11520 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "archive": 3,
+    "null": 12,
+    "flip_watch": 8
+  },
+  "offset": 11520,
+  "nextOffset": 11550,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11550 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "flip_watch": 8,
+    "exit": 5,
+    "null": 6,
+    "archive": 1
+  },
+  "offset": 11550,
+  "nextOffset": 11580,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11580 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 4,
+    "exit": 4,
+    "null": 11,
+    "just_flipped": 9,
+    "archive": 2
+  },
+  "offset": 11580,
+  "nextOffset": 11610,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11610 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 6,
+    "null": 11,
+    "flip_watch": 9,
+    "exit": 1,
+    "defend": 1,
+    "archive": 2
+  },
+  "offset": 11610,
+  "nextOffset": 11640,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11640 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 8,
+    "flip_watch": 9,
+    "just_flipped": 7,
+    "exit": 5,
+    "archive": 1
+  },
+  "offset": 11640,
+  "nextOffset": 11670,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11670 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 12,
+    "flip_watch": 8,
+    "just_flipped": 6,
+    "exit": 3,
+    "defend": 1
+  },
+  "offset": 11670,
+  "nextOffset": 11700,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11700 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 10,
+    "null": 7,
+    "archive": 3,
+    "flip_watch": 9,
+    "exit": 1
+  },
+  "offset": 11700,
+  "nextOffset": 11730,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11730 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 10,
+    "exit": 2,
+    "just_flipped": 8,
+    "flip_watch": 9,
+    "enter_now": 1
+  },
+  "offset": 11730,
+  "nextOffset": 11760,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11760 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "archive": 3,
+    "flip_watch": 10,
+    "exit": 1,
+    "null": 9
+  },
+  "offset": 11760,
+  "nextOffset": 11790,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11790 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 3,
+    "null": 7,
+    "flip_watch": 5,
+    "just_flipped": 11,
+    "archive": 4
+  },
+  "offset": 11790,
+  "nextOffset": 11820,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11820 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 3,
+    "just_flipped": 7,
+    "flip_watch": 12,
+    "null": 7,
+    "archive": 1
+  },
+  "offset": 11820,
+  "nextOffset": 11850,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11850 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 4,
+    "just_flipped": 8,
+    "exit": 5,
+    "null": 11,
+    "defend": 1,
+    "archive": 1
+  },
+  "offset": 11850,
+  "nextOffset": 11880,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11880 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "flip_watch": 7,
+    "exit": 3,
+    "null": 9,
+    "just_flipped": 7,
+    "archive": 3,
+    "enter_now": 1
+  },
+  "offset": 11880,
+  "nextOffset": 11910,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11910 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "flip_watch": 6,
+    "null": 10,
+    "exit": 6,
+    "archive": 1
+  },
+  "offset": 11910,
+  "nextOffset": 11940,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11940 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "flip_watch": 11,
+    "null": 5,
+    "exit": 1,
+    "archive": 2
+  },
+  "offset": 11940,
+  "nextOffset": 11970,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 11970 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 5,
+    "null": 11,
+    "just_flipped": 10,
+    "exit": 3,
+    "trim": 1
+  },
+  "offset": 11970,
+  "nextOffset": 12000,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12000 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 5,
+    "flip_watch": 13,
+    "null": 8,
+    "archive": 2,
+    "exit": 2
+  },
+  "offset": 12000,
+  "nextOffset": 12030,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12030 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 8,
+    "flip_watch": 10,
+    "null": 7,
+    "exit": 4,
+    "archive": 1
+  },
+  "offset": 12030,
+  "nextOffset": 12060,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12060 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "flip_watch": 7,
+    "just_flipped": 6,
+    "exit": 6
+  },
+  "offset": 12060,
+  "nextOffset": 12090,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12090 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 4,
+    "just_flipped": 13,
+    "flip_watch": 5,
+    "null": 7,
+    "trim": 1
+  },
+  "offset": 12090,
+  "nextOffset": 12120,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12120 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "archive": 6,
+    "just_flipped": 7,
+    "exit": 3,
+    "flip_watch": 5
+  },
+  "offset": 12120,
+  "nextOffset": 12150,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12150 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 11,
+    "archive": 2,
+    "null": 10,
+    "just_flipped": 4,
+    "exit": 3
+  },
+  "offset": 12150,
+  "nextOffset": 12180,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12180 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 5,
+    "just_flipped": 12,
+    "archive": 3,
+    "exit": 5,
+    "null": 5
+  },
+  "offset": 12180,
+  "nextOffset": 12210,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12210 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 9,
+    "flip_watch": 9,
+    "null": 8,
+    "archive": 1,
+    "exit": 2,
+    "defend": 1
+  },
+  "offset": 12210,
+  "nextOffset": 12240,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12240 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 2,
+    "flip_watch": 4,
+    "just_flipped": 9,
+    "null": 13,
+    "exit": 2
+  },
+  "offset": 12240,
+  "nextOffset": 12270,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12270 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 6,
+    "just_flipped": 7,
+    "archive": 2,
+    "flip_watch": 12,
+    "exit": 3
+  },
+  "offset": 12270,
+  "nextOffset": 12300,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12300 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "just_flipped": 12,
+    "null": 7,
+    "exit": 3
+  },
+  "offset": 12300,
+  "nextOffset": 12330,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12330 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 4,
+    "null": 10,
+    "just_flipped": 8,
+    "archive": 2,
+    "flip_watch": 6
+  },
+  "offset": 12330,
+  "nextOffset": 12360,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12360 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 7,
+    "just_flipped": 6,
+    "flip_watch": 9,
+    "archive": 3,
+    "exit": 5
+  },
+  "offset": 12360,
+  "nextOffset": 12390,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12390 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 11,
+    "defend": 1,
+    "archive": 1,
+    "null": 11,
+    "just_flipped": 5,
+    "exit": 1
+  },
+  "offset": 12390,
+  "nextOffset": 12420,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12420 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "null": 8,
+    "flip_watch": 8,
+    "exit": 3
+  },
+  "offset": 12420,
+  "nextOffset": 12450,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12450 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 5,
+    "null": 8,
+    "archive": 6,
+    "flip_watch": 7,
+    "exit": 4
+  },
+  "offset": 12450,
+  "nextOffset": 12480,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12480 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "null": 8,
+    "defend": 1,
+    "just_flipped": 10,
+    "exit": 2
+  },
+  "offset": 12480,
+  "nextOffset": 12510,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12510 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 11,
+    "just_flipped": 5,
+    "flip_watch": 7,
+    "archive": 4,
+    "exit": 3
+  },
+  "offset": 12510,
+  "nextOffset": 12540,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12540 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "just_flipped": 8,
+    "flip_watch": 7,
+    "archive": 2,
+    "exit": 4
+  },
+  "offset": 12540,
+  "nextOffset": 12570,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12570 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 10,
+    "null": 9,
+    "exit": 1,
+    "just_flipped": 9,
+    "trim": 1
+  },
+  "offset": 12570,
+  "nextOffset": 12600,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12600 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 7,
+    "just_flipped": 9,
+    "flip_watch": 7,
+    "exit": 5,
+    "archive": 2
+  },
+  "offset": 12600,
+  "nextOffset": 12630,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12630 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "null": 10,
+    "archive": 4,
+    "just_flipped": 5,
+    "exit": 2
+  },
+  "offset": 12630,
+  "nextOffset": 12660,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12660 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 6,
+    "null": 9,
+    "just_flipped": 11,
+    "archive": 1,
+    "exit": 3
+  },
+  "offset": 12660,
+  "nextOffset": 12690,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12690 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 6,
+    "flip_watch": 7,
+    "just_flipped": 6,
+    "null": 9,
+    "archive": 2
+  },
+  "offset": 12690,
+  "nextOffset": 12720,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12720 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "exit": 2,
+    "null": 7,
+    "just_flipped": 10,
+    "archive": 2
+  },
+  "offset": 12720,
+  "nextOffset": 12750,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12750 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 1,
+    "null": 9,
+    "just_flipped": 8,
+    "flip_watch": 7,
+    "archive": 4,
+    "trim": 1
+  },
+  "offset": 12750,
+  "nextOffset": 12780,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12780 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 10,
+    "exit": 3,
+    "flip_watch": 9,
+    "archive": 3,
+    "just_flipped": 5
+  },
+  "offset": 12780,
+  "nextOffset": 12810,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12810 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "enter_now": 1,
+    "flip_watch": 8,
+    "null": 11,
+    "archive": 1,
+    "exit": 1,
+    "just_flipped": 8
+  },
+  "offset": 12810,
+  "nextOffset": 12840,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12840 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 8,
+    "flip_watch": 9,
+    "exit": 3,
+    "just_flipped": 8,
+    "archive": 2
+  },
+  "offset": 12840,
+  "nextOffset": 12870,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12870 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "exit": 6,
+    "just_flipped": 7,
+    "null": 7,
+    "archive": 1,
+    "trim": 1
+  },
+  "offset": 12870,
+  "nextOffset": 12900,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12900 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "just_flipped": 9,
+    "null": 7,
+    "archive": 3,
+    "exit": 2
+  },
+  "offset": 12900,
+  "nextOffset": 12930,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12930 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "just_flipped": 9,
+    "null": 8,
+    "exit": 3,
+    "archive": 2
+  },
+  "offset": 12930,
+  "nextOffset": 12960,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12960 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 6,
+    "just_flipped": 11,
+    "flip_watch": 9,
+    "archive": 1,
+    "exit": 3
+  },
+  "offset": 12960,
+  "nextOffset": 12990,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 12990 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "exit": 4,
+    "null": 10,
+    "flip_watch": 8,
+    "just_flipped": 6,
+    "trim": 1,
+    "archive": 1
+  },
+  "offset": 12990,
+  "nextOffset": 13020,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13020 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 6,
+    "archive": 3,
+    "exit": 3,
+    "flip_watch": 12,
+    "null": 6
+  },
+  "offset": 13020,
+  "nextOffset": 13050,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13050 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 3,
+    "null": 8,
+    "archive": 1,
+    "flip_watch": 12,
+    "exit": 6
+  },
+  "offset": 13050,
+  "nextOffset": 13080,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13080 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 10,
+    "flip_watch": 5,
+    "archive": 3,
+    "just_flipped": 11,
+    "exit": 1
+  },
+  "offset": 13080,
+  "nextOffset": 13110,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13110 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 2,
+    "just_flipped": 9,
+    "exit": 4,
+    "flip_watch": 13,
+    "null": 2
+  },
+  "offset": 13110,
+  "nextOffset": 13140,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13140 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 7,
+    "exit": 3,
+    "null": 11,
+    "flip_watch": 9
+  },
+  "offset": 13140,
+  "nextOffset": 13170,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13170 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "archive": 1,
+    "trim": 1,
+    "just_flipped": 8,
+    "flip_watch": 7,
+    "null": 10,
+    "exit": 3
+  },
+  "offset": 13170,
+  "nextOffset": 13200,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13200 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "just_flipped": 11,
+    "null": 9,
+    "exit": 2
+  },
+  "offset": 13200,
+  "nextOffset": 13230,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13230 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 9,
+    "flip_watch": 11,
+    "just_flipped": 6,
+    "exit": 3,
+    "archive": 1
+  },
+  "offset": 13230,
+  "nextOffset": 13260,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13260 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 12,
+    "archive": 4,
+    "flip_watch": 6,
+    "null": 6,
+    "exit": 2
+  },
+  "offset": 13260,
+  "nextOffset": 13290,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13290 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 1,
+  "laneCounts": {
+    "null": 11,
+    "flip_watch": 8,
+    "just_flipped": 5,
+    "enter_now": 1,
+    "trim": 1,
+    "exit": 3,
+    "archive": 1
+  },
+  "offset": 13290,
+  "nextOffset": 13320,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13320 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "null": 7,
+    "flip_watch": 11,
+    "exit": 3,
+    "just_flipped": 8,
+    "archive": 1
+  },
+  "offset": 13320,
+  "nextOffset": 13350,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13350 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "just_flipped": 11,
+    "exit": 6,
+    "null": 4,
+    "archive": 2,
+    "flip_watch": 7
+  },
+  "offset": 13350,
+  "nextOffset": 13380,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13380 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 9,
+    "null": 11,
+    "just_flipped": 7,
+    "trim": 1,
+    "archive": 1,
+    "exit": 1
+  },
+  "offset": 13380,
+  "nextOffset": 13410,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13410 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 8,
+    "just_flipped": 6,
+    "null": 10,
+    "hold": 1,
+    "archive": 2,
+    "exit": 3
+  },
+  "offset": 13410,
+  "nextOffset": 13440,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13440 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "flip_watch": 12,
+    "just_flipped": 8,
+    "null": 4,
+    "trim": 1,
+    "exit": 1,
+    "archive": 4
+  },
+  "offset": 13440,
+  "nextOffset": 13470,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13470 ---
+{
+  "ok": true,
+  "day": "2026-02-02",
+  "tsStart": 1770042600000,
+  "tsEnd": 1770094799999,
+  "rowsProcessed": 30,
+  "tradesCreated": 0,
+  "laneCounts": {
+    "hold": 1,
+    "null": 8,
+    "exit": 3,
+    "just_flipped": 10,
+    "flip_watch": 6,
+    "archive": 2
+  },
+  "offset": 13470,
+  "nextOffset": 13500,
+  "hasMore": true,
+  "errorsCount": 0,
+  "errors": []
+}
+--- Batch done. Next offset: 13500 ---
+{
+  "ok": false,
+  "error": "internal_error",
+  "message": "An unexpected error occurred"
+}
+Stopping: response ok=false

@@ -1,21 +1,21 @@
 # Top Movers Analysis
 
 Source: `https://timed-trading-ingest.shashant.workers.dev`
-Window: last **180** days
-Generated: 2026-01-17T20:52:14.970Z
+Window: last **1** days
+Generated: 2026-02-02T22:26:32.127Z
 
-## Summary (Top 25 by max run-up)
+## Summary (Top 30 by max run-up)
 
 Common traits at the start of the max run-up window:
 - Prime-like (RR≥1.5, Completion<40%, Phase<60%): **0%**
-- Early Phase (<35%): **60%**
-- Low Completion (<15%): **76%**
+- Early Phase (<35%): **63.3%**
+- Low Completion (<15%): **0%**
 - High RR (≥2.0): **0%**
-- Setup quadrant (PULLBACK): **92%**
-- Squeeze on (sq30_on) within prior 24h: **16%**
-- Squeeze release (sq30_release) within prior 24h: **0%**
-- Squeeze release within prior 3h: **0%**
-- Setup→Momentum transition within 6h: **64%**
+- Setup quadrant (PULLBACK): **63.3%**
+- Squeeze on (sq30_on) within prior 24h: **26.7%**
+- Squeeze release (sq30_release) within prior 24h: **6.7%**
+- Squeeze release within prior 3h: **6.7%**
+- Setup→Momentum transition within 6h: **70%**
 
 Winner signature checklist (early, high-probability):
 - Start state is a setup quadrant (often *LTF_PULLBACK*) **and** flips into LTF momentum within hours
@@ -27,121 +27,108 @@ Winner signature checklist (early, high-probability):
 
 | # | Ticker | Max run-up | From → To | Intraday max | C2C max (abs) |
 |---:|:---|---:|:---|---:|---:|
-| 1 | GLXY | +27.37% | 2026-01-14T15:45:00Z → 2026-01-16T18:55:00Z | +11.58% | — |
-| 2 | AVAV | +17.19% | 2026-01-14T14:40:00Z → 2026-01-16T19:14:00Z | +9.65% | — |
-| 3 | RIOT | +17.03% | 2026-01-15T20:59:00Z → 2026-01-16T20:57:00Z | +10.87% | — |
-| 4 | RKLB | +15.12% | 2026-01-14T15:30:00Z → 2026-01-16T16:03:00Z | +6.45% | — |
-| 5 | TLN | +14.84% | 2026-01-14T15:35:00Z → 2026-01-15T20:37:00Z | +8.06% | — |
-| 6 | STRL | +14.38% | 2026-01-14T18:30:00Z → 2026-01-16T16:42:00Z | +5.02% | — |
-| 7 | BE | +14.04% | 2026-01-14T20:45:00Z → 2026-01-16T20:20:00Z | +6.08% | — |
-| 8 | KTOS | +13.32% | 2026-01-14T15:00:00Z → 2026-01-16T18:37:00Z | +6.24% | — |
-| 9 | MTZ | +12.89% | 2026-01-14T17:45:00Z → 2026-01-16T16:42:00Z | +3.62% | — |
-| 10 | KLAC | +11.99% | 2026-01-14T16:45:00Z → 2026-01-16T20:22:00Z | +2.75% | — |
-| 11 | JOBY | +11.73% | 2026-01-14T14:40:00Z → 2026-01-16T16:03:00Z | +5.33% | — |
-| 12 | PWR | +11.63% | 2026-01-14T18:10:00Z → 2026-01-16T16:41:00Z | +4.81% | — |
-| 13 | FIX | +11.03% | 2026-01-14T17:50:00Z → 2026-01-16T16:42:00Z | +3.76% | — |
-| 14 | IESC | +10.79% | 2026-01-14T16:10:00Z → 2026-01-16T20:42:00Z | +7.41% | — |
-| 15 | RBLX | +10.48% | 2026-01-14T18:40:00Z → 2026-01-16T16:50:00Z | +5.94% | — |
-| 16 | MU | +10.41% | 2026-01-14T17:50:00Z → 2026-01-16T14:41:00Z | +3.66% | — |
-| 17 | CRS | +10.31% | 2026-01-14T14:40:00Z → 2026-01-15T17:05:00Z | +4.36% | — |
-| 18 | CCJ | +9.34% | 2026-01-14T15:00:00Z → 2026-01-16T14:51:00Z | +3.23% | — |
-| 19 | NBIS | +9.19% | 2026-01-16T14:59:00Z → 2026-01-16T17:03:00Z | +9.19% | — |
-| 20 | BWXT | +9.15% | 2026-01-14T17:50:00Z → 2026-01-16T17:22:00Z | +2.88% | — |
-| 21 | IONQ | +9.02% | 2026-01-15T20:59:00Z → 2026-01-16T18:38:00Z | +8.97% | — |
-| 22 | LRCX | +8.69% | 2026-01-14T19:05:00Z → 2026-01-16T14:42:00Z | +2.78% | — |
-| 23 | VST | +8.63% | 2026-01-14T18:30:00Z → 2026-01-15T16:00:00Z | +4.47% | — |
-| 24 | SANM | +8.42% | 2026-01-14T18:30:00Z → 2026-01-16T17:33:00Z | +3.65% | — |
-| 25 | GEV | +8.40% | 2026-01-14T17:30:00Z → 2026-01-16T16:34:00Z | +4.16% | — |
+| 1 | AGQ | +10.12% | 2026-02-02T16:01:00Z → 2026-02-02T16:21:00Z | +18.71% | — |
+| 2 | SLV | +6.48% | 2026-02-02T18:20:00Z → 2026-02-02T19:50:00Z | +6.48% | — |
+| 3 | IBRX | +5.89% | 2026-02-02T18:25:00Z → 2026-02-02T19:57:00Z | +5.89% | — |
+| 4 | ONDS | +5.67% | 2026-02-02T18:14:00Z → 2026-02-02T19:55:00Z | +5.67% | — |
+| 5 | SILVER | +4.94% | 2026-02-02T16:01:00Z → 2026-02-02T16:24:00Z | +11.39% | — |
+| 6 | WFRD | +4.07% | 2026-02-02T14:30:00Z → 2026-02-02T15:13:00Z | +4.07% | — |
+| 7 | VIX | +3.36% | 2026-02-02T19:13:00Z → 2026-02-02T20:42:00Z | +3.36% | — |
+| 8 | ENS | +3.18% | 2026-02-02T14:59:00Z → 2026-02-02T16:29:00Z | +3.18% | — |
+| 9 | MTZ | +3.17% | 2026-02-02T14:30:00Z → 2026-02-02T15:55:00Z | +3.17% | — |
+| 10 | AEHR | +3.12% | 2026-02-02T18:32:00Z → 2026-02-02T19:54:00Z | +3.44% | — |
+| 11 | BE | +3.11% | 2026-02-02T18:18:00Z → 2026-02-02T19:58:00Z | +3.11% | — |
+| 12 | APLD | +2.94% | 2026-02-02T18:16:00Z → 2026-02-02T19:58:00Z | +3.91% | — |
+| 13 | ASTS | +2.77% | 2026-02-02T19:36:00Z → 2026-02-02T19:57:00Z | +2.77% | — |
+| 14 | IREN | +2.75% | 2026-02-02T18:31:00Z → 2026-02-02T19:58:00Z | +4.74% | — |
+| 15 | HL | +2.74% | 2026-02-02T16:01:00Z → 2026-02-02T16:23:00Z | +8.42% | — |
+| 16 | B | +2.65% | 2026-02-02T18:19:00Z → 2026-02-02T20:59:00Z | +2.65% | — |
+| 17 | RIOT | +2.60% | 2026-02-02T18:28:00Z → 2026-02-02T19:58:00Z | +3.62% | — |
+| 18 | GILD | +2.38% | 2026-02-02T14:35:00Z → 2026-02-02T15:13:00Z | +2.38% | — |
+| 19 | ETHT | +2.37% | 2026-02-02T18:28:00Z → 2026-02-02T18:34:00Z | +4.56% | — |
+| 20 | GOOGL | +2.34% | 2026-02-02T14:31:00Z → 2026-02-02T15:19:00Z | +2.34% | — |
+| 21 | IESC | +2.21% | 2026-02-02T20:15:00Z → 2026-02-02T20:54:00Z | +2.21% | — |
+| 22 | GDXJ | +2.15% | 2026-02-02T18:19:00Z → 2026-02-02T20:59:00Z | +2.15% | — |
+| 23 | IONQ | +2.14% | 2026-02-02T18:22:00Z → 2026-02-02T19:58:00Z | +3.11% | — |
+| 24 | SNDK | +2.14% | 2026-02-02T20:00:00Z → 2026-02-02T20:11:00Z | +3.13% | — |
+| 25 | EME | +2.13% | 2026-02-02T14:30:00Z → 2026-02-02T15:49:00Z | +2.13% | — |
+| 26 | AAPL | +2.10% | 2026-02-02T18:20:00Z → 2026-02-02T20:52:00Z | +2.10% | — |
+| 27 | AU | +2.04% | 2026-02-02T18:15:00Z → 2026-02-02T19:58:00Z | +2.04% | — |
+| 28 | JPM | +2.01% | 2026-02-02T14:31:00Z → 2026-02-02T16:16:00Z | +2.01% | — |
+| 29 | APP | +2.01% | 2026-02-02T18:45:00Z → 2026-02-02T20:13:00Z | +2.01% | — |
+| 30 | AYI | +1.97% | 2026-02-02T14:38:00Z → 2026-02-02T15:55:00Z | +1.97% | — |
 
 ## Journeys (Top 10)
 
-### GLXY
-- **Max run-up**: +27.37% (2026-01-14T15:45:00Z → 2026-01-16T18:55:00Z)
-- **Start**: $27.26 | state=HTF_BULL_LTF_BULL | HTF=8.62 LTF=20.01 | phase=19% | completion=8% | RR=—
-- **End**: $34.72 | state=HTF_BULL_LTF_BULL | HTF=19.14 LTF=15.14 | phase=75% | completion=39% | RR=—
+### AGQ
+- **Max run-up**: +10.12% (2026-02-02T16:01:00Z → 2026-02-02T16:21:00Z)
+- **Start**: $132.82 | state=HTF_BULL_LTF_PULLBACK | HTF=2.99 LTF=-5.23 | phase=7% | completion=100% | RR=—
+- **End**: $146.26 | state=HTF_BULL_LTF_PULLBACK | HTF=13.26 LTF=-5.93 | phase=10% | completion=100% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 0m → HTF_BULL_LTF_BULL
+- **Setup→Momentum**: —
 
-### AVAV
-- **Max run-up**: +17.19% (2026-01-14T14:40:00Z → 2026-01-16T19:14:00Z)
-- **Start**: $348.09 | state=HTF_BULL_LTF_PULLBACK | HTF=27.49 LTF=-11.15 | phase=75% | completion=53% | RR=—
-- **End**: $407.91 | state=HTF_BULL_LTF_BULL | HTF=42.43 LTF=22.17 | phase=92% | completion=83% | RR=—
+### SLV
+- **Max run-up**: +6.48% (2026-02-02T18:20:00Z → 2026-02-02T19:50:00Z)
+- **Start**: $69.30 | state=HTF_BULL_LTF_PULLBACK | HTF=16.36 LTF=-9.93 | phase=24% | completion=100% | RR=—
+- **End**: $73.79 | state=HTF_BULL_LTF_PULLBACK | HTF=23.94 LTF=-12.67 | phase=31% | completion=100% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 55m → HTF_BULL_LTF_BULL
+- **Setup→Momentum**: —
 
-### RIOT
-- **Max run-up**: +17.03% (2026-01-15T20:59:00Z → 2026-01-16T20:57:00Z)
-- **Start**: $16.56 | state=HTF_BULL_LTF_PULLBACK | HTF=18.1 LTF=-4.05 | phase=44% | completion=6% | RR=—
-- **End**: $19.38 | state=HTF_BULL_LTF_BULL | HTF=33.5 LTF=20.17 | phase=65% | completion=29% | RR=—
+### IBRX
+- **Max run-up**: +5.89% (2026-02-02T18:25:00Z → 2026-02-02T19:57:00Z)
+- **Start**: $5.94 | state=HTF_BULL_LTF_PULLBACK | HTF=28.48 LTF=-9.05 | phase=49% | completion=100% | RR=—
+- **End**: $6.29 | state=HTF_BULL_LTF_BULL | HTF=28.84 LTF=9.46 | phase=53% | completion=100% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 17.5h → HTF_BULL_LTF_BULL
+- **Setup→Momentum**: 17m → HTF_BULL_LTF_BULL
 
-### RKLB
-- **Max run-up**: +15.12% (2026-01-14T15:30:00Z → 2026-01-16T16:03:00Z)
-- **Start**: $86.37 | state=HTF_BULL_LTF_PULLBACK | HTF=28.31 LTF=-8.99 | phase=72% | completion=1% | RR=—
-- **End**: $99.43 | state=HTF_BULL_LTF_BULL | HTF=38.32 LTF=17.77 | phase=88% | completion=12% | RR=—
+### ONDS
+- **Max run-up**: +5.67% (2026-02-02T18:14:00Z → 2026-02-02T19:55:00Z)
+- **Start**: $10.59 | state=HTF_BULL_LTF_PULLBACK | HTF=18.19 LTF=-3.28 | phase=17% | completion=100% | RR=—
+- **End**: $11.19 | state=HTF_BULL_LTF_BULL | HTF=27.81 LTF=19.24 | phase=13% | completion=99% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=yes | sq30_release<=24h=no
-- **Setup→Momentum**: 1.9h → HTF_BULL_LTF_BULL
+- **Setup→Momentum**: 4m → HTF_BULL_LTF_BULL
 
-### TLN
-- **Max run-up**: +14.84% (2026-01-14T15:35:00Z → 2026-01-15T20:37:00Z)
-- **Start**: $369.52 | state=HTF_BEAR_LTF_BEAR | HTF=-0.26 LTF=-14.01 | phase=4% | completion=0% | RR=—
-- **End**: $424.37 | state=HTF_BULL_LTF_BULL | HTF=24.48 LTF=18.72 | phase=27% | completion=44% | RR=—
+### SILVER
+- **Max run-up**: +4.94% (2026-02-02T16:01:00Z → 2026-02-02T16:24:00Z)
+- **Start**: $75.53 | state=HTF_BULL_LTF_PULLBACK | HTF=3.37 LTF=-8.42 | phase=21% | completion=100% | RR=—
+- **End**: $79.26 | state=HTF_BULL_LTF_PULLBACK | HTF=13.37 LTF=-11.07 | phase=25% | completion=100% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
+- **Setup→Momentum**: —
+
+### WFRD
+- **Max run-up**: +4.07% (2026-02-02T14:30:00Z → 2026-02-02T15:13:00Z)
+- **Start**: $90.23 | state=HTF_BULL_LTF_PULLBACK | HTF=36.06 LTF=-13.98 | phase=41% | completion=100% | RR=—
+- **End**: $93.90 | state=HTF_BULL_LTF_PULLBACK | HTF=26.06 LTF=-2.73 | phase=51% | completion=46% | RR=—
+- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=yes (Δ=0m)
+- **Setup→Momentum**: 7m → HTF_BULL_LTF_BULL
+
+### VIX
+- **Max run-up**: +3.36% (2026-02-02T19:13:00Z → 2026-02-02T20:42:00Z)
+- **Start**: $16.08 | state=HTF_BEAR_LTF_BEAR | HTF=-11.66 LTF=-5.18 | phase=12% | completion=49% | RR=—
+- **End**: $16.62 | state=HTF_BEAR_LTF_BEAR | HTF=-1.66 LTF=-10.5 | phase=14% | completion=100% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
 - **Setup→Momentum**: 0m → HTF_BEAR_LTF_BEAR
 
-### STRL
-- **Max run-up**: +14.38% (2026-01-14T18:30:00Z → 2026-01-16T16:42:00Z)
-- **Start**: $312.17 | state=HTF_BULL_LTF_PULLBACK | HTF=12.19 LTF=-13.9 | phase=0% | completion=2% | RR=—
-- **End**: $357.07 | state=HTF_BULL_LTF_BULL | HTF=31.14 LTF=14.15 | phase=36% | completion=27% | RR=—
+### ENS
+- **Max run-up**: +3.18% (2026-02-02T14:59:00Z → 2026-02-02T16:29:00Z)
+- **Start**: $180.00 | state=HTF_BULL_LTF_PULLBACK | HTF=25.67 LTF=-11.39 | phase=67% | completion=93% | RR=—
+- **End**: $185.73 | state=HTF_BULL_LTF_BULL | HTF=36.5 LTF=20.07 | phase=77% | completion=97% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 30m → HTF_BULL_LTF_BULL
-
-### BE
-- **Max run-up**: +14.04% (2026-01-14T20:45:00Z → 2026-01-16T20:20:00Z)
-- **Start**: $131.86 | state=HTF_BULL_LTF_PULLBACK | HTF=27.37 LTF=-7.55 | phase=63% | completion=39% | RR=—
-- **End**: $150.37 | state=HTF_BULL_LTF_BULL | HTF=30.5 LTF=25.44 | phase=71% | completion=17% | RR=—
-- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 18h → HTF_BULL_LTF_BULL
-
-### KTOS
-- **Max run-up**: +13.32% (2026-01-14T15:00:00Z → 2026-01-16T18:37:00Z)
-- **Start**: $116.42 | state=HTF_BULL_LTF_PULLBACK | HTF=38.67 LTF=-0.54 | phase=100% | completion=2% | RR=—
-- **End**: $131.93 | state=HTF_BULL_LTF_BULL | HTF=38.1 LTF=18.85 | phase=100% | completion=12% | RR=—
-- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 20m → HTF_BULL_LTF_BULL
+- **Setup→Momentum**: 1m → HTF_BULL_LTF_BULL
 
 ### MTZ
-- **Max run-up**: +12.89% (2026-01-14T17:45:00Z → 2026-01-16T16:42:00Z)
-- **Start**: $220.76 | state=HTF_BULL_LTF_PULLBACK | HTF=37.83 LTF=-9 | phase=2% | completion=9% | RR=—
-- **End**: $249.21 | state=HTF_BULL_LTF_BULL | HTF=42.41 LTF=23.07 | phase=40% | completion=18% | RR=—
-- **Squeeze alignment**: sq30_on<=24h=yes | sq30_release<=24h=no
-- **Setup→Momentum**: 20.9h → HTF_BULL_LTF_BULL
-
-### KLAC
-- **Max run-up**: +11.99% (2026-01-14T16:45:00Z → 2026-01-16T20:22:00Z)
-- **Start**: $1409.34 | state=HTF_BULL_LTF_PULLBACK | HTF=24.89 LTF=-7.96 | phase=76% | completion=5% | RR=—
-- **End**: $1578.38 | state=HTF_BULL_LTF_BULL | HTF=39.13 LTF=21.05 | phase=100% | completion=27% | RR=—
+- **Max run-up**: +3.17% (2026-02-02T14:30:00Z → 2026-02-02T15:55:00Z)
+- **Start**: $238.37 | state=HTF_BULL_LTF_PULLBACK | HTF=37.58 LTF=-14.42 | phase=23% | completion=100% | RR=—
+- **End**: $245.93 | state=HTF_BULL_LTF_BULL | HTF=36.22 LTF=15.02 | phase=31% | completion=74% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 60m → HTF_BULL_LTF_BULL
+- **Setup→Momentum**: 3m → HTF_BULL_LTF_BULL
 
-## Included deep dives
-
-Requested tickers: **AMD**, **MP**
-
-### AMD
-- **Max run-up**: +7.45% (2026-01-14T20:15:00Z → 2026-01-15T18:05:00Z)
-- **Start**: $221.63 | state=HTF_BULL_LTF_BULL | HTF=23.15 LTF=4.82 | phase=19% | completion=10% | RR=—
-- **End**: $238.14 | state=HTF_BULL_LTF_BULL | HTF=43.38 LTF=16.77 | phase=45% | completion=2% | RR=—
+### AEHR
+- **Max run-up**: +3.12% (2026-02-02T18:32:00Z → 2026-02-02T19:54:00Z)
+- **Start**: $25.95 | state=HTF_BULL_LTF_PULLBACK | HTF=27 LTF=-19.3 | phase=4% | completion=100% | RR=—
+- **End**: $26.76 | state=HTF_BULL_LTF_BULL | HTF=37.78 LTF=6.66 | phase=6% | completion=100% | RR=—
 - **Squeeze alignment**: sq30_on<=24h=yes | sq30_release<=24h=no
-- **Setup→Momentum**: 0m → HTF_BULL_LTF_BULL
-
-### MP
-- **Max run-up**: +5.65% (2026-01-16T14:39:00Z → 2026-01-16T18:13:00Z)
-- **Start**: $65.86 | state=HTF_BULL_LTF_PULLBACK | HTF=18.78 LTF=-5.34 | phase=43% | completion=5% | RR=—
-- **End**: $69.58 | state=HTF_BULL_LTF_BULL | HTF=23.45 LTF=21.09 | phase=52% | completion=3% | RR=—
-- **Squeeze alignment**: sq30_on<=24h=no | sq30_release<=24h=no
-- **Setup→Momentum**: 4m → HTF_BULL_LTF_BULL
+- **Setup→Momentum**: 9m → HTF_BULL_LTF_BULL
 
 ## Next improvements
 - **Tag trail points with explicit event markers** (Prime/Eligible transition, corridor entry/exit, squeeze on/release, TD9/TD13, EMA cross, entry/trim/exit) so we can sequence-mine “winner paths” vs “loser paths”.

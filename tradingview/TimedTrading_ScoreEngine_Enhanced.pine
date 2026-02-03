@@ -432,6 +432,8 @@ f_get_bundle(tf) =>
 [c30, pc30, e5_30, e8_30, e13_30, e21_30, e48_30, e89_30, e200_30, e233_30, eFast30, eSlow30, stL30, stD30, sq30, sqRel30, mom30, momStd30, ph30, phVel30, phAcc30, phZone30_i, comp30, ggUp30, ggDn30, ggDist30, volR30, rsi5_30, rsi14_30, rsiDiv30, phDiv30, phDot30, atrR30, atr14_30] = f_get_bundle(tf30)
 [c10, pc10, e5_10, e8_10, e13_10, e21_10, e48_10, e89_10, e200_10, e233_10, eFast10, eSlow10, stL10, stD10, sq10, sqRel10, mom10, momStd10, ph10, phVel10, phAcc10, phZone10_i, comp10, ggUp10, ggDn10, ggDist10, volR10, rsi5_10, rsi14_10, rsiDiv10, phDiv10, phDot10, atrR10, atr14_10] = f_get_bundle(tf10)
 [c1, pc1, e5_1, e8_1, e13_1, e21_1, e48_1, e89_1, e200_1, e233_1, eFast1, eSlow1, stL1, stD1, sq1, sqRel1, mom1, momStd1, ph1, phVel1, phAcc1, phZone1_i, comp1, ggUp1, ggDn1, ggDist1, volR1, rsi5_1, rsi14_1, rsiDiv1, phDiv1, phDot1, atrR1, atr14_1] = f_get_bundle(tf1H)
+// LTF early timing: 3m only (10m already present; 5m/1m omitted to stay under request.* limit of 40)
+[c3, pc3, e5_3, e8_3, e13_3, e21_3, e48_3, e89_3, e200_3, e233_3, eFast3, eSlow3, stL3, stD3, sq3, sqRel3, mom3, momStd3, ph3, phVel3, phAcc3, phZone3_i, comp3, ggUp3, ggDn3, ggDist3, volR3, rsi5_3, rsi14_3, rsiDiv3, phDiv3, phDot3, atrR3, atr14_3] = f_get_bundle("3")
 
 //─────────────────────────────────────────────────────────────────────────────
 // Per-timeframe event history (Phase dots + Divergences) — memory-safe
@@ -506,7 +508,7 @@ phDiv101 = ta.valuewhen(phDiv10 != 0, phDiv10, 1)
 rsiDiv100 = ta.valuewhen(rsiDiv10 != 0, rsiDiv10, 0)
 rsiDiv101 = ta.valuewhen(rsiDiv10 != 0, rsiDiv10, 1)
 
-// Note: 3m timeframe removed (memory optimization)
+// LTF 3m bundle for early-timing triggers only (10m already in script; 5m/1m omitted — request.* limit 40).
 
 //─────────────────────────────────────────────────────────────────────────────
 // Enhanced HTF Scoring
@@ -820,6 +822,21 @@ if barstate.isconfirmed and goEvent
 // Trigger list (for Right Rail display)
 stFlip30 = bar_index > 0 ? (stD30 != stD30[1]) : false
 stFlip1H = bar_index > 0 ? (stD1  != stD1[1])  : false
+
+// LTF early timing: 10m (existing), 3m — squeeze release, EMA 13/48 cross, ST flip (5m/1m removed for request limit)
+sq10_prev = prevBoolSeries(sq10)
+sq10_rel  = sq10_prev and not sq10
+rel10Dir  = sq10_rel ? (mom10 >= 0 ? 1 : -1) : 0
+crossUp10 = ta.crossover(eFast10, eSlow10)
+crossDn10 = ta.crossunder(eFast10, eSlow10)
+stFlip10  = bar_index > 0 ? (stD10 != stD10[1]) : false
+
+sq3_prev = prevBoolSeries(sq3)
+sq3_rel  = sq3_prev and not sq3
+rel3Dir  = sq3_rel ? (mom3 >= 0 ? 1 : -1) : 0
+crossUp3 = ta.crossover(eFast3, eSlow3)
+crossDn3 = ta.crossunder(eFast3, eSlow3)
+stFlip3  = bar_index > 0 ? (stD3 != stD3[1]) : false
 
 // Dynamic expected move (using recent swing calculation)
 expectedMove = useDynamicTP ? expMoveATRx * math.max(ATRw, recentSwingW * 0.5) : expMoveATRx * ATRw
@@ -1894,12 +1911,29 @@ if shouldSend
         triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"BUYABLE_DIP_1H_13_48_LONG\""
     if buyableDipShort
         triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"BUYABLE_DIP_1H_13_48_SHORT\""
+    // LTF early timing: 10m, 3m (5m/1m removed for request limit)
+    if sq10_rel
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"SQUEEZE_RELEASE_10M\""
+    if crossUp10
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_10M_13_48_BULL\""
+    if crossDn10
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_10M_13_48_BEAR\""
+    if stFlip10
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"ST_FLIP_10M\""
+    if sq3_rel
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"SQUEEZE_RELEASE_3M\""
+    if crossUp3
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_3M_13_48_BULL\""
+    if crossDn3
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_3M_13_48_BEAR\""
+    if stFlip3
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"ST_FLIP_3M\""
     string triggersStr = "[" + triggersBody + "]"
     string phaseZoneStr = usePhaseZones ? f_phase_zone_str(phaseZoneD_i) : ""
 
     string tfTechStr = "{" + f_tf_entry("W",  cW,  pcW,  pcW,  atr14W,  e5W,  e13W,  e21W,  e48W,  e89W,  e200W,  e233W,  compW,  sqW,  sqRelW,  phW,  dotW0, dotW1, dotW2, dotW3, dotW4,  phDivW0, phDivW1,  rsi5W,  rsi14W,  rsiDivW0, rsiDivW1) + "," + f_tf_entry("D",  cD,  pcD,  pcD,  atr14D,  e5D,  e13D,  e21D,  e48D,  e89D,  e200D,  e233D,  compD,  sqD,  sqRelD,  phD,  dotD0, dotD1, dotD2, dotD3, dotD4,  phDivD0, phDivD1,  rsi5D,  rsi14D,  rsiDivD0, rsiDivD1) + "," + f_tf_entry("4H", c4,  pc4,  pc4,  atr14_4, e5H,  e13H,  e21H,  e48H,  e89H,  e200H,  e233H,  comp4,  sq4,  sqRel4,  ph4,  dot4H0, dot4H1, dot4H2, dot4H3, dot4H4,  phDiv4H0, phDiv4H1,  rsi5_4,  rsi14_4,  rsiDiv4H0, rsiDiv4H1) + "," + f_tf_entry("1H", c1,  pc1,  pc1,  atr14_1, e5_1, e13_1, e21_1, e48_1, e89_1, e200_1, e233_1, comp1,  sq1,  sqRel1,  ph1,  dot1H0, dot1H1, dot1H2, dot1H3, dot1H4,  phDiv1H0, phDiv1H1,  rsi5_1,  rsi14_1,  rsiDiv1H0, rsiDiv1H1) + "," + f_tf_entry("30", c30, pc30, pc30, atr14_30, e5_30, e13_30, e21_30, e48_30, e89_30, e200_30, e233_30, comp30, sq30, sqRel30, ph30, dot300, dot301, dot302, dot303, dot304,  phDiv300, phDiv301,  rsi5_30, rsi14_30, rsiDiv300, rsiDiv301) + "," + f_tf_entry("10", c10, pc10, pc10, atr14_10, e5_10, e13_10, e21_10, e48_10, e89_10, e200_10, e233_10, comp10, sq10, sqRel10, ph10, dot100, dot101, dot102, dot103, dot104,  phDiv100, phDiv101,  rsi5_10, rsi14_10, rsiDiv100, rsiDiv101) +  "}"
 
-    string json = "{" + "\"script_version\":\"" + SCRIPT_VERSION + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"htf_score\":" + f_fmt(htfScore, 2) + "," + "\"ltf_score\":" + f_fmt(ltfScore, 2) + "," + "\"completion\":" + f_fmt(completion, 2) + "," + "\"phase_pct\":" + f_fmt(phasePct, 2) + "," + "\"phase_zone\":\"" + phaseZoneStr + "\"," + "\"state\":\"" + state + "\"," + "\"price\":" + f_fmt(price_now, 2) + "," + prevCloseStr + dayChgStr + dayPctStr + "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," + "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice, 2)) + "," + "\"trigger_reason\":\"" + triggerReason + "\"," + "\"trigger_dir\":\"" + triggerDirStr + "\"," + "\"trigger_tf\":\"" + triggerTfStr + "\"," + "\"triggers\":" + triggersStr + "," + "\"tf_tech\":" + tfTechStr + "," + "\"sl\":" + (na(sl) ? "null" : f_fmt(sl, 2)) + "," + "\"tp\":" + (na(tp) ? "null" : f_fmt(tp, 2)) + "," + "\"tp_levels\":" + tpArrayStr + "," + "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays, 2)) + "," + "\"rr\":" + (na(rr) ? "null" : f_fmt(rr, 2)) + "," + "\"momentum_pct\":{" + "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," + "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," + "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," + "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) + "}," + dailyEMAStr + fourHEMAStr + oneHEMAStr + ichimokuDStr + ichimokuWStr + rsiStr + "\"flags\":{" + "\"sq30_on\":" + (sq30 ? "true" : "false") + "," + "\"sq30_release\":" + (sq30_rel ? "true" : "false") + "," + "\"phase_dot\":" + (phaseDot ? "true" : "false") + "," + "\"phase_zone_change\":" + (phaseZoneChange ? "true" : "false") + "," + "\"momentum_elite\":" + (momentumElite ? "true" : "false") + "," + "\"ema_cross_1h_13_48\":" + (crossUp1H_1348 or crossDn1H_1348 ? "true" : "false") + "," + "\"st_flip_1h\":" + (stFlip1H ? "true" : "false") + "," + "\"st_flip_30m\":" + (stFlip30 ? "true" : "false") + "," + "\"buyable_dip_1h_13_48\":" + (buyableDipLong or buyableDipShort ? "true" : "false") + "}," + "\"td_sequential\":{" + "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," + "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," + "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," + "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," + "\"td9_bullish\":" + (td9Bullish ? "true" : "false") + "," + "\"td9_bearish\":" + (td9Bearish ? "true" : "false") + "," + "\"td13_bullish\":" + (td13Bullish ? "true" : "false") + "," + "\"td13_bearish\":" + (td13Bearish ? "true" : "false") + "," + "\"exit_long\":" + (tdSeqExitLong ? "true" : "false") + "," + "\"exit_short\":" + (tdSeqExitShort ? "true" : "false") + "," + "\"boost\":" + f_fmt(tdSeqBoost, 2) + "}," + "\"reasons\":[" + "\"" + reason1 + "\"," + "\"" + reason2 + "\"," + "\"" + reason3 + "\"," + "\"" + reason4 + "\"" + "]" + "}"
+    string json = "{" + "\"script_version\":\"" + SCRIPT_VERSION + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"htf_score\":" + f_fmt(htfScore, 2) + "," + "\"ltf_score\":" + f_fmt(ltfScore, 2) + "," + "\"completion\":" + f_fmt(completion, 2) + "," + "\"phase_pct\":" + f_fmt(phasePct, 2) + "," + "\"phase_zone\":\"" + phaseZoneStr + "\"," + "\"state\":\"" + state + "\"," + "\"price\":" + f_fmt(price_now, 2) + "," + prevCloseStr + dayChgStr + dayPctStr + "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," + "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice, 2)) + "," + "\"trigger_reason\":\"" + triggerReason + "\"," + "\"trigger_dir\":\"" + triggerDirStr + "\"," + "\"trigger_tf\":\"" + triggerTfStr + "\"," + "\"triggers\":" + triggersStr + "," + "\"tf_tech\":" + tfTechStr + "," + "\"sl\":" + (na(sl) ? "null" : f_fmt(sl, 2)) + "," + "\"tp\":" + (na(tp) ? "null" : f_fmt(tp, 2)) + "," + "\"tp_levels\":" + tpArrayStr + "," + "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays, 2)) + "," + "\"rr\":" + (na(rr) ? "null" : f_fmt(rr, 2)) + "," + "\"momentum_pct\":{" + "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," + "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," + "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," + "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) + "}," + dailyEMAStr + fourHEMAStr + oneHEMAStr + ichimokuDStr + ichimokuWStr + rsiStr + "\"flags\":{" + "\"sq30_on\":" + (sq30 ? "true" : "false") + "," + "\"sq30_release\":" + (sq30_rel ? "true" : "false") + "," + "\"phase_dot\":" + (phaseDot ? "true" : "false") + "," + "\"phase_zone_change\":" + (phaseZoneChange ? "true" : "false") + "," + "\"momentum_elite\":" + (momentumElite ? "true" : "false") + "," + "\"ema_cross_1h_13_48\":" + (crossUp1H_1348 or crossDn1H_1348 ? "true" : "false") + "," + "\"st_flip_1h\":" + (stFlip1H ? "true" : "false") + "," + "\"st_flip_30m\":" + (stFlip30 ? "true" : "false") + "," + "\"buyable_dip_1h_13_48\":" + (buyableDipLong or buyableDipShort ? "true" : "false") + "," + "\"sq10_release\":" + (sq10_rel ? "true" : "false") + "," + "\"ema_cross_10m_13_48\":" + (crossUp10 or crossDn10 ? "true" : "false") + "," + "\"st_flip_10m\":" + (stFlip10 ? "true" : "false") + "," + "\"sq3_release\":" + (sq3_rel ? "true" : "false") + "," + "\"ema_cross_3m_13_48\":" + (crossUp3 or crossDn3 ? "true" : "false") + "," + "\"st_flip_3m\":" + (stFlip3 ? "true" : "false") + "}," + "\"td_sequential\":{" + "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," + "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," + "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," + "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," + "\"td9_bullish\":" + (td9Bullish ? "true" : "false") + "," + "\"td9_bearish\":" + (td9Bearish ? "true" : "false") + "," + "\"td13_bullish\":" + (td13Bullish ? "true" : "false") + "," + "\"td13_bearish\":" + (td13Bearish ? "true" : "false") + "," + "\"exit_long\":" + (tdSeqExitLong ? "true" : "false") + "," + "\"exit_short\":" + (tdSeqExitShort ? "true" : "false") + "," + "\"boost\":" + f_fmt(tdSeqBoost, 2) + "}," + "\"reasons\":[" + "\"" + reason1 + "\"," + "\"" + reason2 + "\"," + "\"" + reason3 + "\"," + "\"" + reason4 + "\"" + "]" + "}"
 
     alert(json, alert.freq_once_per_bar_close)
     sentBaseline  := true
