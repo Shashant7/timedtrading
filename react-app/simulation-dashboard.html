@@ -8196,7 +8196,7 @@
         );
 
         return (
-          <>
+          <div className="tt-root">
             <div className="min-h-screen px-5 py-8" style={{ background: "var(--tt-bg-base)" }}>
               <div className="w-full mx-auto max-w-[1200px]">
                 {/* Header — minimal */}
@@ -8699,38 +8699,65 @@
                     </div>
                   </div>
                 )}
-          </>
+          </div>
         );
       }
 
-      // Render
+      // Error boundary so render errors show in UI instead of blank screen
+      class TrackerErrorBoundary extends React.Component {
+        state = { error: null };
+        static getDerivedStateFromError(err) {
+          return { error: err };
+        }
+        componentDidCatch(err, info) {
+          console.error("Tracker render error:", err, info);
+        }
+        render() {
+          if (this.state.error) {
+            return (
+              <div style={{ padding: 40, textAlign: "center", color: "#e7ecff", fontFamily: "system-ui" }}>
+                <h2 style={{ color: "#e74c3c" }}>Trade Tracker failed to load</h2>
+                <p style={{ marginTop: 16 }}>{this.state.error.message}</p>
+                <pre style={{ textAlign: "left", marginTop: 16, padding: 16, background: "#0f1630", overflow: "auto", fontSize: 12 }}>
+                  {this.state.error.stack}
+                </pre>
+              </div>
+            );
+          }
+          return this.props.children;
+        }
+      }
+
       try {
         if (typeof React === "undefined" || typeof ReactDOM === "undefined") {
           throw new Error("React or ReactDOM not loaded");
         }
-
         const rootElement = document.getElementById("root");
         if (!rootElement) {
           throw new Error("Root element not found");
         }
-
-        if (ReactDOM.createRoot) {
-          const root = ReactDOM.createRoot(rootElement);
-          root.render(<App />);
+        const root = ReactDOM.createRoot ? ReactDOM.createRoot(rootElement) : null;
+        const app = (
+          <TrackerErrorBoundary>
+            <App />
+          </TrackerErrorBoundary>
+        );
+        if (root) {
+          root.render(app);
         } else {
-          ReactDOM.render(<App />, rootElement);
+          ReactDOM.render(app, rootElement);
         }
       } catch (error) {
         console.error("Error rendering app:", error);
-        document.getElementById("root").innerHTML = `
+        const root = document.getElementById("root");
+        if (root) {
+          root.innerHTML = `
           <div style="padding: 40px; text-align: center; color: #e7ecff;">
-            <h2 style="color: #e74c3c;">Error Loading Dashboard</h2>
+            <h2 style="color: #e74c3c;">Error Loading Trade Tracker</h2>
             <p>${error.message}</p>
-            <p style="margin-top: 20px; color: #93a4d6;">
-              Please check the browser console (F12) for details.
-            </p>
-          </div>
-        `;
+            <p style="margin-top: 20px; color: #93a4d6;">Check the browser console (F12) for details.</p>
+          </div>`;
+        }
       }
     </script>
   </body>

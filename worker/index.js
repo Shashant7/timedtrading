@@ -18517,7 +18517,7 @@ export default {
           );
         }
 
-        const sql = `SELECT
+        const sqlWithTrimTs = `SELECT
             trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts
@@ -18525,11 +18525,35 @@ export default {
           ${where}
           ORDER BY entry_ts DESC, trade_id DESC
           LIMIT ?`;
+        const sqlWithoutTrimTs = `SELECT
+            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+            script_version, created_at, updated_at
+          FROM trades
+          ${where}
+          ORDER BY entry_ts DESC, trade_id DESC
+          LIMIT ?`;
 
-        const rows = await db
-          .prepare(sql)
-          .bind(...binds, limit + 1)
-          .all();
+        let rows;
+        try {
+          rows = await db
+            .prepare(sqlWithTrimTs)
+            .bind(...binds, limit + 1)
+            .all();
+        } catch (e) {
+          const msg = (e && (e.message || String(e))) || "";
+          if (msg.includes("trim_ts") || msg.includes("no such column")) {
+            rows = await db
+              .prepare(sqlWithoutTrimTs)
+              .bind(...binds, limit + 1)
+              .all();
+            if (Array.isArray(rows?.results)) {
+              rows.results = rows.results.map((r) => ({ ...r, trim_ts: null }));
+            }
+          } else {
+            throw e;
+          }
+        }
         const results = Array.isArray(rows?.results) ? rows.results : [];
         const page = results.slice(0, limit);
         const hasMore = results.length > limit;
