@@ -1448,18 +1448,22 @@ function classifyKanbanStage(tickerData) {
 
   // Stage 1: Flip Watch - about to transition
   if (flags.flip_watch) {
+    const ent = entryType(tickerData);
+    const inCorridor = !!ent?.corridor;
+    // Allow enter_now when flip_watch + corridor + strong score (catch move as it starts)
+    if (inCorridor && (score >= 70 || ((flags.thesis_match || flags.momentum_elite) && score >= 60))) {
+      return "enter_now";
+    }
     return "flip_watch";
   }
 
-  // Stage 2: Just Flipped - recently entered momentum
+  // Stage 2: Just Flipped - recently entered momentum; can qualify for Enter Now
   if (isMomentum && seq.corridorEntry_60m === true) {
-    // If ENTRY is actually green-lit, allow Enter Now to take priority below.
-    // This prevents backwards lane motion (Enter Now → Just Flipped) as corridorEntry timestamps update.
-    if (!(edAction === "ENTRY" && edOk)) return "just_flipped";
+    // Fall through to Enter Now paths below; only return just_flipped if we don't qualify
   }
 
   // Stage 3: Enter Now - high-confidence entry opportunities
-  // Must be in momentum and meet quality thresholds (score + other signals, no score-only path)
+  // Must be in momentum (or just_flipped) and meet quality thresholds
   if (isMomentum) {
     // Hard gate: never show ENTER_NOW if the entry decision is explicitly blocked.
     if (edAction === "ENTRY" && !edOk) return "watch";
@@ -1520,11 +1524,25 @@ function classifyKanbanStage(tickerData) {
     return "archive";
   }
 
-  // Setup-state tickers in corridor (not yet momentum, not late-cycle)
-  // Prevents fall-through to null so they appear in Kanban (e.g. BE)
+  // Setup + squeeze release + corridor: enter on squeeze release from setup (catch move early)
   const ent = entryType(tickerData);
+  if (!isMomentum && !!ent?.corridor && flags.sq30_release && score >= 70) {
+    return "enter_now";
+  }
+
+  // Setup-state tickers in corridor (not yet momentum, not late-cycle)
   if (!isMomentum && !!ent?.corridor) {
     return "setup_watch";
+  }
+
+  // Catch-all: tickers with valid data but no lane (momentum outside corridor, missing htf/ltf, etc.)
+  // Show in Watching so they don't disappear from the board (e.g. BE, overextended momentum names)
+  const hasValidData =
+    state &&
+    Number.isFinite(Number(tickerData?.price)) &&
+    String(tickerData?.ticker || "").trim();
+  if (hasValidData && !isLate) {
+    return "watch";
   }
 
   // Default: no stage (not in trading pipeline)
@@ -2531,18 +2549,20 @@ async function computeOpenTradesCorrelation(env, KV, options = {}) {
 }
 
 // ── Corridor helpers (must match UI corridors)
+// LONG ltf -10..22: wider upper bound so momentum entries (LTF 12-22) still qualify
+// SHORT ltf -12..10. Accept htf_score/htfScore, ltf_score/ltfScore (ingest payloads may use either)
 function inLongCorridor(d) {
-  const h = Number(d.htf_score),
-    l = Number(d.ltf_score);
+  const h = Number(d?.htf_score ?? d?.htfScore);
+  const l = Number(d?.ltf_score ?? d?.ltfScore);
   return (
-    Number.isFinite(h) && Number.isFinite(l) && h > 0 && l >= -8 && l <= 12
+    Number.isFinite(h) && Number.isFinite(l) && h > 0 && l >= -10 && l <= 22
   );
 }
 function inShortCorridor(d) {
-  const h = Number(d.htf_score),
-    l = Number(d.ltf_score);
+  const h = Number(d?.htf_score ?? d?.htfScore);
+  const l = Number(d?.ltf_score ?? d?.ltfScore);
   return (
-    Number.isFinite(h) && Number.isFinite(l) && h < 0 && l >= -12 && l <= 8
+    Number.isFinite(h) && Number.isFinite(l) && h < 0 && l >= -12 && l <= 10
   );
 }
 function corridorSide(d) {
@@ -2692,10 +2712,13 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   // Skip futures
   if (FUTURES_TICKERS.has(tickerUpper)) return false;
 
-  // Must have valid entry/exit levels
-  if (!tickerData.price || !tickerData.sl || !tickerData.tp) return false;
+  // Must have valid entry/exit levels (support alternate field names)
+  const slVal = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
+  const tpVal = Number(tickerData?.tp ?? tickerData?.tp_max_price ?? tickerData?.tp_target_price ?? tickerData?.tp_target);
+  if (!tickerData.price || !Number.isFinite(slVal) || slVal <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return false;
 
   const flags = tickerData.flags || {};
+  const flipWatch = !!flags.flip_watch;
   const state = String(tickerData.state || "");
   const alignedLong = state === "HTF_BULL_LTF_BULL";
   const alignedShort = state === "HTF_BEAR_LTF_BEAR";
@@ -2706,13 +2729,13 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const inCorridor =
     Number.isFinite(h) &&
     Number.isFinite(l) &&
-    ((h > 0 && l >= -8 && l <= 12) || // LONG corridor
-      (h < 0 && l >= -12 && l <= 8)); // SHORT corridor
+    ((h > 0 && l >= -10 && l <= 22) || // LONG corridor (widened upper for momentum entries)
+      (h < 0 && l >= -12 && l <= 10)); // SHORT corridor
 
   const side =
-    h > 0 && l >= -8 && l <= 12
+    h > 0 && l >= -10 && l <= 22
       ? "LONG"
-      : h < 0 && l >= -12 && l <= 8
+      : h < 0 && l >= -12 && l <= 10
         ? "SHORT"
         : null;
   const corridorAlignedOK =
@@ -2727,37 +2750,42 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   const prevInCorridor =
     Number.isFinite(prevH) &&
     Number.isFinite(prevL) &&
-    ((prevH > 0 && prevL >= -8 && prevL <= 12) ||
-      (prevH < 0 && prevL >= -12 && prevL <= 8));
+    ((prevH > 0 && prevL >= -10 && prevL <= 22) ||
+      (prevH < 0 && prevL >= -12 && prevL <= 10));
   const justEnteredCorridor = !!prevData && !prevInCorridor && inCorridor;
   const trigReason = String(tickerData.trigger_reason || "");
-  const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+  const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE" ||
+    trigReason.includes("EMA_CROSS") || trigReason.includes("SQUEEZE_RELEASE");
   const sqRelease = !!flags.sq30_release;
 
   const shouldConsiderAlert =
     inCorridor &&
     corridorAlignedOK &&
-    (justEnteredCorridor || enteredAligned || trigOk || sqRelease);
+    (justEnteredCorridor || enteredAligned || trigOk || sqRelease || flipWatch);
 
   const momentumElite = !!flags.momentum_elite;
-  const baseMinRR = 1.5;
-  const baseMaxComp = 0.4;
-  const baseMaxPhase = 0.6;
-  const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
-  const maxComp = momentumElite
-    ? Math.min(0.5, baseMaxComp * 1.25)
-    : baseMaxComp;
+  const baseMinRR = 1.2;
+  const baseMaxComp = 0.5;
+  const baseMaxPhase = 0.65;
+  const minRR = momentumElite ? Math.max(1.0, baseMinRR * 0.9) : baseMinRR;
+  const maxComp = flipWatch || sqRelease
+    ? Math.min(0.6, baseMaxComp * 1.2)
+    : momentumElite
+      ? Math.min(0.55, baseMaxComp * 1.1)
+      : baseMaxComp;
   const maxPhase = momentumElite
-    ? Math.min(0.7, baseMaxPhase * 1.17)
+    ? Math.min(0.75, baseMaxPhase * 1.15)
     : baseMaxPhase;
 
   // Rank threshold: 70 (env-aligned); Momentum Elite 60 for more movement when market moves.
-  const rank = Number(tickerData.rank) || 0;
+  const rank = Number(tickerData.rank ?? tickerData.rank_position ?? tickerData.position) || 0;
   const minRank = momentumElite ? 60 : 70;
   const rankOk = rank >= minRank;
 
   const rr = Number(tickerData.rr) || 0;
-  const comp = completionForSize(tickerData);
+  const compRaw = completionForSize(tickerData);
+  const compToMax = computeCompletionToTpMax(tickerData);
+  const comp = Number.isFinite(compToMax) ? compToMax : compRaw;
   const phase = Number(tickerData.phase_pct) || 0;
 
   const rrOk = rr >= minRR;
@@ -2768,7 +2796,7 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
     momentumElite &&
     inCorridor &&
     corridorAlignedOK &&
-    (trigOk || sqRelease || justEnteredCorridor);
+    (trigOk || sqRelease || flipWatch || justEnteredCorridor);
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
   // Don't enter if the move has already invalidated/completed
@@ -2781,14 +2809,16 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
   if (!dailyEmaRegimeOk(tickerData, inferredSide)) return false;
   if (!ichimokuRegimeOk(tickerData, inferredSide)) return false;
   if (isLateCycle(tickerData) && !momentumElite) return false;
-  // Fresh trigger: pullback→re-align, squeeze release, or just entered corridor (market moved in).
+  // Fresh trigger: pullback→re-align, squeeze release, flip_watch, or just entered corridor (market moved in).
   const prevStateStr = prevData ? String(prevData.state || "") : "";
   const enteredFromPullback =
     !!enteredAligned && prevStateStr.includes("PULLBACK");
   const freshPullbackOk =
     enteredFromPullback ||
     sqRelease ||
-    trigReason === "SQUEEZE_RELEASE" ||
+    (trigReason === "SQUEEZE_RELEASE" || trigReason.includes("SQUEEZE_RELEASE")) ||
+    (trigReason.includes("EMA_CROSS")) ||
+    flipWatch ||
     justEnteredCorridor;
   if (!freshPullbackOk) return false;
 
@@ -2868,6 +2898,7 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const blockers = [];
   const warnings = [];
   const flags = tickerData.flags || {};
+  const flipWatch = !!flags.flip_watch;
   const state = String(tickerData.state || "");
 
   const alignedLong = state === "HTF_BULL_LTF_BULL";
@@ -2879,11 +2910,11 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   const inCorridor =
     Number.isFinite(h) &&
     Number.isFinite(l) &&
-    ((h > 0 && l >= -8 && l <= 12) || (h < 0 && l >= -12 && l <= 8));
+    ((h > 0 && l >= -10 && l <= 22) || (h < 0 && l >= -12 && l <= 10));
   const side =
-    h > 0 && l >= -8 && l <= 12
+    h > 0 && l >= -10 && l <= 22
       ? "LONG"
-      : h < 0 && l >= -12 && l <= 8
+      : h < 0 && l >= -12 && l <= 10
         ? "SHORT"
         : null;
   const corridorAlignedOK =
@@ -2891,7 +2922,8 @@ function buildEntryDecision(ticker, tickerData, prevState) {
 
   const enteredAligned = aligned && prevState && prevState !== state;
   const trigReason = String(tickerData.trigger_reason || "");
-  const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+  const trigOk = trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE" ||
+    trigReason.includes("EMA_CROSS") || trigReason.includes("SQUEEZE_RELEASE");
   const sqRelease = !!flags.sq30_release;
   // Note: do NOT treat mere presence of trigger_price/trigger_ts as a trigger.
   // Many payloads include those fields continuously, causing over-trading.
@@ -2903,15 +2935,17 @@ function buildEntryDecision(ticker, tickerData, prevState) {
     (enteredAligned || trigOk || sqRelease || hasTrigger);
 
   const momentumElite = !!flags.momentum_elite;
-  const baseMinRR = 1.5;
-  const baseMaxComp = 0.4;
-  const baseMaxPhase = 0.6;
-  const minRR = momentumElite ? Math.max(1.2, baseMinRR * 0.9) : baseMinRR;
-  const maxComp = momentumElite
-    ? Math.min(0.5, baseMaxComp * 1.25)
-    : baseMaxComp;
+  const baseMinRR = 1.2;
+  const baseMaxComp = 0.5;
+  const baseMaxPhase = 0.65;
+  const minRR = momentumElite ? Math.max(1.0, baseMinRR * 0.9) : baseMinRR;
+  const maxComp = flipWatch || sqRelease
+    ? Math.min(0.6, baseMaxComp * 1.2)
+    : momentumElite
+      ? Math.min(0.55, baseMaxComp * 1.1)
+      : baseMaxComp;
   const maxPhase = momentumElite
-    ? Math.min(0.7, baseMaxPhase * 1.17)
+    ? Math.min(0.75, baseMaxPhase * 1.15)
     : baseMaxPhase;
 
   const price = Number(tickerData.price);
@@ -2929,21 +2963,33 @@ function buildEntryDecision(ticker, tickerData, prevState) {
         ? "trigger_price"
         : null;
 
+  // Normalize sl/tp from alternate field names (payloads may vary)
+  const slVal = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
+  const tpVal = Number(tickerData?.tp ?? tickerData?.tp_max_price ?? tickerData?.tp_target_price ?? tickerData?.tp_target);
+  if (Number.isFinite(slVal) && tickerData.sl == null) tickerData.sl = slVal;
+  if (Number.isFinite(tpVal) && tickerData.tp == null) tickerData.tp = tpVal;
+
+  const hasLevels = Number.isFinite(slVal) && slVal > 0 && Number.isFinite(tpVal) && tpVal > 0;
   const rrAtEntry =
     entryPrice != null ? calculateRRAtEntry(tickerData, entryPrice) : null;
-  const comp = completionForSize(tickerData);
+  const compRaw = completionForSize(tickerData);
+  const compToMax = computeCompletionToTpMax(tickerData);
+  const comp = Number.isFinite(compToMax) ? compToMax : compRaw;
   const phase = Number(tickerData.phase_pct) || 0;
 
-  const rrOk = (rrAtEntry || 0) >= minRR;
+  const rrOk =
+    (rrAtEntry != null && Number.isFinite(rrAtEntry))
+      ? rrAtEntry >= minRR
+      : (hasLevels && entryPrice != null);
   const compOk = comp <= maxComp;
   const phaseOk = phase <= maxPhase;
 
-  const rank = Number(tickerData.rank) || 0;
+  const rank = Number(tickerData.rank ?? tickerData.rank_position ?? tickerData.position) || 0;
   const minRank = momentumElite ? 60 : 70;
   const rankOk = rank >= minRank;
 
   if (FUTURES_TICKERS.has(tickerUpper)) blockers.push("futures_disabled");
-  if (!Number.isFinite(entryPrice) || !tickerData.sl || !tickerData.tp)
+  if (!Number.isFinite(entryPrice) || !hasLevels)
     blockers.push("missing_levels");
   if (!inCorridor) blockers.push("not_in_corridor");
   if (inCorridor && !corridorAlignedOK) blockers.push("corridor_misaligned");
@@ -2965,12 +3011,12 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   if (lateCycle && !momentumElite) blockers.push("late_cycle");
   else if (lateCycle && momentumElite) warnings.push("late_cycle");
 
-  // Pullback-only entry: require a pullback→re-alignment transition OR a squeeze release.
-  // (Entered-aligned alone can also happen on regime flips; we explicitly require pullback.)
+  // Pullback-only entry: require a pullback→re-alignment transition OR a squeeze release OR flip_watch.
   const enteredFromPullback =
     !!enteredAligned && String(prevState || "").includes("PULLBACK");
   const freshPullbackOk =
-    enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE";
+    enteredFromPullback || sqRelease || trigReason === "SQUEEZE_RELEASE" ||
+    trigReason.includes("SQUEEZE_RELEASE") || trigReason.includes("EMA_CROSS") || flipWatch;
   if (!freshPullbackOk) blockers.push("no_fresh_pullback");
 
   if (!rankOk) blockers.push("rank_below_min");
@@ -4774,8 +4820,12 @@ async function processTradeSimulation(
 
     if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade) {
       const entryPx = Number(entryPxCandidate);
-      const slCandidate = Number(tickerData?.sl);
-      const tpCandidate = Number(tickerData?.tp);
+      const slCandidate = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
+      let tpCandidate = Number(tickerData?.tp ?? tickerData?.tp_max_price ?? tickerData?.tp_target_price ?? tickerData?.tp_target);
+      if (!Number.isFinite(tpCandidate) || tpCandidate <= 0) {
+        const tpFromLevels = computeTpMaxFromLevels(tickerData);
+        tpCandidate = Number.isFinite(tpFromLevels) ? tpFromLevels : 0;
+      }
       if (
         Number.isFinite(entryPx) &&
         entryPx > 0 &&
@@ -6234,11 +6284,11 @@ async function processTradeSimulation(
       const inCorridor =
         Number.isFinite(h) &&
         Number.isFinite(l) &&
-        ((h > 0 && l >= -8 && l <= 12) || (h < 0 && l >= -12 && l <= 8));
+        ((h > 0 && l >= -10 && l <= 22) || (h < 0 && l >= -12 && l <= 10));
       const side =
-        h > 0 && l >= -8 && l <= 12
+        h > 0 && l >= -10 && l <= 22
           ? "LONG"
-          : h < 0 && l >= -12 && l <= 8
+          : h < 0 && l >= -12 && l <= 10
             ? "SHORT"
             : null;
       const corridorAlignedOK =
@@ -12445,7 +12495,8 @@ export default {
 
           const trigReason = String(payload.trigger_reason || "");
           const trigOk =
-            trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+            trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE" ||
+            trigReason.includes("EMA_CROSS") || trigReason.includes("SQUEEZE_RELEASE");
 
           const flags = payload.flags || {};
           const sqRel = !!flags.sq30_release;
@@ -17765,7 +17816,8 @@ export default {
 
         const trigReason = String(data.trigger_reason || "");
         const trigOk =
-          trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+          trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE" ||
+          trigReason.includes("EMA_CROSS") || trigReason.includes("SQUEEZE_RELEASE");
 
         const flags = data.flags || {};
         const sqRel = !!flags.sq30_release;
@@ -17804,8 +17856,10 @@ export default {
         const rrToUse =
           currentRR != null ? currentRR : data.rr != null ? Number(data.rr) : 0;
         const rrOk = rrToUse >= minRR;
-        const compOk =
-          data.completion == null ? true : Number(data.completion) <= maxComp;
+        const compToMax = computeCompletionToTpMax(data);
+        const compRaw = data.completion == null ? null : Number(data.completion);
+        const compVal = Number.isFinite(compToMax) ? compToMax : compRaw;
+        const compOk = compVal == null ? true : compVal <= maxComp;
         const phaseOk =
           data.phase_pct == null ? true : Number(data.phase_pct) <= maxPhase;
 
@@ -18000,7 +18054,8 @@ export default {
 
           const trigReason = String(data.trigger_reason || "");
           const trigOk =
-            trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE";
+            trigReason === "EMA_CROSS" || trigReason === "SQUEEZE_RELEASE" ||
+            trigReason.includes("EMA_CROSS") || trigReason.includes("SQUEEZE_RELEASE");
 
           const flags = data.flags || {};
           const sqRel = !!flags.sq30_release;
@@ -23007,7 +23062,8 @@ Provide 3-5 actionable next steps:
           (p) => { const ts = Number(p?.ts); return Number.isFinite(ts) && ts >= tsStart && ts <= tsEnd; },
         );
         const rows = trail.map((p) => {
-          const obj = { ticker: tickerParam, ts: Number(p?.ts), price: p?.price, htf_score: p?.htf_score, ltf_score: p?.ltf_score, completion: p?.completion, phase_pct: p?.phase_pct, state: p?.state, rank: p?.rank, flags: p?.flags || {}, trigger_reason: p?.trigger_reason, trigger_dir: p?.trigger_dir };
+          const ts = Number(p?.ts);
+          const obj = { ticker: tickerParam, ts, price: p?.price, htf_score: p?.htf_score, ltf_score: p?.ltf_score, completion: p?.completion, phase_pct: p?.phase_pct, state: p?.state, rank: p?.rank, flags: p?.flags || {}, trigger_reason: p?.trigger_reason, trigger_dir: p?.trigger_dir, trigger_ts: p?.trigger_ts ?? ts, sl: p?.sl, tp: p?.tp, tp_levels: p?.tp_levels };
           return { ticker: tickerParam, ts: obj.ts, payload_json: JSON.stringify(obj) };
         });
 
@@ -23016,8 +23072,8 @@ Provide 3-5 actionable next steps:
         if (cleanSlate && rows.length > 0) {
           const kept = allTrades.filter((t) => {
             if (String(t?.ticker || "").toUpperCase() !== tickerParam) return true;
-            const entryTs = Number(t?.entry_ts ?? t?.entryTime);
-            if (!Number.isFinite(entryTs)) return true;
+            const entryTs = isoToMs(t?.entry_ts ?? t?.entryTime) ?? Number(t?.entry_ts ?? t?.entryTs);
+            if (!Number.isFinite(entryTs) || entryTs <= 0) return true;
             if (entryTs < tsStart || entryTs > tsEnd) return true;
             tradesPurged += 1;
             return false;
@@ -23191,7 +23247,7 @@ Provide 3-5 actionable next steps:
                  ORDER BY ts ASC LIMIT ?4`
               : `SELECT receipt_id, ticker, ts FROM ingest_receipts
                  WHERE bucket_5m = ?1 AND (script_version = ?2 OR script_version IS NULL)
-                 ORDER BY ts ASC LIMIT ?4`,
+                 ORDER BY ts ASC LIMIT ?3`,
           );
           const metaResult = tickerFilter
             ? await metaStmt.bind(currentBucket, scriptVersion, tickerFilter, limit).all()
@@ -23224,8 +23280,8 @@ Provide 3-5 actionable next steps:
             const toRemove = allTrades.filter((t) => {
               const tkr = String(t?.ticker || "").toUpperCase();
               if (tickerFilter && tkr !== tickerFilter) return false;
-              const entryTs = Number(t?.entry_ts ?? t?.entryTime);
-              if (!Number.isFinite(entryTs)) return false;
+              const entryTs = isoToMs(t?.entry_ts ?? t?.entryTime) ?? Number(t?.entry_ts ?? t?.entryTs);
+              if (!Number.isFinite(entryTs) || entryTs <= 0) return false;
               if (entryTs < tsStart || entryTs > tsEnd + 86400000) return false;
               return true;
             });
@@ -23260,6 +23316,15 @@ Provide 3-5 actionable next steps:
               const rowTs = row.ts;
               payload.ts = rowTs;
               payload.ingest_ts = rowTs;
+              // Replay: ensure trigger_ts for lifecycle gate (use ingest ts if missing)
+              if ((payload.trigger_ts == null || !Number.isFinite(Number(payload.trigger_ts))) && Number.isFinite(rowTs)) {
+                payload.trigger_ts = rowTs < 1e12 ? rowTs * 1000 : rowTs;
+              }
+              // Normalize SL/TP from alternate field names (ingest payload may vary)
+              if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.sl_price != null) payload.sl = payload.sl_price;
+              if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.stop_loss != null) payload.sl = payload.stop_loss;
+              const tpVal = payload.tp ?? payload.tp_max_price ?? payload.tp_target_price ?? payload.tp_target;
+              if ((payload.tp == null || !Number.isFinite(Number(payload.tp))) && tpVal != null && Number.isFinite(Number(tpVal))) payload.tp = Number(tpVal);
               const existingState = stateMap[ticker] || (await kvGetJSON(KV, `timed:latest:${ticker}`)) || {};
               const existingTs = Number(existingState?.ts ?? existingState?.ingest_ts);
               const isEarlierThanStored = !Number.isFinite(existingTs) || rowTs < existingTs;
@@ -23534,8 +23599,8 @@ Provide 3-5 actionable next steps:
               const kept = allTrades.filter((t) => {
                 const tkr = String(t?.ticker || "").toUpperCase();
                 if (tkr !== tickerFilter) return true;
-                const entryTs = Number(t?.entry_ts ?? t?.entryTime);
-                if (!Number.isFinite(entryTs)) return true;
+                const entryTs = isoToMs(t?.entry_ts ?? t?.entryTime) ?? Number(t?.entry_ts ?? t?.entryTs);
+                if (!Number.isFinite(entryTs) || entryTs <= 0) return true;
                 if (entryTs < tsStart || entryTs > tsEnd) return true;
                 tradesPurged += 1;
                 return false;
@@ -23551,8 +23616,8 @@ Provide 3-5 actionable next steps:
           } else {
             // Purge trades in the day window only
             const kept = allTrades.filter((t) => {
-              const entryTs = Number(t?.entry_ts ?? t?.entryTime);
-              if (!Number.isFinite(entryTs)) return true;
+              const entryTs = isoToMs(t?.entry_ts ?? t?.entryTime) ?? Number(t?.entry_ts ?? t?.entryTs);
+              if (!Number.isFinite(entryTs) || entryTs <= 0) return true;
               if (entryTs < tsStart || entryTs > tsEnd) return true;
               tradesPurged += 1;
               return false;
@@ -23608,6 +23673,15 @@ Provide 3-5 actionable next steps:
             if (!Number.isFinite(rowTs)) continue;
             payload.ts = rowTs;
             payload.ingest_ts = rowTs;
+            // Replay: ensure trigger_ts for lifecycle gate (use ingest ts if missing)
+            if ((payload.trigger_ts == null || !Number.isFinite(Number(payload.trigger_ts))) && Number.isFinite(rowTs)) {
+              payload.trigger_ts = rowTs < 1e12 ? rowTs * 1000 : rowTs;
+            }
+            // Normalize SL/TP from alternate field names
+            if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.sl_price != null) payload.sl = payload.sl_price;
+            if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.stop_loss != null) payload.sl = payload.stop_loss;
+            const tpVal = payload.tp ?? payload.tp_max_price ?? payload.tp_target_price ?? payload.tp_target;
+            if ((payload.tp == null || !Number.isFinite(Number(payload.tp))) && tpVal != null && Number.isFinite(Number(tpVal))) payload.tp = Number(tpVal);
 
             const existing = stateMap[ticker] || {};
             const existingTs = Number(existing?.ts ?? existing?.ingest_ts);
@@ -23839,6 +23913,93 @@ Provide 3-5 actionable next steps:
             corsHeaders(env, req),
           );
         }
+      }
+
+      // POST /timed/admin/refresh-latest-from-ingest?key=... - Restore KV from actual latest ingest_receipts per ticker.
+      // Use after replay to fix stale data (replay only keeps last-seen-per-bucket; this gets true latest).
+      if (url.pathname === "/timed/admin/refresh-latest-from-ingest" && req.method === "POST") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db || !KV) {
+          return sendJSON({ ok: false, error: "missing_db_or_kv" }, 500, corsHeaders(env, req, true));
+        }
+
+        const scriptVersion = url.searchParams.get("scriptVersion") || "2.5.0";
+        const limit = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "25", 10)));
+        const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const toProcess = Array.isArray(tickers) ? tickers.slice(offset, offset + limit) : [];
+
+        let refreshed = 0;
+        let errors = 0;
+        for (const t of toProcess) {
+          const ticker = String(t || "").toUpperCase();
+          if (!ticker) continue;
+          try {
+            const row = await db.prepare(
+              `SELECT payload_json, ts FROM ingest_receipts
+               WHERE ticker = ?1 AND (script_version = ?2 OR script_version IS NULL)
+               ORDER BY ts DESC LIMIT 1`
+            ).bind(ticker, scriptVersion).first();
+            if (!row?.payload_json) continue;
+            let payload;
+            try {
+              payload = JSON.parse(String(row.payload_json));
+            } catch {
+              continue;
+            }
+            if (!payload || typeof payload !== "object") continue;
+            const rowTs = Number(row.ts);
+            payload.ts = rowTs;
+            payload.ingest_ts = rowTs;
+            if ((payload.trigger_ts == null || !Number.isFinite(Number(payload.trigger_ts))) && Number.isFinite(rowTs)) {
+              payload.trigger_ts = rowTs < 1e12 ? rowTs * 1000 : rowTs;
+            }
+            if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.sl_price != null) payload.sl = payload.sl_price;
+            if ((payload.sl == null || !Number.isFinite(Number(payload.sl))) && payload.stop_loss != null) payload.sl = payload.stop_loss;
+            const tpVal = payload.tp ?? payload.tp_max_price ?? payload.tp_target_price ?? payload.tp_target;
+            if ((payload.tp == null || !Number.isFinite(Number(payload.tp))) && tpVal != null && Number.isFinite(Number(tpVal))) payload.tp = Number(tpVal);
+            const existing = (await kvGetJSON(KV, `timed:latest:${ticker}`)) || {};
+            if (existing?.entry_ts != null) payload.entry_ts = existing.entry_ts;
+            if (existing?.entry_price != null) payload.entry_price = existing.entry_price;
+            if (existing?.kanban_cycle_enter_now_ts != null) payload.kanban_cycle_enter_now_ts = existing.kanban_cycle_enter_now_ts;
+            if (existing?.kanban_cycle_trigger_ts != null) payload.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
+            if (existing?.kanban_cycle_side != null) payload.kanban_cycle_side = existing.kanban_cycle_side;
+            payload.move_status = computeMoveStatus(payload);
+            if (payload.flags) {
+              payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
+              payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+            }
+            const prevStage = existing?.kanban_stage;
+            const stage = classifyKanbanStage(payload);
+            payload.kanban_stage = stage;
+            payload.kanban_meta = deriveKanbanMeta(payload, stage);
+            if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
+              payload.prev_kanban_stage = String(prevStage);
+              payload.prev_kanban_stage_ts = rowTs;
+            }
+            await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+            refreshed++;
+          } catch (e) {
+            errors++;
+          }
+        }
+
+        const syncResult = refreshed > 0
+          ? await d1SyncLatestBatchFromKV(env, { waitUntil: () => {} }, 200).catch(() => ({}))
+          : {};
+        return sendJSON({
+          ok: true,
+          refreshed,
+          errors,
+          total: toProcess.length,
+          offset,
+          hasMore: offset + toProcess.length < (Array.isArray(tickers) ? tickers.length : 0),
+          sync: syncResult,
+        }, 200, corsHeaders(env, req, true));
       }
 
       // POST /timed/admin/force-sync?key=... - Force D1 sync from KV (refresh all tickers)

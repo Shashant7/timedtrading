@@ -77,6 +77,23 @@ async function replay() {
   const purgedMsg = totalPurged > 0 ? `, trades purged: ${totalPurged}` : "";
   console.log(`\nDone. Buckets: ${bucketCount}, rows: ${totalRows}, trades created: ${totalTrades}${purgedMsg}\n`);
 
+  console.log("Refreshing latest from ingest (fixes stale data from replay)...");
+  const refreshUrl = `${API_BASE}/timed/admin/refresh-latest-from-ingest?key=${API_KEY}`;
+  const limit = parseInt(process.env.REFRESH_LIMIT || "25", 10) || 25;
+  let totalRefreshed = 0;
+  let offset = 0;
+  while (true) {
+    const url = `${refreshUrl}&limit=${limit}&offset=${offset}`;
+    const r = await fetch(url, { method: "POST" });
+    const d = await r.json();
+    if (!d.ok) break;
+    totalRefreshed += d.refreshed || 0;
+    if (!d.hasMore || d.refreshed === 0) break;
+    offset += limit;
+    await new Promise((x) => setTimeout(x, 300));
+  }
+  console.log(`Refreshed ${totalRefreshed} tickers from latest ingest.\n`);
+
   console.log("Syncing to D1...");
   const syncUrl = `${API_BASE}/timed/admin/force-sync?key=${API_KEY}`;
   const syncResp = await fetch(syncUrl, { method: "POST" });
