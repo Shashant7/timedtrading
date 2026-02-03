@@ -94,7 +94,7 @@
   <body>
     <div id="root"></div>
 
-    <script src="shared-right-rail.js"></script>
+    <script src="shared-right-rail.js" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
 
@@ -2039,8 +2039,6 @@
         isNyRegularMarketOpen,
         downsampleByInterval,
       });
-        );
-      }
 
       function TradeRow({ trade, tickerData, onTickerClick, onTradeClick }) {
         const pnlColor = trade.pnl >= 0 ? "text-green-400" : "text-red-400";

@@ -345,7 +345,7 @@
       </div>
     </div>
 
-    <script src="shared-right-rail.js"></script>
+    <script src="shared-right-rail.js" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -11816,9 +11816,11 @@
             const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs);
             const isOpen = status === "OPEN" || status === "TP_HIT_TRIM" || !status;
 
-            // Override from trades: exited -> exit lane; OPEN in exit lane -> hold
+            // Override from trades: exited -> exit lane; trimmed -> trim lane; OPEN in exit lane -> hold
             if (trade && isClosed) {
               stage = "exit";
+            } else if (trade && isOpen && (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0))) {
+              stage = "trim";
             } else if (trade && isOpen && (stage === "exit" || stage === "archive")) {
               stage = "hold";
             }
