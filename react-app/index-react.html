@@ -11481,6 +11481,7 @@
         allData = null,
         defaultLimit = 12,
         storageKey = "timedTrading_activeMovesSnapshot_v1",
+        trades = [],
       }) {
         const [expandedSections, setExpandedSections] = React.useState({
           earlyMovers: true,
@@ -11735,6 +11736,7 @@
                   <div className="bg-[var(--tt-bg-elevated)] rounded-lg p-3 border border-[var(--tt-border)]">
                     <EarlyMoversPanel
                       tickers={tickers}
+                      trades={trades}
                       onSelectTicker={onSelectTicker}
                       rankPositions={rankPositions}
                       rankTotal={rankTotal}
@@ -11752,6 +11754,7 @@
       // ─────────────────────────────────────────────────────────────
       function EarlyMoversPanel({
         tickers = [],
+        trades = [],
         onSelectTicker = null,
         rankPositions = {},
         rankTotal = null,
@@ -11767,7 +11770,30 @@
           );
         };
 
-        // Categorize tickers into 8 Kanban lanes (Worker = source of truth, UI = presenter)
+        // Map ticker -> latest trade (by exit_ts or entry_ts) for lane override
+        const tradeByTicker = React.useMemo(() => {
+          const map = new Map();
+          if (!Array.isArray(trades)) return map;
+          trades.forEach((tr) => {
+            const sym = String(tr?.ticker || "").toUpperCase();
+            if (!sym) return;
+            const existing = map.get(sym);
+            const exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+            const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
+            if (!existing) {
+              map.set(sym, tr);
+              return;
+            }
+            const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
+            const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
+            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) {
+              map.set(sym, tr);
+            }
+          });
+          return map;
+        }, [trades]);
+
+        // Categorize tickers into 8 Kanban lanes (Worker = source of truth, trades override exit/hold)
         // Lanes: Watching | Almost Ready | Enter Now | Just Entered | Hold | Trim | Exit | Archived
         const categories = React.useMemo(() => {
           const watching = [];
@@ -11783,6 +11809,18 @@
             if (t?.kanban_stage === null) return;
 
             let stage = String(t?.kanban_stage || "");
+            const sym = String(t?.ticker || "").toUpperCase();
+            const trade = tradeByTicker.get(sym);
+            const status = trade ? String(trade.status || "").toUpperCase() : "";
+            const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs);
+            const isOpen = status === "OPEN" || status === "TP_HIT_TRIM" || !status;
+
+            // Override from trades: exited -> exit lane; OPEN in exit lane -> hold
+            if (trade && isClosed) {
+              stage = "exit";
+            } else if (trade && isOpen && (stage === "exit" || stage === "archive")) {
+              stage = "hold";
+            }
 
             // Fallback: classify client-side when Worker hasn't assigned stage yet
             if (!stage) {
@@ -11898,7 +11936,7 @@
             exit,
             archive,
           };
-        }, [tickers]);
+        }, [tickers, tradeByTicker]);
 
         const {
           watching,
@@ -20617,6 +20655,7 @@
                   <div className="mb-4">
                     <ActionCenterPanel
                       tickers={tickers}
+                      trades={trades}
                       allTickersWithRanks={allTickersWithRanks}
                       rankPositions={rankedTickerPositions}
                       onSelectTicker={handleTickerSelect}
