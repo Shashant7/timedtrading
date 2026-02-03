@@ -170,10 +170,10 @@ Payload should match what is stored in D1 (action_id, position_id, ts, action_ty
 - [x] Document “D1 is source of truth” and deprecate KV for trades (or document KV as cache).
 
 ### Phase 2: Lot-based model and execution_actions
-- [ ] Add D1 schema: positions, lots, execution_actions (or extend trades + trade_events with lots table and qty/value/lot_id).
-- [ ] Worker: ENTRY creates position + first lot + ENTRY action; ADD_ENTRY (same ticker+dir in ENTER_NOW) creates lot + ADD_ENTRY action; TRIM/EXIT write actions with qty, price, value, pnl_realized and update lot remaining_qty (FIFO).
+- [x] Add D1 schema: positions, lots, execution_actions (migration add-positions-lots-actions.sql).
+- [x] Worker: ENTRY creates position + first lot + ENTRY action; ADD_ENTRY (SCALE_IN) creates lot + ADD_ENTRY action; TRIM/EXIT write execution_action and update position; dual-write with trades/trade_events.
 - [ ] Migrate existing trades/trade_events to positions/lots/actions (one-time script) or run dual-write and backfill.
-- [ ] GET /timed/trades and GET /timed/ledger/trades return position + lots + actions.
+- [x] GET /timed/trades?source=positions returns from positions + execution_actions (same shape as KV).
 
 ### Phase 3: Kanban → execution consistency and alerts
 - [ ] Ingest: load open positions from D1 only (no KV for open state). All transitions (ENTER_NOW → ENTRY/ADD_ENTRY, TRIM lane → TRIM, EXIT lane → EXIT) write only to D1 then Discord.

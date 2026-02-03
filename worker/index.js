@@ -4749,6 +4749,27 @@ async function processTradeSimulation(
           await d1InsertTradeEvent(env, trade.id, ev).catch((e) => {
             console.error("[D1 LEDGER] closeTradeAtPrice event insert failed:", e);
           });
+          // Phase 2: EXIT execution_action and close position
+          const tsExit = ev.timestamp ? new Date(ev.timestamp).getTime() : Date.now();
+          const actionIdExit = `${trade.id}-EXIT-${tsExit}`;
+          await d1InsertExecutionAction(env, {
+            action_id: actionIdExit,
+            position_id: trade.id,
+            ts: tsExit,
+            action_type: "EXIT",
+            qty: remainingShares,
+            price: p,
+            value: p * remainingShares,
+            pnl_realized: pnlRemaining,
+            reason: closeReason || "EXIT",
+          }).catch(() => {});
+          await d1UpdatePosition(env, trade.id, {
+            total_qty: 0,
+            cost_basis: 0,
+            updated_at: tsExit,
+            status: "CLOSED",
+            closed_at: tsExit,
+          }).catch(() => {});
         }
       }
 
@@ -4889,6 +4910,26 @@ async function processTradeSimulation(
           await d1InsertTradeEvent(env, trade.id, ev).catch((e) => {
             console.error("[D1 LEDGER] trimTradeToPct event insert failed:", e);
           });
+          // Phase 2: TRIM execution_action (position_id = trade.id)
+          const tsTrim = ev.timestamp ? new Date(ev.timestamp).getTime() : Date.now();
+          const actionIdTrim = `${trade.id}-TRIM-${tsTrim}`;
+          await d1InsertExecutionAction(env, {
+            action_id: actionIdTrim,
+            position_id: trade.id,
+            ts: tsTrim,
+            action_type: "TRIM",
+            qty: trimShares,
+            price: p,
+            value: p * trimShares,
+            pnl_realized: pnlRealized,
+            reason: trimReason || "TRIM",
+          }).catch(() => {});
+          const newCostBasis = Number(trade.shares) * (1 - tgt) * Number(trade.entryPrice);
+          await d1UpdatePosition(env, trade.id, {
+            total_qty: Number(trade.shares) * (1 - tgt),
+            cost_basis: newCostBasis,
+            updated_at: tsTrim,
+          }).catch(() => {});
         }
       }
 
@@ -5110,6 +5151,43 @@ async function processTradeSimulation(
               await d1InsertTradeEvent(env, tradeId, ev).catch((e) => {
                 console.error("[D1 LEDGER] ENTRY event insert failed:", e);
               });
+              // Phase 2: lot-based model dual-write (position + lot + execution_action)
+              const tsPos = entryTsMs != null && Number.isFinite(entryTsMs) ? entryTsMs : Date.now();
+              const posId = tradeId;
+              const lotId = `${tradeId}-lot-${tsPos}`;
+              const actionId = `${tradeId}-ENTRY-${tsPos}`;
+              const entryValue = entryPx * shares;
+              await d1InsertPosition(env, {
+                position_id: posId,
+                ticker: sym,
+                direction,
+                status: "OPEN",
+                total_qty: shares,
+                cost_basis: entryValue,
+                created_at: tsPos,
+                updated_at: tsPos,
+                script_version: trade.scriptVersion,
+              }).catch(() => {});
+              await d1InsertLot(env, {
+                lot_id: lotId,
+                position_id: posId,
+                ts: tsPos,
+                qty: shares,
+                price: entryPx,
+                value: entryValue,
+                remaining_qty: shares,
+              }).catch(() => {});
+              await d1InsertExecutionAction(env, {
+                action_id: actionId,
+                position_id: posId,
+                ts: tsPos,
+                action_type: "ENTRY",
+                qty: shares,
+                price: entryPx,
+                value: entryValue,
+                pnl_realized: null,
+                reason: reason || "KANBAN_ENTER_NOW",
+              }).catch(() => {});
             }
 
             // Discord + D1 alert (best-effort, deduped)
@@ -6687,6 +6765,36 @@ async function processTradeSimulation(
                       },
                     );
                   }
+                  // Phase 2: ADD_ENTRY (new lot + action, update position)
+                  const posId = anyOpenTrade.id;
+                  const tsScale = scaleEvent?.timestamp ? new Date(scaleEvent.timestamp).getTime() : Date.now();
+                  const lotIdScale = `${posId}-lot-${tsScale}`;
+                  const actionIdScale = `${posId}-ADD_ENTRY-${tsScale}`;
+                  await d1InsertLot(env, {
+                    lot_id: lotIdScale,
+                    position_id: posId,
+                    ts: tsScale,
+                    qty: newShares,
+                    price: entryPrice,
+                    value: newValue,
+                    remaining_qty: newShares,
+                  }).catch(() => {});
+                  await d1InsertExecutionAction(env, {
+                    action_id: actionIdScale,
+                    position_id: posId,
+                    ts: tsScale,
+                    action_type: "ADD_ENTRY",
+                    qty: newShares,
+                    price: entryPrice,
+                    value: newValue,
+                    pnl_realized: null,
+                    reason: "SCALE_IN",
+                  }).catch(() => {});
+                  await d1UpdatePosition(env, posId, {
+                    total_qty: totalShares,
+                    cost_basis: totalShares * avgEntryPrice,
+                    updated_at: tsScale,
+                  }).catch(() => {});
                 }
                 await kvPutJSON(KV, tradesKey, allTrades);
                 console.log(
@@ -9407,6 +9515,204 @@ async function d1InsertTradeEvent(env, tradeId, event) {
   } catch (err) {
     console.error(`[D1 LEDGER] Trade event insert failed for ${tradeId}:`, err);
     return { ok: false, error: String(err) };
+  }
+}
+
+// --- Phase 2: positions / lots / execution_actions (lot-based model) ---
+
+async function d1InsertPosition(env, row) {
+  const db = env?.DB;
+  if (!db || !row) return { ok: false, skipped: true };
+  const { position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at, closed_at, script_version } = row;
+  if (!position_id || !ticker || !direction) return { ok: false, skipped: true, reason: "missing_key" };
+  try {
+    await db.prepare(
+      `INSERT OR IGNORE INTO positions (position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at, closed_at, script_version)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+    ).bind(
+      position_id,
+      String(ticker).toUpperCase(),
+      String(direction).toUpperCase(),
+      status || "OPEN",
+      Number(total_qty) || 0,
+      Number(cost_basis) || 0,
+      Number(created_at) || Date.now(),
+      Number(updated_at) || Date.now(),
+      closed_at != null ? Number(closed_at) : null,
+      script_version || null,
+    ).run();
+    return { ok: true };
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return { ok: false, skipped: true, reason: "schema" };
+    console.error("[D1 LEDGER] positions insert failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1InsertLot(env, row) {
+  const db = env?.DB;
+  if (!db || !row) return { ok: false, skipped: true };
+  const { lot_id, position_id, ts, qty, price, value, remaining_qty } = row;
+  if (!lot_id || !position_id || ts == null) return { ok: false, skipped: true, reason: "missing_key" };
+  try {
+    await db.prepare(
+      `INSERT OR IGNORE INTO lots (lot_id, position_id, ts, qty, price, value, remaining_qty)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+    ).bind(
+      lot_id,
+      position_id,
+      Number(ts),
+      Number(qty) || 0,
+      Number(price) || 0,
+      Number(value) || 0,
+      Number(remaining_qty) ?? Number(qty) ?? 0,
+    ).run();
+    return { ok: true };
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return { ok: false, skipped: true, reason: "schema" };
+    console.error("[D1 LEDGER] lots insert failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1InsertExecutionAction(env, row) {
+  const db = env?.DB;
+  if (!db || !row) return { ok: false, skipped: true };
+  const { action_id, position_id, ts, action_type, qty, price, value, pnl_realized, lot_id, reason, meta_json } = row;
+  if (!action_id || !position_id || ts == null || !action_type) return { ok: false, skipped: true, reason: "missing_key" };
+  try {
+    await db.prepare(
+      `INSERT OR IGNORE INTO execution_actions (action_id, position_id, ts, action_type, qty, price, value, pnl_realized, lot_id, reason, meta_json)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+    ).bind(
+      action_id,
+      position_id,
+      Number(ts),
+      String(action_type).toUpperCase(),
+      Number(qty) || 0,
+      Number(price) || 0,
+      Number(value) || 0,
+      pnl_realized != null ? Number(pnl_realized) : null,
+      lot_id || null,
+      reason || null,
+      meta_json || null,
+    ).run();
+    return { ok: true };
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return { ok: false, skipped: true, reason: "schema" };
+    console.error("[D1 LEDGER] execution_actions insert failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+async function d1GetOpenPosition(env, ticker, direction) {
+  const db = env?.DB;
+  if (!db || !ticker) return null;
+  try {
+    const row = await db.prepare(
+      `SELECT position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at
+       FROM positions WHERE ticker = ?1 AND direction = ?2 AND status = 'OPEN' LIMIT 1`
+    ).bind(String(ticker).toUpperCase(), String(direction || "LONG").toUpperCase()).first();
+    return row || null;
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return null;
+    console.error("[D1 LEDGER] get open position failed:", err);
+    return null;
+  }
+}
+
+async function d1UpdatePosition(env, position_id, updates) {
+  const db = env?.DB;
+  if (!db || !position_id) return { ok: false };
+  try {
+    const updatedAt = Number(updates.updated_at) || Date.now();
+    if (updates.status != null || updates.closed_at != null) {
+      await db.prepare(
+        `UPDATE positions SET total_qty = ?2, cost_basis = ?3, updated_at = ?4, status = ?5, closed_at = ?6 WHERE position_id = ?1`
+      ).bind(
+        position_id,
+        Number(updates.total_qty) ?? 0,
+        Number(updates.cost_basis) ?? 0,
+        updatedAt,
+        updates.status != null ? String(updates.status) : "OPEN",
+        updates.closed_at != null ? Number(updates.closed_at) : null,
+      ).run();
+    } else {
+      await db.prepare(
+        `UPDATE positions SET total_qty = ?2, cost_basis = ?3, updated_at = ?4 WHERE position_id = ?1`
+      ).bind(position_id, Number(updates.total_qty) ?? 0, Number(updates.cost_basis) ?? 0, updatedAt).run();
+    }
+    return { ok: true };
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return { ok: false, skipped: true };
+    console.error("[D1 LEDGER] position update failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+/** GET /timed/trades?source=positions — Load from positions/lots/execution_actions (Phase 2). Returns same shape as KV. */
+async function d1GetAllPositionsAsTrades(env) {
+  const db = env?.DB;
+  if (!db) return null;
+  try {
+    const posRes = await db.prepare(
+      `SELECT position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at, closed_at, script_version
+       FROM positions ORDER BY created_at DESC`
+    ).all();
+    const positions = Array.isArray(posRes?.results) ? posRes.results : [];
+    if (positions.length === 0) return [];
+
+    const positionIds = positions.map((p) => p.position_id).filter(Boolean);
+    const placeholders = positionIds.map(() => "?").join(",");
+    const actionsRes = await db.prepare(
+      `SELECT action_id, position_id, ts, action_type, qty, price, value, pnl_realized, reason
+       FROM execution_actions WHERE position_id IN (${placeholders}) ORDER BY position_id, ts ASC`
+    ).bind(...positionIds).all();
+    const actionRows = Array.isArray(actionsRes?.results) ? actionsRes.results : [];
+    const actionsByPos = {};
+    for (const a of actionRows) {
+      const id = a.position_id;
+      if (!actionsByPos[id]) actionsByPos[id] = [];
+      actionsByPos[id].push({
+        type: a.action_type,
+        ts: a.ts,
+        timestamp: Number.isFinite(Number(a.ts)) ? new Date(Number(a.ts)).toISOString() : undefined,
+        price: a.price,
+        shares: a.qty,
+        value: a.value,
+        pnl_realized: a.pnl_realized,
+        reason: a.reason,
+      });
+    }
+
+    return positions.map((p) => {
+      const history = actionsByPos[p.position_id] || [];
+      const created = Number(p.created_at) || 0;
+      const vwap = Number(p.total_qty) > 0 ? Number(p.cost_basis) / Number(p.total_qty) : null;
+      return {
+        id: p.position_id,
+        trade_id: p.position_id,
+        ticker: String(p.ticker || "").toUpperCase(),
+        direction: p.direction,
+        entryPrice: vwap,
+        entry_ts: created,
+        entryTime: created ? new Date(created).toISOString() : undefined,
+        status: p.status,
+        trimmedPct: null,
+        pnl: null,
+        pnlPct: null,
+        scriptVersion: p.script_version,
+        script_version: p.script_version,
+        shares: Number(p.total_qty) || 0,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+        history,
+      };
+    });
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return null;
+    console.error("[D1 LEDGER] d1GetAllPositionsAsTrades failed:", err);
+    return null;
   }
 }
 
@@ -19860,10 +20166,14 @@ export default {
         const versionFilter = url.searchParams.get("version");
         const source = url.searchParams.get("source");
 
-        // Optional: read from D1 as source of truth (?source=d1)
-        if (source === "d1" && env?.DB) {
-          const d1Trades = await d1GetAllTradesWithEvents(env);
-          if (d1Trades) {
+        // Optional: read from D1 positions/lots/actions (?source=positions) or trades+events (?source=d1)
+        let d1Trades = null;
+        if (source === "positions" && env?.DB) {
+          d1Trades = await d1GetAllPositionsAsTrades(env);
+        } else if (source === "d1" && env?.DB) {
+          d1Trades = await d1GetAllTradesWithEvents(env);
+        }
+        if (d1Trades) {
             let filtered = d1Trades;
             if (versionFilter && versionFilter !== "all") {
               filtered = d1Trades.filter(
@@ -19881,7 +20191,7 @@ export default {
                 version: versionFilter || "all",
                 versions,
                 trades: filtered,
-                source: "d1",
+                source: source,
               },
               200,
               corsHeaders(env, req),
