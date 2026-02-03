@@ -5,7 +5,9 @@
 
 ## Current Focus
 
-<!-- Add active tasks here with [ ] checkboxes -->
+- **Worker as source of truth & execution history** — See [worker-ledger-execution-plan.md](worker-ledger-execution-plan.md) for the full plan: D1 canonical store, lot-based execution (entry / add entry / trim / exit), verifiable trade history, Discord alerts aligned with each action.
+
+<!-- Add other active tasks here with [ ] checkboxes -->
 
 ## Completed
 

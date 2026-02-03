@@ -1045,7 +1045,7 @@
           };
         if (state.includes("BEAR"))
           return { text: "SHORT", color: "text-red-400", bg: "bg-red-500/20" };
-        return { text: null, color: "text-[#93a4d6]", bg: "bg-[#26325f]" };
+        return { text: null, color: "text-[var(--tt-text-muted)]", bg: "bg-[var(--tt-bg-elevated)]" };
       }
 
       function calculateTrade(ticker, entryPrice, existingTrade = null) {
@@ -1790,7 +1790,7 @@
       function TradeHistory({ history = [] }) {
         if (!history || history.length === 0) {
           return (
-            <div className="text-xs text-[#6b7a9f] italic p-2">
+            <div className="text-xs text-[var(--tt-text-faint)] italic p-2">
               No history available
             </div>
           );
@@ -1822,7 +1822,7 @@
             case "EXIT":
               return "text-purple-400";
             default:
-              return "text-[#93a4d6]";
+              return "text-[var(--tt-text-muted)]";
           }
         };
 
@@ -1844,7 +1844,7 @@
               return (
                 <div
                   key={idx}
-                  className="bg-[#0f1630] border border-[#26325f] rounded-lg p-3"
+                  className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-3"
                 >
                   <div className="flex items-start gap-3">
                     <div className={`text-xl ${getEventColor(event.type)}`}>
@@ -1857,28 +1857,28 @@
                         >
                           {event.type.replace("_", " ")}
                         </span>
-                        <span className="text-xs text-[#6b7a9f]">
+                        <span className="text-xs text-[var(--tt-text-faint)]">
                           {formattedDate} {formattedTime}
                         </span>
                       </div>
-                      <div className="text-xs text-[#93a4d6] mb-2">
+                      <div className="text-xs text-[var(--tt-text-muted)] mb-2">
                         {event.note}
                       </div>
                       <div className="grid grid-cols-3 gap-2 text-xs">
                         <div>
-                          <span className="text-[#6b7a9f]">Price:</span>
+                          <span className="text-[var(--tt-text-faint)]">Price:</span>
                           <span className="ml-1 font-semibold text-white">
                             ${Number(event.price).toFixed(2)}
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#6b7a9f]">Shares:</span>
+                          <span className="text-[var(--tt-text-faint)]">Shares:</span>
                           <span className="ml-1 font-semibold text-white">
                             {event.shares}
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#6b7a9f]">Value:</span>
+                          <span className="text-[var(--tt-text-faint)]">Value:</span>
                           <span className="ml-1 font-semibold text-white">
                             ${Number(event.value).toFixed(2)}
                           </span>
@@ -2324,7 +2324,7 @@
                             ? `(${sign}${fmtUsd(Math.abs(dayChg))})`
                             : ""}
                           {!marketOpen && (
-                            <span className="ml-2 text-[10px] text-[#93a4d6]">
+                            <span className="ml-2 text-[10px] text-[var(--tt-text-muted)]">
                               AH
                               {stale?.ageLabel
                                 ? ` • as of ${stale.ageLabel}`
@@ -2337,7 +2337,7 @@
                   </div>
                   <button
                     onClick={onClose}
-                    className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f]"
+                    className="text-[var(--tt-text-muted)] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-[var(--tt-bg-hover)]"
                   >
                     ✕
                   </button>
@@ -2366,7 +2366,7 @@
                     });
                     return (
                       <div className="mt-2 text-xs flex items-center gap-2">
-                        <span className="text-[#93a4d6]">Last Ingest:</span>
+                        <span className="text-[var(--tt-text-muted)]">Last Ingest:</span>
                         <span className="text-white font-semibold">
                           {displayDate} {displayTime}
                         </span>
@@ -2397,7 +2397,7 @@
                           className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
                             active
                               ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                              : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+                              : "border-[var(--tt-border)] bg-[var(--tt-bg-surface)] text-[var(--tt-text-muted)] hover:text-white"
                           }`}
                         >
                           {t.label}
@@ -2412,19 +2412,19 @@
               <div className="p-6 pt-4">
                 {positionEvents && positionEvents.length > 0 ? (
                   /* Position card mode — Trade History only */
-                  <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                    <div className="text-sm text-[#93a4d6] mb-2">Trade Journey</div>
+                  <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                    <div className="text-sm text-[var(--tt-text-muted)] mb-2">Trade Journey</div>
                     {trade ? (
                       <>
                         <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                           <div>
-                            <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
+                            <div className="text-[var(--tt-text-muted)] text-xs mb-1">Entry Price</div>
                             <div className="font-semibold text-white text-lg">
                               {Number.isFinite(tradeEntryPrice) ? `$${tradeEntryPrice.toFixed(2)}` : "—"}
                             </div>
                           </div>
                           <div>
-                            <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
+                            <div className="text-[var(--tt-text-muted)] text-xs mb-1">Current Price</div>
                             <div className="font-semibold text-yellow-400 text-lg">
                               {Number.isFinite(currentPrice) ? `$${Number(currentPrice).toFixed(2)}` : "—"}
                             </div>
@@ -2442,24 +2442,24 @@
                 {trade &&
                   selectedActivityType &&
                   Number.isFinite(selectedActivityTs) && (
-                    <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                    <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-sm font-bold">Decision Card</div>
-                          <div className="text-xs text-[#93a4d6] mt-0.5">
+                          <div className="text-xs text-[var(--tt-text-muted)] mt-0.5">
                             {selectedActivityType} •{" "}
                             {new Date(
                               Number(selectedActivityTs),
                             ).toLocaleString()}
                           </div>
                         </div>
-                        <div className="text-xs text-[#6b7a9f]">
+                        <div className="text-xs text-[var(--tt-text-faint)]">
                           {tradeId ? `Trade ${tradeId}` : ""}
                         </div>
                       </div>
 
                       {decisionCardLoading ? (
-                        <div className="mt-3 text-xs text-[#93a4d6]">
+                        <div className="mt-3 text-xs text-[var(--tt-text-muted)]">
                           Loading reasoning…
                         </div>
                       ) : decisionCardError ? (
@@ -2480,7 +2480,7 @@
                           )}
                         </div>
                       ) : (
-                        <div className="mt-3 text-xs text-[#93a4d6]">
+                        <div className="mt-3 text-xs text-[var(--tt-text-muted)]">
                           No reasoning snapshot found for this event.
                         </div>
                       )}
@@ -2595,8 +2595,8 @@
                         : "😒";
 
                   return (
-                    <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                      <div className="text-sm text-[#93a4d6] mb-2">Sector</div>
+                    <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                      <div className="text-sm text-[var(--tt-text-muted)] mb-2">Sector</div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-lg">{emoji}</span>
                         <span className="font-semibold text-white">
@@ -2608,13 +2608,13 @@
                               ? "bg-green-500/20 text-green-400"
                               : rating === "underweight"
                                 ? "bg-red-500/20 text-red-400"
-                                : "bg-[#26325f] text-[#93a4d6]"
+                                : "bg-[var(--tt-bg-elevated)] text-[var(--tt-text-muted)]"
                           }`}
                         >
                           {rating.charAt(0).toUpperCase() + rating.slice(1)}
                         </span>
                         {Number.isFinite(boost) && boost !== 0 && (
-                          <span className="text-[10px] text-[#93a4d6]">
+                          <span className="text-[10px] text-[var(--tt-text-muted)]">
                             Boost {boost > 0 ? `+${boost}` : boost}
                           </span>
                         )}
@@ -2627,8 +2627,8 @@
                 {(() => {
                   const dir = getDirection(tickerData);
                   return (
-                    <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                      <div className="text-sm text-[#93a4d6] mb-2">
+                    <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                      <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                         Bias / Direction
                       </div>
                       <div
@@ -2645,21 +2645,21 @@
                 })()}
 
                 {/* System Decision + Guidance */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="text-sm text-[#93a4d6] mb-2">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                  <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                     System Decision
                   </div>
                   <div className={`text-sm font-bold ${actionInfo.color}`}>
                     {actionInfo.action}
                   </div>
-                  <div className="text-xs text-[#93a4d6] mt-1">
+                  <div className="text-xs text-[var(--tt-text-muted)] mt-1">
                     {actionInfo.description}
                   </div>
                 </div>
 
                 {/* Triggers */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="text-sm text-[#93a4d6] mb-2">⚡ Triggers</div>
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                  <div className="text-sm text-[var(--tt-text-muted)] mb-2">⚡ Triggers</div>
                   {triggerItems.length > 0 ? (
                     <div className="space-y-1">
                       {triggerItems.slice(0, 10).map((t, idx) => (
@@ -2669,15 +2669,15 @@
                       ))}
                     </div>
                   ) : (
-                    <div className="text-xs text-[#93a4d6]">
+                    <div className="text-xs text-[var(--tt-text-muted)]">
                       No trigger signals detected.
                     </div>
                   )}
                 </div>
 
                 {/* Timeframes (Per-TF technicals) */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="text-sm text-[#93a4d6] mb-2">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                  <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                     ⏱ Timeframes
                   </div>
                   {tfTech ? (
@@ -2714,13 +2714,13 @@
                         return (
                           <div
                             key={k}
-                            className="border border-[#26325f] rounded-lg p-2 bg-[#121a33]"
+                            className="border border-[var(--tt-border)] rounded-lg p-2 bg-[var(--tt-bg-elevated)]"
                           >
                             <div className="flex items-center justify-between">
                               <div className="text-xs font-semibold text-white">
                                 {label}
                               </div>
-                              <div className="text-[10px] text-[#93a4d6] flex items-center gap-2">
+                              <div className="text-[10px] text-[var(--tt-text-muted)] flex items-center gap-2">
                                 <span>{sqIcons}</span>
                                 <span
                                   className={`font-semibold ${
@@ -2728,14 +2728,14 @@
                                       ? "text-green-400"
                                       : sig === -1
                                         ? "text-red-400"
-                                        : "text-[#93a4d6]"
+                                        : "text-[var(--tt-text-muted)]"
                                   }`}
                                 >
                                   {sigLabel}
                                 </span>
                               </div>
                             </div>
-                            <div className="mt-1 text-[10px] text-[#93a4d6]">
+                            <div className="mt-1 text-[10px] text-[var(--tt-text-muted)]">
                               <span className="text-white">
                                 {atrBand || "—"}
                               </span>
@@ -2760,7 +2760,7 @@
                                 );
                               })}
                             </div>
-                            <div className="mt-1 text-[10px] text-[#93a4d6] flex justify-between">
+                            <div className="mt-1 text-[10px] text-[var(--tt-text-muted)] flex justify-between">
                               <span>
                                 PH {ph && ph.v != null ? ph.v : "—"}{" "}
                                 {(ph && Array.isArray(ph.div) ? ph.div : [])
@@ -2779,7 +2779,7 @@
                                   .join(" ")}
                               </span>
                             </div>
-                            <div className="mt-1 text-[10px] text-[#93a4d6]">
+                            <div className="mt-1 text-[10px] text-[var(--tt-text-muted)]">
                               {(ph && Array.isArray(ph.dots) ? ph.dots : [])
                                 .slice(0, 5)
                                 .map(phaseDotLabel)
@@ -2791,7 +2791,7 @@
                       })}
                     </div>
                   ) : (
-                    <div className="text-xs text-[#93a4d6]">
+                    <div className="text-xs text-[var(--tt-text-muted)]">
                       No per-timeframe technicals available yet.
                     </div>
                   )}
@@ -2799,16 +2799,16 @@
 
                 {/* Score, Rank, Breakdown */}
                 <div className="space-y-2.5 text-sm mb-4">
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Score</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Score</span>
                     <span className="font-semibold text-blue-400 text-lg">
                       {Number.isFinite(displayScore)
                         ? displayScore.toFixed(1)
                         : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Rank</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Rank</span>
                     <span className="font-semibold">
                       {rankPosition > 0
                         ? `#${rankPosition} of ${rankTotal}`
@@ -2894,8 +2894,8 @@
                         : null,
                     ].filter(Boolean);
                     return breakdownComponents.length > 0 ? (
-                      <div className="border-t border-[#26325f] my-3 pt-3">
-                        <div className="text-xs text-[#93a4d6] mb-3 font-semibold">
+                      <div className="border-t border-[var(--tt-border)] my-3 pt-3">
+                        <div className="text-xs text-[var(--tt-text-muted)] mb-3 font-semibold">
                           Score Breakdown
                         </div>
                         <div className="space-y-1.5">
@@ -2904,7 +2904,7 @@
                               key={idx}
                               className="flex justify-between items-center text-xs"
                             >
-                              <span className="text-[#93a4d6]">
+                              <span className="text-[var(--tt-text-muted)]">
                                 {comp.label}
                               </span>
                               <span className={`font-semibold ${comp.color}`}>
@@ -2920,28 +2920,28 @@
 
                 {/* RR, SL, Max TP, TP Target, TP Levels */}
                 <div className="space-y-2.5 text-sm mb-4">
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">RR</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">RR</span>
                     <span className="font-semibold">
                       {tickerData.rr ? Number(tickerData.rr).toFixed(2) : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">SL</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">SL</span>
                     <span className="font-semibold text-red-400">
                       {metricsSource.sl
                         ? `$${Number(metricsSource.sl).toFixed(2)}`
                         : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">TP Max</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">TP Max</span>
                     <span className="font-semibold text-green-400">
                       {Number.isFinite(tpMax) ? `$${tpMax.toFixed(2)}` : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">TP Target</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">TP Target</span>
                     <span className="font-semibold text-green-400">
                       {Number.isFinite(tpTarget)
                         ? `$${tpTarget.toFixed(2)}`
@@ -2949,7 +2949,7 @@
                     </span>
                   </div>
                   {tpLevels.length > 0 && (
-                    <div className="text-xs text-[#93a4d6]">
+                    <div className="text-xs text-[var(--tt-text-muted)]">
                       TP Levels:{" "}
                       {tpLevels
                         .slice(0, 6)
@@ -2960,15 +2960,15 @@
                 </div>
 
                 {/* Trade Journey */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="text-sm text-[#93a4d6] mb-2">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                  <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                     Trade Journey
                   </div>
                   {trade ? (
                     <>
                       <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                         <div>
-                          <div className="text-[#93a4d6] text-xs mb-1">
+                          <div className="text-[var(--tt-text-muted)] text-xs mb-1">
                             Entry Price
                           </div>
                           <div className="font-semibold text-white text-lg">
@@ -2978,7 +2978,7 @@
                           </div>
                         </div>
                         <div>
-                          <div className="text-[#93a4d6] text-xs mb-1">
+                          <div className="text-[var(--tt-text-muted)] text-xs mb-1">
                             Current Price
                           </div>
                           <div className="font-semibold text-yellow-400 text-lg">
@@ -2993,22 +2993,22 @@
                       ) : trade.history && trade.history.length > 0 ? (
                         <TradeHistory history={trade.history} />
                       ) : (
-                        <div className="text-xs text-[#93a4d6]">
+                        <div className="text-xs text-[var(--tt-text-muted)]">
                           No trade history for this ticker.
                         </div>
                       )}
                     </>
                   ) : (
-                    <div className="text-xs text-[#93a4d6]">
+                    <div className="text-xs text-[var(--tt-text-muted)]">
                       No trade history for this ticker.
                     </div>
                   )}
                 </div>
 
                 {/* Completion, Phase, Dynamic ETA */}
-                <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] rounded-lg border border-[var(--tt-border)]">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-[#93a4d6]">Phase</span>
+                    <span className="text-sm text-[var(--tt-text-muted)]">Phase</span>
                     <span
                       className="text-sm font-semibold"
                       style={{ color: phaseColor }}
@@ -3016,7 +3016,7 @@
                       {(phase * 100).toFixed(2)}%
                     </span>
                   </div>
-                  <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
+                  <div className="h-3 bg-[var(--tt-bg-elevated)] rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
@@ -3026,7 +3026,7 @@
                     />
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs">
-                    <span className="text-[#93a4d6]">Completion</span>
+                    <span className="text-[var(--tt-text-muted)]">Completion</span>
                     <span className="font-semibold text-white">
                       {tickerData.completion != null
                         ? `${(Number(tickerData.completion) * 100).toFixed(2)}%`
@@ -3034,7 +3034,7 @@
                     </span>
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs">
-                    <span className="text-[#93a4d6]">Dynamic ETA</span>
+                    <span className="text-[var(--tt-text-muted)]">Dynamic ETA</span>
                     <span className="font-semibold text-white">
                       {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
                     </span>
@@ -3045,8 +3045,8 @@
                 {(tickerData.daily_ema_cloud ||
                   tickerData.fourh_ema_cloud ||
                   tickerData.oneh_ema_cloud) && (
-                  <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                    <div className="text-sm text-[#93a4d6] mb-2">
+                  <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                    <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                       EMA Cloud Position
                     </div>
                     {[
@@ -3059,7 +3059,7 @@
                       return (
                         <div
                           key={key}
-                          className="text-xs text-[#93a4d6] flex justify-between"
+                          className="text-xs text-[var(--tt-text-muted)] flex justify-between"
                         >
                           <span>
                             {key.replace("_ema_cloud", "").toUpperCase()}
@@ -3075,17 +3075,17 @@
 
                 {/* TD Sequential */}
                 {tickerData.td_sequential && (
-                  <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                    <div className="text-sm text-[#93a4d6] mb-2">
+                  <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                    <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                       TD Sequential
                     </div>
-                    <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <div className="text-xs text-[var(--tt-text-muted)] flex justify-between">
                       <span>Bullish Prep</span>
                       <span className="text-white font-semibold">
                         {tickerData.td_sequential.bullish_prep_count || 0}/9
                       </span>
                     </div>
-                    <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <div className="text-xs text-[var(--tt-text-muted)] flex justify-between">
                       <span>Bearish Prep</span>
                       <span className="text-white font-semibold">
                         {tickerData.td_sequential.bearish_prep_count || 0}/9
@@ -3096,17 +3096,17 @@
 
                 {/* RSI & Divergence */}
                 {tickerData.rsi && (
-                  <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                    <div className="text-sm text-[#93a4d6] mb-2">
+                  <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                    <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                       RSI & Divergence
                     </div>
-                    <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <div className="text-xs text-[var(--tt-text-muted)] flex justify-between">
                       <span>RSI</span>
                       <span className="text-white font-semibold">
                         {Number(tickerData.rsi.value || 0).toFixed(2)}
                       </span>
                     </div>
-                    <div className="text-xs text-[#93a4d6] flex justify-between">
+                    <div className="text-xs text-[var(--tt-text-muted)] flex justify-between">
                       <span>Divergence</span>
                       <span className="text-white font-semibold">
                         {tickerData.rsi.divergence?.type || "none"}
@@ -3116,17 +3116,17 @@
                 )}
 
                 {/* State, Horizon, Detected Patterns */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="text-sm text-[#93a4d6] mb-2">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                  <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                     State & Horizon
                   </div>
-                  <div className="text-xs text-[#93a4d6] flex justify-between">
+                  <div className="text-xs text-[var(--tt-text-muted)] flex justify-between">
                     <span>State</span>
                     <span className="text-white font-semibold">
                       {tickerData.state || "—"}
                     </span>
                   </div>
-                  <div className="text-xs text-[#93a4d6] flex justify-between">
+                  <div className="text-xs text-[var(--tt-text-muted)] flex justify-between">
                     <span>Horizon</span>
                     <span className="text-white font-semibold">{horizon}</span>
                   </div>
@@ -3141,12 +3141,12 @@
                 </div>
 
                 {/* Bubble Journey (15m increments) */}
-                <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                  <div className="text-sm text-[#93a4d6] mb-2">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                  <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                     Bubble Journey (15m)
                   </div>
                   {bubbleJourneyLoading ? (
-                    <div className="text-xs text-[#93a4d6]">Loading trail…</div>
+                    <div className="text-xs text-[var(--tt-text-muted)]">Loading trail…</div>
                   ) : bubbleJourneyError ? (
                     <div className="text-xs text-red-400">
                       {bubbleJourneyError}
@@ -3160,7 +3160,7 @@
                         .map((p, idx) => (
                           <div
                             key={`${p.__bucket || p.__ts_ms}-${idx}`}
-                            className="text-[10px] text-[#93a4d6] flex justify-between"
+                            className="text-[10px] text-[var(--tt-text-muted)] flex justify-between"
                           >
                             <span>
                               {Number.isFinite(p.__ts_ms)
@@ -3187,7 +3187,7 @@
                   <div className={`text-lg font-bold mb-2 ${actionInfo.color}`}>
                     {actionInfo.action}
                   </div>
-                  <div className="text-sm text-[#93a4d6]">
+                  <div className="text-sm text-[var(--tt-text-muted)]">
                     {actionInfo.description}
                   </div>
                 </div>
@@ -3196,9 +3196,9 @@
                 <QuadrantProgression ticker={tickerData} flags={flags} />
 
                 {/* Phase indicator */}
-                <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] rounded-lg border border-[var(--tt-border)]">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-[#93a4d6]">Phase</span>
+                    <span className="text-sm text-[var(--tt-text-muted)]">Phase</span>
                     <span
                       className="text-sm font-semibold"
                       style={{ color: phaseColor }}
@@ -3206,7 +3206,7 @@
                       {(phase * 100).toFixed(2)}%
                     </span>
                   </div>
-                  <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
+                  <div className="h-3 bg-[var(--tt-bg-elevated)] rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
@@ -3219,15 +3219,15 @@
 
                 {/* Score and Ranking */}
                 <div className="space-y-2.5 text-sm mb-4">
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Score</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Score</span>
                     <span className="font-semibold text-blue-400 text-lg">
                       {baseScore}
                     </span>
                   </div>
                   {rankTotal > 0 && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Rank</span>
+                    <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                      <span className="text-[var(--tt-text-muted)]">Rank</span>
                       <span className="font-semibold">
                         {rankPosition > 0
                           ? `#${rankPosition} of ${rankTotal}`
@@ -3236,8 +3236,8 @@
                     </div>
                   )}
                   {dynamicRank !== baseScore && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Dynamic Score</span>
+                    <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                      <span className="text-[var(--tt-text-muted)]">Dynamic Score</span>
                       <span className="font-semibold text-green-400">
                         {dynamicRank}
                       </span>
@@ -3268,16 +3268,16 @@
                     return (
                       <>
                         {has4h && (
-                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                            <span className="text-[#93a4d6]">Model (4h)</span>
+                          <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                            <span className="text-[var(--tt-text-muted)]">Model (4h)</span>
                             <span className="font-semibold text-purple-300">
                               pWin {fmtPct(p4h)} • EV {fmtEv(ev4h)}
                             </span>
                           </div>
                         )}
                         {has1d && (
-                          <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                            <span className="text-[#93a4d6]">Model (1d)</span>
+                          <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                            <span className="text-[var(--tt-text-muted)]">Model (1d)</span>
                             <span className="font-semibold text-purple-300">
                               pWin {fmtPct(p1d)} • EV {fmtEv(ev1d)}
                             </span>
@@ -3287,8 +3287,8 @@
                     );
                   })()}
                   {isInTop40 && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Top 40 Position</span>
+                    <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                      <span className="text-[var(--tt-text-muted)]">Top 40 Position</span>
                       <span className="font-semibold text-yellow-400">
                         #{rankPosition} of 40
                       </span>
@@ -3390,8 +3390,8 @@
                     ].filter(Boolean);
 
                     return breakdownComponents.length > 0 ? (
-                      <div className="border-t border-[#26325f] my-3 pt-3">
-                        <div className="text-xs text-[#93a4d6] mb-3 font-semibold">
+                      <div className="border-t border-[var(--tt-border)] my-3 pt-3">
+                        <div className="text-xs text-[var(--tt-text-muted)] mb-3 font-semibold">
                           Score Breakdown
                         </div>
                         <div className="space-y-1.5">
@@ -3400,7 +3400,7 @@
                               key={idx}
                               className="flex justify-between items-center text-xs"
                             >
-                              <span className="text-[#93a4d6]">
+                              <span className="text-[var(--tt-text-muted)]">
                                 {comp.label}
                               </span>
                               <span className={`font-semibold ${comp.color}`}>
@@ -3408,8 +3408,8 @@
                               </span>
                             </div>
                           ))}
-                          <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[#26325f]">
-                            <span className="text-[#93a4d6] font-semibold">
+                          <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[var(--tt-border)]">
+                            <span className="text-[var(--tt-text-muted)] font-semibold">
                               Total Score
                             </span>
                             <span className="text-blue-400 font-bold text-base">
@@ -3421,44 +3421,44 @@
                     ) : null;
                   })()}
 
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">RR</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">RR</span>
                     <span className="font-semibold">
                       {tickerData.rr ? Number(tickerData.rr).toFixed(2) : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">State</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">State</span>
                     <span className="font-semibold">
                       {tickerData.state || "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">HTF Score</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">HTF Score</span>
                     <span className="font-semibold">
                       {tickerData.htf_score != null
                         ? Number(tickerData.htf_score).toFixed(2)
                         : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">LTF Score</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">LTF Score</span>
                     <span className="font-semibold">
                       {tickerData.ltf_score != null
                         ? Number(tickerData.ltf_score).toFixed(2)
                         : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Completion</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Completion</span>
                     <span className="font-semibold">
                       {tickerData.completion != null
                         ? `${(Number(tickerData.completion) * 100).toFixed(2)}%`
                         : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Price</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Price</span>
                     <span className="font-semibold">
                       $
                       {tickerData.price
@@ -3494,8 +3494,8 @@
                           : "bg-yellow-500/20 border-yellow-500/50";
 
                     return (
-                      <div className="mt-6 pt-6 border-t-2 border-[#26325f]">
-                        <div className="text-sm font-bold text-[#93a4d6] mb-4">
+                      <div className="mt-6 pt-6 border-t-2 border-[var(--tt-border)]">
+                        <div className="text-sm font-bold text-[var(--tt-text-muted)] mb-4">
                           📊 Fundamental & Valuation
                         </div>
 
@@ -3505,7 +3505,7 @@
                             className={`mb-4 p-3 rounded-lg border-2 ${signalBg}`}
                           >
                             <div className="flex items-center justify-between">
-                              <span className="text-xs text-[#93a4d6]">
+                              <span className="text-xs text-[var(--tt-text-muted)]">
                                 Valuation Signal
                               </span>
                               <span
@@ -3515,7 +3515,7 @@
                               </span>
                             </div>
                             {fund.valuation_confidence && (
-                              <div className="text-xs text-[#93a4d6] mt-1">
+                              <div className="text-xs text-[var(--tt-text-muted)] mt-1">
                                 Confidence:{" "}
                                 <span className="font-semibold">
                                   {fund.valuation_confidence}
@@ -3525,13 +3525,13 @@
                             {fund.valuation_reasons &&
                               fund.valuation_reasons.length > 0 && (
                                 <div className="mt-2 pt-2 border-t border-current/30">
-                                  <div className="text-[10px] text-[#93a4d6] mb-1">
+                                  <div className="text-[10px] text-[var(--tt-text-muted)] mb-1">
                                     Reasons:
                                   </div>
                                   {fund.valuation_reasons.map((reason, idx) => (
                                     <div
                                       key={idx}
-                                      className="text-[10px] text-[#93a4d6]/80 mb-0.5"
+                                      className="text-[10px] text-[var(--tt-text-muted)]/80 mb-0.5"
                                     >
                                       • {reason}
                                     </div>
@@ -3544,16 +3544,16 @@
                         {/* Basic Metrics */}
                         <div className="space-y-2 text-sm mb-4">
                           {fund.pe_ratio !== null && (
-                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                              <span className="text-[#93a4d6]">P/E Ratio</span>
+                            <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                              <span className="text-[var(--tt-text-muted)]">P/E Ratio</span>
                               <span className="font-semibold">
                                 {Number(fund.pe_ratio).toFixed(2)}
                               </span>
                             </div>
                           )}
                           {fund.peg_ratio !== null && (
-                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                              <span className="text-[#93a4d6]">PEG Ratio</span>
+                            <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                              <span className="text-[var(--tt-text-muted)]">PEG Ratio</span>
                               <span
                                 className={`font-semibold ${
                                   fund.peg_ratio < 0.8
@@ -3562,7 +3562,7 @@
                                       ? "text-yellow-400"
                                       : fund.peg_ratio > 1.5
                                         ? "text-red-400"
-                                        : "text-[#93a4d6]"
+                                        : "text-[var(--tt-text-muted)]"
                                 }`}
                               >
                                 {Number(fund.peg_ratio).toFixed(2)}
@@ -3570,16 +3570,16 @@
                             </div>
                           )}
                           {fund.eps !== null && (
-                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                              <span className="text-[#93a4d6]">EPS (TTM)</span>
+                            <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                              <span className="text-[var(--tt-text-muted)]">EPS (TTM)</span>
                               <span className="font-semibold">
                                 ${Number(fund.eps).toFixed(2)}
                               </span>
                             </div>
                           )}
                           {fund.eps_growth_rate !== null && (
-                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                              <span className="text-[#93a4d6]">
+                            <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                              <span className="text-[var(--tt-text-muted)]">
                                 EPS Growth (Annual)
                               </span>
                               <span
@@ -3589,7 +3589,7 @@
                                     : fund.eps_growth_rate > 10
                                       ? "text-yellow-400"
                                       : fund.eps_growth_rate > 0
-                                        ? "text-[#93a4d6]"
+                                        ? "text-[var(--tt-text-muted)]"
                                         : "text-red-400"
                                 }`}
                               >
@@ -3598,8 +3598,8 @@
                             </div>
                           )}
                           {fund.market_cap !== null && (
-                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                              <span className="text-[#93a4d6]">Market Cap</span>
+                            <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                              <span className="text-[var(--tt-text-muted)]">Market Cap</span>
                               <span className="font-semibold">
                                 {fund.market_cap >= 1e12
                                   ? `$${(fund.market_cap / 1e12).toFixed(2)}T`
@@ -3612,8 +3612,8 @@
                             </div>
                           )}
                           {fund.industry && (
-                            <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                              <span className="text-[#93a4d6]">Industry</span>
+                            <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                              <span className="text-[var(--tt-text-muted)]">Industry</span>
                               <span className="font-semibold text-xs">
                                 {fund.industry}
                               </span>
@@ -3624,12 +3624,12 @@
                         {/* Fair Value */}
                         {fund.fair_value_price !== null &&
                           fund.fair_value_price > 0 && (
-                            <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
-                              <div className="text-xs text-[#93a4d6] mb-2">
+                            <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] rounded-lg border border-[var(--tt-border)]">
+                              <div className="text-xs text-[var(--tt-text-muted)] mb-2">
                                 Fair Value
                               </div>
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm text-[#93a4d6]">
+                                <span className="text-sm text-[var(--tt-text-muted)]">
                                   Fair Value Price
                                 </span>
                                 <span className="font-bold text-lg text-blue-400">
@@ -3638,7 +3638,7 @@
                               </div>
                               {fund.premium_discount_pct !== null && (
                                 <div className="flex items-center justify-between">
-                                  <span className="text-xs text-[#93a4d6]">
+                                  <span className="text-xs text-[var(--tt-text-muted)]">
                                     Premium/Discount
                                   </span>
                                   <span
@@ -3649,7 +3649,7 @@
                                           ? "text-yellow-400"
                                           : fund.premium_discount_pct > 10
                                             ? "text-red-400"
-                                            : "text-[#93a4d6]"
+                                            : "text-[var(--tt-text-muted)]"
                                     }`}
                                   >
                                     {fund.premium_discount_pct > 0 ? "+" : ""}
@@ -3662,7 +3662,7 @@
                               )}
                               {fund.fair_value_pe &&
                                 fund.fair_value_pe.preferred && (
-                                  <div className="mt-2 pt-2 border-t border-[#26325f] text-xs text-[#93a4d6]">
+                                  <div className="mt-2 pt-2 border-t border-[var(--tt-border)] text-xs text-[var(--tt-text-muted)]">
                                     Fair P/E:{" "}
                                     <span className="font-semibold">
                                       {Number(
@@ -3676,14 +3676,14 @@
 
                         {/* Historical P/E Percentiles */}
                         {fund.pe_percentiles && (
-                          <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
-                            <div className="text-xs text-[#93a4d6] mb-2">
+                          <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] rounded-lg border border-[var(--tt-border)]">
+                            <div className="text-xs text-[var(--tt-text-muted)] mb-2">
                               Historical P/E Percentiles
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-xs">
                               {fund.pe_percentiles.p10 !== null && (
                                 <div className="flex justify-between">
-                                  <span className="text-[#93a4d6]">10th:</span>
+                                  <span className="text-[var(--tt-text-muted)]">10th:</span>
                                   <span className="font-semibold">
                                     {Number(fund.pe_percentiles.p10).toFixed(1)}
                                   </span>
@@ -3691,7 +3691,7 @@
                               )}
                               {fund.pe_percentiles.p25 !== null && (
                                 <div className="flex justify-between">
-                                  <span className="text-[#93a4d6]">25th:</span>
+                                  <span className="text-[var(--tt-text-muted)]">25th:</span>
                                   <span className="font-semibold">
                                     {Number(fund.pe_percentiles.p25).toFixed(1)}
                                   </span>
@@ -3699,7 +3699,7 @@
                               )}
                               {fund.pe_percentiles.p50 !== null && (
                                 <div className="flex justify-between">
-                                  <span className="text-[#93a4d6]">
+                                  <span className="text-[var(--tt-text-muted)]">
                                     50th (Median):
                                   </span>
                                   <span className="font-semibold text-blue-400">
@@ -3709,7 +3709,7 @@
                               )}
                               {fund.pe_percentiles.p75 !== null && (
                                 <div className="flex justify-between">
-                                  <span className="text-[#93a4d6]">75th:</span>
+                                  <span className="text-[var(--tt-text-muted)]">75th:</span>
                                   <span className="font-semibold">
                                     {Number(fund.pe_percentiles.p75).toFixed(1)}
                                   </span>
@@ -3717,15 +3717,15 @@
                               )}
                               {fund.pe_percentiles.p90 !== null && (
                                 <div className="flex justify-between">
-                                  <span className="text-[#93a4d6]">90th:</span>
+                                  <span className="text-[var(--tt-text-muted)]">90th:</span>
                                   <span className="font-semibold">
                                     {Number(fund.pe_percentiles.p90).toFixed(1)}
                                   </span>
                                 </div>
                               )}
                               {fund.pe_percentiles.avg !== null && (
-                                <div className="flex justify-between col-span-2 pt-1 border-t border-[#26325f]">
-                                  <span className="text-[#93a4d6]">
+                                <div className="flex justify-between col-span-2 pt-1 border-t border-[var(--tt-border)]">
+                                  <span className="text-[var(--tt-text-muted)]">
                                     Average:
                                   </span>
                                   <span className="font-semibold">
@@ -3735,8 +3735,8 @@
                               )}
                             </div>
                             {fund.pe_percentile_position && (
-                              <div className="mt-2 pt-2 border-t border-[#26325f] text-xs">
-                                <span className="text-[#93a4d6]">
+                              <div className="mt-2 pt-2 border-t border-[var(--tt-border)] text-xs">
+                                <span className="text-[var(--tt-text-muted)]">
                                   Current Position:{" "}
                                 </span>
                                 <span
@@ -3749,7 +3749,7 @@
                                             "Top",
                                           )
                                         ? "text-red-400"
-                                        : "text-[#93a4d6]"
+                                        : "text-[var(--tt-text-muted)]"
                                   }`}
                                 >
                                   {fund.pe_percentile_position}
@@ -3764,12 +3764,12 @@
                           tickerData.rank_components.valuation_boost !==
                             undefined &&
                           tickerData.rank_components.valuation_boost !== 0 && (
-                            <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
-                              <div className="text-xs text-[#93a4d6] mb-1">
+                            <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] rounded-lg border border-[var(--tt-border)]">
+                              <div className="text-xs text-[var(--tt-text-muted)] mb-1">
                                 Rank Components
                               </div>
                               <div className="flex justify-between items-center text-xs">
-                                <span className="text-[#93a4d6]">
+                                <span className="text-[var(--tt-text-muted)]">
                                   Base Rank
                                 </span>
                                 <span className="font-semibold">
@@ -3778,7 +3778,7 @@
                                 </span>
                               </div>
                               <div className="flex justify-between items-center text-xs mt-1">
-                                <span className="text-[#93a4d6]">
+                                <span className="text-[var(--tt-text-muted)]">
                                   Valuation Boost
                                 </span>
                                 <span
@@ -3796,8 +3796,8 @@
                                   {tickerData.rank_components.valuation_boost}
                                 </span>
                               </div>
-                              <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[#26325f]">
-                                <span className="text-[#93a4d6] font-semibold">
+                              <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[var(--tt-border)]">
+                                <span className="text-[var(--tt-text-muted)] font-semibold">
                                   Final Rank
                                 </span>
                                 <span className="font-bold text-blue-400">
@@ -3815,7 +3815,7 @@
             </div>
 
             {/* Fixed Footer */}
-            <div className="flex-shrink-0 p-6 pt-4 border-t border-[#26325f] bg-[#121a33]">
+            <div className="flex-shrink-0 p-6 pt-4 border-t border-[var(--tt-border)] bg-[var(--tt-bg-elevated)]">
               <a
                 href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`}
                 target="_blank"
@@ -3977,7 +3977,7 @@
 
         return (
           <tr
-            className="border-b border-[#26325f] hover:bg-[#1a2550] cursor-pointer transition-colors"
+            className="border-b border-[var(--tt-border)] hover:bg-[#1a2550] cursor-pointer transition-colors"
             onClick={() => {
               if (onTradeClick) onTradeClick(trade);
               else if (onTickerClick) onTickerClick(trade.ticker);
@@ -3997,14 +3997,14 @@
             </td>
             <td className="p-2 text-sm">${trade.entryPrice.toFixed(2)}</td>
             <td className="p-2 text-sm">${currentPrice.toFixed(2)}</td>
-            <td className="p-2 text-xs text-[#93a4d6]">
+            <td className="p-2 text-xs text-[var(--tt-text-muted)]">
               <div className="font-semibold text-white">{formattedDate}</div>
-              <div className="text-[#6b7a9f]">{formattedTime}</div>
+              <div className="text-[var(--tt-text-faint)]">{formattedTime}</div>
             </td>
             <td className="p-2 text-sm font-mono">
               {isFutures && FUTURES_SPECS[tickerSymbol] ? (
                 <>
-                  <div className="text-xs text-[#93a4d6]">
+                  <div className="text-xs text-[var(--tt-text-muted)]">
                     Total: {shares.toFixed(0)} contract{shares !== 1 ? "s" : ""}
                   </div>
                   {trimmedShares > 0 && (
@@ -4016,7 +4016,7 @@
                 </>
               ) : (
                 <>
-                  <div className="text-xs text-[#93a4d6]">
+                  <div className="text-xs text-[var(--tt-text-muted)]">
                     Total: {shares.toFixed(4)}
                   </div>
                   {trimmedShares > 0 && (
@@ -4028,7 +4028,7 @@
               )}
             </td>
             <td className="p-2 text-sm">
-              <div className="text-xs text-[#93a4d6]">
+              <div className="text-xs text-[var(--tt-text-muted)]">
                 Entry: ${entryValue.toFixed(2)}
               </div>
               <div
@@ -4041,12 +4041,12 @@
               {trimmedShares > 0 ? (
                 <div className="text-xs text-blue-400">
                   <div>${trimmedValue.toFixed(2)}</div>
-                  <div className="text-[#93a4d6]">
+                  <div className="text-[var(--tt-text-muted)]">
                     ({(trimmedPct * 100).toFixed(0)}%)
                   </div>
                 </div>
               ) : (
-                <span className="text-xs text-[#6b7a9f]">-</span>
+                <span className="text-xs text-[var(--tt-text-faint)]">-</span>
               )}
             </td>
             <td className="p-2 text-sm">${trade.sl.toFixed(2)}</td>
@@ -4068,11 +4068,11 @@
             <td className="p-2 text-sm">
               {Number.isFinite(eta) ? `${eta.toFixed(1)}d` : "—"}
             </td>
-            <td className="p-2 text-xs text-[#93a4d6]">{horizon}</td>
-            <td className="p-2 text-sm text-[#93a4d6]">
+            <td className="p-2 text-xs text-[var(--tt-text-muted)]">{horizon}</td>
+            <td className="p-2 text-sm text-[var(--tt-text-muted)]">
               {Number.isFinite(diversity) ? Math.round(diversity) : "—"}
             </td>
-            <td className="p-2 text-sm text-[#93a4d6]">
+            <td className="p-2 text-sm text-[var(--tt-text-muted)]">
               {Number.isFinite(avgCorr) ? avgCorr.toFixed(2) : "—"}
             </td>
             <td className="p-2 text-sm">{formatRR(trade.rr)}</td>
@@ -4105,7 +4105,7 @@
                   </div>
                 )}
             </td>
-            <td className="p-2 text-xs text-[#93a4d6] font-mono">
+            <td className="p-2 text-xs text-[var(--tt-text-muted)] font-mono">
               {trade.scriptVersion || "unknown"}
             </td>
           </tr>
@@ -4116,43 +4116,43 @@
         return (
           <div className="space-y-4">
             {/* Overall Stats */}
-            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
               <h3 className="text-lg font-bold mb-4">Overall Performance</h3>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Total Trades</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Total Trades</div>
                   <div className="text-2xl font-bold">
                     {analytics.totalTrades}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Open Trades</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Open Trades</div>
                   <div className="text-2xl font-bold text-yellow-400">
                     {analytics.openTrades}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Trimmed Trades</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Trimmed Trades</div>
                   <div className="text-2xl font-bold text-blue-400">
                     {analytics.trimmedTrades}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Closed Trades</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Closed Trades</div>
                   <div className="text-2xl font-bold text-white">
                     {analytics.closedTrades}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Win Rate</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Win Rate</div>
                   <div className="text-2xl font-bold text-green-400">
                     {analytics.winRate.toFixed(1)}%
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-2 gap-4 pt-4 border-t border-[#26325f]">
+              <div className="grid grid-cols-2 md:grid-cols-2 gap-4 pt-4 border-t border-[var(--tt-border)]">
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Closed P&L</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Closed P&L</div>
                   <div
                     className={`text-2xl font-bold ${
                       analytics.totalPnl >= 0
@@ -4164,7 +4164,7 @@
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Open P&L</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Open P&L</div>
                   <div
                     className={`text-2xl font-bold ${
                       analytics.openPnl >= 0
@@ -4177,21 +4177,21 @@
                 </div>
               </div>
               {analytics.totalTrades > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4 border-t border-[#26325f]">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pt-4 border-t border-[var(--tt-border)]">
                   <div>
-                    <div className="text-xs text-[#93a4d6]">Avg Win</div>
+                    <div className="text-xs text-[var(--tt-text-muted)]">Avg Win</div>
                     <div className="text-lg font-bold text-green-400">
                       ${analytics.avgWin.toFixed(2)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-[#93a4d6]">Avg Loss</div>
+                    <div className="text-xs text-[var(--tt-text-muted)]">Avg Loss</div>
                     <div className="text-lg font-bold text-red-400">
                       ${analytics.avgLoss.toFixed(2)}
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-[#93a4d6]">Profit Factor</div>
+                    <div className="text-xs text-[var(--tt-text-muted)]">Profit Factor</div>
                     <div
                       className={`text-lg font-bold ${
                         analytics.profitFactor >= 1.5
@@ -4208,23 +4208,23 @@
               )}
             </div>
 
-            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
               <h3 className="text-lg font-bold mb-4">Excursion & Capture</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Avg MFE %</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Avg MFE %</div>
                   <div className="text-lg font-bold text-green-400">
                     {analytics.avgMfePct.toFixed(1)}%
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Avg MAE %</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Avg MAE %</div>
                   <div className="text-lg font-bold text-red-400">
                     {analytics.avgMaePct.toFixed(1)}%
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-[#93a4d6]">Avg Captured %</div>
+                  <div className="text-xs text-[var(--tt-text-muted)]">Avg Captured %</div>
                   <div className="text-lg font-bold text-blue-400">
                     {analytics.avgCapturedPct.toFixed(1)}%
                   </div>
@@ -4233,12 +4233,12 @@
             </div>
 
             {analytics.horizonStats && (
-              <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+              <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
                 <h3 className="text-lg font-bold mb-4">Horizon Performance</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-[#26325f] text-left text-xs text-[#93a4d6]">
+                      <tr className="border-b border-[var(--tt-border)] text-left text-xs text-[var(--tt-text-muted)]">
                         <th className="p-2">Horizon</th>
                         <th className="p-2">Trades</th>
                         <th className="p-2">Win %</th>
@@ -4253,9 +4253,9 @@
                         ([key, s]) => (
                           <tr
                             key={key}
-                            className="border-b border-[#26325f]/50"
+                            className="border-b border-[var(--tt-border)]/50"
                           >
-                            <td className="p-2 text-xs text-[#93a4d6]">
+                            <td className="p-2 text-xs text-[var(--tt-text-muted)]">
                               {String(key).replace("_", " ")}
                             </td>
                             <td className="p-2">{s.n}</td>
@@ -4312,14 +4312,14 @@
               );
 
               return (
-                <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+                <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
                   <h3 className="text-lg font-bold mb-4">
                     🎓 Self-Learning Recommendations
                   </h3>
 
                   {filterRecs.length > 0 && (
                     <div className="mb-4">
-                      <div className="text-xs text-[#93a4d6] font-semibold mb-2">
+                      <div className="text-xs text-[var(--tt-text-muted)] font-semibold mb-2">
                         Filters (before entry)
                       </div>
                       <div className="space-y-2">
@@ -4330,7 +4330,7 @@
 
                   {mgmtRecs.length > 0 && (
                     <div>
-                      <div className="text-xs text-[#93a4d6] font-semibold mb-2">
+                      <div className="text-xs text-[var(--tt-text-muted)] font-semibold mb-2">
                         Management (after entry)
                       </div>
                       <div className="space-y-2">{mgmtRecs.map(renderRec)}</div>
@@ -4341,7 +4341,7 @@
             })()}
 
             {/* Signal Analysis */}
-            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
               <h3 className="text-lg font-bold mb-4">Signal Performance</h3>
               <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 {Object.entries(analytics.signalAnalysis)
@@ -4356,13 +4356,13 @@
                     return (
                       <div
                         key={signals}
-                        className="flex items-center justify-between p-2 bg-[#0f1630] rounded"
+                        className="flex items-center justify-between p-2 bg-[var(--tt-bg-surface)] rounded"
                       >
                         <div className="flex-1">
                           <div className="text-sm font-semibold">
                             {signals || "No Signals"}
                           </div>
-                          <div className="text-xs text-[#93a4d6]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             {stats.wins}W / {stats.losses}L ({total} trades)
                           </div>
                         </div>
@@ -4391,7 +4391,7 @@
             </div>
 
             {/* RR Analysis */}
-            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
               <h3 className="text-lg font-bold mb-4">
                 Risk/Reward Performance
               </h3>
@@ -4408,11 +4408,11 @@
                     return (
                       <div
                         key={range}
-                        className="flex items-center justify-between p-2 bg-[#0f1630] rounded"
+                        className="flex items-center justify-between p-2 bg-[var(--tt-bg-surface)] rounded"
                       >
                         <div className="flex-1">
                           <div className="text-sm font-semibold">{range}</div>
-                          <div className="text-xs text-[#93a4d6]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             {stats.wins}W / {stats.losses}L ({total} trades)
                           </div>
                         </div>
@@ -4441,7 +4441,7 @@
             </div>
 
             {/* Rank Analysis */}
-            <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+            <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
               <h3 className="text-lg font-bold mb-4">Rank Performance</h3>
               <div className="space-y-2">
                 {Object.entries(analytics.rankAnalysis)
@@ -4456,11 +4456,11 @@
                     return (
                       <div
                         key={range}
-                        className="flex items-center justify-between p-2 bg-[#0f1630] rounded"
+                        className="flex items-center justify-between p-2 bg-[var(--tt-bg-surface)] rounded"
                       >
                         <div className="flex-1">
                           <div className="text-sm font-semibold">{range}</div>
-                          <div className="text-xs text-[#93a4d6]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             {stats.wins}W / {stats.losses}L ({total} trades)
                           </div>
                         </div>
@@ -4501,22 +4501,22 @@
                 ? "from-yellow-300 to-amber-500"
                 : tone === "blue"
                   ? "from-blue-400 to-cyan-400"
-                  : "from-[#6b7a9f] to-[#26325f]";
+                  : "from-[var(--tt-text-faint)] to-[var(--tt-border)]";
 
         return (
-          <div className="relative bg-[#0f1630] border border-[#26325f] rounded-xl p-3 overflow-hidden">
+          <div className="relative bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-xl p-3 overflow-hidden">
             <div
               className={`absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b ${toneBar}`}
             />
             <div className="pl-2">
-              <div className="text-[11px] uppercase tracking-wide text-[#93a4d6]">
+              <div className="text-[11px] uppercase tracking-wide text-[var(--tt-text-muted)]">
                 {label}
               </div>
               <div className="mt-1 text-lg font-bold text-white leading-tight">
                 {value}
               </div>
               {sub ? (
-                <div className="mt-1 text-[11px] text-[#6b7a9f]">{sub}</div>
+                <div className="mt-1 text-[11px] text-[var(--tt-text-faint)]">{sub}</div>
               ) : null}
             </div>
           </div>
@@ -4652,21 +4652,21 @@
         ];
 
         return (
-          <div className="mb-6 bg-[#121a33] border border-[#26325f] rounded-xl p-4">
+          <div className="mb-6 bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-4">
             <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
               <div>
-                <div className="text-xs text-[#93a4d6]">Dashboard</div>
+                <div className="text-xs text-[var(--tt-text-muted)]">Dashboard</div>
                 <div className="text-lg font-bold">
                   {isLedger ? "Ledger KPIs" : "Legacy KPIs"}
                 </div>
               </div>
-              <div className="text-xs text-[#6b7a9f]">
+              <div className="text-xs text-[var(--tt-text-faint)]">
                 {isLedger ? "Source: D1 ledger" : "Source: KV + live prices"}
               </div>
             </div>
 
             {loading ? (
-              <div className="text-sm text-[#93a4d6]">
+              <div className="text-sm text-[var(--tt-text-muted)]">
                 Loading dashboard metrics…
               </div>
             ) : err ? (
@@ -5054,7 +5054,7 @@
             className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all ${
               isActive
                 ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+                : "border-[var(--tt-border)] bg-[var(--tt-bg-surface)] text-[var(--tt-text-muted)] hover:text-white"
             }`}
           >
             {label}
@@ -5062,13 +5062,13 @@
         );
 
         return (
-          <div className="bg-[#0f1630] border border-[#26325f] rounded-xl p-3">
+          <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-xl p-3">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div>
                 <div className="text-sm font-bold text-white">
                   ✨ Opportunities
                 </div>
-                <div className="text-[10px] text-[#93a4d6] mt-0.5">
+                <div className="text-[10px] text-[var(--tt-text-muted)] mt-0.5">
                   Prime {counts.prime} • Eligible {counts.eligible} • Total{" "}
                   {counts.all}
                 </div>
@@ -5078,7 +5078,7 @@
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Ticker…"
-                  className="px-2 py-1 text-xs bg-[#0f1630] border border-[#26325f] rounded text-white w-[110px]"
+                  className="px-2 py-1 text-xs bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded text-white w-[110px]"
                 />
               </div>
             </div>
@@ -5088,11 +5088,11 @@
               {pill("Eligible", view === "eligible", () => setView("eligible"))}
               {pill("Watch", view === "watch", () => setView("watch"))}
               {pill("All", view === "all", () => setView("all"))}
-              <div className="w-px h-6 bg-[#26325f] mx-1" />
+              <div className="w-px h-6 bg-[var(--tt-bg-elevated)] mx-1" />
               {pill("All", dir === "ALL", () => setDir("ALL"))}
               {pill("Long", dir === "LONG", () => setDir("LONG"))}
               {pill("Short", dir === "SHORT", () => setDir("SHORT"))}
-              <div className="w-px h-6 bg-[#26325f] mx-1" />
+              <div className="w-px h-6 bg-[var(--tt-bg-elevated)] mx-1" />
               {pill("Any horizon", horizon === "ALL", () => setHorizon("ALL"))}
               {pill("≤7d", horizon === "SHORT_TERM", () =>
                 setHorizon("SHORT_TERM"),
@@ -5105,7 +5105,7 @@
 
             <div className="mt-3 max-h-[420px] overflow-y-auto space-y-2 pr-1">
               {filtered.length === 0 ? (
-                <div className="text-xs text-[#6b7a9f] p-3">No matches.</div>
+                <div className="text-xs text-[var(--tt-text-faint)] p-3">No matches.</div>
               ) : (
                 filtered.slice(0, 75).map((item) => {
                   const t = item.t;
@@ -5120,18 +5120,18 @@
                       ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/40"
                       : item.status === "eligible"
                         ? "bg-green-500/15 text-green-400 border-green-500/40"
-                        : "bg-[#26325f] text-[#93a4d6] border-[#26325f]";
+                        : "bg-[var(--tt-bg-elevated)] text-[var(--tt-text-muted)] border-[var(--tt-border)]";
                   const dirPill =
                     c.dir === "LONG"
                       ? "bg-green-500/10 text-green-400 border-green-500/30"
                       : c.dir === "SHORT"
                         ? "bg-red-500/10 text-red-400 border-red-500/30"
-                        : "bg-[#26325f] text-[#93a4d6] border-[#26325f]";
+                        : "bg-[var(--tt-bg-elevated)] text-[var(--tt-text-muted)] border-[var(--tt-border)]";
                   return (
                     <button
                       key={t.ticker}
                       onClick={() => onSelectTicker && onSelectTicker(t.ticker)}
-                      className="w-full text-left px-3 py-2 rounded-lg border border-[#26325f] bg-[#121a33] hover:bg-[#16224a] hover:border-[#3a4aa0] transition-all"
+                      className="w-full text-left px-3 py-2 rounded-lg border border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:bg-[#16224a] hover:border-[#3a4aa0] transition-all"
                       title="Open in right rail"
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -5155,7 +5155,7 @@
                               {c.dir}
                             </span>
                             {c.bucket && c.bucket !== "UNKNOWN" && (
-                              <span className="px-2 py-0.5 rounded border border-[#26325f] bg-[#0f1630] text-[10px] text-[#93a4d6]">
+                              <span className="px-2 py-0.5 rounded border border-[var(--tt-border)] bg-[var(--tt-bg-surface)] text-[10px] text-[var(--tt-text-muted)]">
                                 {c.bucket === "SHORT_TERM"
                                   ? "≤7d"
                                   : c.bucket === "SWING"
@@ -5164,8 +5164,8 @@
                               </span>
                             )}
                           </div>
-                          <div className="mt-0.5 text-[11px] text-[#93a4d6] whitespace-nowrap overflow-hidden text-ellipsis">
-                            <span className="text-[#6b7a9f]">
+                          <div className="mt-0.5 text-[11px] text-[var(--tt-text-muted)] whitespace-nowrap overflow-hidden text-ellipsis">
+                            <span className="text-[var(--tt-text-faint)]">
                               {actionInfo.action}
                             </span>
                           </div>
@@ -5177,13 +5177,13 @@
                               ? `$${price.toFixed(2)}`
                               : "—"}
                           </div>
-                          <div className="text-[#6b7a9f]">{age}</div>
+                          <div className="text-[var(--tt-text-faint)]">{age}</div>
                         </div>
                       </div>
 
-                      <div className="mt-1 grid grid-cols-3 gap-2 text-[10px] text-[#93a4d6]">
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-[10px] text-[var(--tt-text-muted)]">
                         <div>
-                          <span className="text-[#6b7a9f]">Score</span>{" "}
+                          <span className="text-[var(--tt-text-faint)]">Score</span>{" "}
                           <span className="text-white font-semibold">
                             {(() => {
                               const s = rankScoreForTicker(t);
@@ -5192,13 +5192,13 @@
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#6b7a9f]">Rank</span>{" "}
+                          <span className="text-[var(--tt-text-faint)]">Rank</span>{" "}
                           <span className="text-white font-semibold">
                             {item.rp != null ? `#${item.rp}` : "—"}
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#6b7a9f]">RR/ETA</span>{" "}
+                          <span className="text-[var(--tt-text-faint)]">RR/ETA</span>{" "}
                           <span className="text-white font-semibold">
                             {Number.isFinite(rr) ? rr.toFixed(2) : "—"} /{" "}
                             {eta != null ? `${eta.toFixed(1)}d` : "—"}
@@ -5216,10 +5216,10 @@
                         const compColor = phaseToColor(compP);
                         const Bar = ({ label, p, color }) => (
                           <div className="flex items-center gap-2">
-                            <div className="w-20 text-[10px] text-[#6b7a9f]">
+                            <div className="w-20 text-[10px] text-[var(--tt-text-faint)]">
                               {label}
                             </div>
-                            <div className="flex-1 h-1.5 rounded bg-[#0f1630] border border-[#26325f] overflow-hidden">
+                            <div className="flex-1 h-1.5 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
                               <div
                                 className="h-full"
                                 style={{
@@ -5228,7 +5228,7 @@
                                 }}
                               />
                             </div>
-                            <div className="w-10 text-right text-[10px] text-[#93a4d6]">
+                            <div className="w-10 text-right text-[10px] text-[var(--tt-text-muted)]">
                               {Math.round(p * 100)}%
                             </div>
                           </div>
@@ -5335,8 +5335,8 @@
         return {
           action: "Wait - Setup Not Optimal",
           description: `Setup not yet optimal for entry. Wait for better conditions or confirmation signals.`,
-          color: "text-[#93a4d6]",
-          bg: "bg-[#26325f]",
+          color: "text-[var(--tt-text-muted)]",
+          bg: "bg-[var(--tt-bg-elevated)]",
         };
       }
 
@@ -5421,8 +5421,8 @@
           .map((p) => getQuadrantFromState(p.state))
           .filter(Boolean);
         return (
-          <div className="mb-4 p-4 bg-[#0f1630] rounded-lg border border-[#26325f]">
-            <div className="text-sm font-bold mb-3 text-[#93a4d6]">
+          <div className="mb-4 p-4 bg-[var(--tt-bg-surface)] rounded-lg border border-[var(--tt-border)]">
+            <div className="text-sm font-bold mb-3 text-[var(--tt-text-muted)]">
               Quadrant Progression (15m increments)
             </div>
             <div className="grid grid-cols-2 gap-2 mb-4">
@@ -5462,7 +5462,7 @@
                         ? `border-${quad.color}-400 bg-${quad.color}-500/20`
                         : hasHistory
                           ? `border-${quad.color}-500/50 bg-${quad.color}-500/10`
-                          : "border-[#26325f] bg-[#0a0f1f]"
+                          : "border-[var(--tt-border)] bg-[#0a0f1f]"
                     }`}
                   >
                     <div className={`text-xs font-bold text-${quad.color}-400`}>
@@ -5473,7 +5473,7 @@
               })}
             </div>
             {patterns.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-[#26325f]">
+              <div className="mt-4 pt-4 border-t border-[var(--tt-border)]">
                 <div className="text-xs font-bold text-yellow-400 mb-2">
                   🎯 Detected Patterns
                 </div>
@@ -5535,7 +5535,7 @@
                   <h3 className="text-xl font-bold">{ticker.ticker}</h3>
                   <button
                     onClick={onClose}
-                    className="text-[#93a4d6] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[#26325f]"
+                    className="text-[var(--tt-text-muted)] hover:text-white transition-colors text-xl leading-none w-6 h-6 flex items-center justify-center rounded hover:bg-[var(--tt-bg-hover)]"
                   >
                     ✕
                   </button>
@@ -5555,8 +5555,8 @@
                 {(() => {
                   const dir = getDirection(ticker);
                   return (
-                    <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
-                      <div className="text-sm text-[#93a4d6] mb-2">
+                    <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] border-2 border-[var(--tt-border)] rounded-lg">
+                      <div className="text-sm text-[var(--tt-text-muted)] mb-2">
                         Bias / Direction
                       </div>
                       <div
@@ -5577,14 +5577,14 @@
                   <div className={`text-lg font-bold mb-2 ${actionInfo.color}`}>
                     {actionInfo.action}
                   </div>
-                  <div className="text-sm text-[#93a4d6]">
+                  <div className="text-sm text-[var(--tt-text-muted)]">
                     {actionInfo.description}
                   </div>
                 </div>
                 <QuadrantProgression ticker={ticker} flags={flags} />
-                <div className="mb-4 p-3 bg-[#0f1630] rounded-lg border border-[#26325f]">
+                <div className="mb-4 p-3 bg-[var(--tt-bg-surface)] rounded-lg border border-[var(--tt-border)]">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm text-[#93a4d6]">Phase</span>
+                    <span className="text-sm text-[var(--tt-text-muted)]">Phase</span>
                     <span
                       className="text-sm font-semibold"
                       style={{ color: phaseColor }}
@@ -5592,7 +5592,7 @@
                       {(phase * 100).toFixed(2)}%
                     </span>
                   </div>
-                  <div className="h-3 bg-[#26325f] rounded-full overflow-hidden">
+                  <div className="h-3 bg-[var(--tt-bg-elevated)] rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
@@ -5603,16 +5603,16 @@
                   </div>
                 </div>
                 <div className="space-y-2.5 text-sm">
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Score</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Score</span>
                     <span className="font-semibold text-blue-400 text-lg">
                       {Number.isFinite(displayScore)
                         ? displayScore.toFixed(1)
                         : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Rank</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Rank</span>
                     <span className="font-semibold">
                       {rankPosition > 0
                         ? `#${rankPosition} of ${totalTickers}`
@@ -5620,8 +5620,8 @@
                     </span>
                   </div>
                   {dynamicRank !== baseScore && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Dynamic Score</span>
+                    <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                      <span className="text-[var(--tt-text-muted)]">Dynamic Score</span>
                       <span className="font-semibold text-green-400">
                         {dynamicRank}
                       </span>
@@ -5723,8 +5723,8 @@
                     ].filter(Boolean);
 
                     return (
-                      <div className="mt-4 pt-4 border-t border-[#26325f]">
-                        <div className="text-xs text-[#93a4d6] mb-3 font-semibold">
+                      <div className="mt-4 pt-4 border-t border-[var(--tt-border)]">
+                        <div className="text-xs text-[var(--tt-text-muted)] mb-3 font-semibold">
                           Score Breakdown
                         </div>
                         <div className="space-y-1.5">
@@ -5733,7 +5733,7 @@
                               key={idx}
                               className="flex justify-between items-center text-xs"
                             >
-                              <span className="text-[#93a4d6]">
+                              <span className="text-[var(--tt-text-muted)]">
                                 {comp.label}
                               </span>
                               <span className={`font-semibold ${comp.color}`}>
@@ -5741,8 +5741,8 @@
                               </span>
                             </div>
                           ))}
-                          <div className="flex justify-between items-center pt-2 mt-2 border-t border-[#26325f]/50">
-                            <span className="text-[#93a4d6] font-semibold">
+                          <div className="flex justify-between items-center pt-2 mt-2 border-t border-[var(--tt-border)]/50">
+                            <span className="text-[var(--tt-text-muted)] font-semibold">
                               Total Score
                             </span>
                             <span className="font-bold text-lg text-blue-400">
@@ -5753,46 +5753,46 @@
                       </div>
                     );
                   })()}
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">RR</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">RR</span>
                     <span className="font-semibold">
                       {ticker.rr ? Number(ticker.rr).toFixed(2) : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">State</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">State</span>
                     <span className="font-semibold">{ticker.state || "—"}</span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Completion</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Completion</span>
                     <span className="font-semibold">
                       {Math.round(completionForSize(ticker) * 100)}%
                     </span>
                   </div>
                   {ent.corridor && (
-                    <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                      <span className="text-[#93a4d6]">Corridor</span>
+                    <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                      <span className="text-[var(--tt-text-muted)]">Corridor</span>
                       <span className="px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-semibold">
                         {ent.side}
                       </span>
                     </div>
                   )}
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">Current Price</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">Current Price</span>
                     <span className="font-semibold text-lg">
                       {ticker.price
                         ? `$${Number(ticker.price).toFixed(2)}`
                         : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">TP (Primary)</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">TP (Primary)</span>
                     <span className="font-semibold">
                       {ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center py-1 border-b border-[#26325f]/50">
-                    <span className="text-[#93a4d6]">SL</span>
+                  <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
+                    <span className="text-[var(--tt-text-muted)]">SL</span>
                     <span className="font-semibold">
                       {ticker.sl ? Number(ticker.sl).toFixed(2) : "—"}
                     </span>
@@ -5803,7 +5803,7 @@
                   flags.phase_dot ||
                   flags.phase_zone_change) && (
                   <div className="mt-4 pt-4">
-                    <div className="text-xs text-[#93a4d6] mb-2">Flags:</div>
+                    <div className="text-xs text-[var(--tt-text-muted)] mb-2">Flags:</div>
                     <div className="flex flex-wrap gap-2">
                       {flags.sq30_on && (
                         <span className="px-2 py-1 rounded bg-yellow-500/20 text-yellow-400 text-xs">
@@ -5829,7 +5829,7 @@
                   </div>
                 )}
               </div>
-              <div className="flex-shrink-0 p-6 pt-4 border-t border-[#26325f] bg-[#121a33]">
+              <div className="flex-shrink-0 p-6 pt-4 border-t border-[var(--tt-border)] bg-[var(--tt-bg-elevated)]">
                 <a
                   href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker.ticker)}`}
                   target="_blank"
@@ -5886,10 +5886,10 @@
 
         if (loading) {
           return (
-            <div className="w-full h-full flex items-center justify-center bg-[#0f1630]">
+            <div className="w-full h-full flex items-center justify-center bg-[var(--tt-bg-surface)]">
               <div className="text-center">
                 <div className="loading-spinner mx-auto mb-4"></div>
-                <div className="text-[#93a4d6]">Loading {tickerSymbol}...</div>
+                <div className="text-[var(--tt-text-muted)]">Loading {tickerSymbol}...</div>
               </div>
             </div>
           );
@@ -5897,17 +5897,17 @@
 
         if (error || !tickerData) {
           return (
-            <div className="w-full h-full flex items-center justify-center bg-[#0f1630]">
+            <div className="w-full h-full flex items-center justify-center bg-[var(--tt-bg-surface)]">
               <div className="text-center">
                 <div className="text-red-400 mb-2">
                   Failed to load {tickerSymbol}
                 </div>
-                <div className="text-[#93a4d6] text-sm mb-4">
+                <div className="text-[var(--tt-text-muted)] text-sm mb-4">
                   {error || "No data available"}
                 </div>
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 bg-[#26325f] hover:bg-[#3a4aa0] rounded-lg text-white"
+                  className="px-4 py-2 bg-[var(--tt-bg-elevated)] hover:bg-[#3a4aa0] rounded-lg text-white"
                 >
                   Close
                 </button>
@@ -5949,7 +5949,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     🎓 How to Use This Guide
                   </h3>
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     Click "Next" to learn about each concept, or use the
                     navigation dots to jump to any section. You can always
                     reopen this guide from the navigation bar.
@@ -5959,7 +5959,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     ✨ Quick Start
                   </h3>
-                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                  <ol className="text-sm text-[var(--tt-text-muted)] list-decimal list-inside space-y-1">
                     <li>
                       Look for bubbles in the{" "}
                       <strong className="text-white">green zones</strong> (Q1 &
@@ -5986,22 +5986,22 @@
                   on two scores:
                 </p>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-4">
                     <h3 className="text-green-400 font-semibold mb-2">
                       HTF Score (Y-axis)
                     </h3>
-                    <p className="text-sm text-[#93a4d6]">
+                    <p className="text-sm text-[var(--tt-text-muted)]">
                       <strong className="text-white">Higher Timeframe</strong> -
                       Shows the overall trend direction.
                       <br />• Positive = Bullish trend
                       <br />• Negative = Bearish trend
                     </p>
                   </div>
-                  <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                  <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-4">
                     <h3 className="text-blue-400 font-semibold mb-2">
                       LTF Score (X-axis)
                     </h3>
-                    <p className="text-sm text-[#93a4d6]">
+                    <p className="text-sm text-[var(--tt-text-muted)]">
                       <strong className="text-white">Lower Timeframe</strong> -
                       Shows entry timing.
                       <br />• Positive = Momentum/Continuation
@@ -6009,7 +6009,7 @@
                     </p>
                   </div>
                 </div>
-                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-4">
                   <h3 className="text-yellow-400 font-semibold mb-3">
                     The 4 Quadrants:
                   </h3>
@@ -6018,10 +6018,10 @@
                       <div className="font-bold text-green-400 mb-1">
                         Q1: Long Setup 📈
                       </div>
-                      <div className="text-[#93a4d6]">
+                      <div className="text-[var(--tt-text-muted)]">
                         HTF Bull + LTF Pullback
                       </div>
-                      <div className="text-xs text-[#93a4d6] mt-1">
+                      <div className="text-xs text-[var(--tt-text-muted)] mt-1">
                         Best entry zone for LONG trades
                       </div>
                     </div>
@@ -6029,8 +6029,8 @@
                       <div className="font-bold text-green-400 mb-1">
                         Q2: Long Momentum 🚀
                       </div>
-                      <div className="text-[#93a4d6]">HTF Bull + LTF Bull</div>
-                      <div className="text-xs text-[#93a4d6] mt-1">
+                      <div className="text-[var(--tt-text-muted)]">HTF Bull + LTF Bull</div>
+                      <div className="text-xs text-[var(--tt-text-muted)] mt-1">
                         Strong momentum, already moving
                       </div>
                     </div>
@@ -6038,8 +6038,8 @@
                       <div className="font-bold text-red-400 mb-1">
                         Q3: Short Momentum 📉
                       </div>
-                      <div className="text-[#93a4d6]">HTF Bear + LTF Bear</div>
-                      <div className="text-xs text-[#93a4d6] mt-1">
+                      <div className="text-[var(--tt-text-muted)]">HTF Bear + LTF Bear</div>
+                      <div className="text-xs text-[var(--tt-text-muted)] mt-1">
                         Strong momentum, already moving
                       </div>
                     </div>
@@ -6047,10 +6047,10 @@
                       <div className="font-bold text-red-400 mb-1">
                         Q4: Short Setup 🔻
                       </div>
-                      <div className="text-[#93a4d6]">
+                      <div className="text-[var(--tt-text-muted)]">
                         HTF Bear + LTF Pullback
                       </div>
-                      <div className="text-xs text-[#93a4d6] mt-1">
+                      <div className="text-xs text-[var(--tt-text-muted)] mt-1">
                         Best entry zone for SHORT trades
                       </div>
                     </div>
@@ -6072,7 +6072,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     Prime Setup Criteria:
                   </h3>
-                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                  <ul className="text-sm text-[var(--tt-text-muted)] list-disc list-inside space-y-1">
                     <li>
                       <strong className="text-white">Rank ≥ 75</strong> - High
                       overall quality score
@@ -6095,7 +6095,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     💡 How to Find Prime Setups:
                   </h3>
-                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                  <ol className="text-sm text-[var(--tt-text-muted)] list-decimal list-inside space-y-1">
                     <li>
                       Click the{" "}
                       <strong className="text-white">"Prime Only"</strong>{" "}
@@ -6107,7 +6107,7 @@
                   </ol>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">Tip:</strong> Prime
                     setups are rare but offer the best risk/reward. Focus on Q1
                     (Long Setup) and Q4 (Short Setup) quadrants for the best
@@ -6129,7 +6129,7 @@
                   <h3 className="text-cyan-400 font-semibold mb-2">
                     What is a Corridor?
                   </h3>
-                  <p className="text-sm text-[#93a4d6] mb-3">
+                  <p className="text-sm text-[var(--tt-text-muted)] mb-3">
                     A corridor is a narrow band on the chart where price action
                     is optimal for entry. Think of it as a "sweet spot" where
                     the setup is most likely to succeed.
@@ -6139,7 +6139,7 @@
                       <div className="font-bold text-green-400 mb-1">
                         Long Corridor 📈
                       </div>
-                      <div className="text-xs text-[#93a4d6]">
+                      <div className="text-xs text-[var(--tt-text-muted)]">
                         HTF Score &gt; 0<br />
                         LTF Score: -8 to +12
                       </div>
@@ -6148,7 +6148,7 @@
                       <div className="font-bold text-red-400 mb-1">
                         Short Corridor 📉
                       </div>
-                      <div className="text-xs text-[#93a4d6]">
+                      <div className="text-xs text-[var(--tt-text-muted)]">
                         HTF Score &lt; 0<br />
                         LTF Score: -12 to +8
                       </div>
@@ -6159,7 +6159,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     🎯 How to Use Corridor Filter:
                   </h3>
-                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                  <ol className="text-sm text-[var(--tt-text-muted)] list-decimal list-inside space-y-1">
                     <li>
                       Click the{" "}
                       <strong className="text-white">"In Corridor"</strong>{" "}
@@ -6173,7 +6173,7 @@
                   </ol>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">
                       Why Corridors Matter:
                     </strong>{" "}
@@ -6198,7 +6198,7 @@
                   <h3 className="text-purple-400 font-semibold mb-2">
                     What is TD9?
                   </h3>
-                  <p className="text-sm text-[#93a4d6] mb-3">
+                  <p className="text-sm text-[var(--tt-text-muted)] mb-3">
                     TD Sequential counts consecutive bars in one direction. When
                     it reaches <strong className="text-white">9</strong>, it
                     signals potential exhaustion and reversal.
@@ -6208,7 +6208,7 @@
                       <div className="font-bold text-green-400 mb-1">
                         TD9 Bullish 📈
                       </div>
-                      <div className="text-xs text-[#93a4d6]">
+                      <div className="text-xs text-[var(--tt-text-muted)]">
                         Signals potential <strong>bottom</strong> and upward
                         reversal
                         <br />
@@ -6220,7 +6220,7 @@
                       <div className="font-bold text-red-400 mb-1">
                         TD9 Bearish 📉
                       </div>
-                      <div className="text-xs text-[#93a4d6]">
+                      <div className="text-xs text-[var(--tt-text-muted)]">
                         Signals potential <strong>top</strong> and downward
                         reversal
                         <br />
@@ -6235,7 +6235,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     🔢 How to Use TD9 Filter:
                   </h3>
-                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                  <ol className="text-sm text-[var(--tt-text-muted)] list-decimal list-inside space-y-1">
                     <li>
                       Click the{" "}
                       <strong className="text-white">"TD9 Setup"</strong> filter
@@ -6257,7 +6257,7 @@
                   </ol>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">Pro Tip:</strong> TD9
                     signals are most powerful at extremes. If you see a TD9
                     signal in Q1 (Long Setup) or Q4 (Short Setup), it's a strong
@@ -6281,12 +6281,12 @@
                     <h3 className="text-yellow-400 font-semibold mb-2 flex items-center gap-2">
                       🧨 In Squeeze
                     </h3>
-                    <p className="text-sm text-[#93a4d6] mb-3">
+                    <p className="text-sm text-[var(--tt-text-muted)] mb-3">
                       Volatility is{" "}
                       <strong className="text-white">compressed</strong> - price
                       is consolidating.
                     </p>
-                    <div className="text-xs text-[#93a4d6] space-y-1">
+                    <div className="text-xs text-[var(--tt-text-muted)] space-y-1">
                       <div>
                         <strong className="text-white">What it means:</strong>{" "}
                         Energy is building up
@@ -6305,12 +6305,12 @@
                     <h3 className="text-cyan-400 font-semibold mb-2 flex items-center gap-2">
                       ⚡ Squeeze Release
                     </h3>
-                    <p className="text-sm text-[#93a4d6] mb-3">
+                    <p className="text-sm text-[var(--tt-text-muted)] mb-3">
                       Volatility has{" "}
                       <strong className="text-white">exploded</strong> - price
                       is breaking out.
                     </p>
-                    <div className="text-xs text-[#93a4d6] space-y-1">
+                    <div className="text-xs text-[var(--tt-text-muted)] space-y-1">
                       <div>
                         <strong className="text-white">What it means:</strong>{" "}
                         The spring has released!
@@ -6330,7 +6330,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     🎯 How to Use Squeeze Filters:
                   </h3>
-                  <div className="text-sm text-[#93a4d6] space-y-2">
+                  <div className="text-sm text-[var(--tt-text-muted)] space-y-2">
                     <div>
                       <strong className="text-white">
                         "In Squeeze" Filter:
@@ -6352,7 +6352,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     💡 Best Practices:
                   </h3>
-                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                  <ul className="text-sm text-[var(--tt-text-muted)] list-disc list-inside space-y-1">
                     <li>
                       <strong className="text-white">
                         Squeeze Release + Prime Setup
@@ -6392,7 +6392,7 @@
                   <h3 className="text-blue-400 font-semibold mb-3">
                     📋 Your Trading Workflow:
                   </h3>
-                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-3">
+                  <ol className="text-sm text-[var(--tt-text-muted)] list-decimal list-inside space-y-3">
                     <li>
                       <strong className="text-white">
                         Step 1: Choose Your Direction
@@ -6476,7 +6476,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     ⭐ The Perfect Setup Checklist:
                   </h3>
-                  <div className="text-sm text-[#93a4d6] space-y-1">
+                  <div className="text-sm text-[var(--tt-text-muted)] space-y-1">
                     <div>
                       ✅ In the correct quadrant (Q1 for LONG, Q4 for SHORT)
                     </div>
@@ -6490,7 +6490,7 @@
                   </div>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">Remember:</strong> Not
                     every setup will have all these factors. Use your judgment
                     and risk management. Start with paper trading if you're new!
@@ -6515,8 +6515,8 @@
 
         return (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0b1020] border-2 border-[#26325f] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-              <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[#26325f] p-6 flex items-center justify-between">
+            <div className="bg-[#0b1020] border-2 border-[var(--tt-border)] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+              <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[var(--tt-border)] p-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-white mb-1">
                     {steps[currentStep].title}
@@ -6530,7 +6530,7 @@
                             ? "bg-blue-400 w-8"
                             : i < currentStep
                               ? "bg-green-400"
-                              : "bg-[#26325f]"
+                              : "bg-[var(--tt-bg-elevated)]"
                         }`}
                       />
                     ))}
@@ -6538,7 +6538,7 @@
                 </div>
                 <button
                   onClick={onClose}
-                  className="text-[#93a4d6] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f] transition-colors"
+                  className="text-[var(--tt-text-muted)] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-[var(--tt-bg-hover)] transition-colors"
                   title="Close Welcome Guide"
                 >
                   ×
@@ -6547,19 +6547,19 @@
               <div className="flex-1 overflow-y-auto p-6">
                 {steps[currentStep].content}
               </div>
-              <div className="border-t border-[#26325f] p-4 flex items-center justify-between bg-[#0f1630]">
+              <div className="border-t border-[var(--tt-border)] p-4 flex items-center justify-between bg-[var(--tt-bg-surface)]">
                 <button
                   onClick={prevStep}
                   disabled={currentStep === 0}
                   className={`px-4 py-2 rounded-lg border transition-all ${
                     currentStep === 0
-                      ? "border-[#26325f] text-[#93a4d6] opacity-50 cursor-not-allowed"
-                      : "border-[#26325f] bg-[#1a2550] hover:bg-[#26325f] text-white"
+                      ? "border-[var(--tt-border)] text-[var(--tt-text-muted)] opacity-50 cursor-not-allowed"
+                      : "border-[var(--tt-border)] bg-[#1a2550] hover:bg-[var(--tt-bg-hover)] text-white"
                   }`}
                 >
                   ← Previous
                 </button>
-                <div className="text-sm text-[#93a4d6]">
+                <div className="text-sm text-[var(--tt-text-muted)]">
                   Step {currentStep + 1} of {steps.length}
                 </div>
                 {currentStep < steps.length - 1 ? (
@@ -6603,7 +6603,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     🎯 How It Works:
                   </h3>
-                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-1">
+                  <ol className="text-sm text-[var(--tt-text-muted)] list-decimal list-inside space-y-1">
                     <li>
                       When an alert fires from TradingView, a simulated trade is
                       automatically created
@@ -6627,7 +6627,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     ✨ What You'll Learn:
                   </h3>
-                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                  <ul className="text-sm text-[var(--tt-text-muted)] list-disc list-inside space-y-1">
                     <li>Which setups have the best win rate</li>
                     <li>How different Risk/Reward ratios perform</li>
                     <li>Which model versions work best</li>
@@ -6635,7 +6635,7 @@
                   </ul>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">Note:</strong> These are
                     simulated trades for learning purposes only. Always do your
                     own research before making real trades!
@@ -6657,7 +6657,7 @@
                     <div className="font-bold text-green-400 mb-2 flex items-center gap-2">
                       <span>🟢 OPEN</span>
                     </div>
-                    <p className="text-sm text-[#93a4d6]">
+                    <p className="text-sm text-[var(--tt-text-muted)]">
                       Trade is active and being tracked. P&L updates in
                       real-time as price moves. The trade will close when it
                       hits Stop Loss or Take Profit.
@@ -6667,7 +6667,7 @@
                     <div className="font-bold text-blue-400 mb-2 flex items-center gap-2">
                       <span>🔵 TP_HIT_TRIM</span>
                     </div>
-                    <p className="text-sm text-[#93a4d6]">
+                    <p className="text-sm text-[var(--tt-text-muted)]">
                       First Take Profit level was hit! The system automatically
                       trimmed (sold) part of the position to lock in profits.
                       The remaining position stays open to target higher TP
@@ -6678,7 +6678,7 @@
                     <div className="font-bold text-green-400 mb-2 flex items-center gap-2">
                       <span>✅ WIN</span>
                     </div>
-                    <p className="text-sm text-[#93a4d6]">
+                    <p className="text-sm text-[var(--tt-text-muted)]">
                       Trade closed profitably! Either hit a Take Profit level or
                       was manually closed in profit. Check the trade history to
                       see the exit details.
@@ -6688,7 +6688,7 @@
                     <div className="font-bold text-red-400 mb-2 flex items-center gap-2">
                       <span>❌ LOSS</span>
                     </div>
-                    <p className="text-sm text-[#93a4d6]">
+                    <p className="text-sm text-[var(--tt-text-muted)]">
                       Trade hit Stop Loss and closed at a loss. This is normal -
                       not every trade wins! Review what went wrong to improve
                       future setups.
@@ -6696,7 +6696,7 @@
                   </div>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">Tip:</strong> Click on
                     any trade row to see detailed information including entry
                     price, stop loss, take profit levels, and full trade
@@ -6714,13 +6714,13 @@
                   The trade table shows all your simulated trades. Here's what
                   each column means:
                 </p>
-                <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-4">
                   <div className="space-y-3 text-sm">
                     <div className="flex items-start gap-3">
                       <span className="font-bold text-white min-w-[120px]">
                         Ticker
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         The stock or futures contract symbol
                       </span>
                     </div>
@@ -6728,7 +6728,7 @@
                       <span className="font-bold text-white min-w-[120px]">
                         Direction
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         LONG (buy) or SHORT (sell)
                       </span>
                     </div>
@@ -6736,7 +6736,7 @@
                       <span className="font-bold text-white min-w-[120px]">
                         Entry Price
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         Price when the trade was opened
                       </span>
                     </div>
@@ -6744,7 +6744,7 @@
                       <span className="font-bold text-white min-w-[120px]">
                         Current Price
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         Live market price (updates every 30 seconds)
                       </span>
                     </div>
@@ -6752,7 +6752,7 @@
                       <span className="font-bold text-white min-w-[120px]">
                         P&L
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         Profit or Loss in dollars.{" "}
                         <span className="text-green-400">Green = profit</span>,
                         <span className="text-red-400"> red = loss</span>
@@ -6762,7 +6762,7 @@
                       <span className="font-bold text-white min-w-[120px]">
                         P&L %
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         Profit or Loss as a percentage
                       </span>
                     </div>
@@ -6770,7 +6770,7 @@
                       <span className="font-bold text-white min-w-[120px]">
                         Shares/Contracts
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         For stocks: number of shares (based on $1,000 position).
                         For futures: number of contracts (usually 1)
                       </span>
@@ -6779,7 +6779,7 @@
                       <span className="font-bold text-white min-w-[120px]">
                         Status
                       </span>
-                      <span className="text-[#93a4d6]">
+                      <span className="text-[var(--tt-text-muted)]">
                         Current trade status (OPEN, WIN, LOSS, etc.)
                       </span>
                     </div>
@@ -6789,7 +6789,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     💡 Pro Tips:
                   </h3>
-                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                  <ul className="text-sm text-[var(--tt-text-muted)] list-disc list-inside space-y-1">
                     <li>
                       Click any trade row to see detailed information and trade
                       history
@@ -6818,7 +6818,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     📈 For Stocks:
                   </h3>
-                  <div className="text-sm text-[#93a4d6] space-y-2">
+                  <div className="text-sm text-[var(--tt-text-muted)] space-y-2">
                     <div>
                       <strong className="text-white">Position Size:</strong>{" "}
                       $1,000 per trade
@@ -6841,7 +6841,7 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     📊 For Futures:
                   </h3>
-                  <div className="text-sm text-[#93a4d6] space-y-2">
+                  <div className="text-sm text-[var(--tt-text-muted)] space-y-2">
                     <div>
                       <strong className="text-white">Contracts:</strong> Usually
                       1 contract per trade
@@ -6865,7 +6865,7 @@
                   <h3 className="text-yellow-400 font-semibold mb-2">
                     🎯 Example:
                   </h3>
-                  <div className="text-sm text-[#93a4d6] space-y-1">
+                  <div className="text-sm text-[var(--tt-text-muted)] space-y-1">
                     <div>
                       <strong className="text-white">Stock Trade:</strong> AAPL
                       at $150 entry, $155 current
@@ -6905,7 +6905,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     📈 Performance Metrics:
                   </h3>
-                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1">
+                  <ul className="text-sm text-[var(--tt-text-muted)] list-disc list-inside space-y-1">
                     <li>
                       <strong className="text-white">Win Rate:</strong>{" "}
                       Percentage of winning trades
@@ -6928,12 +6928,12 @@
                   <h3 className="text-blue-400 font-semibold mb-2">
                     🔍 Filter by Version:
                   </h3>
-                  <p className="text-sm text-[#93a4d6] mb-2">
+                  <p className="text-sm text-[var(--tt-text-muted)] mb-2">
                     Use the "Model Version" dropdown to compare performance
                     across different versions of the trading model. This helps
                     you see which improvements work best.
                   </p>
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-white">Tip:</strong> Newer versions
                     often include improvements, but older versions may have
                     proven track records.
@@ -6943,10 +6943,10 @@
                   <h3 className="text-purple-400 font-semibold mb-2">
                     📊 Daily Summary:
                   </h3>
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     Click "View Daily Summary" to see performance breakdowns by:
                   </p>
-                  <ul className="text-sm text-[#93a4d6] list-disc list-inside space-y-1 mt-2">
+                  <ul className="text-sm text-[var(--tt-text-muted)] list-disc list-inside space-y-1 mt-2">
                     <li>Rank ranges (which ranked setups perform best)</li>
                     <li>Risk/Reward ratios (which RR ratios win more)</li>
                     <li>Quadrants (which chart zones are most profitable)</li>
@@ -6954,7 +6954,7 @@
                   </ul>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">Remember:</strong> The
                     goal is to learn which setups work best. Review your wins
                     and losses regularly to improve your trading strategy!
@@ -6976,7 +6976,7 @@
                   <h3 className="text-blue-400 font-semibold mb-3">
                     📋 Daily Workflow:
                   </h3>
-                  <ol className="text-sm text-[#93a4d6] list-decimal list-inside space-y-3">
+                  <ol className="text-sm text-[var(--tt-text-muted)] list-decimal list-inside space-y-3">
                     <li>
                       <strong className="text-white">
                         Monitor Open Trades
@@ -7051,7 +7051,7 @@
                   <h3 className="text-green-400 font-semibold mb-2">
                     ⭐ Key Takeaways:
                   </h3>
-                  <div className="text-sm text-[#93a4d6] space-y-1">
+                  <div className="text-sm text-[var(--tt-text-muted)] space-y-1">
                     <div>✅ Trades are created automatically from alerts</div>
                     <div>✅ Each trade uses $1,000 position size</div>
                     <div>✅ P&L updates in real-time for open trades</div>
@@ -7060,7 +7060,7 @@
                   </div>
                 </div>
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <p className="text-sm text-[#93a4d6]">
+                  <p className="text-sm text-[var(--tt-text-muted)]">
                     <strong className="text-yellow-400">
                       Ready to start tracking?
                     </strong>{" "}
@@ -7087,8 +7087,8 @@
 
         return (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0b1020] border-2 border-[#26325f] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-              <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[#26325f] p-6 flex items-center justify-between">
+            <div className="bg-[#0b1020] border-2 border-[var(--tt-border)] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+              <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[var(--tt-border)] p-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-white mb-1">
                     {steps[currentStep].title}
@@ -7102,7 +7102,7 @@
                             ? "bg-blue-400 w-8"
                             : i < currentStep
                               ? "bg-green-400"
-                              : "bg-[#26325f]"
+                              : "bg-[var(--tt-bg-elevated)]"
                         }`}
                       />
                     ))}
@@ -7110,7 +7110,7 @@
                 </div>
                 <button
                   onClick={onClose}
-                  className="text-[#93a4d6] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-[#26325f] transition-colors"
+                  className="text-[var(--tt-text-muted)] hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded hover:bg-[var(--tt-bg-hover)] transition-colors"
                   title="Close Welcome Guide"
                 >
                   ×
@@ -7119,19 +7119,19 @@
               <div className="flex-1 overflow-y-auto p-6">
                 {steps[currentStep].content}
               </div>
-              <div className="border-t border-[#26325f] p-4 flex items-center justify-between bg-[#0f1630]">
+              <div className="border-t border-[var(--tt-border)] p-4 flex items-center justify-between bg-[var(--tt-bg-surface)]">
                 <button
                   onClick={prevStep}
                   disabled={currentStep === 0}
                   className={`px-4 py-2 rounded-lg border transition-all ${
                     currentStep === 0
-                      ? "border-[#26325f] text-[#93a4d6] opacity-50 cursor-not-allowed"
-                      : "border-[#26325f] bg-[#1a2550] hover:bg-[#26325f] text-white"
+                      ? "border-[var(--tt-border)] text-[var(--tt-text-muted)] opacity-50 cursor-not-allowed"
+                      : "border-[var(--tt-border)] bg-[#1a2550] hover:bg-[var(--tt-bg-hover)] text-white"
                   }`}
                 >
                   ← Previous
                 </button>
-                <div className="text-sm text-[#93a4d6]">
+                <div className="text-sm text-[var(--tt-text-muted)]">
                   Step {currentStep + 1} of {steps.length}
                 </div>
                 {currentStep < steps.length - 1 ? (
@@ -7273,28 +7273,28 @@
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-3">
-                <div className="text-xs text-[#93a4d6]">Today</div>
+              <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
+                <div className="text-xs text-[var(--tt-text-muted)]">Today</div>
                 <div className="font-bold">{fmtInt(today.entries)} entries / {fmtInt(today.exits)} exits</div>
                 <div className={today.realizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(today.realizedPnl)}</div>
               </div>
-              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-3">
-                <div className="text-xs text-[#93a4d6]">Week</div>
+              <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
+                <div className="text-xs text-[var(--tt-text-muted)]">Week</div>
                 <div className="font-bold">{fmtInt(week.closedTrades)} closed</div>
                 <div className={week.realizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(week.realizedPnl)}</div>
               </div>
-              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-3">
-                <div className="text-xs text-[#93a4d6]">Window ({windowDays}d)</div>
+              <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
+                <div className="text-xs text-[var(--tt-text-muted)]">Window ({windowDays}d)</div>
                 <div className="font-bold">{fmtInt(windowSum.closedTrades)} closed</div>
                 <div className={windowSum.realizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(windowSum.realizedPnl)}</div>
               </div>
-              <div className="bg-[#121a33] border border-[#26325f] rounded-lg p-3">
-                <div className="text-xs text-[#93a4d6]">Open</div>
+              <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
+                <div className="text-xs text-[var(--tt-text-muted)]">Open</div>
                 <div className="font-bold">{fmtInt(openPos.length)} positions</div>
                 <div className={open.unrealizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(open.unrealizedPnl)}</div>
               </div>
             </div>
-            <div className="text-xs text-[#93a4d6]">
+            <div className="text-xs text-[var(--tt-text-muted)]">
               <button type="button" onClick={() => setLedgerTab && setLedgerTab("trades")} className="text-[#3b82f6] hover:underline">
                 Open Trades tab for full detail →
               </button>
@@ -7852,6 +7852,45 @@
           };
         };
 
+        // Aggregate metrics when same ticker has multiple open entries (e.g. two ENTRY events)
+        const getAggregatedPositionMetrics = (trades, live) => {
+          if (!trades || trades.length === 0) return null;
+          if (trades.length === 1) return getPositionMetrics(trades[0], live);
+          const sym = String(trades[0].ticker || "").toUpperCase();
+          const isFutures = FUTURES_SPECS[sym] || sym.endsWith("1!");
+          const pointValue = isFutures && FUTURES_SPECS[sym] ? FUTURES_SPECS[sym].pointValue : 1;
+          const current = Number(live?.price);
+          let totalShares = 0;
+          let costBasis = 0;
+          let pnlOpen = 0;
+          for (const t of trades) {
+            const entryPrice = Number(t.entry_price ?? t.entryPrice ?? 0);
+            const shares = t.shares || (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
+            const direction = String(t.direction || "").toUpperCase();
+            const signed = direction === "SHORT" ? -1 : 1;
+            totalShares += shares;
+            costBasis += entryPrice * shares;
+            if (Number.isFinite(current) && entryPrice > 0) {
+              pnlOpen += (current - entryPrice) * shares * pointValue * signed;
+            }
+          }
+          const entryPrice = totalShares > 0 ? costBasis / totalShares : 0;
+          const direction = String(trades[0].direction || "").toUpperCase();
+          const signed = direction === "SHORT" ? -1 : 1;
+          const retOpenPct = costBasis > 0 && Number.isFinite(current)
+            ? ((current - entryPrice) / entryPrice) * 100 * signed
+            : null;
+          return {
+            isFutures,
+            pointValue,
+            entryPrice,
+            shares: totalShares,
+            current,
+            pnlOpen: Number.isFinite(current) ? pnlOpen : null,
+            retOpenPct,
+          };
+        };
+
         // Range in ms for account chart (1D, 5D, 10D, 30D, 1Y)
         const accountChartRangeMs = useMemo(() => {
           const day = 24 * 60 * 60 * 1000;
@@ -7910,6 +7949,7 @@
         }, [portfolioChartPoints, accountChartRangeMs]);
 
         // Positions with trade history in asc time order (Robinhood-style)
+        // Group open trades by ticker so multiple entries (e.g. AEHR 36 + 35) aggregate qty and P&L
         const positionsWithHistory = useMemo(() => {
           const byTicker = new Map();
           for (const t of ledgerFilteredTrades) {
@@ -7953,16 +7993,17 @@
               });
             }
           }
-          const result = [];
-          const seen = new Set();
+          const openByTicker = new Map();
           for (const t of ledgerOpenTrades) {
             const ticker = String(t.ticker || "").toUpperCase();
-            if (seen.has(ticker)) continue;
-            seen.add(ticker);
-            const metrics = getPositionMetrics(
-              t,
-              data && (data[t.ticker] || data[ticker]),
-            );
+            if (!ticker) continue;
+            if (!openByTicker.has(ticker)) openByTicker.set(ticker, []);
+            openByTicker.get(ticker).push(t);
+          }
+          const result = [];
+          for (const [ticker, trades] of openByTicker) {
+            const live = data && (data[ticker] || data[trades[0].ticker]);
+            const metrics = getAggregatedPositionMetrics(trades, live);
             const events = (byTicker.get(ticker) || []).sort(
               (a, b) => a.ts - b.ts,
             );
@@ -7978,12 +8019,12 @@
               current: metrics.current,
               pnlOpen: metrics.pnlOpen,
               retOpenPct: metrics.retOpenPct,
-              trade: t,
+              trade: trades[0],
               events,
             });
           }
           for (const [ticker, events] of byTicker) {
-            if (seen.has(ticker)) continue;
+            if (openByTicker.has(ticker)) continue;
             const sorted = events.sort((a, b) => a.ts - b.ts);
             const lastTrade = sorted.length
               ? sorted[sorted.length - 1].trade
@@ -8341,7 +8382,7 @@
                         {openPositionCards.length > 0 ? (
                           <div>
                             <h2 className="text-sm font-semibold text-[var(--tt-text)] mb-3">Open positions</h2>
-                            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+                            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                               {openPositionCards.map((pos) => {
                                 const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                                 const isLong = dir === "LONG";
@@ -8381,14 +8422,12 @@
                                     <span>Entry {pos.entryPrice != null ? fmtUsd(pos.entryPrice) : "—"}</span>
                                     <span>Current {pos.current != null ? fmtUsd(pos.current) : "—"}</span>
                                   </div>
-                                  {trimmedPct > 0 && (
-                                    <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-[var(--tt-bg-elevated)]">
-                                      <div
-                                        className="h-full rounded-full bg-[var(--tt-accent)]"
-                                        style={{ width: `${Math.min(100, trimmedPct)}%` }}
-                                      />
-                                    </div>
-                                  )}
+                                  <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-[var(--tt-bg-elevated)]" title={`Trimmed ${trimmedPct.toFixed(0)}%`}>
+                                    <div
+                                      className="h-full rounded-full transition-[width] bg-[var(--tt-accent)]"
+                                      style={{ width: `${Math.min(100, trimmedPct)}%` }}
+                                    />
+                                  </div>
                                 </button>
                               ); })}
                             </div>
@@ -8428,7 +8467,7 @@
                 {/* Daily Summary Modal */}
                 {showSummary && dailySummary && (
                   <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-[#121a33] border border-[#26325f] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                    <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-2xl font-bold">
                           📊 Daily Summary -{" "}
@@ -8438,7 +8477,7 @@
                         </h2>
                         <button
                           onClick={() => setShowSummary(false)}
-                          className="text-[#93a4d6] hover:text-white text-xl"
+                          className="text-[var(--tt-text-muted)] hover:text-white text-xl"
                         >
                           ✕
                         </button>
@@ -8446,40 +8485,40 @@
 
                       {/* Stats Grid */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                        <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
-                          <div className="text-xs text-[#93a4d6]">
+                        <div className="bg-[var(--tt-bg-surface)] p-3 rounded-lg border border-[var(--tt-border)]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             New Trades
                           </div>
                           <div className="text-xl font-bold text-white">
                             {dailySummary.stats.newTrades}
                           </div>
                         </div>
-                        <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
-                          <div className="text-xs text-[#93a4d6]">
+                        <div className="bg-[var(--tt-bg-surface)] p-3 rounded-lg border border-[var(--tt-border)]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             Closed Trades
                           </div>
                           <div className="text-xl font-bold text-white">
                             {dailySummary.stats.closedTrades}
                           </div>
                         </div>
-                        <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
-                          <div className="text-xs text-[#93a4d6]">
+                        <div className="bg-[var(--tt-bg-surface)] p-3 rounded-lg border border-[var(--tt-border)]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             Trimmed Trades
                           </div>
                           <div className="text-xl font-bold text-white">
                             {dailySummary.stats.trimmedTrades}
                           </div>
                         </div>
-                        <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
-                          <div className="text-xs text-[#93a4d6]">Win Rate</div>
+                        <div className="bg-[var(--tt-bg-surface)] p-3 rounded-lg border border-[var(--tt-border)]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">Win Rate</div>
                           <div
                             className={`text-xl font-bold ${dailySummary.stats.winRate >= 50 ? "text-green-400" : "text-red-400"}`}
                           >
                             {dailySummary.stats.winRate}%
                           </div>
                         </div>
-                        <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
-                          <div className="text-xs text-[#93a4d6]">
+                        <div className="bg-[var(--tt-bg-surface)] p-3 rounded-lg border border-[var(--tt-border)]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             Closed P&L
                           </div>
                           <div
@@ -8488,16 +8527,16 @@
                             ${dailySummary.stats.closedPnl}
                           </div>
                         </div>
-                        <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
-                          <div className="text-xs text-[#93a4d6]">Open P&L</div>
+                        <div className="bg-[var(--tt-bg-surface)] p-3 rounded-lg border border-[var(--tt-border)]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">Open P&L</div>
                           <div
                             className={`text-xl font-bold ${dailySummary.stats.openPnl >= 0 ? "text-green-400" : "text-yellow-400"}`}
                           >
                             ${dailySummary.stats.openPnl}
                           </div>
                         </div>
-                        <div className="bg-[#0f1630] p-3 rounded-lg border border-[#26325f]">
-                          <div className="text-xs text-[#93a4d6]">
+                        <div className="bg-[var(--tt-bg-surface)] p-3 rounded-lg border border-[var(--tt-border)]">
+                          <div className="text-xs text-[var(--tt-text-muted)]">
                             Total P&L
                           </div>
                           <div
@@ -8509,7 +8548,7 @@
                       </div>
 
                       {/* AI Summary */}
-                      <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-6 mb-4">
+                      <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-6 mb-4">
                         <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
                           <span className="text-2xl">🤖</span>
                           <span>AI Analysis & Recommendations</span>
@@ -8540,7 +8579,7 @@
                                       key: pIdx,
                                       className:
                                         level === 2
-                                          ? "text-lg font-bold mt-6 mb-3 text-white border-b border-[#26325f] pb-2 first:mt-0"
+                                          ? "text-lg font-bold mt-6 mb-3 text-white border-b border-[var(--tt-border)] pb-2 first:mt-0"
                                           : "text-base font-semibold mt-4 mb-2 text-white",
                                     },
                                     content,
@@ -8644,7 +8683,7 @@
                                             ? "bg-purple-500/10 border-purple-500/30"
                                             : emoji.includes("💡")
                                               ? "bg-green-500/10 border-green-500/30"
-                                              : "bg-[#26325f]/50 border-[#26325f]";
+                                              : "bg-[var(--tt-bg-elevated)]/50 border-[var(--tt-border)]";
 
                                       return React.createElement(
                                         "div",
@@ -8701,7 +8740,7 @@
                               // Inline code (`code`)
                               formatted = formatted.replace(
                                 /`([^`]+)`/g,
-                                '<code class="bg-[#26325f] px-1.5 py-0.5 rounded text-xs font-mono text-blue-300">$1</code>',
+                                '<code class="bg-[var(--tt-bg-elevated)] px-1.5 py-0.5 rounded text-xs font-mono text-blue-300">$1</code>',
                               );
 
                               // Links [text](url) - not common in AI responses but good to have
@@ -8737,7 +8776,7 @@
                               // Table separators (|)
                               formatted = formatted.replace(
                                 /\|/g,
-                                '<span class="text-[#6b7a9f] mx-1">|</span>',
+                                '<span class="text-[var(--tt-text-faint)] mx-1">|</span>',
                               );
 
                               return formatted;
@@ -8750,7 +8789,7 @@
 
                       {/* Performance Breakdown */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                        <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-4">
                           <h4 className="text-sm font-semibold mb-2">
                             Performance by Rank
                           </h4>
@@ -8759,7 +8798,7 @@
                               dailySummary.stats.rankAnalysis || {},
                             ).map(([range, stats]) => (
                               <div key={range} className="flex justify-between">
-                                <span className="text-[#93a4d6]">{range}:</span>
+                                <span className="text-[var(--tt-text-muted)]">{range}:</span>
                                 <span
                                   className={`font-semibold ${stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"}`}
                                 >
@@ -8770,7 +8809,7 @@
                             ))}
                           </div>
                         </div>
-                        <div className="bg-[#0f1630] border border-[#26325f] rounded-lg p-4">
+                        <div className="bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] rounded-lg p-4">
                           <h4 className="text-sm font-semibold mb-2">
                             Performance by RR
                           </h4>
@@ -8779,7 +8818,7 @@
                               dailySummary.stats.rrAnalysis || {},
                             ).map(([range, stats]) => (
                               <div key={range} className="flex justify-between">
-                                <span className="text-[#93a4d6]">{range}:</span>
+                                <span className="text-[var(--tt-text-muted)]">{range}:</span>
                                 <span
                                   className={`font-semibold ${stats.totalPnl >= 0 ? "text-green-400" : "text-red-400"}`}
                                 >
@@ -8813,7 +8852,7 @@
               <div style={{ padding: 40, textAlign: "center", color: "#e7ecff", fontFamily: "system-ui" }}>
                 <h2 style={{ color: "#e74c3c" }}>Trade Tracker failed to load</h2>
                 <p style={{ marginTop: 16 }}>{this.state.error.message}</p>
-                <pre style={{ textAlign: "left", marginTop: 16, padding: 16, background: "#0f1630", overflow: "auto", fontSize: 12 }}>
+                <pre style={{ textAlign: "left", marginTop: 16, padding: 16, background: "var(--tt-bg-surface)", overflow: "auto", fontSize: 12 }}>
                   {this.state.error.stack}
                 </pre>
               </div>
@@ -8850,7 +8889,7 @@
           <div style="padding: 40px; text-align: center; color: #e7ecff;">
             <h2 style="color: #e74c3c;">Error Loading Trade Tracker</h2>
             <p>${error.message}</p>
-            <p style="margin-top: 20px; color: #93a4d6;">Check the browser console (F12) for details.</p>
+            <p style="margin-top: 20px; color: var(--tt-text-muted);">Check the browser console (F12) for details.</p>
           </div>`;
         }
       }
