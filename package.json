@@ -1,9 +1,12 @@
 {
   "scripts": {
-    "deploy": "node scripts/embed-dashboard.js && cd worker && wrangler deploy --env production",
+    "build:rail": "node scripts/compile-right-rail.js",
+    "deploy": "npm run build:rail && node scripts/embed-dashboard.js && cd worker && wrangler deploy --env production",
     "deploy:worker": "node scripts/embed-dashboard.js && cd worker && wrangler deploy --env production"
   },
   "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-react": "^7.23.0",
     "wrangler": "^4.61.0"
   }
 }
