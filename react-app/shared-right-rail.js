@@ -1601,9 +1601,164 @@
                           );
                         })()}
 
-                        {/* TP Levels Array (Accordion) */}
+                        {/* 3-Tier TP System Display */}
                         {(() => {
+                          // Check for 3-tier tpArray from trade object first, then fallback to ticker.tp_levels
+                          const tpArray = trade?.tpArray || ticker?.tpArray || [];
+                          const trimTiers = trade?.trimTiers || [];
+                          const trimmedPct = Number(trade?.trimmedPct || 0);
+                          const has3TierSystem = tpArray.length > 0 && tpArray.some(tp => tp.tier);
+                          
+                          // Get trade SL protection info
+                          const slProtectReason = trade?.sl_protect_reason || null;
+                          const tradeSl = trade?.sl ? Number(trade.sl) : null;
+                          const entryPrice = trade?.entryPrice ? Number(trade.entryPrice) : null;
+                          
+                          // Fallback to legacy tp_levels if no 3-tier array
                           const tpLevels = ticker.tp_levels || [];
+                          
+                          // If we have a 3-tier system from trade, display it with progress
+                          if (has3TierSystem && tpArray.length > 0) {
+                            const direction = ticker.state?.includes("BULL")
+                              ? "LONG"
+                              : ticker.state?.includes("BEAR")
+                                ? "SHORT"
+                                : trade?.direction || null;
+                            const isLong = direction === "LONG";
+                            const currentPrice = Number(ticker.price) || 0;
+                            
+                            // Tier configuration
+                            const tierConfig = {
+                              TRIM: { label: "TRIM TP", pct: 0.6, color: "yellow", icon: "🎯", slAction: "SL → BE" },
+                              EXIT: { label: "EXIT TP", pct: 0.8, color: "orange", icon: "💰", slAction: "SL → TRIM TP" },
+                              RUNNER: { label: "RUNNER TP", pct: 1.0, color: "green", icon: "🚀", slAction: "ATR Trail" },
+                            };
+                            
+                            // Check which tiers have been hit
+                            const getTierStatus = (tier) => {
+                              const tierInfo = trimTiers.find(t => t.tier === tier);
+                              if (tierInfo?.hit) return "hit";
+                              if (trimmedPct >= tierConfig[tier]?.pct) return "hit";
+                              return "pending";
+                            };
+                            
+                            // Calculate progress to next tier
+                            const getProgressToTier = (tpPrice) => {
+                              if (!entryPrice || !currentPrice || !Number.isFinite(tpPrice)) return 0;
+                              const totalMove = Math.abs(tpPrice - entryPrice);
+                              if (totalMove <= 0) return 0;
+                              const currentMove = isLong
+                                ? Math.max(0, currentPrice - entryPrice)
+                                : Math.max(0, entryPrice - currentPrice);
+                              return Math.min(1, currentMove / totalMove);
+                            };
+                            
+                            return (
+                              <div className="border-t border-[#252b36] my-3 pt-3">
+                                <button
+                                  onClick={() => setTpExpanded(!tpExpanded)}
+                                  className="w-full flex items-center justify-between text-xs text-[#8b92a0] mb-2 font-semibold hover:text-white transition-colors"
+                                >
+                                  <span className="flex items-center gap-1.5">
+                                    <span>3-Tier TP System</span>
+                                    {trimmedPct > 0 && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">
+                                        {Math.round(trimmedPct * 100)}% trimmed
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="text-base">{tpExpanded ? "▼" : "▶"}</span>
+                                </button>
+                                {tpExpanded && (
+                                  <div className="space-y-2">
+                                    {tpArray.map((tp, idx) => {
+                                      const tier = tp.tier || (idx === 0 ? "TRIM" : idx === 1 ? "EXIT" : "RUNNER");
+                                      const config = tierConfig[tier] || tierConfig.TRIM;
+                                      const status = getTierStatus(tier);
+                                      const progress = getProgressToTier(tp.price);
+                                      const isHit = status === "hit";
+                                      
+                                      const colorClasses = {
+                                        yellow: { bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400", bar: "bg-yellow-500" },
+                                        orange: { bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400", bar: "bg-orange-500" },
+                                        green: { bg: "bg-green-500/10", border: "border-green-500/30", text: "text-green-400", bar: "bg-green-500" },
+                                      };
+                                      const colors = colorClasses[config.color] || colorClasses.yellow;
+                                      
+                                      return (
+                                        <div
+                                          key={`tier-${tier}-${idx}`}
+                                          className={`p-2.5 rounded border ${colors.bg} ${colors.border} ${isHit ? "opacity-60" : ""}`}
+                                        >
+                                          <div className="flex justify-between items-center mb-1.5">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm">{config.icon}</span>
+                                              <span className={`text-xs font-semibold ${colors.text}`}>
+                                                {config.label}
+                                              </span>
+                                              <span className="text-[10px] text-[#8b92a0]">
+                                                ({Math.round(config.pct * 100)}% off)
+                                              </span>
+                                              {isHit && (
+                                                <span className="text-[10px] px-1 py-0.5 rounded bg-green-500/30 text-green-300">✓ HIT</span>
+                                              )}
+                                            </div>
+                                            <span className={`text-xs font-bold ${colors.text}`}>
+                                              ${Number(tp.price).toFixed(2)}
+                                            </span>
+                                          </div>
+                                          
+                                          {/* Progress bar */}
+                                          {!isHit && (
+                                            <div className="mb-1.5">
+                                              <div className="h-1.5 bg-[#252b36] rounded-full overflow-hidden">
+                                                <div
+                                                  className={`h-full ${colors.bar} transition-all duration-300`}
+                                                  style={{ width: `${Math.round(progress * 100)}%` }}
+                                                />
+                                              </div>
+                                              <div className="flex justify-between text-[10px] text-[#8b92a0] mt-0.5">
+                                                <span>{Math.round(progress * 100)}% to target</span>
+                                                <span>{config.slAction}</span>
+                                              </div>
+                                            </div>
+                                          )}
+                                          
+                                          {/* Show SL action when tier is hit */}
+                                          {isHit && (
+                                            <div className="text-[10px] text-[#8b92a0]">
+                                              {config.slAction} applied
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                    
+                                    {/* SL Protection Status */}
+                                    {(slProtectReason || tradeSl) && (
+                                      <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded">
+                                        <div className="flex justify-between items-center">
+                                          <div className="text-[10px] text-red-300">Current Stop Loss</div>
+                                          {tradeSl && <div className="text-xs font-semibold text-red-400">${tradeSl.toFixed(2)}</div>}
+                                        </div>
+                                        {slProtectReason && (
+                                          <div className="text-[10px] text-[#8b92a0] mt-1">
+                                            {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "Moved to breakeven after TRIM TP" :
+                                             slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "Moved to TRIM TP after EXIT TP" :
+                                             slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR trailing (1.5x ATR)" :
+                                             slProtectReason === "PROTECT_GAINS" ? "Protecting gains" :
+                                             slProtectReason.replace(/_/g, " ")}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          
+                          // Legacy display for tickers without 3-tier system
                           if (!Array.isArray(tpLevels) || tpLevels.length === 0) return null;
                           
                           // Extract prices from tp_levels (handle both object and number formats)
@@ -1620,6 +1775,8 @@
                                   type: tpItem.type || "ATR_FIB",
                                   timeframe: tpItem.timeframe || "D",
                                   label: tpItem.label || "TP",
+                                  tier: tpItem.tier || null,
+                                  trimPct: tpItem.trimPct || null,
                                 };
                               }
                               return {
@@ -1631,6 +1788,8 @@
                                 type: "ATR_FIB",
                                 timeframe: "D",
                                 label: "TP",
+                                tier: null,
+                                trimPct: null,
                               };
                             })
                             .filter(
@@ -1671,6 +1830,9 @@
                                           : tf === "240" || tf === "4H"
                                             ? "4H"
                                             : tf;
+                                    // Show tier info if available
+                                    const tierLabel = tpItem.tier ? ` • ${tpItem.tier}` : "";
+                                    const trimLabel = tpItem.trimPct ? ` (${Math.round(tpItem.trimPct * 100)}%)` : "";
                                     return (
                                       <div
                                         key={idx}
@@ -1681,10 +1843,9 @@
                                             ${tpItem.price.toFixed(2)}
                                           </span>
                                           <span className="text-[#8b92a0] text-[10px]">
-                                            {tpItem.source !== "ATR Level"
-                                              ? tpItem.source
-                                              : ""}
-                                            {tpItem.timeframe
+                                            {tpItem.tier && <span className="text-yellow-400">{tpItem.tier}</span>}
+                                            {trimLabel && <span className="text-[#8b92a0]">{trimLabel}</span>}
+                                            {tpItem.timeframe && !tpItem.tier
                                               ? ` (${tfLabel})`
                                               : ""}
                                           </span>

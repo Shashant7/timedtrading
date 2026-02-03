@@ -12283,6 +12283,21 @@
                       🛡 Defend
                     </span>
                   ) : null}
+                  {/* 3-Tier Status Badge */}
+                  {(() => {
+                    const trade = tradeByTicker.get(sym);
+                    const trimmedPct = Number(trade?.trimmedPct || trade?.trimmed_pct || 0);
+                    if (trimmedPct <= 0) return null;
+                    const tierLabel = trimmedPct >= 0.8 ? "RUNNER" : trimmedPct >= 0.6 ? "EXIT" : "TRIM";
+                    const tierClass = trimmedPct >= 0.8 ? "bg-green-500/20 text-green-300 border-green-500/30" :
+                                      trimmedPct >= 0.6 ? "bg-orange-500/20 text-orange-300 border-orange-500/30" :
+                                      "bg-yellow-500/20 text-yellow-300 border-yellow-500/30";
+                    return (
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 ${tierClass}`} title={`${Math.round(trimmedPct * 100)}% trimmed`}>
+                        {tierLabel} ✓
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {/* Open full ticker view without toggling accordion */}
@@ -12414,6 +12429,15 @@
                     const compP2 = completionForSize(t);
                     const phaseColor = phaseToColor(phaseP);
                     const compColor = phaseToColor(compP2);
+                    
+                    // 3-Tier TP System info from trade
+                    const trade = tradeByTicker.get(sym);
+                    const trimmedPct = Number(trade?.trimmedPct || trade?.trimmed_pct || 0);
+                    const tpArray = trade?.tpArray || [];
+                    const slProtectReason = trade?.sl_protect_reason || null;
+                    const has3TierSystem = tpArray.length > 0 && tpArray.some(tp => tp.tier);
+                    const showTrimProgress = (stage === "trim" || stage === "hold" || stage === "exit" || stage === "just_entered") && trimmedPct > 0;
+                    
                     const Bar = ({ label, p, color }) => (
                       <div className="flex items-center gap-2">
                         <div className="w-14 text-[9px] text-[#5c6475]">
@@ -12478,6 +12502,34 @@
                           <Bar label="Phase" p={phaseP} color={phaseColor} />
                           <Bar label="Comp" p={compP2} color={compColor} />
                         </div>
+                        
+                        {/* 3-Tier TP Progress (for positions with trim activity) */}
+                        {showTrimProgress && (
+                          <div className="mt-2 p-2 rounded bg-[#1a1f28] border border-[#252b36]">
+                            <div className="flex items-center justify-between text-[9px] mb-1.5">
+                              <span className="text-[#8b92a0] font-semibold">3-Tier Trim Progress</span>
+                              <span className="text-white font-bold">{Math.round(trimmedPct * 100)}%</span>
+                            </div>
+                            <div className="flex items-center gap-1 mb-1">
+                              <span className={`px-1 py-0.5 rounded text-[8px] ${trimmedPct >= 0.6 ? "bg-yellow-500/30 text-yellow-300" : "bg-[#252b36] text-[#5c6475]"}`}>🎯60%</span>
+                              <span className={`px-1 py-0.5 rounded text-[8px] ${trimmedPct >= 0.8 ? "bg-orange-500/30 text-orange-300" : "bg-[#252b36] text-[#5c6475]"}`}>💰80%</span>
+                              <span className={`px-1 py-0.5 rounded text-[8px] ${trimmedPct >= 1.0 ? "bg-green-500/30 text-green-300" : "bg-[#252b36] text-[#5c6475]"}`}>🚀100%</span>
+                            </div>
+                            <div className="h-2 rounded bg-[#252b36] overflow-hidden flex">
+                              <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, trimmedPct * 100)}%` }} />
+                              <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, (trimmedPct * 100) - 60))}%` }} />
+                              <div className="h-full bg-green-500/70" style={{ width: `${Math.max(0, (trimmedPct * 100) - 80)}%` }} />
+                            </div>
+                            {slProtectReason && (
+                              <div className="mt-1 text-[8px] text-[#8b92a0]">
+                                SL: {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "@ Breakeven" :
+                                     slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "@ TRIM TP" :
+                                     slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR Trailing" :
+                                     slProtectReason === "PROTECT_GAINS" ? "Protected" : ""}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </>
                     );
                   })()}
