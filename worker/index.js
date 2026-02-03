@@ -4740,10 +4740,16 @@ async function processTradeSimulation(
       // Portfolio cash increases by proceeds
       portfolio.cash = Number(portfolio.cash) + p * remainingShares;
 
-      // Persist to D1 ledger best-effort
+      // Persist to D1 first (source of truth), then Discord
       if (env) {
-        d1UpsertTrade(env, trade).catch(() => {});
-        if (trade?.id) d1InsertTradeEvent(env, trade.id, ev).catch(() => {});
+        await d1UpsertTrade(env, trade).catch((e) => {
+          console.error("[D1 LEDGER] closeTradeAtPrice upsert failed:", e);
+        });
+        if (trade?.id) {
+          await d1InsertTradeEvent(env, trade.id, ev).catch((e) => {
+            console.error("[D1 LEDGER] closeTradeAtPrice event insert failed:", e);
+          });
+        }
       }
 
       // Discord + D1 alert (best-effort, deduped)
@@ -4768,6 +4774,11 @@ async function processTradeSimulation(
               Number(trade.rr || 0),
               tickerData,
               trade,
+              {
+                qty: remainingShares,
+                value: p * remainingShares,
+                pnl: pnlRemaining,
+              },
             );
             const allow = shouldSendDiscordAlert(env, "TRADE_EXIT", {
               ticker: sym,
@@ -4871,8 +4882,14 @@ async function processTradeSimulation(
       portfolio.cash = Number(portfolio.cash) + p * trimShares;
 
       if (env) {
-        d1UpsertTrade(env, trade).catch(() => {});
-        if (trade?.id) d1InsertTradeEvent(env, trade.id, ev).catch(() => {});
+        await d1UpsertTrade(env, trade).catch((e) => {
+          console.error("[D1 LEDGER] trimTradeToPct upsert failed:", e);
+        });
+        if (trade?.id) {
+          await d1InsertTradeEvent(env, trade.id, ev).catch((e) => {
+            console.error("[D1 LEDGER] trimTradeToPct event insert failed:", e);
+          });
+        }
       }
 
       // Discord + D1 alert (best-effort, deduped)
@@ -4909,6 +4926,7 @@ async function processTradeSimulation(
               tickerData,
               trade,
               delta,
+              { qty: trimShares, value: p * trimShares, pnl: pnlRealized },
             );
             const sendRes = allow
               ? await notifyDiscord(env, embed).catch((err) => ({
@@ -5086,8 +5104,12 @@ async function processTradeSimulation(
               lastEnterSide: direction,
             });
             if (env) {
-              d1UpsertTrade(env, trade).catch(() => {});
-              d1InsertTradeEvent(env, tradeId, ev).catch(() => {});
+              await d1UpsertTrade(env, trade).catch((e) => {
+                console.error("[D1 LEDGER] ENTRY upsert failed:", e);
+              });
+              await d1InsertTradeEvent(env, tradeId, ev).catch((e) => {
+                console.error("[D1 LEDGER] ENTRY event insert failed:", e);
+              });
             }
 
             // Discord + D1 alert (best-effort, deduped)
@@ -5118,6 +5140,11 @@ async function processTradeSimulation(
                     Number(pxNow),
                     false,
                     tickerData,
+                    {
+                      qty: Number(trade.shares),
+                      value: Number(entryPx) * Number(trade.shares),
+                      pnl: 0,
+                    },
                   );
                   const sendRes = allow
                     ? await notifyDiscord(env, embed).catch((err) => ({
@@ -5278,15 +5305,18 @@ async function processTradeSimulation(
               ? [...openTrade.history, ev]
               : [ev];
 
+            if (env && openTrade?.id) {
+              await d1UpsertTrade(env, openTrade).catch((e) => {
+                console.error("[D1 LEDGER] SL_TIGHTEN upsert failed:", e);
+              });
+              await d1InsertTradeEvent(env, openTrade.id, ev).catch((e) => {
+                console.error("[D1 LEDGER] SL_TIGHTEN event insert failed:", e);
+              });
+            }
             if (!isReplay) await kvPutJSON(KV, execKey, {
               ...execState,
               lastSlTightenMs: now,
             });
-
-            if (env && openTrade?.id) {
-              d1UpsertTrade(env, openTrade).catch(() => {});
-              d1InsertTradeEvent(env, openTrade.id, ev).catch(() => {});
-            }
           }
         }
       } catch (e) {
@@ -5294,7 +5324,11 @@ async function processTradeSimulation(
       }
 
       openTrade.lastUpdate = eventTs();
-      if (env) d1UpsertTrade(env, openTrade).catch(() => {});
+      if (env) {
+        await d1UpsertTrade(env, openTrade).catch((e) => {
+          console.error("[D1 LEDGER] mark-to-market upsert failed:", e);
+        });
+      }
     }
 
     if (!isReplay) portfolio = await putPortfolioState(KV, portfolio);
@@ -6079,32 +6113,34 @@ async function processTradeSimulation(
         );
         if (tradeIndex >= 0) {
           allTrades[tradeIndex] = updatedTrade;
+
+          // D1 first (source of truth), then KV
+          if (env) {
+            await d1UpsertTrade(env, updatedTrade).catch((e) => {
+              console.error(
+                `[D1 LEDGER] Failed to upsert trade ${updatedTrade?.id}:`,
+                e,
+              );
+            });
+            if (
+              updatedTrade?.id &&
+              Array.isArray(newHistoryEvents) &&
+              newHistoryEvents.length > 0
+            ) {
+              for (const ev of newHistoryEvents) {
+                await d1InsertTradeEvent(env, updatedTrade.id, ev).catch((e) => {
+                  console.error(
+                    `[D1 LEDGER] Failed to insert trade event for ${updatedTrade.id}:`,
+                    e,
+                  );
+                });
+              }
+            }
+          }
           await kvPutJSON(KV, tradesKey, allTrades);
           console.log(
             `[TRADE SIM] Updated trade ${ticker} ${direction}: ${oldStatus} -> ${newStatus}`,
           );
-
-          // Persist trade + new lifecycle events to D1 ledger (best-effort)
-          d1UpsertTrade(env, updatedTrade).catch((e) => {
-            console.error(
-              `[D1 LEDGER] Failed to upsert trade ${updatedTrade?.id}:`,
-              e,
-            );
-          });
-          if (
-            updatedTrade?.id &&
-            Array.isArray(newHistoryEvents) &&
-            newHistoryEvents.length > 0
-          ) {
-            for (const ev of newHistoryEvents) {
-              d1InsertTradeEvent(env, updatedTrade.id, ev).catch((e) => {
-                console.error(
-                  `[D1 LEDGER] Failed to insert trade event for ${updatedTrade.id}:`,
-                  e,
-                );
-              });
-            }
-          }
 
           // Send Discord notifications for status changes
           if (env) {
@@ -6145,20 +6181,21 @@ async function processTradeSimulation(
                   trimDeltaPctRaw,
                 })
               ) {
+                const trimQtySim = Number(updatedTrade.shares) * Number(trimDeltaPctRaw || 0);
+                const trimPriceSim = Number.isFinite(trimPrice) ? trimPrice : Number(updatedTrade.tp);
                 const embed = createTradeTrimmedEmbed(
                   ticker,
                   direction,
                   updatedTrade.entryPrice,
                   currentPrice,
-                  Number.isFinite(trimPrice)
-                    ? trimPrice
-                    : Number(updatedTrade.tp),
+                  trimPriceSim,
                   pnl,
                   pnlPct,
                   newTrimmedPct,
                   tickerData,
                   updatedTrade,
                   trimDeltaPctRaw,
+                  { qty: trimQtySim, value: trimPriceSim * trimQtySim, pnl },
                 );
                 const sendRes = await notifyDiscord(env, embed).catch((err) => {
                   console.error(
@@ -6237,6 +6274,7 @@ async function processTradeSimulation(
                   `[TRADE SIM] 🔁 Deduped EXIT alert for ${ticker} ${direction} (${exitDedupe.key})`,
                 );
               } else {
+                const exitQty = Number(updatedTrade.shares) || 0;
                 const embed = createTradeClosedEmbed(
                   ticker,
                   direction,
@@ -6249,6 +6287,11 @@ async function processTradeSimulation(
                   updatedTrade.rr || existingOpenTrade.rr || 0,
                   tickerData,
                   updatedTrade,
+                  {
+                    qty: exitQty,
+                    value: Number(exitPrice) * exitQty,
+                    pnl,
+                  },
                 );
                 const sendRes = await notifyDiscord(env, embed).catch((err) => {
                   console.error(
@@ -6624,31 +6667,33 @@ async function processTradeSimulation(
               );
               if (tradeIndex >= 0) {
                 allTrades[tradeIndex] = updatedTrade;
+
+                // D1 first (source of truth), then KV
+                if (env) {
+                  await d1UpsertTrade(env, updatedTrade).catch((e) => {
+                    console.error(
+                      `[D1 LEDGER] Failed to upsert scaled-in trade:`,
+                      e,
+                    );
+                  });
+                  const scaleEvent = history[history.length - 1];
+                  if (scaleEvent && updatedTrade?.id) {
+                    await d1InsertTradeEvent(env, updatedTrade.id, scaleEvent).catch(
+                      (e) => {
+                        console.error(
+                          `[D1 LEDGER] Failed to insert SCALE_IN event:`,
+                          e,
+                        );
+                      },
+                    );
+                  }
+                }
                 await kvPutJSON(KV, tradesKey, allTrades);
                 console.log(
                   `[TRADE SIM] ✅ Scaled in ${ticker} ${direction} - Avg Entry: $${avgEntryPrice.toFixed(
                     2,
                   )}, Total Shares: ${totalShares}`,
                 );
-
-                // Persist to D1 ledger (best-effort)
-                d1UpsertTrade(env, updatedTrade).catch((e) => {
-                  console.error(
-                    `[D1 LEDGER] Failed to upsert scaled-in trade:`,
-                    e,
-                  );
-                });
-                const scaleEvent = history[history.length - 1];
-                if (scaleEvent && updatedTrade?.id) {
-                  d1InsertTradeEvent(env, updatedTrade.id, scaleEvent).catch(
-                    (e) => {
-                      console.error(
-                        `[D1 LEDGER] Failed to insert SCALE_IN event:`,
-                        e,
-                      );
-                    },
-                  );
-                }
 
                 // Send Discord notification for scaling in
                 if (env) {
@@ -9365,6 +9410,79 @@ async function d1InsertTradeEvent(env, tradeId, event) {
   }
 }
 
+/** GET /timed/trades?source=d1 — Load trades from D1 (source of truth) in same shape as KV. */
+async function d1GetAllTradesWithEvents(env) {
+  const db = env?.DB;
+  if (!db) return null;
+  try {
+    const tradesRes = await db.prepare(
+      `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+        exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+        script_version, created_at, updated_at, trim_ts, trim_price
+       FROM trades ORDER BY entry_ts DESC`
+    ).all();
+    const rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
+    if (rows.length === 0) return [];
+
+    const tradeIds = rows.map((r) => r.trade_id).filter(Boolean);
+    const placeholders = tradeIds.map(() => "?").join(",");
+    const eventsRes = await db.prepare(
+      `SELECT event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
+       FROM trade_events WHERE trade_id IN (${placeholders}) ORDER BY trade_id, ts ASC`
+    ).bind(...tradeIds).all();
+    const eventRows = Array.isArray(eventsRes?.results) ? eventsRes.results : [];
+    const eventsByTradeId = {};
+    for (const e of eventRows) {
+      const id = e.trade_id;
+      if (!eventsByTradeId[id]) eventsByTradeId[id] = [];
+      eventsByTradeId[id].push({
+        type: e.type,
+        ts: e.ts,
+        timestamp: Number.isFinite(Number(e.ts)) ? new Date(Number(e.ts)).toISOString() : undefined,
+        price: e.price != null ? Number(e.price) : undefined,
+        trimPct: e.qty_pct_total,
+        trimDeltaPct: e.qty_pct_delta,
+        pnl_realized: e.pnl_realized != null ? Number(e.pnl_realized) : undefined,
+        reason: e.reason || undefined,
+        ...(e.meta_json ? (() => { try { return JSON.parse(e.meta_json); } catch { return {}; } })() : {}),
+      });
+    }
+
+    return rows.map((r) => {
+      const history = eventsByTradeId[r.trade_id] || [];
+      const entryTs = r.entry_ts != null ? Number(r.entry_ts) : null;
+      return {
+        id: r.trade_id,
+        trade_id: r.trade_id,
+        ticker: String(r.ticker || "").toUpperCase(),
+        direction: r.direction,
+        entryPrice: r.entry_price != null ? Number(r.entry_price) : undefined,
+        entry_ts: entryTs,
+        entryTime: entryTs != null ? new Date(entryTs).toISOString() : undefined,
+        rank: r.rank,
+        rr: r.rr,
+        status: r.status,
+        exit_ts: r.exit_ts != null ? Number(r.exit_ts) : undefined,
+        exitPrice: r.exit_price != null ? Number(r.exit_price) : undefined,
+        exitReason: r.exit_reason || undefined,
+        trimmedPct: r.trimmed_pct != null ? Number(r.trimmed_pct) : undefined,
+        trim_ts: r.trim_ts != null ? Number(r.trim_ts) : undefined,
+        trim_price: r.trim_price != null ? Number(r.trim_price) : undefined,
+        pnl: r.pnl != null ? Number(r.pnl) : undefined,
+        pnlPct: r.pnl_pct != null ? Number(r.pnl_pct) : undefined,
+        scriptVersion: r.script_version,
+        script_version: r.script_version,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        history,
+      };
+    });
+  } catch (err) {
+    console.error("[D1 LEDGER] d1GetAllTradesWithEvents failed:", err);
+    return null;
+  }
+}
+
 function encodeCursor(obj) {
   try {
     const s = JSON.stringify(obj);
@@ -10039,6 +10157,7 @@ function createTradeEntryEmbed(
   currentPrice = null,
   isBackfill = false,
   tickerData = null,
+  execution = null, // { qty, value, pnl } for verifiable history
 ) {
   const color = direction === "LONG" ? 0x00ff00 : 0xff0000; // Green for LONG, Red for SHORT
 
@@ -10074,6 +10193,16 @@ function createTradeEntryEmbed(
       inline: false,
     },
   ];
+  if (execution && (Number.isFinite(execution.qty) || Number.isFinite(execution.value))) {
+    const qtyStr = Number.isFinite(execution.qty) ? execution.qty.toFixed(4) : "—";
+    const valueStr = Number.isFinite(execution.value) ? `$${Number(execution.value).toFixed(2)}` : "—";
+    const pnlStr = Number.isFinite(execution.pnl) ? `$${Number(execution.pnl).toFixed(2)}` : "$0.00";
+    fields.push({
+      name: "📋 Execution",
+      value: `**Qty:** ${qtyStr}\n**Value:** ${valueStr}\n**Net P&L:** ${pnlStr}`,
+      inline: true,
+    });
+  }
 
   // Add TP array if available
   if (
@@ -10253,6 +10382,7 @@ function createTradeTrimmedEmbed(
   tickerData = null,
   trade = null,
   trimDeltaPct = null,
+  execution = null, // { qty, value, pnl } for verifiable history
 ) {
   const remainingPct = 1 - trimmedPct;
   const trimPercent = Math.round(trimmedPct * 100);
@@ -10322,18 +10452,28 @@ function createTradeTrimmedEmbed(
       }\n**Total Trimmed:** ${trimPercent}%`,
       inline: true,
     },
-    {
-      name: "📈 Position Status",
-      value: `**Remaining:** ${Math.round(remainingPct * 100)}%\n**Next TP:** ${
-        nextTp
-          ? `$${Number(nextTp.price).toFixed(2)} (${Math.round(
-              nextTp.trimPct * 100,
-            )}%)`
-          : "—"
-      }\n**Status:** Holding remaining position`,
-      inline: true,
-    },
   ];
+  if (execution && (Number.isFinite(execution.qty) || Number.isFinite(execution.value))) {
+    const qtyStr = Number.isFinite(execution.qty) ? Number(execution.qty).toFixed(4) : "—";
+    const valueStr = Number.isFinite(execution.value) ? `$${Number(execution.value).toFixed(2)}` : "—";
+    const pnlStr = Number.isFinite(execution.pnl) ? `$${Number(execution.pnl).toFixed(2)}` : "—";
+    fields.push({
+      name: "📋 Execution",
+      value: `**Qty:** ${qtyStr}\n**Value:** ${valueStr}\n**Net P&L:** ${pnlStr}`,
+      inline: true,
+    });
+  }
+  fields.push({
+    name: "📈 Position Status",
+    value: `**Remaining:** ${Math.round(remainingPct * 100)}%\n**Next TP:** ${
+      nextTp
+        ? `$${Number(nextTp.price).toFixed(2)} (${Math.round(
+            nextTp.trimPct * 100,
+          )}%)`
+        : "—"
+    }\n**Status:** Holding remaining position`,
+    inline: true,
+  });
 
   if (tpPlan.length > 0) {
     fields.push({
@@ -10399,6 +10539,7 @@ function createTradeClosedEmbed(
   rr,
   tickerData = null,
   trade = null,
+  execution = null, // { qty, value, pnl } for verifiable history
 ) {
   const color = status === "WIN" ? 0x00ff00 : 0xff0000; // Green for WIN, Red for LOSS
   const emoji = status === "WIN" ? "✅" : "❌";
@@ -10427,6 +10568,16 @@ function createTradeClosedEmbed(
       inline: false,
     },
   ];
+  if (execution && (Number.isFinite(execution.qty) || Number.isFinite(execution.value))) {
+    const qtyStr = Number.isFinite(execution.qty) ? Number(execution.qty).toFixed(4) : "—";
+    const valueStr = Number.isFinite(execution.value) ? `$${Number(execution.value).toFixed(2)}` : "—";
+    const pnlStr = Number.isFinite(execution.pnl) ? `$${Number(execution.pnl).toFixed(2)}` : "—";
+    fields.push({
+      name: "📋 Execution",
+      value: `**Qty:** ${qtyStr}\n**Value:** ${valueStr}\n**Net P&L:** ${pnlStr}`,
+      inline: true,
+    });
+  }
 
   // Add explicit exit reason when available
   const exitReason = trade?.exitReason || null;
@@ -19707,6 +19858,37 @@ export default {
           );
         }
         const versionFilter = url.searchParams.get("version");
+        const source = url.searchParams.get("source");
+
+        // Optional: read from D1 as source of truth (?source=d1)
+        if (source === "d1" && env?.DB) {
+          const d1Trades = await d1GetAllTradesWithEvents(env);
+          if (d1Trades) {
+            let filtered = d1Trades;
+            if (versionFilter && versionFilter !== "all") {
+              filtered = d1Trades.filter(
+                (t) => (t.scriptVersion || t.script_version || "unknown") === versionFilter,
+              );
+            }
+            const versions = [
+              ...new Set(d1Trades.map((t) => t.scriptVersion || t.script_version || "unknown")),
+            ].sort().reverse();
+            return sendJSON(
+              {
+                ok: true,
+                count: filtered.length,
+                totalCount: d1Trades.length,
+                version: versionFilter || "all",
+                versions,
+                trades: filtered,
+                source: "d1",
+              },
+              200,
+              corsHeaders(env, req),
+            );
+          }
+        }
+
         const tradesKey = "timed:trades:all";
         let allTrades = (await kvGetJSON(KV, tradesKey)) || [];
 

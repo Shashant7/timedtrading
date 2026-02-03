@@ -86,6 +86,11 @@ Returns top N tickers by rank for a specific bucket:
 ### GET `/timed/health`
 Health check endpoint showing last ingest time and ticker count.
 
+### GET `/timed/trades` and trade ledger (D1 as source of truth)
+- **GET /timed/trades** — Returns all trades (default from KV). Use **`?source=d1`** to read from D1 with event history included; see [docs/D1_LEDGER_SOURCE_OF_TRUTH.md](../docs/D1_LEDGER_SOURCE_OF_TRUTH.md).
+- **GET /timed/ledger/trades** — Returns trades from D1 only (paginated, filterable by ticker, status, since, until).
+- The worker writes to **D1 first**, then KV, so D1 is the canonical store for trade and execution history.
+
 ## Alert Logic
 
 Discord alerts are sent when ALL of the following conditions are met:

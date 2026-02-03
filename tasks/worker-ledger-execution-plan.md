@@ -164,10 +164,10 @@ Payload should match what is stored in D1 (action_id, position_id, ts, action_ty
 ## 7. Implementation Phases
 
 ### Phase 1: D1 as canonical store (no lot model yet)
-- [ ] Worker: on every ENTRY/TRIM/EXIT (and SCALE_IN), write **first** to D1; only then update KV (if still used). Ensure GET /timed/trades can be switched to read from D1 (e.g. new endpoint or flag).
-- [ ] Add GET /timed/ledger/trades from D1 with trade_events joined so UI has one place for “all history.”
-- [ ] Discord payloads: add qty, value, and net P&L to TRADE_ENTRY, TRADE_TRIM, TRADE_EXIT (and SCALE_IN) from the execution payload.
-- [ ] Document “D1 is source of truth” and deprecate KV for trades (or document KV as cache).
+- [x] Worker: on every ENTRY/TRIM/EXIT (and SCALE_IN), write **first** to D1; only then update KV (if still used). Ensure GET /timed/trades can be switched to read from D1 (e.g. new endpoint or flag).
+- [x] Add GET /timed/trades?source=d1 from D1 with trade_events joined so UI has one place for “all history.”
+- [x] Discord payloads: add qty, value, and net P&L to TRADE_ENTRY, TRADE_TRIM, TRADE_EXIT (and SCALE_IN) from the execution payload.
+- [x] Document “D1 is source of truth” and deprecate KV for trades (or document KV as cache).
 
 ### Phase 2: Lot-based model and execution_actions
 - [ ] Add D1 schema: positions, lots, execution_actions (or extend trades + trade_events with lots table and qty/value/lot_id).
