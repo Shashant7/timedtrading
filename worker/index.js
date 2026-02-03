@@ -4585,11 +4585,19 @@ async function processTradeSimulation(
     const direction = getTradeDirection(tickerData.state);
     if (!direction) return;
 
-    let openTrade = allTrades.find(
-      (t) =>
-        String(t?.ticker || "").toUpperCase() === sym &&
-        isOpenTradeStatus(t?.status),
-    );
+    // Phase 3: Prefer open position from D1 (single source of truth); fall back to KV
+    let openTrade = null;
+    if (env?.DB && !isReplay) {
+      openTrade = await getOpenPositionAsTrade(env, sym, direction) ||
+        await getOpenPositionAsTrade(env, sym, direction === "LONG" ? "SHORT" : "LONG");
+    }
+    if (openTrade == null) {
+      openTrade = allTrades.find(
+        (t) =>
+          String(t?.ticker || "").toUpperCase() === sym &&
+          isOpenTradeStatus(t?.status),
+      ) || null;
+    }
     const openTradeDir =
       openTrade && String(openTrade.direction || "").toUpperCase();
     const now = Date.now();
@@ -9648,6 +9656,62 @@ async function d1UpdatePosition(env, position_id, updates) {
     console.error("[D1 LEDGER] position update failed:", err);
     return { ok: false, error: String(err) };
   }
+}
+
+/** Phase 3: Load open position from D1 as a trade-like object (for ingest). Returns null if no position or table missing. */
+async function getOpenPositionAsTrade(env, ticker, direction) {
+  const pos = await d1GetOpenPosition(env, ticker, direction);
+  if (!pos || !pos.position_id) return null;
+  const db = env?.DB;
+  if (!db) return null;
+  let history = [];
+  try {
+    const actionsRes = await db.prepare(
+      `SELECT action_id, ts, action_type, qty, price, value, pnl_realized, reason
+       FROM execution_actions WHERE position_id = ? ORDER BY ts ASC`
+    ).bind(pos.position_id).all();
+    const actions = Array.isArray(actionsRes?.results) ? actionsRes.results : [];
+    history = actions.map((a) => ({
+      type: a.action_type,
+      timestamp: Number.isFinite(Number(a.ts)) ? new Date(Number(a.ts)).toISOString() : undefined,
+      ts: a.ts,
+      price: a.price,
+      shares: a.qty,
+      value: a.value,
+      pnl_realized: a.pnl_realized,
+      reason: a.reason,
+    }));
+  } catch (err) {
+    if (err && !(err.message || "").includes("no such table")) console.error("[D1 LEDGER] getOpenPositionAsTrade actions:", err);
+  }
+  const totalQty = Number(pos.total_qty) || 0;
+  const costBasis = Number(pos.cost_basis) || 0;
+  const created = Number(pos.created_at) || 0;
+  const vwap = totalQty > 0 ? costBasis / totalQty : 0;
+  const realizedPnl = history.reduce((sum, ev) => sum + (Number(ev.pnl_realized) || 0), 0);
+  let trimmedPct = 0;
+  const trimEvents = history.filter((e) => String(e.type || "").toUpperCase() === "TRIM");
+  if (trimEvents.length && totalQty > 0) {
+    const trimmedQty = trimEvents.reduce((s, e) => s + (Number(e.shares) || 0), 0);
+    trimmedPct = Math.min(1, trimmedQty / totalQty);
+  }
+  return {
+    id: pos.position_id,
+    trade_id: pos.position_id,
+    ticker: String(pos.ticker || "").toUpperCase(),
+    direction: String(pos.direction || "LONG").toUpperCase(),
+    status: pos.status || "OPEN",
+    entryPrice: vwap,
+    entry_price: vwap,
+    entry_ts: created,
+    entryTime: created ? new Date(created).toISOString() : undefined,
+    entryTs: created,
+    shares: totalQty,
+    history,
+    realizedPnl,
+    trimmedPct,
+    pointValue: 1,
+  };
 }
 
 /** GET /timed/trades?source=positions — Load from positions/lots/execution_actions (Phase 2). Returns same shape as KV. */
@@ -19857,6 +19921,191 @@ export default {
         );
       }
 
+      // POST /timed/admin/backfill-positions?key=...&limit=...&offset=...
+      // Backfill positions/lots/execution_actions from existing D1 trades + trade_events (idempotent).
+      if (
+        url.pathname === "/timed/admin/backfill-positions" &&
+        req.method === "POST"
+      ) {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON(
+            { ok: false, error: "d1_not_configured" },
+            503,
+            corsHeaders(env, req),
+          );
+        }
+
+        const qLimit = Number(url.searchParams.get("limit") || "0");
+        const qOffset = Number(url.searchParams.get("offset") || "0");
+        const tickerFilter = normTicker(url.searchParams.get("ticker"));
+
+        let tradeRows = [];
+        try {
+          let sql = `SELECT trade_id, ticker, direction, entry_ts, entry_price, status, trimmed_pct, pnl, script_version, created_at, updated_at, exit_ts
+            FROM trades WHERE 1=1`;
+          const binds = [];
+          if (tickerFilter) {
+            sql += " AND ticker = ?";
+            binds.push(tickerFilter);
+          }
+          sql += " ORDER BY entry_ts ASC";
+          if (qLimit > 0) {
+            sql += " LIMIT ? OFFSET ?";
+            binds.push(qLimit, qOffset);
+          }
+          const res = await db.prepare(sql).bind(...binds).all();
+          tradeRows = Array.isArray(res?.results) ? res.results : [];
+        } catch (e) {
+          return sendJSON(
+            { ok: false, error: "trades_query_failed", message: String(e?.message || e) },
+            500,
+            corsHeaders(env, req),
+          );
+        }
+
+        let positionsInserted = 0;
+        let lotsInserted = 0;
+        let actionsInserted = 0;
+        const errors = [];
+
+        for (const row of tradeRows) {
+          try {
+            const tradeId = row.trade_id;
+            const ticker = String(row.ticker || "").toUpperCase();
+            const direction = String(row.direction || "LONG").toUpperCase();
+            let entryTs = Number(row.entry_ts) || Number(row.created_at) || 0;
+            if (entryTs < 1e12) entryTs *= 1000;
+            const status = row.status && (row.status === "WIN" || row.status === "LOSS") ? "CLOSED" : "OPEN";
+            const closedAt = status === "CLOSED" ? (Number(row.exit_ts) || Number(row.updated_at) || null) : null; // trades has exit_ts, not closed_at
+
+            const eventsRes = await db.prepare(
+              `SELECT event_id, trade_id, ts, type, price, qty_pct_delta, qty_pct_total, pnl_realized, reason, meta_json
+               FROM trade_events WHERE trade_id = ? ORDER BY ts ASC`
+            ).bind(tradeId).all();
+            const events = Array.isArray(eventsRes?.results) ? eventsRes.results : [];
+
+            const entryPrice = Number(row.entry_price) || 0;
+            let totalQty = 0;
+            let costBasis = 0;
+            const parseShares = (ev) => {
+              if (ev.meta_json) {
+                try {
+                  const m = JSON.parse(ev.meta_json);
+                  if (Number.isFinite(m.shares)) return m.shares;
+                } catch {}
+              }
+              if (ev.price != null && ev.price > 0 && Number.isFinite(ev.value)) return ev.value / ev.price;
+              return null;
+            };
+
+            const r1 = await d1InsertPosition(env, {
+              position_id: tradeId,
+              ticker,
+              direction,
+              status,
+              total_qty: 0,
+              cost_basis: 0,
+              created_at: entryTs,
+              updated_at: Number(row.updated_at) || Date.now(),
+              closed_at: closedAt,
+              script_version: row.script_version || null,
+            });
+            if (r1.ok) positionsInserted++;
+
+            for (const ev of events) {
+              const ts = Number(ev.ts) || 0;
+              const tsMs = ts < 1e12 ? ts * 1000 : ts;
+              const type = String(ev.type || "").toUpperCase();
+              const price = ev.price != null ? Number(ev.price) : 0;
+              let qty = parseShares(ev);
+              if (qty == null && type === "ENTRY" && entryPrice > 0) {
+                qty = 1000 / entryPrice;
+              }
+              if (qty == null || qty <= 0) continue;
+              const value = price * qty;
+
+              if (type === "ENTRY" || type === "SCALE_IN") {
+                const lotId = `${tradeId}-lot-${tsMs}`;
+                const actionType = type === "SCALE_IN" ? "ADD_ENTRY" : "ENTRY";
+                const actionId = `${tradeId}-${actionType}-${tsMs}`;
+                const r2 = await d1InsertLot(env, {
+                  lot_id: lotId,
+                  position_id: tradeId,
+                  ts: tsMs,
+                  qty,
+                  price,
+                  value,
+                  remaining_qty: type === "ENTRY" ? qty : qty,
+                });
+                if (r2.ok) lotsInserted++;
+                totalQty += qty;
+                costBasis += value;
+                const r3 = await d1InsertExecutionAction(env, {
+                  action_id: actionId,
+                  position_id: tradeId,
+                  ts: tsMs,
+                  action_type: actionType,
+                  qty,
+                  price,
+                  value,
+                  pnl_realized: null,
+                  reason: ev.reason || actionType,
+                });
+                if (r3.ok) actionsInserted++;
+              } else if (type === "TRIM" || type === "EXIT") {
+                const actionId = `${tradeId}-${type}-${tsMs}`;
+                const pnl = ev.pnl_realized != null ? Number(ev.pnl_realized) : null;
+                const r3 = await d1InsertExecutionAction(env, {
+                  action_id: actionId,
+                  position_id: tradeId,
+                  ts: tsMs,
+                  action_type: type,
+                  qty,
+                  price,
+                  value: price * qty,
+                  pnl_realized: pnl,
+                  reason: ev.reason || type,
+                });
+                if (r3.ok) actionsInserted++;
+                if (type === "EXIT") {
+                  totalQty = 0;
+                  costBasis = 0;
+                }
+              }
+            }
+
+            if (totalQty > 0 || costBasis > 0) {
+              await d1UpdatePosition(env, tradeId, {
+                total_qty: totalQty,
+                cost_basis: costBasis,
+                updated_at: Number(row.updated_at) || Date.now(),
+                ...(status === "CLOSED" ? { status: "CLOSED", closed_at: closedAt } : {}),
+              });
+            }
+          } catch (e) {
+            errors.push({ trade_id: row?.trade_id, error: String(e?.message || e) });
+          }
+        }
+
+        return sendJSON(
+          {
+            ok: true,
+            tradesProcessed: tradeRows.length,
+            positionsInserted,
+            lotsInserted,
+            actionsInserted,
+            errorsCount: errors.length,
+            errors: errors.slice(0, 20),
+          },
+          200,
+          corsHeaders(env, req),
+        );
+      }
+
       // POST /timed/admin/backfill-alerts?key=...&limit=...&offset=...&ticker=...&source=trades|activity|all
       // Backfill KV activity + trades into D1 alerts ledger (idempotent via upserts).
       if (
@@ -20174,29 +20423,28 @@ export default {
           d1Trades = await d1GetAllTradesWithEvents(env);
         }
         if (d1Trades) {
-            let filtered = d1Trades;
-            if (versionFilter && versionFilter !== "all") {
-              filtered = d1Trades.filter(
-                (t) => (t.scriptVersion || t.script_version || "unknown") === versionFilter,
-              );
-            }
-            const versions = [
-              ...new Set(d1Trades.map((t) => t.scriptVersion || t.script_version || "unknown")),
-            ].sort().reverse();
-            return sendJSON(
-              {
-                ok: true,
-                count: filtered.length,
-                totalCount: d1Trades.length,
-                version: versionFilter || "all",
-                versions,
-                trades: filtered,
-                source: source,
-              },
-              200,
-              corsHeaders(env, req),
+          let filtered = d1Trades;
+          if (versionFilter && versionFilter !== "all") {
+            filtered = d1Trades.filter(
+              (t) => (t.scriptVersion || t.script_version || "unknown") === versionFilter,
             );
           }
+          const versions = [
+            ...new Set(d1Trades.map((t) => t.scriptVersion || t.script_version || "unknown")),
+          ].sort().reverse();
+          return sendJSON(
+            {
+              ok: true,
+              count: filtered.length,
+              totalCount: d1Trades.length,
+              version: versionFilter || "all",
+              versions,
+              trades: filtered,
+              source: source,
+            },
+            200,
+            corsHeaders(env, req),
+          );
         }
 
         const tradesKey = "timed:trades:all";

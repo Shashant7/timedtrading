@@ -520,10 +520,12 @@
             setRefreshing(true);
             setError(null);
             const ts = Date.now();
+            // Prefer D1 positions so trades include history[] (execution timeline)
+            const source = "positions";
             const baseUrl = version
-              ? `${API_BASE}/timed/trades?version=${encodeURIComponent(version)}`
-              : `${API_BASE}/timed/trades`;
-            const url = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}_t=${ts}`;
+              ? `${API_BASE}/timed/trades?source=${source}&version=${encodeURIComponent(version)}`
+              : `${API_BASE}/timed/trades?source=${source}`;
+            const url = `${baseUrl}&_t=${ts}`;
             console.log(`[UI] Fetching trades from ${url}`);
             const res = await fetch(url, {
               cache: "no-store",
@@ -1786,8 +1788,9 @@
         }
       }
 
-      // Trade History Component
-      function TradeHistory({ history = [] }) {
+      // Trade History Component (entry, add entry, trim, exit with full details)
+      function TradeHistory({ history = [], fmtUsd: fmt }) {
+        const fmtUsd = fmt || (v => (Number.isFinite(Number(v)) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(Number(v)) : "—"));
         if (!history || history.length === 0) {
           return (
             <div className="text-xs text-[var(--tt-text-faint)] italic p-2">
@@ -1797,33 +1800,21 @@
         }
 
         const getEventIcon = (type) => {
-          switch (type) {
-            case "ENTRY":
-              return "📥";
-            case "SCALE_IN":
-              return "➕";
-            case "TRIM":
-              return "✂️";
-            case "EXIT":
-              return "📤";
-            default:
-              return "•";
-          }
+          const t = String(type || "").toUpperCase();
+          if (t === "ENTRY") return "📥";
+          if (t === "SCALE_IN" || t === "ADD_ENTRY") return "➕";
+          if (t === "TRIM") return "✂️";
+          if (t === "EXIT") return "📤";
+          return "•";
         };
 
         const getEventColor = (type) => {
-          switch (type) {
-            case "ENTRY":
-              return "text-green-400";
-            case "SCALE_IN":
-              return "text-blue-400";
-            case "TRIM":
-              return "text-yellow-400";
-            case "EXIT":
-              return "text-purple-400";
-            default:
-              return "text-[var(--tt-text-muted)]";
-          }
+          const t = String(type || "").toUpperCase();
+          if (t === "ENTRY") return "text-[var(--tt-accent)]";
+          if (t === "SCALE_IN" || t === "ADD_ENTRY") return "text-[var(--tt-text)]";
+          if (t === "TRIM") return "text-[var(--tt-text-muted)]";
+          if (t === "EXIT") return "text-[var(--tt-negative)]";
+          return "text-[var(--tt-text-muted)]";
         };
 
         return (
@@ -1864,25 +1855,33 @@
                       <div className="text-xs text-[var(--tt-text-muted)] mb-2">
                         {event.note}
                       </div>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                         <div>
                           <span className="text-[var(--tt-text-faint)]">Price:</span>
-                          <span className="ml-1 font-semibold text-white">
+                          <span className="ml-1 font-semibold text-[var(--tt-text)]">
                             ${Number(event.price).toFixed(2)}
                           </span>
                         </div>
                         <div>
                           <span className="text-[var(--tt-text-faint)]">Shares:</span>
-                          <span className="ml-1 font-semibold text-white">
+                          <span className="ml-1 font-semibold text-[var(--tt-text)]">
                             {event.shares}
                           </span>
                         </div>
                         <div>
                           <span className="text-[var(--tt-text-faint)]">Value:</span>
-                          <span className="ml-1 font-semibold text-white">
+                          <span className="ml-1 font-semibold text-[var(--tt-text)]">
                             ${Number(event.value).toFixed(2)}
                           </span>
                         </div>
+                        {event.pnl_realized != null && Number.isFinite(Number(event.pnl_realized)) && (
+                          <div className="sm:col-span-2">
+                            <span className="text-[var(--tt-text-faint)]">Net P&L:</span>
+                            <span className={`ml-1 font-semibold ${Number(event.pnl_realized) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                              {fmtUsd(Number(event.pnl_realized))}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1893,7 +1892,7 @@
         );
       }
 
-      // Ledger trade history (date asc): events from D1 ledger { ts, type, trade, price }
+      // Ledger trade history (date asc): execution timeline with full details (type, date/time, qty, price, value, net P&L)
       function LedgerTradeHistory({ events = [], fmtUsd }) {
         if (!events || events.length === 0) {
           return (
@@ -1903,17 +1902,26 @@
           );
         }
         const sorted = [...events].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+        const actionLabel = (type) => {
+          const t = String(type || "").toUpperCase();
+          if (t === "ENTRY") return "Entry";
+          if (t === "ADD_ENTRY" || t === "SCALE_IN") return "Add entry";
+          if (t === "TRIM") return "Trim";
+          if (t === "EXIT") return "Exit";
+          return t || "—";
+        };
         return (
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[400px] overflow-y-auto">
             {sorted.map((ev, idx) => {
-              const d = ev.ts != null ? new Date(ev.ts) : null;
+              const d = ev.ts != null ? new Date(Number(ev.ts)) : null;
               const dateStr = d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
               const timeStr = d ? d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
               const t = ev.trade || {};
-              const shares = t.shares ?? (t.entry_price > 0 ? Math.round(TRADE_SIZE / t.entry_price) : null);
-              const price = ev.price != null ? Number(ev.price) : (ev.type === "ENTRY" ? Number(t.entry_price) : ev.type === "EXIT" ? Number(t.exit_price) : null);
-              const total = Number.isFinite(price) && Number.isFinite(shares) ? price * shares : null;
-              const label = ev.type === "ENTRY" ? "Entered" : ev.type === "TRIM" ? "Trim" : ev.type === "EXIT" ? "Exited" : ev.type;
+              const qty = ev.shares ?? ev.qty ?? (t.shares != null ? t.shares : (t.entry_price > 0 ? Math.round(TRADE_SIZE / t.entry_price) : null));
+              const price = ev.price != null ? Number(ev.price) : (ev.type === "ENTRY" || ev.type === "ADD_ENTRY" || ev.type === "SCALE_IN" ? Number(t.entry_price) : ev.type === "EXIT" ? Number(t.exit_price) : null);
+              const value = ev.value != null ? Number(ev.value) : (Number.isFinite(price) && Number.isFinite(qty) ? price * qty : null);
+              const pnl = ev.pnl_realized != null ? Number(ev.pnl_realized) : null;
+              const label = actionLabel(ev.type);
               return (
                 <div
                   key={idx}
@@ -1921,19 +1929,21 @@
                   style={{ background: "var(--tt-bg-elevated)", borderColor: "var(--tt-border)" }}
                 >
                   <div className="font-medium text-[var(--tt-text)]">
-                    {label} at {dateStr} {timeStr}
+                    {label} · {dateStr} {timeStr}
                   </div>
-                  {(ev.type === "ENTRY" || ev.type === "EXIT") && Number.isFinite(price) && (
+                  <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-[var(--tt-text-muted)]">
+                    {Number.isFinite(price) && <span>Price: {fmtUsd(price)}</span>}
+                    {Number.isFinite(qty) && <span>Qty: {Number(qty).toFixed(FUTURES_SPECS[t?.ticker] ? 0 : 4)}</span>}
+                    {Number.isFinite(value) && <span>Value: {fmtUsd(value)}</span>}
+                    {Number.isFinite(pnl) && (
+                      <span className={pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>
+                        Net P&L: {fmtUsd(pnl)}
+                      </span>
+                    )}
+                  </div>
+                  {ev.type === "TRIM" && !Number.isFinite(value) && Number(t.trimmed_pct) > 0 && (
                     <div className="mt-1 text-xs text-[var(--tt-text-muted)]">
-                      @ {fmtUsd(price)}
-                      {Number.isFinite(shares) && ` for qty ${shares}`}
-                      {Number.isFinite(total) && ` · total ${fmtUsd(total)}`}
-                    </div>
-                  )}
-                  {ev.type === "TRIM" && (
-                    <div className="mt-1 text-xs text-[var(--tt-text-muted)]">
-                      {Number.isFinite(price) ? `@ ${fmtUsd(price)} · ` : ""}
-                      {Number(t.trimmed_pct) > 0 ? `Trimmed ${Number(t.trimmed_pct * 100).toFixed(0)}%` : "Trim"}
+                      Trimmed {Number(t.trimmed_pct * 100).toFixed(0)}%
                     </div>
                   )}
                 </div>
@@ -2474,7 +2484,7 @@
                             </div>
                           )}
                           {decisionCard.card.reasons && (
-                            <div className="text-xs text-[#e7ecff] whitespace-pre-line">
+                            <div className="text-xs text-[var(--tt-text)] whitespace-pre-line">
                               {String(decisionCard.card.reasons)}
                             </div>
                           )}
@@ -2663,7 +2673,7 @@
                   {triggerItems.length > 0 ? (
                     <div className="space-y-1">
                       {triggerItems.slice(0, 10).map((t, idx) => (
-                        <div key={idx} className="text-xs text-[#e7ecff]">
+                        <div key={idx} className="text-xs text-[var(--tt-text)]">
                           • {t}
                         </div>
                       ))}
@@ -3977,7 +3987,7 @@
 
         return (
           <tr
-            className="border-b border-[var(--tt-border)] hover:bg-[#1a2550] cursor-pointer transition-colors"
+            className="border-b border-[var(--tt-border)] hover:bg-[var(--tt-bg-elevated)] cursor-pointer transition-colors"
             onClick={() => {
               if (onTradeClick) onTradeClick(trade);
               else if (onTickerClick) onTickerClick(trade.ticker);
@@ -4670,7 +4680,7 @@
                 Loading dashboard metrics…
               </div>
             ) : err ? (
-              <div className="text-sm text-red-400">
+              <div className="text-sm text-[var(--tt-negative)]">
                 Dashboard unavailable: {err}
               </div>
             ) : (
@@ -5131,7 +5141,7 @@
                     <button
                       key={t.ticker}
                       onClick={() => onSelectTicker && onSelectTicker(t.ticker)}
-                      className="w-full text-left px-3 py-2 rounded-lg border border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:bg-[#16224a] hover:border-[#3a4aa0] transition-all"
+                      className="w-full text-left px-3 py-2 rounded-lg border border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:bg-[var(--tt-bg-elevated)] hover:border-[var(--tt-border-strong)] transition-all"
                       title="Open in right rail"
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -5462,7 +5472,7 @@
                         ? `border-${quad.color}-400 bg-${quad.color}-500/20`
                         : hasHistory
                           ? `border-${quad.color}-500/50 bg-${quad.color}-500/10`
-                          : "border-[var(--tt-border)] bg-[#0a0f1f]"
+                          : "border-[var(--tt-border)] bg-[var(--tt-bg-surface)]"
                     }`}
                   >
                     <div className={`text-xs font-bold text-${quad.color}-400`}>
@@ -5907,7 +5917,7 @@
                 </div>
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 bg-[var(--tt-bg-elevated)] hover:bg-[#3a4aa0] rounded-lg text-white"
+                  className="px-4 py-2 bg-[var(--tt-bg-elevated)] hover:bg-[var(--tt-bg-elevated)] rounded-lg text-white"
                 >
                   Close
                 </button>
@@ -5941,7 +5951,7 @@
             title: "Welcome to Timed Trading! 🎯",
             content: (
               <div className="space-y-4">
-                <p className="text-lg text-[#e7ecff]">
+                <p className="text-lg text-[var(--tt-text)]">
                   This dashboard helps you find high-quality trading setups by
                   combining multiple timeframes and technical indicators.
                 </p>
@@ -5981,7 +5991,7 @@
             title: "Understanding the Quadrants 📊",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   The chart is divided into <strong>4 quadrants</strong> based
                   on two scores:
                 </p>
@@ -6063,7 +6073,7 @@
             title: "Prime Setups ⭐",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   <strong className="text-yellow-400">Prime Setups</strong> are
                   the highest-quality opportunities. They have a ⭐ icon and
                   appear with a green glow.
@@ -6121,7 +6131,7 @@
             title: "In Corridor 🎯",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   The <strong className="text-cyan-400">Corridor</strong> is a
                   specific zone where entries are considered valid and safe.
                 </p>
@@ -6189,7 +6199,7 @@
             title: "TD Sequential (TD9) 🔢",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   <strong className="text-purple-400">TD Sequential</strong> is
                   a powerful indicator that identifies potential reversal
                   points.
@@ -6271,7 +6281,7 @@
             title: "Squeeze Indicators 🧨⚡",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   The <strong className="text-yellow-400">Squeeze</strong>{" "}
                   indicator shows when volatility is building up, like a spring
                   being compressed before release.
@@ -6381,7 +6391,7 @@
             title: "Putting It All Together 🎓",
             content: (
               <div className="space-y-4">
-                <p className="text-lg text-[#e7ecff]">
+                <p className="text-lg text-[var(--tt-text)]">
                   Now that you understand the concepts, here's a{" "}
                   <strong className="text-yellow-400">
                     step-by-step workflow
@@ -6515,7 +6525,7 @@
 
         return (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0b1020] border-2 border-[var(--tt-border)] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="bg-[var(--tt-bg-base)] border-2 border-[var(--tt-border)] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
               <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[var(--tt-border)] p-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-white mb-1">
@@ -6554,7 +6564,7 @@
                   className={`px-4 py-2 rounded-lg border transition-all ${
                     currentStep === 0
                       ? "border-[var(--tt-border)] text-[var(--tt-text-muted)] opacity-50 cursor-not-allowed"
-                      : "border-[var(--tt-border)] bg-[#1a2550] hover:bg-[var(--tt-bg-hover)] text-white"
+                      : "border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:bg-[var(--tt-bg-hover)] text-white"
                   }`}
                 >
                   ← Previous
@@ -6594,7 +6604,7 @@
             title: "Welcome to Trade Tracker! 📊",
             content: (
               <div className="space-y-4">
-                <p className="text-lg text-[#e7ecff]">
+                <p className="text-lg text-[var(--tt-text)]">
                   The Trade Tracker automatically simulates trades based on
                   alerts from the main dashboard, helping you learn which setups
                   work best.
@@ -6648,7 +6658,7 @@
             title: "Understanding Trade Statuses 🏷️",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   Each trade has a <strong>status</strong> that tells you its
                   current state:
                 </p>
@@ -6710,7 +6720,7 @@
             title: "Reading the Trade Table 📋",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   The trade table shows all your simulated trades. Here's what
                   each column means:
                 </p>
@@ -6810,7 +6820,7 @@
             title: "How P&L is Calculated 💰",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   Understanding how profit and loss is calculated helps you
                   interpret the results:
                 </p>
@@ -6897,7 +6907,7 @@
             title: "Tracking & Analytics 📊",
             content: (
               <div className="space-y-4">
-                <p className="text-[#e7ecff]">
+                <p className="text-[var(--tt-text)]">
                   The Trade Tracker provides powerful analytics to help you
                   learn:
                 </p>
@@ -6967,7 +6977,7 @@
             title: "Putting It All Together 🎓",
             content: (
               <div className="space-y-4">
-                <p className="text-lg text-[#e7ecff]">
+                <p className="text-lg text-[var(--tt-text)]">
                   Here's your{" "}
                   <strong className="text-yellow-400">workflow</strong> for
                   using the Trade Tracker:
@@ -7087,7 +7097,7 @@
 
         return (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0b1020] border-2 border-[var(--tt-border)] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="bg-[var(--tt-bg-base)] border-2 border-[var(--tt-border)] rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
               <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-b border-[var(--tt-border)] p-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-white mb-1">
@@ -7126,7 +7136,7 @@
                   className={`px-4 py-2 rounded-lg border transition-all ${
                     currentStep === 0
                       ? "border-[var(--tt-border)] text-[var(--tt-text-muted)] opacity-50 cursor-not-allowed"
-                      : "border-[var(--tt-border)] bg-[#1a2550] hover:bg-[var(--tt-bg-hover)] text-white"
+                      : "border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:bg-[var(--tt-bg-hover)] text-white"
                   }`}
                 >
                   ← Previous
@@ -7276,26 +7286,26 @@
               <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
                 <div className="text-xs text-[var(--tt-text-muted)]">Today</div>
                 <div className="font-bold">{fmtInt(today.entries)} entries / {fmtInt(today.exits)} exits</div>
-                <div className={today.realizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(today.realizedPnl)}</div>
+                <div className={today.realizedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>{fmtUsd(today.realizedPnl)}</div>
               </div>
               <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
                 <div className="text-xs text-[var(--tt-text-muted)]">Week</div>
                 <div className="font-bold">{fmtInt(week.closedTrades)} closed</div>
-                <div className={week.realizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(week.realizedPnl)}</div>
+                <div className={week.realizedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>{fmtUsd(week.realizedPnl)}</div>
               </div>
               <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
                 <div className="text-xs text-[var(--tt-text-muted)]">Window ({windowDays}d)</div>
                 <div className="font-bold">{fmtInt(windowSum.closedTrades)} closed</div>
-                <div className={windowSum.realizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(windowSum.realizedPnl)}</div>
+                <div className={windowSum.realizedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>{fmtUsd(windowSum.realizedPnl)}</div>
               </div>
               <div className="bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)] rounded-lg p-3">
                 <div className="text-xs text-[var(--tt-text-muted)]">Open</div>
                 <div className="font-bold">{fmtInt(openPos.length)} positions</div>
-                <div className={open.unrealizedPnl >= 0 ? "text-green-400" : "text-red-400"}>{fmtUsd(open.unrealizedPnl)}</div>
+                <div className={open.unrealizedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}>{fmtUsd(open.unrealizedPnl)}</div>
               </div>
             </div>
             <div className="text-xs text-[var(--tt-text-muted)]">
-              <button type="button" onClick={() => setLedgerTab && setLedgerTab("trades")} className="text-[#3b82f6] hover:underline">
+              <button type="button" onClick={() => setLedgerTab && setLedgerTab("trades")} className="text-[var(--tt-accent)] hover:underline">
                 Open Trades tab for full detail →
               </button>
             </div>
@@ -8315,6 +8325,28 @@
                     >
                       Refresh
                     </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store" });
+                          const json = await res.json();
+                          if (!res.ok || !json.ok) throw new Error(json.error || res.statusText);
+                          const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), trades: json.trades || [], count: json.count }, null, 2)], { type: "application/json" });
+                          const a = document.createElement("a");
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `timed-positions-${new Date().toISOString().slice(0, 10)}.json`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                        } catch (e) {
+                          console.error("Export failed:", e);
+                        }
+                      }}
+                      className="tt-pill tt-pill-inactive text-[13px]"
+                      title="Export positions (reconciliation)"
+                    >
+                      Export
+                    </button>
                   </div>
                 </header>
 
@@ -8391,7 +8423,8 @@
                                 const dayUp = Number.isFinite(dayPct) && dayPct >= 0;
                                 const dayDown = Number.isFinite(dayPct) && dayPct < 0;
                                 const trimmedPct = Number(pos.trade?.trimmedPct ?? pos.trade?.trimmed_pct ?? 0) * 100;
-                                const cardBg = dayUp ? "bg-green-500/10" : dayDown ? "bg-red-500/10" : "";
+                                const cardBg = dayUp ? "bg-[var(--tt-accent-dim)]" : dayDown ? "bg-[var(--tt-negative-dim)]" : "";
+                                const cardBorder = dayUp ? "border-[var(--tt-accent)]/30" : dayDown ? "border-[var(--tt-negative)]/30" : "";
                                 return (
                                 <button
                                   key={pos.ticker}
@@ -8399,13 +8432,15 @@
                                   onClick={() => {
                                     setSelectedTicker(pos.ticker);
                                     setSelectedTrade(pos.trade);
-                                    setSelectedPositionEvents(pos.events || []);
+                                    const match = trades.find(t => (t.id || t.trade_id) === pos.trade?.id);
+                                    const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
+                                    setSelectedPositionEvents(Array.isArray(events) ? events : []);
                                   }}
-                                  className={`tt-card w-full text-left p-4 hover:bg-[var(--tt-bg-hover)] transition-colors border ${cardBg ? (dayUp ? "border-green-500/30" : "border-red-500/30") : ""}`}
+                                  className={`tt-card w-full text-left p-4 hover:bg-[var(--tt-bg-hover)] transition-colors border ${cardBorder || ""} ${cardBg || ""}`}
                                 >
                                   <div className="flex items-center justify-between gap-2 flex-wrap">
                                     <span className="font-semibold text-[var(--tt-text)]">{pos.ticker}</span>
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isLong ? "bg-green-500/20 text-green-300 border border-green-500/40" : "bg-red-500/20 text-red-300 border border-red-500/40"}`}>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isLong ? "bg-[var(--tt-accent-dim)] text-[var(--tt-accent)] border border-[var(--tt-accent)]/40" : "bg-[var(--tt-negative-dim)] text-[var(--tt-negative)] border border-[var(--tt-negative)]/40"}`}>
                                       {dir}
                                     </span>
                                   </div>
@@ -8553,7 +8588,7 @@
                           <span className="text-2xl">🤖</span>
                           <span>AI Analysis & Recommendations</span>
                         </h3>
-                        <div className="text-sm text-[#e7ecff] leading-relaxed">
+                        <div className="text-sm text-[var(--tt-text)] leading-relaxed">
                           {(() => {
                             // Enhanced markdown renderer
                             const renderMarkdown = (text) => {
@@ -8849,8 +8884,8 @@
         render() {
           if (this.state.error) {
             return (
-              <div style={{ padding: 40, textAlign: "center", color: "#e7ecff", fontFamily: "system-ui" }}>
-                <h2 style={{ color: "#e74c3c" }}>Trade Tracker failed to load</h2>
+              <div className="p-10 text-center font-sans" style={{ color: "var(--tt-text)" }}>
+                <h2 className="text-[var(--tt-negative)]">Trade Tracker failed to load</h2>
                 <p style={{ marginTop: 16 }}>{this.state.error.message}</p>
                 <pre style={{ textAlign: "left", marginTop: 16, padding: 16, background: "var(--tt-bg-surface)", overflow: "auto", fontSize: 12 }}>
                   {this.state.error.stack}
@@ -8886,8 +8921,8 @@
         const root = document.getElementById("root");
         if (root) {
           root.innerHTML = `
-          <div style="padding: 40px; text-align: center; color: #e7ecff;">
-            <h2 style="color: #e74c3c;">Error Loading Trade Tracker</h2>
+          <div className="p-10 text-center" style={{ color: "var(--tt-text)" }}>
+            <h2 className="text-[var(--tt-negative)]">Error Loading Trade Tracker</h2>
             <p>${error.message}</p>
             <p style="margin-top: 20px; color: var(--tt-text-muted);">Check the browser console (F12) for details.</p>
           </div>`;

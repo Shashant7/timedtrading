@@ -172,21 +172,18 @@ Payload should match what is stored in D1 (action_id, position_id, ts, action_ty
 ### Phase 2: Lot-based model and execution_actions
 - [x] Add D1 schema: positions, lots, execution_actions (migration add-positions-lots-actions.sql).
 - [x] Worker: ENTRY creates position + first lot + ENTRY action; ADD_ENTRY (SCALE_IN) creates lot + ADD_ENTRY action; TRIM/EXIT write execution_action and update position; dual-write with trades/trade_events.
-- [ ] Migrate existing trades/trade_events to positions/lots/actions (one-time script) or run dual-write and backfill.
+- [x] Migrate existing trades/trade_events to positions/lots/actions: run `scripts/run-phase2-migration.sh` then `TIMED_API_KEY=... node scripts/backfill-positions.js`.
 - [x] GET /timed/trades?source=positions returns from positions + execution_actions (same shape as KV).
 
 ### Phase 3: Kanban → execution consistency and alerts
-- [ ] Ingest: load open positions from D1 only (no KV for open state). All transitions (ENTER_NOW → ENTRY/ADD_ENTRY, TRIM lane → TRIM, EXIT lane → EXIT) write only to D1 then Discord.
-- [ ] Idempotency: enforce (position_id, action_type, ts) or action_id so replays don’t double-execute.
-- [ ] Discord: every execution sends one alert with action, date/time, qty, price, value, net P&L; align field names with execution_actions table for verification.
+- [x] Ingest: load open positions from D1 when env.DB present (`getOpenPositionAsTrade`); fall back to KV. Transitions write to D1 then Discord (KV kept in sync).
+- [x] Idempotency: execution_actions use INSERT OR IGNORE + unique index (position_id, action_type, ts) so replays don’t double-execute.
+- [x] Discord: every execution sends one alert with action, date/time, qty, price, value, net P&L; payloads aligned with execution_actions (Phase 1/2).
 
 ### Phase 4: UI and verification
-- [ ] Trade Tracker: show per-position lots and execution timeline (entry, add entry, trim, exit) with full details.
-- [ ] **UI cleanup — consistent palette and position cards:**
-  - Use a single color palette across the Trade Tracker (and simulation dashboard): only design-system vars (`--tt-bg-base`, `--tt-bg-surface`, `--tt-accent`, `--tt-negative`, `--tt-text`, `--tt-text-muted`, `--tt-border`, etc.). Remove any remaining hardcoded hex or one-off colors so the UI is visually consistent.
-  - Expand Open positions grid to **5 columns** on large screens (e.g. `grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5`).
-  - Apply **background color on each position card** by day (green tint when ticker is up for the day, red tint when down), and show **completion progress on the card itself** (horizontal fill for trim %; show the bar even at 0% so the control is always visible).
-- [ ] Optional: export or report “reconciliation” (D1 execution_actions vs Discord log) for auditing.
+- [x] Trade Tracker: show per-position execution timeline (entry, add entry, trim, exit) with full details (date/time, qty, price, value, net P&L); prefer trade.history from GET /timed/trades?source=positions when opening a card.
+- [x] **UI cleanup — consistent palette and position cards:** Single palette (design-system vars only); 5-column grid; position card day tint (--tt-accent-dim / --tt-negative-dim) and completion bar always visible.
+- [x] Optional: export or report “reconciliation” (D1 execution_actions vs Discord log) for auditing.
 
 ---
 
