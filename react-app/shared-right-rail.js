@@ -7,13 +7,14 @@
  * computeHorizonBucket, computeEtaDays, computeReturnPct, computeRiskPct, computeTpTargetPrice,
  * computeTpMaxPrice, summarizeEntryDecision, getDirectionFromState, getDirection, numFromAny,
  * groupsForTicker, GROUP_ORDER, GROUP_LABELS, TRADE_SIZE, FUTURES_SPECS, getStaleInfo,
- * isNyRegularMarketOpen, downsampleByInterval.
+ * isNyRegularMarketOpen, downsampleByInterval, getTickerSector.
  */
 (function () {
   window.TickerDetailRightRailFactory = function (deps) {
     const React = deps.React;
     const { useState, useEffect, useMemo, useRef } = React;
     const API_BASE = deps.API_BASE;
+    const getTickerSector = deps.getTickerSector || (() => "");
     const fmtUsd = deps.fmtUsd;
     const fmtUsdAbs = deps.fmtUsdAbs;
     const getDailyChange = deps.getDailyChange;

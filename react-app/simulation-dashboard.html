@@ -1097,6 +1097,19 @@
         const index = (sortedTickers || []).findIndex((t) => String(t.ticker || "").trim().toUpperCase() === sym);
         return index >= 0 ? index + 1 : null;
       }
+      // Sector lookup for shared right rail (minimal map; extend as needed)
+      function getTickerSector(ticker) {
+        const T = String(ticker || "").trim().toUpperCase();
+        if (!T) return "";
+        const SECTOR_MAP = {
+          XLK: "Information Technology", XLF: "Financials", XLY: "Consumer Discretionary",
+          XLP: "Consumer Staples", XLE: "Energy", XLV: "Healthcare", XLI: "Industrials",
+          XLB: "Basic Materials", XLRE: "Real Estate", XLU: "Utilities", XLC: "Communication Services",
+          AAPL: "Information Technology", MSFT: "Information Technology", AMZN: "Consumer Discretionary",
+          GOOGL: "Communication Services", META: "Communication Services", NVDA: "Information Technology",
+        };
+        return SECTOR_MAP[T] || "";
+      }
 
       function calculateTrade(ticker, entryPrice, existingTrade = null) {
         const directionObj = getDirection(ticker);
@@ -2038,6 +2051,7 @@
         getStaleInfo,
         isNyRegularMarketOpen,
         downsampleByInterval,
+        getTickerSector,
       });
 
       function TradeRow({ trade, tickerData, onTickerClick, onTradeClick }) {
