@@ -388,6 +388,20 @@
       const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
       const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
       const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+      const TRADE_SIZE = 1000; // $1000 per trade (used by Right Rail)
+      const FUTURES_SPECS = {
+        "ES1!": { pointValue: 50, name: "E-mini S&P 500" },
+        "NQ1!": { pointValue: 20, name: "E-mini Nasdaq-100" },
+        "YM1!": { pointValue: 5, name: "E-mini Dow" },
+        "RTY1!": { pointValue: 50, name: "E-mini Russell 2000" },
+        "CL1!": { pointValue: 1000, name: "Crude Oil" },
+        "GC1!": { pointValue: 100, name: "Gold" },
+        "SI1!": { pointValue: 5000, name: "Silver" },
+        "ZB1!": { pointValue: 1000, name: "30-Year Treasury Bond" },
+        "ZN1!": { pointValue: 1000, name: "10-Year Treasury Note" },
+        "6E1!": { pointValue: 125000, name: "Euro FX" },
+        "6J1!": { pointValue: 12500000, name: "Japanese Yen" },
+      };
 
       // ─────────────────────────────────────────────────────────────
       // Hooks
