@@ -4,10 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Timed Trading - Debug Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { background: #0a0e27; color: #e7ecff; }
-        .code-block { background: #121a33; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        :root {
+          --tt-bg-base: #0c0f14;
+          --tt-bg-surface: #13171e;
+          --tt-border: #252b36;
+          --tt-text: #f0f2f5;
+          --tt-accent: #22c55e;
+        }
+        body { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif; background: var(--tt-bg-base); color: var(--tt-text); -webkit-font-smoothing: antialiased; }
+        .code-block { background: var(--tt-bg-surface); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; border: 1px solid var(--tt-border); }
         pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; }
     </style>
 </head>
@@ -18,7 +28,7 @@
         <div class="mb-6">
             <label class="block mb-2">API Key:</label>
             <input type="password" id="apiKey" placeholder="Enter API key" 
-                   class="w-full px-4 py-2 bg-[#121a33] border border-[#26325f] rounded-lg text-white">
+                   class="w-full px-4 py-2 bg-[#13171e] border border-[#252b36] rounded-lg text-white">
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

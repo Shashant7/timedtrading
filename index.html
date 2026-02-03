@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Timed Trading — Select Version</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       * {
         margin: 0;
@@ -12,14 +15,15 @@
       }
 
       body {
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-        background: #0b1020;
-        color: #e7ecff;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0c0f14;
+        color: #f0f2f5;
         display: flex;
         align-items: center;
         justify-content: center;
         min-height: 100vh;
         padding: 20px;
+        -webkit-font-smoothing: antialiased;
       }
 
       .container {
@@ -40,9 +44,9 @@
       }
 
       .card {
-        background: #121a33;
-        border: 2px solid #26325f;
-        border-radius: 16px;
+        background: #13171e;
+        border: 2px solid #252b36;
+        border-radius: 12px;
         padding: 32px;
         text-decoration: none;
         color: inherit;
@@ -51,9 +55,9 @@
       }
 
       .card:hover {
-        border-color: #2ecc71;
+        border-color: #22c55e;
         transform: translateY(-4px);
-        box-shadow: 0 8px 24px rgba(46, 204, 113, 0.2);
+        box-shadow: 0 8px 24px rgba(34, 197, 94, 0.2);
       }
 
       .card h2 {
@@ -64,20 +68,20 @@
       .card .badge {
         display: inline-block;
         padding: 4px 12px;
-        background: #2ecc71;
-        color: #0b1020;
-        border-radius: 12px;
+        background: #22c55e;
+        color: #0c0f14;
+        border-radius: 8px;
         font-size: 0.75rem;
         font-weight: bold;
         margin-bottom: 16px;
       }
 
       .card .badge.new {
-        background: #3498db;
+        background: #3b82f6;
       }
 
       .card p {
-        color: #93a4d6;
+        color: #8b92a0;
         line-height: 1.6;
         margin-bottom: 12px;
       }
@@ -98,13 +102,13 @@
         content: "✓";
         position: absolute;
         left: 0;
-        color: #2ecc71;
+        color: #22c55e;
       }
 
       .footer {
         text-align: center;
         margin-top: 40px;
-        color: #93a4d6;
+        color: #8b92a0;
         font-size: 0.875rem;
       }
     </style>

@@ -4631,6 +4631,21 @@ async function processTradeSimulation(
       !Number.isFinite(lastEnterMs) || now - lastEnterMs >= 10 * 60 * 1000; // 10m
     const trimCooldownOk =
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
+    // Require position to be open at least N minutes before allowing first/next trim (avoid trim 1m after entry)
+    const MIN_MINUTES_SINCE_ENTRY_BEFORE_TRIM = 5;
+    const entryMs =
+      openTrade == null
+        ? null
+        : Number(openTrade.entry_ts) ||
+          isoToMs(openTrade.entryTime) ||
+          isoToMs(openTrade.entry_time) ||
+          null;
+    const entryMsNorm = entryMs != null && entryMs < 1e12 ? entryMs * 1000 : entryMs;
+    const minEntryAgeMs = MIN_MINUTES_SINCE_ENTRY_BEFORE_TRIM * 60 * 1000;
+    const trimMinAgeOk =
+      openTrade == null ||
+      !Number.isFinite(entryMsNorm) ||
+      now - entryMsNorm >= minEntryAgeMs;
     const exitCooldownOk =
       !Number.isFinite(lastExitMs) || now - lastExitMs >= 5 * 60 * 1000; // 5m
     const sameEnterCycle =
@@ -4954,8 +4969,8 @@ async function processTradeSimulation(
       if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastExitMs: now });
     }
 
-    // 2) TRIM: apply progressive trim on transition into TRIM lane
-    if (isTrim && !weekendNow && trimCooldownOk && openTrade && Number.isFinite(pxNow)) {
+    // 2) TRIM: apply progressive trim on transition into TRIM lane (only after position has been open long enough)
+    if (isTrim && !weekendNow && trimCooldownOk && trimMinAgeOk && openTrade && Number.isFinite(pxNow)) {
       const comp = Number(tickerData?.completion);
       const phase = Number(tickerData?.phase_pct);
       // progressive ladder driven by lifecycle: 25% -> 50% -> 75%
@@ -9189,17 +9204,34 @@ async function d1UpsertTrade(env, trade) {
   }
   if (Number.isFinite(trimTs) && trimTs < 1e12) trimTs = trimTs * 1000;
 
-  try {
-    // Preserve created_at by inserting once.
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO trades
+  let trimPrice = Number(trade.trim_price ?? trade.trimPrice);
+  if (!Number.isFinite(trimPrice) && Array.isArray(trade.history)) {
+    for (let i = trade.history.length - 1; i >= 0; i--) {
+      const e = trade.history[i];
+      if (e && e.type === "TRIM" && e.price != null) {
+        trimPrice = Number(e.price);
+        break;
+      }
+    }
+  }
+
+  const insertWithTrimPrice = `INSERT OR IGNORE INTO trades
+          (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+           exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
+           created_at, updated_at, trim_ts, trim_price)
+         VALUES
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)`;
+  const insertWithoutTrimPrice = `INSERT OR IGNORE INTO trades
           (trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct, script_version,
            created_at, updated_at, trim_ts)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`,
-      )
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)`;
+
+  try {
+    // Preserve created_at by inserting once.
+    await db
+      .prepare(insertWithTrimPrice)
       .bind(
         tradeId,
         ticker || null,
@@ -9223,6 +9255,7 @@ async function d1UpsertTrade(env, trade) {
         createdAt,
         updatedAt,
         Number.isFinite(trimTs) ? trimTs : null,
+        Number.isFinite(trimPrice) ? trimPrice : null,
       )
       .run();
 
@@ -9232,7 +9265,7 @@ async function d1UpsertTrade(env, trade) {
           ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
-          updated_at=?16, trim_ts=?17
+          updated_at=?16, trim_ts=?17, trim_price=?18
          WHERE trade_id=?1`,
       )
       .bind(
@@ -9257,6 +9290,7 @@ async function d1UpsertTrade(env, trade) {
             : null,
         updatedAt,
         Number.isFinite(trimTs) ? trimTs : null,
+        Number.isFinite(trimPrice) ? trimPrice : null,
       )
       .run();
 
@@ -18517,7 +18551,15 @@ export default {
           );
         }
 
-        const sqlWithTrimTs = `SELECT
+        const sqlFull = `SELECT
+            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+            script_version, created_at, updated_at, trim_ts, trim_price
+          FROM trades
+          ${where}
+          ORDER BY entry_ts DESC, trade_id DESC
+          LIMIT ?`;
+        const sqlWithoutTrimPrice = `SELECT
             trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
             exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
             script_version, created_at, updated_at, trim_ts
@@ -18537,18 +18579,41 @@ export default {
         let rows;
         try {
           rows = await db
-            .prepare(sqlWithTrimTs)
+            .prepare(sqlFull)
             .bind(...binds, limit + 1)
             .all();
         } catch (e) {
           const msg = (e && (e.message || String(e))) || "";
-          if (msg.includes("trim_ts") || msg.includes("no such column")) {
+          if (msg.includes("trim_price") || msg.includes("no such column")) {
+            try {
+              rows = await db
+                .prepare(sqlWithoutTrimPrice)
+                .bind(...binds, limit + 1)
+                .all();
+              if (Array.isArray(rows?.results)) {
+                rows.results = rows.results.map((r) => ({ ...r, trim_price: null }));
+              }
+            } catch (e2) {
+              const msg2 = (e2 && (e2.message || String(e2))) || "";
+              if (msg2.includes("trim_ts") || msg2.includes("no such column")) {
+                rows = await db
+                  .prepare(sqlWithoutTrimTs)
+                  .bind(...binds, limit + 1)
+                  .all();
+                if (Array.isArray(rows?.results)) {
+                  rows.results = rows.results.map((r) => ({ ...r, trim_ts: null, trim_price: null }));
+                }
+              } else {
+                throw e2;
+              }
+            }
+          } else if (msg.includes("trim_ts") || msg.includes("no such column")) {
             rows = await db
               .prepare(sqlWithoutTrimTs)
               .bind(...binds, limit + 1)
               .all();
             if (Array.isArray(rows?.results)) {
-              rows.results = rows.results.map((r) => ({ ...r, trim_ts: null }));
+              rows.results = rows.results.map((r) => ({ ...r, trim_ts: null, trim_price: null }));
             }
           } else {
             throw e;

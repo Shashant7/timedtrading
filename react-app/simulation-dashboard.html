@@ -1932,6 +1932,7 @@
                   )}
                   {ev.type === "TRIM" && (
                     <div className="mt-1 text-xs text-[var(--tt-text-muted)]">
+                      {Number.isFinite(price) ? `@ ${fmtUsd(price)} · ` : ""}
                       {Number(t.trimmed_pct) > 0 ? `Trimmed ${Number(t.trimmed_pct * 100).toFixed(0)}%` : "Trim"}
                     </div>
                   )}
@@ -2224,9 +2225,10 @@
               ? 1
               : TRADE_SIZE / (tradeEntryPrice || 1))
           : null;
-        const currentPrice = trade
-          ? Number(trade.currentPrice ?? trade.current_price ?? tradeEntryPrice)
-          : Number(tickerData.price || tickerData.currentPrice);
+        // Prefer live price from ticker data (just fetched) over trade snapshot
+        const currentPrice = Number(
+          tickerData.price ?? tickerData.currentPrice ?? (trade ? (trade.currentPrice ?? trade.current_price) : null) ?? tradeEntryPrice,
+        );
         const trimmedPct = trade ? trade.trimmedPct || 0 : 0;
         const trimmedShares = trade ? shares * trimmedPct : 0;
         const remainingShares = trade ? shares - trimmedShares : null;
@@ -2375,37 +2377,67 @@
                   }
                 })()}
 
-                {/* Right Rail Tabs */}
-                <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  {[
-                    { k: "ANALYSIS", label: "Analysis" },
-                    { k: "TECHNICALS", label: "Technicals" },
-                    { k: "JOURNEY", label: "Journey" },
-                    {
-                      k: "TRADE_HISTORY",
-                      label: `Trade History (${(positionEvents && positionEvents.length) || trade?.history?.length || 0})`,
-                    },
-                  ].map((t) => {
-                    const active = railTab === t.k;
-                    return (
-                      <button
-                        key={`rail-tab-${t.k}`}
-                        onClick={() => setRailTab(t.k)}
-                        className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
-                          active
-                            ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                            : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
-                        }`}
-                      >
-                        {t.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                {/* Right Rail Tabs — hidden when opened from position card (Trade History only) */}
+                {(!positionEvents || positionEvents.length === 0) && (
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    {[
+                      { k: "ANALYSIS", label: "Analysis" },
+                      { k: "TECHNICALS", label: "Technicals" },
+                      { k: "JOURNEY", label: "Journey" },
+                      {
+                        k: "TRADE_HISTORY",
+                        label: `Trade History (${(positionEvents && positionEvents.length) || trade?.history?.length || 0})`,
+                      },
+                    ].map((t) => {
+                      const active = railTab === t.k;
+                      return (
+                        <button
+                          key={`rail-tab-${t.k}`}
+                          onClick={() => setRailTab(t.k)}
+                          className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
+                            active
+                              ? "border-blue-400 bg-blue-500/20 text-blue-200"
+                              : "border-[#26325f] bg-[#0f1630] text-[#93a4d6] hover:text-white"
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Padded body content (keeps header top-aligned) */}
+              {/* Padded body: when opened from position card, show only Trade Journey; else full content */}
               <div className="p-6 pt-4">
+                {positionEvents && positionEvents.length > 0 ? (
+                  /* Position card mode — Trade History only */
+                  <div className="mb-4 p-3 bg-[#0f1630] border-2 border-[#26325f] rounded-lg">
+                    <div className="text-sm text-[#93a4d6] mb-2">Trade Journey</div>
+                    {trade ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                          <div>
+                            <div className="text-[#93a4d6] text-xs mb-1">Entry Price</div>
+                            <div className="font-semibold text-white text-lg">
+                              {Number.isFinite(tradeEntryPrice) ? `$${tradeEntryPrice.toFixed(2)}` : "—"}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[#93a4d6] text-xs mb-1">Current Price</div>
+                            <div className="font-semibold text-yellow-400 text-lg">
+                              {Number.isFinite(currentPrice) ? `$${Number(currentPrice).toFixed(2)}` : "—"}
+                            </div>
+                          </div>
+                        </div>
+                        <LedgerTradeHistory events={positionEvents} fmtUsd={fmtUsd} />
+                      </>
+                    ) : (
+                      <LedgerTradeHistory events={positionEvents} fmtUsd={fmtUsd} />
+                    )}
+                  </div>
+                ) : (
+                  <>
                 {/* Discord-style Decision Card (from ledger snapshot at event time) */}
                 {trade &&
                   selectedActivityType &&
@@ -3777,6 +3809,8 @@
                       </div>
                     );
                   })()}
+                </>
+                )}
               </div>
             </div>
 
@@ -7330,7 +7364,7 @@
               <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Start</div>
               <div className="text-xs font-medium text-[var(--tt-text)]">{fmt(range.start)}</div>
             </div>
-            <div className="relative flex-1 min-w-[120px] max-w-[200px] h-6 flex items-center" ref={trackRef}>
+            <div className="relative flex-1 min-w-[200px] max-w-[340px] h-6 flex items-center" ref={trackRef}>
               <div className="absolute inset-0 rounded-full bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)]" />
               <div
                 className="absolute h-full rounded-full bg-[var(--tt-accent)]/30"
@@ -7418,12 +7452,14 @@
         const [ledgerTickerFilter, setLedgerTickerFilter] =
           useState(initialLedgerTicker);
         const [ledgerStatusFilter, setLedgerStatusFilter] = useState("all");
-        // Date range for Trade Tracker: start and end (default full slider range)
+        // Date range for Trade Tracker: start and end (default Feb 2 = first trade)
         const SLIDER_RANGE_DAYS = 90;
         const [ledgerDateRange, setLedgerDateRange] = useState(() => {
           const end = new Date();
-          const start = new Date();
-          start.setDate(start.getDate() - SLIDER_RANGE_DAYS);
+          end.setHours(23, 59, 59, 999);
+          const start = new Date(end.getFullYear(), 1, 2); // Feb 2 (month 1 = February)
+          start.setHours(0, 0, 0, 0);
+          if (start.getTime() > end.getTime()) start.setFullYear(start.getFullYear() - 1);
           return { start, end };
         });
         const [ledgerIncludeEvidence, setLedgerIncludeEvidence] =
@@ -7895,11 +7931,12 @@
               trimTs != null
             ) {
               if (!byTicker.has(ticker)) byTicker.set(ticker, []);
+              const trimPrice = Number(t.trim_price ?? t.trimPrice ?? t.tp ?? t.tp_price) || null;
               byTicker.get(ticker).push({
                 ts: trimTs,
                 type: "TRIM",
                 trade: t,
-                price: null,
+                price: Number.isFinite(trimPrice) ? trimPrice : null,
               });
             }
             const exitTs = tsToMs(t.exit_ts);
@@ -8249,22 +8286,55 @@
                       <div className="text-sm text-[var(--tt-negative)] py-4">Ledger unavailable: {(ledgerTrades ?? {}).error}</div>
                     ) : (
                       <div className="space-y-6">
-                        {/* Account value: $100k baseline + up/down */}
+                        {/* Account value: $100k baseline + up/down + line chart */}
                         <div className="tt-card overflow-hidden p-6">
-                          <p className="tt-label mb-0.5">Account value</p>
-                          <p className="text-2xl font-semibold tracking-tight text-[var(--tt-text)]">
-                            {fmtUsd(BASELINE_ACCOUNT + (portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0))}
-                          </p>
-                          {(() => {
-                            const pnl = portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0;
-                            const pct = BASELINE_ACCOUNT ? (pnl / BASELINE_ACCOUNT) * 100 : 0;
-                            return (
-                              <p className={`text-sm font-medium mt-1 ${pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                                {pnl >= 0 ? "Up" : "Down"} {fmtUsd(Math.abs(pnl))} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%)
+                          <div className="flex gap-6 items-stretch flex-wrap">
+                            <div className="flex flex-col justify-center min-w-0">
+                              <p className="tt-label mb-0.5">Account value</p>
+                              <p className="text-2xl font-semibold tracking-tight text-[var(--tt-text)]">
+                                {fmtUsd(BASELINE_ACCOUNT + (portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0))}
                               </p>
-                            );
-                          })()}
-                          <p className="text-xs text-[var(--tt-text-faint)] mt-0.5">Starting point {fmtUsd(BASELINE_ACCOUNT)}</p>
+                              {(() => {
+                                const pnl = portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0;
+                                const pct = BASELINE_ACCOUNT ? (pnl / BASELINE_ACCOUNT) * 100 : 0;
+                                return (
+                                  <p className={`text-sm font-medium mt-1 ${pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                    {pnl >= 0 ? "Up" : "Down"} {fmtUsd(Math.abs(pnl))} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%)
+                                  </p>
+                                );
+                              })()}
+                              <p className="text-xs text-[var(--tt-text-faint)] mt-0.5">Starting point {fmtUsd(BASELINE_ACCOUNT)}</p>
+                            </div>
+                            <div className="flex-1 min-w-[180px] h-[72px] flex items-center" aria-hidden="true">
+                              {portfolioChartPointsInRange.length >= 2 ? (() => {
+                                const pts = portfolioChartPointsInRange;
+                                const vals = pts.map((p) => BASELINE_ACCOUNT + p.value);
+                                const minV = Math.min(...vals);
+                                const maxV = Math.max(...vals);
+                                const rangeV = maxV - minV || 1;
+                                const pad = 2;
+                                const w = 180;
+                                const h = 68;
+                                const x = (i) => (pts.length <= 1 ? 0 : (i / (pts.length - 1)) * (w - 2 * pad) + pad);
+                                const y = (v) => h - pad - ((v - minV) / rangeV) * (h - 2 * pad);
+                                const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(BASELINE_ACCOUNT + p.value)}`).join(" ");
+                                return (
+                                  <svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="overflow-visible">
+                                    <defs>
+                                      <linearGradient id="tt-chart-gradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="var(--tt-accent)" stopOpacity="0.35" />
+                                        <stop offset="100%" stopColor="var(--tt-accent)" stopOpacity="0" />
+                                      </linearGradient>
+                                    </defs>
+                                    <path fill="url(#tt-chart-gradient)" d={`${d} L ${x(pts.length - 1)} ${h} L ${x(0)} ${h} Z`} />
+                                    <path fill="none" stroke="var(--tt-accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" d={d} />
+                                  </svg>
+                                );
+                              })() : (
+                                <span className="text-xs text-[var(--tt-text-faint)]">No history yet</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
                         {/* Open positions — cards: Net P&L $ and %, Qty, Price entered, Current price; tap → right rail with trade history */}
