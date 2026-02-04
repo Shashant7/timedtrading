@@ -451,7 +451,7 @@
           className: "mt-2"
         }, /*#__PURE__*/React.createElement("span", {
           className: `inline-block px-3 py-1 rounded-lg font-bold text-sm ${dir.bg} ${dir.color} border border-current/30`
-        }, dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text));
+        }, dir.text === "LONG" ? "📈 L" : dir.text === "SHORT" ? "📉 S" : dir.text));
       })(), (() => {
         try {
           const gs = groupsForTicker(ticker.ticker);

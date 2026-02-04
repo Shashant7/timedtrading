@@ -569,9 +569,9 @@
                               className={`inline-block px-3 py-1 rounded-lg font-bold text-sm ${dir.bg} ${dir.color} border border-current/30`}
                             >
                               {dir.text === "LONG"
-                                ? "📈 LONG"
+                                ? "📈 L"
                                 : dir.text === "SHORT"
-                                  ? "📉 SHORT"
+                                  ? "📉 S"
                                   : dir.text}
                             </span>
                           </div>

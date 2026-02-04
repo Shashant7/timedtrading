@@ -12548,8 +12548,9 @@ export default {
       }
 
       // POST /timed/ingest
-      // NOTE: This endpoint uses API key authentication instead of rate limiting
-      // TradingView webhooks are authenticated via ?key= parameter
+      // Accepts ALL tickers — no allowlist/restrictions. Add a ticker in TradingView, update the
+      // alert to your watchlist, and the system automatically accepts, scores, and displays it.
+      // Purge (cleanup-tickers --strict) is manual/one-off only.
       if (routeKey === "POST /timed/ingest") {
         let body = null; // Declare outside try for catch block access
         try {
@@ -15067,7 +15068,8 @@ export default {
         }
       }
 
-      // POST /timed/heartbeat (minimal KV-only, 2-day TTL; no D1)
+      // POST /timed/heartbeat (minimal KV + D1 fallback for new tickers)
+      // Accepts ALL tickers. If ticker not in D1, creates minimal entry so it appears in UI.
       if (routeKey === "POST /timed/heartbeat") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
@@ -15098,8 +15100,23 @@ export default {
             session: body.session,
             is_rth: body.is_rth,
             ingest_ts: Date.now(),
+            ingest_kind: "heartbeat_minimal",
           };
           await kvPutJSON(KV, `timed:heartbeat:${ticker}`, payload, HEARTBEAT_TTL);
+          // For new tickers: create minimal D1 entry so they appear in UI (accept all, no restrictions)
+          try {
+            if (env?.DB) {
+              await d1EnsureLatestSchema(env);
+              const existing = await env.DB.prepare(`SELECT 1 FROM ticker_latest WHERE ticker = ?1`).bind(ticker).first();
+              if (!existing) {
+                await d1UpsertTickerLatest(env, ticker, payload);
+                await ensureTickerIndex(KV, ticker);
+                await d1UpsertTickerIndex(env, ticker, payload.ts);
+              }
+            }
+          } catch (e) {
+            console.warn(`[HEARTBEAT] D1/index fallback failed for ${ticker}:`, String(e?.message || e));
+          }
           return ackJSON(env, { ok: true, ticker }, 200, req);
         } catch (e) {
           console.error("[HEARTBEAT] Error:", e);
@@ -18705,18 +18722,18 @@ export default {
         const approvedTickers = new Set([
           "AAPL", "AEHR", "AGQ", "ALB", "ALLY", "AMD", "AMGN", "AMZN", "ANET", "APLD", "APP", "ASTS",
           "AU", "AVAV", "AVGO", "AWI", "AXON", "AXP", "AYI", "B", "BA", "BABA", "BE", "BK", "BMNR",
-          "BRK-B", "BRK.B", "BTCUSD", "BWXT", "CAT", "CCJ", "CDNS", "CLS", "COST", "CRS", "CRVS",
-          "CRWD", "CRWV", "CSCO", "CSX", "DCI", "DE", "DY", "EME", "EMR", "ENS", "ES1!", "ETHA",
+          "BRK-B", "BRK.B", "BTCUSD", "BWXT", "CAT", "CCJ", "CDNS", "CLS", "COIN", "COST", "CRS", "CRVS",
+          "CRWD", "CRWV", "CSCO", "CSX", "CVNA", "CVX", "DCI", "DE", "DY", "EME", "EMR", "ENS", "ES1!", "ETHA",
           "ETHT", "ETHUSD", "ETN", "EWBC", "EXPE", "FIX", "FSLR", "GDXJ", "GE", "GEV", "GILD",
           "GLXY", "GOLD", "GOOGL", "GS", "HII", "HIMS", "HL", "HOOD", "IAU", "IBP", "IBRX", "IESC",
           "INTC", "INTU", "IONQ", "IOT", "IREN", "ITT", "IWM", "JCI", "JOBY", "JPM", "KLAC", "KO",
-          "KTOS", "LITE", "LRCX", "MDB", "META", "MLI", "MNST", "MP", "MSFT", "MSTR", "MTB", "MTZ",
+          "KTOS", "LLY", "LITE", "LRCX", "LULU", "MCD", "MDB", "META", "MLI", "MNST", "MP", "MSFT", "MSTR", "MTB", "MTZ",
           "MU", "NBIS", "NEU", "NFLX", "NKE", "NQ1!", "NVDA", "NXT", "ON", "ONDS", "ORCL", "PANW",
           "PATH", "PEGA", "PH", "PI", "PLTR", "PNC", "PSTG", "PWR", "QLYS", "QQQ", "RBLX", "RDDT",
           "RGLD", "RIOT", "RKLB", "SANM", "SGI", "SHOP", "SILVER", "SLV", "SN", "SNDK", "SOFI",
-          "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSLA", "TT", "TWLO", "ULTA",
-          "UTHR", "UUUU", "VIX", "VST", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
-          "XLB", "XLC", "XLE", "XLF", "XLK", "XLP", "XLU", "XLV", "XLY",
+          "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSM", "TSLA", "TT", "TWLO", "ULTA",
+          "UTHR", "UUUU", "US500", "VIX", "VST", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
+          "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY", "XOM",
           "ES", "NQ", "BTC", "ETH",
         ]);
 

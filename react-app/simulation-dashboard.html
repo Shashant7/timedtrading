@@ -89,6 +89,16 @@
         from { transform: translateX(8px); opacity: 0; }
         to { transform: translateX(0); opacity: 1; }
       }
+      .card-pulse { animation: card-pulse 2s ease-in-out infinite; }
+      @keyframes card-pulse {
+        0%, 100% { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2); }
+        50% { box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.5); }
+      }
+      .card-pulse-short { animation: card-pulse-short 2s ease-in-out infinite; }
+      @keyframes card-pulse-short {
+        0%, 100% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2); }
+        50% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.5); }
+      }
     </style>
   </head>
   <body>
@@ -3842,9 +3852,9 @@
                         className={`inline-block px-4 py-2 rounded-lg font-bold text-lg ${dir.bg} ${dir.color}`}
                       >
                         {dir.text === "LONG"
-                          ? "📈 LONG"
+                          ? "📈 L"
                           : dir.text === "SHORT"
-                            ? "📉 SHORT"
+                            ? "📉 S"
                             : dir.text}
                       </div>
                     </div>
@@ -6911,9 +6921,9 @@
                               
                               const stageInfo = getPositionStage(pos);
                               const dirPillCls = isLong
-                                ? "bg-cyan-400/20 text-cyan-200 border-cyan-400/60 shadow-[0_0_0_1px_rgba(34,211,238,0.25)]"
-                                : "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-400/60 shadow-[0_0_0_1px_rgba(217,70,239,0.25)]";
-                              const dirAccentCls = isLong ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-fuchsia-500";
+                                ? "bg-cyan-400/20 text-cyan-200 border-cyan-400/50"
+                                : "bg-red-500/20 text-red-200 border-red-400/50";
+                              const dirAccentCls = isLong ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-red-500";
                               const tintAlpha = (retOpenPct != null && retOpenPct !== 0) ? 0.06 + Math.min(0.2, Math.abs(retOpenPct) / 10) : 0.04;
                               const tint = (retOpenPct ?? 0) >= 0 ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
                               const phaseFill = phaseFillPct > 0
@@ -6929,6 +6939,8 @@
                               const sl = pos.trade?.sl != null || pos.trade?.sl_price != null ? Number(pos.trade.sl ?? pos.trade.sl_price) : null;
                               const tp = pos.trade?.tp != null ? Number(pos.trade.tp) : null;
                               const score = tickerData?.flip_watch_score ?? tickerData?.htf_score ?? null;
+                              const isActionLane = ["trim", "exit"].includes(stageInfo?.stage || "");
+                              const pulseCls = isActionLane ? (isLong ? "card-pulse" : "card-pulse-short") : "";
                               
                               return (
                                 <button
@@ -6941,7 +6953,7 @@
                                     const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
                                     setSelectedPositionEvents(Array.isArray(events) ? events : []);
                                   }}
-                                  className={`w-full text-left px-3 py-2 rounded-lg border border-[#252b36] hover:brightness-[1.06] hover:border-[#3a4aa0] transition-all overflow-hidden relative ${dirAccentCls}`}
+                                  className={`w-full text-left px-3 py-2 rounded-lg border border-[#252b36] hover:brightness-[1.06] hover:border-[#3a4aa0] transition-all overflow-hidden relative ${dirAccentCls} ${pulseCls}`}
                                   style={{ backgroundColor: "#13171e", backgroundImage: phaseFill ? `${phaseFill}, linear-gradient(0deg, ${tint}, ${tint})` : `linear-gradient(0deg, ${tint}, ${tint})` }}
                                   title="Open in right rail"
                                 >
@@ -6955,7 +6967,7 @@
                                         </span>
                                       )}
                                       <span className={`px-3 py-1 rounded-md border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`}>
-                                        {dir}
+                                        {isLong ? "L" : "S"}
                                       </span>
                                       <span className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${stageInfo.bg} ${stageInfo.color} font-medium`}>
                                         {stageInfo.label}
@@ -7097,8 +7109,8 @@
                               {/* Col 1: Activity Timeline (compact) */}
                               <div>
                                 <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">Today</h3>
-                                <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
-                                  {todayActions.length > 0 ? todayActions.slice(0, 8).map((action, idx) => {
+                                <div className="space-y-0.5 max-h-[280px] overflow-y-auto">
+                                  {todayActions.length > 0 ? todayActions.slice(0, 20).map((action, idx) => {
                                     const getActionStyle = (a) => {
                                       switch(a.type) {
                                         case "ENTRY": return { icon: "🚀", color: "text-cyan-400", bgColor: "bg-cyan-500/10", label: "E" };
@@ -7131,10 +7143,10 @@
                               {/* Col 2: By day */}
                               <div>
                                 <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">By day</h3>
-                                <div className="space-y-1 max-h-[100px] overflow-y-auto">
+                                <div className="space-y-1 max-h-[280px] overflow-y-auto">
                                   {ledgerActivityDays.length === 0 ? (
                                     <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No closed trades by day</div>
-                                  ) : ledgerActivityDays.slice(0, 8).map((day) => {
+                                  ) : ledgerActivityDays.slice(0, 20).map((day) => {
                                     const isExpanded = expandedByDayKey === day.key;
                                     return (
                                       <div key={day.key} className="rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
@@ -7190,10 +7202,10 @@
                               {/* Col 3: By ticker */}
                               <div>
                                 <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">By ticker</h3>
-                                <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
+                                <div className="space-y-0.5 max-h-[280px] overflow-y-auto">
                                   {ledgerClosedByTicker.length === 0 ? (
                                     <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No closed trades by ticker</div>
-                                  ) : ledgerClosedByTicker.slice(0, 8).map((row) => (
+                                  ) : ledgerClosedByTicker.slice(0, 20).map((row) => (
                                     <div
                                       key={row.ticker}
                                       className="flex items-center justify-between py-1 px-2 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
