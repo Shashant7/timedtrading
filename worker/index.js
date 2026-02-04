@@ -98,6 +98,7 @@ const ROUTES = [
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
   ["POST", "/timed/clear-rate-limit", "POST /timed/clear-rate-limit"],
   ["POST", "/timed/cleanup-tickers", "POST /timed/cleanup-tickers"],
+  ["GET", "/timed/social-additions", "GET /timed/social-additions"],
   ["GET", "/timed/cors-debug", "GET /timed/cors-debug"],
   ["GET", "/timed/version", "GET /timed/version"],
   ["GET", "/timed/alert-debug", "GET /timed/alert-debug"],
@@ -16444,12 +16445,15 @@ export default {
             entry.score = Number(entry?.rank ?? item.score);
           });
 
+          const socialAdditions = (await kvGetJSON(KV, "timed:social:additions")) || [];
+
           return sendJSON(
             {
               ok: true,
               count: Object.keys(data).length,
               totalIndex,
               data,
+              socialAdditions: Array.isArray(socialAdditions) ? socialAdditions : [],
               d1_max_updated_at: maxUpdatedAt || null,
             },
             200,
@@ -18689,12 +18693,15 @@ export default {
         );
       }
 
-      // POST /timed/cleanup-tickers?key=... (Cleanup tickers to match approved list)
+      // POST /timed/cleanup-tickers?key=...&strict=1 (strict=1: purge-only, no social-additions)
       if (routeKey === "POST /timed/cleanup-tickers") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
-        // Approved ticker list — WATCHLIST_Q1_2026 (from TradingView watchlist screenshots)
+        const url = new URL(req.url || `https://x/${req.url}`);
+        const strictPurge = url.searchParams.get("strict") === "1";
+
+        // Approved ticker list — WATCHLIST_Q1_2026
         const approvedTickers = new Set([
           "AAPL", "AEHR", "AGQ", "ALB", "ALLY", "AMD", "AMGN", "AMZN", "ANET", "APLD", "APP", "ASTS",
           "AU", "AVAV", "AVGO", "AWI", "AXON", "AXP", "AYI", "B", "BA", "BABA", "BE", "BK", "BMNR",
@@ -18710,62 +18717,139 @@ export default {
           "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSLA", "TT", "TWLO", "ULTA",
           "UTHR", "UUUU", "VIX", "VST", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
           "XLB", "XLC", "XLE", "XLF", "XLK", "XLP", "XLU", "XLV", "XLY",
-          "ES", "NQ", "BTC", "ETH", // Aliases for ES1!/NQ1!/BTCUSD/ETHUSD
+          "ES", "NQ", "BTC", "ETH",
         ]);
 
-        // Ticker normalization map (TradingView variations → watchlist format)
         const tickerMap = {
-          "BRK-B": "BRK.B",
+          "BRK.B": "BRK-B",
           ES: "ES1!",
           NQ: "NQ1!",
           BTC: "BTCUSD",
           ETH: "ETHUSD",
         };
 
-        const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        const currentSet = new Set(currentTickers.map((t) => t.toUpperCase()));
+        let approvedSet = new Set(approvedTickers);
+        if (!strictPurge) {
+          const socialAdditions = (await kvGetJSON(KV, "timed:social:additions")) || [];
+          for (const t of socialAdditions) {
+            if (t && typeof t === "string") approvedSet.add(String(t).toUpperCase());
+          }
+        }
 
+        const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const toRemove = [];
         const toKeep = [];
         const renamed = [];
+        const addedToSocial = [];
 
-        // Process each current ticker
         for (const ticker of currentTickers) {
           const upperTicker = ticker.toUpperCase();
           const normalized = tickerMap[upperTicker] || upperTicker;
 
-          if (
-            approvedTickers.has(upperTicker) ||
-            approvedTickers.has(normalized)
-          ) {
-            // Keep this ticker
+          if (approvedSet.has(upperTicker) || approvedSet.has(normalized)) {
             if (normalized !== upperTicker && tickerMap[upperTicker]) {
-              // Need to rename
               renamed.push({ from: ticker, to: normalized });
               toKeep.push(normalized);
             } else {
               toKeep.push(ticker);
             }
           } else {
-            // Remove this ticker
-            toRemove.push(ticker);
+            if (!strictPurge) {
+              // Accept new ticker: add to Social and keep
+              const additions = (await kvGetJSON(KV, "timed:social:additions")) || [];
+              const upper = upperTicker;
+              if (!additions.includes(upper)) {
+                additions.push(upper);
+                additions.sort();
+                await kvPutJSON(KV, "timed:social:additions", additions);
+                addedToSocial.push(upper);
+              }
+              approvedSet.add(upper);
+              toKeep.push(ticker);
+            } else {
+              toRemove.push(ticker);
+            }
           }
         }
 
-        // Remove unapproved tickers from KV
         let removedCount = 0;
         for (const ticker of toRemove) {
           await KV.delete(`timed:latest:${ticker}`);
           await KV.delete(`timed:trail:${ticker}`);
+          await KV.delete(`timed:heartbeat:${ticker}`);
+          if (env?.DB) {
+            try {
+              await env.DB.prepare(`DELETE FROM ticker_latest WHERE ticker = ?1`).bind(ticker).run();
+            } catch (_) {}
+          }
           removedCount++;
         }
 
-        // Rename tickers if needed
+        // Purge trades/positions for tickers not in watchlist (strict mode only)
+        let tradesPurged = 0;
+        if (strictPurge && env?.DB && toRemove.length > 0) {
+          try {
+            for (const ticker of toRemove) {
+              const posRows = await env.DB.prepare(`SELECT position_id FROM positions WHERE ticker = ?1`).bind(ticker).all();
+              const posIds = (posRows?.results || []).map((r) => r.position_id);
+              for (const pid of posIds) {
+                await env.DB.prepare(`DELETE FROM execution_actions WHERE position_id = ?1`).bind(pid).run();
+                await env.DB.prepare(`DELETE FROM lots WHERE position_id = ?1`).bind(pid).run();
+              }
+              const posDel = await env.DB.prepare(`DELETE FROM positions WHERE ticker = ?1`).bind(ticker).run();
+              const tradeIds = (await env.DB.prepare(`SELECT trade_id FROM trades WHERE ticker = ?1`).bind(ticker).all())?.results || [];
+              for (const row of tradeIds) {
+                await env.DB.prepare(`DELETE FROM trade_events WHERE trade_id = ?1`).bind(row.trade_id).run();
+              }
+              const tradeDel = await env.DB.prepare(`DELETE FROM trades WHERE ticker = ?1`).bind(ticker).run();
+              tradesPurged += (tradeDel?.meta?.changes || 0) + (posDel?.meta?.changes || 0);
+            }
+          } catch (e) {
+            console.warn("[cleanup-tickers] D1 trade purge error:", String(e?.message || e));
+          }
+        }
+
+        // Also purge trades for tickers in D1 that aren't in approvedSet (covers already-removed tickers like BTBT)
+        if (strictPurge && env?.DB) {
+          try {
+            const allTradeTickers = (await env.DB.prepare(`SELECT DISTINCT ticker FROM trades`).all())?.results || [];
+            const allPosTickers = (await env.DB.prepare(`SELECT DISTINCT ticker FROM positions`).all())?.results || [];
+            const tickersToPurge = new Set();
+            for (const r of allTradeTickers) {
+              const t = String(r?.ticker || "").toUpperCase();
+              const norm = tickerMap[t] || t;
+              if (!approvedSet.has(t) && !approvedSet.has(norm)) tickersToPurge.add(r.ticker);
+            }
+            for (const r of allPosTickers) {
+              const t = String(r?.ticker || "").toUpperCase();
+              const norm = tickerMap[t] || t;
+              if (!approvedSet.has(t) && !approvedSet.has(norm)) tickersToPurge.add(r.ticker);
+            }
+            for (const ticker of tickersToPurge) {
+              if (toRemove.includes(ticker)) continue;
+              const posRows = await env.DB.prepare(`SELECT position_id FROM positions WHERE ticker = ?1`).bind(ticker).all();
+              const posIds = (posRows?.results || []).map((r) => r.position_id);
+              for (const pid of posIds) {
+                await env.DB.prepare(`DELETE FROM execution_actions WHERE position_id = ?1`).bind(pid).run();
+                await env.DB.prepare(`DELETE FROM lots WHERE position_id = ?1`).bind(pid).run();
+              }
+              await env.DB.prepare(`DELETE FROM positions WHERE ticker = ?1`).bind(ticker).run();
+              const tradeIds = (await env.DB.prepare(`SELECT trade_id FROM trades WHERE ticker = ?1`).bind(ticker).all())?.results || [];
+              for (const row of tradeIds) {
+                await env.DB.prepare(`DELETE FROM trade_events WHERE trade_id = ?1`).bind(row.trade_id).run();
+              }
+              await env.DB.prepare(`DELETE FROM trades WHERE ticker = ?1`).bind(ticker).run();
+              tradesPurged++;
+            }
+          } catch (e) {
+            console.warn("[cleanup-tickers] D1 orphan trade purge error:", String(e?.message || e));
+          }
+        }
+
         let renamedCount = 0;
         for (const { from, to } of renamed) {
           const latestData = await kvGetJSON(KV, `timed:latest:${from}`);
           const trailData = await kvGetJSON(KV, `timed:trail:${from}`);
-
           if (latestData) {
             await kvPutJSON(KV, `timed:latest:${to}`, latestData);
             await KV.delete(`timed:latest:${from}`);
@@ -18774,23 +18858,40 @@ export default {
             await kvPutJSON(KV, `timed:trail:${to}`, trailData);
             await KV.delete(`timed:trail:${from}`);
           }
+          if (env?.DB) {
+            try {
+              await env.DB.prepare(`UPDATE ticker_latest SET ticker = ?1 WHERE ticker = ?2`).bind(to, from).run();
+            } catch (_) {}
+          }
           renamedCount++;
         }
 
-        // Update ticker index
         await kvPutJSON(KV, "timed:tickers", toKeep.sort());
 
         return sendJSON(
           {
             ok: true,
-            message: "Ticker cleanup completed",
+            message: strictPurge ? "One-time purge completed (strict mode)" : "Cleanup completed (new tickers added to Social)",
             removed: removedCount,
             renamed: renamedCount,
+            addedToSocial: addedToSocial.length,
             kept: toKeep.length,
+            tradesPurged: tradesPurged,
             removedTickers: toRemove.sort(),
+            addedToSocialTickers: addedToSocial,
             renamedTickers: renamed,
             finalTickers: toKeep.sort(),
           },
+          200,
+          corsHeaders(env, req),
+        );
+      }
+
+      // GET /timed/social-additions — tickers accepted into Social group (not in watchlist)
+      if (routeKey === "GET /timed/social-additions") {
+        const additions = (await kvGetJSON(KV, "timed:social:additions")) || [];
+        return sendJSON(
+          { ok: true, additions: Array.isArray(additions) ? additions : [] },
           200,
           corsHeaders(env, req),
         );

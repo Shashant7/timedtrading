@@ -461,6 +461,7 @@
 
       function useTickerData() {
         const [data, setData] = useState({});
+        const [socialAdditions, setSocialAdditions] = useState([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [lastUpdate, setLastUpdate] = useState(null);
@@ -517,6 +518,7 @@
             const tickersJson = await tickersRes.json();
 
             if (dataJson.ok) {
+              setSocialAdditions(Array.isArray(dataJson.socialAdditions) ? dataJson.socialAdditions : []);
               const tickerData = dataJson.data || {};
               const allTickers =
                 tickersJson.ok && tickersJson.tickers
@@ -748,6 +750,7 @@
 
         return {
           data,
+          socialAdditions,
           loading,
           error,
           lastUpdate,
@@ -1302,11 +1305,17 @@
         return s;
       }
 
-      function groupsForTicker(t) {
+      function groupsForTicker(t, socialAdditions = []) {
         const T = normTicker(t);
         const out = [];
-        for (const [g, set] of Object.entries(GROUPS))
-          if (set.has(T)) out.push(g);
+        const socialSet = Array.isArray(socialAdditions) ? new Set(socialAdditions.map((s) => String(s || "").toUpperCase())) : new Set();
+        for (const [g, set] of Object.entries(GROUPS)) {
+          if (g === "Social" && socialSet.has(T)) {
+            out.push(g);
+          } else if (set.has(T)) {
+            out.push(g);
+          }
+        }
         if (out.length === 0) out.push("Other");
         return out;
       }
@@ -2748,7 +2757,7 @@
         return null;
       }
 
-      function applyFilters(dataObj, filters, trades = []) {
+      function applyFilters(dataObj, filters, trades = [], socialAdditions = []) {
         const out = [];
 
         const deriveHorizonBucket = (t) => {
@@ -2913,7 +2922,7 @@
           // Group filter
           if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
             const T = normTicker(ticker);
-            const gs = groupsForTicker(T);
+            const gs = groupsForTicker(T, socialAdditions);
             if (effectiveFilters.group === "ANY") {
               if (gs.length === 0) continue;
             } else if (effectiveFilters.group === "UNGROUPED") {
@@ -3408,35 +3417,42 @@
           const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
 
           const flipWatch = !!flags.flip_watch;
+          const dir = getDirectionFromState(ticker);
 
           const borderWidth = waitingForData
             ? 2
-            : flipWatch
-              ? 3.5
-              : prime
-                ? 3
-                : winnerSig
+            : dir
+              ? 2.5 // Thicker border for direction (LONG/SHORT) to match cards
+              : flipWatch
+                ? 3.5
+                : prime
                   ? 3
-                  : flags.sq30_release
-                    ? 2
-                    : flags.sq30_on
+                  : winnerSig
+                    ? 3
+                    : flags.sq30_release
                       ? 2
-                      : 1.5; // Increased from 1 to 1.5 for better visibility
+                      : flags.sq30_on
+                        ? 2
+                        : 1.5;
 
           let borderColor = waitingForData
             ? "#8b92a0"
-            : flipWatch
-              ? "#fbbf24" // Amber for flip watch
-              : prime
-                ? "#22c55e"
-                : winnerSig
-                  ? "#a855f7"
-                  : flags.sq30_release
-                    ? "#00ffff"
-                    : flags.sq30_on
-                      ? "#ffd700"
-                      : "#ffffff";
-          if (!waitingForData && move.status !== "ACTIVE") {
+            : dir === "LONG"
+              ? "#22d3ee" // Cyan/blue for LONG (matches card outline)
+              : dir === "SHORT"
+                ? "#ef4444" // Red for SHORT (matches card outline)
+                : flipWatch
+                  ? "#fbbf24" // Amber for flip watch
+                  : prime
+                    ? "#22c55e"
+                    : winnerSig
+                      ? "#a855f7"
+                      : flags.sq30_release
+                        ? "#00ffff"
+                        : flags.sq30_on
+                          ? "#ffd700"
+                          : "#ffffff";
+          if (!waitingForData && move.status !== "ACTIVE" && !dir) {
             borderColor = move.stroke;
           }
 
@@ -10367,6 +10383,7 @@
         sectors = [],
         allData = null,
         trades = [],
+        socialAdditions = [],
       }) {
         const group = String(filters.group || "ALL");
         const horizon = String(filters.horizonBucket || "ALL");
@@ -10449,7 +10466,7 @@
 
           const countWith = (nextFilters) => {
             try {
-              const n = applyFilters(allData, nextFilters, safeTrades).length;
+              const n = applyFilters(allData, nextFilters, safeTrades, socialAdditions).length;
               return Number.isFinite(n) ? n : null;
             } catch {
               return null;
@@ -10683,7 +10700,7 @@
               Utilities: utilities,
             },
           };
-        }, [allData, trades, filters]);
+        }, [allData, trades, filters, socialAdditions]);
 
         const pillLabelWithCount = (baseLabel, count) => {
           if (!Number.isFinite(count)) return baseLabel;
@@ -12232,10 +12249,13 @@
           const badgesText = badges.length > 0 ? badges.join("") : "";
           const dirPillCls = dir === "LONG"
             ? "bg-cyan-400/20 text-cyan-200 border-cyan-400/60 shadow-[0_0_0_1px_rgba(34,211,238,0.25)]"
-            : "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-400/60 shadow-[0_0_0_1px_rgba(217,70,239,0.25)]";
+            : "bg-red-500/20 text-red-200 border-red-400/60 shadow-[0_0_0_1px_rgba(239,68,68,0.25)]";
           const dirAccentCls = dir === "LONG"
             ? "border-l-4 border-l-cyan-400"
-            : "border-l-4 border-l-fuchsia-500";
+            : "border-l-4 border-l-red-500";
+          const dirOutlineCls = dir === "LONG"
+            ? "border-cyan-400/80 shadow-[0_0_0_1.5px_rgba(34,211,238,0.4)]"
+            : "border-red-500/80 shadow-[0_0_0_1.5px_rgba(239,68,68,0.4)]";
 
           const compP = completionForSize(t);
           const compPct = Number.isFinite(compP)
@@ -12255,21 +12275,23 @@
                 }
               }}
               className={
-                "w-full text-left px-3 py-2 rounded-lg border border-[#252b36] transition-all hover:brightness-[1.06] hover:border-[#3a4aa0] relative " +
+                "w-full text-left px-3 py-2 rounded-lg border-2 transition-all hover:brightness-[1.06] relative overflow-visible " +
+                dirOutlineCls + " " +
                 dirAccentCls + " " +
-                (movedRecently ? transitionCardClass : "") +
-                (skin?.dayEdgeClass ? ` ${skin.dayEdgeClass}` : "")
+                (movedRecently ? transitionCardClass : "")
               }
               style={{ backgroundColor: "#13171e", backgroundImage: skin?.bgImage || undefined }}
             >
+              {/* Direction banner: thin bar at top (LONG=blue, SHORT=red) */}
+              <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-lg ${dir === "LONG" ? "bg-cyan-400" : "bg-red-500"}`} />
               {/* Header row: Viewport-style — Ticker, badges, LONG/SHORT pill, action | Price, daily change */}
               <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-1.5 min-w-0 flex-nowrap overflow-hidden flex-wrap">
+                <div className="flex items-center gap-1.5 min-w-0 flex-wrap overflow-visible">
                   <span className="text-xs font-bold text-white truncate shrink-0 max-w-[60px]">
                     {t.ticker}
                   </span>
                   {badgesText ? <span className="px-2 py-0.5 rounded border border-[#252b36] bg-[#1a1f28] text-[10px] font-semibold text-[#f0f2f5] shrink-0">{badgesText}</span> : null}
-                  <span className={`px-3 py-1 rounded-md border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title="Directional bias">
+                  <span className={`px-3 py-1 rounded-md border text-[10px] font-extrabold tracking-wide shrink-0 min-w-[52px] text-center ${dirPillCls}`} title="Directional bias">
                     {dir}
                   </span>
                   {prevLane && prevLane !== stage && stage !== "archive" ? (
@@ -12339,7 +12361,7 @@
 
               {/* If open position: Entry Price, % change since entered */}
               {showEntryStats && (Number.isFinite(entryPrice) || Number.isFinite(entryChangePct)) && (
-                <div className="flex items-center justify-between gap-2 mb-1 text-[9px] text-[#8b92a0]">
+                <div className="flex items-center justify-between gap-2 mb-1 text-[9px] text-[#b8c0d0] font-medium">
                   <span>Entry {Number.isFinite(entryPrice) ? `$${entryPrice.toFixed(2)}` : "—"}</span>
                   {Number.isFinite(entryChangePct) && (
                     <span className={entryChangePct >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
@@ -12350,17 +12372,17 @@
               )}
 
               {/* Card contents: Score, Rank | R:R, SL, TP | Phase | Completion with TP markers */}
-              <div className="flex items-center justify-between gap-2 text-[9px] text-[#8b92a0] flex-wrap">
+              <div className="flex items-center justify-between gap-2 text-[9px] text-[#b8c0d0] font-medium flex-wrap">
                 <span>Score {Number.isFinite(score) ? score.toFixed(1) : "—"}</span>
-                {Number.isFinite(rankPos) && rankPos > 0 && <span>#{rankPos}</span>}
+                {Number.isFinite(rankPos) && rankPos > 0 && <span className="text-[#d1d9e8]">#{rankPos}</span>}
                 <span>R:R {Number.isFinite(rr) ? rr.toFixed(2) : "—"}</span>
-                {sl != null && <span className="text-red-300">SL ${sl.toFixed(2)}</span>}
-                {tp != null && <span className="text-green-300">TP ${tp.toFixed(2)}</span>}
+                {sl != null && <span className="text-red-300 font-semibold">SL ${sl.toFixed(2)}</span>}
+                {tp != null && <span className="text-green-300 font-semibold">TP ${tp.toFixed(2)}</span>}
                 <span>Phase {Number.isFinite(phase) ? phase.toFixed(1) : "—"}</span>
               </div>
               {compPct != null && (
                 <div className="mt-1">
-                  <div className="flex items-center justify-between text-[8px] text-[#8b92a0] mb-0.5">
+                  <div className="flex items-center justify-between text-[8px] text-[#b8c0d0] font-medium mb-0.5">
                     <span>Completion {compPct}%</span>
                     {(() => {
                       const tpLevels = Array.isArray(t?.tp_levels) ? t.tp_levels : [];
@@ -12369,7 +12391,7 @@
                       const tp1Price = tp1 && (typeof tp1 === "object" ? tp1.price : tp1);
                       const tp2Price = tp2 && (typeof tp2 === "object" ? tp2.price : tp2);
                       return (
-                        <span className="text-[#5c6475]">
+                        <span className="text-[#9ca3b4]">
                           {Number.isFinite(numFromAny(tp1Price)) ? `TP1 $${Number(tp1Price).toFixed(1)}` : ""}
                           {Number.isFinite(numFromAny(tp2Price)) ? ` · TP2 $${Number(tp2Price).toFixed(1)}` : ""}
                         </span>
@@ -13350,13 +13372,13 @@
               : c.dir === "SHORT"
                 ? {
                     label: "SHORT",
-                    cls: "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-400/60 shadow-[0_0_0_1px_rgba(217,70,239,0.25)]",
+                    cls: "bg-red-500/20 text-red-200 border-red-400/60 shadow-[0_0_0_1px_rgba(239,68,68,0.25)]",
                   }
                 : {
                     label: c.dir,
-                    cls: "bg-[#252b36] text-[#8b92a0] border-[#252b36]",
+                    cls: "bg-[#252b36] text-[#b8c0d0] border-[#252b36]",
                   };
-          const dirAccentCls = c.dir === "LONG" ? "border-l-4 border-l-cyan-400" : c.dir === "SHORT" ? "border-l-4 border-l-fuchsia-500" : "";
+          const dirAccentCls = c.dir === "LONG" ? "border-l-4 border-l-cyan-400" : c.dir === "SHORT" ? "border-l-4 border-l-red-500" : "";
 
           const moveStatus = String(c?.moveStatus || "ACTIVE").toUpperCase();
           const moveEmoji =
@@ -13381,21 +13403,23 @@
             return r ? `Move: ${moveStatus} — ${r}` : `Move: ${moveStatus}`;
           })();
 
+          const dirOutlineCls = c.dir === "LONG" ? "border-2 border-cyan-400/80 shadow-[0_0_0_1.5px_rgba(34,211,238,0.4)]" : c.dir === "SHORT" ? "border-2 border-red-500/80 shadow-[0_0_0_1.5px_rgba(239,68,68,0.4)]" : "border border-[#252b36]";
           return (
             <button
               key={t.ticker}
               onClick={() => onSelectTicker && onSelectTicker(t.ticker)}
-              className={`w-full text-left px-3 py-2 rounded-lg border transition-all hover:brightness-[1.06] relative ${
+              className={`w-full text-left px-3 py-2 rounded-lg transition-all hover:brightness-[1.06] relative ${
                 winnerSig
-                  ? "border-purple-500/50 hover:border-purple-400 shadow-[0_0_0_1px_rgba(168,85,247,0.15)]"
-                  : "border-[#252b36] hover:border-[#3a4aa0]"
-              } ${dirAccentCls}${skin?.dayEdgeClass ? ` ${skin.dayEdgeClass}` : ""}`}
+                  ? "border-2 border-purple-500/50 hover:border-purple-400 shadow-[0_0_0_1px_rgba(168,85,247,0.15)]"
+                  : dirOutlineCls
+              } ${dirAccentCls}`}
               style={{
                 backgroundColor: "#13171e",
                 backgroundImage: skin?.bgImage || undefined,
               }}
               title="Open in right rail"
             >
+              {c.dir && <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-lg ${c.dir === "LONG" ? "bg-cyan-400" : "bg-red-500"}`} />}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -15849,6 +15873,7 @@
       function App() {
         const {
           data,
+          socialAdditions = [],
           loading,
           error,
           lastUpdate,
@@ -16107,7 +16132,7 @@
             isObject: data && typeof data === 'object'
           });
           
-          const filtered = applyFilters(data, effectiveFilters, trades);
+          const filtered = applyFilters(data, effectiveFilters, trades, socialAdditions);
           console.log('[TICKERS MEMO] Filtered tickers:', {
             inputDataKeys: dataKeys.length,
             filteredCount: filtered.length,
@@ -16115,13 +16140,13 @@
             tradesCount: (trades || []).length
           });
           return filtered;
-        }, [data, effectiveFilters, trades, timeTravelTickers]);
+        }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers]);
 
         // Base filtered tickers for Time Travel slider controls.
         // IMPORTANT: Hooks must never be called conditionally inside JSX.
         const timeTravelBaseTickers = useMemo(() => {
-          return applyFilters(data, effectiveFilters, trades);
-        }, [data, effectiveFilters, trades]);
+          return applyFilters(data, effectiveFilters, trades, socialAdditions);
+        }, [data, effectiveFilters, trades, socialAdditions]);
 
         // Compute dynamic ranks once for all tickers to ensure consistency
         // IMPORTANT: Use ALL tickers from data, not filtered tickers, for ranking
@@ -16439,6 +16464,7 @@
                         sectors={sectors}
                         allData={data}
                         trades={trades}
+                        socialAdditions={socialAdditions}
                       />
                     </div>
                   )}
@@ -16480,7 +16506,7 @@
                 {/* Ingestion Status Panel (minimizable, always accessible) */}
                 <IngestionStatusPanel
                   allData={data}
-                  filteredTickers={applyFilters(data, effectiveFilters, trades)}
+                  filteredTickers={applyFilters(data, effectiveFilters, trades, socialAdditions)}
                   onRefresh={refetch}
                 />
 
