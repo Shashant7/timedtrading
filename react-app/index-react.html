@@ -9228,6 +9228,7 @@
         onTimeChange,
         tickerFilter,
         selectedTicker,
+        compact = false,
       }) {
         const [isActive, setIsActive] = useState(false);
         const [selectedTimestamp, setSelectedTimestamp] = useState(null);
@@ -9390,6 +9391,19 @@
                       closestPoint.phase_pct !== undefined
                         ? closestPoint.phase_pct
                         : ticker.phase_pct,
+                    // Historical kanban stage from trail (for Time Travel Kanban)
+                    kanban_stage:
+                      closestPoint.kanban_stage !== undefined
+                        ? closestPoint.kanban_stage
+                        : ticker.kanban_stage,
+                    entry_ts:
+                      closestPoint.entry_ts !== undefined
+                        ? closestPoint.entry_ts
+                        : ticker.entry_ts,
+                    entry_price:
+                      closestPoint.entry_price !== undefined
+                        ? closestPoint.entry_price
+                        : ticker.entry_price,
                     ts: closest.pointTs,
                     _isTimeTravel: true,
                     _timeTravelMissing: false,
@@ -9479,7 +9493,7 @@
                       const res = await fetch(
                         `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
                           ticker,
-                        )}`,
+                        )}&include_kanban=1`,
                       );
                       if (res.ok) {
                         const json = await res.json();
@@ -9675,6 +9689,95 @@
           return Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
         };
 
+        // Compact mode: inline controls for header bar
+        if (compact) {
+          return (
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isActive}
+                  onChange={(e) => {
+                    setIsActive(e.target.checked);
+                    if (!e.target.checked) {
+                      setIsPlaying(false);
+                      setSelectedTimestamp(null);
+                      onTimeChangeRef.current?.(null);
+                    } else {
+                      setSelectedTimestamp(roundToStep(maxTimestamp));
+                    }
+                  }}
+                  className="w-3.5 h-3.5"
+                />
+                <span className="text-xs font-semibold text-white whitespace-nowrap">
+                  ⏱️ Time Travel
+                </span>
+              </label>
+              {isActive && (
+                <>
+                  <button
+                    onClick={() => {
+                      if (!isPlaying) {
+                        setSelectedTimestamp((prev) =>
+                          prev !== null && prev !== undefined ? prev : maxTimestamp,
+                        );
+                      }
+                      setIsPlaying((p) => !p);
+                    }}
+                    className="px-2 py-1 bg-[#252b36] hover:bg-[#3a4aa0] rounded text-[10px] text-white"
+                    title="Play / Pause"
+                  >
+                    {isPlaying ? "⏸" : "▶️"}
+                  </button>
+                  <select
+                    value={String(stepMs)}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      if (!Number.isFinite(next) || next <= 0) return;
+                      setStepMs(next);
+                      setIsPlaying(false);
+                      setSelectedTimestamp((prev) =>
+                        prev != null
+                          ? Math.floor(Number(prev) / next) * next
+                          : Math.floor(Number(maxTimestamp) / next) * next,
+                      );
+                    }}
+                    className="bg-[#1a1f28] border border-[#252b36] rounded px-1.5 py-0.5 text-[10px] text-[#f0f2f5]"
+                    title="Time step"
+                  >
+                    {STEP_OPTIONS.map((opt) => (
+                      <option key={opt.label} value={opt.ms}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="range"
+                    min={minTimestamp}
+                    max={maxTimestamp}
+                    step={STEP_MS}
+                    value={currentValue}
+                    onChange={handleTimestampChange}
+                    className="flex-1 min-w-[120px] h-1.5 bg-[#1a1f28] rounded-lg appearance-none cursor-pointer"
+                    style={{
+                      background: `linear-gradient(to right, #00ffff 0%, #00ffff ${progress}%, #252b36 ${progress}%, #252b36 100%)`,
+                    }}
+                  />
+                  <span className="text-[10px] text-[#00ffff] font-semibold whitespace-nowrap">
+                    {formatTimestamp(currentValue)}
+                  </span>
+                  {loadingTrails && (
+                    <span className="text-[10px] text-[#8b92a0]">
+                      Loading... {trailLoadProgress.done}/{trailLoadProgress.total || 0}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        }
+
+        // Full mode: original panel layout
         return (
           <div className="mb-4 bg-[#13171e] border border-[#252b36] rounded-xl p-4">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -10712,45 +10815,8 @@
 
         return (
           <div className="space-y-2 mb-2">
-            {/* Row 1: Horizon + Kanban Stages */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-y-2 lg:gap-x-2">
-              <div className="space-y-1">
-                <div className="text-[10px] text-[#5c6475] font-semibold">
-                  Horizon
-                </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                  {pill(
-                    pillLabelWithCount("All", pillCounts?.horizon?.ALL),
-                    horizon === "ALL",
-                    () => onChange({ horizonBucket: undefined }),
-                  )}
-                  {pill(
-                    pillLabelWithCount(
-                      "Short-Term",
-                      pillCounts?.horizon?.SHORT_TERM,
-                    ),
-                    horizon === "SHORT_TERM",
-                    () => onChange({ horizonBucket: "SHORT_TERM" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount("Swing", pillCounts?.horizon?.SWING),
-                    horizon === "SWING",
-                    () => onChange({ horizonBucket: "SWING" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount(
-                      "Positional",
-                      pillCounts?.horizon?.POSITIONAL,
-                    ),
-                    horizon === "POSITIONAL",
-                    () => onChange({ horizonBucket: "POSITIONAL" }),
-                  )}
-                </div>
-
-                {/* Note: Filter UI intentionally simplified.
-                  Additional groups (Quadrants / Premium / Patterns) removed to reduce noise. */}
-              </div>
-
+            {/* Row 1: Kanban Stages */}
+            <div className="space-y-2">
               <div className="space-y-1">
                 <div className="text-[10px] text-[#5c6475] font-semibold">
                   Kanban Stages
@@ -16327,51 +16393,62 @@
                     </div>
                   </div>
 
-                  {/* Global Search (applies to Action Center + Bubble Chart) */}
-                  <div className="mt-3 mb-3">
-                    <input
-                      type="text"
-                      placeholder="Search tickers, filters, or conditions... (e.g., 'AAPL, GOOGL, TSLA' or 'top 40' or 'rank over 75')"
-                      value={filters.search}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        handleFilterChange({ search: value });
-                        // Also update tickerFilter if it looks like a simple ticker list (for Time Travel compatibility)
-                        // Only if it's comma-separated and doesn't contain filter keywords
-                        if (
-                          value.includes(",") &&
-                          !value.match(
-                            /rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/,
-                          )
-                        ) {
-                          handleFilterChange({ tickerFilter: value });
-                        } else if (!value.trim()) {
-                          handleFilterChange({ tickerFilter: "" });
-                        }
-                      }}
-                      className="w-full px-4 py-2 bg-[#1a1f28] border border-[#252b36] rounded-lg text-white placeholder-[#8b92a0]"
-                    />
-                    <div className="mt-1 text-xs text-[#5c6475]">
-                      💡 Examples: "AAPL, GOOGL, TSLA" • "top 40" • "rank over
-                      75" • "RR above 2"
+                  {/* Compact Controls Bar: Search + Filters Toggle + Time Travel */}
+                  <div className="mt-3 mb-3 flex flex-wrap items-center gap-3">
+                    {/* Search (narrower) */}
+                    <div className="w-[280px]">
+                      <input
+                        type="text"
+                        placeholder="Search tickers or filters..."
+                        value={filters.search}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          handleFilterChange({ search: value });
+                          if (
+                            value.includes(",") &&
+                            !value.match(
+                              /rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/,
+                            )
+                          ) {
+                            handleFilterChange({ tickerFilter: value });
+                          } else if (!value.trim()) {
+                            handleFilterChange({ tickerFilter: "" });
+                          }
+                        }}
+                        className="w-full px-3 py-1.5 bg-[#1a1f28] border border-[#252b36] rounded-lg text-white text-sm placeholder-[#8b92a0]"
+                      />
+                    </div>
+                    
+                    {/* Filters Toggle */}
+                    <button
+                      onClick={toggleAdvancedFilters}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                        showAdvancedFilters 
+                          ? "bg-blue-500/20 border-blue-500/40 text-blue-300" 
+                          : "bg-[#13171e] border-[#252b36] text-[#8b92a0] hover:text-white hover:bg-[#16224a]"
+                      }`}
+                      title="Show/hide filter groups"
+                    >
+                      Filters {showAdvancedFilters ? "▼" : "▶"}
+                    </button>
+                    
+                    {/* Time Travel (inline compact) */}
+                    <div className="flex-1 min-w-[300px]">
+                      <TimeTravelSlider
+                        tickers={timeTravelBaseTickers}
+                        allTickers={data}
+                        data={data}
+                        onTimeChange={setTimeTravelTickers}
+                        tickerFilter={filters.tickerFilter}
+                        selectedTicker={selectedTicker}
+                        compact={true}
+                      />
                     </div>
                   </div>
-
-                  {/* Filter Groups (under Search, above Action Center) */}
-                  <div className="mt-1 mb-3 rounded-xl border border-[#252b36] bg-[#1a1f28] p-2">
-                    <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
-                      <div className="text-xs font-semibold text-[#8b92a0]">
-                        Filter groups
-                      </div>
-                      <button
-                        onClick={toggleAdvancedFilters}
-                        className="px-3 py-1.5 rounded-lg border border-[#252b36] bg-[#13171e] text-xs font-semibold text-[#8b92a0] hover:text-white hover:bg-[#16224a]"
-                        title="Show/hide advanced filter tags"
-                      >
-                        {showAdvancedFilters ? "Hide" : "Show"}
-                      </button>
-                    </div>
-                    {showAdvancedFilters ? (
+                  
+                  {/* Filter Groups (collapsible) */}
+                  {showAdvancedFilters && (
+                    <div className="mb-3 rounded-xl border border-[#252b36] bg-[#1a1f28] p-2">
                       <ViewportFilterTags
                         filters={filters}
                         onChange={handleFilterChange}
@@ -16379,19 +16456,10 @@
                         allData={data}
                         trades={trades}
                       />
-                    ) : (
-                      <div className="text-xs text-[#8b92a0] bg-[#13171e] border border-[#252b36] rounded-lg px-2 py-1">
-                        <span className="font-semibold text-yellow-300">Tip:</span>{" "}
-                        use these to narrow the universe before scanning the{" "}
-                        <span className="text-white font-semibold">
-                          Action Center
-                        </span>
-                        .
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  {/* Action Center (below Search + Filter Groups) */}
+                  {/* Action Center */}
                   <div className="mb-4">
                     <ActionCenterPanel
                       tickers={tickers}
@@ -16457,14 +16525,6 @@
                           selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
-                        <TimeTravelSlider
-                          tickers={timeTravelBaseTickers}
-                          allTickers={data}
-                          data={data}
-                          onTimeChange={setTimeTravelTickers}
-                          tickerFilter={filters.tickerFilter}
-                          selectedTicker={selectedTicker}
-                        />
                         <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
                           {loading && tickers.length === 0 ? (
                             <div className="w-full h-full bg-[#13171e] rounded-xl border border-[#252b36] flex items-center justify-center">
