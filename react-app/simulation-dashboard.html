@@ -7109,8 +7109,8 @@
                               {/* Col 1: Activity Timeline (compact) */}
                               <div>
                                 <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">Today</h3>
-                                <div className="space-y-0.5 max-h-[280px] overflow-y-auto">
-                                  {todayActions.length > 0 ? todayActions.slice(0, 20).map((action, idx) => {
+                                <div className="space-y-0.5 max-h-[1120px] overflow-y-auto">
+                                  {todayActions.length > 0 ? todayActions.slice(0, 160).map((action, idx) => {
                                     const getActionStyle = (a) => {
                                       switch(a.type) {
                                         case "ENTRY": return { icon: "🚀", color: "text-cyan-400", bgColor: "bg-cyan-500/10", label: "E" };
@@ -7143,10 +7143,10 @@
                               {/* Col 2: By day */}
                               <div>
                                 <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">By day</h3>
-                                <div className="space-y-1 max-h-[280px] overflow-y-auto">
+                                <div className="space-y-1 max-h-[1120px] overflow-y-auto">
                                   {ledgerActivityDays.length === 0 ? (
                                     <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No closed trades by day</div>
-                                  ) : ledgerActivityDays.slice(0, 20).map((day) => {
+                                  ) : ledgerActivityDays.slice(0, 160).map((day) => {
                                     const isExpanded = expandedByDayKey === day.key;
                                     return (
                                       <div key={day.key} className="rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
@@ -7202,10 +7202,10 @@
                               {/* Col 3: By ticker */}
                               <div>
                                 <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">By ticker</h3>
-                                <div className="space-y-0.5 max-h-[280px] overflow-y-auto">
+                                <div className="space-y-0.5 max-h-[1120px] overflow-y-auto">
                                   {ledgerClosedByTicker.length === 0 ? (
                                     <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No closed trades by ticker</div>
-                                  ) : ledgerClosedByTicker.slice(0, 20).map((row) => (
+                                  ) : ledgerClosedByTicker.slice(0, 160).map((row) => (
                                     <div
                                       key={row.ticker}
                                       className="flex items-center justify-between py-1 px-2 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
