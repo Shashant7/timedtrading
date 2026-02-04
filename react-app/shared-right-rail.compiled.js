@@ -1074,7 +1074,152 @@
           className: "text-[10px] text-purple-200/70 space-y-0.5"
         }, okAdr && /*#__PURE__*/React.createElement("div", null, "\u2705 ADR(14D) \u2265 $2 \u2022 $", adr14.toFixed(2)), okVol && /*#__PURE__*/React.createElement("div", null, "\u2705 Vol(30D) \u2265 2M \u2022 ", (avgVol30 / 1_000_000).toFixed(2), "M"), okW && /*#__PURE__*/React.createElement("div", null, "\u2705 1W momentum ", w.toFixed(1), "%"), okM && /*#__PURE__*/React.createElement("div", null, "\u2705 1M momentum ", m.toFixed(1), "%"), ok3 && /*#__PURE__*/React.createElement("div", null, "\u2705 3M momentum ", m3.toFixed(1), "%"), ok6 && /*#__PURE__*/React.createElement("div", null, "\u2705 6M momentum ", m6.toFixed(1), "%")));
       })(), (() => {
+        // Check for 3-tier tpArray from trade object first, then fallback to ticker.tp_levels
+        const tpArray = trade?.tpArray || ticker?.tpArray || [];
+        const trimTiers = trade?.trimTiers || [];
+        const trimmedPct = Number(trade?.trimmedPct || 0);
+        const has3TierSystem = tpArray.length > 0 && tpArray.some(tp => tp.tier);
+
+        // Get trade SL protection info
+        const slProtectReason = trade?.sl_protect_reason || null;
+        const tradeSl = trade?.sl ? Number(trade.sl) : null;
+        const entryPrice = trade?.entryPrice ? Number(trade.entryPrice) : null;
+
+        // Fallback to legacy tp_levels if no 3-tier array
         const tpLevels = ticker.tp_levels || [];
+
+        // If we have a 3-tier system from trade, display it with progress
+        if (has3TierSystem && tpArray.length > 0) {
+          const direction = ticker.state?.includes("BULL") ? "LONG" : ticker.state?.includes("BEAR") ? "SHORT" : trade?.direction || null;
+          const isLong = direction === "LONG";
+          const currentPrice = Number(ticker.price) || 0;
+
+          // Tier configuration
+          const tierConfig = {
+            TRIM: {
+              label: "TRIM TP",
+              pct: 0.6,
+              color: "yellow",
+              icon: "🎯",
+              slAction: "SL → BE"
+            },
+            EXIT: {
+              label: "EXIT TP",
+              pct: 0.8,
+              color: "orange",
+              icon: "💰",
+              slAction: "SL → TRIM TP"
+            },
+            RUNNER: {
+              label: "RUNNER TP",
+              pct: 1.0,
+              color: "green",
+              icon: "🚀",
+              slAction: "ATR Trail"
+            }
+          };
+
+          // Check which tiers have been hit
+          const getTierStatus = tier => {
+            const tierInfo = trimTiers.find(t => t.tier === tier);
+            if (tierInfo?.hit) return "hit";
+            if (trimmedPct >= tierConfig[tier]?.pct) return "hit";
+            return "pending";
+          };
+
+          // Calculate progress to next tier
+          const getProgressToTier = tpPrice => {
+            if (!entryPrice || !currentPrice || !Number.isFinite(tpPrice)) return 0;
+            const totalMove = Math.abs(tpPrice - entryPrice);
+            if (totalMove <= 0) return 0;
+            const currentMove = isLong ? Math.max(0, currentPrice - entryPrice) : Math.max(0, entryPrice - currentPrice);
+            return Math.min(1, currentMove / totalMove);
+          };
+          return /*#__PURE__*/React.createElement("div", {
+            className: "border-t border-[#252b36] my-3 pt-3"
+          }, /*#__PURE__*/React.createElement("button", {
+            onClick: () => setTpExpanded(!tpExpanded),
+            className: "w-full flex items-center justify-between text-xs text-[#8b92a0] mb-2 font-semibold hover:text-white transition-colors"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "flex items-center gap-1.5"
+          }, /*#__PURE__*/React.createElement("span", null, "3-Tier TP System"), trimmedPct > 0 && /*#__PURE__*/React.createElement("span", {
+            className: "text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300"
+          }, Math.round(trimmedPct * 100), "% trimmed")), /*#__PURE__*/React.createElement("span", {
+            className: "text-base"
+          }, tpExpanded ? "▼" : "▶")), tpExpanded && /*#__PURE__*/React.createElement("div", {
+            className: "space-y-2"
+          }, tpArray.map((tp, idx) => {
+            const tier = tp.tier || (idx === 0 ? "TRIM" : idx === 1 ? "EXIT" : "RUNNER");
+            const config = tierConfig[tier] || tierConfig.TRIM;
+            const status = getTierStatus(tier);
+            const progress = getProgressToTier(tp.price);
+            const isHit = status === "hit";
+            const colorClasses = {
+              yellow: {
+                bg: "bg-yellow-500/10",
+                border: "border-yellow-500/30",
+                text: "text-yellow-400",
+                bar: "bg-yellow-500"
+              },
+              orange: {
+                bg: "bg-orange-500/10",
+                border: "border-orange-500/30",
+                text: "text-orange-400",
+                bar: "bg-orange-500"
+              },
+              green: {
+                bg: "bg-green-500/10",
+                border: "border-green-500/30",
+                text: "text-green-400",
+                bar: "bg-green-500"
+              }
+            };
+            const colors = colorClasses[config.color] || colorClasses.yellow;
+            return /*#__PURE__*/React.createElement("div", {
+              key: `tier-${tier}-${idx}`,
+              className: `p-2.5 rounded border ${colors.bg} ${colors.border} ${isHit ? "opacity-60" : ""}`
+            }, /*#__PURE__*/React.createElement("div", {
+              className: "flex justify-between items-center mb-1.5"
+            }, /*#__PURE__*/React.createElement("div", {
+              className: "flex items-center gap-2"
+            }, /*#__PURE__*/React.createElement("span", {
+              className: "text-sm"
+            }, config.icon), /*#__PURE__*/React.createElement("span", {
+              className: `text-xs font-semibold ${colors.text}`
+            }, config.label), /*#__PURE__*/React.createElement("span", {
+              className: "text-[10px] text-[#8b92a0]"
+            }, "(", Math.round(config.pct * 100), "% off)"), isHit && /*#__PURE__*/React.createElement("span", {
+              className: "text-[10px] px-1 py-0.5 rounded bg-green-500/30 text-green-300"
+            }, "\u2713 HIT")), /*#__PURE__*/React.createElement("span", {
+              className: `text-xs font-bold ${colors.text}`
+            }, "$", Number(tp.price).toFixed(2))), !isHit && /*#__PURE__*/React.createElement("div", {
+              className: "mb-1.5"
+            }, /*#__PURE__*/React.createElement("div", {
+              className: "h-1.5 bg-[#252b36] rounded-full overflow-hidden"
+            }, /*#__PURE__*/React.createElement("div", {
+              className: `h-full ${colors.bar} transition-all duration-300`,
+              style: {
+                width: `${Math.round(progress * 100)}%`
+              }
+            })), /*#__PURE__*/React.createElement("div", {
+              className: "flex justify-between text-[10px] text-[#8b92a0] mt-0.5"
+            }, /*#__PURE__*/React.createElement("span", null, Math.round(progress * 100), "% to target"), /*#__PURE__*/React.createElement("span", null, config.slAction))), isHit && /*#__PURE__*/React.createElement("div", {
+              className: "text-[10px] text-[#8b92a0]"
+            }, config.slAction, " applied"));
+          }), (slProtectReason || tradeSl) && /*#__PURE__*/React.createElement("div", {
+            className: "mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "flex justify-between items-center"
+          }, /*#__PURE__*/React.createElement("div", {
+            className: "text-[10px] text-red-300"
+          }, "Current Stop Loss"), tradeSl && /*#__PURE__*/React.createElement("div", {
+            className: "text-xs font-semibold text-red-400"
+          }, "$", tradeSl.toFixed(2))), slProtectReason && /*#__PURE__*/React.createElement("div", {
+            className: "text-[10px] text-[#8b92a0] mt-1"
+          }, slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "Moved to breakeven after TRIM TP" : slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "Moved to TRIM TP after EXIT TP" : slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR trailing (1.5x ATR)" : slProtectReason === "PROTECT_GAINS" ? "Protecting gains" : slProtectReason.replace(/_/g, " ")))));
+        }
+
+        // Legacy display for tickers without 3-tier system
         if (!Array.isArray(tpLevels) || tpLevels.length === 0) return null;
 
         // Extract prices from tp_levels (handle both object and number formats)
@@ -1085,7 +1230,9 @@
               source: tpItem.source || "ATR Level",
               type: tpItem.type || "ATR_FIB",
               timeframe: tpItem.timeframe || "D",
-              label: tpItem.label || "TP"
+              label: tpItem.label || "TP",
+              tier: tpItem.tier || null,
+              trimPct: tpItem.trimPct || null
             };
           }
           return {
@@ -1093,7 +1240,9 @@
             source: "ATR Level",
             type: "ATR_FIB",
             timeframe: "D",
-            label: "TP"
+            label: "TP",
+            tier: null,
+            trimPct: null
           };
         }).filter(p => Number.isFinite(p.price) && p.price > 0);
         if (tpPrices.length === 0) return null;
@@ -1114,6 +1263,9 @@
         }, tpPrices.map((tpItem, idx) => {
           const tf = tpItem.timeframe || "D";
           const tfLabel = tf === "W" ? "W" : tf === "D" ? "D" : tf === "240" || tf === "4H" ? "4H" : tf;
+          // Show tier info if available
+          const tierLabel = tpItem.tier ? ` • ${tpItem.tier}` : "";
+          const trimLabel = tpItem.trimPct ? ` (${Math.round(tpItem.trimPct * 100)}%)` : "";
           return /*#__PURE__*/React.createElement("div", {
             key: idx,
             className: "flex justify-between items-center text-xs bg-[#1a1f28] rounded px-2 py-1.5 border border-[#252b36]/30"
@@ -1123,7 +1275,11 @@
             className: "text-green-400 font-semibold"
           }, "$", tpItem.price.toFixed(2)), /*#__PURE__*/React.createElement("span", {
             className: "text-[#8b92a0] text-[10px]"
-          }, tpItem.source !== "ATR Level" ? tpItem.source : "", tpItem.timeframe ? ` (${tfLabel})` : "")), /*#__PURE__*/React.createElement("span", {
+          }, tpItem.tier && /*#__PURE__*/React.createElement("span", {
+            className: "text-yellow-400"
+          }, tpItem.tier), trimLabel && /*#__PURE__*/React.createElement("span", {
+            className: "text-[#8b92a0]"
+          }, trimLabel), tpItem.timeframe && !tpItem.tier ? ` (${tfLabel})` : "")), /*#__PURE__*/React.createElement("span", {
             className: "text-[#8b92a0] text-[10px]"
           }, tpItem.type !== "ATR_FIB" ? tpItem.type : ""));
         })));
@@ -2545,6 +2701,10 @@
         const entryPrice = Number(t.entry_price || 0);
         const exitPrice = Number(t.exit_price || 0);
         const quantity = Number(t.quantity || 0);
+        const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
+        const trimPrice = Number(t.trim_price || 0);
+        const trimTs = t.trim_ts;
+        const hasTrimmed = trimmedPct > 0;
         const formatDateTime = ts => {
           if (!ts) return "—";
           try {
@@ -2573,7 +2733,9 @@
           className: "px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30"
         }, "OPEN"), /*#__PURE__*/React.createElement("span", {
           className: `text-xs font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`
-        }, t.direction)), isClosed && /*#__PURE__*/React.createElement("div", {
+        }, t.direction), hasTrimmed && /*#__PURE__*/React.createElement("span", {
+          className: "px-1.5 py-0.5 rounded text-[9px] font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
+        }, Math.round(trimmedPct * 100), "% trimmed")), isClosed && /*#__PURE__*/React.createElement("div", {
           className: `text-sm font-bold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`
         }, pnl >= 0 ? "+" : "", "$", pnl.toFixed(2))), /*#__PURE__*/React.createElement("div", {
           className: "space-y-1 text-xs"
@@ -2595,7 +2757,27 @@
           className: "text-[#8b92a0]"
         }, "Quantity:"), /*#__PURE__*/React.createElement("span", {
           className: "text-white font-semibold"
-        }, quantity.toFixed(0), " shares")), isClosed && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+        }, quantity.toFixed(0), " shares")), hasTrimmed && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+          className: "border-t border-yellow-500/20 my-1.5"
+        }), /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-yellow-400"
+        }, "\uD83D\uDCCA Trimmed:"), /*#__PURE__*/React.createElement("span", {
+          className: "text-yellow-300 font-semibold"
+        }, formatDateTime(trimTs))), trimPrice > 0 && /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#8b92a0]"
+        }, "Trim Price:"), /*#__PURE__*/React.createElement("span", {
+          className: "text-yellow-300 font-semibold"
+        }, "$", trimPrice.toFixed(2))), /*#__PURE__*/React.createElement("div", {
+          className: "flex items-center justify-between"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#8b92a0]"
+        }, "Amount Trimmed:"), /*#__PURE__*/React.createElement("span", {
+          className: "text-yellow-300 font-semibold"
+        }, Math.round(trimmedPct * 100), "%"))), isClosed && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
           className: "border-t border-[#252b36]/50 my-1.5"
         }), /*#__PURE__*/React.createElement("div", {
           className: "flex items-center justify-between"

@@ -12276,39 +12276,39 @@
             if (!Number.isFinite(dayPct)) dayPct = pct;
           }
 
-          // Card background: base tint from daily change (blue/orange intensity),
-          // plus a completion "fill" overlay (left->right).
+          // Card background: Green if up, Red if down (darker when significant).
+          // Background fill left→right: Phase completion (phase_pct 0–1).
           const dayAbs = Number.isFinite(dayPct)
             ? Math.min(5, Math.abs(dayPct))
             : null;
           const dayIntensity =
-            dayAbs != null ? Math.max(0, Math.min(1, dayAbs / 2.5)) : 0; // 0..1 (2.5% => full)
-          const tintAlpha = 0.08 + dayIntensity * 0.26; // punchier tint for readability
+            dayAbs != null ? Math.max(0, Math.min(1, dayAbs / 2.5)) : 0;
+          const tintAlpha = 0.06 + dayIntensity * 0.2;
           const tint =
             Number.isFinite(dayPct) && dayPct !== 0
               ? dayPct >= 0
-                ? `rgba(59,130,246,${tintAlpha})`
-                : `rgba(249,115,22,${tintAlpha})`
+                ? `rgba(34,197,94,${tintAlpha})`
+                : `rgba(239,68,68,${tintAlpha})`
               : "rgba(0,0,0,0)";
+
+          const phasePct = Number.isFinite(phase) ? Math.max(0, Math.min(1, Math.abs(phase) / 100)) : 0;
+          const phaseFillPct = Math.round(phasePct * 100);
+          const phaseFill =
+            phaseFillPct > 0
+              ? `linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.05) ${phaseFillPct}%, rgba(255,255,255,0) ${phaseFillPct}%, rgba(255,255,255,0) 100%)`
+              : null;
+          const bgTint = `linear-gradient(0deg, ${tint}, ${tint})`;
+          const bgImage = phaseFill ? `${phaseFill}, ${bgTint}` : bgTint;
+
+          const badgesText = badges.length > 0 ? badges.join("") : "";
+          const outlineCls = dir === "LONG"
+            ? "border-blue-500/60"
+            : "border-red-500/60";
 
           const compP = completionForSize(t);
           const compPct = Number.isFinite(compP)
             ? Math.round(Math.max(0, Math.min(1, compP)) * 100)
             : null;
-          const compFill =
-            Number.isFinite(compP) && compPct != null
-              ? `linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) ${compPct}%, rgba(255,255,255,0) ${compPct}%, rgba(255,255,255,0) 100%)`
-              : null;
-          const bgTint = `linear-gradient(0deg, ${tint}, ${tint})`;
-          const bgImage = compFill ? `${compFill}, ${bgTint}` : bgTint;
-
-          const badgesText = badges.length > 0 ? badges.join("") : "";
-          const dayEdgeClass =
-            Number.isFinite(dayPct) && dayPct !== 0
-              ? dayPct >= 0
-                ? "shadow-[0_0_0_1px_rgba(56,189,248,0.22)]"
-                : "shadow-[0_0_0_1px_rgba(251,146,60,0.22)]"
-              : "";
 
           return (
             <div
@@ -12323,33 +12323,18 @@
                 }
               }}
               className={
-                // Match Viewport card feel (same surface + hover), with transition overlay applied.
-                "w-full text-left px-3 py-2 rounded-lg border transition-all hover:brightness-[1.06] " +
-                (movedRecently
-                  ? transitionCardClass
-                  : "border-[#252b36] hover:border-[#3a4aa0]")
-                  .trim() +
-                (dayEdgeClass ? ` ${dayEdgeClass}` : "")
+                "w-full text-left px-3 py-2 rounded-lg border-2 transition-all hover:brightness-[1.06] relative " +
+                (movedRecently ? transitionCardClass : outlineCls)
               }
               style={{ backgroundColor: "#13171e", backgroundImage: bgImage }}
             >
-              {/* Header row: Ticker + LONG/SHORT pill + Prev lane + Setup sub-label (consistent layout, no wrap) */}
+              {/* Header row: (Left) Ticker, Emojis | (Right) Current Price, Daily Change % and $ */}
               <div className="flex items-start justify-between gap-2 mb-1">
                 <div className="flex items-center gap-1.5 min-w-0 flex-nowrap overflow-hidden">
                   <span className="text-xs font-bold text-white truncate shrink-0 max-w-[60px]">
                     {t.ticker}
                   </span>
-                  <span
-                    className={
-                      "inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold tracking-wide border shrink-0 " +
-                      (dir === "LONG"
-                        ? "bg-cyan-400/15 text-cyan-200 border-cyan-300/50 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]"
-                        : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-300/50 shadow-[0_0_0_1px_rgba(217,70,239,0.18)]")
-                    }
-                    title="Directional bias"
-                  >
-                    {dir}
-                  </span>
+                  {badgesText ? <span className="text-[10px] shrink-0">{badgesText}</span> : null}
                   {prevLane && prevLane !== stage && stage !== "archive" ? (
                     <span
                       className={
@@ -12364,15 +12349,20 @@
                       }
                       title={`Previous lane: ${String(prevLane).replaceAll("_", " ").toUpperCase()}`}
                     >
-                      ← {String(prevLane).replaceAll("_", " ").toUpperCase()}
+                      ←{String(prevLane).replaceAll("_", " ").slice(0, 8)}
                     </span>
                   ) : null}
-                  {stage === "hold" && km?.bucket === "defend" ? (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 bg-amber-500/15 text-amber-200 border-amber-400/30" title="Defend - warning conditions">
-                      🛡 Defend
-                    </span>
-                  ) : null}
-                  {/* 3-Tier Status Badge */}
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 bg-[#252b36] text-[#8b92a0] border-[#3a4a7f]">
+                    {stage === "hold" && km?.bucket === "defend" ? "🛡 DEFEND" :
+                     stage === "watching" || stage === "setup_watch" || stage === "flip_watch" ? "WATCH" :
+                     stage === "almost_ready" ? "ALMOST" :
+                     stage === "enter_now" ? "ENTER" :
+                     stage === "just_entered" ? "NEW" :
+                     stage === "hold" ? "HOLD" :
+                     stage === "trim" ? "TRIM" :
+                     stage === "exit" ? "EXIT" :
+                     stage === "archive" ? "ARCHIVE" : (stage ? String(stage).replace(/_/g, " ").toUpperCase() : "—")}
+                  </span>
                   {(() => {
                     const trade = tradeByTicker.get(sym);
                     const trimmedPct = Number(trade?.trimmedPct || trade?.trimmed_pct || 0);
@@ -12389,7 +12379,71 @@
                   })()}
                 </div>
 
-                {/* Open full ticker view without toggling accordion */}
+                {/* Right: Current Price, Daily Change % and $ */}
+                <div className="flex flex-col items-end shrink-0">
+                  <span className="text-white font-bold text-[11px]">
+                    {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
+                  </span>
+                  {(() => {
+                    const up = Number(dayChg || dayPct || 0) >= 0;
+                    const cls = up ? "text-green-400" : "text-red-400";
+                    const sign = up ? "+" : "";
+                    return (
+                      <span className={`text-[9px] font-semibold ${cls}`}>
+                        {Number.isFinite(dayPct) ? `${sign}${dayPct.toFixed(2)}%` : "—"}
+                        {Number.isFinite(dayChg) ? ` ${sign}${fmtUsdAbs(dayChg)}` : ""}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* If open position: Entry Price, % change since entered */}
+              {showEntryStats && (Number.isFinite(entryPrice) || Number.isFinite(entryChangePct)) && (
+                <div className="flex items-center justify-between gap-2 mb-1 text-[9px] text-[#8b92a0]">
+                  <span>Entry {Number.isFinite(entryPrice) ? `$${entryPrice.toFixed(2)}` : "—"}</span>
+                  {Number.isFinite(entryChangePct) && (
+                    <span className={entryChangePct >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
+                      {entryChangePct >= 0 ? "+" : ""}{entryChangePct.toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Card contents: Score, Rank | R:R, SL, TP | Phase | Completion with TP markers */}
+              <div className="flex items-center justify-between gap-2 text-[9px] text-[#8b92a0] flex-wrap">
+                <span>Score {Number.isFinite(score) ? score.toFixed(1) : "—"}</span>
+                {Number.isFinite(rankPos) && rankPos > 0 && <span>#{rankPos}</span>}
+                <span>R:R {Number.isFinite(rr) ? rr.toFixed(2) : "—"}</span>
+                {sl != null && <span className="text-red-300">SL ${sl.toFixed(2)}</span>}
+                {tp != null && <span className="text-green-300">TP ${tp.toFixed(2)}</span>}
+                <span>Phase {Number.isFinite(phase) ? phase.toFixed(1) : "—"}</span>
+              </div>
+              {compPct != null && (
+                <div className="mt-1">
+                  <div className="flex items-center justify-between text-[8px] text-[#8b92a0] mb-0.5">
+                    <span>Completion {compPct}%</span>
+                    {(() => {
+                      const tpLevels = Array.isArray(t?.tp_levels) ? t.tp_levels : [];
+                      const tp1 = tpLevels[0];
+                      const tp2 = tpLevels[1];
+                      const tp1Price = tp1 && (typeof tp1 === "object" ? tp1.price : tp1);
+                      const tp2Price = tp2 && (typeof tp2 === "object" ? tp2.price : tp2);
+                      return (
+                        <span className="text-[#5c6475]">
+                          {Number.isFinite(numFromAny(tp1Price)) ? `TP1 $${Number(tp1Price).toFixed(1)}` : ""}
+                          {Number.isFinite(numFromAny(tp2Price)) ? ` · TP2 $${Number(tp2Price).toFixed(1)}` : ""}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div className="h-1.5 rounded bg-[#252b36] overflow-hidden flex">
+                    <div className={`h-full ${dir === "LONG" ? "bg-green-500/70" : "bg-red-500/70"}`} style={{ width: `${Math.min(100, compPct)}%` }} />
+                  </div>
+                </div>
+              )}
+
+              <div className="absolute top-1 right-1">
                 <button
                   type="button"
                   className="px-1 py-0.5 rounded bg-white/5 text-[#9fb0df] text-[10px] border border-white/10 hover:bg-white/10 shrink-0"
@@ -12401,49 +12455,6 @@
                 >
                   ↗
                 </button>
-              </div>
-
-              {/* Collapsed body: Price + Daily change under price | Signals on right */}
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="min-w-0">
-                  <div className="text-white font-semibold text-[11px]">
-                    {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
-                  </div>
-                  {(() => {
-                    const up = Number(dayChg || dayPct || 0) >= 0;
-                    const cls = up ? "text-sky-300" : "text-orange-300";
-                    const sign = up ? "+" : "-";
-                    const chgText = Number.isFinite(dayChg)
-                      ? `${sign}${fmtUsdAbs(dayChg)}`
-                      : null;
-                    const pctText = Number.isFinite(dayPct)
-                      ? `${sign}${Math.abs(dayPct).toFixed(2)}%`
-                      : null;
-                    return (
-                      <div className={`text-[9px] ${cls} truncate`}>
-                        {chgText || pctText ? (
-                          <>
-                            {chgText || "—"}
-                            {pctText ? ` (${pctText})` : ""}
-                          </>
-                        ) : (
-                          <span className="opacity-60">—</span>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  {badgesText ? (
-                    <div
-                      className="px-2 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] font-semibold text-[#f0f2f5]"
-                      title="Signals"
-                    >
-                      {badgesText}
-                    </div>
-                  ) : null}
-                </div>
               </div>
 
               {isExpanded && (

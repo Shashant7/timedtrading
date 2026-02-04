@@ -6967,6 +6967,9 @@
                               const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
                               const completion = completionForSize(tickerData || {});
                               const completionPct = Math.min(100, Math.max(0, completion * 100));
+                              const phase = tickerData?.phase_pct != null ? Number(tickerData.phase_pct) : null;
+                              const phasePct = Number.isFinite(phase) ? Math.max(0, Math.min(1, Math.abs(phase) / 100)) : 0;
+                              const phaseFillPct = Math.round(phasePct * 100);
                               
                               const currentPrice = pos.current || Number(tickerData?.price) || null;
                               const entryPrice = pos.entryPrice || Number(pos.trade?.entryPrice) || null;
@@ -6975,12 +6978,22 @@
                               const trimmedPct = Number(pos.trade?.trimmedPct || 0);
                               
                               const stageInfo = getPositionStage(pos);
+                              const outlineCls = isLong ? "border-blue-500/60" : "border-red-500/60";
+                              const tintAlpha = (retOpenPct != null && retOpenPct !== 0) ? 0.06 + Math.min(0.2, Math.abs(retOpenPct) / 10) : 0.04;
+                              const tint = (retOpenPct ?? 0) >= 0 ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
+                              const phaseFill = phaseFillPct > 0
+                                ? `linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.05) ${phaseFillPct}%, rgba(255,255,255,0) ${phaseFillPct}%, rgba(255,255,255,0) 100%)`
+                                : null;
                               
-                              // Tier badge
                               let tierBadge = null;
-                              if (trimmedPct >= 0.8) tierBadge = { label: "🚀", color: "text-green-300" };
-                              else if (trimmedPct >= 0.6) tierBadge = { label: "💰", color: "text-orange-300" };
-                              else if (trimmedPct > 0) tierBadge = { label: "🎯", color: "text-yellow-300" };
+                              if (trimmedPct >= 0.8) tierBadge = "🚀";
+                              else if (trimmedPct >= 0.6) tierBadge = "💰";
+                              else if (trimmedPct > 0) tierBadge = "🎯";
+                              
+                              const rr = pos.trade?.rr != null ? Number(pos.trade.rr) : null;
+                              const sl = pos.trade?.sl != null || pos.trade?.sl_price != null ? Number(pos.trade.sl ?? pos.trade.sl_price) : null;
+                              const tp = pos.trade?.tp != null ? Number(pos.trade.tp) : null;
+                              const score = tickerData?.flip_watch_score ?? tickerData?.htf_score ?? null;
                               
                               return (
                                 <button
@@ -6993,53 +7006,59 @@
                                     const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
                                     setSelectedPositionEvents(Array.isArray(events) ? events : []);
                                   }}
-                                  className={`w-full text-left px-2.5 py-2 rounded border border-[var(--tt-border)] bg-[var(--tt-bg-elevated)] hover:border-[var(--tt-border-strong)] transition-all overflow-hidden relative`}
+                                  className={`w-full text-left px-2.5 py-2 rounded-lg border-2 ${outlineCls} bg-[var(--tt-bg-elevated)] hover:brightness-[1.04] transition-all overflow-hidden relative`}
+                                  style={{ backgroundImage: phaseFill ? `${phaseFill}, linear-gradient(0deg, ${tint}, ${tint})` : `linear-gradient(0deg, ${tint}, ${tint})` }}
                                   title="Open in right rail"
                                 >
-                                  {/* Subtle TP progress fill */}
-                                  <div className={`absolute inset-y-0 left-0 ${isLong ? "bg-green-500/10" : "bg-red-500/10"}`} style={{ width: `${completionPct}%` }} aria-hidden="true" />
-                                  <div className="relative z-10">
-                                    {/* Row 1: Ticker + Stage | Current Price */}
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="font-bold text-white text-sm">{pos.ticker}</span>
-                                        <span className={`text-[9px] px-1 py-0.5 rounded ${stageInfo.bg} ${stageInfo.color} font-medium`}>
-                                          {stageInfo.label}
-                                        </span>
-                                        {tierBadge && <span className={`text-xs ${tierBadge.color}`}>{tierBadge.label}</span>}
-                                      </div>
-                                      <span className="text-white font-bold text-base">
+                                  {/* Header: (Left) Ticker, Emojis | (Right) Current Price, Daily Change % and $ */}
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-bold text-white text-sm">{pos.ticker}</span>
+                                      {tierBadge && <span className="text-xs">{tierBadge}</span>}
+                                      <span className={`text-[9px] px-1 py-0.5 rounded ${stageInfo.bg} ${stageInfo.color} font-medium`}>
+                                        {stageInfo.label}
+                                      </span>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-white font-bold text-sm">
                                         {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
                                       </span>
+                                      <div className={`text-[9px] font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                        {retOpenPct != null ? `${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(2)}%` : "—"}
+                                        {pnlOpen != null ? ` ${fmtUsd(pnlOpen)}` : ""}
+                                      </div>
                                     </div>
-                                    
-                                    {/* Row 2: Entry | Change | P&L */}
-                                    <div className="flex items-center justify-between mt-1 text-[10px]">
-                                      <span className="text-[var(--tt-text-faint)]">
-                                        Entry {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}
+                                  </div>
+                                  {/* If open position: Entry Price, % change */}
+                                  <div className="flex items-center justify-between text-[9px] text-[var(--tt-text-faint)] mb-1">
+                                    <span>Entry {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}</span>
+                                    {retOpenPct != null && (
+                                      <span className={(retOpenPct ?? 0) >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
+                                        {retOpenPct >= 0 ? "+" : ""}{retOpenPct.toFixed(2)}%
                                       </span>
-                                      <div className="flex items-center gap-2">
-                                        <span className={`font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                          {retOpenPct != null ? `${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(1)}%` : "—"}
-                                        </span>
-                                        <span className={`font-semibold ${(pnlOpen ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                          {pnlOpen != null ? fmtUsd(pnlOpen) : "—"}
-                                        </span>
-                                      </div>
-                                    </div>
-                                    
-                                    {/* Row 3: Trim progress (if trimmed) */}
-                                    {trimmedPct > 0 && (
-                                      <div className="mt-1.5 flex items-center gap-2">
-                                        <div className="flex-1 h-1 rounded bg-[var(--tt-bg-surface)] overflow-hidden flex">
-                                          <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, trimmedPct * 100)}%` }} />
-                                          <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, (trimmedPct * 100) - 60))}%` }} />
-                                          <div className="h-full bg-green-500/70" style={{ width: `${Math.max(0, (trimmedPct * 100) - 80)}%` }} />
-                                        </div>
-                                        <span className="text-[9px] text-[var(--tt-text-muted)]">{Math.round(trimmedPct * 100)}%</span>
-                                      </div>
                                     )}
                                   </div>
+                                  {/* Contents: Score, R:R, SL, TP | Phase | Completion */}
+                                  <div className="flex items-center justify-between gap-2 text-[9px] text-[var(--tt-text-muted)] flex-wrap">
+                                    {score != null && <span>Score {Number(score).toFixed(1)}</span>}
+                                    {rr != null && <span>R:R {Number(rr).toFixed(2)}</span>}
+                                    {sl != null && <span className="text-red-300">SL ${sl.toFixed(2)}</span>}
+                                    {tp != null && <span className="text-green-300">TP ${tp.toFixed(2)}</span>}
+                                    {phase != null && <span>Phase {Number(phase).toFixed(1)}</span>}
+                                  </div>
+                                  {/* Completion bar with TP markers */}
+                                  {(completionPct > 0 || trimmedPct > 0) && (
+                                    <div className="mt-1.5">
+                                      <div className="flex items-center justify-between text-[8px] text-[var(--tt-text-faint)] mb-0.5">
+                                        <span>Completion {Math.round(trimmedPct > 0 ? trimmedPct * 100 : completionPct)}%</span>
+                                      </div>
+                                      <div className="h-1.5 rounded bg-[var(--tt-bg-surface)] overflow-hidden flex">
+                                        <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, (trimmedPct || completion) * 100)}%` }} />
+                                        <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, ((trimmedPct || completion) * 100) - 60))}%` }} />
+                                        <div className={`h-full ${isLong ? "bg-green-500/70" : "bg-red-500/70"}`} style={{ width: `${Math.max(0, ((trimmedPct || completion) * 100) - 80)}%` }} />
+                                      </div>
+                                    </div>
+                                  )}
                                 </button>
                               );
                             };
