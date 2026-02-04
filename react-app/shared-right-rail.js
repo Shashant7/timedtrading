@@ -4131,13 +4131,15 @@
                         ) : (
                           <div className="space-y-3">
                             {ledgerTrades.slice(0, 5).map((t) => {
+                              const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
                               const isClosed =
-                                t.status === "WIN" || t.status === "LOSS";
+                                t.status === "WIN" ||
+                                t.status === "LOSS" ||
+                                trimmedPct >= 0.9999;
                               const pnl = Number(t.pnl || 0);
                               const entryPrice = Number(t.entry_price || 0);
                               const exitPrice = Number(t.exit_price || 0);
                               const quantity = Number(t.quantity || 0);
-                              const trimmedPct = Number(t.trimmed_pct || t.trimmedPct || 0);
                               const trimPrice = Number(t.trim_price || 0);
                               const trimTs = t.trim_ts;
                               const hasTrimmed = trimmedPct > 0;

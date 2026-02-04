@@ -6,44 +6,26 @@
 ## Current Focus
 
 - **Worker as source of truth & execution history** — See [worker-ledger-execution-plan.md](worker-ledger-execution-plan.md) for the full plan.
+- **Architecture: D1-first trade reads** — Move ingest path to read trades from D1 (trades + positions), deprecate KV for trade state.
 
-<!-- Add other active tasks here with [ ] checkboxes -->
+### D1 Migration Plan (done)
+- [x] Ledger API reads from D1 (GET /timed/ledger/trades)
+- [x] Open position lookup prefers D1 (getOpenPositionAsTrade)
+- [x] **Ingest path**: Load allTrades from D1 when env.DB exists, fallback to KV
+- [x] **GET /timed/trades**: Default to D1 (use ?source=kv to force KV)
+- [ ] Optional: Stop writing timed:trades:all to KV (kept for backward compat / replay sync)
 
-## Simulation Dashboard Cleanup (2026-02-04)
+## Recently Completed (2026-02)
 
-- [x] Renamed to "Simulated Account", added paper-trading badge
-- [x] Account chart: larger (120px), time range pills (1D/5D/10D/30D/1Y)
-- [x] Account summary stats row: Total P&L, Today, Open P&L, Closed count
-- [x] Holdings section (LONG | SHORT) with action badges (HOLD/TRIM/NEW)
-- [x] Trade History: by day and by ticker (clickable to open detail)
+- **Card styling**: Unified Kanban, Position, Viewport — cyan/fuchsia LONG/SHORT, left accent, consistent borders
+- **Simulation dashboard**: Renamed to "Simulated Account", hero chart (1D/5D/10D/30D/1Y), Holdings, Trade History by day/ticker
+- **Worker modularization**: storage, ingest, trading, api, alerts modules; route table; data lifecycle cron
+- **UI**: ReferenceError guards, Time Travel layout, Kanban sizing, daily summary, P&L on cards
+- **Doc consolidation & workflow**: tasks/, docs/README, archive
 
-## UI Updates (2026-02-04)
+## Completed (earlier)
 
-- [x] ReferenceError guards for Right Rail deps (fmtUsd, computeHorizonBucket, TRADE_SIZE)
-- [x] Time Travel moved above Action Center in its own row
-- [x] Search bar narrowed (280px → 200px)
-- [x] Horizon filter removed from OpportunitiesPanel
-- [x] Kanban lanes: min 190px, max 260px (from 170/240)
-- [x] Daily trade summary in Action Center (today's trades, W/L, P&L)
-- [x] P&L $ display for open positions in Kanban cards
-
-## Completed
-
-- [x] **Alerts & API module extraction** (2026-02-04)
-  - Created worker/api.js (sendJSON, corsHeaders, ackJSON, readBodyAsJSON, requireKeyOr401, checkRateLimit, checkRateLimitFixedWindow) and worker/alerts.js (notifyDiscord, shouldSendDiscordAlert, generateProactiveAlerts).
-- [x] **Trading module extraction** (2026-02-04)
-  - Created worker/trading.js with KANBAN_STAGE_ORDER, enforceStageMonotonicity, getTradeDirection.
-- [x] **Ingest module extraction** (2026-02-04)
-  - Created worker/ingest.js with normTicker, isNum, normalizeTfKey, validateTimedPayload, validateCapturePayload, validateCandlesPayload.
-- [x] **Storage module extraction** (2026-02-04)
-  - Created worker/storage.js with kvGetJSON, kvPutJSON, kvPutText, kvPutJSONWithRetry, stableHash, d1InsertTrailPoint, d1InsertIngestReceipt.
-- [x] **Route table in worker** (2026-02-03)
-  - Added ROUTES array and getRouteKey(); replaced 50+ if (pathname && method) with if (routeKey === "..."); early 404 for unknown routes.
-- [x] **Data lifecycle cron** (2026-02-03)
-  - Added `0 4 * * *` (4 AM UTC daily) to wrangler.toml; scheduled handler invokes `runDataLifecycle(env)` when that cron fires (aggregate timed_trail → trail_5m_facts, purge old raw + ingest_receipts).
-- [x] **Doc consolidation & workflow setup** (2026-02-02)
-  - Created tasks/ with WORKFLOW_ORCHESTRATION.md, todo.md, lessons.md
-  - Added .cursor/rules/workflow-orchestration.mdc (alwaysApply)
-  - Archived 23 one-off/dated docs to archive/docs/
-  - Moved ops & reference docs to docs/, created docs/README.md index
-  - Root: README, ARCHITECTURE, SECRETS_MANAGEMENT, TESTING, PERFORMANCE_OPTIMIZATIONS only
+- Data lifecycle cron (4 AM UTC: aggregate trail → 5m, purge old)
+- Route table in worker (ROUTES, getRouteKey, early 404)
+- D1 ledger, positions, trade simulation
+- 3-tier TP, Kanban lanes, Time Travel

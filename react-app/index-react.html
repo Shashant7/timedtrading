@@ -1110,32 +1110,9 @@
       // ─────────────────────────────────────────────────────────────
       const GROUPS = {
         UPTICKS: new Set([
-          "TSLA",
-          "CLS",
-          "CRS",
-          "VST",
-          "FSLR",
-          "JCI",
-          "ORCL",
-          "AMZN",
-          "BRK.B",
-          "BABA",
-          "WMT",
-          "PH",
-          "GEV",
-          "HII",
-          "PWR",
-          "SPGI",
-          "APP",
-          "PANW",
-          "RDDT",
-          "TT",
-          "GLXY",
-          "ETHA",
-          "MTB",
-          "AMGN",
-          "GILD",
-          "KO",
+          "TSLA", "STX", "AU", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL", "AMZN",
+          "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "CSX", "PWR", "SPGI", "APP",
+          "PANW", "RDDT", "TT", "GLXY", "ETHA", "KO", "GILD", "MTB", "AMGN",
         ]),
         SuperGranny: new Set(["META", "NVDA", "AMD", "ANET", "GS"]),
         GRNI: new Set([
@@ -1275,37 +1252,10 @@
           "MSTR",
         ]),
         Social: new Set([
-          "CSCO",
-          "BA",
-          "NKE",
-          "AAPL",
-          "PI",
-          "APLD",
-          "MU",
-          // Social group (added)
-          "SWK",
-          "AEHR",
-          "SLV",
-          "SNDK",
-          "INTC",
-          "SOXL",
-          "IREN",
-          "RKLB",
-          "CRWV",
-          "BE",
-          "ONDS",
-          "ASTS",
-          "LITE",
-          "AGQ",
-          "IBRX",
-          "LRCX",
-          "WDC",
-          "CRVS",
-          "GDXJ",
-          "HL",
-          "STX",
-          "MP",
-          "B",
+          "CSCO", "BA", "NKE", "AAPL", "PI", "APLD", "MU",
+          "HOOD", "CCJ", "ULTA", "STX",
+          "SWK", "AEHR", "SLV", "SNDK", "INTC", "SOXL", "IREN", "RKLB", "CRWV", "BE",
+          "ONDS", "ASTS", "LITE", "AGQ", "IBRX", "LRCX", "WDC", "CRVS", "GDXJ", "HL", "MP", "B",
         ]),
         SP_Sectors: new Set([
           "XLK",
@@ -1326,6 +1276,7 @@
       const GROUP_LABELS = {
         SP_Sectors: "S&P Sectors",
         Futures: "Futures",
+        Other: "Other",
       };
 
       const GROUP_ORDER = [
@@ -1337,7 +1288,7 @@
         "GRNJ",
         "GRNY",
         "Social",
-        "No Group",
+        "Other",
       ];
 
       function normTicker(t) {
@@ -1356,20 +1307,14 @@
         const out = [];
         for (const [g, set] of Object.entries(GROUPS))
           if (set.has(T)) out.push(g);
-        // If ticker is not in any group, add it to "No Group"
-        if (out.length === 0) {
-          out.push("No Group");
-        }
+        if (out.length === 0) out.push("Other");
         return out;
       }
 
-      // Check if ticker is in any group (including "No Group")
       function isTickerInGroups(t) {
         const T = normTicker(t);
-        // Check if ticker is in any actual group
         for (const [g, set] of Object.entries(GROUPS))
           if (set.has(T)) return true;
-        // If not in any group, it's in "No Group" - return true
         return true;
       }
 
@@ -2923,15 +2868,14 @@
             }
           }
 
-          // Show all tickers - they will be in a group (including "No Group" if unmapped)
-          // S&P Sectors and Futures are always visible, and unmapped tickers go to "No Group"
+          // Show all tickers - they will be in a group (including "Other" if unmapped)
           const isSPSector =
             GROUPS.SP_Sectors && GROUPS.SP_Sectors.has(normTicker(ticker));
           const isFuture =
             GROUPS.Futures && GROUPS.Futures.has(normTicker(ticker));
-          const inGroups = isTickerInGroups(ticker); // Always returns true now (includes "No Group")
+          const inGroups = isTickerInGroups(ticker);
 
-          // All tickers should be shown (either in a group or in "No Group")
+          // All tickers shown (either in a group or in "Other")
           // This check is now redundant but kept for clarity
           if (!inGroups) {
             console.log(
@@ -2970,8 +2914,7 @@
             if (effectiveFilters.group === "ANY") {
               if (gs.length === 0) continue;
             } else if (effectiveFilters.group === "UNGROUPED") {
-              // UNGROUPED means only in "No Group" (not in any actual group)
-              const actualGroups = gs.filter((g) => g !== "No Group");
+              const actualGroups = gs.filter((g) => g !== "Other");
               if (actualGroups.length > 0) continue;
             } else {
               if (!gs.includes(effectiveFilters.group)) continue;
@@ -8081,7 +8024,7 @@
                     </li>
                     <li>
                       <strong className="text-white">Groups</strong>: Upticks /
-                      Super Granny / GRN* / Social / No Group
+                      Super Granny / GRN* / Social / Other
                     </li>
                     <li>
                       <strong className="text-white">S&amp;P Sectors</strong>:
@@ -10007,8 +9950,8 @@
             icon: "⚡",
           },
           {
-            label: "No Group",
-            filter: { group: "No Group" },
+            label: "Other",
+            filter: { group: "Other" },
             icon: "📋",
           },
         ];
@@ -10933,7 +10876,7 @@
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "No Group",
+                      "Other",
                       pillCounts?.groups?.UNGROUPED,
                     ),
                     group === "UNGROUPED",
@@ -11939,8 +11882,13 @@
             const sym = String(t?.ticker || "").toUpperCase();
             const trade = tradeByTicker.get(sym);
             const status = trade ? String(trade.status || "").toUpperCase() : "";
-            const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs);
-            const isOpen = status === "OPEN" || status === "TP_HIT_TRIM" || !status;
+            const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+            const isClosed =
+              status === "WIN" ||
+              status === "LOSS" ||
+              !!(trade?.exit_ts ?? trade?.exitTs) ||
+              trimmedPct >= 0.9999; // Safety net: treat 100% trim as closed
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
 
             // Override from trades: exited -> exit lane; trimmed -> trim lane; OPEN in exit lane -> hold
             if (trade && isClosed) {

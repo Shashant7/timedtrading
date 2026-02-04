@@ -8,6 +8,8 @@ import {
   stableHash,
   d1InsertTrailPoint,
   d1InsertIngestReceipt,
+  slimPayloadForD1,
+  minimalPayloadForD1,
 } from "./storage.js";
 import {
   normTicker,
@@ -122,6 +124,7 @@ const ROUTES = [
   ["POST", "/timed/admin/replay-ticker", "POST /timed/admin/replay-ticker"],
   ["POST", "/timed/admin/replay-ticker-d1", "POST /timed/admin/replay-ticker-d1"],
   ["GET", "/timed/admin/replay-data-stats", "GET /timed/admin/replay-data-stats"],
+  ["GET", "/timed/admin/data-range", "GET /timed/admin/data-range"],
   ["POST", "/timed/admin/replay-ingest", "POST /timed/admin/replay-ingest"],
   ["POST", "/timed/admin/replay-day", "POST /timed/admin/replay-day"],
   ["POST", "/timed/admin/dedupe-trades", "POST /timed/admin/dedupe-trades"],
@@ -4825,9 +4828,14 @@ async function processTradeSimulation(
     Number.isFinite(asOfMs) ? new Date(asOfMs).toISOString() : new Date().toISOString();
   try {
     const tradesKey = "timed:trades:all";
-    const allTrades = isReplay
-      ? (replayCtx.allTrades || [])
-      : (await kvGetJSON(KV, tradesKey)) || [];
+    let allTrades;
+    if (isReplay) {
+      allTrades = replayCtx.allTrades || [];
+    } else if (env?.DB) {
+      allTrades = (await d1LoadTradesForSimulation(env)) ?? (await kvGetJSON(KV, tradesKey)) ?? [];
+    } else {
+      allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+    }
 
     const sym = String(ticker || "").toUpperCase();
     const stage = String(tickerData?.kanban_stage || "")
@@ -5161,7 +5169,7 @@ async function processTradeSimulation(
       const p = Number(trimPrice);
       if (!Number.isFinite(p) || p <= 0) return;
       const oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
-      const tgt = clamp(Number(targetTrimPct), 0, 0.95);
+      const tgt = clamp(Number(targetTrimPct), 0, 1);
       if (tgt <= oldTrim + 1e-6) return;
       const delta = tgt - oldTrim;
       const shares = Number(trade.shares);
@@ -5177,7 +5185,21 @@ async function processTradeSimulation(
         dirSign;
       trade.realizedPnl = Number(trade.realizedPnl || 0) + pnlRealized;
       trade.trimmedPct = tgt;
-      trade.status = tgt > 0 ? "TP_HIT_TRIM" : "OPEN";
+      const isFullClose = tgt >= 0.9999;
+      trade.status = isFullClose
+        ? (trade.realizedPnl >= 0 ? "WIN" : "LOSS")
+        : tgt > 0
+          ? "TP_HIT_TRIM"
+          : "OPEN";
+      if (isFullClose) {
+        trade.exitPrice = p;
+        trade.exitReason = "TP_FULL";
+        trade.pnl = trade.realizedPnl;
+        trade.pnlPct =
+          Number.isFinite(Number(trade.notional)) && Number(trade.notional) > 0
+            ? (trade.realizedPnl / Number(trade.notional)) * 100
+            : null;
+      }
 
       // ─────────────────────────────────────────────────────────────────────
       // 3-TIER SL ADJUSTMENT: Move SL based on which tier was just hit
@@ -5240,9 +5262,10 @@ async function processTradeSimulation(
         trade.sl_last_tighten_ts = eventTs();
       }
 
+      const tsNow = eventTs();
       const ev = {
         type: "TRIM",
-        timestamp: eventTs(),
+        timestamp: tsNow,
         price: p,
         shares: trimShares,
         value: p * trimShares,
@@ -5258,8 +5281,23 @@ async function processTradeSimulation(
       trade.history = Array.isArray(trade.history)
         ? [...trade.history, ev]
         : [ev];
-      trade.lastUpdate = eventTs();
-      trade.trim_ts = Number.isFinite(asOfMs) ? asOfMs : (isoToMs(ev.timestamp) || null);
+      if (isFullClose) {
+        const exitEv = {
+          type: "EXIT",
+          timestamp: tsNow,
+          price: p,
+          shares: trimShares,
+          value: p * trimShares,
+          reason: "TP_FULL",
+          pnl_realized: pnlRealized,
+          note: `Closed at $${p.toFixed(2)} (TP_FULL)`,
+        };
+        trade.history.push(exitEv);
+        trade.exit_ts = isoToMs(tsNow) || Date.now();
+        if (trade.exit_ts < 1e12) trade.exit_ts = trade.exit_ts * 1000;
+      }
+      trade.lastUpdate = tsNow;
+      trade.trim_ts = Number.isFinite(asOfMs) ? asOfMs : (isoToMs(tsNow) || null);
 
       // Portfolio cash increases by proceeds
       portfolio.cash = Number(portfolio.cash) + p * trimShares;
@@ -5272,6 +5310,14 @@ async function processTradeSimulation(
           await d1InsertTradeEvent(env, trade.id, ev).catch((e) => {
             console.error("[D1 LEDGER] trimTradeToPct event insert failed:", e);
           });
+          if (isFullClose) {
+            const exitEv = trade.history.find((e) => e && e.type === "EXIT");
+            if (exitEv) {
+              await d1InsertTradeEvent(env, trade.id, exitEv).catch((e) => {
+                console.error("[D1 LEDGER] trimTradeToPct EXIT event insert failed:", e);
+              });
+            }
+          }
           // Phase 2: TRIM execution_action (position_id = trade.id)
           const tsTrim = ev.timestamp ? new Date(ev.timestamp).getTime() : Date.now();
           const actionIdTrim = `${trade.id}-TRIM-${tsTrim}`;
@@ -5279,18 +5325,19 @@ async function processTradeSimulation(
             action_id: actionIdTrim,
             position_id: trade.id,
             ts: tsTrim,
-            action_type: "TRIM",
+            action_type: isFullClose ? "EXIT" : "TRIM",
             qty: trimShares,
             price: p,
             value: p * trimShares,
             pnl_realized: pnlRealized,
-            reason: trimReason || "TRIM",
+            reason: isFullClose ? "TP_FULL" : (trimReason || "TRIM"),
           }).catch(() => {});
           const newCostBasis = Number(trade.shares) * (1 - tgt) * Number(trade.entryPrice);
           await d1UpdatePosition(env, trade.id, {
-            total_qty: Number(trade.shares) * (1 - tgt),
-            cost_basis: newCostBasis,
+            total_qty: isFullClose ? 0 : Number(trade.shares) * (1 - tgt),
+            cost_basis: isFullClose ? 0 : newCostBasis,
             updated_at: tsTrim,
+            ...(isFullClose ? { status: "CLOSED", closed_at: tsTrim } : {}),
           }).catch(() => {});
         }
       }
@@ -9342,9 +9389,16 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
       ? String(payload.prev_kanban_stage)
       : null;
 
+  const D1_MAX = 50000;
   let payloadJson = null;
   try {
-    payloadJson = JSON.stringify(payload);
+    let slim = slimPayloadForD1(payload);
+    let s = JSON.stringify(slim);
+    if (s.length > D1_MAX) {
+      slim = minimalPayloadForD1(payload);
+      s = JSON.stringify(slim);
+    }
+    payloadJson = s.length <= D1_MAX ? s : null;
   } catch {
     payloadJson = null;
   }
@@ -9803,10 +9857,12 @@ async function d1UpsertTrade(env, trade) {
   const createdAt = entryTs || Date.now();
   const updatedAt = Date.now();
 
-  // Best-effort exit ts from history
-  let exitTs = null;
+  // Best-effort exit ts from trade.exit_ts, then history EXIT event
+  let exitTs = Number(trade.exit_ts);
+  if (!Number.isFinite(exitTs) || exitTs <= 0) exitTs = null;
+  if (exitTs != null && exitTs < 1e12) exitTs = exitTs * 1000;
   let exitEvent = null;
-  if (Array.isArray(trade.history)) {
+  if (exitTs == null && Array.isArray(trade.history)) {
     for (let i = trade.history.length - 1; i >= 0; i--) {
       const e = trade.history[i];
       if (e && e.type === "EXIT") {
@@ -10273,18 +10329,34 @@ async function d1GetAllPositionsAsTrades(env) {
   }
 }
 
-/** GET /timed/trades?source=d1 — Load trades from D1 (source of truth) in same shape as KV. */
-async function d1GetAllTradesWithEvents(env) {
+/** Load all trades from D1 for simulation (same shape as KV). Includes shares from positions. */
+async function d1LoadTradesForSimulation(env) {
   const db = env?.DB;
   if (!db) return null;
   try {
-    const tradesRes = await db.prepare(
-      `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-        exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-        script_version, created_at, updated_at, trim_ts, trim_price
-       FROM trades ORDER BY entry_ts DESC`
-    ).all();
-    const rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
+    let rows;
+    try {
+      const tradesRes = await db.prepare(
+        `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
+          t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
+          t.script_version, t.created_at, t.updated_at, t.trim_ts, t.trim_price,
+          COALESCE(p.total_qty, 0) AS pos_qty
+         FROM trades t
+         LEFT JOIN positions p ON p.position_id = t.trade_id
+         ORDER BY t.entry_ts DESC`
+      ).all();
+      rows = Array.isArray(tradesRes?.results) ? tradesRes.results : [];
+    } catch (joinErr) {
+      if ((joinErr?.message || "").includes("no such table") && (joinErr?.message || "").includes("positions")) {
+        const tradesRes = await db.prepare(
+          `SELECT trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
+            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+            script_version, created_at, updated_at, trim_ts, trim_price
+           FROM trades ORDER BY entry_ts DESC`
+        ).all();
+        rows = (Array.isArray(tradesRes?.results) ? tradesRes.results : []).map((r) => ({ ...r, pos_qty: 0 }));
+      } else throw joinErr;
+    }
     if (rows.length === 0) return [];
 
     const tradeIds = rows.map((r) => r.trade_id).filter(Boolean);
@@ -10314,6 +10386,11 @@ async function d1GetAllTradesWithEvents(env) {
     return rows.map((r) => {
       const history = eventsByTradeId[r.trade_id] || [];
       const entryTs = r.entry_ts != null ? Number(r.entry_ts) : null;
+      const posQty = Number(r.pos_qty) || 0;
+      const trimmedPct = r.trimmed_pct != null ? Number(r.trimmed_pct) : 0;
+      const shares = trimmedPct > 0 && trimmedPct < 1 && posQty > 0
+        ? posQty / (1 - trimmedPct)
+        : posQty;
       return {
         id: r.trade_id,
         trade_id: r.trade_id,
@@ -10337,13 +10414,19 @@ async function d1GetAllTradesWithEvents(env) {
         script_version: r.script_version,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        shares: Number.isFinite(shares) && shares > 0 ? shares : undefined,
         history,
       };
     });
   } catch (err) {
-    console.error("[D1 LEDGER] d1GetAllTradesWithEvents failed:", err);
+    console.error("[D1 LEDGER] d1LoadTradesForSimulation failed:", err);
     return null;
   }
+}
+
+/** GET /timed/trades?source=d1 — Alias for backward compatibility. */
+async function d1GetAllTradesWithEvents(env) {
+  return d1LoadTradesForSimulation(env);
 }
 
 function encodeCursor(obj) {
@@ -18520,169 +18603,32 @@ export default {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
-        // Approved ticker list (normalized to uppercase)
+        // Approved ticker list — WATCHLIST_Q1_2026 (from TradingView watchlist screenshots)
         const approvedTickers = new Set([
-          // Upticks
-          "TSLA",
-          "STX",
-          "AU",
-          "CCJ",
-          "CLS",
-          "CRS",
-          "VST",
-          "FSLR",
-          "JCI",
-          "ORCL",
-          "AMZN",
-          "BRK-B",
-          "BRK.B",
-          "BABA",
-          "WMT",
-          "PH",
-          "GEV",
-          "HII",
-          "ULTA",
-          "SHOP",
-          "CSX",
-          "PWR",
-          "HOOD",
-          "SPGI",
-          "APP",
-          "PANW",
-          "RDDT",
-          "TT",
-          "GLXY",
-          "ETHA",
-          // Super Granny
-          "META",
-          "NVDA",
-          "AMD",
-          "ANET",
-          "GS",
-          // GRNI
-          "TJX",
-          "SOFI",
-          "PNC",
-          "PLTR",
-          "NFLX",
-          "MSTR",
-          "MSFT",
-          "MNST",
-          "LRCX",
-          "KLAC",
-          "JPM",
-          "GOOGL",
-          "GE",
-          "EXPE",
-          "ETN",
-          "EMR",
-          "DE",
-          "CRWD",
-          "COST",
-          "CDNS",
-          "CAT",
-          "BK",
-          "AXP",
-          "AXON",
-          "AVGO",
-          "AAPL",
-          // GRNJ
-          "RKLB",
-          "LITE",
-          "SN",
-          "ALB",
-          "RGLD",
-          "MTZ",
-          "ON",
-          "ALLY",
-          "DY",
-          "EWBC",
-          "PATH",
-          "WFRD",
-          "WAL",
-          "IESC",
-          "ENS",
-          "TWLO",
-          "MLI",
-          "KTOS",
-          "MDB",
-          "TLN",
-          "EME",
-          "AWI",
-          "IBP",
-          "DCI",
-          "WTS",
-          "FIX",
-          "UTHR",
-          "NBIS",
-          "SGI",
-          "AYI",
-          "RIOT",
-          "NXT",
-          "SANM",
-          "BWXT",
-          "PEGA",
-          "JOBY",
-          "IONQ",
-          "ITT",
-          "STRL",
-          "QLYS",
-          "MP",
-          "HIMS",
-          "IOT",
-          "BE",
-          "NEU",
-          "AVAV",
-          "PSTG",
-          "RBLX",
-          // GRNY (already covered above)
-          // Social
-          "CSCO",
-          "BA",
-          "NKE",
-          "AAPL",
-          "PI",
-          "APLD",
-          "MU",
-          // SP Sectors
-          "XLK",
-          "XLF",
-          "XLY",
-          "XLP",
-          "XLC",
-          "XLB",
-          "XLE",
-          "XLU",
-          "XLV",
-          // Futures (normalize to common formats)
-          "ES",
-          "ES1!",
-          "MES1!",
-          "NQ",
-          "NQ1!",
-          "MNQ1!",
-          "BTC",
-          "BTC1!",
-          "BTCUSD",
-          "ETH",
-          "ETH1!",
-          "ETHT",
-          "ETHUSD",
-          "GOLD",
-          "XAUUSD",
-          "SILVER",
-          "XAGUSD",
+          "AAPL", "AEHR", "AGQ", "ALB", "ALLY", "AMD", "AMGN", "AMZN", "ANET", "APLD", "APP", "ASTS",
+          "AU", "AVAV", "AVGO", "AWI", "AXON", "AXP", "AYI", "B", "BA", "BABA", "BE", "BK", "BMNR",
+          "BRK-B", "BRK.B", "BTCUSD", "BWXT", "CAT", "CCJ", "CDNS", "CLS", "COST", "CRS", "CRVS",
+          "CRWD", "CRWV", "CSCO", "CSX", "DCI", "DE", "DY", "EME", "EMR", "ENS", "ES1!", "ETHA",
+          "ETHT", "ETHUSD", "ETN", "EWBC", "EXPE", "FIX", "FSLR", "GDXJ", "GE", "GEV", "GILD",
+          "GLXY", "GOLD", "GOOGL", "GS", "HII", "HIMS", "HL", "HOOD", "IAU", "IBP", "IBRX", "IESC",
+          "INTC", "INTU", "IONQ", "IOT", "IREN", "ITT", "IWM", "JCI", "JOBY", "JPM", "KLAC", "KO",
+          "KTOS", "LITE", "LRCX", "MDB", "META", "MLI", "MNST", "MP", "MSFT", "MSTR", "MTB", "MTZ",
+          "MU", "NBIS", "NEU", "NFLX", "NKE", "NQ1!", "NVDA", "NXT", "ON", "ONDS", "ORCL", "PANW",
+          "PATH", "PEGA", "PH", "PI", "PLTR", "PNC", "PSTG", "PWR", "QLYS", "QQQ", "RBLX", "RDDT",
+          "RGLD", "RIOT", "RKLB", "SANM", "SGI", "SHOP", "SILVER", "SLV", "SN", "SNDK", "SOFI",
+          "SOXL", "SPGI", "SPY", "STRL", "STX", "SWK", "TJX", "TLN", "TSLA", "TT", "TWLO", "ULTA",
+          "UTHR", "UUUU", "VIX", "VST", "WAL", "WDC", "WFRD", "WM", "WMT", "WTS",
+          "XLB", "XLC", "XLE", "XLF", "XLK", "XLP", "XLU", "XLV", "XLY",
+          "ES", "NQ", "BTC", "ETH", // Aliases for ES1!/NQ1!/BTCUSD/ETHUSD
         ]);
 
-        // Ticker normalization map (handle variations)
+        // Ticker normalization map (TradingView variations → watchlist format)
         const tickerMap = {
-          "BRK-B": "BRK.B", // Map BRK-B to BRK.B format
-          GOLD: "GOLD", // Keep as is
-          SILVER: "SILVER", // Keep as is
-          ES: "ES1!", // Map ES to ES1!
-          NQ: "NQ1!", // Map NQ to NQ1!
-          BTC: "BTC1!", // Map BTC to BTC1!
-          ETH: "ETH1!", // Map ETH to ETH1!
+          "BRK-B": "BRK.B",
+          ES: "ES1!",
+          NQ: "NQ1!",
+          BTC: "BTCUSD",
+          ETH: "ETHUSD",
         };
 
         const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
@@ -19416,6 +19362,39 @@ export default {
           hasMore && last
             ? encodeCursor({ entry_ts: last.entry_ts, trade_id: last.trade_id })
             : null;
+
+        // Enrich with quantity from positions (remaining qty) for Holdings display
+        try {
+          const ids = page.map((r) => r.trade_id).filter(Boolean);
+          if (ids.length > 0) {
+            const placeholders = ids.map(() => "?").join(",");
+            const posRows = await db
+              .prepare(
+                `SELECT position_id, total_qty FROM positions WHERE position_id IN (${placeholders})`,
+              )
+              .bind(...ids)
+              .all();
+            const qtyByTrade = new Map();
+            for (const r of posRows?.results || []) {
+              qtyByTrade.set(String(r.position_id), Number(r.total_qty) || 0);
+            }
+            for (const t of page) {
+              const qty = qtyByTrade.get(String(t.trade_id));
+              if (qty != null) {
+                t.quantity = qty;
+                t.shares = qty;
+              } else if (Number(t.trimmed_pct ?? 0) >= 0.9999) {
+                t.quantity = 0;
+                t.shares = 0;
+              }
+            }
+          }
+        } catch {
+          for (const t of page) {
+            t.quantity = null;
+            t.shares = null;
+          }
+        }
 
         return sendJSON(
           { ok: true, count: page.length, hasMore, nextCursor, trades: page },
@@ -20662,13 +20641,16 @@ export default {
         }
         const versionFilter = url.searchParams.get("version");
         const source = url.searchParams.get("source");
+        const useD1 = source !== "kv" && env?.DB; // Default to D1; ?source=kv to force KV
 
-        // Optional: read from D1 positions/lots/actions (?source=positions) or trades+events (?source=d1)
+        // Read from D1: positions (?source=positions) or trades+events (?source=d1 or default)
         let d1Trades = null;
-        if (source === "positions" && env?.DB) {
-          d1Trades = await d1GetAllPositionsAsTrades(env);
-        } else if (source === "d1" && env?.DB) {
-          d1Trades = await d1GetAllTradesWithEvents(env);
+        if (useD1) {
+          if (source === "positions") {
+            d1Trades = await d1GetAllPositionsAsTrades(env);
+          } else {
+            d1Trades = await d1GetAllTradesWithEvents(env);
+          }
         }
         if (d1Trades) {
           let filtered = d1Trades;
@@ -20688,7 +20670,7 @@ export default {
               version: versionFilter || "all",
               versions,
               trades: filtered,
-              source: source,
+              source: source || "d1",
             },
             200,
             corsHeaders(env, req),
@@ -24823,6 +24805,40 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // GET /timed/admin/data-range?key=... — Returns first and last date with valid replay data (ingest_receipts, 7d retention).
+      if (routeKey === "GET /timed/admin/data-range") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) {
+          return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+        }
+        try {
+          const row = await db.prepare(
+            `SELECT MIN(ts) AS min_ts, MAX(ts) AS max_ts, COUNT(*) AS total FROM ingest_receipts`
+          ).first();
+          const minTs = Number(row?.min_ts);
+          const maxTs = Number(row?.max_ts);
+          const total = Number(row?.total) || 0;
+          if (!Number.isFinite(minTs) || !Number.isFinite(maxTs) || total === 0) {
+            return sendJSON({ ok: true, firstDate: null, lastDate: null, totalRows: 0, source: "ingest_receipts" }, 200, corsHeaders(env, req));
+          }
+          const firstDate = nyTradingDayKey(minTs);
+          const lastDate = nyTradingDayKey(maxTs);
+          return sendJSON({
+            ok: true,
+            firstDate: firstDate || null,
+            lastDate: lastDate || null,
+            minTs,
+            maxTs,
+            totalRows: total,
+            source: "ingest_receipts",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: "query_failed", detail: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/replay-ingest?key=...&date=YYYY-MM-DD&bucket=...&ticker=...&scriptVersion=2.5.0&cleanSlate=1
       // Bucket-by-bucket replay from ingest_receipts (Script Version 2.5.0). Avoids D1 memory limits.
       // Client iterates buckets from 9:30 ET; pass bucket= to process one bucket per request.
@@ -25160,38 +25176,56 @@ Provide 3-5 actionable next steps:
         const cleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
         const bucketMinutes = Math.max(1, Math.min(60, Number(url.searchParams.get("bucketMinutes")) || 0));
         const tickerFilter = (url.searchParams.get("ticker") || "").trim().toUpperCase();
-        const qLimit = tickerFilter ? 200 : Math.min(Number(url.searchParams.get("limit")) || 50, 100);
+        const qLimit = tickerFilter ? 200 : Math.min(Number(url.searchParams.get("limit")) || 100, 200);
         const qOffset = Number(url.searchParams.get("offset")) || 0;
 
         let rows = [];
         let totalRows = null;
         try {
           if (bucketMinutes > 0) {
-            // Bucket mode: fetch all rows, group by 5-min (or N-min) buckets, latest per ticker per bucket
-            const allRes = await db.prepare(
-              `SELECT ticker, ts, payload_json FROM ingest_receipts
+            // Bucket mode: fetch receipt_id,ticker,ts first (avoids huge payload_json in bulk), then fetch payload per batch
+            const metaRes = await db.prepare(
+              `SELECT receipt_id, ticker, ts FROM ingest_receipts
                WHERE ts >= ?1 AND ts <= ?2
                ORDER BY ts ASC`,
             ).bind(tsStart, tsEnd).all();
-            const rawRows = allRes?.results || [];
+            const metaRows = metaRes?.results || [];
             const bucketMs = bucketMinutes * 60 * 1000;
             const byBucket = {};
-            for (const r of rawRows) {
+            for (const r of metaRows) {
               const ts = Number(r?.ts);
               if (!Number.isFinite(ts)) continue;
               const bucketTs = Math.floor(ts / bucketMs) * bucketMs;
               if (!byBucket[bucketTs]) byBucket[bucketTs] = {};
               const tkr = String(r?.ticker || "").toUpperCase();
               if (!tkr) continue;
-              byBucket[bucketTs][tkr] = r;
+              byBucket[bucketTs][tkr] = { receipt_id: r?.receipt_id, ticker: tkr, ts };
             }
             const buckets = Object.keys(byBucket).map(Number).sort((a, b) => a - b);
-            const bucketedRows = [];
+            const bucketedMeta = [];
             for (const bt of buckets) {
-              for (const r of Object.values(byBucket[bt])) bucketedRows.push(r);
+              for (const r of Object.values(byBucket[bt])) bucketedMeta.push(r);
             }
-            totalRows = bucketedRows.length;
-            rows = bucketedRows.slice(qOffset, qOffset + qLimit);
+            totalRows = bucketedMeta.length;
+            const batch = bucketedMeta.slice(qOffset, qOffset + qLimit);
+            if (batch.length > 0) {
+              const receiptIds = batch.map((b) => b?.receipt_id).filter(Boolean);
+              const payloadByReceipt = {};
+              const fetchBatch = 25;
+              for (let i = 0; i < receiptIds.length; i += fetchBatch) {
+                const chunk = receiptIds.slice(i, i + fetchBatch);
+                const placeholders = chunk.map((_, j) => `?${j + 1}`).join(",");
+                const payRes = await db.prepare(
+                  `SELECT receipt_id, payload_json FROM ingest_receipts WHERE receipt_id IN (${placeholders})`,
+                ).bind(...chunk).all();
+                for (const p of payRes?.results || []) {
+                  if (p?.receipt_id) payloadByReceipt[p.receipt_id] = p?.payload_json ?? null;
+                }
+              }
+              rows = batch.map((b) => ({ ...b, payload_json: payloadByReceipt[b.receipt_id] ?? null }));
+            } else {
+              rows = [];
+            }
           } else if (tickerFilter) {
             // Single-ticker: use d1GetTrailRange (NO payload_json - avoids D1 string limits), build minimal payload
             let trailRes;

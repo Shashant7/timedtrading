@@ -1090,7 +1090,7 @@
       }
       const GROUP_ORDER = [];
       const GROUP_LABELS = {};
-      function groupsForTicker(t) { return ["No Group"]; }
+      function groupsForTicker(t) { return ["Other"]; }
       function getRankPosition(sortedTickers, tickerSymbol) {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) return null;
@@ -1379,27 +1379,31 @@
             return remainingShares > 0;
           };
 
-          // Trimmed trades: positions that have been partially trimmed (check trimmedPct > 0 OR status TP_HIT_TRIM)
-          // AND still have remaining shares (not fully closed)
-          const trimmed = trades.filter((t) => {
-            const trimmedPct = t.trimmedPct || 0;
-            const isTrimmed = trimmedPct > 0 || t.status === "TP_HIT_TRIM";
-            return isTrimmed && hasRemainingShares(t);
-          });
-
-          // Closed trades: positions with WIN or LOSS status (regardless of remaining shares)
-          // Note: If status is WIN/LOSS, the trade is considered closed for analytics purposes
+          // Closed: WIN/LOSS or 100% trimmed (safety net)
           const closed = trades.filter((t) => {
-            return t.status === "WIN" || t.status === "LOSS";
+            const trimmedPct = Number(t.trimmedPct ?? t.trimmed_pct ?? 0);
+            return (
+              t.status === "WIN" ||
+              t.status === "LOSS" ||
+              trimmedPct >= 0.9999
+            );
           });
 
-          // Open trades: currently open positions that haven't been trimmed yet
+          // Trimmed: partially trimmed, still has remaining shares
+          const trimmed = trades.filter((t) => {
+            const trimmedPct = Number(t.trimmedPct ?? t.trimmed_pct ?? 0);
+            const isTrimmed = trimmedPct > 0 || t.status === "TP_HIT_TRIM";
+            return isTrimmed && hasRemainingShares(t) && trimmedPct < 0.9999;
+          });
+
+          // Open: no trim, not closed
           const open = trades.filter((t) => {
-            const trimmedPct = t.trimmedPct || 0;
+            const trimmedPct = Number(t.trimmedPct ?? t.trimmed_pct ?? 0);
             const isTrimmed = trimmedPct > 0 || t.status === "TP_HIT_TRIM";
             const isClosed =
-              (t.status === "WIN" || t.status === "LOSS") &&
-              !hasRemainingShares(t);
+              t.status === "WIN" ||
+              t.status === "LOSS" ||
+              trimmedPct >= 0.9999;
             return (
               (t.status === "OPEN" || !t.status) && !isTrimmed && !isClosed
             );
@@ -5948,22 +5952,29 @@
           });
         }, [ledgerTrades?.items, horizonFilter, data]);
 
-        // Only treat as open if status is not WIN/LOSS and no exit_ts (align with Kanban Exit lane)
+        // Open: not WIN/LOSS, no exit_ts, trimmed_pct < 100% (safety net)
         const ledgerOpenTrades = useMemo(
           () =>
-            ledgerFilteredTrades.filter(
-              (t) =>
+            ledgerFilteredTrades.filter((t) => {
+              const trimmedPct = Number(t.trimmed_pct ?? t.trimmedPct ?? 0);
+              return (
                 t.status !== "WIN" &&
                 t.status !== "LOSS" &&
-                !t.exit_ts,
-            ),
+                !t.exit_ts &&
+                trimmedPct < 0.9999
+              );
+            }),
           [ledgerFilteredTrades],
         );
 
+        // Closed: WIN/LOSS or 100% trimmed
         const ledgerClosedTrades = useMemo(
           () =>
             ledgerFilteredTrades.filter(
-              (t) => t.status === "WIN" || t.status === "LOSS",
+              (t) =>
+                t.status === "WIN" ||
+                t.status === "LOSS" ||
+                Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999,
             ),
           [ledgerFilteredTrades],
         );
@@ -6004,10 +6015,9 @@
               });
             }
             const exitTs = tsToMs(t.exit_ts);
-            if (
-              (t.status === "WIN" || t.status === "LOSS") &&
-              exitTs != null
-            ) {
+            const trimmedPct = Number(t.trimmed_pct ?? t.trimmedPct ?? 0);
+            const isClosed = t.status === "WIN" || t.status === "LOSS" || trimmedPct >= 0.9999;
+            if (isClosed && exitTs != null) {
               events.push({
                 ts: exitTs,
                 type: "EXIT",
@@ -6103,7 +6113,7 @@
             isFutures && FUTURES_SPECS[sym] ? FUTURES_SPECS[sym].pointValue : 1;
           const entryPrice = Number(trade.entry_price ?? trade.entryPrice ?? 0);
           const shares =
-            trade.shares ||
+            trade.shares ?? trade.quantity ??
             (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
           const current = Number(live?.price);
           const direction = String(trade.direction || "").toUpperCase();
@@ -6144,7 +6154,7 @@
           let pnlOpen = 0;
           for (const t of trades) {
             const entryPrice = Number(t.entry_price ?? t.entryPrice ?? 0);
-            const shares = t.shares || (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
+            const shares = t.shares ?? t.quantity ?? (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
             const direction = String(t.direction || "").toUpperCase();
             const signed = direction === "SHORT" ? -1 : 1;
             totalShares += shares;
@@ -6181,7 +6191,10 @@
         const portfolioChartPoints = useMemo(() => {
           const points = [{ ts: 0, value: 0 }];
           const closed = ledgerFilteredTrades.filter(
-            (t) => t.status === "WIN" || t.status === "LOSS",
+            (t) =>
+              t.status === "WIN" ||
+              t.status === "LOSS" ||
+              Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999,
           );
           const sorted = [...closed].sort(
             (a, b) => (tsToMs(a.exit_ts) ?? 0) - (tsToMs(b.exit_ts) ?? 0),
@@ -6338,6 +6351,9 @@
 
         // Selected ticker for detail view
         const [selectedTicker, setSelectedTicker] = useState(null);
+
+        // Expanded day key for By-day events (ticker, action, time, price)
+        const [expandedByDayKey, setExpandedByDayKey] = useState(null);
 
         // Selected trade for right rail; positionEvents for Trade Tracker history
         const [selectedTrade, setSelectedTrade] = useState(null);
@@ -7039,9 +7055,13 @@
                                       </span>
                                     </div>
                                   </div>
-                                  {/* If open position: Entry Price, % change */}
+                                  {/* If open position: Entry Price, Qty, % change */}
                                   <div className="flex items-center justify-between text-[9px] text-[#8b92a0] mb-1">
-                                    <span>Entry {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}</span>
+                                    <span>Entry {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}
+                                      {(pos.qty != null && Number.isFinite(pos.qty)) && (
+                                        <span className="ml-2 text-[#9fb0df]">Qty {Number(pos.qty).toFixed((pos.ticker && (FUTURES_SPECS[pos.ticker] || String(pos.ticker).endsWith("1!"))) ? 0 : 2)}</span>
+                                      )}
+                                    </span>
                                     {retOpenPct != null && (
                                       <span className={(retOpenPct ?? 0) >= 0 ? "text-sky-300 font-semibold" : "text-orange-300 font-semibold"}>
                                         {retOpenPct >= 0 ? "+" : ""}{retOpenPct.toFixed(2)}%
@@ -7130,27 +7150,63 @@
                               <div>
                                 <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2">By day</h3>
                                 <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                                  {ledgerActivityDays.slice(0, 14).map((day) => (
-                                    <div
-                                      key={day.key}
-                                      className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:border-[var(--tt-border-strong)] cursor-pointer transition-colors"
-                                      onClick={() => {
-                                        if (day.events?.[0]?.trade) {
-                                          setSelectedTrade(day.events[0].trade);
-                                          setSelectedTicker(day.events[0].trade?.ticker);
-                                          setSelectedPositionEvents(day.events);
-                                        }
-                                      }}
-                                    >
-                                      <span className="text-sm font-medium text-[var(--tt-text)]">{day.label}</span>
-                                      <div className="flex items-center gap-3 text-xs">
-                                        <span className="text-[var(--tt-text-muted)]">{day.stats.entries}E / {day.stats.exits}X</span>
-                                        <span className={`font-semibold ${day.stats.closedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                                          {fmtUsd(day.stats.closedPnl)}
-                                        </span>
+                                  {ledgerActivityDays.slice(0, 14).map((day) => {
+                                    const isExpanded = expandedByDayKey === day.key;
+                                    return (
+                                      <div key={day.key} className="rounded-lg bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
+                                        <div
+                                          className="flex items-center justify-between py-2 px-3 hover:border-[var(--tt-border-strong)] cursor-pointer transition-colors"
+                                          onClick={(e) => {
+                                            if (e.target.closest('.expand-toggle')) {
+                                              setExpandedByDayKey(isExpanded ? null : day.key);
+                                            } else if (day.events?.[0]?.trade) {
+                                              setSelectedTrade(day.events[0].trade);
+                                              setSelectedTicker(day.events[0].trade?.ticker);
+                                              setSelectedPositionEvents(day.events);
+                                            }
+                                          }}
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              type="button"
+                                              className="expand-toggle text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] text-xs w-5 h-5 flex items-center justify-center"
+                                              aria-label={isExpanded ? "Collapse" : "Expand"}
+                                            >
+                                              {isExpanded ? "−" : "+"}
+                                            </button>
+                                            <span className="text-sm font-medium text-[var(--tt-text)]">{day.label}</span>
+                                          </div>
+                                          <div className="flex items-center gap-3 text-xs">
+                                            <span className="text-[var(--tt-text-muted)]">{day.stats.entries}E / {day.stats.exits}X</span>
+                                            <span className={`font-semibold ${day.stats.closedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                              {fmtUsd(day.stats.closedPnl)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        {isExpanded && day.events && day.events.length > 0 && (
+                                          <div className="px-3 pb-3 pt-0 border-t border-[var(--tt-border)]">
+                                            <div className="mt-2 space-y-1.5 text-xs">
+                                              {day.events.map((ev, i) => {
+                                                const ticker = ev.trade?.ticker || "—";
+                                                const action = ev.type;
+                                                const timeStr = ev.ts != null ? new Date(ev.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true }) : "—";
+                                                const priceStr = ev.price != null && Number.isFinite(ev.price) ? `$${Number(ev.price).toFixed(2)}` : (ev.trade?.entry_price != null ? `$${Number(ev.trade.entry_price).toFixed(2)}` : (ev.trade?.exit_price != null ? `$${Number(ev.trade.exit_price).toFixed(2)}` : "—"));
+                                                const actionColor = action === "ENTRY" ? "text-cyan-400" : action === "EXIT" ? "text-green-400" : "text-yellow-400";
+                                                return (
+                                                  <div key={i} className="flex items-center justify-between py-1 px-2 rounded bg-[var(--tt-bg)]">
+                                                    <span className="font-medium text-[var(--tt-text)]">{ticker}</span>
+                                                    <span className={actionColor}>{action}</span>
+                                                    <span className="text-[var(--tt-text-muted)]">{timeStr}</span>
+                                                    <span className="text-[var(--tt-text)]">{priceStr}</span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               </div>
                               {/* By ticker */}
