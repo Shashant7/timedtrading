@@ -49,6 +49,17 @@ After reset + replay, use the **simulation dashboard** (Trade Tracker) for a Rob
 - **Portfolio snapshot** + **Overall (closed + open)** = account value and closed vs open P&L.
 - **Proof Center** = daily execution summary (paper tape); **Trades** = D1-backed trade list; **Alerts** = D1 alerts. Same time window applies to all.
 
+## Multi-day replay (reset + replay a date range)
+
+To **clear all trades** and **replay from a specific date through today** (e.g. Monday Feb 2 through today), use `reset-and-replay-from-start.js` with **FROM=YYYY-MM-DD**:
+
+```bash
+FROM=2026-02-02 TIMED_API_KEY=AwesomeSauce node scripts/reset-and-replay-from-start.js
+```
+
+- **FROM=YYYY-MM-DD** — Replay starts on this date and runs through today (trading days only). Omit to auto-detect the first date with data.
+- The script: (1) resets KV + D1, (2) replays each day in order via the worker’s replay-day API, (3) force-syncs to D1.
+
 ## Manual reset only (no replay)
 
 To clear everything but **not** run a replay:
