@@ -6978,7 +6978,10 @@
                               const trimmedPct = Number(pos.trade?.trimmedPct || 0);
                               
                               const stageInfo = getPositionStage(pos);
-                              const outlineCls = isLong ? "border-blue-500/60" : "border-red-500/60";
+                              const dirPillCls = isLong
+                                ? "bg-cyan-400/20 text-cyan-200 border-cyan-400/60 shadow-[0_0_0_1px_rgba(34,211,238,0.25)]"
+                                : "bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-400/60 shadow-[0_0_0_1px_rgba(217,70,239,0.25)]";
+                              const dirAccentCls = isLong ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-fuchsia-500";
                               const tintAlpha = (retOpenPct != null && retOpenPct !== 0) ? 0.06 + Math.min(0.2, Math.abs(retOpenPct) / 10) : 0.04;
                               const tint = (retOpenPct ?? 0) >= 0 ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
                               const phaseFill = phaseFillPct > 0
@@ -7006,40 +7009,47 @@
                                     const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
                                     setSelectedPositionEvents(Array.isArray(events) ? events : []);
                                   }}
-                                  className={`w-full text-left px-2.5 py-2 rounded-lg border-2 ${outlineCls} bg-[var(--tt-bg-elevated)] hover:brightness-[1.04] transition-all overflow-hidden relative`}
-                                  style={{ backgroundImage: phaseFill ? `${phaseFill}, linear-gradient(0deg, ${tint}, ${tint})` : `linear-gradient(0deg, ${tint}, ${tint})` }}
+                                  className={`w-full text-left px-3 py-2 rounded-lg border border-[#252b36] hover:brightness-[1.06] hover:border-[#3a4aa0] transition-all overflow-hidden relative ${dirAccentCls}`}
+                                  style={{ backgroundColor: "#13171e", backgroundImage: phaseFill ? `${phaseFill}, linear-gradient(0deg, ${tint}, ${tint})` : `linear-gradient(0deg, ${tint}, ${tint})` }}
                                   title="Open in right rail"
                                 >
-                                  {/* Header: (Left) Ticker, Emojis | (Right) Current Price, Daily Change % and $ */}
+                                  {/* Header: Viewport-style — Ticker, emojis, LONG/SHORT pill | Price, change */}
                                   <div className="flex items-start justify-between gap-2 mb-1">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-bold text-white text-sm">{pos.ticker}</span>
-                                      {tierBadge && <span className="text-xs">{tierBadge}</span>}
-                                      <span className={`text-[9px] px-1 py-0.5 rounded ${stageInfo.bg} ${stageInfo.color} font-medium`}>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-xs font-bold text-white truncate">{pos.ticker}</span>
+                                      {tierBadge && (
+                                        <span className="px-2 py-0.5 rounded border border-[#252b36] bg-[#1a1f28] text-[10px] font-semibold text-[#f0f2f5]">
+                                          {tierBadge}
+                                        </span>
+                                      )}
+                                      <span className={`px-3 py-1 rounded-md border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`}>
+                                        {dir}
+                                      </span>
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${stageInfo.bg} ${stageInfo.color} font-medium`}>
                                         {stageInfo.label}
                                       </span>
                                     </div>
-                                    <div className="text-right">
-                                      <span className="text-white font-bold text-sm">
+                                    <div className="flex flex-col items-end shrink-0">
+                                      <span className="text-white font-bold text-[11px]">
                                         {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
                                       </span>
-                                      <div className={`text-[9px] font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                      <span className={`text-[9px] font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-sky-300" : "text-orange-300"}`}>
                                         {retOpenPct != null ? `${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(2)}%` : "—"}
                                         {pnlOpen != null ? ` ${fmtUsd(pnlOpen)}` : ""}
-                                      </div>
+                                      </span>
                                     </div>
                                   </div>
                                   {/* If open position: Entry Price, % change */}
-                                  <div className="flex items-center justify-between text-[9px] text-[var(--tt-text-faint)] mb-1">
+                                  <div className="flex items-center justify-between text-[9px] text-[#8b92a0] mb-1">
                                     <span>Entry {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}</span>
                                     {retOpenPct != null && (
-                                      <span className={(retOpenPct ?? 0) >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
+                                      <span className={(retOpenPct ?? 0) >= 0 ? "text-sky-300 font-semibold" : "text-orange-300 font-semibold"}>
                                         {retOpenPct >= 0 ? "+" : ""}{retOpenPct.toFixed(2)}%
                                       </span>
                                     )}
                                   </div>
                                   {/* Contents: Score, R:R, SL, TP | Phase | Completion */}
-                                  <div className="flex items-center justify-between gap-2 text-[9px] text-[var(--tt-text-muted)] flex-wrap">
+                                  <div className="flex items-center justify-between gap-2 text-[9px] text-[#8b92a0] flex-wrap">
                                     {score != null && <span>Score {Number(score).toFixed(1)}</span>}
                                     {rr != null && <span>R:R {Number(rr).toFixed(2)}</span>}
                                     {sl != null && <span className="text-red-300">SL ${sl.toFixed(2)}</span>}
@@ -7048,17 +7058,20 @@
                                   </div>
                                   {/* Completion bar with TP markers */}
                                   {(completionPct > 0 || trimmedPct > 0) && (
-                                    <div className="mt-1.5">
-                                      <div className="flex items-center justify-between text-[8px] text-[var(--tt-text-faint)] mb-0.5">
+                                    <div className="mt-1">
+                                      <div className="flex items-center justify-between text-[8px] text-[#8b92a0] mb-0.5">
                                         <span>Completion {Math.round(trimmedPct > 0 ? trimmedPct * 100 : completionPct)}%</span>
                                       </div>
-                                      <div className="h-1.5 rounded bg-[var(--tt-bg-surface)] overflow-hidden flex">
+                                      <div className="h-1.5 rounded bg-[#252b36] overflow-hidden flex">
                                         <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, (trimmedPct || completion) * 100)}%` }} />
                                         <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, ((trimmedPct || completion) * 100) - 60))}%` }} />
-                                        <div className={`h-full ${isLong ? "bg-green-500/70" : "bg-red-500/70"}`} style={{ width: `${Math.max(0, ((trimmedPct || completion) * 100) - 80)}%` }} />
+                                        <div className={`h-full ${isLong ? "bg-cyan-500/70" : "bg-fuchsia-500/70"}`} style={{ width: `${Math.max(0, ((trimmedPct || completion) * 100) - 80)}%` }} />
                                       </div>
                                     </div>
                                   )}
+                                  <div className="absolute top-1 right-1 px-1 py-0.5 rounded bg-white/5 text-[#9fb0df] text-[10px] border border-white/10">
+                                    ↗
+                                  </div>
                                 </button>
                               );
                             };
