@@ -61,5 +61,6 @@ crons = [
   "*/5 * * * *",    # Every 5 minutes - Update open trades
   "*/15 * * * 1-5", # Every 15 minutes during market hours (weekdays) - Proactive Alerts & Pattern Recognition
   "0 */6 * * *",    # Every 6 hours - ML model training from labeled queue
+  "0 4 * * *",      # 4:00 AM UTC daily - Data lifecycle (aggregate trail → 5m, purge old raw)
 ]
 

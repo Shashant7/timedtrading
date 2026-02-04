@@ -1,5 +1,41 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
 import { DASHBOARD_HTML } from "./dashboard-html.js";
+import {
+  kvGetJSON,
+  kvPutJSON,
+  kvPutText,
+  kvPutJSONWithRetry,
+  stableHash,
+  d1InsertTrailPoint,
+  d1InsertIngestReceipt,
+} from "./storage.js";
+import {
+  normTicker,
+  isNum,
+  normalizeTfKey,
+  validateTimedPayload,
+  validateCapturePayload,
+  validateCandlesPayload,
+} from "./ingest.js";
+import {
+  KANBAN_STAGE_ORDER,
+  enforceStageMonotonicity,
+  getTradeDirection,
+} from "./trading.js";
+import {
+  sendJSON,
+  corsHeaders,
+  ackJSON,
+  readBodyAsJSON,
+  requireKeyOr401,
+  checkRateLimit,
+  checkRateLimitFixedWindow,
+} from "./api.js";
+import {
+  notifyDiscord,
+  shouldSendDiscordAlert,
+  generateProactiveAlerts,
+} from "./alerts.js";
 // Routes:
 // POST /timed/ingest?key=...
 // GET  /timed/all
@@ -30,156 +66,98 @@ import { DASHBOARD_HTML } from "./dashboard-html.js";
 // GET  /timed/debug/config (check Discord and other config)
 // POST /timed/debug/simulate-trades?key=... (manually simulate trades for all tickers)
 
-async function readBodyAsJSON(req) {
-  const raw = await req.text();
-  try {
-    return { obj: JSON.parse(raw), raw, err: null };
-  } catch (e) {
-    return { obj: null, raw, err: e };
-  }
-}
+/** Route table: [method, pathOrPredicate, key]. pathOrPredicate is exact path string or (pathname) => bool for param routes. */
+const ROUTES = [
+  ["POST", "/timed/ingest", "POST /timed/ingest"],
+  ["POST", "/timed/ingest-capture", "POST /timed/ingest-capture"],
+  ["POST", "/timed/ingest-candles", "POST /timed/ingest-candles"],
+  ["GET", "/timed/latest", "GET /timed/latest"],
+  ["GET", "/timed/tickers", "GET /timed/tickers"],
+  ["GET", "/timed/all", "GET /timed/all"],
+  ["GET", "/timed/candles", "GET /timed/candles"],
+  ["GET", "/timed/trail", "GET /timed/trail"],
+  ["GET", "/timed/top", "GET /timed/top"],
+  ["GET", "/timed/momentum", "GET /timed/momentum"],
+  ["GET", "/timed/momentum/history", "GET /timed/momentum/history"],
+  ["GET", "/timed/momentum/all", "GET /timed/momentum/all"],
+  ["GET", "/timed/sectors", "GET /timed/sectors"],
+  ["GET", "/timed/sectors/recommendations", "GET /timed/sectors/recommendations"],
+  ["GET", (p) => p.startsWith("/timed/sectors/") && p.endsWith("/tickers"), "GET /timed/sectors/:sector/tickers"],
+  ["POST", "/timed/debug/fix-index", "POST /timed/debug/fix-index"],
+  ["POST", "/timed/watchlist/add", "POST /timed/watchlist/add"],
+  ["GET", "/timed/activity", "GET /timed/activity"],
+  ["GET", "/timed/check-ticker", "GET /timed/check-ticker"],
+  ["GET", "/timed/ingest-status", "GET /timed/ingest-status"],
+  ["GET", "/timed/ingestion/stats", "GET /timed/ingestion/stats"],
+  ["GET", "/timed/ingest-audit", "GET /timed/ingest-audit"],
+  ["GET", "/timed/health", "GET /timed/health"],
+  ["POST", "/timed/purge", "POST /timed/purge"],
+  ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
+  ["POST", "/timed/clear-rate-limit", "POST /timed/clear-rate-limit"],
+  ["POST", "/timed/cleanup-tickers", "POST /timed/cleanup-tickers"],
+  ["GET", "/timed/cors-debug", "GET /timed/cors-debug"],
+  ["GET", "/timed/version", "GET /timed/version"],
+  ["GET", "/timed/alert-debug", "GET /timed/alert-debug"],
+  ["GET", "/timed/alert-replay", "GET /timed/alert-replay"],
+  ["GET", (p) => p.startsWith("/timed/ledger/trades/") && p.endsWith("/decision-card"), "GET /timed/ledger/trades/:id/decision-card"],
+  ["GET", (p) => p.startsWith("/timed/ledger/trades/"), "GET /timed/ledger/trades/:id"],
+  ["GET", "/timed/ledger/trades", "GET /timed/ledger/trades"],
+  ["GET", "/timed/ledger/alerts", "GET /timed/ledger/alerts"],
+  ["GET", "/timed/ledger/summary", "GET /timed/ledger/summary"],
+  ["GET", "/timed/trades", "GET /timed/trades"],
+  ["GET", "/timed/portfolio", "GET /timed/portfolio"],
+  ["POST", "/timed/trades", "POST /timed/trades"],
+  ["DELETE", (p) => p.startsWith("/timed/trades/"), "DELETE /timed/trades/:id"],
+  ["OPTIONS", "/timed/ai/chat", "OPTIONS /timed/ai/chat"],
+  ["POST", "/timed/ai/chat", "POST /timed/ai/chat"],
+  ["GET", "/timed/ai/updates", "GET /timed/ai/updates"],
+  ["GET", "/timed/ai/daily-summary", "GET /timed/ai/daily-summary"],
+  ["GET", "/timed/ai/monitor", "GET /timed/ai/monitor"],
+  ["GET", "/timed/debug/trades", "GET /timed/debug/trades"],
+  ["GET", "/timed/debug/tickers", "GET /timed/debug/tickers"],
+  ["GET", "/timed/debug/config", "GET /timed/debug/config"],
+  ["GET", "/timed/debug/daily", "GET /timed/debug/daily"],
+  ["POST", "/timed/ml/train", "POST /timed/ml/train"],
+  ["POST", "/timed/ml/backfill-queue", "POST /timed/ml/backfill-queue"],
+  ["POST", "/timed/admin/replay-ticker", "POST /timed/admin/replay-ticker"],
+  ["POST", "/timed/admin/replay-ticker-d1", "POST /timed/admin/replay-ticker-d1"],
+  ["GET", "/timed/admin/replay-data-stats", "GET /timed/admin/replay-data-stats"],
+  ["POST", "/timed/admin/replay-ingest", "POST /timed/admin/replay-ingest"],
+  ["POST", "/timed/admin/replay-day", "POST /timed/admin/replay-day"],
+  ["POST", "/timed/admin/dedupe-trades", "POST /timed/admin/dedupe-trades"],
+  ["POST", "/timed/admin/refresh-latest-from-ingest", "POST /timed/admin/refresh-latest-from-ingest"],
+  ["POST", "/timed/admin/force-sync", "POST /timed/admin/force-sync"],
+  ["POST", "/timed/admin/reset", "POST /timed/admin/reset"],
+  ["GET", "/timed/watchlist/coverage", "GET /timed/watchlist/coverage"],
+  ["POST", "/timed/cleanup-no-scores", "POST /timed/cleanup-no-scores"],
+  ["POST", "/timed/purge-trades-by-version", "POST /timed/purge-trades-by-version"],
+  ["POST", "/timed/debug/migrate-brk", "POST /timed/debug/migrate-brk"],
+  ["POST", "/timed/debug/cleanup-duplicates", "POST /timed/debug/cleanup-duplicates"],
+  ["GET", "/timed/debug/score-analysis", "GET /timed/debug/score-analysis"],
+  ["POST", "/timed/debug/purge-ticker", "POST /timed/debug/purge-ticker"],
+  ["POST", "/timed/debug/cleanup-all-duplicates", "POST /timed/debug/cleanup-all-duplicates"],
+  ["POST", "/timed/debug/recalculate-ranks", "POST /timed/debug/recalculate-ranks"],
+  ["POST", "/timed/debug/fix-entry-prices", "POST /timed/debug/fix-entry-prices"],
+  ["POST", "/timed/debug/fix-backfill-trades", "POST /timed/debug/fix-backfill-trades"],
+  ["POST", "/timed/debug/clear-all-trades", "POST /timed/debug/clear-all-trades"],
+  ["POST", "/timed/debug/simulate-trades", "POST /timed/debug/simulate-trades"],
+  ["POST", "/timed/admin/reprocess-kanban", "POST /timed/admin/reprocess-kanban"],
+  ["POST", "/timed/admin/backfill-trades", "POST /timed/admin/backfill-trades"],
+  ["POST", "/timed/admin/backfill-positions", "POST /timed/admin/backfill-positions"],
+  ["POST", "/timed/admin/backfill-alerts", "POST /timed/admin/backfill-alerts"],
+  ["POST", "/timed/admin/backfill-derived", "POST /timed/admin/backfill-derived"],
+];
 
-const sendJSON = (obj, status = 200, headers = {}) =>
-  new Response(JSON.stringify(obj, null, 2), {
-    status,
-    headers: { "Content-Type": "application/json", ...headers },
-  });
-
-function corsHeaders(env, req, allowNoOrigin = false) {
-  // Get allowed origins from environment variable (comma-separated)
-  const corsConfig = env.CORS_ALLOW_ORIGIN || "";
-  const allowedOrigins = corsConfig
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
-  const origin = req?.headers?.get("Origin") || "";
-
-  // Always allow Cloudflare Pages origins (timedtrading.pages.dev)
-  // This ensures the dashboard always works regardless of CORS_ALLOW_ORIGIN config
-  const isCloudflarePages =
-    origin.includes(".pages.dev") || origin.includes("pages.dev");
-
-  // Debug logging (will appear in Cloudflare Worker logs)
-  console.log("CORS check:", {
-    hasConfig: !!corsConfig,
-    configLength: corsConfig.length,
-    configValue: corsConfig.substring(0, 50), // First 50 chars for safety
-    allowedOriginsCount: allowedOrigins.length,
-    allowedOrigins: allowedOrigins,
-    requestedOrigin: origin,
-    originLength: origin.length,
-    allowNoOrigin,
-    isCloudflarePages,
-  });
-
-  // If no allowed origins configured, default to "*" (backward compatible)
-  // Otherwise, only allow configured origins
-  let allowed;
-  if (allowedOrigins.length === 0) {
-    allowed = "*";
-  } else if (origin === "" && allowNoOrigin) {
-    // Allow requests without origin (e.g., curl, direct API calls) for debug endpoints
-    allowed = "*";
-  } else if (isCloudflarePages) {
-    // Always allow Cloudflare Pages origins
-    allowed = origin;
-  } else if (allowedOrigins.includes(origin)) {
-    allowed = origin;
-  } else {
-    // Log for debugging (remove in production if needed)
-    console.log("CORS mismatch:", {
-      requested: origin,
-      requestedLength: origin.length,
-      allowed: allowedOrigins,
-      allowedLengths: allowedOrigins.map((o) => o.length),
-      config: corsConfig,
-      exactMatch: allowedOrigins.some((o) => o === origin),
-      caseInsensitiveMatch: allowedOrigins.some(
-        (o) => o.toLowerCase() === origin.toLowerCase(),
-      ),
-    });
-    allowed = "null";
-  }
-
-  const headers = {
-    "Access-Control-Allow-Origin": allowed,
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    Vary: "Origin", // Important: tells Cloudflare to vary cache by Origin
-  };
-
-  // For preflight requests, add additional headers
-  if (req?.method === "OPTIONS") {
-    headers["Access-Control-Max-Age"] = "86400"; // 24 hours
-    // Include the requested method and headers in the response
-    const requestedMethod = req.headers.get("Access-Control-Request-Method");
-    const requestedHeaders = req.headers.get("Access-Control-Request-Headers");
-    if (requestedMethod) {
-      headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS";
+function getRouteKey(method, pathname) {
+  for (const [m, p, key] of ROUTES) {
+    if (m !== method) continue;
+    if (typeof p === "function") {
+      if (p(pathname)) return key;
+      continue;
     }
-    if (requestedHeaders) {
-      headers["Access-Control-Allow-Headers"] = requestedHeaders;
-    }
+    if (p === pathname) return key;
   }
-
-  return headers;
-}
-
-function ackJSON(env, obj, fallbackStatus = 200, req = null) {
-  const always200 = (env.TV_ACK_ALWAYS_200 ?? "true") !== "false";
-  return sendJSON(obj, always200 ? 200 : fallbackStatus, corsHeaders(env, req));
-}
-
-const normTicker = (t) => {
-  let normalized = String(t || "")
-    .trim()
-    .toUpperCase();
-
-  // Normalize BRK.B to BRK-B (TradingView uses BRK.B, but we standardize on BRK-B for US market)
-  if (normalized === "BRK.B" || normalized === "BRK-B") {
-    normalized = "BRK-B";
-  }
-
-  return normalized;
-};
-const isNum = (x) => Number.isFinite(Number(x));
-
-// Kanban stage ordering for monotonicity enforcement (positions can only move forward)
-const KANBAN_STAGE_ORDER = {
-  watch: 0,
-  setup_watch: 1,
-  flip_watch: 2,
-  enter_now: 3,
-  just_entered: 4,
-  hold: 5,
-  trim: 6,
-  exit: 7,
-  archive: 8,
-};
-
-/**
- * Enforce stage monotonicity for open positions: management lanes can only progress forward.
- * Prevents bouncing from EXIT→TRIM→HOLD due to price fluctuations.
- * @param {string} newStage - Newly computed stage
- * @param {string} prevStage - Previous stage
- * @param {boolean} hasOpenPosition - Whether there's an open position
- * @returns {string} - Finalized stage
- */
-function enforceStageMonotonicity(newStage, prevStage, hasOpenPosition) {
-  if (!hasOpenPosition) return newStage; // Allow free movement for opportunity lanes
-  if (!prevStage || !newStage) return newStage;
-  
-  const newOrder = KANBAN_STAGE_ORDER[newStage] ?? 0;
-  const prevOrder = KANBAN_STAGE_ORDER[prevStage] ?? 0;
-  
-  // Management lanes (just_entered+) can only move forward, not regress
-  // Exception: if previous was archive, allow re-entry (handled elsewhere by recycle rule)
-  if (prevOrder >= KANBAN_STAGE_ORDER.just_entered && prevStage !== "archive") {
-    if (newOrder < prevOrder) {
-      return prevStage; // Don't regress
-    }
-  }
-  return newStage;
+  return null;
 }
 
 // Trading day key in US/Eastern (for daily change vs yesterday close)
@@ -336,23 +314,6 @@ async function computePrevCloseFromTrail(db, ticker, asOfTs) {
   }
 }
 
-async function kvGetJSON(KV, key) {
-  const t = await KV.get(key);
-  if (!t) return null;
-  try {
-    return JSON.parse(t);
-  } catch {
-    return null;
-  }
-}
-
-async function kvPutJSON(KV, key, val, ttlSec = null) {
-  const opts = {};
-  if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
-    opts.expirationTtl = Math.floor(ttlSec);
-  await KV.put(key, JSON.stringify(val), opts);
-}
-
 // Derive a minimal ticker context from common payload fields.
 // This is a fallback for when Pine capture throttles `payload.context`.
 function deriveTickerContext(obj) {
@@ -487,180 +448,6 @@ function numParam(url, key, fallback) {
   if (v == null || v === "") return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
-}
-
-// Retry KV write with verification (for critical operations like trade saving)
-async function kvPutJSONWithRetry(KV, key, val, ttlSec = null, maxRetries = 3) {
-  const opts = {};
-  if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
-    opts.expirationTtl = Math.floor(ttlSec);
-
-  const valStr = JSON.stringify(val);
-  let lastError = null;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await KV.put(key, valStr, opts);
-
-      // Verify the write succeeded (with small delay for KV consistency)
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      const verify = await KV.get(key);
-
-      if (verify && verify === valStr) {
-        return { success: true, attempt };
-      } else if (verify) {
-        // Value exists but doesn't match - might be a race condition
-        // Try parsing to see if it's equivalent JSON
-        try {
-          const verifyObj = JSON.parse(verify);
-          const valObj = JSON.parse(valStr);
-          // Deep comparison would be expensive, so just log and return success
-          // The write succeeded, even if there was a concurrent update
-          return {
-            success: true,
-            attempt,
-            note: "verified (concurrent update possible)",
-          };
-        } catch {
-          // Not JSON, retry
-          lastError = new Error(
-            `Verification failed: value mismatch on attempt ${attempt}`,
-          );
-        }
-      } else {
-        lastError = new Error(
-          `Verification failed: value not found after write on attempt ${attempt}`,
-        );
-      }
-    } catch (err) {
-      lastError = err;
-    }
-
-    if (attempt < maxRetries) {
-      // Exponential backoff: 50ms, 100ms, 200ms
-      await new Promise((resolve) =>
-        setTimeout(resolve, 50 * Math.pow(2, attempt - 1)),
-      );
-    }
-  }
-
-  return { success: false, error: lastError, attempts: maxRetries };
-}
-
-async function kvPutText(KV, key, text, ttlSec = null) {
-  const opts = {};
-  if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0)
-    opts.expirationTtl = Math.floor(ttlSec);
-  await KV.put(key, text, opts);
-}
-
-function stableHash(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return (h >>> 0).toString(16);
-}
-
-// Rate limiting helper
-async function checkRateLimit(
-  KV,
-  identifier,
-  endpoint,
-  limit = 100,
-  window = 3600,
-) {
-  const key = `ratelimit:${identifier}:${endpoint}`;
-
-  const withTimeout = (p, ms) =>
-    Promise.race([
-      p,
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("rate_limit_kv_timeout")), ms),
-      ),
-    ]);
-
-  try {
-    // IMPORTANT: KV can occasionally stall; never block request handling.
-    const count = await withTimeout(KV.get(key), 750);
-    const current = count ? Number(count) : 0;
-
-    if (current >= limit) {
-      return {
-        allowed: false,
-        remaining: 0,
-        resetAt: Date.now() + window * 1000,
-      };
-    }
-
-    // Best-effort write; if it times out we still allow the request.
-    try {
-      await withTimeout(
-        KV.put(key, String(current + 1), { expirationTtl: window }),
-        750,
-      );
-    } catch (e) {
-      console.warn(
-        `[RATE LIMIT] KV.put timeout for ${endpoint}:`,
-        String(e?.message || e),
-      );
-    }
-
-    return {
-      allowed: true,
-      remaining: limit - current - 1,
-      resetAt: Date.now() + window * 1000,
-    };
-  } catch (e) {
-    console.warn(
-      `[RATE LIMIT] KV.get timeout for ${endpoint}:`,
-      String(e?.message || e),
-    );
-    // Fail-open: don't take down the UI if KV is slow.
-    return {
-      allowed: true,
-      remaining: Math.max(0, limit - 1),
-      resetAt: Date.now() + window * 1000,
-    };
-  }
-}
-
-// Fixed-window rate limiting helper (bucketed by window).
-// Unlike checkRateLimit (sliding TTL), this naturally resets every window bucket.
-async function checkRateLimitFixedWindow(
-  KV,
-  identifier,
-  endpoint,
-  limit = 100,
-  window = 3600,
-) {
-  const bucket = Math.floor(Date.now() / (window * 1000));
-  const key = `ratelimit:${identifier}:${endpoint}:${bucket}`;
-  const count = await KV.get(key);
-  const current = count ? Number(count) : 0;
-
-  const resetAt = (bucket + 1) * window * 1000;
-
-  if (current >= limit) {
-    return {
-      allowed: false,
-      remaining: 0,
-      resetAt,
-      limit,
-      key,
-    };
-  }
-
-  // Ensure the key expires shortly after the bucket ends
-  await KV.put(key, String(current + 1), { expirationTtl: window + 60 });
-  return {
-    allowed: true,
-    remaining: limit - current - 1,
-    resetAt,
-    limit,
-    key,
-  };
 }
 
 async function ensureTickerIndex(KV, ticker) {
@@ -1669,6 +1456,15 @@ function classifyKanbanStage(tickerData, openPosition = null) {
     if (inCorridor && (ema1H1348 || buyableDip1H) && score >= 68)
       return "enter_now";
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // GOLD STANDARD Path 6: SHORT Blow-Off Top
+    // 82.7% of big DOWN moves started from HTF_BULL_LTF_BULL with both overextended
+    // ─────────────────────────────────────────────────────────────────────────
+    const gsShort = matchesGoldStandardShort(tickerData);
+    if (gsShort.match && gsShort.score >= 60 && score >= 65) {
+      return "enter_now";
+    }
+
     // Watch: Momentum-aligned, but ENTRY is blocked (meaningful "next-up" lane)
     const ed = tickerData?.entry_decision;
     const action = String(ed?.action || "").toUpperCase();
@@ -1684,6 +1480,16 @@ function classifyKanbanStage(tickerData, openPosition = null) {
     if (action === "ENTRY" && !ok && hasMeaningfulBlocker) {
       return "watch";
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // GOLD STANDARD Path 7: LONG Pullback Setup
+  // 67.7% of big UP moves started from HTF_BULL_LTF_PULLBACK (buy the dip)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const gsLong = matchesGoldStandardLong(tickerData);
+  if (gsLong.match && gsLong.score >= 60 && score >= 65 && !isMomentum) {
+    // Pullback setup: HTF bullish, LTF in pullback - prime LONG entry
+    return "enter_now";
   }
 
   // Late-cycle: overextended / high phase but NOT in momentum.
@@ -2919,22 +2725,47 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
 
   const h = Number(tickerData.htf_score);
   const l = Number(tickerData.ltf_score);
-  const inCorridor =
-    Number.isFinite(h) &&
-    Number.isFinite(l) &&
-    ((h > 0 && l >= -10 && l <= 22) || // LONG corridor (widened upper for momentum entries)
-      (h < 0 && l >= -12 && l <= 10)); // SHORT corridor
 
-  const side =
-    h > 0 && l >= -10 && l <= 22
-      ? "LONG"
-      : h < 0 && l >= -12 && l <= 10
-        ? "SHORT"
-        : null;
-  const corridorAlignedOK =
-    (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+  // ─────────────────────────────────────────────────────────────────────────────
+  // GOLD STANDARD ENTRY LOGIC (direction-specific based on historical analysis)
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  // LONG: Traditional corridor + NEW pullback setup (HTF_BULL_LTF_PULLBACK)
+  // 67.7% of big UP moves started from HTF_BULL_LTF_PULLBACK
+  const longCorridorClassic = h > 0 && l >= -10 && l <= 22;  // Original
+  const longPullbackSetup = state === "HTF_BULL_LTF_PULLBACK" && h >= 10 && l >= -15 && l <= 5;  // Gold standard
+  const inLongCorridor = longCorridorClassic || longPullbackSetup;
+
+  // SHORT: Traditional corridor + NEW blow-off top setup (HTF_BULL_LTF_BULL with high scores)
+  // 82.7% of big DOWN moves started from HTF_BULL_LTF_BULL when BOTH scores overextended!
+  const shortCorridorClassic = h < 0 && l >= -12 && l <= 10;  // Original (rarely works)
+  const shortBlowOffTop = state === "HTF_BULL_LTF_BULL" && h >= 25 && l >= 15;  // Gold standard
+  const inShortCorridor = shortCorridorClassic || shortBlowOffTop;
+
+  const inCorridor = inLongCorridor || inShortCorridor;
+
+  // Determine side based on which corridor we're in
+  let side = null;
+  if (inLongCorridor && (alignedLong || longPullbackSetup)) {
+    side = "LONG";
+  } else if (inShortCorridor) {
+    side = "SHORT";
+  }
+
+  // For LONG: allow aligned OR pullback setup
+  // For SHORT: allow aligned OR blow-off top setup
+  const corridorAlignedOK = 
+    (side === "LONG" && (alignedLong || longPullbackSetup)) || 
+    (side === "SHORT" && (alignedShort || shortBlowOffTop));
 
   if (!inCorridor || !corridorAlignedOK) return false;
+  
+  // Log gold standard match for debugging
+  const gsLong = matchesGoldStandardLong(tickerData);
+  const gsShort = matchesGoldStandardShort(tickerData);
+  if (gsLong.match || gsShort.match) {
+    console.log(`[GOLD_STANDARD] ${tickerUpper} side=${side} gsLong=${gsLong.score} gsShort=${gsShort.score} state=${state} htf=${h} ltf=${l}`);
+  }
 
   // Check for trigger conditions
   const enteredAligned = prevData && prevData.state !== state && aligned;
@@ -3039,13 +2870,34 @@ function getEntryBlockers(ticker, tickerData, prevData) {
   const aligned = alignedLong || alignedShort;
   const h = Number(tickerData.htf_score);
   const l = Number(tickerData.ltf_score);
-  const inCorridor = Number.isFinite(h) && Number.isFinite(l) &&
-    ((h > 0 && l >= -10 && l <= 22) || (h < 0 && l >= -12 && l <= 10));
-  const side = h > 0 && l >= -10 && l <= 22 ? "LONG" : h < 0 && l >= -12 && l <= 10 ? "SHORT" : null;
-  const corridorAlignedOK = (side === "LONG" && alignedLong) || (side === "SHORT" && alignedShort);
+
+  // GOLD STANDARD: Direction-specific corridor logic
+  const longCorridorClassic = h > 0 && l >= -10 && l <= 22;
+  const longPullbackSetup = state === "HTF_BULL_LTF_PULLBACK" && h >= 10 && l >= -15 && l <= 5;
+  const inLongCorridor = longCorridorClassic || longPullbackSetup;
+  
+  const shortCorridorClassic = h < 0 && l >= -12 && l <= 10;
+  const shortBlowOffTop = state === "HTF_BULL_LTF_BULL" && h >= 25 && l >= 15;
+  const inShortCorridor = shortCorridorClassic || shortBlowOffTop;
+  
+  const inCorridor = inLongCorridor || inShortCorridor;
+  
+  let side = null;
+  if (inLongCorridor && (alignedLong || longPullbackSetup)) side = "LONG";
+  else if (inShortCorridor) side = "SHORT";
+  
+  const corridorAlignedOK = 
+    (side === "LONG" && (alignedLong || longPullbackSetup)) || 
+    (side === "SHORT" && (alignedShort || shortBlowOffTop));
 
   if (!inCorridor) blockers.push("not_in_corridor");
   if (inCorridor && !corridorAlignedOK) blockers.push("corridor_misaligned");
+  
+  // Add gold standard info for debugging
+  const gsLong = matchesGoldStandardLong(tickerData);
+  const gsShort = matchesGoldStandardShort(tickerData);
+  if (gsLong.match) blockers.push(`gs_long_match(${gsLong.score})`);
+  if (gsShort.match) blockers.push(`gs_short_match(${gsShort.score})`);
 
   const prevH = prevData ? Number(prevData.htf_score) : NaN;
   const prevL = prevData ? Number(prevData.ltf_score) : NaN;
@@ -3334,14 +3186,6 @@ function buildEntryDecision(ticker, tickerData, prevState) {
   };
 }
 
-// Get direction from state
-function getTradeDirection(state) {
-  const s = String(state || "");
-  if (s.includes("BULL")) return "LONG";
-  if (s.includes("BEAR")) return "SHORT";
-  return null;
-}
-
 function computeTradePnlComponents(trade, tickerData) {
   const direction = String(trade?.direction || "").toUpperCase();
   const isLong = direction === "LONG";
@@ -3578,12 +3422,224 @@ function fuseTPCandidates(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GOLD STANDARD PATTERNS (from historical movers analysis)
+// ─────────────────────────────────────────────────────────────────────────────
+// Derived from 637 significant moves (331 UP, 306 DOWN) across 160 tickers.
+// These patterns identify the optimal entry conditions for LONG vs SHORT.
+const GOLD_STANDARD_PATTERNS = {
+  // LONG ENTRIES (from 331 UP moves, median +5.94%, P90 +15.19%)
+  // Primary setup: HTF_BULL_LTF_PULLBACK (67.7% of big up moves started here)
+  // Key insight: Buy the pullback when HTF is bullish but LTF has dipped
+  LONG: {
+    // Optimal state at entry (in order of preference)
+    preferredStates: ["HTF_BULL_LTF_PULLBACK", "HTF_BEAR_LTF_BEAR", "HTF_BULL_LTF_BULL"],
+    stateWeights: { HTF_BULL_LTF_PULLBACK: 1.0, HTF_BEAR_LTF_BEAR: 0.5, HTF_BULL_LTF_BULL: 0.4 },
+    // Score thresholds at move start (from historical analysis)
+    htf: { min: 10, optimal: 20, max: 50 },    // Median at start: +20, Avg: +16
+    ltf: { min: -25, optimal: -9, max: 5 },    // Median at start: -9 (in pullback)
+    // Corridor (LTF range for entry)
+    corridor: { min: -15, max: 10 },           // Wider than SHORT; catch pullbacks
+    // Pre-move signal frequency (for scoring)
+    signals: {
+      ltfPullback: 0.843,      // 84.3% of winners had LTF in pullback
+      stateTransition: 0.366,  // 36.6% had state change before move
+      htfImproving: 0.341,     // 34.1% had HTF momentum improving
+      squeezeOn: 0.218,        // 21.8% had squeeze active (coiling)
+      flipWatch: 0.163,        // 16.3% had flip watch
+      stFlip: 0.118,           // 11.8% had ST flip
+      squeezeRelease: 0.088,   // 8.8% had squeeze release
+    },
+    // Move statistics (for TP calibration)
+    moveStats: { median: 5.94, p75: 9.5, p90: 15.19, avg: 8.17 },
+    // TP multipliers (calibrated to median/P90 move)
+    tpMultipliers: { trim: 0.6, exit: 1.0, runner: 1.5 },
+  },
+
+  // SHORT ENTRIES (from 306 DOWN moves, median -6.34%)
+  // CRITICAL: 82.7% started from HTF_BULL_LTF_BULL (overextended momentum!)
+  // Key insight: SHORT the blow-off top, NOT the bearish setup
+  SHORT: {
+    // Optimal state at entry - COUNTER-INTUITIVE!
+    preferredStates: ["HTF_BULL_LTF_BULL", "HTF_BEAR_LTF_PULLBACK", "HTF_BULL_LTF_PULLBACK"],
+    stateWeights: { HTF_BULL_LTF_BULL: 1.0, HTF_BEAR_LTF_PULLBACK: 0.3, HTF_BULL_LTF_PULLBACK: 0.2 },
+    // Score thresholds at move start (BOTH positive = overextended)
+    htf: { min: 20, optimal: 28, max: 50 },    // Median at start: +28 (strongly bullish!)
+    ltf: { min: 10, optimal: 19, max: 35 },    // Median at start: +19 (also strong)
+    // Corridor (LTF range for SHORT entry) - HIGH values indicate blow-off top
+    corridor: { min: 12, max: 35 },            // Both HTF and LTF must be strong
+    // Pre-move signal frequency
+    signals: {
+      ltfPullback: 0.905,      // 90.5% (note: "pullback" here means LTF was positive)
+      stateTransition: 0.373,  // 37.3% had state change
+      htfImproving: 0.359,     // 35.9% had HTF still improving (!)
+      stFlip: 0.180,           // 18.0% had ST flip
+      squeezeOn: 0.196,        // 19.6% had squeeze
+      momentumElite: 0.144,    // 14.4% had momentum elite
+    },
+    // Move statistics (for TP calibration)
+    moveStats: { median: 6.34, p75: 10.5, p90: 18.0, avg: 9.61 },
+    // TP multipliers (calibrated to median/P90 move)
+    tpMultipliers: { trim: 0.6, exit: 1.0, runner: 1.618 },
+  },
+};
+
+// Helper: Check if ticker matches gold standard LONG pattern
+function matchesGoldStandardLong(tickerData) {
+  const state = String(tickerData?.state || "");
+  const htf = Number(tickerData?.htf_score);
+  const ltf = Number(tickerData?.ltf_score);
+  const flags = tickerData?.flags || {};
+  const gs = GOLD_STANDARD_PATTERNS.LONG;
+
+  // Must have valid scores
+  if (!Number.isFinite(htf) || !Number.isFinite(ltf)) return { match: false, score: 0 };
+
+  let score = 0;
+  const reasons = [];
+
+  // State matching (primary criterion)
+  if (gs.preferredStates.includes(state)) {
+    score += gs.stateWeights[state] * 30;
+    reasons.push(`state:${state}`);
+  }
+
+  // HTF in optimal range
+  if (htf >= gs.htf.min && htf <= gs.htf.max) {
+    const htfScore = htf >= gs.htf.optimal ? 25 : 15;
+    score += htfScore;
+    reasons.push(`htf:${htf.toFixed(1)}`);
+  }
+
+  // LTF in pullback (negative or low) - KEY for LONG
+  if (ltf >= gs.ltf.min && ltf <= gs.ltf.max) {
+    // Closer to optimal (-9) = higher score
+    const ltfDist = Math.abs(ltf - gs.ltf.optimal);
+    const ltfScore = Math.max(0, 25 - ltfDist);
+    score += ltfScore;
+    reasons.push(`ltf:${ltf.toFixed(1)}`);
+  }
+
+  // Signal bonuses
+  if (flags.sq30_release) { score += 10; reasons.push("squeeze_release"); }
+  if (flags.flip_watch) { score += 8; reasons.push("flip_watch"); }
+  if (flags.momentum_elite && htf >= 15) { score += 5; reasons.push("momentum_elite"); }
+
+  return { match: score >= 50, score, reasons };
+}
+
+// Helper: Check if ticker matches gold standard SHORT pattern (blow-off top)
+function matchesGoldStandardShort(tickerData) {
+  const state = String(tickerData?.state || "");
+  const htf = Number(tickerData?.htf_score);
+  const ltf = Number(tickerData?.ltf_score);
+  const flags = tickerData?.flags || {};
+  const gs = GOLD_STANDARD_PATTERNS.SHORT;
+
+  // Must have valid scores
+  if (!Number.isFinite(htf) || !Number.isFinite(ltf)) return { match: false, score: 0 };
+
+  let score = 0;
+  const reasons = [];
+
+  // State matching - CRITICAL: look for HTF_BULL_LTF_BULL (blow-off top)
+  if (gs.preferredStates.includes(state)) {
+    score += gs.stateWeights[state] * 30;
+    reasons.push(`state:${state}`);
+  }
+
+  // HTF must be STRONGLY POSITIVE for short (overextended)
+  if (htf >= gs.htf.min && htf <= gs.htf.max) {
+    // Higher HTF = stronger blow-off signal
+    const htfScore = htf >= gs.htf.optimal ? 25 : 15;
+    score += htfScore;
+    reasons.push(`htf:${htf.toFixed(1)}`);
+  }
+
+  // LTF must also be POSITIVE (both overextended = blow-off top)
+  if (ltf >= gs.ltf.min && ltf <= gs.ltf.max) {
+    // Closer to optimal (+19) = higher score
+    const ltfDist = Math.abs(ltf - gs.ltf.optimal);
+    const ltfScore = Math.max(0, 25 - ltfDist);
+    score += ltfScore;
+    reasons.push(`ltf:${ltf.toFixed(1)}`);
+  }
+
+  // Additional blow-off indicators
+  const completion = Number(tickerData?.completion) || 0;
+  const phase = Number(tickerData?.phase_pct) || 0;
+  if (completion >= 0.7) { score += 10; reasons.push("high_completion"); }
+  if (phase >= 0.6) { score += 8; reasons.push("high_phase"); }
+  if (flags.st_flip_bear) { score += 12; reasons.push("st_flip_bear"); }
+
+  return { match: score >= 50, score, reasons };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Direction-specific SL Adjustment Logic
+// ─────────────────────────────────────────────────────────────────────────────
+// Based on historical analysis:
+// - LONG entries from pullback: tighter initial SL (smaller risk, higher RR)
+// - SHORT entries from blow-off top: wider initial SL (allow volatility)
+// 
+// This function suggests SL adjustments based on direction and pattern confidence.
+function computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice) {
+  const isLong = direction === "LONG";
+  const gsMatch = isLong ? matchesGoldStandardLong(tickerData) : matchesGoldStandardShort(tickerData);
+  
+  // If not a gold standard match, return base SL unchanged
+  if (!gsMatch.match) return { sl: baseSL, adjusted: false, reason: null };
+  
+  // Get ATR for SL calculations
+  let atr = Number(tickerData?.atr);
+  if (!Number.isFinite(atr) || atr <= 0) {
+    atr = Math.abs(entryPrice - baseSL);  // Infer from existing SL
+  }
+  
+  let adjustedSL = baseSL;
+  let reason = null;
+  
+  if (isLong) {
+    // LONG from pullback: Can use tighter SL because we're entering at support
+    // Gold standard: 67.7% from HTF_BULL_LTF_PULLBACK
+    // Tighten SL by 10-15% if high confidence match
+    if (gsMatch.score >= 70) {
+      const tighter = entryPrice - atr * 0.8;  // 0.8x ATR instead of 1x
+      if (tighter > baseSL && tighter < entryPrice) {
+        adjustedSL = tighter;
+        reason = `GS_LONG_TIGHT_SL(score=${gsMatch.score})`;
+      }
+    }
+  } else {
+    // SHORT from blow-off top: Need wider SL to handle volatility at tops
+    // Gold standard: 82.7% from HTF_BULL_LTF_BULL when overextended
+    // Widen SL by 10-20% to avoid getting stopped out on noise
+    if (gsMatch.score >= 70) {
+      const wider = entryPrice + atr * 1.2;  // 1.2x ATR instead of 1x
+      if (wider > entryPrice && (wider > baseSL || baseSL < entryPrice)) {
+        adjustedSL = wider;
+        reason = `GS_SHORT_WIDE_SL(score=${gsMatch.score})`;
+      }
+    }
+  }
+  
+  return { 
+    sl: adjustedSL, 
+    adjusted: adjustedSL !== baseSL, 
+    reason,
+    gsScore: gsMatch.score,
+    gsReasons: gsMatch.reasons
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3-TIER TP SYSTEM CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
 // Instead of variable 4-5 TP levels with 10-25-50-100% trims, we normalize to
 // exactly 3 tiers with fixed quantities and progressive SL trailing.
+// NOTE: These are now direction-aware via GOLD_STANDARD_PATTERNS.tpMultipliers
 const THREE_TIER_CONFIG = {
   // ATR multiplier ranges for each tier (based on ATR-Fibonacci levels from Pine)
+  // Default values; overridden by direction-specific multipliers when available
   TRIM: { minMult: 0.5, maxMult: 1.0, trimPct: 0.6, label: "TRIM TP" },    // 60% off
   EXIT: { minMult: 1.0, maxMult: 1.618, trimPct: 0.8, label: "EXIT TP" },  // additional 20% (cumulative 80%)
   RUNNER: { minMult: 1.618, maxMult: 3.0, trimPct: 1.0, label: "RUNNER TP" }, // final 20% (cumulative 100%)
@@ -3742,6 +3798,13 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
   const exitTp = selectBestFromTier(tiers.EXIT);
   const runnerTp = selectBestFromTier(tiers.RUNNER);
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // GOLD STANDARD: Direction-specific TP multipliers
+  // Based on historical analysis: LONG median +5.94%, SHORT median -6.34%
+  // ─────────────────────────────────────────────────────────────────────────────
+  const gsConfig = isLong ? GOLD_STANDARD_PATTERNS.LONG : GOLD_STANDARD_PATTERNS.SHORT;
+  const gsTpMult = gsConfig.tpMultipliers;
+  
   // Build the 3-tier array, interpolating missing tiers
   const result = [];
 
@@ -3757,18 +3820,19 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       multiplier: trimTp.multiplier,
     });
   } else {
-    // Interpolate: use 0.75x ATR
+    // Interpolate: use direction-specific multiplier from gold standard
+    const trimMult = gsTpMult.trim || 0.75;
     const interpPrice = isLong
-      ? entryPrice + atr * 0.75
-      : entryPrice - atr * 0.75;
+      ? entryPrice + atr * trimMult
+      : entryPrice - atr * trimMult;
     result.push({
       price: interpPrice,
       trimPct: THREE_TIER_CONFIG.TRIM.trimPct,
       tier: "TRIM",
       label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%)`,
-      source: "ATR Interpolated",
+      source: `ATR Interpolated (GS ${direction})`,
       timeframe: "D",
-      multiplier: 0.75,
+      multiplier: trimMult,
     });
   }
 
@@ -3784,18 +3848,19 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       multiplier: exitTp.multiplier,
     });
   } else {
-    // Interpolate: use 1.272x ATR (Fibonacci extension)
+    // Interpolate: use direction-specific multiplier from gold standard
+    const exitMult = gsTpMult.exit || 1.272;
     const interpPrice = isLong
-      ? entryPrice + atr * 1.272
-      : entryPrice - atr * 1.272;
+      ? entryPrice + atr * exitMult
+      : entryPrice - atr * exitMult;
     result.push({
       price: interpPrice,
       trimPct: THREE_TIER_CONFIG.EXIT.trimPct,
       tier: "EXIT",
       label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%)`,
-      source: "ATR Interpolated",
+      source: `ATR Interpolated (GS ${direction})`,
       timeframe: "D",
-      multiplier: 1.272,
+      multiplier: exitMult,
     });
   }
 
@@ -3811,18 +3876,19 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
       multiplier: runnerTp.multiplier,
     });
   } else {
-    // Interpolate: use 2.0x ATR
+    // Interpolate: use direction-specific multiplier from gold standard
+    const runnerMult = gsTpMult.runner || 2.0;
     const interpPrice = isLong
-      ? entryPrice + atr * 2.0
-      : entryPrice - atr * 2.0;
+      ? entryPrice + atr * runnerMult
+      : entryPrice - atr * runnerMult;
     result.push({
       price: interpPrice,
       trimPct: THREE_TIER_CONFIG.RUNNER.trimPct,
       tier: "RUNNER",
       label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%)`,
-      source: "ATR Interpolated",
+      source: `ATR Interpolated (GS ${direction})`,
       timeframe: "D",
-      multiplier: 2.0,
+      multiplier: runnerMult,
     });
   }
 
@@ -4737,194 +4803,6 @@ function analyzeWinningPatterns(tradeHistory, currentTickers) {
   };
 }
 
-// Proactive Alert Generation: Detect conditions requiring attention
-function generateProactiveAlerts(allTickers, allTrades) {
-  const alerts = [];
-  const now = Date.now();
-
-  // Get open trades
-  const openTrades = allTrades.filter(
-    (t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM",
-  );
-
-  // Alert 1: Positions approaching TP (within 2% of TP)
-  openTrades.forEach((trade) => {
-    const currentPrice = Number(trade.currentPrice || trade.entryPrice || 0);
-    const tp = Number(trade.tp || 0);
-    const sl = Number(trade.sl || 0);
-    const entryPrice = Number(trade.entryPrice || 0);
-    const direction = trade.direction || "LONG";
-
-    if (tp > 0 && currentPrice > 0 && sl > 0 && entryPrice > 0) {
-      let distanceToTP = 0;
-      let pctToTP = 0;
-
-      if (direction === "LONG") {
-        distanceToTP = tp - currentPrice;
-        const totalDistance = tp - entryPrice;
-        pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
-      } else {
-        distanceToTP = currentPrice - tp;
-        const totalDistance = entryPrice - tp;
-        pctToTP = totalDistance > 0 ? (distanceToTP / totalDistance) * 100 : 0;
-      }
-
-      if (pctToTP > 0 && pctToTP <= 5) {
-        alerts.push({
-          type: "TP_APPROACHING",
-          priority: "high",
-          ticker: trade.ticker,
-          message: `${trade.ticker} is within ${pctToTP.toFixed(
-            1,
-          )}% of TP ($${tp.toFixed(2)}). Current: $${currentPrice.toFixed(
-            2,
-          )}. Consider trimming 50% at TP.`,
-          currentPrice,
-          tp,
-          pctToTP,
-        });
-      }
-    }
-  });
-
-  // Alert 2: Positions approaching SL (within 2% of SL)
-  openTrades.forEach((trade) => {
-    const currentPrice = Number(trade.currentPrice || trade.entryPrice || 0);
-    const sl = Number(trade.sl || 0);
-    const entryPrice = Number(trade.entryPrice || 0);
-    const direction = trade.direction || "LONG";
-
-    if (sl > 0 && currentPrice > 0 && entryPrice > 0) {
-      let distanceToSL = 0;
-      let pctToSL = 0;
-
-      if (direction === "LONG") {
-        distanceToSL = currentPrice - sl;
-        const totalDistance = entryPrice - sl;
-        pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
-      } else {
-        distanceToSL = sl - currentPrice;
-        const totalDistance = sl - entryPrice;
-        pctToSL = totalDistance > 0 ? (distanceToSL / totalDistance) * 100 : 0;
-      }
-
-      if (pctToSL > 0 && pctToSL <= 5) {
-        alerts.push({
-          type: "SL_APPROACHING",
-          priority: "high",
-          ticker: trade.ticker,
-          message: `⚠️ ${trade.ticker} is within ${pctToSL.toFixed(
-            1,
-          )}% of SL ($${sl.toFixed(2)}). Current: $${currentPrice.toFixed(
-            2,
-          )}. Monitor closely.`,
-          currentPrice,
-          sl,
-          pctToSL,
-        });
-      }
-    }
-  });
-
-  // Alert 3: High completion positions (should trim/exit)
-  allTickers.forEach((ticker) => {
-    const matchingTrade = openTrades.find((t) => t.ticker === ticker.ticker);
-    if (matchingTrade && ticker.completion > 0.8) {
-      alerts.push({
-        type: "HIGH_COMPLETION",
-        priority: "medium",
-        ticker: ticker.ticker,
-        message: `${ticker.ticker} has reached ${(
-          ticker.completion * 100
-        ).toFixed(
-          0,
-        )}% completion. Consider trimming 50-75% to lock in profits.`,
-        completion: ticker.completion,
-      });
-    }
-  });
-
-  // Alert 4: Late phase positions (risk of reversal)
-  allTickers.forEach((ticker) => {
-    const matchingTrade = openTrades.find((t) => t.ticker === ticker.ticker);
-    if (matchingTrade && ticker.phase_pct > 0.75) {
-      alerts.push({
-        type: "LATE_PHASE",
-        priority: "medium",
-        ticker: ticker.ticker,
-        message: `${ticker.ticker} is in late phase (${(
-          ticker.phase_pct * 100
-        ).toFixed(
-          0,
-        )}%). Risk of reversal increasing. Consider trimming or tightening stops.`,
-        phasePct: ticker.phase_pct,
-      });
-    }
-  });
-
-  // Alert 5: New prime setups emerging
-  const newPrimeSetups = allTickers.filter(
-    (t) =>
-      t.rank >= 75 &&
-      t.rr >= 1.5 &&
-      t.completion < 0.4 &&
-      t.phase_pct < 0.6 &&
-      !openTrades.find((ot) => ot.ticker === t.ticker),
-  );
-
-  if (newPrimeSetups.length > 0) {
-    alerts.push({
-      type: "NEW_OPPORTUNITY",
-      priority: "high",
-      ticker: "MULTIPLE",
-      message: `🎯 ${
-        newPrimeSetups.length
-      } new prime setups detected: ${newPrimeSetups
-        .slice(0, 5)
-        .map((t) => t.ticker)
-        .join(", ")}. Consider monitoring for entry.`,
-      setups: newPrimeSetups.slice(0, 5).map((t) => ({
-        ticker: t.ticker,
-        rank: t.rank,
-        rr: t.rr,
-      })),
-    });
-  }
-
-  // Alert 6: Momentum Elite opportunities
-  const momentumEliteSetups = allTickers.filter(
-    (t) =>
-      t.flags?.momentum_elite &&
-      t.rank >= 70 &&
-      !openTrades.find((ot) => ot.ticker === t.ticker),
-  );
-
-  if (momentumEliteSetups.length > 0) {
-    alerts.push({
-      type: "MOMENTUM_ELITE",
-      priority: "high",
-      ticker: "MULTIPLE",
-      message: `🚀 ${
-        momentumEliteSetups.length
-      } Momentum Elite setups available: ${momentumEliteSetups
-        .slice(0, 5)
-        .map((t) => t.ticker)
-        .join(", ")}. High-quality opportunities.`,
-      setups: momentumEliteSetups.slice(0, 5).map((t) => ({
-        ticker: t.ticker,
-        rank: t.rank,
-        rr: t.rr,
-      })),
-    });
-  }
-
-  // Sort by priority (high first) and return
-  return alerts.sort((a, b) => {
-    const priorityOrder = { high: 3, medium: 2, low: 1 };
-    return priorityOrder[b.priority] - priorityOrder[a.priority];
-  });
-}
-
 // Process trade simulation for a ticker (called on ingest)
 // options.replayBatchContext: { allTrades } - use pre-loaded trades, skip KV reads/writes for trades+exec (replay perf)
 async function processTradeSimulation(
@@ -5641,11 +5519,19 @@ async function processTradeSimulation(
             
             // Calculate R:R using RUNNER TP (furthest target)
             const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
+            
+            // Apply direction-specific SL adjustment based on gold standard patterns
+            const slAdjustment = computeDirectionAwareSL(tickerData, slCandidate, direction, entryPx);
+            const finalSL = slAdjustment.sl;
+            if (slAdjustment.adjusted) {
+              console.log(`[GOLD_STANDARD_SL] ${sym} ${direction} SL adjusted: ${slCandidate.toFixed(2)} → ${finalSL.toFixed(2)} (${slAdjustment.reason})`);
+            }
+            
             const calculatedRR = (() => {
-              if (!runnerTp || !Number.isFinite(slCandidate) || !Number.isFinite(entryPx)) {
+              if (!runnerTp || !Number.isFinite(finalSL) || !Number.isFinite(entryPx)) {
                 return Number(tickerData?.rr) || 0;
               }
-              const risk = Math.abs(entryPx - slCandidate);
+              const risk = Math.abs(entryPx - finalSL);
               const reward = Math.abs(runnerTp.price - entryPx);
               return risk > 0 ? reward / risk : 0;
             })();
@@ -5658,7 +5544,10 @@ async function processTradeSimulation(
               entryTime,
               entry_ts: entryTsMs || undefined,
               triggerTimestamp: Number(tickerData?.trigger_ts) || null,
-              sl: slCandidate,
+              sl: finalSL,
+              sl_original: slCandidate,
+              sl_gs_adjusted: slAdjustment.adjusted,
+              sl_gs_reason: slAdjustment.reason,
               tp: validTP, // Use TRIM TP (first tier) as primary TP
               tpArray: tpArray, // Store full 3-tier TP array
               // Track which tiers have been hit
@@ -7596,8 +7485,16 @@ async function processTradeSimulation(
             // Calculate RR using RUNNER TP (max/furthest) from array
             const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
             const maxTP = runnerTp?.price || Math.max(...tpArray.map((tp) => tp.price));
-            const sl = Number(tickerData.sl);
-            const risk = Math.abs(entryPrice - sl);
+            const baseSL = Number(tickerData.sl);
+            
+            // Apply direction-specific SL adjustment based on gold standard patterns
+            const slAdjustment = computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice);
+            const finalSL = slAdjustment.sl;
+            if (slAdjustment.adjusted) {
+              console.log(`[GOLD_STANDARD_SL] ${ticker} ${direction} SL adjusted: ${baseSL.toFixed(2)} → ${finalSL.toFixed(2)} (${slAdjustment.reason})`);
+            }
+            
+            const risk = Math.abs(entryPrice - finalSL);
             const gain =
               direction === "LONG" ? maxTP - entryPrice : entryPrice - maxTP;
             const calculatedRR = risk > 0 && gain > 0 ? gain / risk : null;
@@ -7615,7 +7512,10 @@ async function processTradeSimulation(
               entryTime, // When trade was actually created (ingest time in replay)
               entry_ts: entryTsMs, // Numeric ms for D1/display (ingest time, not replay run time)
               triggerTimestamp: triggerTimestamp, // When signal was generated (for reference)
-              sl: Number(tickerData.sl),
+              sl: finalSL,
+              sl_original: baseSL,
+              sl_gs_adjusted: slAdjustment.adjusted,
+              sl_gs_reason: slAdjustment.reason,
               tp: validTP, // Primary TP (TRIM level, 60% off)
               tpArray: tpArray, // Store full 3-tier TP array
               // Track which tiers have been hit
@@ -8704,123 +8604,83 @@ async function appendCaptureTrail(KV, ticker, point, maxN = 48) {
   await kvPutJSON(KV, key, keep);
 }
 
-// ─────────────────────────────────────────────────────────────
-// D1 Trail Storage (7-day historical)
-// ─────────────────────────────────────────────────────────────
+/** Data lifecycle: aggregate timed_trail older than 48h into trail_5m_facts, then purge old raw data. */
+const DATA_LIFECYCLE_48H_MS = 48 * 60 * 60 * 1000;
+const DATA_LIFECYCLE_7D_MS = 7 * 24 * 60 * 60 * 1000;
+const PURGE_BATCH = 5000;
 
-async function d1InsertTrailPoint(env, ticker, payload) {
+async function runDataLifecycle(env) {
   const db = env?.DB;
-  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
-
-  const ts = Number(payload?.ts);
-  if (!Number.isFinite(ts))
-    return { ok: false, skipped: true, reason: "bad_ts" };
-
-  const point = {
-    ts,
-    price: payload?.price,
-    htf_score: payload?.htf_score,
-    ltf_score: payload?.ltf_score,
-    completion: payload?.completion,
-    phase_pct: payload?.phase_pct,
-    state: payload?.state,
-    rank: payload?.rank,
-    flags: payload?.flags || {},
-    trigger_reason: payload?.trigger_reason,
-    trigger_dir: payload?.trigger_dir,
-  };
-
-  const flagsJson =
-    point?.flags && typeof point.flags === "object"
-      ? JSON.stringify(point.flags)
-      : point?.flags != null
-        ? JSON.stringify(point.flags)
-        : null;
+  if (!db) {
+    console.error("[DATA LIFECYCLE] No DB binding");
+    return;
+  }
+  const now = Date.now();
+  const cutoff48h = now - DATA_LIFECYCLE_48H_MS;
+  const cutoff7d = now - DATA_LIFECYCLE_7D_MS;
 
   try {
-    await db
+    // 1. Aggregate timed_trail (ts < 48h) into trail_5m_facts
+    const agg = await db
       .prepare(
-        `INSERT OR REPLACE INTO timed_trail
-          (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, payload_json)
-         VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+        `INSERT OR REPLACE INTO trail_5m_facts
+         (ticker, bucket_ts, price_open, price_high, price_low, price_close,
+          htf_score_avg, htf_score_min, htf_score_max,
+          ltf_score_avg, ltf_score_min, ltf_score_max,
+          state, rank, completion, phase_pct,
+          had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite, had_flip_watch,
+          kanban_stage_start, kanban_stage_end, kanban_changed,
+          sample_count, created_at)
+         SELECT
+          ticker,
+          (ts / 300000) * 300000,
+          MIN(price), MAX(price), MIN(price), MAX(price),
+          ROUND(AVG(htf_score), 2), MIN(htf_score), MAX(htf_score),
+          ROUND(AVG(ltf_score), 2), MIN(ltf_score), MAX(ltf_score),
+          MAX(state), MAX(rank), MAX(completion), MAX(phase_pct),
+          0, 0, 0, 0, 0,
+          NULL, NULL, 0,
+          COUNT(*),
+          (strftime('%s', 'now') * 1000)
+         FROM timed_trail
+         WHERE ts < ?1
+         GROUP BY ticker, (ts / 300000) * 300000`,
       )
-      .bind(
-        String(ticker || "").toUpperCase(),
-        ts,
-        point?.price != null ? Number(point.price) : null,
-        point?.htf_score != null ? Number(point.htf_score) : null,
-        point?.ltf_score != null ? Number(point.ltf_score) : null,
-        point?.completion != null ? Number(point.completion) : null,
-        point?.phase_pct != null ? Number(point.phase_pct) : null,
-        point?.state != null ? String(point.state) : null,
-        point?.rank != null ? Number(point.rank) : null,
-        flagsJson,
-        point?.trigger_reason != null ? String(point.trigger_reason) : null,
-        point?.trigger_dir != null ? String(point.trigger_dir) : null,
-        (() => {
-          try {
-            return JSON.stringify(payload);
-          } catch {
-            return null;
-          }
-        })(),
-      )
+      .bind(cutoff48h)
       .run();
+    console.log("[DATA LIFECYCLE] Aggregated trail → 5m facts:", agg?.meta?.changes ?? "ok");
 
-    return { ok: true };
-  } catch (err) {
-    console.error(`[D1 TRAIL] Insert failed for ${ticker}:`, err);
-    return { ok: false, error: String(err) };
-  }
-}
-
-async function d1InsertIngestReceipt(env, ticker, payload, rawPayload) {
-  const db = env?.DB;
-  if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
-
-  const ts = Number(payload?.ts);
-  if (!Number.isFinite(ts))
-    return { ok: false, skipped: true, reason: "bad_ts" };
-
-  let raw = typeof rawPayload === "string" ? rawPayload : "";
-  if (!raw) {
-    try {
-      raw = JSON.stringify(payload);
-    } catch {
-      raw = "";
+    // 2. Purge timed_trail in batches to avoid D1 overload
+    let trailDeleted = 0;
+    for (;;) {
+      const del = await db
+        .prepare(
+          `DELETE FROM timed_trail WHERE rowid IN (SELECT rowid FROM timed_trail WHERE ts < ?1 LIMIT ?2)`,
+        )
+        .bind(cutoff48h, PURGE_BATCH)
+        .run();
+      const n = del?.meta?.changes ?? 0;
+      trailDeleted += n;
+      if (n < PURGE_BATCH) break;
     }
-  }
-  const hash = stableHash(raw || "");
-  const receiptId = `${String(ticker || "").toUpperCase()}:${ts}:${hash}`;
-  const bucket5m = Math.floor(ts / (5 * 60 * 1000)) * (5 * 60 * 1000);
-  const receivedTs = Date.now();
-  const scriptVersion = payload?.script_version || null;
+    console.log("[DATA LIFECYCLE] Purged timed_trail rows:", trailDeleted);
 
-  try {
-    await db
-      .prepare(
-        `INSERT OR IGNORE INTO ingest_receipts
-          (receipt_id, ticker, ts, bucket_5m, received_ts, payload_hash, script_version, payload_json)
-         VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
-      )
-      .bind(
-        receiptId,
-        String(ticker || "").toUpperCase(),
-        ts,
-        bucket5m,
-        receivedTs,
-        hash,
-        scriptVersion,
-        raw || null,
-      )
-      .run();
-
-    return { ok: true };
+    // 3. Purge ingest_receipts older than 7 days in batches
+    let receiptsDeleted = 0;
+    for (;;) {
+      const del = await db
+        .prepare(
+          `DELETE FROM ingest_receipts WHERE rowid IN (SELECT rowid FROM ingest_receipts WHERE received_ts < ?1 LIMIT ?2)`,
+        )
+        .bind(cutoff7d, PURGE_BATCH)
+        .run();
+      const n = del?.meta?.changes ?? 0;
+      receiptsDeleted += n;
+      if (n < PURGE_BATCH) break;
+    }
+    console.log("[DATA LIFECYCLE] Purged ingest_receipts rows:", receiptsDeleted);
   } catch (err) {
-    console.error(`[D1 INGEST] Receipt insert failed for ${ticker}:`, err);
-    return { ok: false, error: String(err) };
+    console.error("[DATA LIFECYCLE] Error:", err);
   }
 }
 
@@ -9369,22 +9229,6 @@ async function mlV1TrainFromQueue(env, KV, maxN = 75, force = false) {
   }
   console.log(`[ML TRAIN] Result: trained=${trained}, skipped=${JSON.stringify(skipped)}`);
   return { ok: true, trained, model_n: model.n, skipped, checked: due.length };
-}
-
-function normalizeTfKey(tf) {
-  const raw = String(tf == null ? "" : tf).trim().toUpperCase();
-  if (!raw) return null;
-  // Allow common forms
-  if (raw === "1" || raw === "1M") return "1";
-  if (raw === "3" || raw === "3M") return "3";
-  if (raw === "5" || raw === "5M") return "5";
-  if (raw === "10" || raw === "10M") return "10";
-  if (raw === "30" || raw === "30M") return "30";
-  if (raw === "60" || raw === "1H" || raw === "1HR") return "60";
-  if (raw === "240" || raw === "4H" || raw === "4HR") return "240";
-  if (raw === "D" || raw === "1D" || raw === "DAY") return "D";
-  if (raw === "W" || raw === "1W" || raw === "WEEK") return "W";
-  return null;
 }
 
 async function d1UpsertCandle(env, ticker, tf, candle) {
@@ -10761,138 +10605,6 @@ async function ensureCaptureIndex(KV, ticker) {
   }
 }
 
-// Send Discord notification with embed card styling
-async function notifyDiscord(env, embed) {
-  const discordEnable = env.DISCORD_ENABLE || "false";
-  if (discordEnable !== "true") {
-    console.log(
-      `[DISCORD] Notifications disabled (DISCORD_ENABLE="${discordEnable}", expected "true")`,
-    );
-    return { ok: false, skipped: true, reason: "disabled" };
-  }
-  const url = env.DISCORD_WEBHOOK_URL;
-  if (!url) {
-    console.log(
-      `[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`,
-    );
-    return { ok: false, skipped: true, reason: "missing_webhook" };
-  }
-
-  console.log(`[DISCORD] Sending notification: ${embed.title || "Untitled"}`);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ embeds: [embed] }),
-    });
-    if (!response.ok) {
-      const responseText = await response
-        .text()
-        .catch(() => "Unable to read response");
-      console.error(
-        `[DISCORD] Failed to send notification: ${response.status} ${response.statusText}`,
-        { responseText: responseText.substring(0, 200) },
-      );
-      return {
-        ok: false,
-        status: response.status,
-        statusText: response.statusText,
-        responseText: responseText.substring(0, 200),
-      };
-    } else {
-      console.log(
-        `[DISCORD] ✅ Notification sent successfully: ${
-          embed.title || "Untitled"
-        }`,
-      );
-      return { ok: true, status: response.status };
-    }
-  } catch (error) {
-    console.error(`[DISCORD] Error sending notification:`, {
-      error: String(error),
-      message: error.message,
-      stack: error.stack,
-    });
-    return { ok: false, error: String(error), message: error.message };
-  }
-}
-
-function getDiscordAlertMode(env) {
-  // Modes:
-  // - "critical" (default): high-signal only
-  // - "all": legacy behavior (send everything)
-  const raw = String(env?.DISCORD_ALERT_MODE || "critical")
-    .trim()
-    .toLowerCase();
-  return raw === "all" ? "all" : "critical";
-}
-
-function shouldSendDiscordAlert(env, type, ctx = {}) {
-  const mode = getDiscordAlertMode(env);
-  if (mode === "all") return true;
-  const t = String(type || "").toUpperCase();
-
-  // Critical-only policy: fewer, higher-signal alerts.
-  // Keep exits, keep major trims, keep only very high-conviction entries.
-  if (t === "TRADE_EXIT") return true;
-
-  if (t === "TRADE_TRIM") {
-    // NOTE: trims are fractional (0.5 = 50%). Be tolerant if percent is passed (50 = 50%).
-    const rawTotal = Number(ctx.newTrimmedPct);
-    const rawDelta = Number(ctx.trimDeltaPctRaw);
-    const total =
-      Number.isFinite(rawTotal) && rawTotal > 1 ? rawTotal / 100 : rawTotal;
-    const delta =
-      Number.isFinite(rawDelta) && Math.abs(rawDelta) > 1
-        ? rawDelta / 100
-        : rawDelta;
-    // Major trim events only (e.g. scaled out meaningfully)
-    if (Number.isFinite(total) && total >= 0.5) return true; // >= 50% total trimmed
-    if (Number.isFinite(delta) && Math.abs(delta) >= 0.2) return true; // >= 20% step
-    return false;
-  }
-
-  if (t === "TRADE_ENTRY") {
-    const rr = Number(ctx.rr);
-    const rank = Number(ctx.rank);
-    const momentumElite = !!ctx.momentumElite;
-    // High conviction: very strong rank + RR, or Momentum Elite with slightly relaxed RR.
-    if (Number.isFinite(rank) && rank >= 80 && Number.isFinite(rr) && rr >= 2.0)
-      return true;
-    if (
-      momentumElite &&
-      Number.isFinite(rank) &&
-      rank >= 75 &&
-      Number.isFinite(rr) &&
-      rr >= 1.6
-    )
-      return true;
-    return false;
-  }
-
-  // Kanban stage transitions (Enter Now and beyond) - always allow in critical mode
-  if (t === "KANBAN_ENTER_NOW") return true;
-  if (t === "KANBAN_HOLD") return true;
-  if (t === "KANBAN_DEFEND") return true;
-  if (t === "KANBAN_TRIM") return true;
-  if (t === "KANBAN_EXIT") return true;
-
-  // Suppress noisy/secondary alerts in critical mode:
-  // - flip_watch: early heads-up (nice-to-have, not critical)
-  // - tdseq_defense: internal SL tightening (can be frequent/noisy)
-  // - td9_exit: redundant with TRADE_EXIT
-  // - alert_entry (corridor entry signals): redundant with trade simulation entry alerts
-  if (t === "FLIP_WATCH") return false;
-  if (t === "TDSEQ_DEFENSE") return false;
-  if (t === "TD9_EXIT") return false;
-  if (t === "TD9_ENTRY") return false;
-  if (t === "SYSTEM") return false;
-  if (t === "ALERT_ENTRY") return false;
-
-  // Default: suppress.
-  return false;
-}
-
 // Helper: Generate natural language interpretation for trade actions
 function generateTradeActionInterpretation(
   action,
@@ -12136,157 +11848,6 @@ function createFlipWatchEmbed(ticker, tickerData) {
   };
 }
 
-function requireKeyOr401(req, env) {
-  const expected = env.TIMED_API_KEY;
-  if (!expected) return null; // open if unset (not recommended)
-  const url = new URL(req.url);
-  const qKey = url.searchParams.get("key");
-  if (qKey && qKey === expected) return null;
-  return sendJSON(
-    { ok: false, error: "unauthorized" },
-    401,
-    corsHeaders(env, req),
-  );
-}
-
-function validateTimedPayload(body) {
-  const ticker = normTicker(body?.ticker);
-  if (!ticker) return { ok: false, error: "missing ticker" };
-
-  const ts = Number(body?.ts);
-  const htf = Number(body?.htf_score);
-  const ltf = Number(body?.ltf_score);
-
-  // More detailed error messages
-  if (!isNum(ts)) {
-    return {
-      ok: false,
-      error: "missing/invalid ts",
-      details: { received: body?.ts, type: typeof body?.ts },
-    };
-  }
-  if (!isNum(htf)) {
-    return {
-      ok: false,
-      error: "missing/invalid htf_score",
-      details: { received: body?.htf_score, type: typeof body?.htf_score },
-    };
-  }
-  if (!isNum(ltf)) {
-    return {
-      ok: false,
-      error: "missing/invalid ltf_score",
-      details: { received: body?.ltf_score, type: typeof body?.ltf_score },
-    };
-  }
-
-  return {
-    ok: true,
-    ticker,
-    payload: { ...body, ticker, ts, htf_score: htf, ltf_score: ltf },
-  };
-}
-
-function validateCapturePayload(body) {
-  const ticker = normTicker(body?.ticker);
-  if (!ticker) return { ok: false, error: "missing ticker" };
-
-  const ts = Number(body?.ts);
-  if (!isNum(ts)) {
-    return {
-      ok: false,
-      error: "missing/invalid ts",
-      details: { received: body?.ts, type: typeof body?.ts },
-    };
-  }
-
-  const price =
-    body?.price != null && Number.isFinite(Number(body?.price))
-      ? Number(body?.price)
-      : null;
-
-  return {
-    ok: true,
-    ticker,
-    payload: {
-      ...body,
-      ticker,
-      ts,
-      price,
-      ingest_kind: "capture",
-    },
-  };
-}
-
-function validateCandlesPayload(body) {
-  const ticker = normTicker(body?.ticker);
-  if (!ticker) return { ok: false, error: "missing ticker" };
-
-  const tfCandles = body?.tf_candles;
-  if (!tfCandles || typeof tfCandles !== "object") {
-    return { ok: false, error: "missing tf_candles" };
-  }
-
-  // Normalize to object keyed by tf.
-  let byTf = null;
-  if (Array.isArray(tfCandles)) {
-    byTf = {};
-    for (const it of tfCandles) {
-      const tf = normalizeTfKey(it?.tf);
-      if (!tf) continue;
-      byTf[tf] = it;
-    }
-  } else {
-    byTf = tfCandles;
-  }
-
-  const out = {};
-  let n = 0;
-  for (const [tfRaw, candleOrArray] of Object.entries(byTf)) {
-    const tf = normalizeTfKey(tfRaw);
-    if (!tf) continue;
-
-    // Handle both single candle and array of candles
-    const candleList = Array.isArray(candleOrArray)
-      ? candleOrArray
-      : [candleOrArray];
-
-    const validCandles = [];
-    for (const candle of candleList) {
-      if (!candle || typeof candle !== "object") continue;
-      const ts = Number(candle?.ts);
-      const o = Number(candle?.o);
-      const h = Number(candle?.h);
-      const l = Number(candle?.l);
-      const c = Number(candle?.c);
-      const v = candle?.v != null ? Number(candle?.v) : null;
-      if (!Number.isFinite(ts)) continue;
-      if (![o, h, l, c].every((x) => Number.isFinite(x))) continue;
-      validCandles.push({ tf, ts, o, h, l, c, v });
-      n++;
-    }
-
-    if (validCandles.length > 0) {
-      out[tf] = validCandles.length === 1 ? validCandles[0] : validCandles;
-    }
-  }
-
-  if (n === 0) return { ok: false, error: "no_valid_candles" };
-
-  const tsTop = Number(body?.ts);
-  return {
-    ok: true,
-    ticker,
-    payload: {
-      ...body,
-      ticker,
-      ts: Number.isFinite(tsTop) ? tsTop : Date.now(),
-      tf_candles: out,
-      ingest_kind: "candles",
-    },
-  };
-}
-
 // ─────────────────────────────────────────────────────────────
 // Sector Mapping & Ratings
 // ─────────────────────────────────────────────────────────────
@@ -12892,11 +12453,19 @@ export default {
       }
 
       // url already parsed above
+      const routeKey = getRouteKey(req.method, url.pathname);
+      if (!routeKey) {
+        return sendJSON(
+          { ok: false, error: "not_found" },
+          404,
+          corsHeaders(env, req),
+        );
+      }
 
       // POST /timed/ingest
       // NOTE: This endpoint uses API key authentication instead of rate limiting
       // TradingView webhooks are authenticated via ?key= parameter
-      if (url.pathname === "/timed/ingest" && req.method === "POST") {
+      if (routeKey === "POST /timed/ingest") {
         let body = null; // Declare outside try for catch block access
         try {
           // Early logging to confirm request reception
@@ -15414,7 +14983,7 @@ export default {
       }
 
       // POST /timed/ingest-capture (capture-only heartbeat)
-      if (url.pathname === "/timed/ingest-capture" && req.method === "POST") {
+      if (routeKey === "POST /timed/ingest-capture") {
         let body = null;
         try {
           const ip = req.headers.get("CF-Connecting-IP") || "unknown";
@@ -15897,7 +15466,7 @@ export default {
       }
 
       // POST /timed/ingest-candles (multi-timeframe OHLCV)
-      if (url.pathname === "/timed/ingest-candles" && req.method === "POST") {
+      if (routeKey === "POST /timed/ingest-candles") {
         let body = null;
         try {
           const authFail = requireKeyOr401(req, env);
@@ -15982,7 +15551,7 @@ export default {
       }
 
       // GET /timed/latest?ticker=
-      if (url.pathname === "/timed/latest" && req.method === "GET") {
+      if (routeKey === "GET /timed/latest") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -16434,7 +16003,7 @@ export default {
       }
 
       // GET /timed/tickers
-      if (url.pathname === "/timed/tickers" && req.method === "GET") {
+      if (routeKey === "GET /timed/tickers") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -16492,7 +16061,7 @@ export default {
       }
 
       // GET /timed/all?version=2.5.0 (optional version parameter)
-      if (url.pathname === "/timed/all" && req.method === "GET") {
+      if (routeKey === "GET /timed/all") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -17179,7 +16748,7 @@ export default {
       }
 
       // GET /timed/candles?ticker=&tf=&limit=
-      if (url.pathname === "/timed/candles" && req.method === "GET") {
+      if (routeKey === "GET /timed/candles") {
         try {
           const ip = req.headers.get("CF-Connecting-IP") || "unknown";
           const rateLimit = await checkRateLimitFixedWindow(
@@ -17240,7 +16809,7 @@ export default {
       }
 
       // GET /timed/trail?ticker=
-      if (url.pathname === "/timed/trail" && req.method === "GET") {
+      if (routeKey === "GET /timed/trail") {
         try {
           // Rate limiting
           const ip = req.headers.get("CF-Connecting-IP") || "unknown";
@@ -17378,7 +16947,7 @@ export default {
       }
 
       // GET /timed/top?bucket=long|short|setup&n=10
-      if (url.pathname === "/timed/top" && req.method === "GET") {
+      if (routeKey === "GET /timed/top") {
         const n = Math.max(
           1,
           Math.min(50, Number(url.searchParams.get("n") || "10")),
@@ -17420,7 +16989,7 @@ export default {
       }
 
       // GET /timed/momentum?ticker=XYZ
-      if (url.pathname === "/timed/momentum" && req.method === "GET") {
+      if (routeKey === "GET /timed/momentum") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -17479,7 +17048,7 @@ export default {
       }
 
       // GET /timed/momentum/history?ticker=XYZ
-      if (url.pathname === "/timed/momentum/history" && req.method === "GET") {
+      if (routeKey === "GET /timed/momentum/history") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -17515,7 +17084,7 @@ export default {
       }
 
       // GET /timed/momentum/all
-      if (url.pathname === "/timed/momentum/all" && req.method === "GET") {
+      if (routeKey === "GET /timed/momentum/all") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -17550,7 +17119,7 @@ export default {
       }
 
       // GET /timed/sectors - Get all sectors and their ratings
-      if (url.pathname === "/timed/sectors" && req.method === "GET") {
+      if (routeKey === "GET /timed/sectors") {
         const sectors = getAllSectors().map((sector) => ({
           sector,
           ...getSectorRating(sector),
@@ -17561,11 +17130,7 @@ export default {
       }
 
       // GET /timed/sectors/:sector/tickers?limit=10 - Get top tickers in a sector
-      if (
-        url.pathname.startsWith("/timed/sectors/") &&
-        url.pathname.endsWith("/tickers") &&
-        req.method === "GET"
-      ) {
+      if (routeKey === "GET /timed/sectors/:sector/tickers") {
         const sectorPath = url.pathname
           .replace("/timed/sectors/", "")
           .replace("/tickers", "");
@@ -17599,10 +17164,7 @@ export default {
       }
 
       // GET /timed/sectors/recommendations?limit=10 - Get top tickers across all overweight sectors
-      if (
-        url.pathname === "/timed/sectors/recommendations" &&
-        req.method === "GET"
-      ) {
+      if (routeKey === "GET /timed/sectors/recommendations") {
         const limitPerSector = Math.max(
           1,
           Math.min(20, Number(url.searchParams.get("limit") || "10")),
@@ -17650,10 +17212,7 @@ export default {
       }
 
       // POST /timed/debug/migrate-brk?key=... - Migrate BRK.B to BRK-B
-      if (
-        url.pathname === "/timed/debug/migrate-brk" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/migrate-brk") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -17731,10 +17290,7 @@ export default {
       }
 
       // POST /timed/debug/cleanup-duplicates?key=... - Remove duplicate/empty tickers from index
-      if (
-        url.pathname === "/timed/debug/cleanup-duplicates" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/cleanup-duplicates") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -17812,7 +17368,7 @@ export default {
       }
 
       // POST /timed/debug/fix-index?key=...&ticker=BMNR - Manually add ticker to index if data exists
-      if (url.pathname === "/timed/debug/fix-index" && req.method === "POST") {
+      if (routeKey === "POST /timed/debug/fix-index") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -17888,7 +17444,7 @@ export default {
       }
 
       // POST /timed/watchlist/add?key=... - Add tickers to watchlist
-      if (url.pathname === "/timed/watchlist/add" && req.method === "POST") {
+      if (routeKey === "POST /timed/watchlist/add") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -17947,7 +17503,7 @@ export default {
       }
 
       // GET /timed/activity
-      if (url.pathname === "/timed/activity" && req.method === "GET") {
+      if (routeKey === "GET /timed/activity") {
         const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
 
         const now = Date.now();
@@ -17987,7 +17543,7 @@ export default {
       }
 
       // GET /timed/check-ticker?ticker=AAPL
-      if (url.pathname === "/timed/check-ticker" && req.method === "GET") {
+      if (routeKey === "GET /timed/check-ticker") {
         const ticker = url.searchParams.get("ticker");
         if (!ticker) {
           return sendJSON(
@@ -18072,7 +17628,7 @@ export default {
       }
 
       // GET /timed/ingest-status
-      if (url.pathname === "/timed/ingest-status" && req.method === "GET") {
+      if (routeKey === "GET /timed/ingest-status") {
         try {
           const now = new Date();
           const result = await checkIngestCoverage(KV, now);
@@ -18097,7 +17653,7 @@ export default {
 
       // GET /timed/ingestion/stats?since&until&bucketMin
       // Coverage = distinct(ticker,bucket) / (watchlist_count * bucket_count)
-      if (url.pathname === "/timed/ingestion/stats" && req.method === "GET") {
+      if (routeKey === "GET /timed/ingestion/stats") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -18202,10 +17758,7 @@ export default {
 
       // GET /timed/watchlist/coverage?since&until&bucketMin&threshold
       // Per-ticker coverage across expected buckets (uses ingest_receipts)
-      if (
-        url.pathname === "/timed/watchlist/coverage" &&
-        req.method === "GET"
-      ) {
+      if (routeKey === "GET /timed/watchlist/coverage") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -18345,7 +17898,7 @@ export default {
       }
 
       // GET /timed/ingest-audit?since&until&bucket&ticker&includeKv&scriptVersion
-      if (url.pathname === "/timed/ingest-audit" && req.method === "GET") {
+      if (routeKey === "GET /timed/ingest-audit") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -18509,7 +18062,7 @@ export default {
       }
 
       // GET /timed/health
-      if (url.pathname === "/timed/health" && req.method === "GET") {
+      if (routeKey === "GET /timed/health") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -18558,7 +18111,7 @@ export default {
       }
 
       // POST /timed/purge?key=... (Manual purge endpoint)
-      if (url.pathname === "/timed/purge" && req.method === "POST") {
+      if (routeKey === "POST /timed/purge") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -18579,10 +18132,7 @@ export default {
       }
 
       // POST /timed/cleanup-no-scores?key=... (Remove tickers without score data from index)
-      if (
-        url.pathname === "/timed/cleanup-no-scores" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/cleanup-no-scores") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -18622,7 +18172,7 @@ export default {
       }
 
       // POST /timed/rebuild-index?key=... (Rebuild ticker index from watchlist)
-      if (url.pathname === "/timed/rebuild-index" && req.method === "POST") {
+      if (routeKey === "POST /timed/rebuild-index") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -18802,10 +18352,7 @@ export default {
       }
 
       // POST /timed/purge-trades-by-version?key=...&version=2.6.0 (Purge trades by version)
-      if (
-        url.pathname === "/timed/purge-trades-by-version" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/purge-trades-by-version") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -18847,7 +18394,7 @@ export default {
 
       // POST /timed/cleanup-tickers?key=... (Remove unapproved tickers, keep only approved list, normalize Gold/Silver)
       // POST /timed/clear-rate-limit?key=...&all=true (Reset all) or &ip=...&endpoint=... (Clear specific)
-      if (url.pathname === "/timed/clear-rate-limit" && req.method === "POST") {
+      if (routeKey === "POST /timed/clear-rate-limit") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -18969,7 +18516,7 @@ export default {
       }
 
       // POST /timed/cleanup-tickers?key=... (Cleanup tickers to match approved list)
-      if (url.pathname === "/timed/cleanup-tickers" && req.method === "POST") {
+      if (routeKey === "POST /timed/cleanup-tickers") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -19213,7 +18760,7 @@ export default {
       }
 
       // GET /timed/cors-debug (Debug CORS configuration)
-      if (url.pathname === "/timed/cors-debug" && req.method === "GET") {
+      if (routeKey === "GET /timed/cors-debug") {
         const corsConfig = env.CORS_ALLOW_ORIGIN || "";
         const allowedOrigins = corsConfig
           .split(",")
@@ -19243,7 +18790,7 @@ export default {
       }
 
       // GET /timed/version (Check current version)
-      if (url.pathname === "/timed/version" && req.method === "GET") {
+      if (routeKey === "GET /timed/version") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -19276,7 +18823,7 @@ export default {
       }
 
       // GET /timed/alert-debug?ticker=XYZ (Debug why alerts aren't firing)
-      if (url.pathname === "/timed/alert-debug" && req.method === "GET") {
+      if (routeKey === "GET /timed/alert-debug") {
         // Rate limiting
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -19459,7 +19006,7 @@ export default {
 
       // GET /timed/alert-replay?ticker=XYZ&since=<ms>&until=<ms>&limit=<n>
       // Replays alert eligibility across historical ingest payloads (D1-backed).
-      if (url.pathname === "/timed/alert-replay" && req.method === "GET") {
+      if (routeKey === "GET /timed/alert-replay") {
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
           KV,
@@ -19711,7 +19258,7 @@ export default {
       }
 
       // GET /timed/ledger/trades?since&until&ticker&status&limit&cursor
-      if (url.pathname === "/timed/ledger/trades" && req.method === "GET") {
+      if (routeKey === "GET /timed/ledger/trades") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -19880,11 +19427,7 @@ export default {
       // GET /timed/ledger/trades/:tradeId
       // GET /timed/ledger/trades/:tradeId/decision-card?type=ENTRY|TRIM|EXIT&ts=...
       // Returns a Discord-style "Action & Reasoning" card using the nearest trail snapshot.
-      if (
-        url.pathname.startsWith("/timed/ledger/trades/") &&
-        url.pathname.endsWith("/decision-card") &&
-        req.method === "GET"
-      ) {
+      if (routeKey === "GET /timed/ledger/trades/:id/decision-card") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -20103,11 +19646,7 @@ export default {
         );
       }
 
-      if (
-        url.pathname.startsWith("/timed/ledger/trades/") &&
-        !url.pathname.endsWith("/decision-card") &&
-        req.method === "GET"
-      ) {
+      if (routeKey === "GET /timed/ledger/trades/:id") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -20206,7 +19745,7 @@ export default {
       }
 
       // GET /timed/ledger/alerts?since&until&ticker&dedupe_day&limit&cursor
-      if (url.pathname === "/timed/ledger/alerts" && req.method === "GET") {
+      if (routeKey === "GET /timed/ledger/alerts") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -20302,7 +19841,7 @@ export default {
       }
 
       // GET /timed/ledger/summary?since&until
-      if (url.pathname === "/timed/ledger/summary" && req.method === "GET") {
+      if (routeKey === "GET /timed/ledger/summary") {
         const db = env?.DB;
         if (!db) {
           return sendJSON(
@@ -20499,10 +20038,7 @@ export default {
 
       // POST /timed/admin/backfill-trades?key=...&limit=...&offset=...&ticker=...
       // Backfill KV trades/history into D1 ledger tables (idempotent via upserts + INSERT OR IGNORE).
-      if (
-        url.pathname === "/timed/admin/backfill-trades" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/admin/backfill-trades") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -20644,10 +20180,7 @@ export default {
 
       // POST /timed/admin/backfill-positions?key=...&limit=...&offset=...
       // Backfill positions/lots/execution_actions from existing D1 trades + trade_events (idempotent).
-      if (
-        url.pathname === "/timed/admin/backfill-positions" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/admin/backfill-positions") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -20829,10 +20362,7 @@ export default {
 
       // POST /timed/admin/backfill-alerts?key=...&limit=...&offset=...&ticker=...&source=trades|activity|all
       // Backfill KV activity + trades into D1 alerts ledger (idempotent via upserts).
-      if (
-        url.pathname === "/timed/admin/backfill-alerts" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/admin/backfill-alerts") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -21001,10 +20531,7 @@ export default {
 
       // POST /timed/admin/backfill-derived?key=...&limit=...&offset=...&ticker=...&includeTrades=1
       // Recompute derived horizon/ETA/TP fields for latest tickers (and optionally trades) and persist to KV.
-      if (
-        url.pathname === "/timed/admin/backfill-derived" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/admin/backfill-derived") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -21115,7 +20642,7 @@ export default {
       }
 
       // GET /timed/trades?version=2.1.0 (Get all trades, optional version filter)
-      if (url.pathname === "/timed/trades" && req.method === "GET") {
+      if (routeKey === "GET /timed/trades") {
         // Rate limiting - increased limits for UI polling (100 requests per minute)
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -21265,7 +20792,7 @@ export default {
       }
 
       // GET /timed/portfolio (paper portfolio + executions, derived from KV trades)
-      if (url.pathname === "/timed/portfolio" && req.method === "GET") {
+      if (routeKey === "GET /timed/portfolio") {
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
           KV,
@@ -21710,7 +21237,7 @@ export default {
       }
 
       // POST /timed/trades?key=... (Create or update trade)
-      if (url.pathname === "/timed/trades" && req.method === "POST") {
+      if (routeKey === "POST /timed/trades") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -21758,10 +21285,7 @@ export default {
       }
 
       // DELETE /timed/trades/:id?key=... (Delete trade)
-      if (
-        url.pathname.startsWith("/timed/trades/") &&
-        req.method === "DELETE"
-      ) {
+      if (routeKey === "DELETE /timed/trades/:id") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -21792,7 +21316,7 @@ export default {
       }
 
       // OPTIONS /timed/ai/chat (CORS preflight)
-      if (url.pathname === "/timed/ai/chat" && req.method === "OPTIONS") {
+      if (routeKey === "OPTIONS /timed/ai/chat") {
         const origin = req?.headers?.get("Origin") || "";
         // Always allow timedtrading.pages.dev origin, otherwise use "*"
         const allowedOrigin = origin.includes("timedtrading.pages.dev")
@@ -21812,7 +21336,7 @@ export default {
       }
 
       // POST /timed/ai/chat (AI Chat Assistant)
-      if (url.pathname === "/timed/ai/chat" && req.method === "POST") {
+      if (routeKey === "POST /timed/ai/chat") {
         // Get CORS headers early - always allow timedtrading.pages.dev for AI chat
         const origin = req?.headers?.get("Origin") || "";
         // Always allow timedtrading.pages.dev origin, otherwise use "*"
@@ -22312,7 +21836,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
       } // End of POST /timed/ai/chat handler
 
       // GET /timed/ai/updates (Get periodic AI updates)
-      if (url.pathname === "/timed/ai/updates" && req.method === "GET") {
+      if (routeKey === "GET /timed/ai/updates") {
         const origin = req?.headers?.get("Origin") || "";
         const allowedOrigin = origin.includes("timedtrading.pages.dev")
           ? origin
@@ -22374,7 +21898,7 @@ Remember: You're a helpful assistant. Be professional, accurate, and prioritize 
       }
 
       // GET /timed/ai/daily-summary (Daily Summary of Simulation Dashboard Performance)
-      if (url.pathname === "/timed/ai/daily-summary" && req.method === "GET") {
+      if (routeKey === "GET /timed/ai/daily-summary") {
         const origin = req?.headers?.get("Origin") || "";
         const allowedOrigin = origin.includes("timedtrading.pages.dev")
           ? origin
@@ -22872,7 +22396,7 @@ Based on today's data:
       }
 
       // GET /timed/ai/monitor (Real-time Monitoring & Proactive Alerts)
-      if (url.pathname === "/timed/ai/monitor" && req.method === "GET") {
+      if (routeKey === "GET /timed/ai/monitor") {
         const origin = req?.headers?.get("Origin") || "";
         const allowedOrigin = origin.includes("timedtrading.pages.dev")
           ? origin
@@ -23268,7 +22792,7 @@ Provide 3-5 actionable next steps:
       // ─────────────────────────────────────────────────────────────
 
       // GET /timed/debug/trades?ticker=RIOT - Get all trades with details, optionally filtered by ticker
-      if (url.pathname === "/timed/debug/trades" && req.method === "GET") {
+      if (routeKey === "GET /timed/debug/trades") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23328,10 +22852,7 @@ Provide 3-5 actionable next steps:
       }
 
       // GET /timed/debug/score-analysis - Analyze score distribution
-      if (
-        url.pathname === "/timed/debug/score-analysis" &&
-        req.method === "GET"
-      ) {
+      if (routeKey === "GET /timed/debug/score-analysis") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23511,7 +23032,7 @@ Provide 3-5 actionable next steps:
       }
 
       // GET /timed/debug/tickers - Get all tickers with latest data
-      if (url.pathname === "/timed/debug/tickers" && req.method === "GET") {
+      if (routeKey === "GET /timed/debug/tickers") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23563,7 +23084,7 @@ Provide 3-5 actionable next steps:
       }
 
       // GET /timed/debug/config - Check Discord and other configuration
-      if (url.pathname === "/timed/debug/config" && req.method === "GET") {
+      if (routeKey === "GET /timed/debug/config") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23591,7 +23112,7 @@ Provide 3-5 actionable next steps:
 
       // GET /timed/debug/daily?ticker=AMD
       // Debug endpoint to inspect daily change inputs/sources (latest vs capture vs worker-derived).
-      if (url.pathname === "/timed/debug/daily" && req.method === "GET") {
+      if (routeKey === "GET /timed/debug/daily") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23682,10 +23203,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/cleanup-duplicates?key=...&ticker=RIOT - Remove duplicate trades for a ticker
-      if (
-        url.pathname === "/timed/debug/cleanup-duplicates" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/cleanup-duplicates") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23807,10 +23325,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/purge-ticker?key=...&ticker=RIOT - Delete ALL trades for a specific ticker
-      if (
-        url.pathname === "/timed/debug/purge-ticker" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/purge-ticker") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23875,10 +23390,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/cleanup-all-duplicates?key=... - Remove all duplicate trades (keeps most recent per ticker+direction)
-      if (
-        url.pathname === "/timed/debug/cleanup-all-duplicates" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/cleanup-all-duplicates") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -23979,10 +23491,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/recalculate-ranks?key=... - Recalculate ranks for all tickers using new formula
-      if (
-        url.pathname === "/timed/debug/recalculate-ranks" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/recalculate-ranks") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24039,10 +23548,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/fix-entry-prices?key=... - Fix entry prices for trades that used trigger_price instead of current price
-      if (
-        url.pathname === "/timed/debug/fix-entry-prices" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/fix-entry-prices") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24213,10 +23719,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/fix-backfill-trades?key=... - Fix entryTime for backfilled trades
-      if (
-        url.pathname === "/timed/debug/fix-backfill-trades" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/fix-backfill-trades") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24429,10 +23932,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/clear-all-trades?key=... - Clear all trades and start fresh
-      if (
-        url.pathname === "/timed/debug/clear-all-trades" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/clear-all-trades") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24464,10 +23964,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/debug/simulate-trades?key=... - Manually simulate trades for all tickers
-      if (
-        url.pathname === "/timed/debug/simulate-trades" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/debug/simulate-trades") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24534,7 +24031,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/ml/train?key=... - Trigger ML model training from labeled queue
-      if (url.pathname === "/timed/ml/train" && req.method === "POST") {
+      if (routeKey === "POST /timed/ml/train") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24553,7 +24050,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/ml/backfill-queue?key=... - Backfill ML queue from timed_trail
-      if (url.pathname === "/timed/ml/backfill-queue" && req.method === "POST") {
+      if (routeKey === "POST /timed/ml/backfill-queue") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24607,10 +24104,7 @@ Provide 3-5 actionable next steps:
       // Re-run Kanban classification + trade sim for all tickers. Batched to avoid subrequest limits.
       // Default limit=15 per call; use offset to process remaining (e.g. offset=15, offset=30).
       // resetTrades=1: purge open trades for batch tickers (optionally in from/to range) and clear entry state before reprocess.
-      if (
-        url.pathname === "/timed/admin/reprocess-kanban" &&
-        req.method === "POST"
-      ) {
+      if (routeKey === "POST /timed/admin/reprocess-kanban") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -24847,7 +24341,7 @@ Provide 3-5 actionable next steps:
       // POST /timed/admin/replay-ticker?key=...&ticker=BE&date=YYYY-MM-DD
       // Single-ticker replay: fetches trail via d1GetTrailRange (no payload_json), processes chronologically.
       // Use this for ticker-by-ticker replay; avoids D1 large-result limits.
-      if (url.pathname === "/timed/admin/replay-ticker" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/replay-ticker") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         const tickerParam = (url.searchParams.get("ticker") || "").trim().toUpperCase();
@@ -25004,7 +24498,7 @@ Provide 3-5 actionable next steps:
 
       // POST /timed/admin/replay-ticker-d1?key=...&ticker=AAPL&date=YYYY-MM-DD&cleanSlate=1
       // Single-ticker replay from D1 timed_trail (payload_json). Processes all rows in one request, writes KV only at end (avoids 429).
-      if (url.pathname === "/timed/admin/replay-ticker-d1" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/replay-ticker-d1") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
@@ -25271,7 +24765,7 @@ Provide 3-5 actionable next steps:
 
       // GET /timed/admin/replay-data-stats?key=...&date=YYYY-MM-DD&ticker=AAPL
       // Returns row counts and payload_json presence for timed_trail vs ingest_receipts (confirm D1 as replay source).
-      if (url.pathname === "/timed/admin/replay-data-stats" && req.method === "GET") {
+      if (routeKey === "GET /timed/admin/replay-data-stats") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
@@ -25332,7 +24826,7 @@ Provide 3-5 actionable next steps:
       // POST /timed/admin/replay-ingest?key=...&date=YYYY-MM-DD&bucket=...&ticker=...&scriptVersion=2.5.0&cleanSlate=1
       // Bucket-by-bucket replay from ingest_receipts (Script Version 2.5.0). Avoids D1 memory limits.
       // Client iterates buckets from 9:30 ET; pass bucket= to process one bucket per request.
-      if (url.pathname === "/timed/admin/replay-ingest" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/replay-ingest") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -25638,7 +25132,7 @@ Provide 3-5 actionable next steps:
       // Replay a day's timed_trail ingests from 9:30 AM ET, chronologically. Kanban + trade simulation.
       // cleanSlate=1: purge ALL trades and reset entry state for a clean simulation of the day only.
       // bucketMinutes=5: group ingests into 5-min buckets (latest per ticker per bucket) for structured progression.
-      if (url.pathname === "/timed/admin/replay-day" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/replay-day") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -26061,7 +25555,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/admin/dedupe-trades?key=... - Remove duplicate trades (same ticker+direction+entry_ts)
-      if (url.pathname === "/timed/admin/dedupe-trades" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/dedupe-trades") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -26106,7 +25600,7 @@ Provide 3-5 actionable next steps:
 
       // POST /timed/admin/refresh-latest-from-ingest?key=... - Restore KV from actual latest ingest_receipts per ticker.
       // Use after replay to fix stale data (replay only keeps last-seen-per-bucket; this gets true latest).
-      if (url.pathname === "/timed/admin/refresh-latest-from-ingest" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/refresh-latest-from-ingest") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -26192,7 +25686,7 @@ Provide 3-5 actionable next steps:
       }
 
       // POST /timed/admin/force-sync?key=... - Force D1 sync from KV (refresh all tickers)
-      if (url.pathname === "/timed/admin/force-sync" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/force-sync") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -26216,7 +25710,7 @@ Provide 3-5 actionable next steps:
       // Optional (DANGEROUS; opt-in via query params):
       // - resetMl=1      -> clears ML model + training queue
       // - resetLedger=1  -> clears D1 ledger tables (alerts/trades/events)
-      if (url.pathname === "/timed/admin/reset" && req.method === "POST") {
+      if (routeKey === "POST /timed/admin/reset") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
 
@@ -26429,6 +25923,12 @@ Provide 3-5 actionable next steps:
 
   // Scheduled handler for periodic AI updates (9:45 AM, noon, 3:30 PM ET) and trade updates (every 5 min)
   async scheduled(event, env, ctx) {
+    // Data lifecycle: aggregate timed_trail → trail_5m_facts, purge old raw data (4 AM UTC daily)
+    if (event.cron === "0 4 * * *") {
+      ctx.waitUntil(runDataLifecycle(env));
+      return;
+    }
+
     const KV = env.KV_TIMED;
     const now = new Date();
     const hour = now.getUTCHours();

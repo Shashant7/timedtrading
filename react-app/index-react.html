@@ -11786,9 +11786,32 @@
           return null;
         }
 
+        // Daily trade summary (today's closed trades)
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayTrades = (trades || []).filter((tr) => {
+          const exitTs = tr.exit_ts ?? tr.exitTs ?? tr.exitTime;
+          if (!Number.isFinite(exitTs)) return false;
+          const ms = exitTs < 1e12 ? exitTs * 1000 : exitTs;
+          return new Date(ms).toISOString().slice(0, 10) === todayKey;
+        });
+        const todayWins = todayTrades.filter((t) => String(t?.status || "").toUpperCase() === "WIN").length;
+        const todayLosses = todayTrades.filter((t) => String(t?.status || "").toUpperCase() === "LOSS").length;
+        const todayPnl = todayTrades.reduce((sum, t) => sum + (Number(t?.realizedPnl) || 0), 0);
+
         return (
           <div className="mb-4 rounded-xl border-2 border-[var(--tt-border)] p-4" style={{ background: "#13171e" }}>
             <div className="mb-4">
+              {todayTrades.length > 0 && (
+                <div className="mb-3 px-3 py-2 rounded-lg bg-[#1a1f28] border border-[#252b36] flex items-center gap-4 flex-wrap">
+                  <span className="text-xs font-semibold text-[#8b92a0]">Today</span>
+                  <span className="text-sm text-white">{todayTrades.length} trades</span>
+                  <span className="text-sm text-green-300">{todayWins}W</span>
+                  <span className="text-sm text-red-300">{todayLosses}L</span>
+                  <span className={`text-sm font-bold ${todayPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                    {todayPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayPnl) : `$${todayPnl.toFixed(2)}`}
+                  </span>
+                </div>
+              )}
               <div className="text-lg font-bold text-white flex items-center gap-2">
                 🎯 Action Center
                 <span className="text-[13px] font-normal text-[var(--tt-text-faint)]">
@@ -12684,6 +12707,24 @@
                           </span>
                         </div>
                       )}
+                      {showEntryStats && Number.isFinite(entryChangePct) && Number.isFinite(entryPrice) && entryPrice > 0 && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-[#8b92a0] font-semibold">P&L</span>
+                          <span
+                            className={
+                              "text-[10px] font-bold " +
+                              (entryChangePct >= 0
+                                ? "text-green-300"
+                                : "text-red-300")
+                            }
+                          >
+                            {(entryChangePct >= 0 ? "+" : "")}
+                            {typeof fmtUsd === "function"
+                              ? fmtUsd(((TRADE_SIZE || 1000) * (entryChangePct / 100)))
+                              : `$${(((TRADE_SIZE || 1000) * (entryChangePct / 100))).toFixed(2)}`}
+                          </span>
+                        </div>
+                      )}
                       {sl !== null && (
                         <div className="flex items-center justify-between">
                           <span>SL</span>
@@ -12756,7 +12797,7 @@
           });
 
           return (
-            <div className="flex-1 min-w-[170px] max-w-[240px]">
+            <div className="flex-1 min-w-[190px] max-w-[260px]">
               <div
                 className={`p-1.5 rounded-t-lg border-t-2 ${color} bg-[#1a1f28]`}
               >
@@ -13692,17 +13733,6 @@
                 {pill("✅ Done", moveFilter === "COMPLETED", () =>
                   setMoveFilter("COMPLETED"),
                 )}
-                <div className="w-px h-6 bg-[#252b36] mx-1" />
-                {pill("Any horizon", horizon === "ALL", () =>
-                  setHorizon("ALL"),
-                )}
-                {pill("≤7d", horizon === "SHORT_TERM", () =>
-                  setHorizon("SHORT_TERM"),
-                )}
-                {pill("8–30d", horizon === "SWING", () => setHorizon("SWING"))}
-                {pill("31d+", horizon === "POSITIONAL", () =>
-                  setHorizon("POSITIONAL"),
-                )}
               </div>
             )}
 
@@ -14532,8 +14562,11 @@
       }
 
       // Universal Right Rail (shared component from shared-right-rail.js)
+      // Defensive fallbacks to prevent ReferenceErrors when deps may be out of scope
       const _fmtUsd = typeof fmtUsd === "function" ? fmtUsd : (v) => (Number.isFinite(Number(v)) ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(Number(v)) : "—");
       const _fmtUsdAbs = typeof fmtUsdAbs === "function" ? fmtUsdAbs : (n) => (Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—");
+      const _computeHorizonBucket = typeof computeHorizonBucket === "function" ? computeHorizonBucket : (src) => { const b = String(src?.horizon_bucket || "").trim().toUpperCase(); if (b) return b.replace("_", " "); return "—"; };
+      const _TRADE_SIZE = typeof TRADE_SIZE === "number" && Number.isFinite(TRADE_SIZE) ? TRADE_SIZE : 1000;
       const TickerDetailRightRail = window.TickerDetailRightRailFactory({
         React,
         API_BASE,
@@ -14551,7 +14584,7 @@
         normalizeTrailPoints,
         phaseToColor,
         completionForSize,
-        computeHorizonBucket,
+        computeHorizonBucket: _computeHorizonBucket,
         computeEtaDays,
         computeReturnPct,
         computeRiskPct,
@@ -14564,7 +14597,7 @@
         groupsForTicker,
         GROUP_ORDER,
         GROUP_LABELS,
-        TRADE_SIZE,
+        TRADE_SIZE: _TRADE_SIZE,
         FUTURES_SPECS,
         getStaleInfo,
         isNyRegularMarketOpen,
@@ -16393,10 +16426,23 @@
                     </div>
                   </div>
 
-                  {/* Compact Controls Bar: Search + Filters Toggle + Time Travel */}
-                  <div className="mt-3 mb-3 flex flex-wrap items-center gap-3">
+                  {/* Time Travel row (above Action Center) */}
+                  <div className="mt-3 mb-2">
+                    <TimeTravelSlider
+                      tickers={timeTravelBaseTickers}
+                      allTickers={data}
+                      data={data}
+                      onTimeChange={setTimeTravelTickers}
+                      tickerFilter={filters.tickerFilter}
+                      selectedTicker={selectedTicker}
+                      compact={true}
+                    />
+                  </div>
+
+                  {/* Compact Controls Bar: Search + Filters Toggle */}
+                  <div className="mt-2 mb-3 flex flex-wrap items-center gap-3">
                     {/* Search (narrower) */}
-                    <div className="w-[280px]">
+                    <div className="w-[200px]">
                       <input
                         type="text"
                         placeholder="Search tickers or filters..."
@@ -16431,19 +16477,6 @@
                     >
                       Filters {showAdvancedFilters ? "▼" : "▶"}
                     </button>
-                    
-                    {/* Time Travel (inline compact) */}
-                    <div className="flex-1 min-w-[300px]">
-                      <TimeTravelSlider
-                        tickers={timeTravelBaseTickers}
-                        allTickers={data}
-                        data={data}
-                        onTimeChange={setTimeTravelTickers}
-                        tickerFilter={filters.tickerFilter}
-                        selectedTicker={selectedTicker}
-                        compact={true}
-                      />
-                    </div>
                   </div>
                   
                   {/* Filter Groups (collapsible) */}
