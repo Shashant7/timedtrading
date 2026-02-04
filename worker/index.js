@@ -132,6 +132,7 @@ const ROUTES = [
   ["POST", "/timed/admin/dedupe-trades", "POST /timed/admin/dedupe-trades"],
   ["POST", "/timed/admin/refresh-latest-from-ingest", "POST /timed/admin/refresh-latest-from-ingest"],
   ["POST", "/timed/admin/force-sync", "POST /timed/admin/force-sync"],
+  ["POST", "/timed/admin/fix-zero-ts-events", "POST /timed/admin/fix-zero-ts-events"],
   ["POST", "/timed/admin/reset", "POST /timed/admin/reset"],
   ["GET", "/timed/watchlist/coverage", "GET /timed/watchlist/coverage"],
   ["POST", "/timed/cleanup-no-scores", "POST /timed/cleanup-no-scores"],
@@ -21039,7 +21040,7 @@ export default {
           const hist = Array.isArray(tr?.history) ? tr.history : [];
           for (const ev of hist) {
             const ts = toMs(ev?.timestamp ?? ev?.ts);
-            if (!Number.isFinite(ts)) continue;
+            if (!Number.isFinite(ts) || ts <= 0 || ts < 946684800000) continue; // skip zero or pre-2000 (bogus epoch)
             const type = String(ev?.type || "").toUpperCase();
             if (!type) continue;
             const price = Number(ev?.price);
@@ -25943,6 +25944,79 @@ Provide 3-5 actionable next steps:
             corsHeaders(env, req, true),
           );
         }
+      }
+
+      // POST /timed/admin/fix-zero-ts-events?key=... - Fix EXIT/TRIM events with zero, missing, or bogus old ts (removes "Dec 31, 1969" from By day)
+      const MIN_SANE_TS_MS = 946684800000; // Jan 1, 2000 00:00 UTC — treat anything before as bogus
+      if (routeKey === "POST /timed/admin/fix-zero-ts-events") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const toMs = (tsLike) => {
+          const n = typeof tsLike === "string" ? isoToMs(tsLike) : Number(tsLike);
+          if (!Number.isFinite(n) || n <= 0) return null;
+          return n < 1e12 ? n * 1000 : n;
+        };
+        const isBadTs = (ts) => ts == null || ts <= 0 || ts < MIN_SANE_TS_MS;
+
+        let fixedKV = 0;
+        const tradesKey = "timed:trades:all";
+        const trades = (await kvGetJSON(KV, tradesKey)) || [];
+        for (const tr of trades) {
+          const hist = Array.isArray(tr.history) ? tr.history : [];
+          let entryTs = Number(tr.entry_ts);
+          if (!Number.isFinite(entryTs) || entryTs <= 0) entryTs = null;
+          if (entryTs != null && entryTs < 1e12) entryTs = entryTs * 1000;
+          let exitTs = Number(tr.exit_ts);
+          if (!Number.isFinite(exitTs) || exitTs <= 0) exitTs = null;
+          if (exitTs != null && exitTs < 1e12) exitTs = exitTs * 1000;
+          for (const ev of hist) {
+            const type = String(ev?.type || "").toUpperCase();
+            if (type !== "EXIT" && type !== "TRIM") continue;
+            const ts = toMs(ev?.timestamp ?? ev?.ts);
+            if (!isBadTs(ts)) continue;
+            const fallback = exitTs || entryTs || Date.now();
+            const ms = Number.isFinite(fallback) ? fallback : Date.now();
+            ev.ts = ms;
+            ev.timestamp = new Date(ms).toISOString();
+            fixedKV++;
+          }
+        }
+        if (fixedKV > 0) await kvPutJSON(KV, tradesKey, trades);
+
+        let fixedD1 = 0;
+        if (env?.DB) {
+          try {
+            const bad = await env.DB.prepare(
+              `SELECT event_id, trade_id, ts, type FROM trade_events WHERE type IN ('EXIT','TRIM') AND (ts IS NULL OR ts <= 0 OR ts < ?1)`
+            ).bind(MIN_SANE_TS_MS).all();
+            const rows = bad?.results || [];
+            for (const row of rows) {
+              const tid = row?.trade_id;
+              const r = await env.DB.prepare(
+                `SELECT exit_ts, entry_ts FROM trades WHERE trade_id = ?1`
+              ).bind(tid).first();
+              const exitTs = r?.exit_ts != null ? Number(r.exit_ts) : null;
+              const entryTs = r?.entry_ts != null ? Number(r.entry_ts) : null;
+              let ts = Number.isFinite(exitTs) && exitTs > 0 ? exitTs : null;
+              if (ts == null) ts = Number.isFinite(entryTs) && entryTs > 0 ? entryTs : null;
+              if (ts != null && ts < 1e12) ts = ts * 1000;
+              if (ts == null || ts <= 0) ts = Date.now();
+              await env.DB.prepare(
+                `UPDATE trade_events SET ts = ?1 WHERE event_id = ?2`
+              ).bind(Math.round(ts), row.event_id).run();
+              fixedD1++;
+            }
+          } catch (e) {
+            console.error("[fix-zero-ts-events] D1 fix failed:", e);
+          }
+        }
+
+        return sendJSON(
+          { ok: true, fixedKV, fixedD1, message: `Fixed ${fixedKV} KV history events and ${fixedD1} D1 trade_events with zero/missing ts.` },
+          200,
+          corsHeaders(env, req),
+        );
       }
 
       // POST /timed/admin/reset?key=... - Reset system state as if freshly launched (SAFE by default)
