@@ -84,6 +84,60 @@ export async function kvPutJSONWithRetry(
   return { success: false, error: lastError, attempts: maxRetries };
 }
 
+/** D1 safe limit for payload_json (Cloudflare SQL statement limit ~100KB). */
+const D1_MAX_PAYLOAD_BYTES = 50000;
+
+/** Truncate JSON string to fit D1. */
+export function truncatePayloadForD1(jsonStr) {
+  if (jsonStr == null || typeof jsonStr !== "string") return jsonStr;
+  if (jsonStr.length <= D1_MAX_PAYLOAD_BYTES) return jsonStr;
+  return jsonStr.slice(0, D1_MAX_PAYLOAD_BYTES - 1);
+}
+
+/** Keys to omit from payload when writing to D1 (avoids Invalid string length). */
+const D1_OMIT_KEYS = new Set([
+  "context", "fundamentals", "profile", "company_profile", "capture",
+  "description", "longBusinessSummary", "business_summary", "raw", "meta",
+]);
+
+/** Slim payload for D1 storage: drop large optional fields, keep scoring/trade/UI essentials. */
+export function slimPayloadForD1(obj) {
+  if (obj == null || typeof obj !== "object") return obj;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (D1_OMIT_KEYS.has(k)) continue;
+    if (v != null && typeof v === "object" && !Array.isArray(v) && typeof v !== "function") {
+      const nested = slimPayloadForD1(v);
+      if (Object.keys(nested || {}).length > 0 || Array.isArray(nested)) out[k] = nested;
+      else out[k] = v;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** Minimal payload for D1 when slim is still too large (replay + UI essentials). */
+const D1_MINIMAL_KEYS = [
+  "ts", "price", "close", "htf_score", "ltf_score", "completion", "phase_pct", "state", "rank",
+  "flags", "trigger_reason", "trigger_dir", "sl", "tp", "trigger_ts", "ingest_ts",
+  "kanban_stage", "kanban_meta", "entry_ts", "entry_price", "prev_kanban_stage", "move_status",
+  // Daily change / Current price display (many tickers missing these when minimal was used)
+  "prev_close", "previous_close", "prior_close", "yclose", "close_prev",
+  "day_change", "daily_change", "session_change", "chg",
+  "day_change_pct", "daily_change_pct", "session_change_pct", "chp",
+  "change", "change_pct", "pct_change", "is_rth", "session",
+];
+
+export function minimalPayloadForD1(obj) {
+  if (obj == null || typeof obj !== "object") return obj;
+  const out = {};
+  for (const k of D1_MINIMAL_KEYS) {
+    if (obj[k] !== undefined) out[k] = obj[k];
+  }
+  return out;
+}
+
 /** FNV-1a style string hash for dedupe keys. */
 export function stableHash(str) {
   let h = 2166136261;
@@ -147,7 +201,13 @@ export async function d1InsertTrailPoint(env, ticker, payload) {
         point?.trigger_dir != null ? String(point.trigger_dir) : null,
         (() => {
           try {
-            return JSON.stringify(payload);
+            let slim = slimPayloadForD1(payload);
+            let s = JSON.stringify(slim);
+            if (s.length > D1_MAX_PAYLOAD_BYTES) {
+              slim = minimalPayloadForD1(payload);
+              s = JSON.stringify(slim);
+            }
+            return s.length <= D1_MAX_PAYLOAD_BYTES ? s : null;
           } catch {
             return null;
           }
@@ -185,6 +245,22 @@ export async function d1InsertIngestReceipt(env, ticker, payload, rawPayload) {
   const receivedTs = Date.now();
   const scriptVersion = payload?.script_version || null;
 
+  let payloadJson = raw || null;
+  if (payloadJson) {
+    try {
+      const parsed = JSON.parse(payloadJson);
+      let slim = slimPayloadForD1(parsed);
+      let s = JSON.stringify(slim);
+      if (s.length > D1_MAX_PAYLOAD_BYTES) {
+        slim = minimalPayloadForD1(parsed);
+        s = JSON.stringify(slim);
+      }
+      payloadJson = s.length <= D1_MAX_PAYLOAD_BYTES ? s : JSON.stringify(minimalPayloadForD1(parsed));
+    } catch {
+      payloadJson = raw.length <= D1_MAX_PAYLOAD_BYTES ? raw : null;
+    }
+  }
+
   try {
     await db
       .prepare(
@@ -201,7 +277,7 @@ export async function d1InsertIngestReceipt(env, ticker, payload, rawPayload) {
         receivedTs,
         hash,
         scriptVersion,
-        raw || null,
+        payloadJson,
       )
       .run();
 

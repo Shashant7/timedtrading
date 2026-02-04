@@ -73,6 +73,7 @@ const ROUTES = [
   ["POST", "/timed/ingest", "POST /timed/ingest"],
   ["POST", "/timed/ingest-capture", "POST /timed/ingest-capture"],
   ["POST", "/timed/ingest-candles", "POST /timed/ingest-candles"],
+  ["POST", "/timed/heartbeat", "POST /timed/heartbeat"],
   ["GET", "/timed/latest", "GET /timed/latest"],
   ["GET", "/timed/tickers", "GET /timed/tickers"],
   ["GET", "/timed/all", "GET /timed/all"],
@@ -15065,6 +15066,46 @@ export default {
         }
       }
 
+      // POST /timed/heartbeat (minimal KV-only, 2-day TTL; no D1)
+      if (routeKey === "POST /timed/heartbeat") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const ip = req.headers.get("CF-Connecting-IP") || "unknown";
+        const hbRate = await checkRateLimit(KV, ip, "/timed/heartbeat", 15000, 3600);
+        if (!hbRate.allowed) {
+          return sendJSON({ ok: false, error: "rate_limit_exceeded", retryAfter: 3600 }, 429, corsHeaders(env, req));
+        }
+        let body = null;
+        try {
+          const { obj: bodyData, raw, err } = await readBodyAsJSON(req);
+          body = bodyData;
+          if (!body) {
+            return ackJSON(env, { ok: false, error: "bad_json" }, 400, req);
+          }
+          const ticker = normTicker(body?.ticker);
+          if (!ticker) {
+            return ackJSON(env, { ok: false, error: "missing_ticker" }, 400, req);
+          }
+          const HEARTBEAT_TTL = 2 * 24 * 60 * 60; // 2 days
+          const payload = {
+            ticker,
+            ts: body.ts ?? body.time_close ?? Date.now(),
+            price: body.price,
+            prev_close: body.prev_close ?? body.previous_close,
+            day_change: body.day_change ?? body.change,
+            day_change_pct: body.day_change_pct ?? body.change_pct,
+            session: body.session,
+            is_rth: body.is_rth,
+            ingest_ts: Date.now(),
+          };
+          await kvPutJSON(KV, `timed:heartbeat:${ticker}`, payload, HEARTBEAT_TTL);
+          return ackJSON(env, { ok: true, ticker }, 200, req);
+        } catch (e) {
+          console.error("[HEARTBEAT] Error:", e);
+          return ackJSON(env, { ok: false, error: "internal_error" }, 500, req);
+        }
+      }
+
       // POST /timed/ingest-capture (capture-only heartbeat)
       if (routeKey === "POST /timed/ingest-capture") {
         let body = null;
@@ -15710,7 +15751,24 @@ export default {
           }
         }
         const capture = await kvGetJSON(KV, `timed:capture:latest:${ticker}`);
+        const heartbeat = await kvGetJSON(KV, `timed:heartbeat:${ticker}`);
         if (data) {
+          // Overlay lightweight heartbeat (KV, 2d TTL) for fresh price/daily change
+          if (heartbeat && typeof heartbeat === "object") {
+            if (Number.isFinite(Number(heartbeat.price))) data.price = heartbeat.price;
+            if (heartbeat.prev_close != null) data.prev_close = heartbeat.prev_close;
+            if (heartbeat.day_change != null) {
+              data.day_change = heartbeat.day_change;
+              data.change = heartbeat.day_change;
+            }
+            if (heartbeat.day_change_pct != null) {
+              data.day_change_pct = heartbeat.day_change_pct;
+              data.change_pct = heartbeat.day_change_pct;
+            }
+            if (heartbeat.ingest_ts != null) data.ingest_ts = heartbeat.ingest_ts;
+            if (heartbeat.session != null) data.session = heartbeat.session;
+            if (heartbeat.is_rth != null) data.is_rth = heartbeat.is_rth;
+          }
           // Ensure prev/current lane fields are present even if payload_json is older.
           if (data.kanban_stage == null && d1Stage != null)
             data.kanban_stage = d1Stage;
@@ -16190,6 +16248,9 @@ export default {
             if (!raw) continue;
             try {
               const obj = JSON.parse(String(raw));
+              // Ensure price is available for UI (some sources use "close")
+              if ((obj.price == null || !Number.isFinite(Number(obj.price))) && obj.close != null && Number.isFinite(Number(obj.close)))
+                obj.price = obj.close;
               // Ensure lane fields are present even if payload_json is older than the D1 columns.
               if (obj.kanban_stage == null && r?.kanban_stage != null)
                 obj.kanban_stage = String(r.kanban_stage);
@@ -16312,6 +16373,36 @@ export default {
             } catch {
               // skip bad rows
             }
+          }
+
+          // Overlay lightweight heartbeat (KV, 2d TTL) for fresh price/daily change
+          try {
+            const syms = Object.keys(data);
+            const heartbeats = await Promise.all(
+              syms.map((s) => kvGetJSON(KV, `timed:heartbeat:${s}`)),
+            );
+            for (let i = 0; i < syms.length; i++) {
+              const hb = heartbeats[i];
+              if (hb && typeof hb === "object") {
+                const obj = data[syms[i]];
+                if (!obj) continue;
+                if (Number.isFinite(Number(hb.price))) obj.price = hb.price;
+                if (hb.prev_close != null) obj.prev_close = hb.prev_close;
+                if (hb.day_change != null) {
+                  obj.day_change = hb.day_change;
+                  obj.change = hb.day_change;
+                }
+                if (hb.day_change_pct != null) {
+                  obj.day_change_pct = hb.day_change_pct;
+                  obj.change_pct = hb.day_change_pct;
+                }
+                if (hb.ingest_ts != null) obj.ingest_ts = hb.ingest_ts;
+                if (hb.session != null) obj.session = hb.session;
+                if (hb.is_rth != null) obj.is_rth = hb.is_rth;
+              }
+            }
+          } catch (e) {
+            console.warn("[HEARTBEAT] Merge failed:", String(e?.message || e));
           }
 
           // If D1 is warming up, report total index from KV for transparency

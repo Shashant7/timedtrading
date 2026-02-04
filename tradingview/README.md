@@ -2,9 +2,11 @@
 
 This directory contains the Pine Script indicator for Timed Trading.
 
-## File
+## Files
 
-- `TimedTrading_ScoreEngine.pine` - The main Pine Script indicator (v1.1.0)
+- `TimedTrading_Unified.pine` - **Primary** indicator (ScoreEngine + Heartbeat, 5-min unified)
+- `TimedTrading_ScoreEngine.pine` - Original ScoreEngine (v1.1.0)
+- `TimedTrading_Heartbeat_Minimal.pine` - Lightweight 1m heartbeat (price + daily change only; KV, 2-day TTL; no D1)
 
 ## Overview
 
@@ -53,7 +55,7 @@ The indicator:
 
 ### Step 2: Create Alert
 1. Right-click on the chart → "Add Alert"
-2. **Condition**: Select the indicator (TimedTrading_ScoreEngine)
+2. **Condition**: Select the indicator (TimedTrading_Unified or TimedTrading_ScoreEngine)
 3. **Alert Frequency**: "Once Per Bar Close"
 4. **Webhook URL**: `https://timed-trading-ingest.shashant.workers.dev/timed/ingest?key=YOUR_API_KEY`
 5. **⚠️ IMPORTANT for Extended Hours**: 
@@ -104,6 +106,13 @@ Or if you need to customize, the JSON structure is:
 1. Create a watchlist with your desired tickers
 2. For each ticker, add the indicator to the chart
 3. Create an alert on the watchlist (TradingView will apply to all tickers)
+
+### Heartbeat Minimal (Price + Daily Change Only)
+For a lightweight stream to keep the dashboard from going stale:
+1. Add `TimedTrading_Heartbeat_Minimal.pine` on a **1-minute chart**
+2. Create a watchlist alert with **Once Per Bar Close**
+3. Webhook: `https://timed-trading-ingest.shashant.workers.dev/timed/heartbeat?key=YOUR_API_KEY`
+4. Data is stored in KV with **2-day TTL**; no D1 writes. Merged into `/timed/all` and `/timed/latest` for freshness.
 
 **⚠️ IMPORTANT: Extended Hours Limitation**
 - TradingView Watchlist Alerts have a known limitation: **Equity alerts may not fire during extended hours (pre-market 4am-9am ET, after-hours 4pm-8pm ET)**, even if bars are forming and the script is configured correctly.

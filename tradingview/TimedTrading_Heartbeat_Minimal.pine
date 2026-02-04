@@ -1,0 +1,28 @@
+//@version=6
+indicator("TimedTrading Heartbeat Minimal", overlay=false, max_labels_count=500)
+
+// Lightweight 1-minute heartbeat: price + daily change only.
+// KV storage with 2-day TTL. No D1 writes. Keeps dashboard from going stale.
+// Use on a 1-minute chart. Alert: Once Per Bar Close.
+
+groupSettings = "Settings"
+scriptVersion = input.string("heartbeat_minimal_1.0.0", "Script Version", group=groupSettings)
+
+// Daily change vs previous close (RTH anchor for US stocks)
+symRth = (syminfo.type == "stock") ? ticker.new(syminfo.prefix, syminfo.ticker, session.regular) : syminfo.tickerid
+prevCloseD = request.security(symRth, "D", close[1], barmerge.gaps_off, barmerge.lookahead_off)
+dayChange = not na(prevCloseD) and prevCloseD > 0 ? (close - prevCloseD) : na
+dayChangePct = not na(dayChange) and prevCloseD > 0 ? ((dayChange / prevCloseD) * 100.0) : na
+
+prevCloseStr = not na(prevCloseD) ? (",\"prev_close\":" + str.tostring(prevCloseD)) : ""
+chgStr = not na(dayChange) ? (",\"day_change\":" + str.tostring(dayChange) + ",\"change\":" + str.tostring(dayChange)) : ""
+pctStr = not na(dayChangePct) ? (",\"day_change_pct\":" + str.tostring(dayChangePct) + ",\"change_pct\":" + str.tostring(dayChangePct)) : ""
+
+// Session flag
+isRth = not na(time(timeframe.period, "0930-1600"))
+sessionStr = isRth ? "RTH" : "EXT"
+
+payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"price\":" + str.tostring(close) + ",\"session\":\"" + sessionStr + "\",\"is_rth\":" + str.tostring(isRth) + prevCloseStr + chgStr + pctStr + ",\"ingest_kind\":\"heartbeat_minimal\"" + "}"
+
+if barstate.isconfirmed
+    alert(payload, alert.freq_once_per_bar_close)

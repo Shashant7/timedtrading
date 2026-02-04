@@ -323,17 +323,17 @@
         let dayChg = pickNum(t, [
           "day_change",
           "daily_change",
-          "change",
           "session_change",
+          "change",
           "chg",
           "ch",
         ]);
         let dayPct = pickNum(t, [
           "day_change_pct",
           "daily_change_pct",
+          "session_change_pct",
           "change_pct",
           "pct_change",
-          "session_change_pct",
           "chp",
         ]);
         if (
@@ -7049,8 +7049,41 @@
                                       <span className="text-white font-bold text-[11px]">
                                         {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
                                       </span>
+                                      {(() => {
+                                        const dc = getDailyChange(tickerData || {});
+                                        let dPct = dc?.dayPct;
+                                        let dChg = dc?.dayChg;
+                                        const pickNum = (obj, keys) => {
+                                          for (const k of keys) {
+                                            const v = Number(obj?.[k]);
+                                            if (Number.isFinite(v)) return v;
+                                          }
+                                          return null;
+                                        };
+                                        if (!Number.isFinite(dPct)) dPct = pickNum(tickerData, ["day_change_pct","daily_change_pct","session_change_pct","change_pct","pct_change","chp"]);
+                                        if (!Number.isFinite(dChg)) dChg = pickNum(tickerData, ["day_change","daily_change","session_change","change","chg","ch"]);
+                                        const priceNum = Number(tickerData?.price ?? tickerData?.close);
+                                        const prevClose = pickNum(tickerData, ["prev_close","previous_close","prior_close","yclose","close_prev"]);
+                                        if ((!Number.isFinite(dChg) || !Number.isFinite(dPct)) && Number.isFinite(priceNum) && priceNum > 0 && Number.isFinite(prevClose) && prevClose > 0) {
+                                          const chg = priceNum - prevClose;
+                                          const pct = (chg / prevClose) * 100;
+                                          if (!Number.isFinite(dChg)) dChg = chg;
+                                          if (!Number.isFinite(dPct)) dPct = pct;
+                                        }
+                                        const hasDaily = Number.isFinite(dPct) || Number.isFinite(dChg);
+                                        if (!hasDaily) return null;
+                                        const up = Number(dChg ?? dPct ?? 0) >= 0;
+                                        const cls = up ? "text-sky-300" : "text-orange-300";
+                                        const sign = up ? "+" : "";
+                                        return (
+                                          <span className={`text-[9px] font-semibold ${cls}`}>
+                                            {Number.isFinite(dPct) ? `${sign}${dPct.toFixed(2)}%` : "—"}
+                                            {Number.isFinite(dChg) ? ` (${sign}${fmtUsdAbs(dChg)})` : ""}
+                                          </span>
+                                        );
+                                      })()}
                                       <span className={`text-[9px] font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-sky-300" : "text-orange-300"}`}>
-                                        {retOpenPct != null ? `${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(2)}%` : "—"}
+                                        {retOpenPct != null ? `Since entry: ${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(2)}%` : "—"}
                                         {pnlOpen != null ? ` ${fmtUsd(pnlOpen)}` : ""}
                                       </span>
                                     </div>

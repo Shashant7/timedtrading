@@ -1937,6 +1937,7 @@
           "day_change",
           "daily_change",
           "session_change",
+          "change",
           "chg",
           "ch",
         ]);
@@ -1944,6 +1945,8 @@
           "day_change_pct",
           "daily_change_pct",
           "session_change_pct",
+          "change_pct",
+          "pct_change",
           "chp",
         ]);
 
@@ -2022,7 +2025,7 @@
           return null;
         };
 
-        const priceNum = Number(t?.price);
+        const priceNum = Number(t?.price ?? t?.close);
         const prevCloseNum = pickNum(t, [
           "prev_close",
           "previous_close",
@@ -2035,7 +2038,7 @@
         let dayPct = Number(baseDaily?.dayPct);
         let dayChg = Number(baseDaily?.dayChg);
 
-        // Fallback: if staleness gating hides daily change, use raw fields.
+        // Fallback: if staleness gating hides daily change, use raw fields (including heartbeat aliases).
         if (!Number.isFinite(dayPct)) {
           dayPct = pickNum(t, [
             "day_change_pct",
@@ -12052,7 +12055,7 @@
           const score = Number(t?.flip_watch_score);
           const completion = Number(t?.completion);
           const phase = Number(t?.phase_pct);
-          const price = Number(t?.price);
+          const price = Number(t?.price ?? t?.close);
           const htf = Number(t?.htf_score);
           const ltf = Number(t?.ltf_score);
 
@@ -12180,7 +12183,7 @@
             }
             return null;
           };
-          const priceNum = Number(t?.price);
+          const priceNum = Number(t?.price ?? t?.close);
           const prevCloseNum = pickNum(t, [
             "prev_close",
             "previous_close",
