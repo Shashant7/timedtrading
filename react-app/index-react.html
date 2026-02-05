@@ -9225,6 +9225,7 @@
         const [isPlaying, setIsPlaying] = useState(false);
         const [playSpeedMs, setPlaySpeedMs] = useState(600); // ms per 5-min step
         const [loopPlayback, setLoopPlayback] = useState(true);
+        const [loadCancelled, setLoadCancelled] = useState(false);
         const STEP_OPTIONS = React.useMemo(
           () => [
             { label: "5m", ms: 5 * 60 * 1000 },
@@ -9261,36 +9262,57 @@
           [stepMs],
         );
 
-        // Get available timestamps from ALL tickers (not just filtered) for stable range
-        // This prevents the slider from jumping around when search filters change
+        // Get available timestamps - prefer trail data (historical) over live ticker data
+        // This ensures the slider range matches what's actually available in the trail
         const availableTimestamps = useMemo(() => {
           const timestamps = new Set();
-          const sourceTickers =
-            allTickers && typeof allTickers === "object"
-              ? Array.isArray(allTickers)
-                ? allTickers
-                : Object.values(allTickers)
-              : tickers;
+          
+          // If we have trail data loaded, use timestamps from trails (more accurate for Time Travel)
+          const trailSymbols = Object.keys(trailData || {});
+          if (trailSymbols.length > 0) {
+            trailSymbols.forEach((sym) => {
+              const trail = trailData[sym];
+              if (!Array.isArray(trail)) return;
+              trail.forEach((point) => {
+                const pointTs = point.ts || (point.timestamp ? new Date(point.timestamp).getTime() : null);
+                if (pointTs) {
+                  const rounded = roundToStep(Number(pointTs));
+                  timestamps.add(rounded);
+                }
+              });
+            });
+          }
+          
+          // Fall back to live ticker data if no trail data yet
+          if (timestamps.size === 0) {
+            const sourceTickers =
+              allTickers && typeof allTickers === "object"
+                ? Array.isArray(allTickers)
+                  ? allTickers
+                  : Object.values(allTickers)
+                : tickers;
 
-          sourceTickers.forEach((t) => {
-            if (!t || typeof t !== "object") return;
-            if (t.ts) {
-              const rounded = roundToStep(Number(t.ts));
-              timestamps.add(rounded);
-            }
-            if (t.ingest_ts) {
-              const ts =
-                typeof t.ingest_ts === "string"
-                  ? new Date(t.ingest_ts).getTime()
-                  : Number(t.ingest_ts);
-              if (ts) {
-                const rounded = roundToStep(ts);
+            sourceTickers.forEach((t) => {
+              if (!t || typeof t !== "object") return;
+              if (t.ts) {
+                const rounded = roundToStep(Number(t.ts));
                 timestamps.add(rounded);
               }
-            }
-          });
+              if (t.ingest_ts) {
+                const ts =
+                  typeof t.ingest_ts === "string"
+                    ? new Date(t.ingest_ts).getTime()
+                    : Number(t.ingest_ts);
+                if (ts) {
+                  const rounded = roundToStep(ts);
+                  timestamps.add(rounded);
+                }
+              }
+            });
+          }
+          
           return Array.from(timestamps).sort((a, b) => a - b);
-        }, [allTickers, tickers, roundToStep]);
+        }, [allTickers, tickers, trailData, roundToStep]);
 
         const minTimestamp =
           availableTimestamps.length > 0
@@ -9421,24 +9443,27 @@
 
         // Fetch trails ONCE when activating (or when ticker set changes).
         // Snapshot updates (including animation) should NOT refetch trails.
+        const cancelledRef = React.useRef(false);
+        
         useEffect(() => {
-          let cancelled = false;
+          cancelledRef.current = false;
 
           if (!isActive) {
             setIsPlaying(false);
             setTrailData({});
             setTrailLoadProgress({ total: 0, done: 0 });
             lastFetchedSymbolsRef.current = "";
+            setLoadCancelled(false);
             onTimeChangeRef.current?.(null);
             return () => {
-              cancelled = true;
+              cancelledRef.current = true;
             };
           }
 
           if (tickersRef.current.length === 0) {
             onTimeChangeRef.current?.([]);
             return () => {
-              cancelled = true;
+              cancelledRef.current = true;
             };
           }
 
@@ -9453,6 +9478,7 @@
           const fetchTrails = async () => {
             fetchingRef.current = true;
             setLoadingTrails(true);
+            setLoadCancelled(false);
             lastFetchedSymbolsRef.current = tickerSymbols;
             try {
               const trails = {};
@@ -9470,6 +9496,12 @@
                 i < tickerSymbolsArray.length;
                 i += MAX_CONCURRENT
               ) {
+                // Check if cancelled
+                if (cancelledRef.current) {
+                  console.log('[Time Travel] Load cancelled by user');
+                  break;
+                }
+                
                 const batch = tickerSymbolsArray.slice(i, i + MAX_CONCURRENT);
                 const batchResults = await Promise.all(
                   batch.map(async (ticker) => {
@@ -9502,7 +9534,7 @@
                   }
                 });
 
-                if (!cancelled) {
+                if (!cancelledRef.current) {
                   setTrailLoadProgress((p) => ({
                     total: p.total || tickerSymbolsArray.length,
                     done: Math.min(
@@ -9516,21 +9548,47 @@
                 await new Promise((r) => setTimeout(r, 250));
               }
 
-              if (!cancelled) setTrailData(trails);
+              if (!cancelledRef.current) {
+                setTrailData(trails);
+                console.log('[Time Travel] Trails loaded:', Object.keys(trails).length, 'tickers');
+              }
             } catch (err) {
               console.error("Failed to fetch trails:", err);
-              if (!cancelled) setTrailData({});
+              if (!cancelledRef.current) setTrailData({});
             } finally {
-              if (!cancelled) setLoadingTrails(false);
+              if (!cancelledRef.current) setLoadingTrails(false);
               fetchingRef.current = false;
             }
           };
 
           fetchTrails();
           return () => {
-            cancelled = true;
+            cancelledRef.current = true;
           };
         }, [isActive, tickerSymbols]);
+        
+        // Cancel loading function
+        const handleCancelLoad = React.useCallback(() => {
+          cancelledRef.current = true;
+          setLoadCancelled(true);
+          setLoadingTrails(false);
+          fetchingRef.current = false;
+        }, []);
+        
+        // When trails finish loading, reset timestamp to latest available data point
+        const prevTrailCountRef = React.useRef(0);
+        useEffect(() => {
+          const trailCount = Object.keys(trailData).length;
+          // Only trigger on actual trail data load (not on reset)
+          if (trailCount > 0 && trailCount !== prevTrailCountRef.current && !loadingTrails) {
+            console.log('[Time Travel] Trails loaded, resetting to latest timestamp:', {
+              trailCount,
+              maxTimestamp: new Date(maxTimestamp).toLocaleString(),
+            });
+            setSelectedTimestamp(roundToStep(maxTimestamp));
+          }
+          prevTrailCountRef.current = trailCount;
+        }, [trailData, loadingTrails, maxTimestamp, roundToStep]);
 
         // Compute snapshot whenever timestamp changes or new trails arrive.
         useEffect(() => {
@@ -9542,6 +9600,22 @@
             trailData,
             roundedTimestamp,
           );
+          
+          // Debug: log snapshot update
+          const withData = snapshot.filter(t => !t._timeTravelMissing);
+          console.log('[Time Travel] Snapshot update:', {
+            timestamp: new Date(roundedTimestamp).toLocaleString(),
+            totalTickers: snapshot.length,
+            withTrailData: withData.length,
+            trailSymbols: Object.keys(trailData).length,
+            sampleTicker: withData[0] ? {
+              ticker: withData[0].ticker,
+              htf_score: withData[0].htf_score,
+              ltf_score: withData[0].ltf_score,
+              kanban_stage: withData[0].kanban_stage,
+            } : null,
+          });
+          
           onTimeChangeRef.current?.(snapshot);
         }, [
           isActive,
@@ -9699,61 +9773,80 @@
               </label>
               {isActive && (
                 <>
-                  <button
-                    onClick={() => {
-                      if (!isPlaying) {
-                        setSelectedTimestamp((prev) =>
-                          prev !== null && prev !== undefined ? prev : maxTimestamp,
-                        );
-                      }
-                      setIsPlaying((p) => !p);
-                    }}
-                    className="px-2 py-1 bg-[#252b36] hover:bg-[#3a4aa0] rounded text-[10px] text-white"
-                    title="Play / Pause"
-                  >
-                    {isPlaying ? "⏸" : "▶️"}
-                  </button>
-                  <select
-                    value={String(stepMs)}
-                    onChange={(e) => {
-                      const next = Number(e.target.value);
-                      if (!Number.isFinite(next) || next <= 0) return;
-                      setStepMs(next);
-                      setIsPlaying(false);
-                      setSelectedTimestamp((prev) =>
-                        prev != null
-                          ? Math.floor(Number(prev) / next) * next
-                          : Math.floor(Number(maxTimestamp) / next) * next,
-                      );
-                    }}
-                    className="bg-[#1a1f28] border border-[#252b36] rounded px-1.5 py-0.5 text-[10px] text-[#f0f2f5]"
-                    title="Time step"
-                  >
-                    {STEP_OPTIONS.map((opt) => (
-                      <option key={opt.label} value={opt.ms}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="range"
-                    min={minTimestamp}
-                    max={maxTimestamp}
-                    step={STEP_MS}
-                    value={currentValue}
-                    onChange={handleTimestampChange}
-                    className="flex-1 min-w-[120px] h-1.5 bg-[#1a1f28] rounded-lg appearance-none cursor-pointer"
-                    style={{
-                      background: `linear-gradient(to right, #00ffff 0%, #00ffff ${progress}%, #252b36 ${progress}%, #252b36 100%)`,
-                    }}
-                  />
-                  <span className="text-[10px] text-[#00ffff] font-semibold whitespace-nowrap">
-                    {formatTimestamp(currentValue)}
-                  </span>
+                  {/* Loading state - prominent overlay */}
                   {loadingTrails && (
-                    <span className="text-[10px] text-[#8b92a0]">
-                      Loading... {trailLoadProgress.done}/{trailLoadProgress.total || 0}
-                    </span>
+                    <div className="flex items-center gap-2 px-3 py-1 bg-[#1a1f28] border border-[#3a4aa0] rounded-lg">
+                      <div className="w-4 h-4 border-2 border-[#00ffff] border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-[11px] text-[#00ffff] font-semibold">
+                        Loading {trailLoadProgress.done}/{trailLoadProgress.total || '...'}
+                      </span>
+                      <button
+                        onClick={handleCancelLoad}
+                        className="px-2 py-0.5 bg-[#3a1a1a] hover:bg-[#5a2a2a] text-[#ff6b6b] rounded text-[10px] font-medium"
+                        title="Cancel loading"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                  {/* Controls - only show when not loading */}
+                  {!loadingTrails && (
+                    <>
+                      <button
+                        onClick={() => {
+                          if (!isPlaying) {
+                            setSelectedTimestamp((prev) =>
+                              prev !== null && prev !== undefined ? prev : maxTimestamp,
+                            );
+                          }
+                          setIsPlaying((p) => !p);
+                        }}
+                        className="px-2 py-1 bg-[#252b36] hover:bg-[#3a4aa0] rounded text-[10px] text-white"
+                        title="Play / Pause"
+                      >
+                        {isPlaying ? "⏸" : "▶️"}
+                      </button>
+                      <select
+                        value={String(stepMs)}
+                        onChange={(e) => {
+                          const next = Number(e.target.value);
+                          if (!Number.isFinite(next) || next <= 0) return;
+                          setStepMs(next);
+                          setIsPlaying(false);
+                          setSelectedTimestamp((prev) =>
+                            prev != null
+                              ? Math.floor(Number(prev) / next) * next
+                              : Math.floor(Number(maxTimestamp) / next) * next,
+                          );
+                        }}
+                        className="bg-[#1a1f28] border border-[#252b36] rounded px-1.5 py-0.5 text-[10px] text-[#f0f2f5]"
+                        title="Time step"
+                      >
+                        {STEP_OPTIONS.map((opt) => (
+                          <option key={opt.label} value={opt.ms}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="range"
+                        min={minTimestamp}
+                        max={maxTimestamp}
+                        step={STEP_MS}
+                        value={currentValue}
+                        onChange={handleTimestampChange}
+                        className="flex-1 min-w-[120px] h-1.5 bg-[#1a1f28] rounded-lg appearance-none cursor-pointer"
+                        style={{
+                          background: `linear-gradient(to right, #00ffff 0%, #00ffff ${progress}%, #252b36 ${progress}%, #252b36 100%)`,
+                        }}
+                      />
+                      <span className="text-[10px] text-[#00ffff] font-semibold whitespace-nowrap">
+                        {formatTimestamp(currentValue)}
+                      </span>
+                      {loadCancelled && (
+                        <span className="text-[10px] text-[#ff6b6b]">Cancelled</span>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -9789,63 +9882,85 @@
                 </label>
                 {isActive && (
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        // Ensure we have a starting timestamp before playing
-                        if (!isPlaying) {
-                          setSelectedTimestamp((prev) =>
-                            prev !== null && prev !== undefined
-                              ? prev
-                              : maxTimestamp,
-                          );
-                        }
-                        setIsPlaying((p) => !p);
-                      }}
-                      className="px-2 py-1 bg-[#252b36] hover:bg-[#3a4aa0] rounded text-xs text-white"
-                      title="Play / Pause"
-                    >
-                      {isPlaying ? "⏸ Pause" : "▶️ Play"}
-                    </button>
-                    <select
-                      value={String(stepMs)}
-                      onChange={(e) => {
-                        const next = Number(e.target.value);
-                        if (!Number.isFinite(next) || next <= 0) return;
-                        setStepMs(next);
-                        setIsPlaying(false);
-                        setSelectedTimestamp((prev) =>
-                          prev != null
-                            ? Math.floor(Number(prev) / next) * next
-                            : Math.floor(Number(maxTimestamp) / next) * next,
-                        );
-                      }}
-                      className="bg-[#1a1f28] border border-[#252b36] rounded px-2 py-1 text-xs text-[#f0f2f5]"
-                      title="Time step"
-                    >
-                      {STEP_OPTIONS.map((opt) => (
-                        <option key={opt.label} value={opt.ms}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={playSpeedMs}
-                      onChange={(e) => setPlaySpeedMs(Number(e.target.value))}
-                      className="bg-[#1a1f28] border border-[#252b36] rounded px-2 py-1 text-xs text-[#f0f2f5]"
-                      title="Playback speed"
-                    >
-                      <option value={300}>Fast</option>
-                      <option value={600}>Normal</option>
-                      <option value={1200}>Slow</option>
-                    </select>
-                    <label className="flex items-center gap-1 text-xs text-[#8b92a0]">
-                      <input
-                        type="checkbox"
-                        checked={loopPlayback}
-                        onChange={(e) => setLoopPlayback(e.target.checked)}
-                      />
-                      Loop
-                    </label>
+                    {/* Loading state */}
+                    {loadingTrails ? (
+                      <div className="flex items-center gap-2 px-3 py-1 bg-[#1a1f28] border border-[#3a4aa0] rounded-lg">
+                        <div className="w-4 h-4 border-2 border-[#00ffff] border-t-transparent rounded-full animate-spin"></div>
+                        <span className="text-xs text-[#00ffff] font-semibold">
+                          Loading trails... {trailLoadProgress.done}/{trailLoadProgress.total || '...'}
+                        </span>
+                        <button
+                          onClick={handleCancelLoad}
+                          className="px-2 py-1 bg-[#3a1a1a] hover:bg-[#5a2a2a] text-[#ff6b6b] rounded text-xs font-medium"
+                          title="Cancel loading"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            // Ensure we have a starting timestamp before playing
+                            if (!isPlaying) {
+                              setSelectedTimestamp((prev) =>
+                                prev !== null && prev !== undefined
+                                  ? prev
+                                  : maxTimestamp,
+                              );
+                            }
+                            setIsPlaying((p) => !p);
+                          }}
+                          className="px-2 py-1 bg-[#252b36] hover:bg-[#3a4aa0] rounded text-xs text-white"
+                          title="Play / Pause"
+                        >
+                          {isPlaying ? "⏸ Pause" : "▶️ Play"}
+                        </button>
+                        <select
+                          value={String(stepMs)}
+                          onChange={(e) => {
+                            const next = Number(e.target.value);
+                            if (!Number.isFinite(next) || next <= 0) return;
+                            setStepMs(next);
+                            setIsPlaying(false);
+                            setSelectedTimestamp((prev) =>
+                              prev != null
+                                ? Math.floor(Number(prev) / next) * next
+                                : Math.floor(Number(maxTimestamp) / next) * next,
+                            );
+                          }}
+                          className="bg-[#1a1f28] border border-[#252b36] rounded px-2 py-1 text-xs text-[#f0f2f5]"
+                          title="Time step"
+                        >
+                          {STEP_OPTIONS.map((opt) => (
+                            <option key={opt.label} value={opt.ms}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={playSpeedMs}
+                          onChange={(e) => setPlaySpeedMs(Number(e.target.value))}
+                          className="bg-[#1a1f28] border border-[#252b36] rounded px-2 py-1 text-xs text-[#f0f2f5]"
+                          title="Playback speed"
+                        >
+                          <option value={300}>Fast</option>
+                          <option value={600}>Normal</option>
+                          <option value={1200}>Slow</option>
+                        </select>
+                        <label className="flex items-center gap-1 text-xs text-[#8b92a0]">
+                          <input
+                            type="checkbox"
+                            checked={loopPlayback}
+                            onChange={(e) => setLoopPlayback(e.target.checked)}
+                          />
+                          Loop
+                        </label>
+                        {loadCancelled && (
+                          <span className="text-xs text-[#ff6b6b]">Cancelled</span>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
                 {trackedTickers.length > 0 && (
