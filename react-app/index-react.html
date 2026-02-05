@@ -12326,14 +12326,13 @@
                   ) : null}
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 bg-[#252b36] text-[#8b92a0] border-[#3a4a7f]">
                     {stage === "hold" && km?.bucket === "defend" ? "🛡 DEFEND" :
-                     stage === "watching" || stage === "setup_watch" || stage === "flip_watch" ? "WATCH" :
-                     stage === "almost_ready" ? "ALMOST" :
-                     stage === "enter_now" ? "ENTER" :
-                     stage === "just_entered" ? "NEW" :
-                     stage === "hold" ? "HOLD" :
+                     stage === "watch" ? "WATCH" :
+                     stage === "setup" || stage === "setup_watch" || stage === "flip_watch" ? "SETUP" :
+                     stage === "enter" || stage === "enter_now" || stage === "just_flipped" ? "ENTER" :
+                     stage === "active" || stage === "just_entered" || stage === "hold" ? "ACTIVE" :
                      stage === "trim" ? "TRIM" :
                      stage === "exit" ? "EXIT" :
-                     stage === "archive" ? "ARCHIVE" : (stage ? String(stage).replace(/_/g, " ").toUpperCase() : "—")}
+                     stage === "closed" || stage === "archive" ? "CLOSED" : (stage ? String(stage).replace(/_/g, " ").toUpperCase() : "—")}
                   </span>
                   {(() => {
                     const trade = tradeByTicker.get(sym);
@@ -12744,14 +12743,13 @@
         };
 
         if (
-          watching.length === 0 &&
-          almostReady.length === 0 &&
-          enterNow.length === 0 &&
-          justEntered.length === 0 &&
-          hold.length === 0 &&
+          watch.length === 0 &&
+          setup.length === 0 &&
+          enter.length === 0 &&
+          active.length === 0 &&
           trim.length === 0 &&
           exit.length === 0 &&
-          archive.length === 0
+          closed.length === 0
         ) {
           return null;
         }
