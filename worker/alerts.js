@@ -100,8 +100,9 @@ export function shouldSendDiscordAlert(env, type, ctx = {}) {
     return false;
   }
 
+  if (t === "KANBAN_ENTER") return true;
   if (t === "KANBAN_ENTER_NOW") return true;
-  if (t === "KANBAN_HOLD") return true;
+  if (t === "KANBAN_JUST_ENTERED") return true;
   if (t === "KANBAN_DEFEND") return true;
   if (t === "KANBAN_TRIM") return true;
   if (t === "KANBAN_EXIT") return true;
