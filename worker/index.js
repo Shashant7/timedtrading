@@ -21,6 +21,8 @@ import {
 } from "./ingest.js";
 import {
   KANBAN_STAGE_ORDER,
+  LEGACY_STAGE_MAP,
+  normalizeStage,
   enforceStageMonotonicity,
   getTradeDirection,
 } from "./trading.js";
@@ -712,6 +714,80 @@ function computeRR(d) {
   return gain / risk;
 }
 
+/**
+ * RR WARNING SYSTEM: Data-driven warnings based on historical win rates.
+ * 
+ * From GOLD_PATTERNS_ANALYSIS.md:
+ * - RR 0-2: 60.8% win rate (good)
+ * - RR 2-5: 54.8% win rate (acceptable)
+ * - RR 5-10: 16.4% win rate (AVOID!)
+ * - RR 10-20: 29.4% win rate (medium)
+ * - RR 20+: 85.9% win rate (excellent)
+ * 
+ * @param {number} rr - Risk/Reward ratio
+ * @returns {object|null} - Warning info or null if no warning
+ */
+function computeRRWarning(rr) {
+  if (!Number.isFinite(rr) || rr <= 0) return null;
+  
+  if (rr >= 5 && rr <= 10) {
+    return {
+      level: "WARNING",
+      severity: "high",
+      message: "RR 5-10 has historically low win rate (16.4%)",
+      winRateEstimate: 0.164,
+      recommendation: "Consider tighter stop or skip this trade",
+      color: "orange",
+    };
+  }
+  
+  if (rr > 10 && rr < 20) {
+    return {
+      level: "CAUTION",
+      severity: "medium",
+      message: "RR 10-20 has moderate win rate (29.4%)",
+      winRateEstimate: 0.294,
+      recommendation: "Only if high conviction setup",
+      color: "yellow",
+    };
+  }
+  
+  if (rr >= 20) {
+    return {
+      level: "FAVORABLE",
+      severity: "none",
+      message: "RR 20+ has excellent win rate (85.9%)",
+      winRateEstimate: 0.859,
+      recommendation: "Strong setup - favorable odds",
+      color: "green",
+    };
+  }
+  
+  if (rr >= 2 && rr < 5) {
+    return {
+      level: "GOOD",
+      severity: "none",
+      message: "RR 2-5 has solid win rate (54.8%)",
+      winRateEstimate: 0.548,
+      recommendation: null,
+      color: "blue",
+    };
+  }
+  
+  if (rr < 2) {
+    return {
+      level: "GOOD",
+      severity: "none",
+      message: "RR 0-2 has best win rate (60.8%)",
+      winRateEstimate: 0.608,
+      recommendation: null,
+      color: "blue",
+    };
+  }
+  
+  return null;
+}
+
 // Helper function: completionForSize (normalize completion to 0-1)
 // NOTE: Pine computes completion, but we keep a worker-side fallback for safety.
 function completionForSize(ticker) {
@@ -941,6 +1017,22 @@ function tfTechAlignmentSummary(tickerData) {
   };
 }
 
+/**
+ * GOLD STANDARD SCORING: Data-driven trigger scoring based on historical analysis.
+ * 
+ * Winner Correlation Data (from GOLD_PATTERNS_ANALYSIS.md):
+ * - LTF Pullback (setup state): 84.3% of winners
+ * - State Transition: 36.6% of winners
+ * - HTF Improving: 34.1% of winners
+ * - Squeeze ON (coiling): 21.8% of winners
+ * - Squeeze Release: 8.8% of winners (WAS OVERWEIGHTED!)
+ * - EMA Cross: 6.3% of winners (WAS OVERWEIGHTED!)
+ * 
+ * REDUCED WEIGHTS to match data:
+ * - Squeeze Release 30M: +6 → +2
+ * - EMA Cross 1H: +6 → +2
+ * - Buyable Dip 1H: +7 → +3
+ */
 function triggerSummaryAndScore(tickerData) {
   const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
   const list = Array.isArray(tickerData?.triggers)
@@ -962,24 +1054,23 @@ function triggerSummaryAndScore(tickerData) {
     return 0;
   };
 
-  if (has("SQUEEZE_RELEASE_30M")) score += 6;
-  score += 6 * matchSide("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR");
-  score +=
-    2 * matchSide("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR");
+  // REDUCED WEIGHTS based on Gold Standard analysis
+  if (has("SQUEEZE_RELEASE_30M")) score += 2;  // Was +6, only 8.8% correlation
+  score += 2 * matchSide("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR");  // Was +6, only 6.3% correlation
+  score += 1 * matchSide("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR");  // Was +2
   if (has("ST_FLIP_1H")) score += 1;
   if (has("ST_FLIP_30M")) score += 1;
-  score +=
-    7 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");
+  score += 3 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");  // Was +7
 
-  // LTF triggers (1m, 3m, 5m, 10m) — early timing: weight below 30m/1H
-  if (has("SQUEEZE_RELEASE_10M")) score += 3;
-  if (has("SQUEEZE_RELEASE_5M")) score += 2;
-  if (has("SQUEEZE_RELEASE_3M")) score += 1;
-  if (has("SQUEEZE_RELEASE_1M")) score += 1;
-  score += 2 * matchSide("EMA_CROSS_10M_13_48_BULL", "EMA_CROSS_10M_13_48_BEAR");
-  score += 1 * matchSide("EMA_CROSS_5M_13_48_BULL", "EMA_CROSS_5M_13_48_BEAR");
-  score += 1 * matchSide("EMA_CROSS_3M_13_48_BULL", "EMA_CROSS_3M_13_48_BEAR");
-  score += 1 * matchSide("EMA_CROSS_1M_13_48_BULL", "EMA_CROSS_1M_13_48_BEAR");
+  // LTF triggers (1m, 3m, 5m, 10m) — keep same weights (minor contributors)
+  if (has("SQUEEZE_RELEASE_10M")) score += 1;  // Was +3
+  if (has("SQUEEZE_RELEASE_5M")) score += 1;   // Was +2
+  if (has("SQUEEZE_RELEASE_3M")) score += 0.5; // Was +1
+  if (has("SQUEEZE_RELEASE_1M")) score += 0.5; // Was +1
+  score += 1 * matchSide("EMA_CROSS_10M_13_48_BULL", "EMA_CROSS_10M_13_48_BEAR");  // Was +2
+  score += 0.5 * matchSide("EMA_CROSS_5M_13_48_BULL", "EMA_CROSS_5M_13_48_BEAR");
+  score += 0.5 * matchSide("EMA_CROSS_3M_13_48_BULL", "EMA_CROSS_3M_13_48_BEAR");
+  score += 0.5 * matchSide("EMA_CROSS_1M_13_48_BULL", "EMA_CROSS_1M_13_48_BEAR");
   if (has("ST_FLIP_10M")) score += 0.5;
   if (has("ST_FLIP_5M")) score += 0.5;
   if (has("ST_FLIP_3M")) score += 0.5;
@@ -988,24 +1079,24 @@ function triggerSummaryAndScore(tickerData) {
   // Fallback for legacy payloads without triggers[] populated
   const flags = tickerData?.flags || {};
   if (uniq.length === 0) {
-    if (flags.sq30_release) score += 4;
-    if (flags.ema_cross_1h_13_48) score += 5;
-    if (flags.buyable_dip_1h_13_48) score += 7;
-    if (flags.sq10_release) score += 3;
-    if (flags.sq5_release) score += 2;
-    if (flags.sq3_release) score += 1;
-    if (flags.sq1_release) score += 1;
-    if (flags.ema_cross_10m_13_48) score += 2;
-    if (flags.ema_cross_5m_13_48) score += 1;
-    if (flags.ema_cross_3m_13_48) score += 1;
-    if (flags.ema_cross_1m_13_48) score += 1;
+    if (flags.sq30_release) score += 2;           // Was +4
+    if (flags.ema_cross_1h_13_48) score += 2;     // Was +5
+    if (flags.buyable_dip_1h_13_48) score += 3;   // Was +7
+    if (flags.sq10_release) score += 1;           // Was +3
+    if (flags.sq5_release) score += 1;            // Was +2
+    if (flags.sq3_release) score += 0.5;
+    if (flags.sq1_release) score += 0.5;
+    if (flags.ema_cross_10m_13_48) score += 1;
+    if (flags.ema_cross_5m_13_48) score += 0.5;
+    if (flags.ema_cross_3m_13_48) score += 0.5;
+    if (flags.ema_cross_1m_13_48) score += 0.5;
     if (flags.st_flip_10m) score += 0.5;
     if (flags.st_flip_5m) score += 0.5;
     if (flags.st_flip_3m) score += 0.5;
     if (flags.st_flip_1m) score += 0.5;
   }
 
-  score = Math.max(-6, Math.min(18, score));
+  score = Math.max(-6, Math.min(12, score));  // Reduced cap from 18 to 12
 
   return {
     score,
@@ -1013,6 +1104,91 @@ function triggerSummaryAndScore(tickerData) {
     count: uniq.length,
     top: uniq.slice(0, 5),
   };
+}
+
+/**
+ * GOLD STANDARD SCORE: Data-driven scoring based on historical winner analysis.
+ * 
+ * This replaces complex scoring with signals that actually predict winners:
+ * - LTF Pullback (setup state): 84.3% correlation
+ * - State Transition: 36.6% correlation
+ * - HTF Improving: 34.1% correlation
+ * - Squeeze ON (coiling): 21.8% correlation
+ * - Corridor alignment: High value (quality setups)
+ * 
+ * @param {object} d - Ticker data
+ * @param {object} existing - Previous ticker state (for transition detection)
+ * @returns {number} - Score 0-100
+ */
+function computeGoldScore(d, existing = null) {
+  let score = 0;
+  const state = String(d?.state || "");
+  const htf = Number(d?.htf_score) || 0;
+  const ltf = Number(d?.ltf_score) || 0;
+  const flags = d?.flags || {};
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // HIGHEST VALUE: LTF Pullback setup state (84.3% of winners)
+  // ═══════════════════════════════════════════════════════════════════════
+  const isSetup = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  if (isSetup) score += 25;
+  
+  // LTF depth in pullback (deeper = better setup)
+  const isBullSetup = state === "HTF_BULL_LTF_PULLBACK";
+  const isBearSetup = state === "HTF_BEAR_LTF_PULLBACK";
+  if (isBullSetup && ltf <= -5) score += 10;   // Deep pullback
+  if (isBullSetup && ltf <= -10) score += 5;   // Very deep pullback
+  if (isBearSetup && ltf >= 5) score += 10;    // Deep bear pullback
+  if (isBearSetup && ltf >= 10) score += 5;    // Very deep
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // HIGH VALUE: State transition & HTF improving (34-37% correlation)
+  // ═══════════════════════════════════════════════════════════════════════
+  if (existing && typeof existing === "object") {
+    const prevState = existing.state;
+    const prevHtf = Number(existing.htf_score) || 0;
+    
+    // State just changed
+    if (prevState && prevState !== state) {
+      score += 15;
+      d.__state_just_changed = true;
+    }
+    
+    // HTF improving (moving in favorable direction)
+    const isBull = state.includes("BULL");
+    const isBear = state.includes("BEAR");
+    if ((isBull && htf > prevHtf) || (isBear && htf < prevHtf)) {
+      score += 10;
+      d.__htf_improving = true;
+    }
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // MEDIUM VALUE: Squeeze ON - coiling (21.8% correlation)
+  // Note: Squeeze ON is more predictive than Squeeze Release!
+  // ═══════════════════════════════════════════════════════════════════════
+  if (flags.sq30_on && !flags.sq30_release) score += 8;
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // REDUCED VALUE: Squeeze release, EMA cross (was overweighted)
+  // ═══════════════════════════════════════════════════════════════════════
+  if (flags.sq30_release) score += 4;           // Was +12
+  if (flags.ema_cross_1h_13_48) score += 2;     // Was +5-6
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // CORRIDOR BONUS: Quality setup indicator
+  // ═══════════════════════════════════════════════════════════════════════
+  const inCorridor = corridorSide(d) != null;
+  if (inCorridor) score += 12;
+  if (inCorridor && isSetup) score += 8;  // Perfect setup: corridor + pullback
+  
+  // ═══════════════════════════════════════════════════════════════════════
+  // MOMENTUM ALIGNMENT: Both TFs aligned
+  // ═══════════════════════════════════════════════════════════════════════
+  const isMomentum = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  if (isMomentum && inCorridor) score += 5;
+  
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 function triggerReasonCorroboration(tickerData) {
@@ -1330,208 +1506,188 @@ function computeCompletionToTier(tickerData, tier = "TRIM") {
 }
 
 /**
- * Classify kanban stage for a ticker.
+ * Check if a ticker qualifies for ENTER stage based on consolidated criteria.
+ * 4 data-driven paths derived from Gold Standard analysis:
+ * - Path 1: Gold Standard LONG (67.7% of big UP moves)
+ * - Path 2: Gold Standard SHORT (82.7% of big DOWN moves)
+ * - Path 3: Momentum + High Score (balanced approach)
+ * - Path 4: Setup + Squeeze Release (explosive move)
+ * 
+ * @param {object} d - Ticker data
+ * @returns {object} - { qualifies, path, confidence, reason }
+ */
+function qualifiesForEnter(d) {
+  const state = String(d?.state || "");
+  const inCorridor = corridorSide(d) != null;
+  const score = Number(d?.score ?? d?.rank) || 0;
+  const flags = d?.flags || {};
+  const htf = Number(d?.htf_score) || 0;
+  const ltf = Number(d?.ltf_score) || 0;
+  
+  // Must be in corridor for ANY entry (data shows corridor = high quality setups)
+  if (!inCorridor) {
+    return { qualifies: false, reason: "not_in_corridor" };
+  }
+  
+  // PATH 1: Gold Standard LONG (67.7% of big UP moves)
+  // HTF_BULL_LTF_PULLBACK + deep LTF pullback (< -5)
+  if (state === "HTF_BULL_LTF_PULLBACK") {
+    if (ltf <= -5) {
+      return { qualifies: true, path: "gold_long", confidence: "high", reason: "pullback_setup" };
+    }
+    // Near-corridor setup - medium confidence
+    if (ltf <= 0) {
+      return { qualifies: true, path: "gold_long_shallow", confidence: "medium", reason: "shallow_pullback" };
+    }
+  }
+  
+  // PATH 2: Gold Standard SHORT (82.7% of big DOWN moves)
+  // HTF_BULL_LTF_BULL with both overextended (blow-off top)
+  if (state === "HTF_BULL_LTF_BULL") {
+    if (htf >= 30 && ltf >= 20) {
+      return { qualifies: true, path: "gold_short", confidence: "high", reason: "blowoff_top" };
+    }
+  }
+  
+  // PATH 3: Momentum + High Score (balanced approach)
+  const isMomentum = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  if (isMomentum && score >= 75) {
+    return { qualifies: true, path: "momentum_score", confidence: "medium", reason: "high_rank" };
+  }
+  
+  // PATH 4: Setup + Squeeze Release (explosive move potential)
+  const isSetup = state.includes("PULLBACK");
+  if (isSetup && flags.sq30_release && score >= 65) {
+    return { qualifies: true, path: "squeeze_setup", confidence: "medium", reason: "squeeze_release" };
+  }
+  
+  // PATH 5: Momentum Elite / Thesis Match (keep for backward compatibility)
+  if ((flags.thesis_match || flags.momentum_elite) && score >= 60 && inCorridor) {
+    return { qualifies: true, path: "elite", confidence: "medium", reason: "momentum_elite" };
+  }
+  
+  return { qualifies: false, reason: "criteria_not_met" };
+}
+
+/**
+ * Classify kanban stage for a ticker using dual-mode system.
+ * 
+ * DISCOVERY MODE (no position): watch → setup → enter
+ * MANAGEMENT MODE (has position): active → trim → exit → closed
+ * 
+ * Designed for swing traders who check 2-3x daily and need clear, actionable stages.
+ * 
  * @param {object} tickerData - Ticker payload with scores, state, flags, etc.
  * @param {object|null} openPosition - Optional: open position from D1 (for position-aware classification)
  * @returns {string|null} - Kanban stage or null
  */
 function classifyKanbanStage(tickerData, openPosition = null) {
   const state = String(tickerData?.state || "");
-  const flags = tickerData?.flags || {};
-  const moveStatus = computeMoveStatus(tickerData);
-  const completion = Number(tickerData?.completion) || 0;
-  const phase = Number(tickerData?.phase_pct) || 0;
-  const isMomentum =
-    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  const seq = tickerData?.seq || {};
-  const isActive = moveStatus?.status === "ACTIVE";
-  const htfScore = Number(tickerData?.htf_score) || 0;
-  const ltfScore = Number(tickerData?.ltf_score) || 0;
-  const score = Number(tickerData?.score ?? tickerData?.rank) ?? 0;
-  const position = Number(tickerData?.position ?? tickerData?.rank_position) || 0;
-  const ed = tickerData?.entry_decision || null;
-  const edAction = String(ed?.action || "").toUpperCase();
-  const edOk = ed?.ok === true;
+  const hasPosition = !!(openPosition && openPosition.status === "OPEN");
   
-  // Position-aware: if we have an open position in D1, use position-driven logic
-  const hasOpenPosition = !!(openPosition && openPosition.status === "OPEN");
-
-  // Terminal/administrative stages -> ARCHIVE
-  const hasMoveStatus = moveStatus?.status && moveStatus.status !== "NONE";
-  if (
-    hasMoveStatus &&
-    (moveStatus?.status === "INVALIDATED" || moveStatus?.status === "COMPLETED")
-  )
-    return "archive";
-
-  // For open positions, use move invalidation signals to determine exit/trim
-  if (hasMoveStatus && isActive) {
-    // Stage 6: Exit - position invalidated or critical issues
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MANAGEMENT MODE: Open position drives stage
+  // Position-based classification takes absolute priority
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (hasPosition) {
+    const completion = Number(tickerData?.completion) || 0;
+    const phase = Number(tickerData?.phase_pct) || 0;
+    const moveStatus = computeMoveStatus(tickerData);
     const reasons = moveStatus?.reasons || [];
-    const severity = moveStatus?.severity || "NONE";
+    const severity = String(moveStatus?.severity || "").toUpperCase();
+    
+    // CLOSED: Move completed or invalidated (terminal state)
+    if (moveStatus?.status === "COMPLETED" || moveStatus?.status === "INVALIDATED") {
+      return "closed";
+    }
+    
+    // EXIT: Stop hit or critical issues - close position NOW
     if (
-      severity === "CRITICAL" || 
+      severity === "CRITICAL" ||
+      reasons.includes("sl_breached") ||
       reasons.includes("left_entry_corridor") ||
-      reasons.includes("large_adverse_move") ||
-      reasons.includes("sl_breached")
+      reasons.includes("large_adverse_move")
     ) {
       return "exit";
     }
-
-    // Stage 5: Trim - take profits when approaching TRIM TP (first tier)
-    // ─────────────────────────────────────────────────────────────────────────
-    // 3-TIER SYSTEM: Use completion towards TRIM TP specifically (not EXIT TP)
-    // This prevents early exits just because a nearby TP was hit
-    // ─────────────────────────────────────────────────────────────────────────
+    
+    // TRIM: Approaching profit target - take partial profits
+    // Use completion >= 80% as primary trigger (data shows this is optimal)
     const completionToTrimTp = computeCompletionToTier(tickerData, "TRIM");
     if (
-      completionToTrimTp >= 0.9 || // 90% of way to TRIM TP
-      completion >= 0.6 ||  // Fallback: generic completion still triggers
+      completionToTrimTp >= 0.9 ||  // 90% of way to TRIM TP
+      completion >= 0.8 ||          // General completion threshold
       (phase >= 0.65 && severity === "WARNING") ||
-      reasons.includes("adverse_move_warning")
+      reasons.includes("tp_approaching")
     ) {
       return "trim";
     }
-
-    // Stage 4.5: Defend - fold into Hold (UI shows Defend badge via deriveKanbanMeta)
-    if (severity === "WARNING" && completion < 0.6 && phase < 0.65) {
-      return "hold";
-    }
-
-    // Stage 4.1: Just Entered - recently entered (within 15 min)
-    const entryTsRaw = Number(tickerData?.entry_ts ?? tickerData?.kanban_cycle_enter_now_ts);
-    const curTs = Number(tickerData?.ts ?? tickerData?.ingest_ts ?? Date.now());
-    if (Number.isFinite(entryTsRaw) && entryTsRaw > 0 && Number.isFinite(curTs)) {
-      const entryMs = entryTsRaw < 1e12 ? entryTsRaw * 1000 : entryTsRaw;
-      const ageMs = curTs - entryMs;
-      if (ageMs >= 0 && ageMs < 15 * 60 * 1000) return "just_entered";
-    }
-
-    // Stage 4: Hold - all other open positions
-    return "hold";
+    
+    // ACTIVE: Healthy position - hold and monitor
+    return "active";
   }
-
-  // For non-position tickers, determine if they're entry opportunities
-
-  // Stage 1: Flip Watch - about to transition
-  if (flags.flip_watch) {
-    const ent = entryType(tickerData);
-    const inCorridor = !!ent?.corridor;
-    // Allow enter_now when flip_watch + corridor + strong score (catch move as it starts)
-    if (inCorridor && (score >= 70 || ((flags.thesis_match || flags.momentum_elite) && score >= 60))) {
-      return "enter_now";
-    }
-    return "flip_watch";
-  }
-
-  // Stage 2: Just Flipped - recently entered momentum; can qualify for Enter Now
-  if (isMomentum && seq.corridorEntry_60m === true) {
-    // Fall through to Enter Now paths below; only return just_flipped if we don't qualify
-  }
-
-  // Stage 3: Enter Now - high-confidence entry opportunities
-  // Must be in momentum (or just_flipped) and meet quality thresholds
-  if (isMomentum) {
-    // Hard gate: never show ENTER_NOW if the entry decision is explicitly blocked.
-    if (edAction === "ENTRY" && !edOk) return "watch";
-
-    const ent = entryType(tickerData);
-    const inCorridor = !!ent?.corridor;
-    const htfAbs = Math.abs(htfScore);
-    const ltfAbs = Math.abs(ltfScore);
-    const ema1H1348 = !!flags.ema_cross_1h_13_48;
-    const buyableDip1H = !!flags.buyable_dip_1h_13_48;
-
-    // Path 1: Top tier + corridor (never score alone)
-    if ((score >= 75 || (position > 0 && position <= 20)) && inCorridor)
-      return "enter_now";
-
-    // Path 2: Thesis / Momentum Elite (with score gate)
-    if ((flags.thesis_match || flags.momentum_elite) && score >= 60)
-      return "enter_now";
-
-    // Path 3: Strong HTF/LTF
-    if (htfAbs >= 40 && ltfAbs >= 20 && score >= 70)
-      return "enter_now";
-
-    // Path 4: Corridor + Squeeze
-    if (inCorridor && flags.sq30_release && score >= 70)
-      return "enter_now";
-
-    // Path 5: 1H 13/48 EMA Cross — pivot change + pullback opportunity
-    if (inCorridor && (ema1H1348 || buyableDip1H) && score >= 68)
-      return "enter_now";
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // GOLD STANDARD Path 6: SHORT Blow-Off Top
-    // 82.7% of big DOWN moves started from HTF_BULL_LTF_BULL with both overextended
-    // ─────────────────────────────────────────────────────────────────────────
-    const gsShort = matchesGoldStandardShort(tickerData);
-    if (gsShort.match && gsShort.score >= 60 && score >= 65) {
-      return "enter_now";
-    }
-
-    // Watch: Momentum-aligned, but ENTRY is blocked (meaningful "next-up" lane)
-    const ed = tickerData?.entry_decision;
-    const action = String(ed?.action || "").toUpperCase();
-    const ok = ed?.ok === true;
-    const blockers = Array.isArray(ed?.blockers) ? ed.blockers : [];
-    const hasMeaningfulBlocker =
-      blockers.includes("not_in_corridor") ||
-      blockers.includes("rank_below_min") ||
-      blockers.includes("completion_high") ||
-      blockers.includes("phase_high") ||
-      blockers.includes("no_trigger") ||
-      blockers.includes("no_fresh_pullback");
-    if (action === "ENTRY" && !ok && hasMeaningfulBlocker) {
-      return "watch";
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // GOLD STANDARD Path 7: LONG Pullback Setup
-  // 67.7% of big UP moves started from HTF_BULL_LTF_PULLBACK (buy the dip)
-  // ─────────────────────────────────────────────────────────────────────────────
-  const gsLong = matchesGoldStandardLong(tickerData);
-  if (gsLong.match && gsLong.score >= 60 && score >= 65 && !isMomentum) {
-    // Pullback setup: HTF bullish, LTF in pullback - prime LONG entry
-    return "enter_now";
-  }
-
-  // Late-cycle: overextended / high phase but NOT in momentum.
-  // This avoids pulling names like AAPL out of Watch when they're still momentum-aligned.
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DISCOVERY MODE: No position, evaluate entry opportunity
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  // Check for late-cycle (should be archived)
+  const phase = Number(tickerData?.phase_pct) || 0;
+  const completion = Number(tickerData?.completion) || 0;
   const phaseZone = String(tickerData?.phase_zone || "").toUpperCase();
   const isLate =
     phaseZone === "HIGH" ||
     phaseZone === "EXTREME" ||
     phase >= 0.7 ||
     completion >= 0.95;
-  if (!isMomentum && isLate) {
-    return "archive";
+  
+  // Check move status for non-position tickers
+  const moveStatus = computeMoveStatus(tickerData);
+  if (moveStatus?.status === "INVALIDATED" || moveStatus?.status === "COMPLETED") {
+    return "closed";
   }
-
-  // Setup + squeeze release + corridor: enter on squeeze release from setup (catch move early)
-  const ent = entryType(tickerData);
-  if (!isMomentum && !!ent?.corridor && flags.sq30_release && score >= 70) {
-    return "enter_now";
+  
+  if (isLate) {
+    return "closed";
   }
-
-  // Setup-state tickers in corridor (not yet momentum, not late-cycle)
-  if (!isMomentum && !!ent?.corridor) {
-    return "setup_watch";
+  
+  // Check entry qualification using consolidated criteria
+  const entry = qualifiesForEnter(tickerData);
+  if (entry.qualifies) {
+    // Store entry context for UI display
+    tickerData.__entry_path = entry.path;
+    tickerData.__entry_confidence = entry.confidence;
+    tickerData.__entry_reason = entry.reason;
+    return "enter";
   }
-
-  // Catch-all: tickers with valid data but no lane (momentum outside corridor, missing htf/ltf, etc.)
-  // Show in Watching so they don't disappear from the board (e.g. BE, overextended momentum names)
+  
+  // Check if in SETUP zone (corridor + pullback state)
+  const inCorridor = corridorSide(tickerData) != null;
+  const isSetup = state.includes("PULLBACK");
+  const isMomentum = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  
+  // SETUP: In corridor with setup state - preparing for entry
+  if (inCorridor && isSetup) {
+    return "setup";
+  }
+  
+  // SETUP: Flip watch active (about to transition) - treat as setup
+  const flags = tickerData?.flags || {};
+  if (flags.flip_watch && inCorridor) {
+    return "setup";
+  }
+  
+  // WATCH: Valid data, monitoring pool
   const hasValidData =
     state &&
     Number.isFinite(Number(tickerData?.price)) &&
     String(tickerData?.ticker || "").trim();
-  if (hasValidData && !isLate) {
+  
+  if (hasValidData) {
     return "watch";
   }
-
-  // Default: no stage (not in trading pipeline)
+  
+  // No stage - not in trading pipeline
   return null;
 }
 
@@ -1540,62 +1696,99 @@ function deriveKanbanMeta(tickerData, stage) {
   const completion = Number(tickerData?.completion) || 0;
   const phase = Number(tickerData?.phase_pct) || 0;
   const phaseZone = String(tickerData?.phase_zone || "").toUpperCase();
-  const isLate =
-    phaseZone === "HIGH" ||
-    phaseZone === "EXTREME" ||
-    phase >= 0.7 ||
-    completion >= 0.95;
-  const state = String(tickerData?.state || "");
-  const isMomentum =
-    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+  const severity = String(ms?.severity || "").toUpperCase();
+  const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
 
-  // Hold + warning conditions = Defend (UI shows badge)
-  if (stage === "hold") {
-    const severity = String(ms?.severity || "").toUpperCase();
-    if (severity === "WARNING" && completion < 0.6 && phase < 0.65) {
-      return { bucket: "defend", emoji: "🛡", reason: "warning", reasons: ms?.reasons || [] };
+  // ENTER stage: show entry path and confidence
+  if (stage === "enter") {
+    const path = tickerData?.__entry_path || "unknown";
+    const confidence = tickerData?.__entry_confidence || "medium";
+    const reason = tickerData?.__entry_reason || "criteria_met";
+    const emoji = confidence === "high" ? "🎯" : "✅";
+    return {
+      bucket: path,
+      emoji,
+      reason,
+      confidence,
+      reasons: [reason],
+    };
+  }
+
+  // ACTIVE stage: show defend badge if under warning
+  if (stage === "active") {
+    if (severity === "WARNING" && completion < 0.8) {
+      return { bucket: "defend", emoji: "🛡", reason: "warning", reasons };
     }
     return null;
   }
 
-  // Archive meta
-  if (stage !== "archive") return null;
+  // TRIM stage: show how close to TP
+  if (stage === "trim") {
+    const completionPct = Math.round(completion * 100);
+    return {
+      bucket: "taking_profits",
+      emoji: "✂️",
+      reason: `${completionPct}% complete`,
+      reasons: reasons.length > 0 ? reasons : [`completion_${completionPct}`],
+    };
+  }
 
-  if (ms?.status === "INVALIDATED") {
-    const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
+  // EXIT stage: show urgency
+  if (stage === "exit") {
+    const emoji = severity === "CRITICAL" ? "🚨" : "🚪";
     return {
-      bucket: "invalidated",
-      emoji: "⛔",
-      reason: reasons[0] || "invalidated",
+      bucket: "close_now",
+      emoji,
+      reason: reasons[0] || "exit_signal",
       reasons,
     };
   }
-  if (ms?.status === "COMPLETED") {
-    const reasons = Array.isArray(ms?.reasons) ? ms.reasons : [];
+
+  // CLOSED stage: show outcome
+  if (stage === "closed") {
+    if (ms?.status === "INVALIDATED") {
+      return {
+        bucket: "invalidated",
+        emoji: "⛔",
+        reason: reasons[0] || "invalidated",
+        reasons,
+      };
+    }
+    if (ms?.status === "COMPLETED") {
+      return {
+        bucket: "completed",
+        emoji: "✅",
+        reason: reasons[0] || "completed",
+        reasons,
+      };
+    }
+    // Late cycle
+    const isLate = phaseZone === "HIGH" || phaseZone === "EXTREME" || phase >= 0.7 || completion >= 0.95;
+    if (isLate) {
+      const why = completion >= 0.95 ? "completion_high" : phase >= 0.7 ? "phase_high" : "late_cycle";
+      return { bucket: "late_cycle", emoji: "🌙", reason: why, reasons: [why] };
+    }
     return {
-      bucket: "completed",
-      emoji: "✅",
-      reason: reasons[0] || "completed",
-      reasons,
+      bucket: "archived",
+      emoji: "🗂",
+      reason: "archived",
+      reasons: ["archived"],
     };
   }
-  if (!isMomentum && isLate) {
-    const why =
-      completion >= 0.95
-        ? "completion_high"
-        : phase >= 0.7
-          ? "phase_high"
-          : phaseZone
-            ? `phase_${phaseZone.toLowerCase()}`
-            : "late_cycle";
-    return { bucket: "late_cycle", emoji: "🌙", reason: why, reasons: [why] };
+
+  // SETUP stage: show readiness indicators
+  if (stage === "setup") {
+    const flags = tickerData?.flags || {};
+    if (flags.flip_watch) {
+      return { bucket: "flip_watch", emoji: "🔄", reason: "about_to_flip", reasons: ["flip_watch"] };
+    }
+    if (flags.sq30_on) {
+      return { bucket: "squeeze_building", emoji: "🎯", reason: "squeeze_on", reasons: ["squeeze_on"] };
+    }
+    return null;
   }
-  return {
-    bucket: "archive",
-    emoji: "🗂",
-    reason: "archived",
-    reasons: ["archived"],
-  };
+
+  return null;
 }
 
 function computeMoveStatus(tickerData) {
@@ -10181,6 +10374,152 @@ async function d1GetAnyOpenPosition(env, ticker) {
   }
 }
 
+/**
+ * ANTI-CHURNING: Check per-ticker daily trade frequency.
+ * 
+ * Data shows excessive trading hurts performance:
+ * - TLN: 276 trades in 2 days, -$111 total P&L
+ * - Top churners all have ~50% win rate (coin flip)
+ * 
+ * Rule: Max 3 trades per ticker per day, min 30 min cooldown.
+ * 
+ * @param {object} env - Worker environment with DB binding
+ * @param {string} ticker - Ticker symbol
+ * @returns {object} - { blocked, reason, todayTrades, lastEntryAge }
+ */
+async function checkTradeFrequency(env, ticker) {
+  const db = env?.DB;
+  if (!db || !ticker) {
+    return { blocked: false, todayTrades: 0 };
+  }
+  
+  const sym = String(ticker).toUpperCase();
+  const now = Date.now();
+  const dayStartMs = now - (24 * 60 * 60 * 1000); // 24 hours ago
+  const cooldownMs = 30 * 60 * 1000; // 30 minutes
+  
+  try {
+    // Count entries in last 24 hours and get most recent entry time
+    const result = await db.prepare(`
+      SELECT 
+        COUNT(*) as count,
+        MAX(ts) as last_entry_ts
+      FROM execution_actions 
+      WHERE ticker = ?1 AND action_type = 'ENTRY' AND ts > ?2
+    `).bind(sym, dayStartMs).first();
+    
+    const todayTrades = Number(result?.count) || 0;
+    const lastEntryTs = Number(result?.last_entry_ts) || 0;
+    const lastEntryAge = lastEntryTs > 0 ? now - lastEntryTs : null;
+    
+    // Rule 1: Max 3 trades per ticker per day
+    if (todayTrades >= 3) {
+      return {
+        blocked: true,
+        reason: "max_daily_trades",
+        message: `Max 3 trades per ticker per day reached (${todayTrades} trades)`,
+        todayTrades,
+        lastEntryAge,
+      };
+    }
+    
+    // Rule 2: Minimum 30 minute cooldown between entries
+    if (lastEntryAge !== null && lastEntryAge < cooldownMs) {
+      const minutesRemaining = Math.ceil((cooldownMs - lastEntryAge) / 60000);
+      return {
+        blocked: true,
+        reason: "cooldown_active",
+        message: `Cooldown active: ${minutesRemaining} min remaining`,
+        todayTrades,
+        lastEntryAge,
+        cooldownRemaining: cooldownMs - lastEntryAge,
+      };
+    }
+    
+    return {
+      blocked: false,
+      todayTrades,
+      lastEntryAge,
+    };
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) {
+      return { blocked: false, todayTrades: 0 };
+    }
+    console.error("[D1] checkTradeFrequency failed:", err);
+    return { blocked: false, todayTrades: 0, error: err.message };
+  }
+}
+
+/**
+ * Get comprehensive position context for a ticker from D1.
+ * This is the SINGLE SOURCE OF TRUTH for open position state.
+ * 
+ * Returns:
+ * - position_id, ticker, direction, status
+ * - avg_entry_price (calculated from lots)
+ * - total_shares (current qty)
+ * - entry_ts (first entry timestamp)
+ * - realized_pnl (sum of all realized P&L)
+ * - last_action (most recent action type)
+ * 
+ * @param {object} env - Worker environment with DB binding
+ * @param {string} ticker - Ticker symbol
+ * @returns {object|null} - Position context or null if no open position
+ */
+async function getPositionContext(env, ticker) {
+  const db = env?.DB;
+  if (!db || !ticker) return null;
+  const sym = String(ticker).toUpperCase();
+  
+  try {
+    // Get position with aggregated data from lots and actions
+    const row = await db.prepare(`
+      SELECT 
+        p.position_id,
+        p.ticker,
+        p.direction,
+        p.status,
+        p.total_qty,
+        p.cost_basis,
+        p.created_at as entry_ts,
+        p.updated_at,
+        p.closed_at,
+        COALESCE(
+          (SELECT SUM(pnl_realized) FROM execution_actions WHERE position_id = p.position_id),
+          0
+        ) as realized_pnl,
+        (SELECT action_type FROM execution_actions WHERE position_id = p.position_id ORDER BY ts DESC LIMIT 1) as last_action,
+        CASE 
+          WHEN p.total_qty > 0 THEN ROUND(p.cost_basis / p.total_qty, 4)
+          ELSE NULL 
+        END as avg_entry_price
+      FROM positions p
+      WHERE p.ticker = ?1 AND p.status = 'OPEN'
+      LIMIT 1
+    `).bind(sym).first();
+    
+    if (!row) return null;
+    
+    return {
+      position_id: row.position_id,
+      ticker: row.ticker,
+      direction: row.direction,
+      status: row.status,
+      total_shares: row.total_qty || 0,
+      avg_entry_price: row.avg_entry_price || 0,
+      cost_basis: row.cost_basis || 0,
+      entry_ts: row.entry_ts,
+      updated_at: row.updated_at,
+      realized_pnl: row.realized_pnl || 0,
+      last_action: row.last_action,
+    };
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) return null;
+    console.error("[D1] getPositionContext failed:", err);
+    return null;
+  }
+}
+
 async function d1UpdatePosition(env, position_id, updates) {
   const db = env?.DB;
   if (!db || !position_id) return { ok: false };
@@ -12856,6 +13195,9 @@ export default {
           payload.rr = payload.rr ?? computeRR(payload);
           // (optional clamp to prevent any bizarre edge cases)
           if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
+          
+          // RR Warning: Data-driven warning based on historical win rates
+          payload.rr_warning = computeRRWarning(payload.rr);
 
           // Calculate Momentum Elite (worker-based with caching)
           if (ticker === "ETHT") {
@@ -12911,6 +13253,10 @@ export default {
 
           payload.rank = computeRank(payload);
           payload.score = payload.rank;
+          
+          // Gold Standard Score: Data-driven scoring based on historical winners
+          // Pass existing data for state transition detection
+          payload.gold_score = computeGoldScore(payload, existing);
 
           // Derived: horizon + % metrics (ETA v2 + risk/return)
           try {
@@ -13043,38 +13389,49 @@ export default {
               if (existing?.kanban_cycle_side != null)
                 payload.kanban_cycle_side = existing.kanban_cycle_side;
 
-              // Fallback: if we have an open trade in the ledger but no entry_ts on payload,
-              // inject from the trade so we correctly show HOLD (not Watch).
-              const openTrade = await findOpenTradeForTicker(KV, ticker, null);
-              // Also check D1 positions table for position-aware kanban classification
-              const d1OpenPosition = env?.DB ? await d1GetAnyOpenPosition(env, ticker) : null;
-              if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
-                const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
-                const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
-                if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
-                if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
-                  payload.entry_price = ep;
+              // ═══════════════════════════════════════════════════════════════════
+              // D1 SINGLE SOURCE OF TRUTH: Get position context from D1 only
+              // KV trade lookup deprecated - D1 positions table is authoritative
+              // ═══════════════════════════════════════════════════════════════════
+              const openPosition = env?.DB ? await getPositionContext(env, ticker) : null;
+              const hasOpenPosition = !!(openPosition && openPosition.status === "OPEN");
+              
+              // Inject entry data from D1 position if missing from payload
+              if (hasOpenPosition) {
+                if (payload.entry_ts == null && openPosition.entry_ts) {
+                  payload.entry_ts = openPosition.entry_ts;
+                }
+                if (payload.entry_price == null && openPosition.avg_entry_price > 0) {
+                  payload.entry_price = openPosition.avg_entry_price;
+                }
+                // Store position context for downstream use
+                payload.__position_context = openPosition;
               }
-              // Recompute move_status so stored payload reflects merged entry_ts (HOLD vs Watch)
+              
+              // Recompute move_status so stored payload reflects merged entry_ts
               payload.move_status = computeMoveStatus(payload);
               if (payload.flags) {
                 payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
                 payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+                payload.flags.has_open_position = hasOpenPosition;
               }
 
               // Pass open position to classifyKanbanStage for position-aware classification
-              const stage = classifyKanbanStage(payload, d1OpenPosition);
+              const stage = classifyKanbanStage(payload, openPosition);
               const prevStage = existing?.kanban_stage;
-              // Recycle rule: if something was in ARCHIVE, it must re-enter via opportunity lanes
-              // so users clearly see it "recycled" rather than jumping into position-management lanes.
+              
+              // ═══════════════════════════════════════════════════════════════════
+              // RECYCLE RULE: Position always wins
+              // If there's an open position, NEVER recycle to watch - stay in management mode
+              // Only apply recycle rule for non-position tickers
+              // ═══════════════════════════════════════════════════════════════════
               let finalStage = stage;
-              if (
-                prevStage === "archive" &&
-                (stage === "hold" ||
-                  stage === "just_entered" ||
-                  stage === "trim" ||
-                  stage === "exit")
-              ) {
+              const prevStageLegacy = prevStage === "archive" || prevStage === "closed";
+              const isManagementStage = stage === "active" || stage === "trim" || stage === "exit" ||
+                                        stage === "hold" || stage === "just_entered"; // legacy names
+              
+              if (prevStageLegacy && isManagementStage && !hasOpenPosition) {
+                // No open position, was archived - must re-enter via discovery lanes
                 finalStage = "watch";
                 payload.flags =
                   payload.flags && typeof payload.flags === "object"
@@ -13082,9 +13439,10 @@ export default {
                     : {};
                 payload.flags.recycled_from_archive = true;
               }
+              // If has open position, position wins - stay in management stage regardless of previous
 
-              // Lifecycle gate: HOLD/DEFEND/TRIM/EXIT must pass through ENTER_NOW first (per trigger+side cycle).
-              // Exception: first bar of day after AH/PM gap — accept hold/trim (move already in progress).
+              // Lifecycle gate: Management stages require open position
+              // Exception: first bar of day after AH/PM gap — accept management stages (move in progress)
               try {
                 const tsNow = Number(payload?.ts) || Date.now();
                 const dayKey = nyTradingDayKey(tsNow);
@@ -13092,18 +13450,19 @@ export default {
                 const existingTs = existing?.ts ?? existing?.ingest_ts;
                 const firstBarAfterGap = isFirstBarOfDayAfterGap(existingTs, tsNow, marketOpen);
 
+                // Check if stage is a management stage (new or legacy names)
                 const mgmt =
-                  finalStage === "hold" ||
-                  finalStage === "just_entered" ||
+                  finalStage === "active" ||
                   finalStage === "trim" ||
-                  finalStage === "exit";
+                  finalStage === "exit" ||
+                  finalStage === "hold" ||        // legacy
+                  finalStage === "just_entered";  // legacy
                   
                 // Verify open position exists before allowing management lanes
                 // If no position exists, clear stale entry data and force to watch
-                const hasOpenPos = !!(openTrade || d1OpenPosition);
-                if (mgmt && !hasOpenPos) {
+                if (mgmt && !hasOpenPosition) {
                   // Position closed but ticker still shows in management lane
-                  // Clear stale entry data and force to watch/opportunity lanes
+                  // Clear stale entry data and force to discovery lanes
                   payload.entry_ts = null;
                   payload.entry_price = null;
                   payload.kanban_cycle_enter_now_ts = null;
@@ -13117,11 +13476,11 @@ export default {
                   payload.flags.position_closed_cleared = true;
                   payload.flags.forced_watch_no_position = true;
                   console.log(
-                    `[KANBAN] ${ticker} forced to watch: was in ${prevStage}→${mgmt ? "mgmt" : ""} but no open position`
+                    `[KANBAN] ${ticker} forced to watch: was in ${prevStage} but no open position in D1`
                   );
                 }
                   
-                if (mgmt && hasOpenPos) {
+                if (mgmt && hasOpenPosition) {
                   const curTriggerTs = Number(payload?.trigger_ts);
                   const curSide = sideFromStateOrScores(payload); // "LONG" | "SHORT" | null
                   const cycleEnterTs = Number(
@@ -13213,16 +13572,15 @@ export default {
               }
 
               // Stage monotonicity: open positions can only move forward in management lanes
-              // Prevents bouncing EXIT→TRIM→HOLD due to price fluctuations
-              const hasOpenPosForMono = !!(openTrade || d1OpenPosition);
+              // Prevents bouncing EXIT→TRIM→ACTIVE due to price fluctuations
               const preMonotonicityStage = finalStage;
-              finalStage = enforceStageMonotonicity(finalStage, prevStage, hasOpenPosForMono);
+              finalStage = enforceStageMonotonicity(finalStage, prevStage, hasOpenPosition);
               if (finalStage !== preMonotonicityStage) {
                 if (!payload.flags) payload.flags = {};
                 payload.flags.stage_monotonicity_enforced = true;
                 payload.flags.stage_before_monotonicity = preMonotonicityStage;
                 console.log(
-                  `[KANBAN] ${ticker} stage monotonicity: ${preMonotonicityStage} → ${finalStage} (kept prev, has open position)`
+                  `[KANBAN] ${ticker} stage monotonicity: ${preMonotonicityStage} → ${finalStage} (enforced, has open position: ${hasOpenPosition})`
                 );
               }
 
@@ -14244,14 +14602,27 @@ export default {
             }
 
             const tradeSide = side || getTradeDirection(payload.state);
-            const openTrade = tradeSide
+            
+            // D1: Check for open position using D1 as single source of truth
+            const d1OpenPosition = env?.DB ? await getPositionContext(env, ticker) : null;
+            const hasOpenPosition = !!(d1OpenPosition && d1OpenPosition.status === "OPEN");
+            
+            // Fallback to KV trade lookup (will be deprecated)
+            const openTrade = !hasOpenPosition ? (tradeSide
               ? await findOpenTradeForTicker(KV, ticker, tradeSide)
-              : await findOpenTradeForTicker(KV, ticker, null);
-            if (openTrade) {
+              : await findOpenTradeForTicker(KV, ticker, null)) : null;
+            
+            // Anti-churning check: limit trades per ticker per day
+            const tradeFrequency = env?.DB ? await checkTradeFrequency(env, ticker) : { blocked: false };
+            if (tradeFrequency.blocked) {
+              console.log(
+                `[ALERT SKIPPED] ${ticker}: Anti-churning block - ${tradeFrequency.reason} (${tradeFrequency.message})`,
+              );
+            } else if (hasOpenPosition || openTrade) {
               console.log(
                 `[ALERT SKIPPED] ${ticker}: Trade already open (${
-                  openTrade.direction || "UNKNOWN"
-                })`,
+                  d1OpenPosition?.direction || openTrade?.direction || "UNKNOWN"
+                }, source: ${hasOpenPosition ? "D1" : "KV"})`,
               );
             } else if (enhancedTrigger && rrOk && compOk && phaseOk) {
               // Smart dedupe: action + direction + UTC minute bucket (prevents duplicates but allows valid re-alerts)
@@ -15308,7 +15679,7 @@ export default {
               // Ensure kanban_stage is always computed even on capture-promote path
               try {
                 const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
-                // CRITICAL: Merge entry_ts/entry_price from existing so HOLD (not Watch) when move passed
+                // CRITICAL: Merge entry_ts/entry_price from existing so ACTIVE (not Watch) when move passed
                 if (existing?.entry_ts != null || existing?.entry_price != null) {
                   if (payload.entry_ts == null && Number.isFinite(Number(existing?.entry_ts)))
                     payload.entry_ts = Number(existing.entry_ts);
@@ -15321,20 +15692,25 @@ export default {
                   payload.kanban_cycle_trigger_ts = existing.kanban_cycle_trigger_ts;
                 if (existing?.kanban_cycle_side != null)
                   payload.kanban_cycle_side = existing.kanban_cycle_side;
-                const openTrade = await findOpenTradeForTicker(KV, ticker, null);
-                if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
-                  const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
-                  const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
-                  if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
-                  if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
-                    payload.entry_price = ep;
+                  
+                // D1 SINGLE SOURCE OF TRUTH: Get position context from D1 only
+                const openPosition = env?.DB ? await getPositionContext(env, ticker) : null;
+                const hasOpenPosition = !!(openPosition && openPosition.status === "OPEN");
+                if (hasOpenPosition) {
+                  if (payload.entry_ts == null && openPosition.entry_ts) {
+                    payload.entry_ts = openPosition.entry_ts;
+                  }
+                  if (payload.entry_price == null && openPosition.avg_entry_price > 0) {
+                    payload.entry_price = openPosition.avg_entry_price;
+                  }
                 }
                 payload.move_status = computeMoveStatus(payload);
                 if (payload.flags) {
                   payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED";
                   payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
+                  payload.flags.has_open_position = hasOpenPosition;
                 }
-                const stage = classifyKanbanStage(payload);
+                const stage = classifyKanbanStage(payload, openPosition);
                 const prevStage = existing?.kanban_stage;
                 let finalStage = stage;
 
@@ -15344,14 +15720,23 @@ export default {
                 const existingTsCap = existing?.ts ?? existing?.ingest_ts;
                 const firstBarAfterGapCap = isFirstBarOfDayAfterGap(existingTsCap, tsNowCap, marketOpenCap);
 
-                // Lifecycle gate: HOLD/DEFEND/TRIM/EXIT must pass through ENTER_NOW first. Exception: first bar of day after AH/PM gap.
+                // Lifecycle gate: Management stages require open position. Exception: first bar of day after AH/PM gap.
                 try {
                   const mgmt =
-                    finalStage === "hold" ||
-                    finalStage === "just_entered" ||
+                    finalStage === "active" ||
                     finalStage === "trim" ||
-                    finalStage === "exit";
-                  if (mgmt) {
+                    finalStage === "exit" ||
+                    finalStage === "hold" ||        // legacy
+                    finalStage === "just_entered";  // legacy
+                    
+                  // If management stage but no open position, force to watch
+                  if (mgmt && !hasOpenPosition) {
+                    finalStage = "watch";
+                    if (!payload.flags) payload.flags = {};
+                    payload.flags.forced_watch_no_position = true;
+                  }
+                  
+                  if (mgmt && hasOpenPosition) {
                     const curTriggerTs = Number(payload?.trigger_ts);
                     const curSide = sideFromStateOrScores(payload);
                     const cycleEnterTs = Number(
@@ -20983,7 +21368,8 @@ export default {
         );
       }
 
-      // GET /timed/portfolio (paper portfolio + executions, derived from KV trades)
+      // GET /timed/portfolio (paper portfolio + executions, derived from D1 positions)
+      // D1 is the SINGLE SOURCE OF TRUTH for positions
       if (routeKey === "GET /timed/portfolio") {
         const ip = req.headers.get("CF-Connecting-IP") || "unknown";
         const rateLimit = await checkRateLimit(
@@ -21001,10 +21387,41 @@ export default {
           );
         }
 
-        const tradesKey = "timed:trades:all";
-        const trades = (await kvGetJSON(KV, tradesKey)) || [];
+        // ═══════════════════════════════════════════════════════════════════════
+        // D1 SINGLE SOURCE OF TRUTH: Get positions and executions from D1
+        // ═══════════════════════════════════════════════════════════════════════
         const startCash = PORTFOLIO_START_CASH;
-        const events = [];
+        let useD1 = !!env?.DB;
+        let d1Positions = [];
+        let d1Actions = [];
+        
+        if (useD1) {
+          try {
+            // Get all positions (open and closed)
+            const posRes = await env.DB.prepare(`
+              SELECT position_id, ticker, direction, status, total_qty, cost_basis, 
+                     created_at, updated_at, closed_at, script_version
+              FROM positions 
+              ORDER BY created_at DESC
+            `).all();
+            d1Positions = posRes?.results || [];
+            
+            // Get all execution actions
+            const actRes = await env.DB.prepare(`
+              SELECT action_id, position_id, ts, action_type, qty, price, value, pnl_realized, reason
+              FROM execution_actions
+              ORDER BY ts ASC
+            `).all();
+            d1Actions = actRes?.results || [];
+          } catch (err) {
+            console.warn("[PORTFOLIO] D1 query failed, falling back to KV:", err);
+            useD1 = false;
+          }
+        }
+
+        // Fallback to KV trades if D1 not available
+        const tradesKey = "timed:trades:all";
+        const trades = useD1 ? [] : ((await kvGetJSON(KV, tradesKey)) || []);
 
         const tpTargetPrice = (src) => {
           const directTarget = Number(src?.tp_target_price ?? src?.tp_target);
@@ -21033,6 +21450,48 @@ export default {
           }
         };
 
+        const events = [];
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // D1 SOURCE: Build events from D1 execution_actions
+        // ═══════════════════════════════════════════════════════════════════════
+        if (useD1 && d1Actions.length > 0) {
+          // Build position lookup for direction
+          const posById = new Map();
+          for (const p of d1Positions) {
+            posById.set(p.position_id, p);
+          }
+          
+          for (const a of d1Actions) {
+            const pos = posById.get(a.position_id);
+            const ticker = pos?.ticker || "UNKNOWN";
+            const dir = pos?.direction || "LONG";
+            const ts = Number(a.ts);
+            if (!Number.isFinite(ts) || ts <= 0) continue;
+            
+            const type = String(a.action_type || "").toUpperCase();
+            if (!type) continue;
+            
+            events.push({
+              ts,
+              day: dayKey(ts),
+              ticker,
+              direction: dir,
+              type,
+              price: Number(a.price) || null,
+              shares: Number(a.qty) || null,
+              value: Number(a.value) || null,
+              reason: a.reason || null,
+              notional: Number(a.value) || null,
+              trade_id: a.position_id,
+              pnl_realized: Number(a.pnl_realized) || 0,
+            });
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // KV FALLBACK: Build events from KV trades (legacy)
+        // ═══════════════════════════════════════════════════════════════════════
         for (const tr of trades) {
           const ticker = String(tr?.ticker || "").toUpperCase();
           const dir = String(tr?.direction || "").toUpperCase();
@@ -21185,38 +21644,81 @@ export default {
           }
         }
 
-        // Mark-to-market open positions using last known trade currentPrice (best-effort)
+        // Mark-to-market open positions using last known price (best-effort)
         let positionsValue = 0;
         const openPositions = [];
-        for (const [tkr, p] of Object.entries(positions)) {
-          const trade = trades.find(
-            (x) =>
-              String(x?.ticker || "").toUpperCase() === tkr &&
-              isOpenTradeStatus(x?.status),
-          );
-          const latest = latestByTicker[String(tkr).toUpperCase()];
-          const px = Number(
-            latest?.price ??
-              latest?.last ??
-              latest?.close ??
-              trade?.currentPrice ??
-              trade?.price,
-          );
-          const val = Number.isFinite(px) ? px * Number(p.shares) : null;
-          if (Number.isFinite(val)) positionsValue += val;
-          openPositions.push({
-            ticker: tkr,
-            direction: p.direction,
-            shares: p.shares,
-            avgEntry: p.avgEntry,
-            mark: Number.isFinite(px) ? px : null,
-            value: Number.isFinite(val) ? val : null,
-            phase_pct:
-              latest?.phase_pct != null ? Number(latest.phase_pct) : null,
-            completion:
-              latest?.completion != null ? Number(latest.completion) : null,
-            tp: tpTargetPrice(latest),
-          });
+        
+        // ═══════════════════════════════════════════════════════════════════════
+        // D1 SOURCE: Build open positions from D1 positions table
+        // ═══════════════════════════════════════════════════════════════════════
+        if (useD1 && d1Positions.length > 0) {
+          for (const p of d1Positions) {
+            if (p.status !== "OPEN") continue;
+            const tkr = String(p.ticker || "").toUpperCase();
+            const latest = latestByTicker[tkr];
+            const shares = Number(p.total_qty) || 0;
+            const costBasis = Number(p.cost_basis) || 0;
+            const avgEntry = shares > 0 ? costBasis / shares : null;
+            const px = Number(
+              latest?.price ??
+                latest?.last ??
+                latest?.close
+            );
+            const val = Number.isFinite(px) && shares > 0 ? px * shares : null;
+            if (Number.isFinite(val)) positionsValue += val;
+            
+            // Calculate realized P&L from actions
+            const posActions = d1Actions.filter(a => a.position_id === p.position_id);
+            const realizedPnl = posActions.reduce((sum, a) => sum + (Number(a.pnl_realized) || 0), 0);
+            
+            openPositions.push({
+              ticker: tkr,
+              direction: p.direction,
+              shares,
+              avgEntry,
+              mark: Number.isFinite(px) ? px : null,
+              value: Number.isFinite(val) ? val : null,
+              phase_pct: latest?.phase_pct != null ? Number(latest.phase_pct) : null,
+              completion: latest?.completion != null ? Number(latest.completion) : null,
+              tp: tpTargetPrice(latest),
+              kanban_stage: latest?.kanban_stage || null,
+              position_id: p.position_id,
+              entry_ts: p.created_at,
+              realized_pnl: realizedPnl,
+              source: "d1",
+            });
+          }
+        } else {
+          // KV FALLBACK: Build from replayed positions
+          for (const [tkr, p] of Object.entries(positions)) {
+            const trade = trades.find(
+              (x) =>
+                String(x?.ticker || "").toUpperCase() === tkr &&
+                isOpenTradeStatus(x?.status),
+            );
+            const latest = latestByTicker[String(tkr).toUpperCase()];
+            const px = Number(
+              latest?.price ??
+                latest?.last ??
+                latest?.close ??
+                trade?.currentPrice ??
+                trade?.price,
+            );
+            const val = Number.isFinite(px) ? px * Number(p.shares) : null;
+            if (Number.isFinite(val)) positionsValue += val;
+            openPositions.push({
+              ticker: tkr,
+              direction: p.direction,
+              shares: p.shares,
+              avgEntry: p.avgEntry,
+              mark: Number.isFinite(px) ? px : null,
+              value: Number.isFinite(val) ? val : null,
+              phase_pct: latest?.phase_pct != null ? Number(latest.phase_pct) : null,
+              completion: latest?.completion != null ? Number(latest.completion) : null,
+              tp: tpTargetPrice(latest),
+              source: "kv",
+            });
+          }
         }
 
         const equity = cash + positionsValue;
@@ -24375,21 +24877,25 @@ Provide 3-5 actionable next steps:
               payload.kanban_cycle_trigger_ts = null;
               payload.kanban_cycle_side = null;
             } else {
-              // Merge entry_ts/entry_price from existing + ledger (Hold vs Watch fix)
+              // Merge entry_ts/entry_price from existing + D1 position
               if (existing?.entry_ts != null || existing?.entry_price != null) {
                 if (payload.entry_ts == null && Number.isFinite(Number(existing?.entry_ts)))
                   payload.entry_ts = Number(existing.entry_ts);
                 if (payload.entry_price == null && Number.isFinite(Number(existing?.entry_price)))
                   payload.entry_price = Number(existing.entry_price);
               }
-              const openTrade = await findOpenTradeForTicker(KV, ticker, null);
-              if ((payload.entry_ts == null || payload.entry_price == null) && openTrade) {
-                const et = isoToMs(openTrade.entryTime) || Number(openTrade.entry_ts) || Number(openTrade.entryTs);
-                const ep = Number(openTrade.entryPrice ?? openTrade.entry_price);
-                if (payload.entry_ts == null && Number.isFinite(et)) payload.entry_ts = et;
-                if (payload.entry_price == null && Number.isFinite(ep) && ep > 0)
-                  payload.entry_price = ep;
+              // D1 SINGLE SOURCE OF TRUTH
+              const openPosition = env?.DB ? await getPositionContext(env, ticker) : null;
+              const hasOpenPosition = !!(openPosition && openPosition.status === "OPEN");
+              if (hasOpenPosition) {
+                if (payload.entry_ts == null && openPosition.entry_ts) {
+                  payload.entry_ts = openPosition.entry_ts;
+                }
+                if (payload.entry_price == null && openPosition.avg_entry_price > 0) {
+                  payload.entry_price = openPosition.avg_entry_price;
+                }
               }
+              payload.__position_context = openPosition;
             }
 
             payload.move_status = computeMoveStatus(payload);
@@ -24398,14 +24904,18 @@ Provide 3-5 actionable next steps:
               payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
             }
 
+            // D1 position context for Kanban classification
+            const openPosition = payload.__position_context || (env?.DB ? await getPositionContext(env, ticker) : null);
+            const hasOpenPosition = !!(openPosition && openPosition.status === "OPEN");
+            
             const prevStage = existing?.kanban_stage;
-            const stage = classifyKanbanStage(payload);
+            const stage = classifyKanbanStage(payload, openPosition);
             let finalStage = stage;
 
-            if (
-              prevStage === "archive" &&
-              ["hold", "just_entered", "trim", "exit"].includes(stage)
-            ) {
+            // Recycle rule: position always wins
+            const prevStageLegacy = prevStage === "archive" || prevStage === "closed";
+            const isManagementStage = ["active", "trim", "exit", "hold", "just_entered"].includes(stage);
+            if (prevStageLegacy && isManagementStage && !hasOpenPosition) {
               finalStage = "watch";
               if (!payload.flags) payload.flags = {};
               payload.flags.recycled_from_archive = true;
@@ -26139,7 +26649,11 @@ Provide 3-5 actionable next steps:
             
             if (resetLedger) {
               // Full ledger clear (DANGEROUS; opt-in only)
+              // Clear new position-based tables first (due to foreign key constraints)
               for (const sql of [
+                "DELETE FROM execution_actions",
+                "DELETE FROM lots",
+                "DELETE FROM positions",
                 "DELETE FROM trade_events",
                 "DELETE FROM trades",
                 "DELETE FROM alerts",

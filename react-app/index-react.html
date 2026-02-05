@@ -3011,7 +3011,7 @@
             if (!flags.flip_watch) continue;
           }
 
-          // Kanban Stage filter (8 lanes; compound filters for Watching/Almost Ready)
+          // Kanban Stage filter (7 lanes - dual mode with legacy support)
           if (
             effectiveFilters.kanbanStage &&
             typeof effectiveFilters.kanbanStage === "string"
@@ -3019,11 +3019,17 @@
             const stage = String(d.kanban_stage || "");
             const wantStage = String(effectiveFilters.kanbanStage).trim();
             const matches =
-              wantStage === "watching"
-                ? stage === "watch" || stage === "setup_watch"
-                : wantStage === "almost_ready"
-                  ? stage === "flip_watch" || stage === "just_flipped"
-                  : stage === wantStage;
+              wantStage === "watch"
+                ? stage === "watch"
+                : wantStage === "setup"
+                  ? stage === "setup" || stage === "setup_watch" || stage === "flip_watch"
+                  : wantStage === "enter"
+                    ? stage === "enter" || stage === "enter_now" || stage === "just_flipped"
+                    : wantStage === "active"
+                      ? stage === "active" || stage === "just_entered" || stage === "hold"
+                      : wantStage === "closed"
+                        ? stage === "closed" || stage === "archive"
+                        : stage === wantStage;
             if (!matches) continue;
           }
 
@@ -10549,32 +10555,21 @@
           const winnerSignature = countWith({ ...base, winnerSignature: true });
           const flipWatch = countWith({ ...base, flipWatch: true });
 
-          // Kanban Stages (8 lanes)
+          // Kanban Stages (7 lanes - dual mode: Discovery + Management)
           const kanbanWatch = countWith({ ...base, kanbanStage: "watch" });
-          const kanbanSetupWatch = countWith({
-            ...base,
-            kanbanStage: "setup_watch",
-          });
-          const kanbanFlipWatch = countWith({
-            ...base,
-            kanbanStage: "flip_watch",
-          });
-          const kanbanJustFlipped = countWith({
-            ...base,
-            kanbanStage: "just_flipped",
-          });
-          const kanbanEnterNow = countWith({
-            ...base,
-            kanbanStage: "enter_now",
-          });
-          const kanbanJustEntered = countWith({
-            ...base,
-            kanbanStage: "just_entered",
-          });
-          const kanbanHold = countWith({ ...base, kanbanStage: "hold" });
+          const kanbanSetup = countWith({ ...base, kanbanStage: "setup" }) +
+            countWith({ ...base, kanbanStage: "setup_watch" }) +
+            countWith({ ...base, kanbanStage: "flip_watch" });
+          const kanbanEnter = countWith({ ...base, kanbanStage: "enter" }) +
+            countWith({ ...base, kanbanStage: "enter_now" }) +
+            countWith({ ...base, kanbanStage: "just_flipped" });
+          const kanbanActive = countWith({ ...base, kanbanStage: "active" }) +
+            countWith({ ...base, kanbanStage: "just_entered" }) +
+            countWith({ ...base, kanbanStage: "hold" });
           const kanbanTrim = countWith({ ...base, kanbanStage: "trim" });
           const kanbanExit = countWith({ ...base, kanbanStage: "exit" });
-          const kanbanArchive = countWith({ ...base, kanbanStage: "archive" });
+          const kanbanClosed = countWith({ ...base, kanbanStage: "closed" }) +
+            countWith({ ...base, kanbanStage: "archive" });
 
           // Action Moves Pattern Groups
           const patternSqueezeMomentum = countWith({
@@ -10681,14 +10676,13 @@
               UNCLEAR: patternUnclear,
             },
             kanban: {
-              WATCHING: kanbanWatch + kanbanSetupWatch,
-              ALMOST_READY: kanbanFlipWatch + kanbanJustFlipped,
-              ENTER_NOW: kanbanEnterNow,
-              JUST_ENTERED: kanbanJustEntered,
-              HOLD: kanbanHold,
+              WATCH: kanbanWatch,
+              SETUP: kanbanSetup,
+              ENTER: kanbanEnter,
+              ACTIVE: kanbanActive,
               TRIM: kanbanTrim,
               EXIT: kanbanExit,
-              ARCHIVE: kanbanArchive,
+              CLOSED: kanbanClosed,
             },
             groups: {
               ALL: groupAll,
@@ -10808,40 +10802,35 @@
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "👀 Watching",
-                      pillCounts?.kanban?.WATCHING,
+                      "👀 Watch",
+                      pillCounts?.kanban?.WATCH,
                     ),
-                    filters.kanbanStage === "watching",
-                    () => onChange({ kanbanStage: "watching" }),
+                    filters.kanbanStage === "watch",
+                    () => onChange({ kanbanStage: "watch" }),
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "📋 Almost Ready",
-                      pillCounts?.kanban?.ALMOST_READY,
+                      "📋 Setup",
+                      pillCounts?.kanban?.SETUP,
                     ),
-                    filters.kanbanStage === "almost_ready",
-                    () => onChange({ kanbanStage: "almost_ready" }),
+                    filters.kanbanStage === "setup",
+                    () => onChange({ kanbanStage: "setup" }),
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "🚀 Enter Now",
-                      pillCounts?.kanban?.ENTER_NOW,
+                      "🚀 Enter",
+                      pillCounts?.kanban?.ENTER,
                     ),
-                    filters.kanbanStage === "enter_now",
-                    () => onChange({ kanbanStage: "enter_now" }),
+                    filters.kanbanStage === "enter",
+                    () => onChange({ kanbanStage: "enter" }),
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "🆕 Just Entered",
-                      pillCounts?.kanban?.JUST_ENTERED,
+                      "💎 Active",
+                      pillCounts?.kanban?.ACTIVE,
                     ),
-                    filters.kanbanStage === "just_entered",
-                    () => onChange({ kanbanStage: "just_entered" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount("💎 Hold", pillCounts?.kanban?.HOLD),
-                    filters.kanbanStage === "hold",
-                    () => onChange({ kanbanStage: "hold" }),
+                    filters.kanbanStage === "active",
+                    () => onChange({ kanbanStage: "active" }),
                   )}
                   {pill(
                     pillLabelWithCount("📊 Trim", pillCounts?.kanban?.TRIM),
@@ -10855,11 +10844,11 @@
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "🗂 Archived",
-                      pillCounts?.kanban?.ARCHIVE,
+                      "🗂 Closed",
+                      pillCounts?.kanban?.CLOSED,
                     ),
-                    filters.kanbanStage === "archive",
-                    () => onChange({ kanbanStage: "archive" }),
+                    filters.kanbanStage === "closed",
+                    () => onChange({ kanbanStage: "closed" }),
                   )}
                 </div>
               </div>
@@ -11899,17 +11888,17 @@
           return map;
         }, [trades]);
 
-        // Categorize tickers into 8 Kanban lanes (Worker = source of truth, trades override exit/hold)
-        // Lanes: Watching | Almost Ready | Enter Now | Just Entered | Hold | Trim | Exit | Archived
+        // Categorize tickers into 6 Kanban lanes (dual-mode: Discovery + Management)
+        // Discovery: Watch | Setup | Enter
+        // Management: Active | Trim | Exit | Closed
         const categories = React.useMemo(() => {
-          const watching = [];
-          const almostReady = [];
-          const enterNow = [];
-          const justEntered = [];
-          const hold = [];
+          const watch = [];
+          const setup = [];
+          const enter = [];
+          const active = [];
           const trim = [];
           const exit = [];
-          const archive = [];
+          const closed = [];
 
           tickers.forEach((t) => {
             if (t?.kanban_stage === null) return;
@@ -12007,23 +11996,25 @@
               }
             }
 
+            // Map backend stages to UI lanes (new 6-stage + legacy support)
             switch (stage) {
               case "watch":
+                watch.push(t);
+                break;
+              case "setup":
               case "setup_watch":
-                watching.push(t);
-                break;
               case "flip_watch":
-              case "just_flipped":
-                almostReady.push(t);
+                setup.push(t);
                 break;
+              case "enter":
               case "enter_now":
-                enterNow.push(t);
+              case "just_flipped":
+                enter.push(t);
                 break;
+              case "active":
               case "just_entered":
-                justEntered.push(t);
-                break;
               case "hold":
-                hold.push(t);
+                active.push(t);
                 break;
               case "trim":
                 trim.push(t);
@@ -12031,35 +12022,38 @@
               case "exit":
                 exit.push(t);
                 break;
+              case "closed":
               case "archive":
-                archive.push(t);
+                closed.push(t);
                 break;
               default:
+                // Fallback: tickers without stage go to watch
+                if (t?.kanban_stage === null || t?.kanban_stage === undefined) {
+                  watch.push(t);
+                }
                 break;
             }
           });
 
           return {
-            watching,
-            almostReady,
-            enterNow,
-            justEntered,
-            hold,
+            watch,
+            setup,
+            enter,
+            active,
             trim,
             exit,
-            archive,
+            closed,
           };
         }, [tickers, tradeByTicker]);
 
         const {
-          watching,
-          almostReady,
-          enterNow,
-          justEntered,
-          hold,
+          watch,
+          setup,
+          enter,
+          active,
           trim,
           exit,
-          archive,
+          closed,
         } = categories;
 
         // Compact card renderer for Kanban layout
@@ -12842,65 +12836,55 @@
         return (
           <div>
             <div className="mb-1 text-[10px] text-[#5c6475] flex items-center gap-2 flex-wrap">
-              <span className="text-violet-300">Watching</span>
-              <span className="text-amber-300">Almost Ready</span>
-              <span className="text-green-300">Enter Now</span>
-              <span className="text-sky-300">Just Entered</span>
-              <span className="text-blue-300">Hold</span>
-              <span className="text-purple-300">Trim</span>
+              <span className="text-violet-300">Watch</span>
+              <span className="text-amber-300">Setup</span>
+              <span className="text-green-300">Enter</span>
+              <span className="text-cyan-300">Active</span>
+              <span className="text-yellow-300">Trim</span>
               <span className="text-red-300">Exit</span>
-              <span className="text-slate-400">Archived</span>
+              <span className="text-slate-400">Closed</span>
             </div>
             <div className="overflow-x-auto">
               <div className="flex gap-1.5 pb-1.5">
+                {/* DISCOVERY MODE - No position yet */}
                 <KanbanColumn
-                  laneKey="watching"
-                  title="Watching"
-                  subtitle="Pattern forming, not yet confirmed"
-                  count={watching.length}
+                  laneKey="watch"
+                  title="Watch"
+                  subtitle="Monitoring pool - valid tickers"
+                  count={watch.length}
                   icon="👀"
                   color="border-violet-500"
-                  items={watching}
+                  items={watch}
                 />
                 <KanbanColumn
-                  laneKey="almost_ready"
-                  title="Almost Ready"
-                  subtitle="Needs a bit more to enter"
-                  count={almostReady.length}
+                  laneKey="setup"
+                  title="Setup"
+                  subtitle="In corridor + pullback - preparing"
+                  count={setup.length}
                   icon="📋"
                   color="border-amber-500"
-                  items={almostReady}
+                  items={setup}
+                  showDetails={true}
                 />
                 <KanbanColumn
-                  laneKey="enter_now"
-                  title="Enter Now"
-                  subtitle="Time to enter"
-                  count={enterNow.length}
+                  laneKey="enter"
+                  title="Enter"
+                  subtitle="Gold Standard met - actionable NOW"
+                  count={enter.length}
                   icon="🚀"
                   color="border-green-500"
-                  items={enterNow}
+                  items={enter}
                   showDetails={true}
                 />
+                {/* MANAGEMENT MODE - Has open position */}
                 <KanbanColumn
-                  laneKey="just_entered"
-                  title="Just Entered"
-                  subtitle="Recently entered"
-                  count={justEntered.length}
-                  icon="🆕"
-                  color="border-sky-500"
-                  items={justEntered}
-                  showProgress={true}
-                  showOpen={true}
-                  showDetails={true}
-                />
-                <KanbanColumn
-                  laneKey="hold"
-                  title="Hold"
-                  subtitle="Holding position (🛡 Defend badge if warnings)"
-                  count={hold.length}
+                  laneKey="active"
+                  title="Active"
+                  subtitle="Open position - hold & monitor"
+                  count={active.length}
                   icon="💎"
-                  color="border-blue-500"
-                  items={hold}
+                  color="border-cyan-500"
+                  items={active}
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
@@ -12908,7 +12892,7 @@
                 <KanbanColumn
                   laneKey="trim"
                   title="Trim"
-                  subtitle="High completion, take profit"
+                  subtitle="Approaching TP - take partial profits"
                   count={trim.length}
                   icon="📊"
                   color="border-yellow-500"
@@ -12920,7 +12904,7 @@
                 <KanbanColumn
                   laneKey="exit"
                   title="Exit"
-                  subtitle="Close position"
+                  subtitle="Stop hit or invalidated - close"
                   count={exit.length}
                   icon="🚪"
                   color="border-red-500"
@@ -12930,13 +12914,13 @@
                   showDetails={true}
                 />
                 <KanbanColumn
-                  laneKey="archive"
-                  title="Archive"
-                  subtitle="Resolved / not actionable"
-                  count={archive.length}
+                  laneKey="closed"
+                  title="Closed"
+                  subtitle="Completed, stopped, or expired"
+                  count={closed.length}
                   icon="🗂"
                   color="border-[#55608a]"
-                  items={archive}
+                  items={closed}
                   showProgress={true}
                   showOpen={false}
                   showDetails={true}
