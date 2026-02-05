@@ -1540,19 +1540,68 @@ function qualifiesForEnter(d, asOfTs = null) {
     return { qualifies: false, reason: "trigger_stale" };
   }
   
-  // Completion gate: must have room to run (< 60%)
-  if (completion > 0.6) {
+  // Completion gate: must have room to run
+  // NOTE: Pullback entries naturally have higher completion (70-80%) since we're
+  // entering an ongoing move. Relax the gate for pullback states.
+  const isPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  const maxCompletion = isPullback ? 0.85 : 0.6;  // 85% for pullbacks, 60% for momentum
+  if (completion > maxCompletion) {
     return { qualifies: false, reason: "move_too_advanced" };
   }
   
   // Phase gate: must be early in move (< 0.5 = safe zone)
-  if (Math.abs(phase) > 0.5) {
+  // NOTE: Also relax for pullbacks since we're catching the dip
+  const maxPhase = isPullback ? 0.7 : 0.5;  // 70% for pullbacks, 50% for momentum
+  if (Math.abs(phase) > maxPhase) {
     return { qualifies: false, reason: "phase_too_late" };
   }
   
   // RR gate: must have favorable risk/reward (>= 1.3)
-  if (rr < 1.3) {
+  // NOTE: Skip R:R check for potential gold_short entries because TradingView sends
+  // LONG-oriented SL/TP, making the raw R:R invalid for SHORT entries.
+  // Gold_short entries will have proper R:R calculated at trade creation time.
+  const isPotentialGoldShort = state === "HTF_BULL_LTF_BULL" && htf >= 25 && ltf >= 15;
+  if (rr < 1.3 && !isPotentialGoldShort) {
     return { qualifies: false, reason: "rr_too_low" };
+  }
+  
+  // ─────────────────────────────────────────────────────────────────────────────
+  // CRITICAL: Price vs SL validation - reject stale signals already past SL
+  // VERSION: 2.6.4 - Direction-aware SL validation
+  // ─────────────────────────────────────────────────────────────────────────────
+  // A signal that has already breached its SL is INVALID for entry
+  // BUT: TradingView sends SL assuming LONG direction. For SHORT entries,
+  // the SL will be computed/flipped at trade creation time, so we only validate
+  // if the raw SL is already on the correct side for the intended direction.
+  //
+  // For LONG: raw sl should be BELOW price (standard TradingView format)
+  //           if price < sl, the LONG entry has already failed its stop
+  // For SHORT: raw sl is typically BELOW price (TradingView LONG format)
+  //            we'll compute a new SL above price at trade creation, so skip validation
+  const currentPrice = Number(d?.price);
+  const sl = Number(d?.sl);
+  
+  if (Number.isFinite(currentPrice) && currentPrice > 0 && Number.isFinite(sl) && sl > 0) {
+    // Infer intended direction from state (used for general classification)
+    // BUT: Entry paths like gold_short override this direction at trade creation
+    // So we only apply strict SL validation for LONG entries from PULLBACK states
+    const inferredDirection = sideFromStateOrScores(d);
+    const isBullishPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_RALLY";
+    
+    // Only validate SL for LONG entries from pullback states (where SL is correctly below price)
+    // SHORT entries (gold_short from HTF_BULL_LTF_BULL) will have SL computed above price later
+    if (inferredDirection === "LONG" && isBullishPullback && currentPrice < sl) {
+      // Price already below SL for a LONG pullback entry - signal has failed
+      return { qualifies: false, reason: "price_below_sl_long" };
+    }
+    
+    // For LONG entries: check minimum distance from SL (only if SL is below price)
+    if (inferredDirection === "LONG" && sl < currentPrice) {
+      const distToSL = (currentPrice - sl) / currentPrice;
+      if (distToSL < 0.005) {
+        return { qualifies: false, reason: "price_too_close_to_sl" };
+      }
+    }
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1561,14 +1610,18 @@ function qualifiesForEnter(d, asOfTs = null) {
   
   // PATH 1: Gold Standard LONG (67.7% of big UP moves)
   // HTF_BULL_LTF_PULLBACK + deep LTF pullback (< -5)
-  // Must be in LONG corridor (htf > 0)
-  if (state === "HTF_BULL_LTF_PULLBACK" && inCorridor) {
-    if (ltf <= -5) {
-      return { qualifies: true, path: "gold_long", confidence: "high", reason: "pullback_setup" };
-    }
-    // Near-corridor setup - medium confidence (relaxed score requirement)
-    if (ltf <= 0 && rr >= 2) {
-      return { qualifies: true, path: "gold_long_shallow", confidence: "medium", reason: "shallow_pullback" };
+  // NOTE: Use pullback-specific corridor (htf > 0, ltf in pullback range -25 to +5)
+  // Standard corridor is too restrictive (ltf >= -10 misses deep pullbacks)
+  if (state === "HTF_BULL_LTF_PULLBACK") {
+    const pullbackCorridor = htf > 0 && ltf >= -25 && ltf <= 5;  // Wider LTF range for pullbacks
+    if (pullbackCorridor) {
+      if (ltf <= -5) {
+        return { qualifies: true, path: "gold_long", confidence: "high", reason: "pullback_setup" };
+      }
+      // Near-corridor setup - medium confidence (relaxed score requirement)
+      if (ltf <= 0 && rr >= 1.5) {
+        return { qualifies: true, path: "gold_long_shallow", confidence: "medium", reason: "shallow_pullback" };
+      }
     }
   }
   
@@ -3024,15 +3077,12 @@ const FUTURES_SPECS = {
 };
 
 const FUTURES_TICKERS = new Set([
-  "ES",
-  "NQ",
-  "YM",
-  "RTY",
-  "CL",
-  "GC",
-  "SI",
-  "HG",
-  "NG",
+  // Base symbols
+  "ES", "NQ", "YM", "RTY", "CL", "GC", "SI", "HG", "NG",
+  // TradingView continuous contract symbols
+  "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "HG1!", "NG1!",
+  // Micro futures
+  "MES", "MNQ", "MES1!", "MNQ1!",
 ]);
 
 // Check if ticker should trigger a trade (matches UI logic)
@@ -5169,6 +5219,11 @@ async function processTradeSimulation(
 
     const sym = String(ticker || "").toUpperCase();
     
+    // Skip futures contracts - they require special handling that's not implemented
+    if (FUTURES_TICKERS.has(sym)) {
+      return { skipped: true, reason: "futures_not_supported" };
+    }
+    
     // Determine trade direction based on entry path (for mean-reversion entries like gold_short)
     // or fall back to state-based direction
     const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
@@ -6141,6 +6196,7 @@ async function processTradeSimulation(
               id: tradeId,
               ticker: sym,
               direction,
+              entryPath: entryPath || null,  // Track which entry criteria was used
               entryPrice: entryPx,
               entryTime,
               entry_ts: entryTsMs || undefined,
@@ -8115,6 +8171,7 @@ async function processTradeSimulation(
               id: `${ticker}-${now}-${Math.random().toString(36).substr(2, 9)}`,
               ticker,
               direction,
+              entryPath: entryPath || null,  // Track which entry criteria was used
               entryPrice,
               entryTime, // When trade was actually created (ingest time in replay)
               entry_ts: entryTsMs, // Numeric ms for D1/display (ingest time, not replay run time)
@@ -17309,12 +17366,16 @@ export default {
             const heartbeats = await Promise.all(
               syms.map((s) => kvGetJSON(KV, `timed:heartbeat:${s}`)),
             );
+            const tickersWithPriceUpdate = new Set();
             for (let i = 0; i < syms.length; i++) {
               const hb = heartbeats[i];
               if (hb && typeof hb === "object") {
                 const obj = data[syms[i]];
                 if (!obj) continue;
-                if (Number.isFinite(Number(hb.price))) obj.price = hb.price;
+                if (Number.isFinite(Number(hb.price))) {
+                  obj.price = hb.price;
+                  tickersWithPriceUpdate.add(syms[i]);
+                }
                 if (hb.prev_close != null) obj.prev_close = hb.prev_close;
                 if (hb.day_change != null) {
                   obj.day_change = hb.day_change;
@@ -17327,6 +17388,32 @@ export default {
                 if (hb.ingest_ts != null) obj.ingest_ts = hb.ingest_ts;
                 if (hb.session != null) obj.session = hb.session;
                 if (hb.is_rth != null) obj.is_rth = hb.is_rth;
+              }
+            }
+            
+            // RE-CLASSIFY KANBAN STAGE with updated prices
+            // This is critical for detecting stale signals where price has moved below SL
+            if (tickersWithPriceUpdate.size > 0) {
+              for (const sym of tickersWithPriceUpdate) {
+                const obj = data[sym];
+                if (!obj) continue;
+                try {
+                  const openPosition = openPositionsMap.get(sym) || null;
+                  const prevStage = obj.kanban_stage;
+                  const newStage = classifyKanbanStage(obj, openPosition);
+                  if (newStage !== prevStage) {
+                    obj.kanban_stage = newStage;
+                    obj.kanban_meta = deriveKanbanMeta(obj, newStage);
+                    // Clear stale entry metadata if no longer qualifying for enter
+                    if (prevStage === "enter" && newStage !== "enter") {
+                      delete obj.__entry_path;
+                      delete obj.__entry_confidence;
+                      delete obj.__entry_reason;
+                    }
+                  }
+                } catch (reClassifyErr) {
+                  console.warn(`[HEARTBEAT] Re-classification failed for ${sym}:`, String(reClassifyErr?.message || reClassifyErr));
+                }
               }
             }
           } catch (e) {
