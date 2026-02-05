@@ -1516,7 +1516,7 @@ function computeCompletionToTier(tickerData, tier = "TRIM") {
  * @param {object} d - Ticker data
  * @returns {object} - { qualifies, path, confidence, reason }
  */
-function qualifiesForEnter(d) {
+function qualifiesForEnter(d, asOfTs = null) {
   const state = String(d?.state || "");
   const inCorridor = corridorSide(d) != null;
   const score = Number(d?.score ?? d?.rank) || 0;
@@ -1528,75 +1528,60 @@ function qualifiesForEnter(d) {
   const rr = Number(d?.rr) || 0;
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // HARD GATES: Must pass ALL of these for any entry
+  // UNIVERSAL HARD GATES: Apply to ALL entries
   // ═══════════════════════════════════════════════════════════════════════════
   
-  // Must be in corridor for ANY entry (data shows corridor = high quality setups)
-  if (!inCorridor) {
-    return { qualifies: false, reason: "not_in_corridor" };
-  }
-  
-  // Trigger freshness: reject stale triggers (> 5 days old)
+  // Trigger freshness: reject stale triggers (> 7 days old for replays, allows more historical data)
+  // Use asOfTs for replays (historical data), otherwise current time
   const triggerTs = Number(d?.trigger_ts) || 0;
-  const now = Date.now();
+  const now = asOfTs > 0 ? asOfTs : Date.now();
   const triggerAgeDays = triggerTs > 0 ? (now - triggerTs) / (1000 * 60 * 60 * 24) : 999;
-  if (triggerAgeDays > 5) {
+  if (triggerAgeDays > 7) {
     return { qualifies: false, reason: "trigger_stale" };
   }
   
-  // Completion gate: must have room to run (< 50%)
-  if (completion > 0.5) {
+  // Completion gate: must have room to run (< 60%)
+  if (completion > 0.6) {
     return { qualifies: false, reason: "move_too_advanced" };
   }
   
-  // Phase gate: must be early in move (< 0.4 = safe zone)
-  if (Math.abs(phase) > 0.4) {
+  // Phase gate: must be early in move (< 0.5 = safe zone)
+  if (Math.abs(phase) > 0.5) {
     return { qualifies: false, reason: "phase_too_late" };
   }
   
-  // RR gate: must have favorable risk/reward (>= 1.5)
-  if (rr < 1.5) {
+  // RR gate: must have favorable risk/reward (>= 1.3)
+  if (rr < 1.3) {
     return { qualifies: false, reason: "rr_too_low" };
   }
   
-  // Price deviation from trigger: reject if moved > 3% against setup
-  const price = Number(d?.price) || 0;
-  const triggerPrice = Number(d?.trigger_price) || 0;
-  if (price > 0 && triggerPrice > 0) {
-    const triggerSide = corridorSide(d);
-    const pctFromTrigger = ((price - triggerPrice) / triggerPrice) * 100;
-    // For LONG: price shouldn't be > 3% below trigger
-    // For SHORT: price shouldn't be > 3% above trigger
-    if (triggerSide === "long" && pctFromTrigger < -3) {
-      return { qualifies: false, reason: "price_below_trigger" };
-    }
-    if (triggerSide === "short" && pctFromTrigger > 3) {
-      return { qualifies: false, reason: "price_above_trigger" };
-    }
-  }
-  
   // ═══════════════════════════════════════════════════════════════════════════
-  // ENTRY PATHS: Must match one of these patterns
+  // ENTRY PATHS: Each path has its own corridor/setup requirements
   // ═══════════════════════════════════════════════════════════════════════════
   
   // PATH 1: Gold Standard LONG (67.7% of big UP moves)
   // HTF_BULL_LTF_PULLBACK + deep LTF pullback (< -5)
-  // Price should be near or above 21 EMA for trend confirmation
-  if (state === "HTF_BULL_LTF_PULLBACK") {
+  // Must be in LONG corridor (htf > 0)
+  if (state === "HTF_BULL_LTF_PULLBACK" && inCorridor) {
     if (ltf <= -5) {
       return { qualifies: true, path: "gold_long", confidence: "high", reason: "pullback_setup" };
     }
-    // Near-corridor setup - medium confidence
-    if (ltf <= 0 && score >= 65) {
+    // Near-corridor setup - medium confidence (relaxed score requirement)
+    if (ltf <= 0 && rr >= 2) {
       return { qualifies: true, path: "gold_long_shallow", confidence: "medium", reason: "shallow_pullback" };
     }
   }
   
   // PATH 2: Gold Standard SHORT (82.7% of big DOWN moves)
-  // HTF_BULL_LTF_BULL with both overextended (blow-off top)
+  // HTF_BULL_LTF_BULL with both overextended (blow-off top) - mean reversion play
+  // NOTE: No corridor check - we're shorting overextended LONGS (htf > 0), not looking for SHORT corridor
   if (state === "HTF_BULL_LTF_BULL") {
     if (htf >= 30 && ltf >= 20) {
       return { qualifies: true, path: "gold_short", confidence: "high", reason: "blowoff_top" };
+    }
+    // Relaxed: htf >= 25 and ltf >= 15 for medium confidence
+    if (htf >= 25 && ltf >= 15) {
+      return { qualifies: true, path: "gold_short_medium", confidence: "medium", reason: "near_blowoff" };
     }
   }
   
@@ -1640,7 +1625,7 @@ function qualifiesForEnter(d) {
  * @param {object|null} openPosition - Optional: open position from D1 (for position-aware classification)
  * @returns {string|null} - Kanban stage or null
  */
-function classifyKanbanStage(tickerData, openPosition = null) {
+function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   const state = String(tickerData?.state || "");
   const hasPosition = !!(openPosition && openPosition.status === "OPEN");
   
@@ -1743,8 +1728,9 @@ function classifyKanbanStage(tickerData, openPosition = null) {
     // Phase weakening, RSI diverging, adverse P&L, stagnant momentum
     // ─────────────────────────────────────────────────────────────────────────
     
-    // Adverse P&L between -2% and -5% (not critical but concerning)
-    const isAdverseMove = pnlPct < -2 && pnlPct > -5;
+    // Adverse P&L between -2% and -8% (anything worse triggers EXIT at -8%)
+    // This ensures all significant losses are flagged for SL tightening
+    const isAdverseMove = pnlPct < -2 && pnlPct > -8;
     
     // RSI divergence (price up but RSI weakening)
     const isRsiWeakening = direction === "LONG"
@@ -1790,7 +1776,8 @@ function classifyKanbanStage(tickerData, openPosition = null) {
   // ═══════════════════════════════════════════════════════════════════════════
   
   // Check entry qualification using consolidated criteria
-  const entry = qualifiesForEnter(tickerData);
+  // Pass asOfTs for replay support (historical trigger freshness check)
+  const entry = qualifiesForEnter(tickerData, asOfTs);
   if (entry.qualifies) {
     // Store entry context for UI display
     tickerData.__entry_path = entry.path;
@@ -5181,7 +5168,21 @@ async function processTradeSimulation(
     }
 
     const sym = String(ticker || "").toUpperCase();
-    const direction = getTradeDirection(tickerData.state);
+    
+    // Determine trade direction based on entry path (for mean-reversion entries like gold_short)
+    // or fall back to state-based direction
+    const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
+    let direction;
+    if (entryPath.includes("short")) {
+      // gold_short, gold_short_medium: SHORT even though state is HTF_BULL_LTF_BULL
+      direction = "SHORT";
+    } else if (entryPath.includes("long")) {
+      // gold_long, gold_long_shallow: LONG
+      direction = "LONG";
+    } else {
+      // Fall back to state-based direction (momentum, squeeze, etc.)
+      direction = getTradeDirection(tickerData.state);
+    }
     if (!direction) return;
 
     // Phase 3: Prefer open position from D1 (single source of truth); fall back to KV
@@ -17077,6 +17078,44 @@ export default {
           const data = {};
           let maxUpdatedAt = 0;
 
+          // POSITION-AWARE CLASSIFICATION: Load all open positions from D1
+          // This ensures kanban lanes reflect management mode for open positions
+          // Query includes fallback to lots table for entry price if cost_basis is missing
+          const openPositionsMap = new Map();
+          try {
+            const positionsResult = await env.DB.prepare(
+              `SELECT p.ticker, p.position_id, p.direction, p.status, p.stop_loss, p.take_profit,
+                      p.cost_basis, p.total_qty, p.created_at,
+                      CASE WHEN p.total_qty > 0 AND p.cost_basis > 0 
+                           THEN p.cost_basis / p.total_qty 
+                           ELSE (SELECT l.price FROM lots l WHERE l.position_id = p.position_id ORDER BY l.ts ASC LIMIT 1) 
+                      END as avgEntry
+               FROM positions p WHERE p.status = 'OPEN'`
+            ).all();
+            const openPositions = positionsResult?.results || [];
+            for (const pos of openPositions) {
+              const sym = String(pos.ticker).toUpperCase();
+              if (sym) {
+                // Dedupe: Keep only one position per ticker (most recent by created_at)
+                const existing = openPositionsMap.get(sym);
+                if (!existing || (pos.created_at > existing.created_at)) {
+                  openPositionsMap.set(sym, {
+                    ...pos,
+                    entryPrice: pos.avgEntry,
+                    entry_ts: pos.created_at,
+                    sl: pos.stop_loss,
+                    tp: pos.take_profit
+                  });
+                }
+              }
+            }
+            if (openPositionsMap.size > 0) {
+              console.log(`[/timed/all] Loaded ${openPositionsMap.size} open positions for position-aware classification`);
+            }
+          } catch (posErr) {
+            console.warn("[/timed/all] Failed to load open positions:", String(posErr?.message || posErr));
+          }
+
           for (const r of results) {
             const sym = String(r?.ticker || "").toUpperCase();
             if (!sym) continue;
@@ -17169,8 +17208,18 @@ export default {
               try {
                 const prevStage =
                   obj?.kanban_stage != null ? String(obj.kanban_stage) : null;
-                const stage = classifyKanbanStage(obj);
+                // POSITION-AWARE: Pass open position to enable management mode classification
+                const openPosition = openPositionsMap.get(sym) || null;
+                const stage = classifyKanbanStage(obj, openPosition);
                 obj.kanban_stage = stage;
+                // Track if this ticker has an open position for UI display
+                if (openPosition) {
+                  obj.has_open_position = true;
+                  obj.position_direction = openPosition.direction;
+                  obj.position_entry = openPosition.entryPrice;
+                  obj.position_sl = openPosition.sl;
+                  obj.position_tp = openPosition.tp;
+                }
                 obj.kanban_meta = deriveKanbanMeta(obj, stage);
                 // Track lane transitions even if no new ingests (persist back into D1 so UI can highlight).
                 if (
@@ -17211,6 +17260,47 @@ export default {
             } catch {
               // skip bad rows
             }
+          }
+
+          // POSITION RECONCILIATION: Ensure ALL tickers with open positions appear in data
+          // Even if they're missing from ticker_latest, we need them visible in kanban
+          try {
+            for (const [sym, pos] of openPositionsMap.entries()) {
+              if (!data[sym]) {
+                // Try to get latest data from KV
+                let latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
+                
+                if (latestData && typeof latestData === "object") {
+                  // Apply position-aware classification
+                  const stage = classifyKanbanStage(latestData, pos);
+                  latestData.kanban_stage = stage;
+                  latestData.kanban_meta = deriveKanbanMeta(latestData, stage);
+                  latestData.has_open_position = true;
+                  latestData.position_direction = pos.direction;
+                  latestData.position_entry = pos.entryPrice;
+                  latestData.position_sl = pos.sl;
+                  latestData.position_tp = pos.tp;
+                  data[sym] = latestData;
+                  console.log(`[/timed/all] Injected missing position ticker ${sym} from KV (stage: ${stage})`);
+                } else {
+                  // Minimal placeholder for UI visibility
+                  data[sym] = {
+                    ticker: sym,
+                    kanban_stage: "just_entered",
+                    has_open_position: true,
+                    position_direction: pos.direction,
+                    position_entry: pos.entryPrice,
+                    position_sl: pos.sl,
+                    position_tp: pos.tp,
+                    _synthetic: true,
+                    _reason: "open_position_missing_data"
+                  };
+                  console.warn(`[/timed/all] Created synthetic entry for position ticker ${sym} (no data in KV or D1)`);
+                }
+              }
+            }
+          } catch (reconcileErr) {
+            console.warn("[/timed/all] Position reconciliation failed:", String(reconcileErr?.message || reconcileErr));
           }
 
           // Overlay lightweight heartbeat (KV, 2d TTL) for fresh price/daily change
@@ -25343,7 +25433,9 @@ Provide 3-5 actionable next steps:
             const hasOpenPosition = !!(openPosition && openPosition.status === "OPEN");
             
             const prevStage = existing?.kanban_stage;
-            const stage = classifyKanbanStage(payload, openPosition);
+            // Pass payload.ts as asOfTs for consistent trigger freshness check
+            const payloadTs = Number(payload?.ts) || Date.now();
+            const stage = classifyKanbanStage(payload, openPosition, payloadTs);
             let finalStage = stage;
 
             // Recycle rule: position always wins
@@ -25361,7 +25453,7 @@ Provide 3-5 actionable next steps:
             const existingTsLive = existing?.ts ?? existing?.ingest_ts;
             const firstBarAfterGapLive = isFirstBarOfDayAfterGap(existingTsLive, tsNow, marketOpenLive);
 
-            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+            const mgmt = ["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage);
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
               const curSide = sideFromStateOrScores(payload);
@@ -25381,18 +25473,18 @@ Provide 3-5 actionable next steps:
                   if (!payload.flags) payload.flags = {};
                   payload.flags.forced_watch_missing_trigger = true;
                 } else if (!cycleOk) {
-                  finalStage = "enter_now";
+                  finalStage = "enter";
                   if (!payload.flags) payload.flags = {};
-                  payload.flags.forced_enter_now_gate = true;
+                  payload.flags.forced_enter_gate = true;
                 }
               }
             }
 
-            if (finalStage === "enter_now") {
+            if (finalStage === "enter_now" || finalStage === "enter") {
               payload.kanban_cycle_enter_now_ts = tsNow;
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
-            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+            } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
               if (firstBarAfterGapLive) {
                 payload.kanban_cycle_enter_now_ts = tsNow;
                 payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : tsNow;
@@ -25567,10 +25659,11 @@ Provide 3-5 actionable next steps:
             payload.move_status = computeMoveStatus(payload);
             if (payload.flags) { payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED"; payload.flags.move_completed = payload.move_status?.status === "COMPLETED"; }
             const prevStage = existingState?.kanban_stage;
-            const stage = classifyKanbanStage(payload);
+            // Pass rowTs as asOfTs for replay-aware trigger freshness check
+            const stage = classifyKanbanStage(payload, null, rowTs);
             let finalStage = stage;
             if (prevStage === "archive" && ["hold", "just_entered", "trim", "exit"].includes(stage)) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.recycled_from_archive = true; }
-            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+            const mgmt = ["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage);
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
               const curSide = sideFromStateOrScores(payload);
@@ -25580,13 +25673,13 @@ Provide 3-5 actionable next steps:
               const sameTrig = Number.isFinite(curTriggerTs) && curTriggerTs > 0 && Number.isFinite(cycleTrig) && cycleTrig > 0 && cycleTrig === curTriggerTs;
               const cycleOk = Number.isFinite(cycleEnterTs) && cycleEnterTs > 0 && sameTrig && !!cycleSide && !!curSide && cycleSide === curSide;
               if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.forced_watch_missing_trigger = true; }
-              else if (!cycleOk) { finalStage = "enter_now"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_now_gate = true; }
+              else if (!cycleOk) { finalStage = "enter"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_gate = true; }
             }
-            if (finalStage === "enter_now") {
+            if (finalStage === "enter_now" || finalStage === "enter") {
               payload.kanban_cycle_enter_now_ts = rowTs;
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
-            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+            } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
               payload.kanban_cycle_enter_now_ts = existingState?.kanban_cycle_enter_now_ts ?? null;
               payload.kanban_cycle_trigger_ts = existingState?.kanban_cycle_trigger_ts ?? null;
               payload.kanban_cycle_side = existingState?.kanban_cycle_side ?? null;
@@ -25773,10 +25866,11 @@ Provide 3-5 actionable next steps:
             payload.move_status = computeMoveStatus(payload);
             if (payload.flags) { payload.flags.move_invalidated = payload.move_status?.status === "INVALIDATED"; payload.flags.move_completed = payload.move_status?.status === "COMPLETED"; }
             const prevStage = existingState?.kanban_stage;
-            const stage = classifyKanbanStage(payload);
+            // Pass rowTs as asOfTs for replay-aware trigger freshness check
+            const stage = classifyKanbanStage(payload, null, rowTs);
             let finalStage = stage;
             if (prevStage === "archive" && ["hold", "just_entered", "trim", "exit"].includes(stage)) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.recycled_from_archive = true; }
-            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+            const mgmt = ["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage);
             const firstBarAfterGap = isFirstBarOfDayAfterGap(existingTs, rowTs, tsStart);
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
@@ -25791,14 +25885,14 @@ Provide 3-5 actionable next steps:
                 payload.flags.first_bar_of_day_bridge = true;
               } else {
                 if (!Number.isFinite(curTriggerTs) || curTriggerTs <= 0) { finalStage = "watch"; if (!payload.flags) payload.flags = {}; payload.flags.forced_watch_missing_trigger = true; }
-                else if (!cycleOk) { finalStage = "enter_now"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_now_gate = true; }
+                else if (!cycleOk) { finalStage = "enter"; if (!payload.flags) payload.flags = {}; payload.flags.forced_enter_gate = true; }
               }
             }
-            if (finalStage === "enter_now") {
+            if (finalStage === "enter_now" || finalStage === "enter") {
               payload.kanban_cycle_enter_now_ts = rowTs;
               payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
-            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+            } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
               if (firstBarAfterGap) {
                 payload.kanban_cycle_enter_now_ts = rowTs;
                 payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : rowTs;
@@ -26165,14 +26259,15 @@ Provide 3-5 actionable next steps:
                 if (dyn >= 70) payload.rank_position = Math.max(1, Math.min(50, Math.round(160 - dyn)));
               }
               const prevStage = existingState?.kanban_stage;
-              const stage = classifyKanbanStage(payload);
+              // Pass rowTs as asOfTs for replay-aware trigger freshness check
+              const stage = classifyKanbanStage(payload, null, rowTs);
               let finalStage = stage;
               if (prevStage === "archive" && ["hold", "just_entered", "trim", "exit"].includes(stage)) {
                 finalStage = "watch";
                 if (!payload.flags) payload.flags = {};
                 payload.flags.recycled_from_archive = true;
               }
-              const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+              const mgmt = ["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage);
               if (mgmt) {
                 const curTriggerTs = Number(payload?.trigger_ts);
                 const curSide = sideFromStateOrScores(payload);
@@ -26186,16 +26281,16 @@ Provide 3-5 actionable next steps:
                   if (!payload.flags) payload.flags = {};
                   payload.flags.forced_watch_missing_trigger = true;
                 } else if (!cycleOk) {
-                  finalStage = "enter_now";
+                  finalStage = "enter";
                   if (!payload.flags) payload.flags = {};
-                  payload.flags.forced_enter_now_gate = true;
+                  payload.flags.forced_enter_gate = true;
                 }
               }
-              if (finalStage === "enter_now") {
+              if (finalStage === "enter_now" || finalStage === "enter") {
                 payload.kanban_cycle_enter_now_ts = rowTs;
                 payload.kanban_cycle_trigger_ts = Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0 ? payload.trigger_ts : null;
                 payload.kanban_cycle_side = sideFromStateOrScores(payload);
-              } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+              } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
                 payload.kanban_cycle_enter_now_ts = existingState?.kanban_cycle_enter_now_ts ?? null;
                 payload.kanban_cycle_trigger_ts = existingState?.kanban_cycle_trigger_ts ?? null;
                 payload.kanban_cycle_side = existingState?.kanban_cycle_side ?? null;
@@ -26593,7 +26688,8 @@ Provide 3-5 actionable next steps:
             }
 
             const prevStage = existing?.kanban_stage;
-            const stage = classifyKanbanStage(payload);
+            // Pass rowTs as asOfTs for replay-aware trigger freshness check
+            const stage = classifyKanbanStage(payload, null, rowTs);
             let finalStage = stage;
 
             if (
@@ -26605,7 +26701,7 @@ Provide 3-5 actionable next steps:
               payload.flags.recycled_from_archive = true;
             }
 
-            const mgmt = ["hold", "just_entered", "trim", "exit"].includes(finalStage);
+            const mgmt = ["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage);
             if (mgmt) {
               const curTriggerTs = Number(payload?.trigger_ts);
               const curSide = sideFromStateOrScores(payload);
@@ -26631,20 +26727,20 @@ Provide 3-5 actionable next steps:
                 if (!payload.flags) payload.flags = {};
                 payload.flags.forced_watch_missing_trigger = true;
               } else if (!cycleOk) {
-                finalStage = "enter_now";
+                finalStage = "enter";
                 if (!payload.flags) payload.flags = {};
-                payload.flags.forced_enter_now_gate = true;
+                payload.flags.forced_enter_gate = true;
               }
             }
 
-            if (finalStage === "enter_now") {
+            if (finalStage === "enter_now" || finalStage === "enter") {
               payload.kanban_cycle_enter_now_ts = rowTs;
               payload.kanban_cycle_trigger_ts =
                 Number.isFinite(Number(payload?.trigger_ts)) && payload.trigger_ts > 0
                   ? payload.trigger_ts
                   : null;
               payload.kanban_cycle_side = sideFromStateOrScores(payload);
-            } else if (["hold", "just_entered", "trim", "exit"].includes(finalStage)) {
+            } else if (["hold", "just_entered", "defend", "trim", "exit"].includes(finalStage)) {
               payload.kanban_cycle_enter_now_ts = existing?.kanban_cycle_enter_now_ts ?? null;
               payload.kanban_cycle_trigger_ts = existing?.kanban_cycle_trigger_ts ?? null;
               payload.kanban_cycle_side = existing?.kanban_cycle_side ?? null;
@@ -26663,7 +26759,7 @@ Provide 3-5 actionable next steps:
               payload.prev_kanban_stage_ts = rowTs;
             }
 
-            if (finalStage === "enter_now" && prevStage !== "enter_now") {
+            if ((finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter") {
               const price = Number(payload?.price);
               if (Number.isFinite(price) && price > 0) {
                 payload.entry_price = price;
@@ -26845,7 +26941,8 @@ Provide 3-5 actionable next steps:
               payload.flags.move_completed = payload.move_status?.status === "COMPLETED";
             }
             const prevStage = existing?.kanban_stage;
-            const stage = classifyKanbanStage(payload);
+            // Pass rowTs as asOfTs for replay-aware trigger freshness check
+            const stage = classifyKanbanStage(payload, null, rowTs);
             payload.kanban_stage = stage;
             payload.kanban_meta = deriveKanbanMeta(payload, stage);
             if (prevStage != null && stage != null && String(prevStage) !== String(stage)) {
@@ -27084,6 +27181,7 @@ Provide 3-5 actionable next steps:
             if (resetLedger) {
               // Full ledger clear (DANGEROUS; opt-in only)
               // Clear new position-based tables first (due to foreign key constraints)
+              // Also clear ticker_latest to ensure fresh state for /timed/all
               for (const sql of [
                 "DELETE FROM execution_actions",
                 "DELETE FROM lots",
@@ -27091,6 +27189,7 @@ Provide 3-5 actionable next steps:
                 "DELETE FROM trade_events",
                 "DELETE FROM trades",
                 "DELETE FROM alerts",
+                "DELETE FROM ticker_latest",
               ]) {
                 try {
                   const r = await env.DB.prepare(sql).run();
