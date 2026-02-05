@@ -11683,7 +11683,7 @@
           }));
         };
 
-        // Early Movers logic
+        // Early Movers logic (trigger flags - for live signals)
         const flipWatch = tickers
           .filter((t) => {
             const flags = t?.flags || {};
@@ -11715,6 +11715,34 @@
           flipWatch.length > 0 || justFlipped.length > 0 || highProb.length > 0;
         const earlyMoversCount =
           flipWatch.length + justFlipped.length + highProb.length;
+
+        // Kanban stage counts (for historical/replay data - shows current state)
+        const kanbanStageCounts = React.useMemo(() => {
+          const counts = { watch: 0, setup: 0, enter: 0, active: 0, trim: 0, exit: 0, defend: 0 };
+          tickers.forEach((t) => {
+            const stage = String(t?.kanban_stage || "").toLowerCase();
+            if (stage === "watch") counts.watch++;
+            else if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;
+            else if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;
+            else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.active++;
+            else if (stage === "trim") counts.trim++;
+            else if (stage === "defend") counts.defend++;
+            else if (stage === "exit") counts.exit++;
+          });
+          return counts;
+        }, [tickers]);
+
+        // Total tickers in actionable kanban stages (excluding watch and null)
+        const kanbanActiveCount = 
+          kanbanStageCounts.setup + 
+          kanbanStageCounts.enter + 
+          kanbanStageCounts.active + 
+          kanbanStageCounts.trim + 
+          kanbanStageCounts.defend + 
+          kanbanStageCounts.exit;
+
+        // Has kanban data if there are tickers in any stage beyond watch
+        const hasKanbanData = kanbanActiveCount > 0;
 
         // Active Positions snapshot logic
         const [snap, setSnap] = React.useState(() => {
@@ -11863,10 +11891,11 @@
             : null;
 
         // Calculate Kanban count for display (EarlyMoversPanel will handle actual categorization)
-        const kanbanCount = hasEarlyMovers ? earlyMoversCount : 0;
+        // Use kanban stage counts when no live trigger flags, otherwise use early movers count
+        const kanbanCount = hasEarlyMovers ? earlyMoversCount : kanbanActiveCount;
 
-        // Show panel if we have either early movers or active positions
-        if (!hasEarlyMovers && activePositionsCount === 0) {
+        // Show panel if we have early movers, kanban data, or active positions
+        if (!hasEarlyMovers && !hasKanbanData && activePositionsCount === 0) {
           return null;
         }
 
@@ -11909,13 +11938,13 @@
                 name can still be Watch/Hold/Trim.
               </div>
               <div className="mt-1 text-[11px] text-[var(--tt-text-muted)]">
-                {kanbanCount} tickers in play • Flip Watch → Enter → Hold →
+                {kanbanCount > 0 ? `${kanbanCount} tickers in play` : hasKanbanData ? `${kanbanActiveCount} in actionable stages` : "No active tickers"} • Watch → Setup → Enter → Hold →
                 Defend → Trim → Exit
               </div>
             </div>
 
             {/* Kanban Trading Flow */}
-            {kanbanCount > 0 && (
+            {(kanbanCount > 0 || hasKanbanData) && (
               <div className="mb-4">
                 <button
                   onClick={() => toggleSection("earlyMovers")}
@@ -11926,10 +11955,15 @@
                       📊 Trading Pipeline
                     </span>
                     <span className="px-2 py-0.5 rounded bg-purple-500/30 text-purple-200 text-[10px] font-bold border border-purple-400/60">
-                      {kanbanCount} active
+                      {kanbanCount > 0 ? kanbanCount : kanbanActiveCount} active
                     </span>
+                    {hasKanbanData && !hasEarlyMovers && (
+                      <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-200 text-[10px] border border-blue-400/40">
+                        📋 {kanbanStageCounts.setup} setup • 🚀 {kanbanStageCounts.enter} enter • 💎 {kanbanStageCounts.active} hold • 📊 {kanbanStageCounts.trim} trim • 🚪 {kanbanStageCounts.exit} exit
+                      </span>
+                    )}
                     <span className="text-[10px] text-[var(--tt-text-muted)]">
-                      🎯 Watch → ⚡ Flip → 🚀 Enter → 💎 Hold → 🛡 Defend → 📊
+                      👀 Watch → 📋 Setup → 🚀 Enter → 💎 Hold → 🛡 Defend → 📊
                       Trim → 🚪 Exit
                     </span>
                   </div>
