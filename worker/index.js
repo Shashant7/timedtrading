@@ -24814,30 +24814,75 @@ Provide 3-5 actionable next steps:
 
           const removedCount = beforeCount - filteredTrades.length;
 
-          if (removedCount === 0) {
-            return sendJSON(
-              {
-                ok: true,
-                message: `No trades found for ${tickerUpper}`,
-                removed: 0,
-                remaining: beforeCount,
-              },
-              200,
-              corsHeaders(env, req),
-            );
+          // Save the cleaned trades (even if 0 removed from KV, we still clear D1)
+          if (removedCount > 0) {
+            await kvPutJSON(KV, tradesKey, filteredTrades);
           }
 
-          // Save the cleaned trades
-          await kvPutJSON(KV, tradesKey, filteredTrades);
+          // Also clear D1 positions, lots, execution_actions, trades, trade_events for this ticker
+          let d1Cleared = { positions: 0, lots: 0, actions: 0, trades: 0, events: 0 };
+          if (env?.DB) {
+            try {
+              // Get position IDs first (for FK cleanup)
+              const posRows = await env.DB.prepare(
+                `SELECT position_id FROM positions WHERE ticker = ?1`
+              ).bind(tickerUpper).all();
+              const posIds = (posRows?.results || []).map((r) => r.position_id);
+              
+              // Clear execution_actions and lots for each position
+              for (const pid of posIds) {
+                const actRes = await env.DB.prepare(
+                  `DELETE FROM execution_actions WHERE position_id = ?1`
+                ).bind(pid).run();
+                d1Cleared.actions += actRes?.meta?.changes || 0;
+                
+                const lotRes = await env.DB.prepare(
+                  `DELETE FROM lots WHERE position_id = ?1`
+                ).bind(pid).run();
+                d1Cleared.lots += lotRes?.meta?.changes || 0;
+              }
+              
+              // Clear positions
+              const posRes = await env.DB.prepare(
+                `DELETE FROM positions WHERE ticker = ?1`
+              ).bind(tickerUpper).run();
+              d1Cleared.positions = posRes?.meta?.changes || 0;
+              
+              // Clear trade_events for trades of this ticker
+              const tradeRows = await env.DB.prepare(
+                `SELECT trade_id FROM trades WHERE ticker = ?1`
+              ).bind(tickerUpper).all();
+              for (const row of tradeRows?.results || []) {
+                const evtRes = await env.DB.prepare(
+                  `DELETE FROM trade_events WHERE trade_id = ?1`
+                ).bind(row.trade_id).run();
+                d1Cleared.events += evtRes?.meta?.changes || 0;
+              }
+              
+              // Clear trades
+              const trdRes = await env.DB.prepare(
+                `DELETE FROM trades WHERE ticker = ?1`
+              ).bind(tickerUpper).run();
+              d1Cleared.trades = trdRes?.meta?.changes || 0;
+            } catch (d1Err) {
+              console.warn(`[purge-ticker] D1 cleanup error for ${tickerUpper}:`, d1Err?.message || d1Err);
+            }
+          }
+
+          // Also clear the ticker's latest KV record to reset kanban state
+          try {
+            await KV.delete(`timed:latest:${tickerUpper}`);
+          } catch (_) {}
+
+          const totalD1 = d1Cleared.positions + d1Cleared.lots + d1Cleared.actions + d1Cleared.trades + d1Cleared.events;
 
           return sendJSON(
             {
               ok: true,
               ticker: tickerUpper,
-              removed: removedCount,
-              remaining: filteredTrades.length,
-              beforeCount: beforeCount,
-              message: `Successfully purged all ${removedCount} trades for ${tickerUpper}`,
+              kv: { removed: removedCount, remaining: filteredTrades.length, beforeCount },
+              d1: d1Cleared,
+              message: `Purged ${removedCount} KV trades and ${totalD1} D1 records for ${tickerUpper}`,
             },
             200,
             corsHeaders(env, req),
