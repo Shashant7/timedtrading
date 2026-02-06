@@ -1605,49 +1605,86 @@ function qualifiesForEnter(d, asOfTs = null) {
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
+  // CONFIRMATION SIGNALS: Required for higher quality entries
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  // Detect SuperTrend and EMA confirmation signals from triggers
+  const triggers = d?.triggers || [];
+  const triggerSet = new Set(triggers.map(t => String(t).toUpperCase()));
+  
+  // SuperTrend flip (bullish or bearish) on any timeframe
+  const hasStFlipBull = triggerSet.has("ST_FLIP_30M") || triggerSet.has("ST_FLIP_1H") || 
+                        triggerSet.has("ST_FLIP_10M") || triggerSet.has("ST_FLIP_3M") ||
+                        flags.st_flip_30m || flags.st_flip_1h || flags.st_flip_10m || flags.st_flip_3m;
+  
+  // EMA cross signals (confirmation of momentum)
+  const hasEmaCrossBull = triggerSet.has("EMA_CROSS_1H_13_48_BULL") || triggerSet.has("EMA_CROSS_30M_13_48_BULL") ||
+                          triggerSet.has("EMA_CROSS_10M_13_48_BULL") || flags.ema_cross_1h_13_48 || flags.ema_cross_30m_13_48;
+  const hasEmaCrossBear = triggerSet.has("EMA_CROSS_1H_13_48_BEAR") || triggerSet.has("EMA_CROSS_30M_13_48_BEAR") ||
+                          triggerSet.has("EMA_CROSS_10M_13_48_BEAR");
+  
+  // Squeeze release (explosive potential)
+  const hasSqRelease = triggerSet.has("SQUEEZE_RELEASE_30M") || triggerSet.has("SQUEEZE_RELEASE_1H") ||
+                       flags.sq30_release || flags.sq1h_release;
+  
+  // LTF momentum confirmation: LTF score should be turning (not deeply negative for LONG)
+  // For pullback entries, we want to see LTF recovering (ltf > -10) or momentum signals
+  const ltfRecovering = ltf > -10 || hasStFlipBull || hasEmaCrossBull || hasSqRelease;
+  
+  // ═══════════════════════════════════════════════════════════════════════════
   // ENTRY PATHS: Each path has its own corridor/setup requirements
   // ═══════════════════════════════════════════════════════════════════════════
   
   // PATH 1: Gold Standard LONG (67.7% of big UP moves)
   // HTF_BULL_LTF_PULLBACK + deep LTF pullback (< -5)
   // NOTE: Use pullback-specific corridor (htf > 0, ltf in pullback range -25 to +5)
-  // Standard corridor is too restrictive (ltf >= -10 misses deep pullbacks)
+  // IMPROVEMENT: Require LTF recovery signal or SuperTrend confirmation
   if (state === "HTF_BULL_LTF_PULLBACK") {
-    const pullbackCorridor = htf > 0 && ltf >= -25 && ltf <= 5;  // Wider LTF range for pullbacks
+    const pullbackCorridor = htf > 0 && ltf >= -25 && ltf <= 5;
     if (pullbackCorridor) {
-      if (ltf <= -5) {
-        return { qualifies: true, path: "gold_long", confidence: "high", reason: "pullback_setup" };
+      // High confidence: deep pullback WITH LTF recovery signal
+      if (ltf <= -5 && ltfRecovering) {
+        return { qualifies: true, path: "gold_long", confidence: "high", reason: "pullback_with_confirmation" };
       }
-      // Near-corridor setup - medium confidence (relaxed score requirement)
-      if (ltf <= 0 && rr >= 1.5) {
-        return { qualifies: true, path: "gold_long_shallow", confidence: "medium", reason: "shallow_pullback" };
+      // Medium confidence: shallow pullback with good R:R and recovery
+      if (ltf <= 0 && ltf > -10 && rr >= 1.5 && (hasStFlipBull || hasEmaCrossBull)) {
+        return { qualifies: true, path: "gold_long_shallow", confidence: "medium", reason: "shallow_with_signal" };
+      }
+      // Still allow deep pullbacks without confirmation, but at reduced confidence
+      if (ltf <= -8 && htf >= 15) {
+        return { qualifies: true, path: "gold_long_deep", confidence: "medium", reason: "deep_pullback_structure" };
       }
     }
   }
   
   // PATH 2: Gold Standard SHORT (82.7% of big DOWN moves)
   // HTF_BULL_LTF_BULL with both overextended (blow-off top) - mean reversion play
-  // NOTE: No corridor check - we're shorting overextended LONGS (htf > 0), not looking for SHORT corridor
+  // IMPROVEMENT: Require stronger overextension OR bearish confirmation
   if (state === "HTF_BULL_LTF_BULL") {
-    if (htf >= 30 && ltf >= 20) {
-      return { qualifies: true, path: "gold_short", confidence: "high", reason: "blowoff_top" };
+    // High confidence: extreme overextension (clear blow-off top)
+    if (htf >= 35 && ltf >= 25) {
+      return { qualifies: true, path: "gold_short", confidence: "high", reason: "extreme_blowoff" };
     }
-    // Relaxed: htf >= 25 and ltf >= 15 for medium confidence
-    if (htf >= 25 && ltf >= 15) {
+    // High confidence: moderate overextension WITH bearish signal
+    if (htf >= 30 && ltf >= 20 && (hasEmaCrossBear || hasSqRelease)) {
+      return { qualifies: true, path: "gold_short_confirmed", confidence: "high", reason: "blowoff_with_signal" };
+    }
+    // Medium confidence: near blow-off (original threshold)
+    if (htf >= 28 && ltf >= 18) {
       return { qualifies: true, path: "gold_short_medium", confidence: "medium", reason: "near_blowoff" };
     }
   }
   
   // PATH 3: Momentum + High Score (balanced approach)
-  // Requires higher score threshold after hard gates pass
+  // Requires higher score threshold and momentum confirmation
   const isMomentum = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  if (isMomentum && score >= 75 && rr >= 2) {
-    return { qualifies: true, path: "momentum_score", confidence: "medium", reason: "high_rank" };
+  if (isMomentum && score >= 75 && rr >= 2 && (hasStFlipBull || hasEmaCrossBull || hasSqRelease)) {
+    return { qualifies: true, path: "momentum_score", confidence: "medium", reason: "momentum_with_signal" };
   }
   
   // PATH 4: Setup + Squeeze Release (explosive move potential)
   const isSetup = state.includes("PULLBACK");
-  if (isSetup && flags.sq30_release && score >= 65 && rr >= 2) {
+  if (isSetup && hasSqRelease && score >= 65 && rr >= 2) {
     return { qualifies: true, path: "squeeze_setup", confidence: "medium", reason: "squeeze_release" };
   }
   
@@ -3982,25 +4019,32 @@ function computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice) {
   let reason = null;
   
   if (isLong) {
-    // LONG from pullback: Can use tighter SL because we're entering at support
+    // LONG from pullback: Use tight SL because we're entering at support
     // Gold standard: 67.7% from HTF_BULL_LTF_PULLBACK
-    // Tighten SL by 10-15% if high confidence match
+    // IMPROVED: Tighter SL at 0.65x ATR (was 0.8x) to reduce loss magnitude
     if (gsMatch.score >= 70) {
-      const tighter = entryPrice - atr * 0.8;  // 0.8x ATR instead of 1x
+      const tighter = entryPrice - atr * 0.65;  // 0.65x ATR for tighter risk
       if (tighter > baseSL && tighter < entryPrice) {
         adjustedSL = tighter;
         reason = `GS_LONG_TIGHT_SL(score=${gsMatch.score})`;
       }
+    } else if (gsMatch.score >= 50) {
+      // Medium confidence: 0.8x ATR
+      const tighter = entryPrice - atr * 0.8;
+      if (tighter > baseSL && tighter < entryPrice) {
+        adjustedSL = tighter;
+        reason = `GS_LONG_MED_SL(score=${gsMatch.score})`;
+      }
     }
   } else {
-    // SHORT from blow-off top: Need wider SL to handle volatility at tops
+    // SHORT from blow-off top: Slightly wider SL to handle volatility at tops
     // Gold standard: 82.7% from HTF_BULL_LTF_BULL when overextended
-    // Widen SL by 10-20% to avoid getting stopped out on noise
+    // IMPROVED: Reduced from 1.2x to 1.0x ATR - blow-offs should reverse quickly
     if (gsMatch.score >= 70) {
-      const wider = entryPrice + atr * 1.2;  // 1.2x ATR instead of 1x
+      const wider = entryPrice + atr * 1.0;  // 1.0x ATR (was 1.2x)
       if (wider > entryPrice && (wider > baseSL || baseSL < entryPrice)) {
         adjustedSL = wider;
-        reason = `GS_SHORT_WIDE_SL(score=${gsMatch.score})`;
+        reason = `GS_SHORT_SL(score=${gsMatch.score})`;
       }
     }
   }
@@ -4022,10 +4066,12 @@ function computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice) {
 // NOTE: These are now direction-aware via GOLD_STANDARD_PATTERNS.tpMultipliers
 const THREE_TIER_CONFIG = {
   // ATR multiplier ranges for each tier (based on ATR-Fibonacci levels from Pine)
-  // Default values; overridden by direction-specific multipliers when available
-  TRIM: { minMult: 0.5, maxMult: 1.0, trimPct: 0.6, label: "TRIM TP" },    // 60% off
-  EXIT: { minMult: 1.0, maxMult: 1.618, trimPct: 0.8, label: "EXIT TP" },  // additional 20% (cumulative 80%)
-  RUNNER: { minMult: 1.618, maxMult: 3.0, trimPct: 1.0, label: "RUNNER TP" }, // final 20% (cumulative 100%)
+  // IMPROVED: Widened TP ranges to let winners run longer (avg win was +0.74%, avg loss -1.24%)
+  // Previous: TRIM 0.5-1.0x, EXIT 1.0-1.618x, RUNNER 1.618-3.0x
+  // New: TRIM 0.8-1.2x, EXIT 1.2-2.0x, RUNNER 2.0-4.0x (let profits develop more)
+  TRIM: { minMult: 0.8, maxMult: 1.2, trimPct: 0.5, label: "TRIM TP" },    // 50% off (was 60%)
+  EXIT: { minMult: 1.2, maxMult: 2.0, trimPct: 0.75, label: "EXIT TP" },   // additional 25% (cumulative 75%)
+  RUNNER: { minMult: 2.0, maxMult: 4.0, trimPct: 1.0, label: "RUNNER TP" }, // final 25% (cumulative 100%)
 };
 
 // Helper: Infer ATR from TP levels when not directly available
@@ -5224,21 +5270,60 @@ async function processTradeSimulation(
       return { skipped: true, reason: "futures_not_supported" };
     }
     
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VIX-BASED VOLATILITY FILTER: Block entries during extreme volatility
+    // VIX > 25: Block new LONG entries (too risky for pullback plays)
+    // VIX > 30: Block ALL new entries (market regime is broken)
+    // ═══════════════════════════════════════════════════════════════════════════
+    let vixLevel = null;
+    let vixSkipReason = null;
+    try {
+      const vixData = await kvGetJSON(KV, "timed:latest:VIX");
+      if (vixData && Number.isFinite(Number(vixData.price))) {
+        vixLevel = Number(vixData.price);
+        // Get trade direction early for VIX check
+        const entryPathCheck = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
+        const isLongEntry = entryPathCheck.includes("long") || 
+          (tickerData.state === "HTF_BULL_LTF_PULLBACK" && !entryPathCheck.includes("short"));
+        
+        if (vixLevel > 30) {
+          vixSkipReason = `vix_extreme_${vixLevel.toFixed(1)}`;
+        } else if (vixLevel > 25 && isLongEntry) {
+          vixSkipReason = `vix_high_long_blocked_${vixLevel.toFixed(1)}`;
+        }
+      }
+    } catch (vixErr) {
+      // VIX data unavailable - continue without filtering
+      console.warn("[VIX_CHECK] Failed to get VIX data:", String(vixErr?.message || vixErr));
+    }
+    
     // Determine trade direction based on entry path (for mean-reversion entries like gold_short)
     // or fall back to state-based direction
     const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
+    const stateDirection = getTradeDirection(tickerData.state); // BULL->LONG, BEAR->SHORT
     let direction;
     if (entryPath.includes("short")) {
-      // gold_short, gold_short_medium: SHORT even though state is HTF_BULL_LTF_BULL
+      // gold_short, gold_short_medium: SHORT
       direction = "SHORT";
     } else if (entryPath.includes("long")) {
       // gold_long, gold_long_shallow: LONG
       direction = "LONG";
     } else {
       // Fall back to state-based direction (momentum, squeeze, etc.)
-      direction = getTradeDirection(tickerData.state);
+      direction = stateDirection;
     }
     if (!direction) return;
+    
+    // ─────────────────────────────────────────────────────────────────────────
+    // FIX: Prevent direction mismatch - entryPath direction must align with state
+    // If entryPath says SHORT but state is BULL (LONG bias), block the trade
+    // This prevents entering SHORT when the trend is bullish (and vice versa)
+    // ─────────────────────────────────────────────────────────────────────────
+    const directionMismatch = stateDirection && direction !== stateDirection;
+    if (directionMismatch) {
+      console.log(`[DIRECTION_MISMATCH] ${sym}: entryPath=${entryPath} suggests ${direction}, but state=${tickerData.state} suggests ${stateDirection}. Blocking entry.`);
+      return { skipped: true, reason: `direction_mismatch: ${direction} vs ${stateDirection}` };
+    }
 
     // Phase 3: Prefer open position from D1 (single source of truth); fall back to KV
     let openTrade = null;
@@ -5255,6 +5340,22 @@ async function processTradeSimulation(
           isOpenTradeStatus(t?.status),
       ) || null;
     }
+    
+    // ─────────────────────────────────────────────────────────────────────────
+    // FIX: Check for recent trades (ANY status) to prevent rapid re-entry
+    // During replay, trades can be immediately marked WIN/LOSS in the same cycle,
+    // causing isOpenTradeStatus to return false and allowing duplicate entries.
+    // Block entry if there's ANY trade for this ticker within the last 30 minutes.
+    // ─────────────────────────────────────────────────────────────────────────
+    const RECENT_TRADE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+    const recentTrade = allTrades.find((t) => {
+      if (String(t?.ticker || "").toUpperCase() !== sym) return false;
+      const entryTs = Number(t?.entry_ts) || isoToMs(t?.entryTime) || 0;
+      const entryTsNorm = entryTs < 1e12 ? entryTs * 1000 : entryTs;
+      const nowForCheck = isReplay && Number.isFinite(asOfMs) ? asOfMs : Date.now();
+      const age = nowForCheck - entryTsNorm;
+      return age >= 0 && age < RECENT_TRADE_WINDOW_MS;
+    }) || null;
     
     // If we have an open trade from KV but no D1 context, try to use trade's SL
     if (openTrade && !openPositionContext && Number.isFinite(openTrade.sl)) {
@@ -5298,6 +5399,10 @@ async function processTradeSimulation(
     // prevent churn / duplicate entries).
     // Support both new "enter" stage and legacy "enter_now" stage
     const isEnter = stage === "enter" || stage === "enter_now";
+    // DEBUG: Log stage computation
+    if (isReplay && (stage === "enter" || stage === "enter_now")) {
+      console.log(`[REPLAY_ENTER_CHECK] ${sym} stage=${stage} storedStage=${storedStage} recomputedStage=${recomputedStage} isEnter=${isEnter} entryPath=${tickerData?.__entry_path}`);
+    }
     // IMPORTANT:
     // Trimming only on stage *transition* can miss trims if we miss the first TRIM-lane ingest
     // (or if the TRIM lane persists). Use cooldown + trimmedPct guard to prevent churn.
@@ -6047,7 +6152,8 @@ async function processTradeSimulation(
     
     let positionLimitBlocked = false;
     const db = env?.DB;
-    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade && db) {
+    // IMPORTANT: Skip position limits entirely during replay (we're processing historical data)
+    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade && db && !isReplay) {
       try {
         // Check current open position count
         const countResult = await db.prepare(
@@ -6078,7 +6184,44 @@ async function processTradeSimulation(
       }
     }
 
-    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade && !positionLimitBlocked) {
+    // Check VIX filter before creating new trade
+    if (vixSkipReason && !openTrade) {
+      console.log(`[VIX_FILTER] Skipping ${sym} entry: ${vixSkipReason}`);
+      return { skipped: true, reason: vixSkipReason };
+    }
+
+    // DEBUG: Capture condition values for enter-stage tickers during replay
+    const storedStageDebug = String(tickerData?.kanban_stage || "").trim().toLowerCase();
+    if (isReplay && (storedStageDebug === "enter" || storedStageDebug === "enter_now") && replayCtx?.processDebug && replayCtx.processDebug.length < 5) {
+      replayCtx.processDebug.push({
+        ts: options?.asOfTs,
+        sym,
+        storedStage: storedStageDebug,
+        stage,
+        isEnter,
+        weekendNow,
+        enterCooldownOk,
+        sameEnterCycle,
+        openTrade: !!openTrade,
+        openTradeId: openTrade?.id,
+        positionLimitBlocked,
+        direction,
+        entryPath: tickerData?.__entry_path,
+      });
+    }
+
+    // Return early if conditions not met, with debug info
+    // Block if there's a recent trade (prevents rapid re-entry after immediate WIN/LOSS)
+    const recentTradeBlocked = !openTrade && !!recentTrade;
+    if (recentTradeBlocked) {
+      console.log(`[RECENT_TRADE_BLOCKED] ${sym}: Found recent trade ${recentTrade?.id} (status=${recentTrade?.status}), blocking new entry`);
+    }
+    
+    if (isEnter && (!weekendNow || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || positionLimitBlocked)) {
+      console.log(`[ENTRY_BLOCKED_EARLY] ${sym} weekendNow=${weekendNow} enterCooldownOk=${enterCooldownOk} sameEnterCycle=${sameEnterCycle} openTrade=${!!openTrade} recentTradeBlocked=${recentTradeBlocked} positionLimitBlocked=${positionLimitBlocked}`);
+    }
+    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !positionLimitBlocked) {
+      console.log(`[ENTRY_CREATE_START] ${sym} passed all gates, attempting trade creation`);
       const entryPx = Number(entryPxCandidate);
       let slCandidate = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
       let tpCandidate = Number(tickerData?.tp ?? tickerData?.tp_max_price ?? tickerData?.tp_target_price ?? tickerData?.tp_target);
@@ -6093,15 +6236,15 @@ async function processTradeSimulation(
       if (!Number.isFinite(slCandidate) || slCandidate <= 0) {
         const atr = Number(tickerData?.atr);
         if (Number.isFinite(atr) && atr > 0 && Number.isFinite(entryPx)) {
-          // Use 1.5x ATR as SL distance
+          // IMPROVED: Tighter SL at 1.0x ATR (was 1.5x) to reduce avg loss magnitude
           slCandidate = direction === "LONG" 
-            ? entryPx - (atr * 1.5) 
-            : entryPx + (atr * 1.5);
+            ? entryPx - (atr * 1.0) 
+            : entryPx + (atr * 1.0);
         } else if (Number.isFinite(entryPx) && entryPx > 0) {
-          // Fallback: 3% from entry
+          // Fallback: 2% from entry (was 3%) for tighter risk control
           slCandidate = direction === "LONG" 
-            ? entryPx * 0.97 
-            : entryPx * 1.03;
+            ? entryPx * 0.98 
+            : entryPx * 1.02;
         }
       }
       
@@ -6121,6 +6264,19 @@ async function processTradeSimulation(
         Number.isFinite(slCandidate) && slCandidate > 0 &&
         Number.isFinite(tpCandidate) && tpCandidate > 0;
       
+      // Capture debug for replay
+      if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 3) {
+        replayCtx.processDebug.push({
+          sym,
+          dir: direction,
+          entryPx,
+          pxNow,
+          slCandidate,
+          tpCandidate,
+          atr: tickerData?.atr,
+          allValid,
+        });
+      }
       if (!allValid) {
         console.log(`[TRADE ENTRY BLOCKED] ${sym} direction=${direction}:`, {
           entryPx: { value: entryPx, valid: Number.isFinite(entryPx) && entryPx > 0 },
@@ -6235,6 +6391,7 @@ async function processTradeSimulation(
             portfolio.cash = Number(portfolio.cash) - entryPx * shares;
 
             allTrades.push(trade);
+            console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares} isReplay=${isReplay}`);
             if (!isReplay) await kvPutJSON(KV, execKey, {
               ...execState,
               lastEnterMs: now,
@@ -25706,7 +25863,7 @@ Provide 3-5 actionable next steps:
         const existing = (await kvGetJSON(KV, `timed:latest:${tickerParam}`)) || {};
         const stateMap = { [tickerParam]: cleanSlate ? { ...existing, entry_ts: null, entry_price: null, kanban_cycle_enter_now_ts: null, kanban_cycle_trigger_ts: null, kanban_cycle_side: null } : { ...existing } };
         const findOpenInArray = (trades, sym) => trades.find((x) => String(x?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(x?.status)) || null;
-        const replayCtx = { allTrades };
+        const replayCtx = { allTrades, debugEntries: [], processDebug: [] };
         let processed = 0, tradesCreated = 0;
         const laneCounts = {};
 
@@ -25789,9 +25946,32 @@ Provide 3-5 actionable next steps:
             laneCounts[finalStage || "null"] = (laneCounts[finalStage || "null"] || 0) + 1;
             stateMap[ticker] = payload;
             const countBefore = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
+            // Capture debug for first few "enter" rows
+            const openTradeCheck = replayCtx.allTrades.find((t) => String(t?.ticker || "").toUpperCase() === ticker && (String(t?.status || "").toUpperCase() === "OPEN" || String(t?.status || "").toUpperCase() === "TP_HIT_TRIM"));
+            if ((finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length < 3) {
+              replayCtx.debugEntries.push({
+                ts: rowTs,
+                stage: finalStage,
+                entryPath: payload.__entry_path,
+                state: payload.state,
+                htf: payload.htf_score,
+                ltf: payload.ltf_score,
+                price: payload.price,
+                sl: payload.sl,
+                tp: payload.tp,
+                atr: payload.atr,
+                tradeCountBefore: countBefore,
+                openTradeExists: !!openTradeCheck,
+                openTradeStatus: openTradeCheck?.status || null,
+              });
+            }
             await processTradeSimulation(KV, ticker, payload, existingState, env, { forceUseIngestTs: true, replayBatchContext: replayCtx, asOfTs: rowTs });
             const countAfter = replayCtx.allTrades.filter((x) => String(x?.ticker).toUpperCase() === ticker).length;
             if (countAfter > countBefore) tradesCreated += countAfter - countBefore;
+            if ((finalStage === "enter" || finalStage === "enter_now") && replayCtx.debugEntries.length > 0 && replayCtx.debugEntries[replayCtx.debugEntries.length - 1].ts === rowTs) {
+              replayCtx.debugEntries[replayCtx.debugEntries.length - 1].tradeCountAfter = countAfter;
+              replayCtx.debugEntries[replayCtx.debugEntries.length - 1].tradeCreated = countAfter > countBefore;
+            }
             processed += 1;
           } catch (e) {
             console.error(`[REPLAY-TICKER] ${tickerParam} row error:`, e);
@@ -25809,6 +25989,8 @@ Provide 3-5 actionable next steps:
           tradesCreated,
           tradesPurged,
           laneCounts,
+          debugEntries: replayCtx.debugEntries || [],
+          processDebug: replayCtx.processDebug || [],
         }, 200, corsHeaders(env, req));
       }
 
@@ -26512,7 +26694,7 @@ Provide 3-5 actionable next steps:
         const cleanSlate = url.searchParams.get("cleanSlate") === "1" || url.searchParams.get("cleanSlate") === "true";
         const bucketMinutes = Math.max(1, Math.min(60, Number(url.searchParams.get("bucketMinutes")) || 0));
         const tickerFilter = (url.searchParams.get("ticker") || "").trim().toUpperCase();
-        const qLimit = tickerFilter ? 200 : Math.min(Number(url.searchParams.get("limit")) || 100, 200);
+        const qLimit = tickerFilter ? 1000 : Math.min(Number(url.searchParams.get("limit")) || 500, 2000);
         const qOffset = Number(url.searchParams.get("offset")) || 0;
 
         let rows = [];
@@ -26606,6 +26788,12 @@ Provide 3-5 actionable next steps:
             totalRows = rows.length;
           } else {
             // Multi-ticker: lightweight meta then fetch payload per row
+            // First get total count for pagination
+            const countResult = await db.prepare(
+              `SELECT COUNT(*) as cnt FROM timed_trail WHERE ts >= ?1 AND ts <= ?2`,
+            ).bind(tsStartInt, tsEndInt).first();
+            totalRows = Number(countResult?.cnt) || 0;
+
             const metaStmt = db.prepare(
               `SELECT ticker, ts FROM timed_trail
                WHERE ts >= ?1 AND ts <= ?2
@@ -26615,7 +26803,7 @@ Provide 3-5 actionable next steps:
             const metaResult = await metaStmt.bind(
               tsStartInt,
               tsEndInt,
-              Math.min(20, Math.floor(qLimit)),
+              Math.min(500, Math.floor(qLimit)),
               Math.floor(qOffset),
             ).all();
             const metaRows = metaResult?.results || [];
@@ -26633,7 +26821,6 @@ Provide 3-5 actionable next steps:
                 rows.push({ ticker: rawTicker, ts: tsVal, payload_json: null });
               }
             }
-            if (qOffset === 0) totalRows = rows.length;
           }
         } catch (e) {
           return sendJSON(
