@@ -2108,16 +2108,17 @@
               : `rgba(249,115,22,${tintAlpha})`
             : "rgba(0,0,0,0)";
 
-        const compP = completionForSize(t);
-        const compPct = Number.isFinite(compP)
-          ? Math.round(Math.max(0, Math.min(1, compP)) * 100)
+        // Use phase_pct for the left-to-right background fill (not completion)
+        const phaseP = Number(t?.phase_pct);
+        const phasePct = Number.isFinite(phaseP)
+          ? Math.round(Math.max(0, Math.min(1, Math.abs(phaseP))) * 100)
           : null;
-        const compFill =
-          Number.isFinite(compP) && compPct != null
-            ? `linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) ${compPct}%, rgba(255,255,255,0) ${compPct}%, rgba(255,255,255,0) 100%)`
+        const phaseFill =
+          Number.isFinite(phaseP) && phasePct != null
+            ? `linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.06) ${phasePct}%, rgba(255,255,255,0) ${phasePct}%, rgba(255,255,255,0) 100%)`
             : null;
         const bgTint = `linear-gradient(0deg, ${tint}, ${tint})`;
-        const bgImage = compFill ? `${compFill}, ${bgTint}` : bgTint;
+        const bgImage = phaseFill ? `${phaseFill}, ${bgTint}` : bgTint;
 
         const dayEdgeClass =
           Number.isFinite(dayPct) && dayPct !== 0
@@ -12214,12 +12215,38 @@
           showDetails = false,
         ) => {
           const state = String(t?.state || "");
-          const isBullish = state.includes("BULL");
+          // Determine directional bias with nuance
+          const htfBull = state.startsWith("HTF_BULL");
+          const htfBear = state.startsWith("HTF_BEAR");
+          const ltfPullback = state.includes("PULLBACK");
+          const ltfBull = state.includes("LTF_BULL");
+          const ltfBear = state.includes("LTF_BEAR");
+          // Primary direction from HTF
+          const isBullish = htfBull;
           const dir = isBullish ? "LONG" : "SHORT";
+          // Bias label: show pullback/mixed state to the user
+          const biasLabel = (() => {
+            if (htfBull && ltfBull) return "LONG";
+            if (htfBull && ltfPullback) return "PULLBACK";
+            if (htfBull && ltfBear) return "CAUTION";
+            if (htfBear && ltfBear) return "SHORT";
+            if (htfBear && ltfPullback) return "BOUNCE";
+            if (htfBear && ltfBull) return "CAUTION";
+            if (!state || state === "NEUTRAL") return "NEUTRAL";
+            return dir;
+          })();
+          const biasPillCls = (() => {
+            if (biasLabel === "LONG") return "bg-cyan-400/20 text-cyan-200 border-cyan-400/50";
+            if (biasLabel === "SHORT") return "bg-red-500/20 text-red-200 border-red-400/50";
+            if (biasLabel === "PULLBACK" || biasLabel === "BOUNCE") return "bg-amber-500/20 text-amber-200 border-amber-400/50";
+            if (biasLabel === "CAUTION") return "bg-orange-500/20 text-orange-200 border-orange-400/50";
+            return "bg-slate-500/20 text-slate-200 border-slate-400/50";
+          })();
           const stage = String(t?.kanban_stage || "");
           const sym = String(t?.ticker || "").toUpperCase();
           const flags = t?.flags || {};
-          const score = Number(t?.flip_watch_score);
+          // Use t.score (server-computed composite), fallback to flip_watch_score
+          const score = Number(t?.score ?? t?.flip_watch_score ?? t?.weighted_score);
           const completion = Number(t?.completion);
           const phase = Number(t?.phase_pct);
           const price = Number(t?.price ?? t?.close);
@@ -12306,9 +12333,7 @@
           // Styling — use shared getCardSkin (Viewport-style: blue/orange tint based on daily change)
           const skin = getCardSkin(t);
           const badgesText = badges.length > 0 ? badges.join("") : "";
-          const dirPillCls = dir === "LONG"
-            ? "bg-cyan-400/20 text-cyan-200 border-cyan-400/50"
-            : "bg-red-500/20 text-red-200 border-red-400/50";
+          const dirPillCls = biasPillCls;
           const dirAccentCls = dir === "LONG" ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-red-500";
           const dirOutlineCls = dir === "LONG" ? "border border-cyan-400/40" : "border border-red-500/40";
           const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
@@ -12350,8 +12375,8 @@
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-sm font-bold text-white truncate shrink-0">{sym}</span>
                   {badgesText && <span className="text-[11px] shrink-0">{badgesText}</span>}
-                  <span className={`px-1.5 py-0.5 rounded border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`}>
-                    {dir === "LONG" ? "LONG" : "SHORT"}
+                  <span className={`px-1.5 py-0.5 rounded border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
+                    {biasLabel}
                   </span>
                 </div>
                 <div className="flex flex-col items-end shrink-0">
@@ -12394,27 +12419,25 @@
                 <span className="text-green-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
               </div>
 
-              {/* ROW 4: Phase % and Completion % (hide completion if SL/TP are stale/inverted) */}
+              {/* ROW 4: Phase % only (completion is shown by the progress bar) */}
               <div className="flex items-center justify-between text-[9px] text-[#8b92a0] font-medium mb-1">
                 <span>Phase {Number.isFinite(phase) ? `${(Math.abs(phase) * 100).toFixed(0)}%` : "—"}</span>
-                {compPct != null && (sl != null || tp != null) && <span>Completion {compPct}%</span>}
               </div>
 
-              {/* ROW 5: Completion Progress Bar with SL/EP/TP1/TP2/XP markers */}
-              {/* Only show when we have sane SL/TP data (not inverted/stale) */}
-              {compPct != null && (sl != null || tp != null) && (
+              {/* ROW 5: Progress Bar with SL/EP/TP/XP markers */}
+              {/* Only show when we have sane SL or TP data */}
+              {(sl != null || tp != null) && (
                 <div className="mt-1">
                   {(() => {
-                    // EP only for active trades (not triggers/setup)
+                    // EP only for active trades
                     const ep = isActiveTrade ? entryPrice : null;
                     const cp = Number.isFinite(price) && price > 0 ? price : null;
-                    // Use the already-sanity-checked sl/tp
                     const slP = sl;
                     const tpArr = Array.isArray(t?.tpArray) ? t.tpArray : [];
                     const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
                     const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
                     const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
-                    // Apply same directional sanity to TP markers
+                    // Directional sanity on TP markers
                     const tpSanity = (v) => {
                       if (!Number.isFinite(v) || v <= 0 || !cp) return null;
                       if (dir === "LONG" && v <= cp) return null;
@@ -12425,42 +12448,56 @@
                     const tp2 = tpSanity(tp2Raw);
                     const xp = tpSanity(xpRaw);
 
-                    const hasMarkers = slP || ep || tp1 || tp2 || xp;
                     const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
-                    if (vals.length < 2) return null; // Need at least 2 points for a range
+                    if (vals.length < 2) return null;
                     const lo = Math.min(...vals);
                     const hi = Math.max(...vals);
                     const range = hi - lo;
                     const pct = (v) => range > 0 ? Math.max(0, Math.min(100, ((v - lo) / range) * 100)) : 50;
+
+                    // How far CP is from SL toward TP (for fill %)
+                    const fillPct = (() => {
+                      if (slP && tp && cp) {
+                        const total = Math.abs(tp - slP);
+                        if (total <= 0) return 0;
+                        const progress = dir === "LONG" ? (cp - slP) : (slP - cp);
+                        return Math.max(0, Math.min(100, (progress / total) * 100));
+                      }
+                      return compPct || 0;
+                    })();
 
                     // SL dynamically moves past EP when the trade is going well
                     const slMovedPastEntry = isActiveTrade && ep && slP && (
                       (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
                     );
 
+                    // Marker component with hover tooltip
+                    const Marker = ({ val, label, color, textColor, bold, bottom }) => {
+                      if (!val) return null;
+                      return (
+                        <div
+                          className={`absolute top-0 h-full ${bold ? "w-0.5" : "w-px"} ${color} cursor-help group/marker`}
+                          style={{ left: `${pct(val)}%` }}
+                        >
+                          <span className={`absolute ${bottom ? "-bottom-3.5" : "-top-3.5"} -translate-x-1/2 text-[7px] font-bold ${textColor}`}>{label}</span>
+                          <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-[#1a1f28] border border-[#3a4a7f] text-[9px] text-white font-semibold whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                            {label}: ${val.toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    };
+
                     return (
-                      <div className="relative h-3 rounded bg-[#252b36] overflow-visible">
-                        {/* Fill bar */}
-                        <div className={`absolute top-0 left-0 h-full rounded ${dir === "LONG" ? "bg-cyan-500/40" : "bg-fuchsia-500/40"}`} style={{ width: `${Math.min(100, compPct)}%` }} />
-                        {/* Price markers */}
-                        {hasMarkers && range > 0 && (
-                          <>
-                            {slP && (
-                              <div
-                                className={`absolute top-0 h-full ${slMovedPastEntry ? "w-0.5 bg-green-500" : "w-px bg-red-500/80"}`}
-                                style={{ left: `${pct(slP)}%` }}
-                                title={`SL $${slP.toFixed(2)}${slMovedPastEntry ? " (protected)" : ""}`}
-                              >
-                                <span className={`absolute -top-3 -translate-x-1/2 text-[7px] font-bold ${slMovedPastEntry ? "text-green-400" : "text-red-400"}`}>SL</span>
-                              </div>
-                            )}
-                            {ep && <div className="absolute top-0 h-full w-px bg-yellow-400/80" style={{ left: `${pct(ep)}%` }} title={`EP $${ep.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-yellow-300 font-bold">EP</span></div>}
-                            {cp && <div className="absolute top-0 h-full w-0.5 bg-white" style={{ left: `${pct(cp)}%` }} title={`CP $${cp.toFixed(2)}`}><span className="absolute -bottom-3 -translate-x-1/2 text-[7px] text-white font-bold">CP</span></div>}
-                            {tp1 && <div className="absolute top-0 h-full w-px bg-green-400/80" style={{ left: `${pct(tp1)}%` }} title={`TP1 $${tp1.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-green-300 font-bold">T1</span></div>}
-                            {tp2 && <div className="absolute top-0 h-full w-px bg-green-400/80" style={{ left: `${pct(tp2)}%` }} title={`TP2 $${tp2.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-green-300 font-bold">T2</span></div>}
-                            {xp && <div className="absolute top-0 h-full w-px bg-emerald-400/80" style={{ left: `${pct(xp)}%` }} title={`XP $${xp.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-emerald-300 font-bold">XP</span></div>}
-                          </>
-                        )}
+                      <div className="relative h-3.5 rounded bg-[#252b36] overflow-visible mt-1">
+                        {/* Fill bar: SL → CP progress */}
+                        <div className={`absolute top-0 left-0 h-full rounded ${dir === "LONG" ? "bg-cyan-500/40" : "bg-fuchsia-500/40"}`} style={{ width: `${Math.min(100, fillPct)}%` }} />
+                        {/* Price markers with hover tooltips */}
+                        <Marker val={slP} label="SL" color={slMovedPastEntry ? "bg-green-500" : "bg-red-500/80"} textColor={slMovedPastEntry ? "text-green-400" : "text-red-400"} bold={slMovedPastEntry} />
+                        <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" />
+                        <Marker val={cp} label="CP" color="bg-white" textColor="text-white" bold bottom />
+                        <Marker val={tp1} label="TP" color="bg-green-400/80" textColor="text-green-300" />
+                        <Marker val={tp2} label="TP2" color="bg-green-400/80" textColor="text-green-300" />
+                        <Marker val={xp} label="XP" color="bg-emerald-400" textColor="text-emerald-300" bold />
                       </div>
                     );
                   })()}
