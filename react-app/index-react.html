@@ -12077,85 +12077,10 @@
               stage = "hold";
             }
 
-            // Fallback: classify client-side when Worker hasn't assigned stage yet
-            if (!stage) {
-              const flags = t?.flags || {};
-              const state = String(t?.state || "");
-              const mv = getMoveStatusInfo(t);
-              const completion = Number(t?.completion) || 0;
-              const phase = Number(t?.phase_pct) || 0;
-              const isMomentum =
-                state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-              const seq = t?.seq || {};
-              const isActive = mv.status === "ACTIVE";
-              const rank = Number(t?.rank) || 999;
-              const htfScore = Number(t?.htf_score) || 0;
-              const ltfScore = Number(t?.ltf_score) || 0;
+            // No client-side classification fallback — server is authoritative.
+            // If server hasn't assigned a stage, ticker defaults to Watch.
 
-              if (mv.status === "INVALIDATED" || mv.status === "COMPLETED") {
-                stage = "archive";
-              } else if (isActive) {
-                const severity = mv?.severity || "NONE";
-                const reasons = mv?.reasons || [];
-                if (
-                  severity === "CRITICAL" ||
-                  reasons.includes("left_entry_corridor")
-                ) {
-                  stage = "exit";
-                } else if (
-                  completion >= 0.6 ||
-                  (phase >= 0.65 && severity === "WARNING") ||
-                  reasons.includes("adverse_move_warning")
-                ) {
-                  stage = "trim";
-                } else if (severity === "WARNING" && completion < 0.6 && phase < 0.65) {
-                  stage = "hold"; // Defend folded into Hold
-                } else {
-                  // Check just_entered (entry within 15 min)
-                  const entryTsRaw = Number(t?.entry_ts ?? t?.kanban_cycle_enter_now_ts);
-                  const curTs = Number(t?.ts ?? t?.ingest_ts ?? Date.now());
-                  if (Number.isFinite(entryTsRaw) && entryTsRaw > 0 && Number.isFinite(curTs)) {
-                    const entryMs = entryTsRaw < 1e12 ? entryTsRaw * 1000 : entryTsRaw;
-                    const ageMs = curTs - entryMs;
-                    if (ageMs >= 0 && ageMs < 15 * 60 * 1000) {
-                      stage = "just_entered";
-                    } else {
-                      stage = "hold";
-                    }
-                  } else {
-                    stage = "hold";
-                  }
-                }
-              } else if (flags.flip_watch) {
-                stage = "flip_watch";
-              } else if (isMomentum && seq.corridorEntry_60m === true) {
-                stage = "just_flipped";
-              } else if (isMomentum) {
-                // Client-side fallback: only promote to enter_now with strong signal confirmation
-                // Server's qualifiesForEnter() is authoritative — this is a safety net only
-                const ent = entryType(t);
-                const score = Number(t?.score) || 0;
-                const rr = Number(t?.rr) || 0;
-                if (
-                  score >= 60 && rr >= 1.5 && (
-                    flags.thesis_match ||
-                    flags.momentum_elite ||
-                    (Math.abs(htfScore) >= 50 && Math.abs(ltfScore) >= 25 && ent?.corridor)
-                  )
-                ) {
-                  stage = "enter_now";
-                } else if (isMomentum && ent?.corridor) {
-                  stage = "setup_watch";
-                } else {
-                  stage = "watch";
-                }
-              } else if (!isMomentum) {
-                const ent = entryType(t);
-                if (ent?.corridor) stage = "setup_watch";
-              }
-            }
-
-            // Map backend stages to UI lanes (new 6-stage + legacy support)
+            // Map server stages to UI lanes
             switch (stage) {
               case "watch":
                 watch.push(t);
@@ -12186,10 +12111,8 @@
                 closed.push(t);
                 break;
               default:
-                // Fallback: tickers without stage go to watch
-                if (t?.kanban_stage === null || t?.kanban_stage === undefined) {
-                  watch.push(t);
-                }
+                // No stage or unrecognized stage → watch
+                watch.push(t);
                 break;
             }
           });
