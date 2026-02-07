@@ -2097,15 +2097,17 @@
           if (!Number.isFinite(dayPct)) dayPct = pct;
         }
 
-        const dayAbs = Number.isFinite(dayPct) ? Math.min(5, Math.abs(dayPct)) : null;
-        const dayIntensity =
-          dayAbs != null ? Math.max(0, Math.min(1, dayAbs / 2.5)) : 0; // 0..1 (2.5% => full)
-        const tintAlpha = 0.08 + dayIntensity * 0.26;
+        // Dramatic color tint based on daily change magnitude
+        // 0% = neutral, 1% = noticeable, 3%+ = intense, 5%+ = max
+        const dayAbs = Number.isFinite(dayPct) ? Math.abs(dayPct) : 0;
+        const dayIntensity = Math.max(0, Math.min(1, dayAbs / 3)); // 0..1 (3% => full)
+        // Much stronger alpha range: 0.05 at flat → 0.55 at 3%+
+        const tintAlpha = 0.05 + dayIntensity * 0.50;
         const tint =
           Number.isFinite(dayPct) && dayPct !== 0
             ? dayPct >= 0
-              ? `rgba(59,130,246,${tintAlpha})`
-              : `rgba(249,115,22,${tintAlpha})`
+              ? `rgba(34,197,94,${tintAlpha})`   // green for up days
+              : `rgba(239,68,68,${tintAlpha})`    // red for down days
             : "rgba(0,0,0,0)";
 
         // Use phase_pct for the left-to-right background fill (not completion)
@@ -2123,8 +2125,8 @@
         const dayEdgeClass =
           Number.isFinite(dayPct) && dayPct !== 0
             ? dayPct >= 0
-              ? "shadow-[0_0_0_1px_rgba(56,189,248,0.22)]"
-              : "shadow-[0_0_0_1px_rgba(251,146,60,0.22)]"
+              ? dayAbs >= 2 ? "shadow-[0_0_0_1.5px_rgba(34,197,94,0.35)]" : "shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
+              : dayAbs >= 2 ? "shadow-[0_0_0_1.5px_rgba(239,68,68,0.35)]" : "shadow-[0_0_0_1px_rgba(239,68,68,0.18)]"
             : "";
 
         return {
@@ -12419,12 +12421,7 @@
                 <span className="text-green-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
               </div>
 
-              {/* ROW 4: Phase % only (completion is shown by the progress bar) */}
-              <div className="flex items-center justify-between text-[9px] text-[#8b92a0] font-medium mb-1">
-                <span>Phase {Number.isFinite(phase) ? `${(Math.abs(phase) * 100).toFixed(0)}%` : "—"}</span>
-              </div>
-
-              {/* ROW 5: Progress Bar with SL/EP/TP/XP markers */}
+              {/* Progress Bar with SL/EP/TP/XP markers */}
               {/* Only show when we have sane SL or TP data */}
               {(sl != null || tp != null) && (
                 <div className="mt-1">
@@ -12480,7 +12477,7 @@
                           style={{ left: `${pct(val)}%` }}
                         >
                           <span className={`absolute ${bottom ? "-bottom-3.5" : "-top-3.5"} -translate-x-1/2 text-[7px] font-bold ${textColor}`}>{label}</span>
-                          <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-[#1a1f28] border border-[#3a4a7f] text-[9px] text-white font-semibold whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                          <span className="absolute top-full mt-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-[#0d1117] border border-[#3a4a7f] text-[9px] text-white font-semibold whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
                             {label}: ${val.toFixed(2)}
                           </span>
                         </div>
