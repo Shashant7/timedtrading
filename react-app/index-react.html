@@ -12292,7 +12292,7 @@
             if (!Number.isFinite(dayPct)) dayPct = (chg / prevCloseNum) * 100;
           }
 
-          // Styling
+          // Styling — use shared getCardSkin (Viewport-style: blue/orange tint based on daily change)
           const skin = getCardSkin(t);
           const badgesText = badges.length > 0 ? badges.join("") : "";
           const dirPillCls = dir === "LONG"
@@ -12305,12 +12305,6 @@
 
           const compP = completionForSize(t);
           const compPct = Number.isFinite(compP) ? Math.round(Math.max(0, Math.min(1, compP)) * 100) : null;
-
-          // Phase as background fill percentage (0–100%)
-          const phaseFillPct = Number.isFinite(phase) ? Math.round(Math.max(0, Math.min(1, Math.abs(phase))) * 100) : 0;
-          const phaseColor = phase >= 0
-            ? `rgba(34,211,238,${0.06 + Math.abs(phase) * 0.12})`
-            : `rgba(251,146,60,${0.06 + Math.abs(phase) * 0.12})`;
 
           return (
             <div
@@ -12328,28 +12322,29 @@
                 }
               }}
               className={
-                "w-full text-left px-3 py-2 rounded-lg cursor-pointer transition-all hover:brightness-[1.08] hover:scale-[1.01] relative overflow-visible " +
-                dirOutlineCls + " " + dirAccentCls + " " + pulseCls
+                "w-full text-left px-3 py-2.5 rounded-lg cursor-pointer transition-all hover:brightness-[1.08] hover:scale-[1.01] relative overflow-visible " +
+                dirOutlineCls + " " + dirAccentCls + " " + pulseCls + " " +
+                (skin?.dayEdgeClass || "")
               }
               style={{
                 backgroundColor: "#13171e",
-                backgroundImage: `linear-gradient(to right, ${phaseColor} ${phaseFillPct}%, transparent ${phaseFillPct}%)`,
+                backgroundImage: skin?.bgImage || undefined,
               }}
             >
               {/* Direction banner: thin bar at top (L=cyan, S=red) */}
               <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-lg ${dir === "LONG" ? "bg-cyan-400/60" : "bg-red-500/60"}`} />
 
               {/* ROW 1: Ticker, Emojis, Directional Bias, Current Price, Daily Change, Daily Change % */}
-              <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-xs font-bold text-white truncate shrink-0">{sym}</span>
-                  {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
-                  <span className={`px-1.5 py-0.5 rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`}>
+                  <span className="text-sm font-bold text-white truncate shrink-0">{sym}</span>
+                  {badgesText && <span className="text-[11px] shrink-0">{badgesText}</span>}
+                  <span className={`px-1.5 py-0.5 rounded border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`}>
                     {dir === "LONG" ? "LONG" : "SHORT"}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-white font-bold text-[11px]">
+                <div className="flex flex-col items-end shrink-0">
+                  <span className="text-white font-bold text-xs">
                     {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
                   </span>
                   {(() => {
@@ -12357,9 +12352,9 @@
                     const cls = up ? "text-green-400" : "text-red-400";
                     const sign = up ? "+" : "";
                     return (
-                      <span className={`text-[9px] font-semibold ${cls}`}>
-                        {Number.isFinite(dayChg) ? `${sign}$${Math.abs(dayChg).toFixed(2)}` : ""}
-                        {Number.isFinite(dayPct) ? ` (${sign}${dayPct.toFixed(2)}%)` : ""}
+                      <span className={`text-[10px] font-semibold ${cls}`}>
+                        {Number.isFinite(dayPct) ? `${sign}${dayPct.toFixed(2)}%` : ""}
+                        {Number.isFinite(dayChg) ? ` (${sign}$${Math.abs(dayChg).toFixed(2)})` : ""}
                       </span>
                     );
                   })()}
@@ -12368,7 +12363,7 @@
 
               {/* ROW 2: Entry Price, Net Change % Since (only when position active) */}
               {showEntryStats && Number.isFinite(entryPrice) && (
-                <div className="flex items-center justify-between gap-2 mb-1 text-[9px] font-medium">
+                <div className="flex items-center justify-between gap-2 mb-1.5 text-[10px] font-medium">
                   <span className="text-[#b8c0d0]">
                     Entry <span className="text-white font-semibold">${entryPrice.toFixed(2)}</span>
                   </span>
@@ -12381,22 +12376,22 @@
               )}
 
               {/* ROW 3: Score, R:R (dynamic), SL, TP */}
-              <div className="flex items-center justify-between gap-1 text-[9px] text-[#b8c0d0] font-medium mb-1">
+              <div className="flex items-center justify-between gap-1.5 text-[10px] text-[#b8c0d0] font-medium mb-1.5">
                 <span>Score <span className="text-white font-semibold">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
                 <span>R:R <span className="text-white font-semibold">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
                 <span className="text-red-300">SL <span className="font-semibold">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
                 <span className="text-green-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
               </div>
 
-              {/* ROW 4: Phase % (also drives background fill) */}
-              <div className="flex items-center justify-between text-[8px] text-[#8b92a0] font-medium mb-0.5">
+              {/* ROW 4: Phase % and Completion % */}
+              <div className="flex items-center justify-between text-[9px] text-[#8b92a0] font-medium mb-1">
                 <span>Phase {Number.isFinite(phase) ? `${(Math.abs(phase) * 100).toFixed(0)}%` : "—"}</span>
                 {compPct != null && <span>Completion {compPct}%</span>}
               </div>
 
               {/* ROW 5: Completion Progress Bar with SL/EP/TP1/TP2/XP markers */}
               {compPct != null && (
-                <div className="mt-0.5">
+                <div className="mt-1">
                   {(() => {
                     const epRaw = numFromAny(entryPrice || t?.entry_price || t?.trigger_price);
                     const cpRaw = Number(price);
@@ -12497,7 +12492,7 @@
           });
 
           return (
-            <div className="flex-1 min-w-[190px] max-w-[260px]">
+            <div className="flex-1 min-w-[230px] max-w-[310px]">
               <div
                 className={`p-1.5 rounded-t-lg border-t-2 ${color} bg-[#1a1f28]`}
               >
@@ -12557,7 +12552,6 @@
               <span className="text-cyan-300">Active</span>
               <span className="text-yellow-300">Trim</span>
               <span className="text-red-300">Exit</span>
-              <span className="text-slate-400">Closed</span>
             </div>
             <div className="overflow-x-auto">
               <div className="flex gap-1.5 pb-1.5">
@@ -12628,18 +12622,7 @@
                   showOpen={true}
                   showDetails={true}
                 />
-                <KanbanColumn
-                  laneKey="closed"
-                  title="Closed"
-                  subtitle="Completed, stopped, or expired"
-                  count={closed.length}
-                  icon="🗂"
-                  color="border-[#55608a]"
-                  items={closed}
-                  showProgress={true}
-                  showOpen={false}
-                  showDetails={true}
-                />
+                {/* Closed lane removed - completed trades available in Simulation Dashboard */}
               </div>
             </div>
           </div>
