@@ -12468,22 +12468,19 @@
                       (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
                     );
 
-                    // Marker component with hover tooltip — wide invisible hit area for easy hover
+                    // Marker component — native title tooltip follows mouse pointer
                     const Marker = ({ val, label, color, textColor, bold, bottom }) => {
                       if (!val) return null;
                       return (
                         <div
-                          className="absolute top-0 h-full group/marker"
-                          style={{ left: `${pct(val)}%`, width: "16px", marginLeft: "-8px" }}
+                          className="absolute top-0 h-full"
+                          style={{ left: `${pct(val)}%`, width: "18px", marginLeft: "-9px" }}
+                          title={`${label}: $${val.toFixed(2)}`}
                         >
                           {/* Visible marker line */}
                           <div className={`absolute left-1/2 -translate-x-1/2 top-0 h-full ${bold ? "w-0.5" : "w-px"} ${color}`} />
                           {/* Label above or below */}
-                          <span className={`absolute left-1/2 ${bottom ? "-bottom-4" : "-top-4"} -translate-x-1/2 text-[7px] font-bold ${textColor} whitespace-nowrap`}>{label}</span>
-                          {/* Tooltip on hover — appears below the bar */}
-                          <span className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-[#0d1117] border border-[#3a4a7f] text-[10px] text-white font-semibold whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
-                            {label}: ${val.toFixed(2)}
-                          </span>
+                          <span className={`absolute left-1/2 ${bottom ? "-bottom-4" : "-top-4"} -translate-x-1/2 text-[7px] font-bold ${textColor} whitespace-nowrap pointer-events-none`}>{label}</span>
                         </div>
                       );
                     };
