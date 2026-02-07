@@ -12384,8 +12384,13 @@
 
                     const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
                     if (vals.length < 2) return null;
-                    const lo = Math.min(...vals);
-                    const hi = Math.max(...vals);
+                    const rawLo = Math.min(...vals);
+                    const rawHi = Math.max(...vals);
+                    const rawRange = rawHi - rawLo;
+                    // Add 8% padding on each side so SL and XP aren't jammed against edges
+                    const pad = rawRange * 0.08;
+                    const lo = rawLo - pad;
+                    const hi = rawHi + pad;
                     const range = hi - lo;
                     const pct = (v) => range > 0 ? Math.max(0, Math.min(100, ((v - lo) / range) * 100)) : 50;
 
@@ -12405,19 +12410,19 @@
                       (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
                     );
 
-                    // Marker component — native title tooltip follows mouse pointer
+                    // Marker component — tall hit area covers labels, native title follows mouse
                     const Marker = ({ val, label, color, textColor, bold, bottom }) => {
                       if (!val) return null;
                       return (
                         <div
-                          className="absolute top-0 h-full"
-                          style={{ left: `${pct(val)}%`, width: "18px", marginLeft: "-9px" }}
+                          className="absolute"
+                          style={{ left: `${pct(val)}%`, width: "22px", marginLeft: "-11px", top: "-16px", bottom: "-16px" }}
                           title={`${label}: $${val.toFixed(2)}`}
                         >
-                          {/* Visible marker line */}
-                          <div className={`absolute left-1/2 -translate-x-1/2 top-0 h-full ${bold ? "w-0.5" : "w-px"} ${color}`} />
-                          {/* Label above or below */}
-                          <span className={`absolute left-1/2 ${bottom ? "-bottom-4" : "-top-4"} -translate-x-1/2 text-[7px] font-bold ${textColor} whitespace-nowrap pointer-events-none`}>{label}</span>
+                          {/* Visible marker line — thicker for visibility */}
+                          <div className={`absolute left-1/2 -translate-x-1/2 ${bold ? "w-1" : "w-0.5"} ${color}`} style={{ top: "16px", bottom: "16px" }} />
+                          {/* Label above or below — larger text */}
+                          <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[8px] font-extrabold ${textColor} whitespace-nowrap`}>{label}</span>
                         </div>
                       );
                     };
