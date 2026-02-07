@@ -12224,45 +12224,56 @@
           const phase = Number(t?.phase_pct);
           const price = Number(t?.price ?? t?.close);
 
-          // Compute SL/TP
+          // Compute SL/TP with sanity checks
           const slRaw = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
-          const sl = Number.isFinite(slRaw) && slRaw > 0 ? slRaw : null;
           const tpMax = computeTpMaxPrice(t);
-          const tp = tpMax || computeTpTargetPrice(t);
+          const tpRaw = tpMax || computeTpTargetPrice(t);
 
-          const rr = Number(t?.rr);
+          // Sanity: for LONG, SL must be below price and TP above price.
+          // For SHORT, SL must be above price and TP below price.
+          // If inverted (stale data), hide them.
+          const slSane = (() => {
+            if (!Number.isFinite(slRaw) || slRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
+            if (dir === "LONG" && slRaw >= price) return null;   // SL above price for LONG = stale
+            if (dir === "SHORT" && slRaw <= price) return null;  // SL below price for SHORT = stale
+            return slRaw;
+          })();
+          const tpSane = (() => {
+            if (!Number.isFinite(tpRaw) || tpRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
+            if (dir === "LONG" && tpRaw <= price) return null;   // TP below price for LONG = stale
+            if (dir === "SHORT" && tpRaw >= price) return null;  // TP above price for SHORT = stale
+            return tpRaw;
+          })();
+          const sl = slSane;
+          const tp = tpSane;
 
-          // Dynamic R:R: compute from current price, SL, TP
+          // Dynamic R:R: only compute when SL/TP are sane
           const rrNow = (() => {
-            if (Number.isFinite(price) && price > 0 && sl != null && tp != null) {
+            if (sl != null && tp != null && Number.isFinite(price) && price > 0) {
               const risk = Math.abs(price - sl);
               const reward = Math.abs(tp - price);
               if (risk > 0) return reward / risk;
             }
-            return Number.isFinite(rr) ? rr : null;
+            return null;
           })();
 
-          // Entry tracking and % change
+          // Active trade stages (has actual open position)
+          const isActiveTrade =
+            stage === "just_entered" || stage === "hold" || stage === "defend" ||
+            stage === "trim" || stage === "exit";
+          const showEntryStats = isActiveTrade;
+
+          // Entry tracking: only use entry_price from an actual trade, never trigger_price
           const entryPriceRaw = numFromAny(t?.entry_price);
-          const entryRefRaw = numFromAny(t?.entry_ref);
-          const triggerPriceRaw = numFromAny(t?.trigger_price);
-          const entryPrice =
-            Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
-              ? entryPriceRaw
-              : Number.isFinite(entryRefRaw) && entryRefRaw > 0
-                ? entryRefRaw
-                : Number.isFinite(triggerPriceRaw) && triggerPriceRaw > 0
-                  ? triggerPriceRaw
-                  : null;
+          const entryPrice = isActiveTrade && Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
+            ? entryPriceRaw
+            : null;
           const entryChangePct =
             Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(price) && price > 0
               ? dir === "LONG"
                 ? ((price - entryPrice) / entryPrice) * 100
                 : ((entryPrice - price) / entryPrice) * 100
               : null;
-          const showEntryStats =
-            stage === "enter" || stage === "enter_now" || stage === "just_entered" ||
-            stage === "hold" || stage === "defend" || stage === "trim" || stage === "exit";
 
           // Emoji badges for flags
           const badges = [];
@@ -12383,40 +12394,47 @@
                 <span className="text-green-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
               </div>
 
-              {/* ROW 4: Phase % and Completion % */}
+              {/* ROW 4: Phase % and Completion % (hide completion if SL/TP are stale/inverted) */}
               <div className="flex items-center justify-between text-[9px] text-[#8b92a0] font-medium mb-1">
                 <span>Phase {Number.isFinite(phase) ? `${(Math.abs(phase) * 100).toFixed(0)}%` : "—"}</span>
-                {compPct != null && <span>Completion {compPct}%</span>}
+                {compPct != null && (sl != null || tp != null) && <span>Completion {compPct}%</span>}
               </div>
 
               {/* ROW 5: Completion Progress Bar with SL/EP/TP1/TP2/XP markers */}
-              {compPct != null && (
+              {/* Only show when we have sane SL/TP data (not inverted/stale) */}
+              {compPct != null && (sl != null || tp != null) && (
                 <div className="mt-1">
                   {(() => {
-                    const epRaw = numFromAny(entryPrice || t?.entry_price || t?.trigger_price);
-                    const cpRaw = Number(price);
-                    const slRawP = numFromAny(t?.sl ?? t?.sl_price ?? t?.stop_loss);
+                    // EP only for active trades (not triggers/setup)
+                    const ep = isActiveTrade ? entryPrice : null;
+                    const cp = Number.isFinite(price) && price > 0 ? price : null;
+                    // Use the already-sanity-checked sl/tp
+                    const slP = sl;
                     const tpArr = Array.isArray(t?.tpArray) ? t.tpArray : [];
                     const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
                     const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
                     const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
-                    const ep = Number.isFinite(epRaw) && epRaw > 0 ? epRaw : null;
-                    const cp = Number.isFinite(cpRaw) && cpRaw > 0 ? cpRaw : null;
-                    const slP = Number.isFinite(slRawP) && slRawP > 0 ? slRawP : null;
-                    const tp1 = Number.isFinite(tp1Raw) && tp1Raw > 0 ? tp1Raw : null;
-                    const tp2 = Number.isFinite(tp2Raw) && tp2Raw > 0 ? tp2Raw : null;
-                    const xp = Number.isFinite(xpRaw) && xpRaw > 0 ? xpRaw : null;
+                    // Apply same directional sanity to TP markers
+                    const tpSanity = (v) => {
+                      if (!Number.isFinite(v) || v <= 0 || !cp) return null;
+                      if (dir === "LONG" && v <= cp) return null;
+                      if (dir === "SHORT" && v >= cp) return null;
+                      return v;
+                    };
+                    const tp1 = tpSanity(tp1Raw);
+                    const tp2 = tpSanity(tp2Raw);
+                    const xp = tpSanity(xpRaw);
 
-                    const hasMarkers = ep || tp1 || tp2 || xp;
+                    const hasMarkers = slP || ep || tp1 || tp2 || xp;
                     const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
-                    const lo = vals.length > 0 ? Math.min(...vals) : 0;
-                    const hi = vals.length > 0 ? Math.max(...vals) : 0;
+                    if (vals.length < 2) return null; // Need at least 2 points for a range
+                    const lo = Math.min(...vals);
+                    const hi = Math.max(...vals);
                     const range = hi - lo;
                     const pct = (v) => range > 0 ? Math.max(0, Math.min(100, ((v - lo) / range) * 100)) : 50;
 
-                    // SL dynamically moves past EP when the move is going well
-                    // (i.e., SL > EP for LONG means stop is in profit territory)
-                    const slMovedPastEntry = ep && slP && (
+                    // SL dynamically moves past EP when the trade is going well
+                    const slMovedPastEntry = isActiveTrade && ep && slP && (
                       (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
                     );
 
