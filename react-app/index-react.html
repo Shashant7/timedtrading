@@ -12216,40 +12216,31 @@
           const state = String(t?.state || "");
           const isBullish = state.includes("BULL");
           const dir = isBullish ? "LONG" : "SHORT";
-          const dirEmoji = isBullish ? "📈" : "📉";
           const stage = String(t?.kanban_stage || "");
           const sym = String(t?.ticker || "").toUpperCase();
-          const isExpanded =
-            expandedTicker != null &&
-            String(expandedTicker).toUpperCase() === sym;
-          const showDetailsCard = !!isExpanded && !!showDetails;
           const flags = t?.flags || {};
-          const rank = Number(t?.rank);
-          const rankPos = getRankPositionFromMap(
-            rankPositions,
-            String(t?.ticker || "").toUpperCase(),
-          );
           const score = Number(t?.flip_watch_score);
           const completion = Number(t?.completion);
           const phase = Number(t?.phase_pct);
           const price = Number(t?.price ?? t?.close);
-          const htf = Number(t?.htf_score);
-          const ltf = Number(t?.ltf_score);
 
-          // Compute SL/TP using helper functions (works for both positions and opportunities)
+          // Compute SL/TP
           const slRaw = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
           const sl = Number.isFinite(slRaw) && slRaw > 0 ? slRaw : null;
-
-          // Use computeTpMaxPrice() like the Right Rail does for consistency
           const tpMax = computeTpMaxPrice(t);
           const tp = tpMax || computeTpTargetPrice(t);
 
           const rr = Number(t?.rr);
-          const rrEntryLikely = Number(t?.rr_entry_likely);
-          const rrNowLikely = Number(t?.rr_now_likely);
-          const slDynamic = Number(t?.sl_dynamic);
-          const tpLikely = Number(t?.tp_likely);
-          const eta = computeEtaDays(t);
+
+          // Dynamic R:R: compute from current price, SL, TP
+          const rrNow = (() => {
+            if (Number.isFinite(price) && price > 0 && sl != null && tp != null) {
+              const risk = Math.abs(price - sl);
+              const reward = Math.abs(tp - price);
+              if (risk > 0) return reward / risk;
+            }
+            return Number.isFinite(rr) ? rr : null;
+          })();
 
           // Entry tracking and % change
           const entryPriceRaw = numFromAny(t?.entry_price);
@@ -12263,83 +12254,15 @@
                 : Number.isFinite(triggerPriceRaw) && triggerPriceRaw > 0
                   ? triggerPriceRaw
                   : null;
-          const entryChangePctRaw = numFromAny(t?.entry_change_pct);
-          const entryChangePct = Number.isFinite(entryChangePctRaw)
-            ? entryChangePctRaw
-            : Number.isFinite(entryPrice) &&
-                entryPrice > 0 &&
-                Number.isFinite(price) &&
-                price > 0
+          const entryChangePct =
+            Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(price) && price > 0
               ? dir === "LONG"
                 ? ((price - entryPrice) / entryPrice) * 100
                 : ((entryPrice - price) / entryPrice) * 100
               : null;
           const showEntryStats =
-            stage === "enter" ||
-            stage === "enter_now" ||
-            stage === "just_entered" ||
-            stage === "hold" ||
-            stage === "defend" ||
-            stage === "trim" ||
-            stage === "exit";
-
-          // Highlight recently transitioned cards
-          const prevLane =
-            t?.prev_kanban_stage != null ? String(t.prev_kanban_stage) : "";
-          const prevLaneTsRaw = Number(t?.prev_kanban_stage_ts);
-          // Be tolerant: sometimes timestamps are seconds, sometimes ms.
-          const prevLaneTs =
-            Number.isFinite(prevLaneTsRaw) && prevLaneTsRaw > 0
-              ? prevLaneTsRaw < 1e12
-                ? prevLaneTsRaw * 1000
-                : prevLaneTsRaw
-              : NaN;
-          const movedRecently =
-            !!prevLane &&
-            prevLane !== stage &&
-            stage !== "archive" &&
-            Number.isFinite(prevLaneTs) &&
-            Date.now() - prevLaneTs < 30 * 60 * 1000; // 30m
-
-          // Transition direction (forward progression vs backtrack) for styling.
-          const laneOrder = {
-            watch: 0,
-            setup_watch: 1,
-            flip_watch: 2,
-            just_flipped: 3,
-            enter_now: 4,
-            just_entered: 5,
-            hold: 6,
-            trim: 7,
-            exit: 8,
-            archive: 9,
-          };
-          const prevIdx =
-            prevLane && laneOrder[prevLane] != null
-              ? Number(laneOrder[prevLane])
-              : -1;
-          const curIdx =
-            stage && laneOrder[stage] != null ? Number(laneOrder[stage]) : -1;
-          const isBacktrack =
-            movedRecently && prevIdx >= 0 && curIdx >= 0 && curIdx < prevIdx;
-          const isForward =
-            movedRecently && prevIdx >= 0 && curIdx >= 0 && curIdx > prevIdx;
-          const transitionCardClass = movedRecently
-            ? isBacktrack
-              ? "border-fuchsia-400/60 ring-1 ring-fuchsia-400/30 shadow-[0_0_0_1px_rgba(217,70,239,0.14)]"
-              : isForward
-                ? "border-white/40 ring-1 ring-white/15 shadow-[0_0_0_1px_rgba(255,255,255,0.10)]"
-                : "border-cyan-400/60 ring-1 ring-cyan-400/30 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]"
-            : null;
-
-          // Archive meta (worker-provided)
-          const km =
-            t?.kanban_meta && typeof t.kanban_meta === "object"
-              ? t.kanban_meta
-              : null;
-          const archiveEmoji = km?.emoji ? String(km.emoji) : "";
-          const archiveBucket = km?.bucket ? String(km.bucket) : "";
-          const archiveReason = km?.reason ? String(km.reason) : "";
+            stage === "enter" || stage === "enter_now" || stage === "just_entered" ||
+            stage === "hold" || stage === "defend" || stage === "trim" || stage === "exit";
 
           // Emoji badges for flags
           const badges = [];
@@ -12350,547 +12273,188 @@
           if (isWinnerSignature(t)) badges.push("🏆");
           if (flags.sq30_release) badges.push("⚡");
           if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
-          if (archiveEmoji) badges.push(archiveEmoji);
 
-          // Daily change (for tint + display):
-          // Prefer getDailyChange() (staleness-aware), but fall back to raw fields so cards
-          // still show a consistent background even when the stale gate hides dayPct.
+          // Daily change
           const pickNum = (obj, keys) => {
-            for (const k of keys) {
-              const v = Number(obj?.[k]);
-              if (Number.isFinite(v)) return v;
-            }
+            for (const k of keys) { const v = Number(obj?.[k]); if (Number.isFinite(v)) return v; }
             return null;
           };
           const priceNum = Number(t?.price ?? t?.close);
-          const prevCloseNum = pickNum(t, [
-            "prev_close",
-            "previous_close",
-            "prior_close",
-            "yclose",
-            "close_prev",
-          ]);
+          const prevCloseNum = pickNum(t, ["prev_close", "previous_close", "prior_close", "yclose", "close_prev"]);
           const baseDaily = getDailyChange(t) || {};
           let dayPct = Number(baseDaily?.dayPct);
           let dayChg = Number(baseDaily?.dayChg);
-          if (!Number.isFinite(dayPct)) {
-            dayPct = pickNum(t, [
-              "day_change_pct",
-              "daily_change_pct",
-              "session_change_pct",
-              "change_pct",
-              "pct_change",
-              "chp",
-            ]);
-          }
-          if (!Number.isFinite(dayChg)) {
-            dayChg = pickNum(t, [
-              "day_change",
-              "daily_change",
-              "session_change",
-              "change",
-              "chg",
-              "ch",
-            ]);
-          }
-          if (
-            (!Number.isFinite(dayChg) || !Number.isFinite(dayPct)) &&
-            Number.isFinite(priceNum) &&
-            priceNum > 0 &&
-            Number.isFinite(prevCloseNum) &&
-            prevCloseNum > 0
-          ) {
+          if (!Number.isFinite(dayPct)) dayPct = pickNum(t, ["day_change_pct", "daily_change_pct", "session_change_pct", "change_pct", "pct_change", "chp"]);
+          if (!Number.isFinite(dayChg)) dayChg = pickNum(t, ["day_change", "daily_change", "session_change", "change", "chg", "ch"]);
+          if ((!Number.isFinite(dayChg) || !Number.isFinite(dayPct)) && Number.isFinite(priceNum) && priceNum > 0 && Number.isFinite(prevCloseNum) && prevCloseNum > 0) {
             const chg = priceNum - prevCloseNum;
-            const pct = (chg / prevCloseNum) * 100;
             if (!Number.isFinite(dayChg)) dayChg = chg;
-            if (!Number.isFinite(dayPct)) dayPct = pct;
+            if (!Number.isFinite(dayPct)) dayPct = (chg / prevCloseNum) * 100;
           }
 
-          // Use shared getCardSkin (Viewport-style: blue/orange tint, completion fill, day edge)
+          // Styling
           const skin = getCardSkin(t);
           const badgesText = badges.length > 0 ? badges.join("") : "";
           const dirPillCls = dir === "LONG"
             ? "bg-cyan-400/20 text-cyan-200 border-cyan-400/50"
             : "bg-red-500/20 text-red-200 border-red-400/50";
-          const dirAccentCls = dir === "LONG"
-            ? "border-l-4 border-l-cyan-400"
-            : "border-l-4 border-l-red-500";
-          const dirOutlineCls = dir === "LONG"
-            ? "border border-cyan-400/40"
-            : "border border-red-500/40";
+          const dirAccentCls = dir === "LONG" ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-red-500";
+          const dirOutlineCls = dir === "LONG" ? "border border-cyan-400/40" : "border border-red-500/40";
           const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
           const pulseCls = isActionLane ? (dir === "LONG" ? "card-pulse" : "card-pulse-short") : "";
 
           const compP = completionForSize(t);
-          const compPct = Number.isFinite(compP)
-            ? Math.round(Math.max(0, Math.min(1, compP)) * 100)
-            : null;
+          const compPct = Number.isFinite(compP) ? Math.round(Math.max(0, Math.min(1, compP)) * 100) : null;
+
+          // Phase as background fill percentage (0–100%)
+          const phaseFillPct = Number.isFinite(phase) ? Math.round(Math.max(0, Math.min(1, Math.abs(phase))) * 100) : 0;
+          const phaseColor = phase >= 0
+            ? `rgba(34,211,238,${0.06 + Math.abs(phase) * 0.12})`
+            : `rgba(251,146,60,${0.06 + Math.abs(phase) * 0.12})`;
 
           return (
             <div
               key={`kanban-${t.ticker}`}
               role="button"
               tabIndex={0}
-              onClick={() => toggleExpanded(sym)}
+              onClick={() => {
+                // Open right rail instead of expanding
+                if (typeof onSelectTicker === "function") onSelectTicker(sym);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  toggleExpanded(sym);
+                  if (typeof onSelectTicker === "function") onSelectTicker(sym);
                 }
               }}
               className={
-                "w-full text-left px-3 py-2 rounded-lg transition-all hover:brightness-[1.06] relative overflow-visible " +
-                dirOutlineCls + " " +
-                dirAccentCls + " " +
-                pulseCls + " " +
-                (movedRecently ? transitionCardClass : "")
+                "w-full text-left px-3 py-2 rounded-lg cursor-pointer transition-all hover:brightness-[1.08] hover:scale-[1.01] relative overflow-visible " +
+                dirOutlineCls + " " + dirAccentCls + " " + pulseCls
               }
-              style={{ backgroundColor: "#13171e", backgroundImage: skin?.bgImage || undefined }}
+              style={{
+                backgroundColor: "#13171e",
+                backgroundImage: `linear-gradient(to right, ${phaseColor} ${phaseFillPct}%, transparent ${phaseFillPct}%)`,
+              }}
             >
               {/* Direction banner: thin bar at top (L=cyan, S=red) */}
               <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-lg ${dir === "LONG" ? "bg-cyan-400/60" : "bg-red-500/60"}`} />
-              {/* Header row: Viewport-style — Ticker, badges, LONG/SHORT pill, action | Price, daily change */}
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-1.5 min-w-0 flex-wrap overflow-visible">
-                  <span className="text-xs font-bold text-white truncate shrink-0 max-w-[60px]">
-                    {t.ticker}
-                  </span>
-                  {badgesText ? <span className="px-2 py-0.5 rounded border border-[#252b36] bg-[#1a1f28] text-[10px] font-semibold text-[#f0f2f5] shrink-0">{badgesText}</span> : null}
-                  <span className={`px-3 py-1 rounded-md border text-[10px] font-extrabold tracking-wide shrink-0 min-w-[28px] text-center ${dirPillCls}`} title="Directional bias">
-                    {dir === "LONG" ? "L" : dir === "SHORT" ? "S" : dir}
-                  </span>
-                  {prevLane && prevLane !== stage && stage !== "archive" ? (
-                    <span
-                      className={
-                        "px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 " +
-                        (movedRecently
-                          ? isBacktrack
-                            ? "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30"
-                            : isForward
-                              ? "bg-white/10 text-white border-white/20"
-                              : "bg-cyan-500/15 text-cyan-200 border-cyan-400/30"
-                          : "bg-[#252b36] text-[#8b92a0] border-[#3a4a7f]")
-                      }
-                      title={`Previous lane: ${String(prevLane).replaceAll("_", " ").toUpperCase()}`}
-                    >
-                      ←{String(prevLane).replaceAll("_", " ").slice(0, 8)}
-                    </span>
-                  ) : null}
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 bg-[#252b36] text-[#8b92a0] border-[#3a4a7f]">
-                    {/* 7-Lane System: watch → setup → enter → just_entered → defend → trim → exit */}
-                    {stage === "watch" ? "WATCH" :
-                     stage === "setup" || stage === "setup_watch" || stage === "flip_watch" ? "SETUP" :
-                     stage === "enter" || stage === "enter_now" || stage === "just_flipped" ? "ENTER" :
-                     stage === "just_entered" || stage === "active" || stage === "hold" ? "🆕 JUST ENTERED" :
-                     stage === "defend" || (stage === "hold" && km?.bucket === "defend") ? "🛡 DEFEND" :
-                     stage === "trim" ? "✂️ TRIM" :
-                     stage === "exit" ? "🚪 EXIT" :
-                     (stage ? String(stage).replace(/_/g, " ").toUpperCase() : "—")}
-                  </span>
-                  {(() => {
-                    const trade = tradeByTicker.get(sym);
-                    const trimmedPct = Number(trade?.trimmedPct || trade?.trimmed_pct || 0);
-                    if (trimmedPct <= 0) return null;
-                    const tierLabel = trimmedPct >= 0.8 ? "RUNNER" : trimmedPct >= 0.6 ? "EXIT" : "TRIM";
-                    const tierClass = trimmedPct >= 0.8 ? "bg-green-500/20 text-green-300 border-green-500/30" :
-                                      trimmedPct >= 0.6 ? "bg-orange-500/20 text-orange-300 border-orange-500/30" :
-                                      "bg-yellow-500/20 text-yellow-300 border-yellow-500/30";
-                    return (
-                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 ${tierClass}`} title={`${Math.round(trimmedPct * 100)}% trimmed`}>
-                        {tierLabel} ✓
-                      </span>
-                    );
-                  })()}
-                </div>
 
-                {/* Right: Current Price, Daily Change % and $ (Viewport-style) */}
-                <div className="flex flex-col items-end shrink-0">
+              {/* ROW 1: Ticker, Emojis, Directional Bias, Current Price, Daily Change, Daily Change % */}
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-bold text-white truncate shrink-0">{sym}</span>
+                  {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
+                  <span className={`px-1.5 py-0.5 rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`}>
+                    {dir === "LONG" ? "LONG" : "SHORT"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
                   <span className="text-white font-bold text-[11px]">
                     {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
                   </span>
                   {(() => {
-                    const up = Number(skin?.dayChg ?? skin?.dayPct ?? dayChg ?? dayPct ?? 0) >= 0;
-                    const cls = up ? "text-sky-300" : "text-orange-300";
+                    const up = Number(dayPct ?? 0) >= 0;
+                    const cls = up ? "text-green-400" : "text-red-400";
                     const sign = up ? "+" : "";
-                    const dChg = skin?.dayChg ?? dayChg;
-                    const dPct = skin?.dayPct ?? dayPct;
                     return (
                       <span className={`text-[9px] font-semibold ${cls}`}>
-                        {Number.isFinite(dPct) ? `${sign}${dPct.toFixed(2)}%` : "—"}
-                        {Number.isFinite(dChg) ? ` ${sign}${fmtUsdAbs(dChg)}` : ""}
+                        {Number.isFinite(dayChg) ? `${sign}$${Math.abs(dayChg).toFixed(2)}` : ""}
+                        {Number.isFinite(dayPct) ? ` (${sign}${dayPct.toFixed(2)}%)` : ""}
                       </span>
                     );
                   })()}
                 </div>
               </div>
 
-              {/* If open position: Entry Price, % change since entered */}
-              {showEntryStats && (Number.isFinite(entryPrice) || Number.isFinite(entryChangePct)) && (
-                <div className="flex items-center justify-between gap-2 mb-1 text-[9px] text-[#b8c0d0] font-medium">
-                  <span>Entry {Number.isFinite(entryPrice) ? `$${entryPrice.toFixed(2)}` : "—"}</span>
+              {/* ROW 2: Entry Price, Net Change % Since (only when position active) */}
+              {showEntryStats && Number.isFinite(entryPrice) && (
+                <div className="flex items-center justify-between gap-2 mb-1 text-[9px] font-medium">
+                  <span className="text-[#b8c0d0]">
+                    Entry <span className="text-white font-semibold">${entryPrice.toFixed(2)}</span>
+                  </span>
                   {Number.isFinite(entryChangePct) && (
-                    <span className={entryChangePct >= 0 ? "text-green-400 font-semibold" : "text-red-400 font-semibold"}>
+                    <span className={`font-bold ${entryChangePct >= 0 ? "text-green-400" : "text-red-400"}`}>
                       {entryChangePct >= 0 ? "+" : ""}{entryChangePct.toFixed(2)}%
                     </span>
                   )}
                 </div>
               )}
 
-              {/* Card contents: Score, Rank | R:R, SL, TP | Phase | Completion with TP markers */}
-              <div className="flex items-center justify-between gap-2 text-[9px] text-[#b8c0d0] font-medium flex-wrap">
-                <span>Score {Number.isFinite(score) ? score.toFixed(1) : "—"}</span>
-                {Number.isFinite(rankPos) && rankPos > 0 && <span className="text-[#d1d9e8]">#{rankPos}</span>}
-                <span>R:R {Number.isFinite(rr) ? rr.toFixed(2) : "—"}</span>
-                {sl != null && <span className="text-red-300 font-semibold">SL ${sl.toFixed(2)}</span>}
-                {tp != null && <span className="text-green-300 font-semibold">TP ${tp.toFixed(2)}</span>}
-                <span>Phase {Number.isFinite(phase) ? phase.toFixed(1) : "—"}</span>
+              {/* ROW 3: Score, R:R (dynamic), SL, TP */}
+              <div className="flex items-center justify-between gap-1 text-[9px] text-[#b8c0d0] font-medium mb-1">
+                <span>Score <span className="text-white font-semibold">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
+                <span>R:R <span className="text-white font-semibold">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
+                <span className="text-red-300">SL <span className="font-semibold">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
+                <span className="text-green-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
               </div>
+
+              {/* ROW 4: Phase % (also drives background fill) */}
+              <div className="flex items-center justify-between text-[8px] text-[#8b92a0] font-medium mb-0.5">
+                <span>Phase {Number.isFinite(phase) ? `${(Math.abs(phase) * 100).toFixed(0)}%` : "—"}</span>
+                {compPct != null && <span>Completion {compPct}%</span>}
+              </div>
+
+              {/* ROW 5: Completion Progress Bar with SL/EP/TP1/TP2/XP markers */}
               {compPct != null && (
-                <div className="mt-1">
-                  <div className="flex items-center justify-between text-[8px] text-[#b8c0d0] font-medium mb-0.5">
-                    <span>Completion {compPct}%</span>
-                    {(() => {
-                      const tpLevels = Array.isArray(t?.tp_levels) ? t.tp_levels : [];
-                      const tp1 = tpLevels[0];
-                      const tp2 = tpLevels[1];
-                      const tp1Price = tp1 && (typeof tp1 === "object" ? tp1.price : tp1);
-                      const tp2Price = tp2 && (typeof tp2 === "object" ? tp2.price : tp2);
-                      return (
-                        <span className="text-[#9ca3b4]">
-                          {Number.isFinite(numFromAny(tp1Price)) ? `TP1 $${Number(tp1Price).toFixed(1)}` : ""}
-                          {Number.isFinite(numFromAny(tp2Price)) ? ` · TP2 $${Number(tp2Price).toFixed(1)}` : ""}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                  <div className="h-1.5 rounded bg-[#252b36] overflow-hidden flex">
-                    <div className={`h-full ${dir === "LONG" ? "bg-cyan-500/70" : "bg-fuchsia-500/70"}`} style={{ width: `${Math.min(100, compPct)}%` }} />
-                  </div>
+                <div className="mt-0.5">
+                  {(() => {
+                    const epRaw = numFromAny(entryPrice || t?.entry_price || t?.trigger_price);
+                    const cpRaw = Number(price);
+                    const slRawP = numFromAny(t?.sl ?? t?.sl_price ?? t?.stop_loss);
+                    const tpArr = Array.isArray(t?.tpArray) ? t.tpArray : [];
+                    const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
+                    const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
+                    const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
+                    const ep = Number.isFinite(epRaw) && epRaw > 0 ? epRaw : null;
+                    const cp = Number.isFinite(cpRaw) && cpRaw > 0 ? cpRaw : null;
+                    const slP = Number.isFinite(slRawP) && slRawP > 0 ? slRawP : null;
+                    const tp1 = Number.isFinite(tp1Raw) && tp1Raw > 0 ? tp1Raw : null;
+                    const tp2 = Number.isFinite(tp2Raw) && tp2Raw > 0 ? tp2Raw : null;
+                    const xp = Number.isFinite(xpRaw) && xpRaw > 0 ? xpRaw : null;
+
+                    const hasMarkers = ep || tp1 || tp2 || xp;
+                    const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
+                    const lo = vals.length > 0 ? Math.min(...vals) : 0;
+                    const hi = vals.length > 0 ? Math.max(...vals) : 0;
+                    const range = hi - lo;
+                    const pct = (v) => range > 0 ? Math.max(0, Math.min(100, ((v - lo) / range) * 100)) : 50;
+
+                    // SL dynamically moves past EP when the move is going well
+                    // (i.e., SL > EP for LONG means stop is in profit territory)
+                    const slMovedPastEntry = ep && slP && (
+                      (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
+                    );
+
+                    return (
+                      <div className="relative h-3 rounded bg-[#252b36] overflow-visible">
+                        {/* Fill bar */}
+                        <div className={`absolute top-0 left-0 h-full rounded ${dir === "LONG" ? "bg-cyan-500/40" : "bg-fuchsia-500/40"}`} style={{ width: `${Math.min(100, compPct)}%` }} />
+                        {/* Price markers */}
+                        {hasMarkers && range > 0 && (
+                          <>
+                            {slP && (
+                              <div
+                                className={`absolute top-0 h-full ${slMovedPastEntry ? "w-0.5 bg-green-500" : "w-px bg-red-500/80"}`}
+                                style={{ left: `${pct(slP)}%` }}
+                                title={`SL $${slP.toFixed(2)}${slMovedPastEntry ? " (protected)" : ""}`}
+                              >
+                                <span className={`absolute -top-3 -translate-x-1/2 text-[7px] font-bold ${slMovedPastEntry ? "text-green-400" : "text-red-400"}`}>SL</span>
+                              </div>
+                            )}
+                            {ep && <div className="absolute top-0 h-full w-px bg-yellow-400/80" style={{ left: `${pct(ep)}%` }} title={`EP $${ep.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-yellow-300 font-bold">EP</span></div>}
+                            {cp && <div className="absolute top-0 h-full w-0.5 bg-white" style={{ left: `${pct(cp)}%` }} title={`CP $${cp.toFixed(2)}`}><span className="absolute -bottom-3 -translate-x-1/2 text-[7px] text-white font-bold">CP</span></div>}
+                            {tp1 && <div className="absolute top-0 h-full w-px bg-green-400/80" style={{ left: `${pct(tp1)}%` }} title={`TP1 $${tp1.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-green-300 font-bold">T1</span></div>}
+                            {tp2 && <div className="absolute top-0 h-full w-px bg-green-400/80" style={{ left: `${pct(tp2)}%` }} title={`TP2 $${tp2.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-green-300 font-bold">T2</span></div>}
+                            {xp && <div className="absolute top-0 h-full w-px bg-emerald-400/80" style={{ left: `${pct(xp)}%` }} title={`XP $${xp.toFixed(2)}`}><span className="absolute -top-3 -translate-x-1/2 text-[7px] text-emerald-300 font-bold">XP</span></div>}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
-              <div className="absolute top-1 right-1">
-                <button
-                  type="button"
-                  className="px-1 py-0.5 rounded bg-white/5 text-[#9fb0df] text-[10px] border border-white/10 hover:bg-white/10 shrink-0"
-                  title="Open ticker details"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelectTicker?.(t.ticker);
-                  }}
-                >
-                  ↗
-                </button>
-              </div>
-
-              {isExpanded && (
-                <>
-                  {/* Direction + Badges */}
-                  <div className="flex items-center gap-1 mb-1 flex-wrap">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-extrabold tracking-wide border ${
-                        isBullish
-                          ? "bg-cyan-400/15 text-cyan-200 border-cyan-300/50 shadow-[0_0_0_1px_rgba(34,211,238,0.18)]"
-                          : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-300/50 shadow-[0_0_0_1px_rgba(217,70,239,0.18)]"
-                      }`}
-                    >
-                      {dir}
-                    </span>
-                    {score > 0 && (
-                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-semibold">
-                        {score}
-                      </span>
-                    )}
-                    {Number.isFinite(rankPos) && rankPos > 0 && (
-                      <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-200 text-[9px] font-semibold border border-purple-400/40">
-                        #{rankPos}
-                        {rankTotal ? `/${rankTotal}` : ""}
-                      </span>
-                    )}
-                    {Number.isFinite(rank) && rank > 0 && rank <= 10 && (
-                      <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[9px] font-semibold">
-                        #{rank}
-                      </span>
-                    )}
-                    {badges.length > 0 && (
-                      <span className="text-[10px]">{badges.join("")}</span>
-                    )}
-                  </div>
-
-                  {/* Viewport-style action line */}
-                  {(() => {
-                    const ai = getActionDescription(t);
-                    if (!ai?.action) return null;
-                    return (
-                      <div className="text-[10px] text-[#8b92a0] mb-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                        <span className="text-[#5c6475]">{ai.action}</span>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Viewport-style metrics + bars */}
-                  {(() => {
-                    const tpTarget = computeTpTargetPrice(t);
-                    const tpMax = computeTpMaxPrice(t);
-                    const tpDisplay =
-                      Number.isFinite(tpTarget) && tpTarget > 0
-                        ? tpTarget
-                        : Number.isFinite(tpMax) && tpMax > 0
-                          ? tpMax
-                          : Number.isFinite(tp) && tp > 0
-                            ? tp
-                            : null;
-                    const rrDisplay = Number(t?.rr);
-                    const slDisplayRaw = Number(
-                      t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop,
-                    );
-                    const slDisplay =
-                      Number.isFinite(slDisplayRaw) && slDisplayRaw > 0
-                        ? slDisplayRaw
-                        : null;
-                    const phaseP = Math.max(
-                      0,
-                      Math.min(1, Number(t?.phase_pct) || 0),
-                    );
-                    const compP2 = completionForSize(t);
-                    const phaseColor = phaseToColor(phaseP);
-                    const compColor = phaseToColor(compP2);
-                    
-                    // 3-Tier TP System info from trade
-                    const trade = tradeByTicker.get(sym);
-                    const trimmedPct = Number(trade?.trimmedPct || trade?.trimmed_pct || 0);
-                    const tpArray = trade?.tpArray || [];
-                    const slProtectReason = trade?.sl_protect_reason || null;
-                    const has3TierSystem = tpArray.length > 0 && tpArray.some(tp => tp.tier);
-                    const showTrimProgress = (stage === "trim" || stage === "defend" || stage === "hold" || stage === "exit" || stage === "just_entered") && trimmedPct > 0;
-                    
-                    const Bar = ({ label, p, color }) => (
-                      <div className="flex items-center gap-2">
-                        <div className="w-14 text-[9px] text-[#5c6475]">
-                          {label}
-                        </div>
-                        <div className="flex-1 h-1.5 rounded bg-[#1a1f28] border border-[#252b36] overflow-hidden">
-                          <div
-                            className="h-full"
-                            style={{
-                              width: `${Math.round(p * 100)}%`,
-                              background: color,
-                            }}
-                          />
-                        </div>
-                        <div className="w-9 text-right text-[9px] text-[#8b92a0]">
-                          {Math.round(p * 100)}%
-                        </div>
-                      </div>
-                    );
-                    return (
-                      <>
-                        <div className="mt-1 grid grid-cols-3 gap-2 text-[9px] text-[#8b92a0]">
-                          <div>
-                            <span className="text-[#5c6475]">Score</span>{" "}
-                            <span className="text-white font-semibold">
-                              {Number.isFinite(score) ? score.toFixed(0) : "—"}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#5c6475]">Rank</span>{" "}
-                            <span className="text-white font-semibold">
-                              {Number.isFinite(rankPos) && rankPos > 0
-                                ? `#${rankPos}`
-                                : "—"}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#5c6475]">RR now</span>{" "}
-                            <span className="text-white font-semibold">
-                              {Number.isFinite(rrNowLikely) && rrNowLikely > 0
-                                ? rrNowLikely.toFixed(2)
-                                : Number.isFinite(rrDisplay)
-                                  ? rrDisplay.toFixed(2)
-                                  : "—"}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#5c6475]">SL</span>{" "}
-                            <span className="text-red-300 font-semibold">
-                              {slDisplay != null ? `$${slDisplay.toFixed(2)}` : "—"}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-[#5c6475]">TP</span>{" "}
-                            <span className="text-green-300 font-semibold">
-                              {tpDisplay != null ? `$${tpDisplay.toFixed(2)}` : "—"}
-                            </span>
-                          </div>
-                          <div />
-                        </div>
-                        <div className="mt-2 space-y-1">
-                          <Bar label="Phase" p={phaseP} color={phaseColor} />
-                          <Bar label="Comp" p={compP2} color={compColor} />
-                        </div>
-                        
-                        {/* 3-Tier TP Progress (for positions with trim activity) */}
-                        {showTrimProgress && (
-                          <div className="mt-2 p-2 rounded bg-[#1a1f28] border border-[#252b36]">
-                            <div className="flex items-center justify-between text-[9px] mb-1.5">
-                              <span className="text-[#8b92a0] font-semibold">3-Tier Trim Progress</span>
-                              <span className="text-white font-bold">{Math.round(trimmedPct * 100)}%</span>
-                            </div>
-                            <div className="flex items-center gap-1 mb-1">
-                              <span className={`px-1 py-0.5 rounded text-[8px] ${trimmedPct >= 0.6 ? "bg-yellow-500/30 text-yellow-300" : "bg-[#252b36] text-[#5c6475]"}`}>🎯60%</span>
-                              <span className={`px-1 py-0.5 rounded text-[8px] ${trimmedPct >= 0.8 ? "bg-orange-500/30 text-orange-300" : "bg-[#252b36] text-[#5c6475]"}`}>💰80%</span>
-                              <span className={`px-1 py-0.5 rounded text-[8px] ${trimmedPct >= 1.0 ? "bg-green-500/30 text-green-300" : "bg-[#252b36] text-[#5c6475]"}`}>🚀100%</span>
-                            </div>
-                            <div className="h-2 rounded bg-[#252b36] overflow-hidden flex">
-                              <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, trimmedPct * 100)}%` }} />
-                              <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, (trimmedPct * 100) - 60))}%` }} />
-                              <div className="h-full bg-green-500/70" style={{ width: `${Math.max(0, (trimmedPct * 100) - 80)}%` }} />
-                            </div>
-                            {slProtectReason && (
-                              <div className="mt-1 text-[8px] text-[#8b92a0]">
-                                SL: {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "@ Breakeven" :
-                                     slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "@ TRIM TP" :
-                                     slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR Trailing" :
-                                     slProtectReason === "PROTECT_GAINS" ? "Protected" : ""}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-
-                  {/* Scores + Price */}
-                  <div className="text-[10px] text-[#5c6475] space-y-0.5">
-                    {stage === "archive" &&
-                      (archiveBucket || archiveReason) && (
-                        <div className="text-[9px] text-[#8b92a0]">
-                          {archiveEmoji ? `${archiveEmoji} ` : ""}
-                          {archiveBucket}
-                          {archiveBucket && archiveReason ? ": " : ""}
-                          {archiveReason}
-                        </div>
-                      )}
-                    <div className="flex items-center justify-between">
-                      <span>
-                        HTF {Number.isFinite(htf) ? htf.toFixed(1) : "—"}
-                      </span>
-                      <div className="text-right">
-                        <div className="text-white font-semibold">
-                          ${Number.isFinite(price) ? price.toFixed(2) : "—"}
-                        </div>
-                        {(() => {
-                          if (
-                            !Number.isFinite(dayChg) &&
-                            !Number.isFinite(dayPct)
-                          )
-                            return null;
-                          const up = Number(dayChg || dayPct || 0) >= 0;
-                          const cls = up ? "text-sky-300" : "text-orange-300";
-                          const sign = up ? "+" : "-";
-                          return (
-                            <div className={`text-[9px] ${cls}`}>
-                              {Number.isFinite(dayChg)
-                                ? `${sign}${fmtUsdAbs(dayChg)}`
-                                : "—"}
-                              {Number.isFinite(dayPct)
-                                ? ` (${sign}${Math.abs(dayPct).toFixed(2)}%)`
-                                : ""}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span>
-                        LTF {Number.isFinite(ltf) ? ltf.toFixed(1) : "—"}
-                      </span>
-                      {showProgress && Number.isFinite(completion) && (
-                        <span className="text-[#8b92a0]">
-                          {Math.round(completion * 100)}% done
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Trading Details (for entry opportunities and open positions) */}
-                  {showDetailsCard && (
-                    <div className="mt-1.5 pt-1.5 border-t border-[#252b36] text-[9px] text-[#5c6475] space-y-0.5">
-                      {showEntryStats &&
-                        Number.isFinite(entryPrice) &&
-                        entryPrice > 0 && (
-                          <div className="flex items-center justify-between">
-                            <span>Entry</span>
-                            <span className="text-cyan-300 font-semibold">
-                              ${entryPrice.toFixed(2)}
-                            </span>
-                          </div>
-                        )}
-                      {showEntryStats && Number.isFinite(entryChangePct) && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-[#8b92a0] font-semibold">
-                            Since entry
-                          </span>
-                          <span
-                            className={
-                              "px-2 py-0.5 rounded border text-[10px] font-extrabold " +
-                              (entryChangePct >= 0
-                                ? "bg-green-500/15 text-green-200 border-green-400/40"
-                                : "bg-red-500/15 text-red-200 border-red-400/40")
-                            }
-                          >
-                            {entryChangePct >= 0 ? "+" : ""}
-                            {entryChangePct.toFixed(2)}%
-                          </span>
-                        </div>
-                      )}
-                      {showEntryStats && Number.isFinite(entryChangePct) && Number.isFinite(entryPrice) && entryPrice > 0 && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-[#8b92a0] font-semibold">P&L</span>
-                          <span
-                            className={
-                              "text-[10px] font-bold " +
-                              (entryChangePct >= 0
-                                ? "text-green-300"
-                                : "text-red-300")
-                            }
-                          >
-                            {(entryChangePct >= 0 ? "+" : "")}
-                            {typeof fmtUsd === "function"
-                              ? fmtUsd(((TRADE_SIZE || 1000) * (entryChangePct / 100)))
-                              : `$${(((TRADE_SIZE || 1000) * (entryChangePct / 100))).toFixed(2)}`}
-                          </span>
-                        </div>
-                      )}
-                      {sl !== null && (
-                        <div className="flex items-center justify-between">
-                          <span>SL</span>
-                          <span className="text-red-300 font-semibold">
-                            ${sl.toFixed(2)}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span>RR initial</span>
-                        <span className="text-[#8b92a0] font-semibold">
-                          {Number.isFinite(rrEntryLikely) && rrEntryLikely > 0
-                            ? rrEntryLikely.toFixed(2)
-                            : "—"}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <span>RR now</span>
-                        <span className="text-[#8b92a0] font-semibold">
-                          {Number.isFinite(rrNowLikely) && rrNowLikely > 0
-                            ? rrNowLikely.toFixed(2)
-                            : "—"}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
+              {/* Expanded section removed: cards now open right rail on click */}
             </div>
           );
         };
