@@ -12423,9 +12423,9 @@
                     };
 
                     return (
-                      <div className="relative h-4 rounded bg-[#252b36] overflow-visible mt-5 mb-5">
-                        {/* Fill bar: SL → CP progress */}
-                        <div className={`absolute top-0 left-0 h-full rounded ${dir === "LONG" ? "bg-cyan-500/40" : "bg-fuchsia-500/40"}`} style={{ width: `${Math.min(100, fillPct)}%` }} />
+                      <div className="relative h-4 rounded bg-[#1a1f28] border border-[#333b4d] overflow-visible mt-5 mb-5">
+                        {/* Fill bar: bright amber/gold stands out against blue/red card tints */}
+                        <div className="absolute top-0 left-0 h-full rounded bg-amber-500/60" style={{ width: `${Math.min(100, fillPct)}%` }} />
                         {/* Price markers with hover tooltips */}
                         <Marker val={slP} label="SL" color={slMovedPastEntry ? "bg-green-500" : "bg-red-500/80"} textColor={slMovedPastEntry ? "text-green-400" : "text-red-400"} bold={slMovedPastEntry} />
                         <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" />
