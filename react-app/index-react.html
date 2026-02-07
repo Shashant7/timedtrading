@@ -12131,15 +12131,21 @@
               } else if (isMomentum && seq.corridorEntry_60m === true) {
                 stage = "just_flipped";
               } else if (isMomentum) {
+                // Client-side fallback: only promote to enter_now with strong signal confirmation
+                // Server's qualifiesForEnter() is authoritative — this is a safety net only
                 const ent = entryType(t);
+                const score = Number(t?.score) || 0;
+                const rr = Number(t?.rr) || 0;
                 if (
-                  rank <= 10 ||
-                  flags.thesis_match ||
-                  flags.momentum_elite ||
-                  (Math.abs(htfScore) >= 50 && Math.abs(ltfScore) >= 25) ||
-                  (ent?.corridor && flags.sq30_release)
+                  score >= 60 && rr >= 1.5 && (
+                    flags.thesis_match ||
+                    flags.momentum_elite ||
+                    (Math.abs(htfScore) >= 50 && Math.abs(ltfScore) >= 25 && ent?.corridor)
+                  )
                 ) {
                   stage = "enter_now";
+                } else if (isMomentum && ent?.corridor) {
+                  stage = "setup_watch";
                 } else {
                   stage = "watch";
                 }
@@ -12188,14 +12194,22 @@
             }
           });
 
+          // Sort each lane: best score first (descending), then alphabetical tie-break
+          const sortLane = (arr) => arr.sort((a, b) => {
+            const sa = Number(a?.score ?? a?.flip_watch_score ?? 0) || 0;
+            const sb = Number(b?.score ?? b?.flip_watch_score ?? 0) || 0;
+            if (sb !== sa) return sb - sa; // Higher score first
+            return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+          });
+
           return {
-            watch,
-            setup,
-            enter,
-            active,
-            trim,
-            exit,
-            closed,
+            watch: sortLane(watch),
+            setup: sortLane(setup),
+            enter: sortLane(enter),
+            active: sortLane(active),
+            trim: sortLane(trim),
+            exit: sortLane(exit),
+            closed: sortLane(closed),
           };
         }, [tickers, tradeByTicker]);
 
