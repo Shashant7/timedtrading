@@ -2101,12 +2101,12 @@
         // 0% = neutral, 1% = noticeable, 3%+ = intense, 5%+ = max
         const dayAbs = Number.isFinite(dayPct) ? Math.abs(dayPct) : 0;
         const dayIntensity = Math.max(0, Math.min(1, dayAbs / 3)); // 0..1 (3% => full)
-        // Much stronger alpha range: 0.05 at flat → 0.55 at 3%+
+        // Strong alpha range: 0.05 at flat → 0.55 at 3%+
         const tintAlpha = 0.05 + dayIntensity * 0.50;
         const tint =
           Number.isFinite(dayPct) && dayPct !== 0
             ? dayPct >= 0
-              ? `rgba(34,197,94,${tintAlpha})`   // green for up days
+              ? `rgba(59,130,246,${tintAlpha})`   // blue for up days
               : `rgba(239,68,68,${tintAlpha})`    // red for down days
             : "rgba(0,0,0,0)";
 
@@ -2125,8 +2125,8 @@
         const dayEdgeClass =
           Number.isFinite(dayPct) && dayPct !== 0
             ? dayPct >= 0
-              ? dayAbs >= 2 ? "shadow-[0_0_0_1.5px_rgba(34,197,94,0.35)]" : "shadow-[0_0_0_1px_rgba(34,197,94,0.18)]"
-              : dayAbs >= 2 ? "shadow-[0_0_0_1.5px_rgba(239,68,68,0.35)]" : "shadow-[0_0_0_1px_rgba(239,68,68,0.18)]"
+              ? dayAbs >= 2 ? "shadow-[0_0_0_1.5px_rgba(59,130,246,0.40)]" : "shadow-[0_0_0_1px_rgba(59,130,246,0.20)]"
+              : dayAbs >= 2 ? "shadow-[0_0_0_1.5px_rgba(239,68,68,0.40)]" : "shadow-[0_0_0_1px_rgba(239,68,68,0.20)]"
             : "";
 
         return {
@@ -12468,16 +12468,20 @@
                       (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
                     );
 
-                    // Marker component with hover tooltip
+                    // Marker component with hover tooltip — wide invisible hit area for easy hover
                     const Marker = ({ val, label, color, textColor, bold, bottom }) => {
                       if (!val) return null;
                       return (
                         <div
-                          className={`absolute top-0 h-full ${bold ? "w-0.5" : "w-px"} ${color} cursor-help group/marker`}
-                          style={{ left: `${pct(val)}%` }}
+                          className="absolute top-0 h-full group/marker"
+                          style={{ left: `${pct(val)}%`, width: "16px", marginLeft: "-8px" }}
                         >
-                          <span className={`absolute ${bottom ? "-bottom-3.5" : "-top-3.5"} -translate-x-1/2 text-[7px] font-bold ${textColor}`}>{label}</span>
-                          <span className="absolute top-full mt-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-[#0d1117] border border-[#3a4a7f] text-[9px] text-white font-semibold whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
+                          {/* Visible marker line */}
+                          <div className={`absolute left-1/2 -translate-x-1/2 top-0 h-full ${bold ? "w-0.5" : "w-px"} ${color}`} />
+                          {/* Label above or below */}
+                          <span className={`absolute left-1/2 ${bottom ? "-bottom-4" : "-top-4"} -translate-x-1/2 text-[7px] font-bold ${textColor} whitespace-nowrap`}>{label}</span>
+                          {/* Tooltip on hover — appears below the bar */}
+                          <span className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-[#0d1117] border border-[#3a4a7f] text-[10px] text-white font-semibold whitespace-nowrap opacity-0 group-hover/marker:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
                             {label}: ${val.toFixed(2)}
                           </span>
                         </div>
@@ -12485,7 +12489,7 @@
                     };
 
                     return (
-                      <div className="relative h-3.5 rounded bg-[#252b36] overflow-visible mt-1">
+                      <div className="relative h-4 rounded bg-[#252b36] overflow-visible mt-5 mb-5">
                         {/* Fill bar: SL → CP progress */}
                         <div className={`absolute top-0 left-0 h-full rounded ${dir === "LONG" ? "bg-cyan-500/40" : "bg-fuchsia-500/40"}`} style={{ width: `${Math.min(100, fillPct)}%` }} />
                         {/* Price markers with hover tooltips */}
