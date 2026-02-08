@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timed Trading — Model Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] },
+          },
+        },
+      };
+    </script>
+    <style>
+      body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
+      .badge-bull { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+      .badge-bear { background: rgba(244, 63, 94, 0.15); color: #fca5a5; }
+      .badge-neutral { background: rgba(255,255,255,0.05); color: #d6d3d1; }
+      .badge-degraded { background: rgba(251, 191, 36, 0.15); color: #fcd34d; }
+      .badge-active { background: rgba(56, 189, 248, 0.12); color: #93c5fd; }
+      .btn { padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+      .btn-approve { background: #065f46; color: #6ee7b7; border: 1px solid #059669; }
+      .btn-approve:hover { background: #047857; }
+      .btn-reject { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
+      .btn-reject:hover { background: #991b1b; }
+      .btn-secondary { background: #334155; color: #94a3b8; border: 1px solid #475569; }
+      .btn-secondary:hover { background: #475569; }
+      .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
+      .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; }
+      .tab-inactive:hover { color: #9098a8; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+const API_KEY = "AwesomeSauce";
+
+// ─── Data Hooks ──────────────────────────────────────────────────────────────
+
+function useModelData() {
+  const [health, setHealth] = useState(null);
+  const [signals, setSignals] = useState(null);
+  const [patterns, setPatterns] = useState([]);
+  const [proposals, setProposals] = useState([]);
+  const [predictions, setPredictions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [hRes, sRes, pRes, chRes, predRes] = await Promise.all([
+        fetch(`${API_BASE}/timed/model/health`).then(r => r.json()),
+        fetch(`${API_BASE}/timed/model/signals`).then(r => r.json()),
+        fetch(`${API_BASE}/timed/model/patterns?status=active`).then(r => r.json()),
+        fetch(`${API_BASE}/timed/model/changelog?status=proposed&limit=30`).then(r => r.json()),
+        fetch(`${API_BASE}/timed/model/predictions?limit=20`).then(r => r.json()),
+      ]);
+      if (hRes.ok) setHealth(hRes);
+      if (sRes.ok) setSignals(sRes);
+      if (pRes.ok) setPatterns(pRes.patterns || []);
+      if (chRes.ok) setProposals(chRes.changes || []);
+      if (predRes.ok) setPredictions(predRes.predictions || []);
+      setLastRefresh(new Date());
+    } catch (e) {
+      console.error("Failed to fetch model data:", e);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  return { health, signals, patterns, proposals, predictions, loading, lastRefresh, refresh: fetchAll };
+}
+
+// ─── Components ──────────────────────────────────────────────────────────────
+
+function NavHeader() {
+  return (
+    <nav className="flex items-center justify-between px-4 py-2.5 mb-4 border-b border-white/[0.04]">
+      <div className="flex items-center gap-5">
+        <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+        <div className="flex items-center gap-0.5">
+          <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Dashboard</a>
+          <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+          <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Model</a>
+        </div>
+      </div>
+      <div className="text-[11px] text-[#4b5563]">Self-Learning v1</div>
+    </nav>
+  );
+}
+
+function StatCard({ label, value, sub, color }) {
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</div>
+      <div className={`text-2xl font-bold ${color || "text-white"}`}>{value}</div>
+      {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function MarketRegimeCard({ market }) {
+  if (!market) return null;
+  const regimeColors = {
+    STRONG_BULL: "text-emerald-400",
+    MILD_BULL: "text-emerald-300",
+    NEUTRAL: "text-slate-300",
+    MILD_BEAR: "text-red-300",
+    STRONG_BEAR: "text-red-400",
+  };
+  return (
+    <div className="card p-5">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">Market Regime</div>
+      <div className={`text-3xl font-bold ${regimeColors[market.signal] || "text-white"}`}>
+        {market.signal?.replace(/_/g, " ")}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+        <div>
+          <span className="text-slate-400">Breadth</span>
+          <div className="font-semibold text-emerald-400">{market.breadthBullPct}% Bull</div>
+        </div>
+        <div>
+          <span className="text-slate-400">Tickers</span>
+          <div className="font-semibold">{market.totalTickers}</div>
+        </div>
+        <div>
+          <span className="text-slate-400">Bear</span>
+          <div className="font-semibold text-red-400">{market.bearish}</div>
+        </div>
+      </div>
+      {market.riskFlag && (
+        <div className="mt-3 p-2 rounded-lg bg-amber-900/30 border border-amber-700/50 text-amber-300 text-xs">
+          {market.riskFlag}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectorTable({ sectors }) {
+  if (!sectors || sectors.length === 0) return null;
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Sector Signals</div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-slate-500 text-xs">
+              <th className="text-left py-1 pr-4">Sector</th>
+              <th className="text-right py-1 px-2">Total</th>
+              <th className="text-right py-1 px-2">Bull</th>
+              <th className="text-right py-1 px-2">Bear</th>
+              <th className="text-right py-1 px-2">Breadth</th>
+              <th className="text-left py-1 pl-3">Regime</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sectors.map(s => (
+              <tr key={s.sector} className="border-t border-white/[0.06]/50">
+                <td className="py-1.5 pr-4 font-medium">{s.sector}</td>
+                <td className="text-right py-1.5 px-2 text-slate-400">{s.total}</td>
+                <td className="text-right py-1.5 px-2 text-emerald-400">{s.bullish}</td>
+                <td className="text-right py-1.5 px-2 text-red-400">{s.bearish}</td>
+                <td className="text-right py-1.5 px-2">{s.breadthBullPct}%</td>
+                <td className="py-1.5 pl-3">
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                    s.regime === "BULLISH" ? "badge-bull" : s.regime === "BEARISH" ? "badge-bear" : "badge-neutral"
+                  }`}>{s.regime}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function TickerSignals({ tickers }) {
+  if (!tickers || tickers.length === 0) return null;
+  const bull = tickers.filter(t => t.direction === "BULLISH").slice(0, 15);
+  const bear = tickers.filter(t => t.direction === "BEARISH").slice(0, 15);
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Ticker Signals</div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <div className="text-xs font-semibold text-emerald-400 mb-2">BULLISH ({bull.length})</div>
+          <div className="space-y-1">
+            {bull.map(t => (
+              <div key={t.ticker} className="flex items-center justify-between text-xs bg-emerald-900/20 rounded px-2 py-1">
+                <span className="font-semibold">{t.ticker}</span>
+                <span className="text-slate-400">{t.state?.replace("HTF_","").replace("LTF_","")}</span>
+                <span className="text-emerald-400">+{t.netSignal.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-red-400 mb-2">BEARISH ({bear.length})</div>
+          <div className="space-y-1">
+            {bear.length === 0 ? (
+              <div className="text-xs text-slate-500 italic">No bearish signals currently</div>
+            ) : bear.map(t => (
+              <div key={t.ticker} className="flex items-center justify-between text-xs bg-red-900/20 rounded px-2 py-1">
+                <span className="font-semibold">{t.ticker}</span>
+                <span className="text-slate-400">{t.state?.replace("HTF_","").replace("LTF_","")}</span>
+                <span className="text-red-400">{t.netSignal.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PatternLibrary({ patterns }) {
+  if (!patterns || patterns.length === 0) return null;
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Pattern Library ({patterns.length} active)</div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-slate-500 text-xs">
+              <th className="text-left py-1 pr-3">Pattern</th>
+              <th className="text-left py-1 px-2">Dir</th>
+              <th className="text-right py-1 px-2">Hit Rate</th>
+              <th className="text-right py-1 px-2">N</th>
+              <th className="text-right py-1 px-2">EV</th>
+              <th className="text-right py-1 px-2">Conf</th>
+              <th className="text-left py-1 pl-2">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {patterns.map(p => (
+              <tr key={p.pattern_id} className="border-t border-white/[0.06]/50">
+                <td className="py-1.5 pr-3 font-medium text-xs">{p.name}</td>
+                <td className="py-1.5 px-2">
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
+                    p.expected_direction === "UP" ? "badge-bull" : p.expected_direction === "DOWN" ? "badge-bear" : "badge-neutral"
+                  }`}>{p.expected_direction || "—"}</span>
+                </td>
+                <td className="text-right py-1.5 px-2">{(p.hit_rate * 100).toFixed(0)}%</td>
+                <td className="text-right py-1.5 px-2 text-slate-400">{p.sample_count}</td>
+                <td className={`text-right py-1.5 px-2 ${p.expected_value > 0 ? "text-emerald-400" : p.expected_value < 0 ? "text-red-400" : ""}`}>
+                  {p.expected_value > 0 ? "+" : ""}{p.expected_value}
+                </td>
+                <td className="text-right py-1.5 px-2">{(p.confidence * 100).toFixed(0)}%</td>
+                <td className="py-1.5 pl-2">
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
+                    p.status === "active" ? "badge-active" : p.status === "degraded" ? "badge-degraded" : "badge-neutral"
+                  }`}>{p.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ProposalsPanel({ proposals, onRefresh }) {
+  const [processing, setProcessing] = useState({});
+
+  async function handleAction(changeId, action) {
+    setProcessing(prev => ({ ...prev, [changeId]: action }));
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/model-approve?key=${API_KEY}&change_id=${encodeURIComponent(changeId)}&action=${action}`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        onRefresh();
+      } else {
+        alert(`Failed: ${data.error}`);
+      }
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+    }
+    setProcessing(prev => { const n = {...prev}; delete n[changeId]; return n; });
+  }
+
+  if (!proposals || proposals.length === 0) {
+    return (
+      <div className="card p-4">
+        <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">Pending Proposals</div>
+        <div className="text-sm text-slate-500 italic">No pending proposals</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-xs text-slate-400 uppercase tracking-wide">
+          Pending Proposals ({proposals.length})
+        </div>
+      </div>
+      <div className="space-y-2">
+        {proposals.map(p => (
+          <div key={p.change_id} className="bg-slate-800/50 rounded-lg p-3 border border-white/[0.06]/50">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1">
+                <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-semibold mr-2 ${
+                  p.change_type.includes("degrade") ? "badge-bear" :
+                  p.change_type.includes("promote") ? "badge-bull" :
+                  p.change_type.includes("add") ? "badge-active" :
+                  "badge-neutral"
+                }`}>{p.change_type}</span>
+                <span className="text-xs text-slate-300">{p.description}</span>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button
+                  className="btn btn-approve text-xs"
+                  disabled={!!processing[p.change_id]}
+                  onClick={() => handleAction(p.change_id, "approve")}
+                >
+                  {processing[p.change_id] === "approve" ? "..." : "Approve"}
+                </button>
+                <button
+                  className="btn btn-reject text-xs"
+                  disabled={!!processing[p.change_id]}
+                  onClick={() => handleAction(p.change_id, "reject")}
+                >
+                  {processing[p.change_id] === "reject" ? "..." : "Reject"}
+                </button>
+              </div>
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              {new Date(p.proposed_at).toLocaleDateString()} {new Date(p.proposed_at).toLocaleTimeString()}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RecentPredictions({ predictions }) {
+  if (!predictions || predictions.length === 0) {
+    return (
+      <div className="card p-4">
+        <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">Recent Predictions</div>
+        <div className="text-sm text-slate-500 italic">No predictions logged yet. Predictions will appear after the next market session.</div>
+      </div>
+    );
+  }
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-3">Recent Predictions ({predictions.length})</div>
+      <div className="space-y-1">
+        {predictions.map(p => (
+          <div key={p.prediction_id} className="flex items-center justify-between text-xs bg-slate-800/50 rounded px-3 py-2">
+            <span className="font-semibold w-16">{p.ticker}</span>
+            <span className={`px-1.5 py-0.5 rounded font-semibold ${p.direction === "UP" ? "badge-bull" : "badge-bear"}`}>
+              {p.direction}
+            </span>
+            <span className="text-slate-400">{p.trigger_type}</span>
+            <span className="text-slate-400">{p.state?.replace("HTF_","").replace("LTF_","")}</span>
+            <span className={`font-semibold ${p.resolved ? "text-slate-400" : "text-blue-400"}`}>
+              {p.resolved ? "Resolved" : "Open"}
+            </span>
+            <span className="text-slate-500 w-20 text-right">{new Date(p.ts).toLocaleDateString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ────────────────────────────────────────────────────────────────
+
+function App() {
+  const { health, signals, patterns, proposals, predictions, loading, lastRefresh, refresh } = useModelData();
+  const [tab, setTab] = useState("overview");
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <NavHeader />
+
+      {/* Sub-navigation */}
+      <div className="border-b border-white/[0.06] px-6 flex items-center justify-between">
+        <div className="flex gap-6">
+          {["overview", "patterns", "proposals", "predictions"].map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`py-3 text-sm font-medium capitalize ${tab === t ? "tab-active" : "tab-inactive"}`}
+            >
+              {t}
+              {t === "proposals" && proposals.length > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-600 text-white text-xs">
+                  {proposals.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          {lastRefresh && <span className="text-xs text-slate-500">Updated {lastRefresh.toLocaleTimeString()}</span>}
+          <button onClick={refresh} disabled={loading} className="btn btn-secondary text-xs">
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 p-6 overflow-y-auto">
+        {loading && !health ? (
+          <div className="flex items-center justify-center h-64 text-slate-400">Loading model data...</div>
+        ) : (
+          <>
+            {tab === "overview" && (
+              <div className="space-y-6">
+                {/* Health stats row */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <StatCard label="Predictions" value={health?.predictions?.total || 0} sub={`${health?.predictions?.open || 0} open`} />
+                  <StatCard
+                    label="Hit Rate"
+                    value={health?.outcomes?.total > 0 ? `${health.outcomes.hitRate}%` : "—"}
+                    sub={health?.outcomes?.total > 0 ? `${health.outcomes.hits}/${health.outcomes.total}` : "No outcomes yet"}
+                    color={health?.outcomes?.hitRate > 60 ? "text-emerald-400" : health?.outcomes?.hitRate > 40 ? "text-amber-400" : "text-red-400"}
+                  />
+                  <StatCard label="Active Patterns" value={health?.patterns?.active || 0} sub={health?.patterns?.degraded > 0 ? `${health.patterns.degraded} degraded` : "All healthy"} />
+                  <StatCard
+                    label="Pending Proposals"
+                    value={proposals.length}
+                    sub={proposals.length > 0 ? "Review needed" : "None"}
+                    color={proposals.length > 0 ? "text-amber-400" : "text-slate-300"}
+                  />
+                </div>
+
+                {/* Market + Sectors */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <MarketRegimeCard market={signals?.market} />
+                  <div className="lg:col-span-2">
+                    <SectorTable sectors={signals?.sector} />
+                  </div>
+                </div>
+
+                {/* Ticker Signals */}
+                <TickerSignals tickers={signals?.ticker} />
+              </div>
+            )}
+
+            {tab === "patterns" && (
+              <PatternLibrary patterns={patterns} />
+            )}
+
+            {tab === "proposals" && (
+              <ProposalsPanel proposals={proposals} onRefresh={refresh} />
+            )}
+
+            {tab === "predictions" && (
+              <RecentPredictions predictions={predictions} />
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

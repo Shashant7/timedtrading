@@ -1,6 +1,8 @@
 # Timed Trading CloudFlare Worker
 
-This CloudFlare Worker handles data ingestion from TradingView alerts, stores data in KV, and sends Discord notifications when trading opportunities are detected.
+Handles data ingestion from TradingView alerts, stores data in KV and D1, runs paper-trade simulation (Kanban-driven), and sends Discord notifications when opportunities meet criteria.
+
+**Modules**: `storage.js`, `ingest.js`, `trading.js`, `api.js`, `alerts.js`
 
 ## Setup
 

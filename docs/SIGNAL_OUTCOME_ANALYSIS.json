@@ -1,0 +1,74 @@
+{
+  "overview": {
+    "totalTrades": 0,
+    "uniqueTickers": 0,
+    "wins": 0,
+    "losses": 0,
+    "openPositions": 0,
+    "winRate": 0
+  },
+  "pnlDistribution": {
+    "winners": null,
+    "losers": null,
+    "all": null
+  },
+  "holdTime": {
+    "winners": null,
+    "losers": null
+  },
+  "entryPaths": {},
+  "directionAnalysis": {
+    "LONG": {
+      "total": 0,
+      "wins": 0,
+      "losses": 0,
+      "avgPnl": 0,
+      "winRate": 0
+    },
+    "SHORT": {
+      "total": 0,
+      "wins": 0,
+      "losses": 0,
+      "avgPnl": 0,
+      "winRate": 0
+    }
+  },
+  "exitReasons": {},
+  "scoreAtEntry": {
+    "winners": null,
+    "losers": null
+  },
+  "tickerPerformance": {},
+  "goldPatternInsights": {
+    "upMoves": {
+      "totalSampled": 0,
+      "topState": null,
+      "medianHTF": null,
+      "medianLTF": null,
+      "medianCompletion": null,
+      "topTriggers": []
+    },
+    "downMoves": {
+      "totalSampled": 0,
+      "topState": null,
+      "medianHTF": null,
+      "medianLTF": null,
+      "medianCompletion": null,
+      "topTriggers": []
+    }
+  },
+  "historicalMoverInsights": {
+    "bigUpMovers": 0,
+    "bigDownMovers": 0,
+    "topUpTickers": [],
+    "topDownTickers": []
+  },
+  "recommendations": [
+    {
+      "area": "EXIT_LOGIC",
+      "severity": "HIGH",
+      "finding": "Win rate is 0% - too many losing trades",
+      "recommendation": "SL is likely too tight, causing normal retracements to trigger stops. Widen SL or use time-based exits."
+    }
+  ]
+}

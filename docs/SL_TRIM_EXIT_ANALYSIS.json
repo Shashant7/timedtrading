@@ -1,0 +1,169 @@
+{
+  "generated": "2026-02-06T19:07:08.817Z",
+  "totalTrajectories": 227,
+  "categories": {
+    "winners": 71,
+    "smallWins": 51,
+    "losers": 105
+  },
+  "winnersStats": {
+    "mfe": {
+      "n": 71,
+      "min": 1.525,
+      "p10": 1.774,
+      "p25": 1.968,
+      "med": 3.175,
+      "p75": 4.744,
+      "p90": 6.454,
+      "max": 10.173,
+      "avg": 3.698
+    },
+    "mae": {
+      "n": 71,
+      "min": 0,
+      "p10": 0,
+      "p25": 0,
+      "med": 0.3,
+      "p75": 1.21,
+      "p90": 2.801,
+      "max": 16.46,
+      "avg": 1.413
+    },
+    "mfeTimeMin": {
+      "n": 71,
+      "min": 5,
+      "p10": 13,
+      "p25": 85,
+      "med": 110,
+      "p75": 170,
+      "p90": 190,
+      "max": 232,
+      "avg": 119.451
+    },
+    "giveBackPct": {
+      "n": 71,
+      "min": 0,
+      "p10": 0,
+      "p25": 6.2,
+      "med": 20,
+      "p75": 51.1,
+      "p90": 150,
+      "max": 875,
+      "avg": 80.231
+    },
+    "endPnl": {
+      "n": 71,
+      "min": -15.069,
+      "p10": -1.347,
+      "p25": 1.187,
+      "med": 2.332,
+      "p75": 3.95,
+      "p90": 5.571,
+      "max": 8.2,
+      "avg": 1.785
+    }
+  },
+  "smallWinsStats": {
+    "mfe": {
+      "n": 51,
+      "min": 0.502,
+      "p10": 0.601,
+      "p25": 0.732,
+      "med": 0.907,
+      "p75": 1.136,
+      "p90": 1.27,
+      "max": 1.457,
+      "avg": 0.924
+    },
+    "mae": {
+      "n": 51,
+      "min": 0,
+      "p10": 0,
+      "p25": 0.046,
+      "med": 0.797,
+      "p75": 2.822,
+      "p90": 5.512,
+      "max": 13.542,
+      "avg": 1.938
+    }
+  },
+  "losersStats": {
+    "mfe": {
+      "n": 105,
+      "min": 0,
+      "p10": 0,
+      "p25": 0.019,
+      "med": 0.163,
+      "p75": 0.317,
+      "p90": 0.407,
+      "max": 0.489,
+      "avg": 0.178
+    },
+    "mae": {
+      "n": 105,
+      "min": 0,
+      "p10": 0.25,
+      "p25": 0.532,
+      "med": 1.662,
+      "p75": 5.272,
+      "p90": 8.316,
+      "max": 16.161,
+      "avg": 3.15
+    }
+  },
+  "recommendations": {
+    "initialSL": 3.36,
+    "trim1Pct": 1.97,
+    "trim2Pct": 3.17,
+    "trailActivationMin": 85,
+    "trailDistance": 2.02,
+    "finalExitMfe": 6.45
+  },
+  "slSimulation": [
+    {
+      "level": 0.3,
+      "winnersStoppedPct": 50.7,
+      "losersStoppedPct": 88.6
+    },
+    {
+      "level": 0.5,
+      "winnersStoppedPct": 42.3,
+      "losersStoppedPct": 76.2
+    },
+    {
+      "level": 0.75,
+      "winnersStoppedPct": 35.2,
+      "losersStoppedPct": 64.8
+    },
+    {
+      "level": 1,
+      "winnersStoppedPct": 31,
+      "losersStoppedPct": 62.9
+    },
+    {
+      "level": 1.25,
+      "winnersStoppedPct": 22.5,
+      "losersStoppedPct": 59
+    },
+    {
+      "level": 1.5,
+      "winnersStoppedPct": 22.5,
+      "losersStoppedPct": 51.4
+    },
+    {
+      "level": 2,
+      "winnersStoppedPct": 14.1,
+      "losersStoppedPct": 45.7
+    },
+    {
+      "level": 2.5,
+      "winnersStoppedPct": 12.7,
+      "losersStoppedPct": 40
+    },
+    {
+      "level": 3,
+      "winnersStoppedPct": 9.9,
+      "losersStoppedPct": 36.2
+    }
+  ]
+}

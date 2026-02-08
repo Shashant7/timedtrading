@@ -1,0 +1,2038 @@
+//@version=6
+indicator("TimedTrading Unified", overlay=false, max_labels_count=50)
+
+// Script version for data model versioning
+// 3.0.0 - Unified script combining ScoreEngine + Heartbeat
+//       - Always sends every 5 minutes (basing = valuable signal)
+//       - Includes context, multi-TF candles, session info
+//       - Single endpoint for all data
+SCRIPT_VERSION = "3.0.0"
+
+//─────────────────────────────────────────────────────────────────────────────
+// Inputs
+//─────────────────────────────────────────────────────────────────────────────
+groupAxes = "Axes & Timeframes"
+tfM   = input.string("1M", "HTF #0 (Monthly)", group=groupAxes)
+tfW   = input.string("W",   "HTF #1 (Weekly)", group=groupAxes)
+tfD   = input.string("D",   "HTF #2 (Daily)",  group=groupAxes)
+tf4H  = input.string("240", "HTF #3 (4H)",     group=groupAxes)
+
+tf30  = input.string("30", "LTF #1 (30m)", group=groupAxes)
+tf10  = input.string("10", "LTF #2 (10m)", group=groupAxes)
+tf5   = input.string("5",  "LTF #3 (5m)",  group=groupAxes)
+tf1H  = input.string("60", "LTF #4 (1H Mid)", group=groupAxes)
+
+// Base weights (will be adjusted by volatility / session)
+wM  = input.float(0.15, "HTF Monthly base weight", group=groupAxes, minval=0, maxval=1)
+wW  = input.float(0.40, "HTF Weekly base weight",  group=groupAxes, minval=0, maxval=1)
+wD  = input.float(0.25, "HTF Daily base weight",   group=groupAxes, minval=0, maxval=1)
+w4H = input.float(0.20, "HTF 4H base weight",      group=groupAxes, minval=0, maxval=1)
+
+w30 = input.float(0.45, "LTF 30m base weight", group=groupAxes, minval=0, maxval=1)
+w10 = input.float(0.20, "LTF 10m base weight", group=groupAxes, minval=0, maxval=1)
+w5  = input.float(0.15, "LTF 5m base weight",  group=groupAxes, minval=0, maxval=1)
+w1H = input.float(0.20, "LTF 1H base weight",  group=groupAxes, minval=0, maxval=1)
+
+// Adaptive features
+useVolatilityAdjust = input.bool(true, "Volatility-adjusted weights", group=groupAxes)
+useSessionAware = input.bool(true, "Session-aware LTF weights (RTH)", group=groupAxes)
+useAssetAdaptive = input.bool(true, "Asset-class adaptive timeframes", group=groupAxes)
+
+groupST = "SuperTrend (Phoenix default)"
+stLen   = input.int(10, "ST ATR Length", group=groupST, minval=1)
+stFac   = input.float(3.0, "ST Factor",  group=groupST, minval=0.1, step=0.1)
+
+groupEMA = "EMAs (Phoenix default)"
+emaFastLen = input.int(13,  "Fast EMA", group=groupEMA, minval=1)
+emaSlowLen = input.int(48, "Slow EMA", group=groupEMA, minval=1)
+
+groupSqueeze = "TTM Squeeze"
+sqLen   = input.int(20,   "Squeeze length", group=groupSqueeze, minval=5)
+bbMult  = input.float(2.0,"BB stdev mult",  group=groupSqueeze, step=0.1)
+kcMult  = input.float(1.5,"KC ATR mult",    group=groupSqueeze, step=0.1)
+momLen  = input.int(20,   "Momentum len (linreg)", group=groupSqueeze, minval=5)
+
+groupGG = "Golden Gate (Distance-based)"
+useGoldenGate = input.bool(true, "Include Golden Gate in LTF score", group=groupGG)
+ggATRmult      = input.float(0.382, "GG ATR mult (PC ± mult*ATRd)", group=groupGG, step=0.001)
+ggDistanceMode = input.bool(true, "Distance-based GG (vs binary cross)", group=groupGG)
+
+groupPhase = "Phase (Multi-factor)"
+phaseExitAbs = input.float(61.8, "Phase band (|osc|) reference", group=groupPhase, step=0.1)
+phaseMaxAbs  = input.float(100.0,"Phase max for % (cap)", group=groupPhase, step=0.1)
+useMultiFactorPhase = input.bool(true, "Multi-factor phase (price+momentum+volume)", group=groupPhase)
+usePhaseZones = input.bool(true, "Graduated phase zones", group=groupPhase)
+
+groupTP = "TP/SL (Dynamic)"
+expMoveATRx = input.float(2.0, "Expected move = ATRw × (swing)", group=groupTP, step=0.1, minval=0.1)
+useDynamicTP = input.bool(true, "Dynamic TP based on swing size", group=groupTP)
+useEnhancedTP = input.bool(true, "Enhanced TP: ATR ladder levels", group=groupTP)
+minTPDistanceATR = input.float(1.0, "Min TP distance from trigger (ATR multiple)", group=groupTP, step=0.1, minval=0.5)
+useVolatilitySL = input.bool(true, "Volatility-adjusted SL", group=groupTP)
+usePivotSR = input.bool(true, "Pivot-based S/R integration", group=groupTP)
+pivotLookback = input.int(5, "Pivot lookback", group=groupTP, minval=3, maxval=10)
+
+// Intelligent TP Features
+groupIntelligentTP = "TP: Intelligent Features"
+useChartPatterns = input.bool(true, "Chart Patterns & Measured Moves", group=groupIntelligentTP)
+useHTFStructure = input.bool(true, "HTF Structure (Highs/Lows)", group=groupIntelligentTP)
+useLiquidityZones = input.bool(true, "Buyside/Sellside Liquidity", group=groupIntelligentTP)
+useFVG = input.bool(true, "Fair Value Gap (FVG) Analysis", group=groupIntelligentTP)
+useGapAnalysis = input.bool(true, "Open Gap Analysis", group=groupIntelligentTP)
+
+liquidityTolerance = input.float(0.5, "Liquidity zone tolerance (% of ATR)", group=groupIntelligentTP, step=0.1, minval=0.1)
+fvgMinSize = input.float(0.3, "FVG min size (ATR multiple)", group=groupIntelligentTP, step=0.1, minval=0.1)
+gapMinSize = input.float(0.5, "Gap min size (ATR multiple)", group=groupIntelligentTP, step=0.1, minval=0.1)
+
+groupAlerts = "Alerts (5-Minute Unified)"
+// UNIFIED: Always send on every bar close when running on 5-min timeframe
+// Even "no change" is valuable - it shows the ticker is basing
+alwaysSendEveryBar = input.bool(true, "Always send every bar (recommended)", group=groupAlerts, tooltip="Send data on every bar close. Basing (no change) is a valuable signal.")
+bypassSessionCheck = input.bool(true, "Bypass Session Check", group=groupAlerts, tooltip="Recommended: true for unified 5-min operation")
+debugHeartbeat = input.bool(false, "DEBUG: Show payload on chart", group=groupAlerts)
+
+// Context settings (from Heartbeat)
+groupContext = "Context & Candles"
+includeContext = input.bool(true, "Include company context (throttled)", group=groupContext)
+contextEveryHours = input.int(4, "Context cadence (hours)", minval=1, maxval=24, group=groupContext)
+includeCandles = input.bool(true, "Include multi-TF candles", group=groupContext)
+
+// For backward compatibility, keep these but default to values that enable always-send
+scoreDelta = 0.0  // Always send
+minMinutesBetweenSends = 0  // No throttle
+forceBaseline = true  // Force send
+periodicUpdateMinutes = 5  // Legacy compatibility
+
+//─────────────────────────────────────────────────────────────────────────────
+// Utils
+//─────────────────────────────────────────────────────────────────────────────
+clamp(x, lo, hi) => math.max(lo, math.min(hi, x))
+prevBoolSeries(b) => bar_index > 0 ? b[1] : false
+
+f_fmt(x, dec) =>
+    string out = ""
+    if dec <= 0
+        out := str.tostring(math.round(x))
+    else
+        out := str.tostring(math.round(x * math.pow(10, dec)) / math.pow(10, dec))
+    out
+
+// Helpers for compact per-timeframe technical summaries (avoid arrays to reduce memory)
+// Phase dot codes (int):
+// 0 none, 1 P100, 2 P618, 3 N618, 4 N100
+f_phase_dot_code_i(float prev, float curr) =>
+    if na(prev) or na(curr)
+        0
+    else if prev >= 100 and curr < 100
+        1
+    else if prev >= 61.8 and curr < 61.8
+        2
+    else if prev <= -61.8 and curr > -61.8
+        3
+    else if prev <= -100 and curr > -100
+        4
+    else
+        0
+
+// Phase zone codes to string (only build strings when sending)
+f_phase_zone_str(int z) =>
+    z == 3 ? "EXTREME" : z == 2 ? "HIGH" : z == 1 ? "MEDIUM" : "LOW"
+
+f_i(int v) =>
+    na(v) ? "null" : str.tostring(v)
+
+f_i_arr2(int a, int b) =>
+    "[" + f_i(a) + "," + f_i(b) + "]"
+
+f_i_arr5(int a, int b, int c, int d, int e) =>
+    "[" + f_i(a) + "," + f_i(b) + "," + f_i(c) + "," + f_i(d) + "," + f_i(e) + "]"
+
+// Asset class detection
+f_is_crypto() =>
+    ticker = syminfo.ticker
+    str.contains(ticker, "USD") or str.contains(ticker, "USDT") or str.contains(ticker, "BTC") or str.contains(ticker, "ETH")
+
+f_is_futures() =>
+    str.contains(syminfo.ticker, "1!")
+
+f_is_forex() =>
+    str.contains(syminfo.ticker, "DXY") or str.contains(syminfo.ticker, "EUR") or str.contains(syminfo.ticker, "GBP")
+
+// Session detection (for equities)
+// Note: TradingView Watchlist Alerts are restricted during extended hours for equities (platform limitation)
+// This session check is mainly for individual chart alerts. Watchlist alerts will be limited by TradingView regardless.
+f_is_rth() =>
+    hour(time, "America/New_York") >= 9 and hour(time, "America/New_York") < 16
+
+// Check if current session allows alerts
+f_is_allowed_session() =>
+    // Bypass option for individual chart alerts (doesn't affect TradingView's watchlist alert restrictions)
+    if bypassSessionCheck
+        true
+    // Crypto, futures, forex: always allow (24/7 trading)
+    else if f_is_crypto() or f_is_futures() or f_is_forex()
+        true
+    else
+        // Equities: Allow during Regular Trading Hours (9am-4pm ET)
+        // Extended hours (4am-9am, 4pm-8pm) may work for individual chart alerts but not watchlist alerts
+        // This is a TradingView platform limitation, not a script limitation
+        f_is_rth()
+
+//─────────────────────────────────────────────────────────────────────────────
+// UNIFIED: Context Data (from Heartbeat) - Company info, session, ADR, avg volume
+//─────────────────────────────────────────────────────────────────────────────
+// TechnicalRating library removed to save request.security calls
+
+// JSON escape helper
+f_json_escape(s) =>
+    x = str.tostring(s)
+    x := str.replace_all(x, "\\", "\\\\")
+    x := str.replace_all(x, "\"", "\\\"")
+    x := str.replace_all(x, "\n", "\\n")
+    x := str.replace_all(x, "\r", "r")
+    x
+
+// Context throttle state
+var int lastContextSentTs = na
+contextCadenceMs = contextEveryHours * 60 * 60 * 1000
+shouldSendContext = includeContext and (na(lastContextSentTs) or (time - lastContextSentTs >= contextCadenceMs))
+
+// Session info (RTH vs Extended)
+isRthSession = f_is_rth()
+sessionStr = isRthSession ? "RTH" : "EXT"
+
+// Average volume and ADR will be merged into f_daily_anchors() to save request.security calls
+
+// Multi-TF candle helper
+f_candle(tf) =>
+    [o, h, l, c, v, tc] = request.security(syminfo.tickerid, tf, [open, high, low, close, volume, time_close], barmerge.gaps_off, barmerge.lookahead_off)
+    [o, h, l, c, v, tc]
+
+f_num(x) => na(x) ? "null" : str.tostring(x)
+
+//─────────────────────────────────────────────────────────────────────────────
+// DAILY anchors (Golden Gate) - Combined to reduce request.security calls
+// CONSOLIDATED: Also includes avgVol30D and adr14D to save 2 request.security calls
+//─────────────────────────────────────────────────────────────────────────────
+f_daily_anchors() =>
+    [close[1], ta.atr(14), ta.sma(volume, 30), ta.sma(high - low, 14)]
+[dailyClose, dailyATR, avgVol30D, adr14D] = request.security(syminfo.tickerid, "D", f_daily_anchors(), barmerge.gaps_off, barmerge.lookahead_off)
+PCd  = dailyClose
+ATRd = dailyATR
+GGup = PCd + ggATRmult * ATRd
+GGdn = PCd - ggATRmult * ATRd
+
+//─────────────────────────────────────────────────────────────────────────────
+// WEEKLY anchors (Swing mode: 1–4 weeks) - Combined to reduce request.security calls
+//─────────────────────────────────────────────────────────────────────────────
+f_weekly_anchors() =>
+    [close[1], ta.atr(14), ta.highest(high, 20), ta.lowest(low, 20)]
+[weeklyClose, weeklyATR, weeklyHigh, weeklyLow] = request.security(syminfo.tickerid, "W", f_weekly_anchors(), barmerge.gaps_off, barmerge.lookahead_off)
+PCw  = weeklyClose
+ATRw = weeklyATR
+recentSwingHighW = weeklyHigh
+recentSwingLowW  = weeklyLow
+recentSwingW = recentSwingHighW - recentSwingLowW
+
+// 4H anchors (for Position/Swing ATR levels) - Combined to reduce request.security calls
+f_4h_anchors() =>
+    [close[1], ta.atr(14)]
+[fourHClose, fourHATR] = request.security(syminfo.tickerid, "240", f_4h_anchors(), barmerge.gaps_off, barmerge.lookahead_off)
+PC4H  = fourHClose
+ATR4H = fourHATR
+
+//─────────────────────────────────────────────────────────────────────────────
+// EMA Cloud Calculations (for holding winners logic)
+//─────────────────────────────────────────────────────────────────────────────
+// Daily: 5-8 EMA Cloud
+f_daily_ema_cloud() =>
+    ema5 = ta.ema(close, 5)
+    ema8 = ta.ema(close, 8)
+    upperEMA = math.max(ema5, ema8)
+    lowerEMA = math.min(ema5, ema8)
+    currentPrice = close
+    // Determine position: "above", "below", or "within"
+    position = currentPrice > upperEMA ? "above" : currentPrice < lowerEMA ? "below" : "within"
+    [upperEMA, lowerEMA, currentPrice, position]
+
+[dailyEMAUpper, dailyEMALower, dailyPrice, dailyEMAPosition] = request.security(syminfo.tickerid, "D", f_daily_ema_cloud(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// 4H: 8-13 EMA Cloud
+f_4h_ema_cloud() =>
+    ema8 = ta.ema(close, 8)
+    ema13 = ta.ema(close, 13)
+    upperEMA = math.max(ema8, ema13)
+    lowerEMA = math.min(ema8, ema13)
+    currentPrice = close
+    // Determine position: "above", "below", or "within"
+    position = currentPrice > upperEMA ? "above" : currentPrice < lowerEMA ? "below" : "within"
+    [upperEMA, lowerEMA, currentPrice, position]
+
+[fourHEMAUpper, fourHEMALower, fourHPrice, fourHEMAPosition] = request.security(syminfo.tickerid, "240", f_4h_ema_cloud(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// 1H: 13-21 EMA Cloud
+f_1h_ema_cloud() =>
+    ema13 = ta.ema(close, 13)
+    ema21 = ta.ema(close, 21)
+    upperEMA = math.max(ema13, ema21)
+    lowerEMA = math.min(ema13, ema21)
+    currentPrice = close
+    // Determine position: "above", "below", or "within"
+    position = currentPrice > upperEMA ? "above" : currentPrice < lowerEMA ? "below" : "within"
+    [upperEMA, lowerEMA, currentPrice, position]
+
+[oneHEMAUpper, oneHEMALower, oneHPrice, oneHEMAPosition] = request.security(syminfo.tickerid, "60", f_1h_ema_cloud(), barmerge.gaps_off, barmerge.lookahead_off)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Ichimoku (HTF regime gate)
+//─────────────────────────────────────────────────────────────────────────────
+f_ichimoku_state() =>
+    // Classic Ichimoku lines (not displaced; regime-only)
+    tenkan = (ta.highest(high, 9) + ta.lowest(low, 9)) / 2.0
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2.0
+    spanA  = (tenkan + kijun) / 2.0
+    spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2.0
+    px     = close
+    cloudTop = math.max(spanA, spanB)
+    cloudBot = math.min(spanA, spanB)
+    pos = px > cloudTop ? "above" : px < cloudBot ? "below" : "within"
+    [tenkan, kijun, spanA, spanB, px, pos]
+
+[ichD_tenkan, ichD_kijun, ichD_spanA, ichD_spanB, ichD_price, ichD_pos] = request.security(syminfo.tickerid, "D", f_ichimoku_state(), barmerge.gaps_off, barmerge.lookahead_off)
+[ichW_tenkan, ichW_kijun, ichW_spanA, ichW_spanB, ichW_price, ichW_pos] = request.security(syminfo.tickerid, "W", f_ichimoku_state(), barmerge.gaps_off, barmerge.lookahead_off)
+
+//─────────────────────────────────────────────────────────────────────────────
+// RSI Divergence Detection
+//─────────────────────────────────────────────────────────────────────────────
+// RSI Divergence: Compare price peaks/troughs with RSI peaks/troughs
+// Bullish Divergence: Price makes lower low, RSI makes higher low (bullish signal)
+// Bearish Divergence: Price makes higher high, RSI makes lower high (bearish signal)
+
+f_detect_rsi_divergence(lookback = 20) =>
+    rsi = ta.rsi(close, 14)
+    
+    // Find recent price peaks and troughs (more precise detection)
+    // Look for local peaks/troughs within the lookback period
+    priceHigh = ta.highest(high, lookback)
+    priceLow = ta.lowest(low, lookback)
+    
+    // Find recent RSI peaks and troughs
+    rsiHigh = ta.highest(rsi, lookback)
+    rsiLow = ta.lowest(rsi, lookback)
+    
+    // Find previous period peaks/troughs (for comparison)
+    prevPriceHigh = ta.highest(high[lookback], lookback)
+    prevPriceLow = ta.lowest(low[lookback], lookback)
+    prevRsiHigh = ta.highest(rsi[lookback], lookback)
+    prevRsiLow = ta.lowest(rsi[lookback], lookback)
+    
+    // Bullish Divergence: Price makes lower low, RSI makes higher low
+    // Conditions: Current price low < previous price low AND current RSI low > previous RSI low
+    // Also check that RSI is not in overbought territory (should be < 50 for bullish divergence)
+    bullishDiv = (priceLow < prevPriceLow) and (rsiLow > prevRsiLow) and (rsiLow < 50) and (priceLow == low)
+    
+    // Bearish Divergence: Price makes higher high, RSI makes lower high
+    // Conditions: Current price high > previous price high AND current RSI high < previous RSI high
+    // Also check that RSI is not in oversold territory (should be > 50 for bearish divergence)
+    bearishDiv = (priceHigh > prevPriceHigh) and (rsiHigh < prevRsiHigh) and (rsiHigh > 50) and (priceHigh == high)
+    
+    // Determine divergence type
+    divergenceType = bullishDiv ? "bullish" : bearishDiv ? "bearish" : "none"
+    
+    // Calculate divergence strength (difference in RSI levels)
+    divergenceStrength = bullishDiv ? math.max(0, rsiLow - prevRsiLow) : bearishDiv ? math.max(0, prevRsiHigh - rsiHigh) : 0.0
+    
+    [divergenceType, divergenceStrength, rsi]
+
+[rsiDivType, rsiDivStrength, currentRSI] = f_detect_rsi_divergence(20)
+
+// RSI Level classification
+rsiLevel = currentRSI >= 70 ? "overbought" : currentRSI <= 30 ? "oversold" : currentRSI >= 50 ? "bullish" : "bearish"
+
+//─────────────────────────────────────────────────────────────────────────────
+// Enhanced bundle: includes volume and RSI
+//─────────────────────────────────────────────────────────────────────────────
+f_tf_bundle() =>
+    // Base OHLC context (for per-TF technicals)
+    pc = close[1]
+
+    e5   = ta.ema(close, 5)
+    e8   = ta.ema(close, 8)
+    e13  = ta.ema(close, 13)
+    e21  = ta.ema(close, 21)
+    e48  = ta.ema(close, 48)
+    e89  = ta.ema(close, 89)
+    e200 = ta.ema(close, 200)
+    e233 = ta.ema(close, 233)
+
+    eFast = ta.ema(close, emaFastLen)
+    eSlow = ta.ema(close, emaSlowLen)
+
+    [stLine, stDir] = ta.supertrend(stFac, stLen)
+
+    basis = ta.sma(close, sqLen)
+    dev   = bbMult * ta.stdev(close, sqLen)
+    bbU   = basis + dev
+    bbL   = basis - dev
+    atrKC = ta.atr(sqLen)
+    kcU   = basis + kcMult * atrKC
+    kcL   = basis - kcMult * atrKC
+    sqOn  = (bbU < kcU) and (bbL > kcL)
+    sqPrev = prevBoolSeries(sqOn)
+    sqRel = sqPrev and not sqOn
+
+    mom = ta.linreg(close - ta.sma(close, momLen), momLen, 0)
+    momStd = ta.stdev(mom, 20)
+
+    // Volume
+    vol = volume
+    volSma = ta.sma(vol, 20)
+    volRatio = volSma > 0 ? vol / volSma : 1.0
+
+    // RSI for mean reversion
+    rsi5 = ta.rsi(close, 5)
+    rsi14 = ta.rsi(close, 14)
+
+    // Multi-factor phase
+    piv = ta.ema(close, 21)
+    a14 = ta.atr(14)
+    pricePhase = a14 == 0 ? 0.0 : ((close - piv) / (3.0 * a14)) * 100.0
+    momentumPhase = momStd > 0 ? (mom / momStd) * 20.0 : 0.0
+    volumePhase = (volRatio - 1.0) * 30.0
+    
+    rawPhase = useMultiFactorPhase ? (pricePhase * 0.6) + (momentumPhase * 0.3) + (volumePhase * 0.1) : pricePhase
+    phaseOsc = ta.ema(rawPhase, 3)
+
+    // Phase velocity
+    phaseVelocity = phaseOsc - phaseOsc[1]
+    phaseAccel = phaseVelocity - phaseVelocity[1]
+
+    // Phase zones (INT codes to reduce memory; strings are expensive across request.security calls)
+    // 0 LOW, 1 MEDIUM, 2 HIGH, 3 EXTREME
+    phaseAbs = math.abs(phaseOsc)
+    int phaseZoneI = usePhaseZones ? (phaseAbs > 100 ? 3 : phaseAbs > 61.8 ? 2 : phaseAbs > 38.2 ? 1 : 0) : (phaseAbs > phaseExitAbs ? 2 : 0)
+
+    bbo = 2.0 * ta.stdev(close, 21)
+    bup = piv + bbo
+    bdn = piv - bbo
+    ctU = piv + (2.0 * a14)
+    ctD = piv - (2.0 * a14)
+    exU = piv + (1.854 * a14)
+    exD = piv - (1.854 * a14)
+    above = close >= piv
+    comp  = above ? (bup - ctU) : (ctD - bdn)
+    inExp = above ? (bup - exU) : (exD - bdn)
+    expanding = bar_index > 0 ? (comp[1] <= comp) : false
+    compressed = (not (expanding and inExp > 0)) and (comp <= 0)
+
+    // ATR for volatility
+    atr14 = ta.atr(14)
+    atrSma = ta.sma(atr14, 20)
+    atrRatio = atrSma > 0 ? atr14 / atrSma : 1.0
+
+    // Divergence detection (compact codes): 1 bullish, -1 bearish, 0 none
+    lookbackDiv = 20
+
+    // RSI14 divergence vs price
+    pxLow = ta.lowest(low, lookbackDiv)
+    pxHigh = ta.highest(high, lookbackDiv)
+    prevPxLow = ta.lowest(low[lookbackDiv], lookbackDiv)
+    prevPxHigh = ta.highest(high[lookbackDiv], lookbackDiv)
+    rsiLow = ta.lowest(rsi14, lookbackDiv)
+    rsiHigh = ta.highest(rsi14, lookbackDiv)
+    prevRsiLow = ta.lowest(rsi14[lookbackDiv], lookbackDiv)
+    prevRsiHigh = ta.highest(rsi14[lookbackDiv], lookbackDiv)
+
+    rsiDivBull = (pxLow < prevPxLow) and (rsiLow > prevRsiLow) and (low == pxLow)
+    rsiDivBear = (pxHigh > prevPxHigh) and (rsiHigh < prevRsiHigh) and (high == pxHigh)
+    rsiDiv = rsiDivBull ? 1 : rsiDivBear ? -1 : 0
+
+    // Phase divergence vs price
+    phLow = ta.lowest(phaseOsc, lookbackDiv)
+    phHigh = ta.highest(phaseOsc, lookbackDiv)
+    prevPhLow = ta.lowest(phaseOsc[lookbackDiv], lookbackDiv)
+    prevPhHigh = ta.highest(phaseOsc[lookbackDiv], lookbackDiv)
+
+    phDivBull = (pxLow < prevPxLow) and (phLow > prevPhLow) and (low == pxLow)
+    phDivBear = (pxHigh > prevPxHigh) and (phHigh < prevPhHigh) and (high == pxHigh)
+    phDiv = phDivBull ? 1 : phDivBear ? -1 : 0
+
+    // Phase dot code (int) for this TF
+    dotCode = f_phase_dot_code_i(phaseOsc[1], phaseOsc)
+
+    ggUpCross = ta.crossover(close, GGup)
+    ggDnCross = ta.crossunder(close, GGdn)
+
+    // Distance to Golden Gate
+    ggDist = math.max(0, math.min(1, close >= PCd ? ((close - GGdn) / (GGup - GGdn)) : ((GGup - close) / (GGup - GGdn))))
+
+    [close, pc, e5, e8, e13, e21, e48, e89, e200, e233, eFast, eSlow, stLine, stDir, sqOn, sqRel, mom, momStd, phaseOsc, phaseVelocity, phaseAccel, phaseZoneI, compressed, ggUpCross, ggDnCross, ggDist, volRatio, rsi5, rsi14, rsiDiv, phDiv, dotCode, atrRatio, atr14]
+
+f_get_bundle(tf) =>
+    request.security(syminfo.tickerid, tf, f_tf_bundle(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Pull bundles
+[cM, pcM, e5M, e8M, e13M, e21M, e48M, e89M, e200M, e233M, eFastM, eSlowM, stLM, stDM, sqM, sqRelM, momM, momStdM, phM, phVelM, phAccM, phZoneM_i, compM, ggUpM, ggDnM, ggDistM, volRM, rsi5M, rsi14M, rsiDivM, phDivM, phDotM, atrRM, atr14M] = f_get_bundle(tfM)
+[cW, pcW, e5W, e8W, e13W, e21W, e48W, e89W, e200W, e233W, eFastW, eSlowW, stLW, stDW, sqW, sqRelW, momW, momStdW, phW, phVelW, phAccW, phZoneW_i, compW, ggUpW, ggDnW, ggDistW, volRW, rsi5W, rsi14W, rsiDivW, phDivW, phDotW, atrRW, atr14W] = f_get_bundle(tfW)
+[cD, pcD, e5D, e8D, e13D, e21D, e48D, e89D, e200D, e233D, eFastD, eSlowD, stLD, stDD, sqD, sqRelD, momD, momStdD, phD, phVelD, phAccD, phZoneD_i, compD, ggUpD, ggDnD, ggDistD, volRD, rsi5D, rsi14D, rsiDivD, phDivD, phDotD, atrRD, atr14D] = f_get_bundle(tfD)
+[c4, pc4, e5H, e8H, e13H, e21H, e48H, e89H, e200H, e233H, eFast4, eSlow4, stL4, stD4, sq4, sqRel4, mom4, momStd4, ph4, phVel4, phAcc4, phZone4_i, comp4, ggUp4, ggDn4, ggDist4, volR4, rsi5_4, rsi14_4, rsiDiv4, phDiv4, phDot4, atrR4, atr14_4] = f_get_bundle(tf4H)
+
+[c30, pc30, e5_30, e8_30, e13_30, e21_30, e48_30, e89_30, e200_30, e233_30, eFast30, eSlow30, stL30, stD30, sq30, sqRel30, mom30, momStd30, ph30, phVel30, phAcc30, phZone30_i, comp30, ggUp30, ggDn30, ggDist30, volR30, rsi5_30, rsi14_30, rsiDiv30, phDiv30, phDot30, atrR30, atr14_30] = f_get_bundle(tf30)
+[c10, pc10, e5_10, e8_10, e13_10, e21_10, e48_10, e89_10, e200_10, e233_10, eFast10, eSlow10, stL10, stD10, sq10, sqRel10, mom10, momStd10, ph10, phVel10, phAcc10, phZone10_i, comp10, ggUp10, ggDn10, ggDist10, volR10, rsi5_10, rsi14_10, rsiDiv10, phDiv10, phDot10, atrR10, atr14_10] = f_get_bundle(tf10)
+[c1, pc1, e5_1, e8_1, e13_1, e21_1, e48_1, e89_1, e200_1, e233_1, eFast1, eSlow1, stL1, stD1, sq1, sqRel1, mom1, momStd1, ph1, phVel1, phAcc1, phZone1_i, comp1, ggUp1, ggDn1, ggDist1, volR1, rsi5_1, rsi14_1, rsiDiv1, phDiv1, phDot1, atrR1, atr14_1] = f_get_bundle(tf1H)
+// LTF early timing: 5m bundle (aligned with new data ingestion granularity)
+[c5, pc5, e5_5, e8_5, e13_5, e21_5, e48_5, e89_5, e200_5, e233_5, eFast5, eSlow5, stL5, stD5, sq5, sqRel5, mom5, momStd5, ph5, phVel5, phAcc5, phZone5_i, comp5, ggUp5, ggDn5, ggDist5, volR5, rsi5_5, rsi14_5, rsiDiv5, phDiv5, phDot5, atrR5, atr14_5] = f_get_bundle("5")
+
+//─────────────────────────────────────────────────────────────────────────────
+// Per-timeframe event history (Phase dots + Divergences) — memory-safe
+// Use ta.valuewhen() instead of arrays to stay within Pine memory limits.
+//─────────────────────────────────────────────────────────────────────────────
+
+// Phase dots (last 5, per TF)
+dotW0 = ta.valuewhen(phDotW != 0, phDotW, 0)
+dotW1 = ta.valuewhen(phDotW != 0, phDotW, 1)
+dotW2 = ta.valuewhen(phDotW != 0, phDotW, 2)
+dotW3 = ta.valuewhen(phDotW != 0, phDotW, 3)
+dotW4 = ta.valuewhen(phDotW != 0, phDotW, 4)
+
+dotD0 = ta.valuewhen(phDotD != 0, phDotD, 0)
+dotD1 = ta.valuewhen(phDotD != 0, phDotD, 1)
+dotD2 = ta.valuewhen(phDotD != 0, phDotD, 2)
+dotD3 = ta.valuewhen(phDotD != 0, phDotD, 3)
+dotD4 = ta.valuewhen(phDotD != 0, phDotD, 4)
+
+dot4H0 = ta.valuewhen(phDot4 != 0, phDot4, 0)
+dot4H1 = ta.valuewhen(phDot4 != 0, phDot4, 1)
+dot4H2 = ta.valuewhen(phDot4 != 0, phDot4, 2)
+dot4H3 = ta.valuewhen(phDot4 != 0, phDot4, 3)
+dot4H4 = ta.valuewhen(phDot4 != 0, phDot4, 4)
+
+dot1H0 = ta.valuewhen(phDot1 != 0, phDot1, 0)
+dot1H1 = ta.valuewhen(phDot1 != 0, phDot1, 1)
+dot1H2 = ta.valuewhen(phDot1 != 0, phDot1, 2)
+dot1H3 = ta.valuewhen(phDot1 != 0, phDot1, 3)
+dot1H4 = ta.valuewhen(phDot1 != 0, phDot1, 4)
+
+dot300 = ta.valuewhen(phDot30 != 0, phDot30, 0)
+dot301 = ta.valuewhen(phDot30 != 0, phDot30, 1)
+dot302 = ta.valuewhen(phDot30 != 0, phDot30, 2)
+dot303 = ta.valuewhen(phDot30 != 0, phDot30, 3)
+dot304 = ta.valuewhen(phDot30 != 0, phDot30, 4)
+
+dot100 = ta.valuewhen(phDot10 != 0, phDot10, 0)
+dot101 = ta.valuewhen(phDot10 != 0, phDot10, 1)
+dot102 = ta.valuewhen(phDot10 != 0, phDot10, 2)
+dot103 = ta.valuewhen(phDot10 != 0, phDot10, 3)
+dot104 = ta.valuewhen(phDot10 != 0, phDot10, 4)
+
+// Divergences (last 2, per TF): values are 1 bullish, -1 bearish
+phDivW0 = ta.valuewhen(phDivW != 0, phDivW, 0)
+phDivW1 = ta.valuewhen(phDivW != 0, phDivW, 1)
+rsiDivW0 = ta.valuewhen(rsiDivW != 0, rsiDivW, 0)
+rsiDivW1 = ta.valuewhen(rsiDivW != 0, rsiDivW, 1)
+
+phDivD0 = ta.valuewhen(phDivD != 0, phDivD, 0)
+phDivD1 = ta.valuewhen(phDivD != 0, phDivD, 1)
+rsiDivD0 = ta.valuewhen(rsiDivD != 0, rsiDivD, 0)
+rsiDivD1 = ta.valuewhen(rsiDivD != 0, rsiDivD, 1)
+
+phDiv4H0 = ta.valuewhen(phDiv4 != 0, phDiv4, 0)
+phDiv4H1 = ta.valuewhen(phDiv4 != 0, phDiv4, 1)
+rsiDiv4H0 = ta.valuewhen(rsiDiv4 != 0, rsiDiv4, 0)
+rsiDiv4H1 = ta.valuewhen(rsiDiv4 != 0, rsiDiv4, 1)
+
+phDiv1H0 = ta.valuewhen(phDiv1 != 0, phDiv1, 0)
+phDiv1H1 = ta.valuewhen(phDiv1 != 0, phDiv1, 1)
+rsiDiv1H0 = ta.valuewhen(rsiDiv1 != 0, rsiDiv1, 0)
+rsiDiv1H1 = ta.valuewhen(rsiDiv1 != 0, rsiDiv1, 1)
+
+phDiv300 = ta.valuewhen(phDiv30 != 0, phDiv30, 0)
+phDiv301 = ta.valuewhen(phDiv30 != 0, phDiv30, 1)
+rsiDiv300 = ta.valuewhen(rsiDiv30 != 0, rsiDiv30, 0)
+rsiDiv301 = ta.valuewhen(rsiDiv30 != 0, rsiDiv30, 1)
+
+phDiv100 = ta.valuewhen(phDiv10 != 0, phDiv10, 0)
+phDiv101 = ta.valuewhen(phDiv10 != 0, phDiv10, 1)
+rsiDiv100 = ta.valuewhen(rsiDiv10 != 0, rsiDiv10, 0)
+rsiDiv101 = ta.valuewhen(rsiDiv10 != 0, rsiDiv10, 1)
+
+// 5m phase dots and divergences (for LTF early-timing signals)
+dot50 = ta.valuewhen(phDot5 != 0, phDot5, 0)
+dot51 = ta.valuewhen(phDot5 != 0, phDot5, 1)
+dot52 = ta.valuewhen(phDot5 != 0, phDot5, 2)
+dot53 = ta.valuewhen(phDot5 != 0, phDot5, 3)
+dot54 = ta.valuewhen(phDot5 != 0, phDot5, 4)
+
+phDiv50 = ta.valuewhen(phDiv5 != 0, phDiv5, 0)
+phDiv51 = ta.valuewhen(phDiv5 != 0, phDiv5, 1)
+rsiDiv50 = ta.valuewhen(rsiDiv5 != 0, rsiDiv5, 0)
+rsiDiv51 = ta.valuewhen(rsiDiv5 != 0, rsiDiv5, 1)
+
+// LTF 5m bundle for early-timing triggers (aligned with new data ingestion granularity).
+
+//─────────────────────────────────────────────────────────────────────────────
+// Enhanced HTF Scoring
+//─────────────────────────────────────────────────────────────────────────────
+f_htf_from_bundle(px, ema200, stDir, e5, e8, e13, e21, e48, comp, osc, eFast, eSlow, volRatio, atrRatio) =>
+    // Trend bias (unchanged)
+    trendBias = (px >= ema200 ? 10.0 : -10.0) + (stDir < 0 ? 10.0 : -10.0)
+
+    // GRADUATED STRUCTURE SCORING (not binary)
+    stackScore = 0.0
+    if e5 > e8
+        stackScore += 2.0
+    if e8 > e13
+        stackScore += 2.5
+    if e13 > e21
+        stackScore += 2.5
+    if e21 > e48
+        stackScore += 3.0
+    // Partial stacks get partial credit
+    slope48Up = e48 > e48[1]
+    structure = (stackScore > 0 ? stackScore : (stackScore < 0 ? stackScore : 0.0)) + (slope48Up ? 5.0 : -5.0)
+
+    // MULTI-FACTOR REGIME DETECTION
+    bias = (trendBias >= 0) ? 1 : -1
+    regimeScore = 0.0
+    
+    // Compression factor
+    if comp
+        regimeScore += (bias == 1 ? 5.0 : -5.0)
+    
+    // Phase exhaustion
+    phaseExtreme = math.abs(osc) > phaseExitAbs
+    if phaseExtreme
+        regimeScore -= 3.0
+    
+    // ATR expansion/contraction
+    atrExpansion = atrRatio > 1.1
+    if atrExpansion and not comp
+        regimeScore += 2.0
+    
+    // Volume regime
+    if volRatio > 1.3
+        regimeScore += 1.0
+    if volRatio < 0.7
+        regimeScore -= 0.5
+
+    // Momentum component
+    momC = (eFast >= eSlow) ? 5.0 : -5.0
+    
+    // VOLUME-WEIGHTED MOMENTUM BOOST
+    volBoost = volRatio > 1.2 ? 3.0 : (volRatio < 0.8 ? -2.0 : 0.0)
+    momC += volBoost
+
+    clamp(trendBias + structure + regimeScore + momC, -50, 50)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Enhanced LTF Scoring
+//─────────────────────────────────────────────────────────────────────────────
+f_ltf_from_bundle(px, sqOn, mom, momStd, ggUpCross, ggDnCross, ggDist, e21, e48, e5, e13, stLine, stDir, comp, volRatio, rsi, atrRatio) =>
+    sqPrev = prevBoolSeries(sqOn)
+    release = sqPrev and not sqOn
+    
+    // MOMENTUM-NORMALIZED SQUEEZE RELEASE
+    relDir = release ? (mom >= 0 ? 1 : -1) : 0
+    momStrength = (momStd > 0) ? math.min(1.5, math.abs(mom) / momStd) : 1.0
+    trig = release ? (relDir == 1 ? 8.0 : -8.0) * momStrength : 0.0
+
+    // DISTANCE-BASED GOLDEN GATE (vs binary cross)
+    gg = 0.0
+    if useGoldenGate
+        if ggDistanceMode
+            // Distance-based scoring
+            if ggDist > 0.8
+                gg += 6.0
+            if ggDist < 0.2
+                gg -= 4.0
+            // Proximity bonus
+            if math.abs(px - GGup) < ATRd * 0.1
+                gg += 2.0
+            if math.abs(px - GGdn) < ATRd * 0.1
+                gg -= 2.0
+        else
+            // Binary cross (original)
+            gg += ggUpCross ? 8.0 : 0.0
+            gg += ggDnCross ? -8.0 : 0.0
+    trigger = trig + gg
+
+    // Alignment
+    align = (px >= e21 ? 6.0 : -6.0) + (px >= e48 ? 6.0 : -6.0)
+    bullStack = (e5 > e13) and (e13 > e21) and (e21 > e48)
+    bearStack = (e5 < e13) and (e13 < e21) and (e21 < e48)
+    align += (bullStack ? 3.0 : bearStack ? -3.0 : 0.0)
+
+    // GRADUATED SUPERTREND SUPPORT (distance-based)
+    stSlopeUp = stLine > stLine[1]
+    stSlopeDn = stLine < stLine[1]
+    stDist = atrRatio > 0 ? math.abs(px - stLine) / (atrRatio * ATRd) : 999
+    stSupport = 0.0
+    if stDir < 0 and stSlopeUp and px > stLine
+        stSupport := 10.0 * math.max(0, 1.0 - stDist / 2.0)  // Fade with distance
+    if stDir > 0 and stSlopeDn and px < stLine
+        stSupport := -10.0 * math.max(0, 1.0 - stDist / 2.0)
+
+    // RSI MEAN REVERSION COMPONENT
+    meanRev = rsi > 70 ? -4.0 : (rsi < 30 ? 4.0 : 0.0)
+    
+    // RSI DIVERGENCE BOOST (use global divergence detection)
+    rsiDivBoost = 0.0
+    if rsiDivType == "bullish"
+        rsiDivBoost := 3.0 + (rsiDivStrength * 0.1)  // Boost for bullish divergence
+    else if rsiDivType == "bearish"
+        rsiDivBoost := -3.0 - (rsiDivStrength * 0.1)  // Penalty for bearish divergence
+
+    guard = (sqOn ? -3.0 : 0.0) + (comp ? -2.0 : 0.0)
+
+    clamp(trigger + align + stSupport + meanRev + rsiDivBoost + guard, -50, 50)
+
+// HTF scores (Monthly + Weekly + Daily + 4H)
+htfMScore  = f_htf_from_bundle(cM, e200M, stDM, e5M, e8M, e13M, e21M, e48M, compM, phM, eFastM, eSlowM, volRM, atrRM)
+htfWScore  = f_htf_from_bundle(cW, e200W, stDW, e5W, e8W, e13W, e21W, e48W, compW, phW, eFastW, eSlowW, volRW, atrRW)
+htfDScore  = f_htf_from_bundle(cD, e200D, stDD, e5D, e8D, e13D, e21D, e48D, compD, phD, eFastD, eSlowD, volRD, atrRD)
+htf4HScore = f_htf_from_bundle(c4, e200H, stD4, e5H, e8H, e13H, e21H, e48H, comp4, ph4, eFast4, eSlow4, volR4, atrR4)
+
+// LTF scores (30m + 10m + 5m + 1H)
+ltf30Score = f_ltf_from_bundle(c30, sq30, mom30, momStd30, ggUp30, ggDn30, ggDist30, e21_30, e48_30, e5_30, e13_30, stL30, stD30, comp30, volR30, rsi14_30, atrR30)
+ltf10Score = f_ltf_from_bundle(c10, sq10, mom10, momStd10, ggUp10, ggDn10, ggDist10, e21_10, e48_10, e5_10, e13_10, stL10, stD10, comp10, volR10, rsi14_10, atrR10)
+ltf5Score  = f_ltf_from_bundle(c5,  sq5,  mom5,  momStd5,  ggUp5,  ggDn5,  ggDist5,  e21_5,  e48_5,  e5_5,  e13_5,  stL5,  stD5,  comp5,  volR5,  rsi14_5,  atrR5)
+ltf1HScore = f_ltf_from_bundle(c1,  sq1,  mom1,  momStd1,  ggUp1,  ggDn1,  ggDist1,  e21_1,  e48_1,  e5_1,  e13_1,  stL1,  stD1,  comp1,  volR1,  rsi14_1,  atrR1)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Volatility-adjusted weights (HTF: Monthly + Weekly + Daily + 4H)
+//─────────────────────────────────────────────────────────────────────────────
+f_volatility_adjusted_weights(wM_base, wW_base, wD_base, w4H_base, atrRM, atrRW, atrRD, atrR4) =>
+    if not useVolatilityAdjust
+        [wM_base, wW_base, wD_base, w4H_base]
+    else
+        // High vol → favor Daily/4H, Low vol → favor Monthly/Weekly
+        wM_adj = atrRM > 1.2 ? wM_base * 0.8 : wM_base * 1.1
+        wW_adj = atrRW > 1.5 ? wW_base * 0.7 : wW_base * 1.2
+        wD_adj = atrRD > 1.3 ? wD_base * 1.2 : wD_base * 0.9
+        w4H_adj = atrR4 > 1.2 ? w4H_base * 1.3 : w4H_base * 0.8
+        total = wM_adj + wW_adj + wD_adj + w4H_adj
+        [wM_adj / total, wW_adj / total, wD_adj / total, w4H_adj / total]
+
+[wM_adj, wW_adj, wD_adj, w4H_adj] = f_volatility_adjusted_weights(wM, wW, wD, w4H, atrRM, atrRW, atrRD, atrR4)
+
+// Session-aware LTF weights (30m + 10m + 5m + 1H)
+f_session_adjusted_ltf_weights(w30_base, w10_base, w5_base, w1H_base) =>
+    if not useSessionAware or not f_is_rth()
+        [w30_base, w10_base, w5_base, w1H_base]
+    else
+        // RTH: favor 30m and 5m for timing, keep 1H as mid-anchor
+        w30_adj = w30_base * 1.1
+        w10_adj = w10_base * 1.0
+        w5_adj = w5_base * 1.05
+        w1H_adj = w1H_base * 0.95
+        total = w30_adj + w10_adj + w5_adj + w1H_adj
+        [w30_adj / total, w10_adj / total, w5_adj / total, w1H_adj / total]
+
+[w30_adj, w10_adj, w5_adj, w1H_adj] = f_session_adjusted_ltf_weights(w30, w10, w5, w1H)
+
+// Blend HTF (Monthly + Weekly + Daily + 4H)
+htfScore = clamp(htfMScore*wM_adj + htfWScore*wW_adj + htfDScore*wD_adj + htf4HScore*w4H_adj, -50, 50)
+
+// Blend LTF (base): 30m + 10m + 5m + 1H
+ltfScoreBase = clamp(ltf30Score*w30_adj + ltf10Score*w10_adj + ltf5Score*w5_adj + ltf1HScore*w1H_adj, -50, 50)
+
+// State (use base LTF so small trigger bonuses don't flip state)
+htfBull = htfScore >= 0
+ltfBull = ltfScoreBase >= 0
+string state = "HTF_BEAR_LTF_PULLBACK"
+if htfBull and not ltfBull
+    state := "HTF_BULL_LTF_PULLBACK"
+else if htfBull and ltfBull
+    state := "HTF_BULL_LTF_BULL"
+else if (not htfBull) and (not ltfBull)
+    state := "HTF_BEAR_LTF_BEAR"
+else
+    state := "HTF_BEAR_LTF_PULLBACK"
+
+// LTF trigger bonuses (used for bubble position / ranking nuance)
+// Key idea:
+// - Default EMA cross used for triggers is 13/48 (emaFastLen/emaSlowLen).
+// - 1H 13/48 cross is a key pivot/confirmation marker.
+crossUp1H_1348 = ta.crossover(eFast1, eSlow1)
+crossDn1H_1348 = ta.crossunder(eFast1, eSlow1)
+
+// IMPORTANT:
+// When using HTF series (via request.security bundles), crossover/crossunder can appear to "stick"
+// and replay across multiple lower-TF bars. Gate 1H cross events to fire only once per 1H close.
+tclose1H = request.security(syminfo.tickerid, "60", time_close, barmerge.gaps_off, barmerge.lookahead_off)
+
+var int lastEmaCross1HTs = na
+var int lastEmaCross1HDir = 0  // 1 bull, -1 bear
+crossUp1H_1348_evt = crossUp1H_1348 and not na(tclose1H) and (na(lastEmaCross1HTs) or tclose1H != lastEmaCross1HTs)
+crossDn1H_1348_evt = crossDn1H_1348 and not na(tclose1H) and (na(lastEmaCross1HTs) or tclose1H != lastEmaCross1HTs)
+if barstate.isconfirmed
+    if crossUp1H_1348_evt
+        lastEmaCross1HTs := tclose1H
+        lastEmaCross1HDir := 1
+    else if crossDn1H_1348_evt
+        lastEmaCross1HTs := tclose1H
+        lastEmaCross1HDir := -1
+
+hoursSince1HCross = not na(lastEmaCross1HTs) ? ((time - lastEmaCross1HTs) / 3600000.0) : na
+recent1HCross = not na(hoursSince1HCross) and hoursSince1HCross >= 0 and hoursSince1HCross <= 72
+
+// "Buyable dip" heuristic: after 1H 13/48 cross, look for pullback toward 1H 13 EMA while HTF bias holds.
+dipTo1H13 = (not na(e13_1) and ATRd > 0) ? (math.abs(close - e13_1) <= (ATRd * 0.35)) : false
+buyableDipLong = recent1HCross and lastEmaCross1HDir == 1 and htfBull and state == "HTF_BULL_LTF_PULLBACK" and close >= e48_1 and dipTo1H13
+buyableDipShort = recent1HCross and lastEmaCross1HDir == -1 and (not htfBull) and state == "HTF_BEAR_LTF_PULLBACK" and close <= e48_1 and dipTo1H13
+
+pivotConfirmBonus = recent1HCross ? (lastEmaCross1HDir == 1 and htfBull ? 3.0 : lastEmaCross1HDir == -1 and (not htfBull) ? -3.0 : 0.0) : 0.0
+buyableDipBonus = buyableDipLong ? 6.0 : buyableDipShort ? -6.0 : 0.0
+
+ltfScore = clamp(ltfScoreBase + pivotConfirmBonus + buyableDipBonus, -50, 50)
+
+// Phase % (using Daily multi-factor phase)
+phaseD = phD
+phasePct = clamp(math.abs(phaseD) / math.max(phaseMaxAbs, 1e-9), 0, 1)
+phaseDir = phaseD > 0 ? "bull" : phaseD < 0 ? "bear" : "flat"
+int phaseZoneD_i = phZoneD_i
+
+// Phase dot (enhanced with zone transitions)
+phasePrev = bar_index > 0 ? phaseD[1] : na
+int phaseZonePrev = bar_index > 0 ? phZoneD_i[1] : 0
+phaseLeaveUp   = (not na(phasePrev)) and (phasePrev >=  phaseExitAbs) and (phaseD <  phaseExitAbs)
+phaseLeaveDn   = (not na(phasePrev)) and (phasePrev <= -phaseExitAbs) and (phaseD > -phaseExitAbs)
+phaseLeave100U = (not na(phasePrev)) and (phasePrev >=  100) and (phaseD < 100)
+phaseLeave100D = (not na(phasePrev)) and (phasePrev <= -100) and (phaseD > -100)
+phaseZoneChange = usePhaseZones and (phaseZoneD_i != phaseZonePrev)
+phaseDot = phaseLeaveUp or phaseLeaveDn or phaseLeave100U or phaseLeave100D or phaseZoneChange
+
+//─────────────────────────────────────────────────────────────────────────────
+// Momentum Elite Detection (Simplified - Worker handles full calculation)
+//─────────────────────────────────────────────────────────────────────────────
+// Note: Full Momentum Elite calculation is now done in the Worker for better
+// performance and access to external APIs. This is a simplified check that
+// passes basic data to the Worker for final determination.
+// 
+// Basic price check (Worker will validate market cap, ADR, volume, momentum)
+priceOver4 = close >= 4.0
+// Worker will calculate full Momentum Elite status and set flags.momentum_elite
+momentumElite = false  // Placeholder - Worker sets this in flags
+
+//─────────────────────────────────────────────────────────────────────────────
+// Enhanced Trigger + completion
+//─────────────────────────────────────────────────────────────────────────────
+sq30_prev = prevBoolSeries(sq30)
+sq30_rel  = sq30_prev and not sq30
+rel30Dir  = sq30_rel ? (mom30 >= 0 ? 1 : -1) : 0
+
+crossUp30 = ta.crossover(eFast30, eSlow30)
+crossDn30 = ta.crossunder(eFast30, eSlow30)
+
+htfBiasSign = htfBull ? 1 : -1
+
+goEvent =
+     (sq30_rel and rel30Dir == htfBiasSign) or
+     (crossUp30 and htfBull) or
+     (crossDn30 and not htfBull) or
+     (crossUp1H_1348_evt and htfBull) or
+     (crossDn1H_1348_evt and not htfBull)
+
+// Trigger metadata
+var string triggerReason = ""
+var string triggerDirStr = ""
+var string triggerTfStr  = ""
+var float  triggerPrice  = na
+var int    triggerTs     = na
+
+if barstate.isconfirmed and goEvent
+    triggerTs    := time
+
+    if (sq30_rel and rel30Dir == htfBiasSign)
+        triggerReason := "SQUEEZE_RELEASE"
+        triggerDirStr := rel30Dir == 1 ? "BULL" : "BEAR"
+        triggerTfStr  := "30"
+        triggerPrice  := c30
+    else if (crossUp30 and htfBull)
+        triggerReason := "EMA_CROSS_30M_13_48"
+        triggerDirStr := "BULL"
+        triggerTfStr  := "30"
+        triggerPrice  := c30
+    else if (crossDn30 and not htfBull)
+        triggerReason := "EMA_CROSS_30M_13_48"
+        triggerDirStr := "BEAR"
+        triggerTfStr  := "30"
+        triggerPrice  := c30
+    else if (crossUp1H_1348_evt and htfBull)
+        triggerReason := "EMA_CROSS_1H_13_48"
+        triggerDirStr := "BULL"
+        triggerTfStr  := "60"
+        triggerPrice  := c1
+        triggerTs     := tclose1H
+    else if (crossDn1H_1348_evt and not htfBull)
+        triggerReason := "EMA_CROSS_1H_13_48"
+        triggerDirStr := "BEAR"
+        triggerTfStr  := "60"
+        triggerPrice  := c1
+        triggerTs     := tclose1H
+    else
+        triggerReason := "OTHER"
+        triggerDirStr := (htfBull ? "BULL" : "BEAR")
+        triggerTfStr  := ""
+        triggerPrice  := c30
+
+// Trigger list (for Right Rail display)
+stFlip30 = bar_index > 0 ? (stD30 != stD30[1]) : false
+stFlip1H = bar_index > 0 ? (stD1  != stD1[1])  : false
+
+// LTF early timing: 10m (existing), 3m — squeeze release, EMA 13/48 cross, ST flip (5m/1m removed for request limit)
+sq10_prev = prevBoolSeries(sq10)
+sq10_rel  = sq10_prev and not sq10
+rel10Dir  = sq10_rel ? (mom10 >= 0 ? 1 : -1) : 0
+crossUp10 = ta.crossover(eFast10, eSlow10)
+crossDn10 = ta.crossunder(eFast10, eSlow10)
+stFlip10  = bar_index > 0 ? (stD10 != stD10[1]) : false
+
+sq5_prev = prevBoolSeries(sq5)
+sq5_rel  = sq5_prev and not sq5
+rel5Dir  = sq5_rel ? (mom5 >= 0 ? 1 : -1) : 0
+crossUp5 = ta.crossover(eFast5, eSlow5)
+crossDn5 = ta.crossunder(eFast5, eSlow5)
+stFlip5  = bar_index > 0 ? (stD5 != stD5[1]) : false
+
+// Dynamic expected move (using recent swing calculation)
+expectedMove = useDynamicTP ? expMoveATRx * math.max(ATRw, recentSwingW * 0.5) : expMoveATRx * ATRw
+// Completion%: refined later (after TP is known). Keep an "extension" view here for reference.
+completionExpected = na(triggerPrice) or expectedMove <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / expectedMove, 0, 1)
+float completion = completionExpected
+
+//─────────────────────────────────────────────────────────────────────────────
+// Enhanced TP/SL Calculation (Multi-Timeframe, Multiple Targets)
+//─────────────────────────────────────────────────────────────────────────────
+price_now = close
+dir = htfBull ? 1 : -1
+
+// DYNAMIC TP based on swing size
+swingBasedATR = useDynamicTP ? math.max(ATRw, recentSwingW * 0.5) : ATRw
+
+// Helper: Get multiplier by index (14 multipliers total)
+f_get_mult(int idx) =>
+    idx == 0 ? 0.382 : idx == 1 ? 0.500 : idx == 2 ? 0.618 : idx == 3 ? 0.786 : idx == 4 ? 1.000 : idx == 5 ? 1.236 : idx == 6 ? 1.382 : idx == 7 ? 1.500 : idx == 8 ? 1.618 : idx == 9 ? 1.786 : idx == 10 ? 2.000 : idx == 11 ? 2.236 : idx == 12 ? 2.618 : idx == 13 ? 3.000 : na
+
+// Reused arrays (avoid per-bar allocations → prevents memory-limit runtime errors)
+var float[] levelsD = array.new<float>()
+var float[] levelsW = array.new<float>()
+var float[] levels4H = array.new<float>()
+var float[] allTargets = array.new<float>()
+var float[] uniqueTargets = array.new<float>()
+
+// Helper: Fill ATR levels into a reusable array
+f_atr_levels_into(float[] levels, float pc, float atr, bool isUp) =>
+    array.clear(levels)
+    // Key levels: 38.2%, 50%, 61.8%, 78.6%, 100%, 123.6%, 138.2%, 150%, 161.8%, 178.6%, 200%, 223.6%, 261.8%, 300%
+    if not na(pc) and not na(atr) and atr > 0
+        for i = 0 to 13
+            float mult = f_get_mult(i)
+            if not na(mult)
+                float level = isUp ? (pc + mult * atr) : (pc - mult * atr)
+                array.push(levels, level)
+    levels
+
+// Calculate levels from multiple timeframes (only if values are valid)
+f_atr_levels_into(levelsD, PCd, ATRd, dir == 1)
+f_atr_levels_into(levelsW, PCw, ATRw, dir == 1)
+f_atr_levels_into(levels4H, PC4H, ATR4H, dir == 1)
+
+// Check if 38.2% has been crossed (using Weekly as primary)
+crossed382W = (not na(PCw) and not na(ATRw) and ATRw > 0) ? (dir == 1 ? (high >= (PCw + 0.382 * ATRw)) : (low <= (PCw - 0.382 * ATRw))) : false
+
+//─────────────────────────────────────────────────────────────────────────────
+// Intelligent TP Helpers
+//─────────────────────────────────────────────────────────────────────────────
+
+// TP Level JSON builder
+f_tp_level_str(float price, string label, string source, string type, float multiplier, string tf, float confidence) =>
+    "{\"price\":" + f_fmt(price, 2) + ",\"label\":\"" + label + "\",\"source\":\"" + source + "\",\"type\":\"" + type + "\",\"multiplier\":" + (na(multiplier) ? "null" : f_fmt(multiplier, 3)) + ",\"timeframe\":\"" + tf + "\",\"confidence\":" + (na(confidence) ? "null" : f_fmt(confidence, 2)) + "}"
+
+// HTF Structure: Swing Highs/Lows - CONSOLIDATED
+// Combined function to fetch both swing high and low in ONE request.security call
+f_swing_pivots_data(int left, int right) =>
+    [ta.pivothigh(high, left, right), ta.pivotlow(low, left, right)]
+
+f_swing_pivots_tf(string tf, int left, int right) =>
+    request.security(syminfo.tickerid, tf, f_swing_pivots_data(left, right), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Legacy single-value functions (kept for pattern detection that needs different lookbacks)
+f_swing_high_tf(string tf, int left, int right) =>
+    request.security(syminfo.tickerid, tf, ta.pivothigh(high, left, right), barmerge.gaps_off, barmerge.lookahead_off)
+
+f_swing_low_tf(string tf, int left, int right) =>
+    request.security(syminfo.tickerid, tf, ta.pivotlow(low, left, right), barmerge.gaps_off, barmerge.lookahead_off)
+
+// CONSOLIDATED: Fetch swing pivots ONCE per timeframe, reuse throughout script
+// This saves request.security calls by avoiding duplicate fetches
+[swingHighW_global, swingLowW_global] = f_swing_pivots_tf("W", 5, 5)
+[swingHighD_global, swingLowD_global] = f_swing_pivots_tf("D", 5, 5)
+[swingHigh4H_global, swingLow4H_global] = f_swing_pivots_tf("240", 3, 3)
+
+// FVG Detection
+f_detect_fvg(bool isBullish) =>
+    // Bullish FVG: low[1] > high[2] and low[1] > high[0] (gap between max(high[2], high[0]) and low[1])
+    // Bearish FVG: high[1] < low[2] and high[1] < low[0] (gap between high[1] and min(low[2], low[0]))
+    float fvgTop = na
+    float fvgBottom = na
+    if isBullish
+        // Bullish FVG: gap is from max(high[2], high[0]) up to low[1]
+        fvgTop := low[1]
+        fvgBottom := math.max(high[2], high[0])
+    else
+        // Bearish FVG: gap is from high[1] down to min(low[2], low[0])
+        fvgTop := math.min(low[2], low[0])
+        fvgBottom := high[1]
+    fvgMid = (not na(fvgTop) and not na(fvgBottom)) ? ((fvgTop + fvgBottom) / 2) : na
+    fvgSize = (not na(fvgTop) and not na(fvgBottom)) ? math.abs(fvgTop - fvgBottom) : 0
+    atr14 = ta.atr(14)
+    isSignificant = fvgSize >= (fvgMinSize * atr14)
+    [fvgMid, isSignificant]
+
+// Gap Detection - Combined to reduce request.security calls
+f_gap_data() =>
+    [high[1], low[1], high, low, ta.atr(14)]
+
+f_detect_gap_tf(string tf) =>
+    [prevHigh, prevLow, currHigh, currLow, atrGap] = request.security(syminfo.tickerid, tf, f_gap_data(), barmerge.gaps_off, barmerge.lookahead_off)
+    
+    gapUp = (not na(prevHigh) and not na(currLow) and currLow > prevHigh)
+    gapDown = (not na(prevLow) and not na(currHigh) and currHigh < prevLow)
+    
+    gapSize = gapUp ? (currLow - prevHigh) : (gapDown ? (prevLow - currHigh) : 0)
+    gapMid = gapUp ? ((currLow + prevHigh) / 2) : (gapDown ? ((prevLow + currHigh) / 2) : na)
+    
+    isSignificant = gapSize >= (gapMinSize * atrGap)
+    
+    [gapMid, gapSize, isSignificant, gapUp, gapDown]
+
+// Gap fill probability (simplified - would need gap age tracking for full implementation)
+f_gap_fill_probability(int ageBars) =>
+    ageBars <= 5 ? 0.80 : ageBars <= 20 ? 0.60 : ageBars <= 50 ? 0.40 : 0.20
+
+// Buyside/Sellside Liquidity Detection on HTF
+// Buyside liquidity = swing lows (stops below) - acts as magnet before price moves up
+// Sellside liquidity = swing highs (stops above) - acts as magnet before price moves down
+// These liquidity zones often need to be "swept" before price can move much higher/lower
+// CONSOLIDATED: Now accepts pre-fetched swing values to avoid duplicate request.security calls
+f_detect_liquidity_from_swings(float swingHigh, float swingLow, float currentPrice) =>
+    // Buyside liquidity: swing lows below current price
+    // These are stops below that act as a magnet - price may need to sweep these before moving up
+    float buysideLiquidity = na
+    if not na(swingLow) and swingLow < currentPrice
+        buysideLiquidity := swingLow
+    
+    // Sellside liquidity: swing highs above current price
+    // These are stops above that act as a magnet - price may need to sweep these before moving down
+    float sellsideLiquidity = na
+    if not na(swingHigh) and swingHigh > currentPrice
+        sellsideLiquidity := swingHigh
+    
+    [buysideLiquidity, sellsideLiquidity]
+
+// Collect all valid targets from all timeframes
+array.clear(allTargets)
+
+// Add Weekly SuperTrend as target if not yet supportive
+if dir == 1 and not na(stLW) and stLW > price_now
+    array.push(allTargets, stLW)
+if dir == -1 and not na(stLW) and stLW < price_now
+    array.push(allTargets, stLW)
+
+// Add Daily levels (Position trading)
+sizeD = array.size(levelsD)
+if sizeD > 0
+    for i = 0 to sizeD - 1
+        if i < sizeD
+            level = array.get(levelsD, i)
+            if not na(level)
+                if dir == 1 and level > price_now
+                    array.push(allTargets, level)
+                if dir == -1 and level < price_now
+                    array.push(allTargets, level)
+
+// Add Weekly levels (Swing trading) - prioritize 61.8% and 100%
+sizeW = array.size(levelsW)
+if sizeW > 0
+    for i = 0 to sizeW - 1
+        if i < sizeW
+            level = array.get(levelsW, i)
+            if not na(level)
+                mult = f_get_mult(i)
+                if not na(mult)
+                    // Prioritize 61.8% and 100% levels
+                    isPriority = (mult == 0.618 or mult == 1.000)
+                    // If 38.2% crossed, 61.8% becomes more likely
+                    shouldInclude = isPriority or (crossed382W and mult >= 0.618) or (not crossed382W and mult >= 0.382)
+                    
+                    if shouldInclude
+                        if dir == 1 and level > price_now
+                            array.push(allTargets, level)
+                        if dir == -1 and level < price_now
+                            array.push(allTargets, level)
+
+// Add 4H levels (Position/Swing)
+size4H = array.size(levels4H)
+if size4H > 0
+    for i = 0 to size4H - 1
+        if i < size4H
+            level = array.get(levels4H, i)
+            if not na(level)
+                mult = f_get_mult(i)
+                if not na(mult)
+                    // Focus on key levels
+                    isKeyLevel = (mult == 0.618 or mult == 1.000 or mult == 1.618)
+                    if isKeyLevel
+                        if dir == 1 and level > price_now
+                            array.push(allTargets, level)
+                        if dir == -1 and level < price_now
+                            array.push(allTargets, level)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Intelligent TP: HTF Structure (Swing Highs/Lows)
+//─────────────────────────────────────────────────────────────────────────────
+// Use globally fetched swing pivots (consolidated at top of script to save request.security calls)
+float structSwingHighW = useHTFStructure ? swingHighW_global : na
+float structSwingLowW = useHTFStructure ? swingLowW_global : na
+float structSwingHighD = useHTFStructure ? swingHighD_global : na
+float structSwingLowD = useHTFStructure ? swingLowD_global : na
+float structSwingHigh4H = useHTFStructure ? swingHigh4H_global : na
+float structSwingLow4H = useHTFStructure ? swingLow4H_global : na
+
+if useHTFStructure
+    if dir == 1  // Long
+        if not na(structSwingHighW) and structSwingHighW > price_now
+            array.push(allTargets, structSwingHighW)
+        if not na(structSwingHighD) and structSwingHighD > price_now
+            array.push(allTargets, structSwingHighD)
+        if not na(structSwingHigh4H) and structSwingHigh4H > price_now
+            array.push(allTargets, structSwingHigh4H)
+    else  // Short
+        if not na(structSwingLowW) and structSwingLowW < price_now
+            array.push(allTargets, structSwingLowW)
+        if not na(structSwingLowD) and structSwingLowD < price_now
+            array.push(allTargets, structSwingLowD)
+        if not na(structSwingLow4H) and structSwingLow4H < price_now
+            array.push(allTargets, structSwingLow4H)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Intelligent TP: Fair Value Gaps (FVG)
+//─────────────────────────────────────────────────────────────────────────────
+// Extract FVG function calls for consistency (called on each calculation)
+// Note: f_detect_fvg returns [float, bool] - [fvgMid, isSignificant]
+// Always call functions for consistency, then use conditionally
+[fvgMidD_temp, fvgSigD_temp] = f_detect_fvg(dir == 1)
+[fvgMidW_temp, fvgSigW_temp] = request.security(syminfo.tickerid, "W", f_detect_fvg(dir == 1), barmerge.gaps_off, barmerge.lookahead_off)
+fvgMidD = useFVG ? fvgMidD_temp : na
+fvgSigD = useFVG ? fvgSigD_temp : false
+fvgMidW = useFVG ? fvgMidW_temp : na
+fvgSigW = useFVG ? fvgSigW_temp : false
+
+if useFVG
+    if not na(fvgMidD) and fvgSigD
+        if dir == 1 and fvgMidD > price_now
+            array.push(allTargets, fvgMidD)
+        if dir == -1 and fvgMidD < price_now
+            array.push(allTargets, fvgMidD)
+    if not na(fvgMidW) and fvgSigW
+        if dir == 1 and fvgMidW > price_now
+            array.push(allTargets, fvgMidW)
+        if dir == -1 and fvgMidW < price_now
+            array.push(allTargets, fvgMidW)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Intelligent TP: Buyside/Sellside Liquidity (HTF)
+//─────────────────────────────────────────────────────────────────────────────
+// CONSOLIDATED: Use pre-fetched global swing values to avoid duplicate request.security calls
+[buysideLiquidityW_temp, sellsideLiquidityW_temp] = f_detect_liquidity_from_swings(swingHighW_global, swingLowW_global, price_now)
+[buysideLiquidityD_temp, sellsideLiquidityD_temp] = f_detect_liquidity_from_swings(swingHighD_global, swingLowD_global, price_now)
+[buysideLiquidity4H_temp, sellsideLiquidity4H_temp] = f_detect_liquidity_from_swings(swingHigh4H_global, swingLow4H_global, price_now)
+buysideLiquidityW = useLiquidityZones ? buysideLiquidityW_temp : na
+sellsideLiquidityW = useLiquidityZones ? sellsideLiquidityW_temp : na
+buysideLiquidityD = useLiquidityZones ? buysideLiquidityD_temp : na
+sellsideLiquidityD = useLiquidityZones ? sellsideLiquidityD_temp : na
+buysideLiquidity4H = useLiquidityZones ? buysideLiquidity4H_temp : na
+sellsideLiquidity4H = useLiquidityZones ? sellsideLiquidity4H_temp : na
+
+if useLiquidityZones
+    // For LONG trades: Sellside liquidity (swing highs) above price acts as magnet/resistance
+    // These are stops above that may need to be swept before price can move much higher
+    if dir == 1  // Long
+        if not na(sellsideLiquidityW) and sellsideLiquidityW > price_now
+            array.push(allTargets, sellsideLiquidityW)
+        if not na(sellsideLiquidityD) and sellsideLiquidityD > price_now
+            array.push(allTargets, sellsideLiquidityD)
+        if not na(sellsideLiquidity4H) and sellsideLiquidity4H > price_now
+            array.push(allTargets, sellsideLiquidity4H)
+    else  // Short
+        // Buyside liquidity below price - may need to be swept or acts as support
+        // These are stops below that may need to be swept before price can move much lower
+        if not na(buysideLiquidityW) and buysideLiquidityW < price_now
+            array.push(allTargets, buysideLiquidityW)
+        if not na(buysideLiquidityD) and buysideLiquidityD < price_now
+            array.push(allTargets, buysideLiquidityD)
+        if not na(buysideLiquidity4H) and buysideLiquidity4H < price_now
+            array.push(allTargets, buysideLiquidity4H)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Intelligent TP: Gap Analysis
+//─────────────────────────────────────────────────────────────────────────────
+// Extract gap function calls for consistency (called on each calculation)
+// Note: f_detect_gap_tf returns [float, float, bool, bool, bool] - [gapMid, gapSize, isSignificant, gapUp, gapDown]
+// Always call functions for consistency, then use conditionally
+[gapMidD_temp, gapSizeD_temp, gapSigD_temp, gapUpD_temp, gapDownD_temp] = f_detect_gap_tf("D")
+[gapMidW_temp, gapSizeW_temp, gapSigW_temp, gapUpW_temp, gapDownW_temp] = f_detect_gap_tf("W")
+gapMidD = useGapAnalysis ? gapMidD_temp : na
+gapSizeD = useGapAnalysis ? gapSizeD_temp : na
+gapSigD = useGapAnalysis ? gapSigD_temp : false
+gapUpD = useGapAnalysis ? gapUpD_temp : false
+gapDownD = useGapAnalysis ? gapDownD_temp : false
+gapMidW = useGapAnalysis ? gapMidW_temp : na
+gapSizeW = useGapAnalysis ? gapSizeW_temp : na
+gapSigW = useGapAnalysis ? gapSigW_temp : false
+gapUpW = useGapAnalysis ? gapUpW_temp : false
+gapDownW = useGapAnalysis ? gapDownW_temp : false
+
+if useGapAnalysis
+    if gapSigD and not na(gapMidD)
+        if dir == 1 and gapDownD and gapMidD < price_now
+            array.push(allTargets, gapMidD)
+        if dir == -1 and gapUpD and gapMidD > price_now
+            array.push(allTargets, gapMidD)
+    if gapSigW and not na(gapMidW)
+        if dir == 1 and gapDownW and gapMidW < price_now
+            array.push(allTargets, gapMidW)
+        if dir == -1 and gapUpW and gapMidW > price_now
+            array.push(allTargets, gapMidW)
+
+// Sort and deduplicate targets
+if array.size(allTargets) > 0
+    // Sort: ascending for longs, descending for shorts
+    if dir == 1
+        array.sort(allTargets, order.ascending)
+    else
+        array.sort(allTargets, order.descending)
+    
+    // Deduplicate (within 0.1% tolerance)
+    array.clear(uniqueTargets)
+    sizeAll = array.size(allTargets)
+    if sizeAll > 0
+        for i = 0 to sizeAll - 1
+            if i < sizeAll
+                val = array.get(allTargets, i)
+                if not na(val)
+                    isUnique = true
+                    sizeUnique = array.size(uniqueTargets)
+                    if sizeUnique > 0
+                        for j = 0 to sizeUnique - 1
+                            if j < sizeUnique
+                                existing = array.get(uniqueTargets, j)
+                                if not na(existing) and existing > 0 and math.abs(val - existing) / existing < 0.001
+                                    isUnique := false
+                                    break
+                    if isUnique
+                        array.push(uniqueTargets, val)
+
+    // Keep `allTargets` as a single reusable array (do not reassign to a new array instance).
+    array.clear(allTargets)
+    int uSz = array.size(uniqueTargets)
+    if uSz > 0
+        for i = 0 to uSz - 1
+            if i < uSz
+                array.push(allTargets, array.get(uniqueTargets, i))
+
+// Primary TP (first target, for backward compatibility)
+float tp = na
+if array.size(allTargets) > 0
+    tp := array.get(allTargets, 0)
+
+// Pivot-based S/R integration - Combined to reduce request.security calls
+f_pivot_data() =>
+    [ta.pivothigh(high, pivotLookback, pivotLookback), ta.pivotlow(low, pivotLookback, pivotLookback)]
+[pivotHigh, pivotLow] = request.security(syminfo.tickerid, "D", f_pivot_data(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Find nearest resistance/support
+float nearestResistance = na
+float nearestSupport = na
+for i = 0 to 20
+    if not na(pivotHigh[i]) and pivotHigh[i] > price_now and na(nearestResistance)
+        nearestResistance := pivotHigh[i]
+        break
+    if not na(pivotLow[i]) and pivotLow[i] < price_now and na(nearestSupport)
+        nearestSupport := pivotLow[i]
+        break
+
+// Adjust TP to respect S/R if enabled
+if not na(tp) and usePivotSR
+    if dir == 1 and not na(nearestResistance) and nearestResistance < tp
+        tp := nearestResistance * 0.98  // 2% below resistance
+    if dir == -1 and not na(nearestSupport) and nearestSupport > tp
+        tp := nearestSupport * 1.02  // 2% above support
+
+// Refined Completion% (TP-based):
+// Completion% should represent progress from trigger → MAX TP target (0–100% at max TP).
+// This gives a realistic view of progress toward final profit target.
+// If TP/trigger is missing, fall back to expectedMove as a best-effort proxy.
+
+// Find max TP target from all targets array
+float tpMax = na
+if array.size(allTargets) > 0
+    for i = 0 to array.size(allTargets) - 1
+        tpVal = array.get(allTargets, i)
+        if not na(tpVal)
+            if na(tpMax)
+                tpMax := tpVal
+            else
+                // For LONG: max is highest target above price_now
+                // For SHORT: max is lowest target below price_now
+                if dir == 1 and tpVal > tpMax
+                    tpMax := tpVal
+                else if dir == -1 and tpVal < tpMax
+                    tpMax := tpVal
+
+// Calculate completion relative to MAX TP target (not first target)
+tpMove = (not na(tpMax) and not na(triggerPrice)) ? math.abs(tpMax - triggerPrice) : na
+denom = (not na(tpMove) and tpMove > 0) ? tpMove : expectedMove
+completion := na(triggerPrice) or denom <= 0 ? 0.0 : clamp(math.abs(close - triggerPrice) / denom, 0, 1)
+
+// VOLATILITY-ADJUSTED SL with Daily 21 EMA as safe default
+atrStopBase = ATRw * 0.35
+atrStop = useVolatilitySL ? (atrStopBase * math.max(0.8, math.min(1.5, atrRD > 0 ? atrRD : 1.0))) : atrStopBase
+if useVolatilitySL
+    minSL = ATRd * 1.5
+    atrStop := math.max(atrStop, minSL)
+
+// FUSED SL: Combine multiple levels to find realistic reversal point
+// Concept: "Below/above this level, we likely enter the opposite for some time"
+// For longs: Use HIGHEST valid SL below price (safest = highest, represents true support)
+// For shorts: Use LOWEST valid SL above price (safest = lowest, represents true resistance)
+daily21EMA = e21D
+
+// Check if Daily 21 EMA is too close to price (within 0.5% or 0.5 ATR)
+// If too close, use swing low/high or previous candle low/high instead for more realistic SL
+daily21EMADistance = not na(daily21EMA) ? math.abs(price_now - daily21EMA) / price_now : 999
+daily21EMAATRDistance = not na(daily21EMA) and ATRd > 0 ? math.abs(price_now - daily21EMA) / ATRd : 999
+daily21EMATooClose = daily21EMADistance < 0.005 or daily21EMAATRDistance < 0.5
+
+// Use globally fetched daily swing pivots (consolidated to save request.security calls)
+swingLowD = swingLowD_global
+swingHighD = swingHighD_global
+
+// Previous candle low/high (on daily timeframe)
+prevCandleLowD = request.security(syminfo.tickerid, tfD, low[1], barmerge.gaps_off, barmerge.lookahead_off)
+prevCandleHighD = request.security(syminfo.tickerid, tfD, high[1], barmerge.gaps_off, barmerge.lookahead_off)
+
+float sl = na
+if dir == 1
+    // For longs: Collect ALL valid SL candidates below price, then use the HIGHEST (safest)
+    float bestSL = na
+    
+    // 1. Support structure - if below price, represents a clear support level
+    if usePivotSR and not na(nearestSupport) and nearestSupport < price_now
+        float cand = nearestSupport * 0.99  // Slightly below support for safety
+        bestSL := na(bestSL) ? cand : math.max(bestSL, cand)
+    
+    // 2. Daily 21 EMA - if below price and NOT too close, represents trailing support
+    // If too close, skip EMA and use swing/candle levels instead
+    if not na(daily21EMA) and daily21EMA < price_now and not daily21EMATooClose
+        bestSL := na(bestSL) ? daily21EMA : math.max(bestSL, daily21EMA)
+    
+    // 2b. If Daily 21 EMA is too close, use swing low or previous candle low instead
+    if daily21EMATooClose
+        // Prefer swing low (structure) over previous candle low (more recent)
+        if not na(swingLowD) and swingLowD < price_now
+            float cand = swingLowD * 0.99  // Slightly below swing low
+            bestSL := na(bestSL) ? cand : math.max(bestSL, cand)
+        else if not na(prevCandleLowD) and prevCandleLowD < price_now
+            float cand = prevCandleLowD * 0.99  // Slightly below previous candle low
+            bestSL := na(bestSL) ? cand : math.max(bestSL, cand)
+    
+    // 3. Weekly SuperTrend - if below price, represents structure support
+    if not na(stLW) and stLW < price_now
+        bestSL := na(bestSL) ? stLW : math.max(bestSL, stLW)
+    
+    // 4. ATR-based stop from trigger price - mechanical stop
+    atrBasedSL = not na(triggerPrice) ? (triggerPrice - atrStop) : (price_now - atrStop)
+    if atrBasedSL < price_now
+        bestSL := na(bestSL) ? atrBasedSL : math.max(bestSL, atrBasedSL)
+    
+    // FUSE: Use the HIGHEST (safest) of all valid candidates below price
+    // This represents the most realistic reversal point (true support)
+    if not na(bestSL)
+        sl := bestSL
+    else
+        // Fallback: Use swing low, previous candle low, or Daily 21 EMA
+        if not na(swingLowD) and swingLowD < price_now
+            sl := swingLowD * 0.99
+        else if not na(prevCandleLowD) and prevCandleLowD < price_now
+            sl := prevCandleLowD * 0.99
+        else if not na(daily21EMA)
+            sl := daily21EMA
+        else
+            sl := price_now - atrStop  // Last resort
+else
+    // For shorts: Collect ALL valid SL candidates above price, then use the LOWEST (safest)
+    float bestSL = na
+    
+    // 1. Resistance structure - if above price, represents a clear resistance level
+    if usePivotSR and not na(nearestResistance) and nearestResistance > price_now
+        float cand = nearestResistance * 1.01  // Slightly above resistance for safety
+        bestSL := na(bestSL) ? cand : math.min(bestSL, cand)
+    
+    // 2. Daily 21 EMA - if above price and NOT too close, represents trailing resistance
+    // If too close, skip EMA and use swing/candle levels instead
+    if not na(daily21EMA) and daily21EMA > price_now and not daily21EMATooClose
+        bestSL := na(bestSL) ? daily21EMA : math.min(bestSL, daily21EMA)
+    
+    // 2b. If Daily 21 EMA is too close, use swing high or previous candle high instead
+    if daily21EMATooClose
+        // Prefer swing high (structure) over previous candle high (more recent)
+        if not na(swingHighD) and swingHighD > price_now
+            float cand = swingHighD * 1.01  // Slightly above swing high
+            bestSL := na(bestSL) ? cand : math.min(bestSL, cand)
+        else if not na(prevCandleHighD) and prevCandleHighD > price_now
+            float cand = prevCandleHighD * 1.01  // Slightly above previous candle high
+            bestSL := na(bestSL) ? cand : math.min(bestSL, cand)
+    
+    // 3. Weekly SuperTrend - if above price, represents structure resistance
+    if not na(stLW) and stLW > price_now
+        bestSL := na(bestSL) ? stLW : math.min(bestSL, stLW)
+    
+    // 4. ATR-based stop from trigger price - mechanical stop
+    atrBasedSL = not na(triggerPrice) ? (triggerPrice + atrStop) : (price_now + atrStop)
+    if atrBasedSL > price_now
+        bestSL := na(bestSL) ? atrBasedSL : math.min(bestSL, atrBasedSL)
+    
+    // FUSE: Use the LOWEST (safest) of all valid candidates above price
+    // This represents the most realistic reversal point (true resistance)
+    if not na(bestSL)
+        sl := bestSL
+    else
+        // Fallback: Use swing high, previous candle high, or Daily 21 EMA
+        if not na(swingHighD) and swingHighD > price_now
+            sl := swingHighD * 1.01
+        else if not na(prevCandleHighD) and prevCandleHighD > price_now
+            sl := prevCandleHighD * 1.01
+        else if not na(daily21EMA)
+            sl := daily21EMA
+        else
+            sl := price_now + atrStop  // Last resort
+
+//─────────────────────────────────────────────────────────────────────────────
+// Intelligent ETA Calculation (momentum-aware, velocity-adjusted)
+//─────────────────────────────────────────────────────────────────────────────
+elapsedDays = (not na(triggerTs)) ? ((time - triggerTs) / 86400000.0) : na
+
+// Base linear extrapolation (simple case)
+baseETA = (not na(elapsedDays) and completion > 0 and completion < 0.999) ? (elapsedDays * (1.0 / completion - 1.0)) : na
+
+// Enhanced ETA with momentum adjustment
+float etaDays = na
+if not na(baseETA) and not na(elapsedDays) and completion > 0.01 and completion < 0.999
+    // Calculate recent velocity (how fast we're progressing now vs average)
+    // Use completion rate over last 25% of elapsed time to get recent velocity
+    recentCompletionWindow = math.max(1.0, elapsedDays * 0.25)  // Last 25% of time
+    avgVelocity = completion / elapsedDays  // Average velocity so far
+    recentVelocity = avgVelocity  // Default to average (will refine if we have more data)
+    
+    // Momentum adjustment based on phase velocity (30m timeframe - trigger TF)
+    // Positive phaseVelocity = momentum building, negative = fading
+    momentumFactor = 1.0
+    if not na(phVel30)
+        // Normalize phaseVelocity to reasonable range (-50 to +50 typical)
+        normalizedPhaseVel = math.max(-2.0, math.min(2.0, phVel30 / 25.0))
+        // If momentum is building (positive), we'll get there faster
+        // If momentum is fading (negative), we'll get there slower
+        momentumFactor := 1.0 - (normalizedPhaseVel * 0.3)  // Up to 30% adjustment
+    
+    // Acceleration adjustment (phaseAccel on 30m timeframe)
+    // Positive acceleration = speeding up, negative = slowing down
+    accelerationFactor = 1.0
+    if not na(phAcc30)
+        normalizedPhaseAccel = math.max(-1.0, math.min(1.0, phAcc30 / 50.0))
+        accelerationFactor := 1.0 - (normalizedPhaseAccel * 0.15)  // Up to 15% adjustment
+    
+    // RSI mean reversion adjustment (30m timeframe)
+    // High RSI (>70) or Low RSI (<30) suggests potential reversal/slowdown
+    rsiFactor = 1.0
+    if not na(rsi14_30) and not na(dir)
+        if rsi14_30 > 70
+            // Overbought - likely to slow down or reverse
+            // For longs: overbought = bad (slower), for shorts: overbought = good (faster)
+            rsiFactor := dir > 0 ? (1.0 + ((rsi14_30 - 70) / 30.0) * 0.2) : (1.0 - ((rsi14_30 - 70) / 30.0) * 0.15)
+        else if rsi14_30 < 30
+            // Oversold - for longs: might accelerate (faster), for shorts: might slow (slower)
+            rsiFactor := dir > 0 ? (1.0 - ((30 - rsi14_30) / 30.0) * 0.15) : (1.0 + ((30 - rsi14_30) / 30.0) * 0.15)
+    
+    // Completion-based adjustment
+    // Very low completion (<5%) = unreliable, very high (>95%) = almost there
+    completionFactor = 1.0
+    if completion < 0.05
+        // Very early stage - less reliable, be conservative
+        completionFactor := 1.2  // 20% longer estimate
+    else if completion > 0.95
+        // Almost complete - could be any moment
+        completionFactor := 0.8  // 20% shorter estimate
+    
+    // Combine all factors
+    adjustedETA = baseETA * momentumFactor * accelerationFactor * rsiFactor * completionFactor
+    
+    // Apply reasonable bounds
+    // Minimum: 0.1 days (2.4 hours)
+    // Maximum: 90 days (3 months) - reasonable upper bound for swing trades
+    minETA = 0.1
+    maxETA = 90.0
+    etaDays := math.max(minETA, math.min(maxETA, adjustedETA))
+    
+    // Additional sanity check: if completion is very low and elapsed time is short, ETA might be unreliable
+    // In this case, use a more conservative estimate
+    if completion < 0.1 and elapsedDays < 1.0
+        // Very early, use conservative estimate based on expected move and ATR
+        conservativeETA = na(expectedMove) or expectedMove <= 0 ? na : (expectedMove / (ATRw * 0.1))  // Rough estimate: 10% of ATR per day
+        if not na(conservativeETA)
+            etaDays := math.max(etaDays, math.min(conservativeETA, maxETA))
+
+minRisk = math.max(price_now * 0.005, ATRw * 0.25)
+risk = math.max(math.abs(price_now - sl), minRisk)
+gain = na(tp) ? na : math.abs(tp - price_now)
+rr = (risk > 0 and not na(gain)) ? (gain / risk) : na
+
+//─────────────────────────────────────────────────────────────────────────────
+// Alert gating
+//─────────────────────────────────────────────────────────────────────────────
+var bool   sentBaseline  = false
+var float  lastSentHTF   = na
+var float  lastSentLTF   = na
+var string lastSentState = ""
+var int    lastSentTime  = na
+
+bool scoreMoved = false
+if na(lastSentHTF) or na(lastSentLTF)
+    scoreMoved := true
+else if scoreDelta <= 0
+    // If scoreDelta is 0, always consider it moved
+    scoreMoved := true
+else
+    scoreMoved := (math.abs(htfScore - lastSentHTF) >= scoreDelta) or (math.abs(ltfScore - lastSentLTF) >= scoreDelta)
+
+stateChanged = (lastSentState != state)
+
+bool throttleOK = false
+if forceBaseline
+    throttleOK := true
+else if minMinutesBetweenSends <= 0
+    throttleOK := true
+else if na(lastSentTime)
+    throttleOK := true
+else
+    throttleOK := (time - lastSentTime >= minMinutesBetweenSends * 60 * 1000)
+
+meaningful = stateChanged or scoreMoved or sq30_rel
+firstBaseline = not sentBaseline
+
+// UNIFIED 3.0: Always send on every bar close when alwaysSendEveryBar is true
+// Even "no change" (basing) is a valuable signal - it shows the ticker is consolidating
+// The "basing" flag indicates no meaningful change since last send
+isBasing = not meaningful and not firstBaseline
+
+// shouldSend logic: 
+// - If alwaysSendEveryBar: send on every confirmed bar
+// - Otherwise: use legacy logic (first baseline, meaningful change, or periodic update)
+periodicUpdateDue = periodicUpdateMinutes > 0 and not na(lastSentTime) and (time - lastSentTime >= periodicUpdateMinutes * 60 * 1000)
+shouldSend = barstate.isconfirmed and (alwaysSendEveryBar or (throttleOK and (firstBaseline or meaningful or periodicUpdateDue)))
+
+// Reasons
+reason1 = (htfBull ? "HTF bullish bias" : "HTF bearish bias") + " (W/D/4H)"
+reason2 = (ltfBull ? "LTF bullish" : "LTF bearish") + " (30/10/1H)"
+reason3 = sq30_rel ? ("30m SQUEEZE RELEASE " + (rel30Dir==1 ? "BULL" : "BEAR")) : (sq30 ? "30m SQUEEZE ON" : "30m no squeeze")
+reason4 = phaseDot ? ("D Phase " + (usePhaseZones ? f_phase_zone_str(phaseZoneD_i) : "dot/leave")) : ("D Phase " + phaseDir + " pct=" + f_fmt(phasePct,2))
+
+// Build TP array string with metadata (only when sending; avoids per-bar string allocations).
+string tpArrayStr = "[]"
+if shouldSend
+    tpArrayStr := "["
+    sizeAllTp = array.size(allTargets)
+    tpCounter = 1
+
+    if sizeAllTp > 0
+        for i = 0 to sizeAllTp - 1
+            if i < sizeAllTp
+                if i > 0
+                    tpArrayStr += ","
+                
+                val = array.get(allTargets, i)
+                if not na(val)
+                    // Determine source/type for this level
+                    label = "TP" + str.tostring(tpCounter)
+                    source = "ATR Level"
+                    type = "ATR_FIB"
+                    float multiplier = na
+                    tf = "D"
+                    confidence = 0.75
+                    
+                    // Check if it matches HTF structure levels (using parent scope variables)
+                    if useHTFStructure
+                        if (not na(structSwingHighW) and math.abs(val - structSwingHighW) < syminfo.mintick * 2) or
+                           (not na(structSwingHighD) and math.abs(val - structSwingHighD) < syminfo.mintick * 2) or
+                           (not na(structSwingLowW) and math.abs(val - structSwingLowW) < syminfo.mintick * 2) or
+                           (not na(structSwingLowD) and math.abs(val - structSwingLowD) < syminfo.mintick * 2) or
+                           (not na(structSwingHigh4H) and math.abs(val - structSwingHigh4H) < syminfo.mintick * 2) or
+                           (not na(structSwingLow4H) and math.abs(val - structSwingLow4H) < syminfo.mintick * 2)
+                            source := "Swing High/Low"
+                            type := "STRUCTURE"
+                            confidence := 0.80
+                            tf := "W"
+                    
+                    // Check if it matches FVG (using parent scope variables)
+                    if useFVG
+                        if (not na(fvgMidD) and math.abs(val - fvgMidD) < syminfo.mintick * 2) or
+                           (not na(fvgMidW) and math.abs(val - fvgMidW) < syminfo.mintick * 2)
+                            source := "Fair Value Gap"
+                            type := "FVG"
+                            confidence := 0.65
+                    
+                    // Check if it matches gap (using parent scope variables)
+                    if useGapAnalysis
+                        if (not na(gapMidD) and math.abs(val - gapMidD) < syminfo.mintick * 2) or
+                           (not na(gapMidW) and math.abs(val - gapMidW) < syminfo.mintick * 2)
+                            source := "Gap Fill"
+                            type := "GAP"
+                            confidence := 0.60
+                    
+                    // Check if it matches liquidity zones (using parent scope variables)
+                    if useLiquidityZones
+                        if (not na(sellsideLiquidityW) and math.abs(val - sellsideLiquidityW) < syminfo.mintick * 2) or
+                           (not na(sellsideLiquidityD) and math.abs(val - sellsideLiquidityD) < syminfo.mintick * 2) or
+                           (not na(sellsideLiquidity4H) and math.abs(val - sellsideLiquidity4H) < syminfo.mintick * 2) or
+                           (not na(buysideLiquidityW) and math.abs(val - buysideLiquidityW) < syminfo.mintick * 2) or
+                           (not na(buysideLiquidityD) and math.abs(val - buysideLiquidityD) < syminfo.mintick * 2) or
+                           (not na(buysideLiquidity4H) and math.abs(val - buysideLiquidity4H) < syminfo.mintick * 2)
+                            source := dir == 1 ? "Sellside Liquidity" : "Buyside Liquidity"
+                            type := "LIQUIDITY"
+                            confidence := 0.70
+                    
+                    // Check if it's from ATR levels (determine multiplier and timeframe)
+                    if type == "ATR_FIB"
+                        // Try to match against known ATR levels
+                        sizeD := array.size(levelsD)
+                        sizeW := array.size(levelsW)
+                        size4H := array.size(levels4H)
+                        
+                        // Check Daily levels
+                        if sizeD > 0
+                            for j = 0 to sizeD - 1
+                                if j < sizeD
+                                    levelD = array.get(levelsD, j)
+                                    if not na(levelD) and math.abs(val - levelD) < syminfo.mintick * 2
+                                        mult = f_get_mult(j)
+                                        multiplier := mult
+                                        source := f_fmt(mult * 100, 1) + "% ATR Daily"
+                                        tf := "D"
+                                        break
+                        
+                        // Check Weekly levels
+                        if sizeW > 0
+                            for j = 0 to sizeW - 1
+                                if j < sizeW
+                                    levelW = array.get(levelsW, j)
+                                    if not na(levelW) and math.abs(val - levelW) < syminfo.mintick * 2
+                                        mult = f_get_mult(j)
+                                        multiplier := mult
+                                        source := f_fmt(mult * 100, 1) + "% ATR Weekly"
+                                        tf := "W"
+                                        confidence := 0.85
+                                        break
+                        
+                        // Check 4H levels
+                        if size4H > 0
+                            for j = 0 to size4H - 1
+                                if j < size4H
+                                    level4H = array.get(levels4H, j)
+                                    if not na(level4H) and math.abs(val - level4H) < syminfo.mintick * 2
+                                        mult = f_get_mult(j)
+                                        multiplier := mult
+                                        source := f_fmt(mult * 100, 1) + "% ATR 4H"
+                                        tf := "240"
+                                        break
+                    
+                    // Build TP level JSON string
+                    tpLevelJson = f_tp_level_str(val, label, source, type, multiplier, tf, confidence)
+                    tpArrayStr += tpLevelJson
+                    tpCounter += 1
+
+    tpArrayStr += "]"
+
+//─────────────────────────────────────────────────────────────────────────────
+// Momentum % Calculations (for Momentum Elite)
+// CONSOLIDATED: Single request.security call for all lookback periods
+//─────────────────────────────────────────────────────────────────────────────
+f_momentum_lookbacks() =>
+    [close[5], close[20], close[60], close[120]]
+
+// Fetch all historical closes in ONE request.security call (saves 3 calls)
+[priceWeekAgo_raw, priceMonthAgo_raw, price3MonthsAgo_raw, price6MonthsAgo_raw] = request.security(syminfo.tickerid, "D", f_momentum_lookbacks(), barmerge.gaps_off, barmerge.lookahead_off)
+
+// Get historical daily closes (will be na if data unavailable - script continues normally)
+currentPrice = close
+priceWeekAgo = priceWeekAgo_raw      // ~5 trading days ago
+priceMonthAgo = priceMonthAgo_raw    // ~20 trading days ago
+price3MonthsAgo = price3MonthsAgo_raw // ~60 trading days ago
+price6MonthsAgo = price6MonthsAgo_raw // ~120 trading days ago
+
+// Calculate percentage changes (as decimals, will convert to % in JSON)
+// All checks ensure we don't divide by zero or use invalid data
+pctChangeWeek = not na(priceWeekAgo) and priceWeekAgo > 0 and currentPrice > 0 ? ((currentPrice - priceWeekAgo) / priceWeekAgo) : na
+pctChangeMonth = not na(priceMonthAgo) and priceMonthAgo > 0 and currentPrice > 0 ? ((currentPrice - priceMonthAgo) / priceMonthAgo) : na
+pctChange3Months = not na(price3MonthsAgo) and price3MonthsAgo > 0 and currentPrice > 0 ? ((currentPrice - price3MonthsAgo) / price3MonthsAgo) : na
+pctChange6Months = not na(price6MonthsAgo) and price6MonthsAgo > 0 and currentPrice > 0 ? ((currentPrice - price6MonthsAgo) / price6MonthsAgo) : na
+
+//─────────────────────────────────────────────────────────────────────────────
+// Sector & Fundamental Data (from TradingView)
+//─────────────────────────────────────────────────────────────────────────────
+// NOTE: request.financial() calls have been removed to avoid parse-time symbol resolution
+// errors for futures/crypto/forex. Sector and industry are safe and work for all asset types.
+// Fundamental data (EPS, P/E, PEG, Market Cap) can be provided by the worker if needed.
+
+// Get sector and industry from TradingView (safe for all asset types)
+sectorName = na(syminfo.sector) ? "" : syminfo.sector
+industryName = na(syminfo.industry) ? "" : syminfo.industry
+
+//─────────────────────────────────────────────────────────────────────────────
+// TD Sequential (DeMark Sequential) - Reversal/Exhaustion Indicator
+//─────────────────────────────────────────────────────────────────────────────
+// TD Sequential helps identify potential reversal/exhaustion points
+// Preparation Phase: Counts consecutive closes below/above comparison period (default 9)
+// Lead-up Phase: After preparation completes, counts consecutive closes below/above low/high comparison (default 13)
+// TD 9: Preparation phase reaches 9 = potential reversal signal
+// TD 13: Lead-up phase reaches 13 = stronger reversal signal
+
+// Settings (using standard DeMark defaults)
+tdPrepLen = 9        // Preparation phase length
+tdPrepComp = 4       // Comparison period for preparation (close[4])
+tdLeadupLen = 13    // Lead-up phase length
+tdLeadupComp = 2    // Comparison period for lead-up (low[2] or high[2])
+
+// Preparation Phase (TD Count)
+// Bullish: Count consecutive closes below close[comparison]
+// Bearish: Count consecutive closes above close[comparison]
+var int bullishPrepCount = 0
+var int bearishPrepCount = 0
+
+bullishPrepCount := close < close[tdPrepComp] ? bullishPrepCount + 1 : 0
+bearishPrepCount := close > close[tdPrepComp] ? bearishPrepCount + 1 : 0
+
+// Preparation phase completion signals
+bullishPrepComplete = bullishPrepCount == tdPrepLen
+bearishPrepComplete = bearishPrepCount == tdPrepLen
+
+// Lead-up Phase (TD Sequential)
+// Bullish: After bullish prep completes, count consecutive closes below low[comparison]
+// Bearish: After bearish prep completes, count consecutive closes above high[comparison]
+var int bullishLeadupCount = 0
+var int bearishLeadupCount = 0
+
+// Reset lead-up on opposite preparation completion (cancellation)
+if bearishPrepComplete
+    bullishLeadupCount := 0
+if bullishPrepComplete
+    bearishLeadupCount := 0
+
+// Increment lead-up counts
+if bullishPrepComplete and close < low[tdLeadupComp]
+    bullishLeadupCount := bullishLeadupCount + 1
+else if bullishLeadupCount > 0 and close < low[tdLeadupComp]
+    bullishLeadupCount := bullishLeadupCount + 1
+else if bullishLeadupCount > 0 and close >= low[tdLeadupComp]
+    bullishLeadupCount := 0  // Reset if condition breaks
+
+if bearishPrepComplete and close > high[tdLeadupComp]
+    bearishLeadupCount := bearishLeadupCount + 1
+else if bearishLeadupCount > 0 and close > high[tdLeadupComp]
+    bearishLeadupCount := bearishLeadupCount + 1
+else if bearishLeadupCount > 0 and close <= high[tdLeadupComp]
+    bearishLeadupCount := 0  // Reset if condition breaks
+
+// TD Sequential signals
+// TD 9: Preparation phase complete (potential reversal)
+td9Bullish = bullishPrepComplete
+td9Bearish = bearishPrepComplete
+
+// TD 13: Lead-up phase complete (stronger reversal signal)
+td13Bullish = bullishLeadupCount == tdLeadupLen
+td13Bearish = bearishLeadupCount == tdLeadupLen
+
+// TD Sequential state summary
+// For LONG trades: Bearish TD 9/13 = exit signal (exhaustion/reversal down)
+// For SHORT trades: Bullish TD 9/13 = exit signal (exhaustion/reversal up)
+tdSeqExitLong = td9Bearish or td13Bearish
+tdSeqExitShort = td9Bullish or td13Bullish
+
+// TD Sequential boost/penalty for scoring
+// If TD count favors our direction, boost score
+// If TD count opposes our direction, penalize score
+tdSeqBoost = 0.0
+if htfBull
+    // For LONG bias: Bullish TD 9/13 = boost, Bearish TD 9/13 = penalty
+    tdSeqBoost := td9Bullish ? 5.0 : td13Bullish ? 8.0 : td9Bearish ? -5.0 : td13Bearish ? -8.0 : 0.0
+    // Also boost if bullish prep count is high (6-8) or leadup is building (6-12)
+    if bullishPrepCount >= 6 and bullishPrepCount < tdPrepLen
+        tdSeqBoost := tdSeqBoost + 2.0
+    if bullishLeadupCount >= 6 and bullishLeadupCount < tdLeadupLen
+        tdSeqBoost := tdSeqBoost + 3.0
+else
+    // For SHORT bias: Bearish TD 9/13 = boost, Bullish TD 9/13 = penalty
+    tdSeqBoost := td9Bearish ? 5.0 : td13Bearish ? 8.0 : td9Bullish ? -5.0 : td13Bullish ? -8.0 : 0.0
+    // Also boost if bearish prep count is high (6-8) or leadup is building (6-12)
+    if bearishPrepCount >= 6 and bearishPrepCount < tdPrepLen
+        tdSeqBoost := tdSeqBoost + 2.0
+    if bearishLeadupCount >= 6 and bearishLeadupCount < tdLeadupLen
+        tdSeqBoost := tdSeqBoost + 3.0
+
+// Fundamental data variables (will be na - can be populated by worker if needed)
+var float epsBasic = na
+var float epsDiluted = na
+var float epsReported = na
+var float epsQuarterly = na
+var float marketCap = na
+var float epsRaw = na
+var float peRatio = na
+var float epsGrowthRate = na
+var float pegRatio = na
+
+// Build sector/fundamental JSON strings
+sectorStr = sectorName != "" ? ("\"sector\":\"" + sectorName + "\",") : ""
+industryStr = industryName != "" ? ("\"industry\":\"" + industryName + "\",") : ""
+epsStr = not na(epsRaw) ? ("\"eps\":" + f_fmt(epsRaw, 2) + ",") : ""
+peStr = not na(peRatio) ? ("\"pe_ratio\":" + f_fmt(peRatio, 2) + ",") : ""
+epsGrowthStr = not na(epsGrowthRate) ? ("\"eps_growth_rate\":" + f_fmt(epsGrowthRate, 2) + ",") : ""
+pegStr = not na(pegRatio) ? ("\"peg_ratio\":" + f_fmt(pegRatio, 2) + ",") : ""
+marketCapStr = not na(marketCap) ? ("\"market_cap\":" + f_fmt(marketCap, 0) + ",") : ""
+
+// Build EMA Cloud JSON strings
+dailyEMAStr = not na(dailyEMAUpper) and not na(dailyEMALower) ? ("\"daily_ema_cloud\":{" + "\"upper\":" + f_fmt(dailyEMAUpper, 2) + "," + "\"lower\":" + f_fmt(dailyEMALower, 2) + "," + "\"price\":" + f_fmt(dailyPrice, 2) + "," + "\"position\":\"" + dailyEMAPosition + "\"" + "},") : ""
+fourHEMAStr = not na(fourHEMAUpper) and not na(fourHEMALower) ? ("\"fourh_ema_cloud\":{" + "\"upper\":" + f_fmt(fourHEMAUpper, 2) + "," + "\"lower\":" + f_fmt(fourHEMALower, 2) + "," + "\"price\":" + f_fmt(fourHPrice, 2) + "," + "\"position\":\"" + fourHEMAPosition + "\"" + "},") : ""
+oneHEMAStr = not na(oneHEMAUpper) and not na(oneHEMALower) ? ("\"oneh_ema_cloud\":{" + "\"upper\":" + f_fmt(oneHEMAUpper, 2) + "," + "\"lower\":" + f_fmt(oneHEMALower, 2) + "," + "\"price\":" + f_fmt(oneHPrice, 2) + "," + "\"position\":\"" + oneHEMAPosition + "\"" + "},") : ""
+
+// Build Ichimoku JSON strings (Daily + Weekly)
+ichimokuDStr = not na(ichD_spanA) and not na(ichD_spanB) ? ("\"ichimoku_d\":{" + "\"tenkan\":" + f_fmt(ichD_tenkan, 2) + "," + "\"kijun\":" + f_fmt(ichD_kijun, 2) + "," + "\"span_a\":" + f_fmt(ichD_spanA, 2) + "," + "\"span_b\":" + f_fmt(ichD_spanB, 2) + "," + "\"price\":" + f_fmt(ichD_price, 2) + "," + "\"position\":\"" + ichD_pos + "\"" + "},") : ""
+ichimokuWStr = not na(ichW_spanA) and not na(ichW_spanB) ? ("\"ichimoku_w\":{" + "\"tenkan\":" + f_fmt(ichW_tenkan, 2) + "," + "\"kijun\":" + f_fmt(ichW_kijun, 2) + "," + "\"span_a\":" + f_fmt(ichW_spanA, 2) + "," + "\"span_b\":" + f_fmt(ichW_spanB, 2) + "," + "\"price\":" + f_fmt(ichW_price, 2) + "," + "\"position\":\"" + ichW_pos + "\"" + "},") : ""
+
+// Daily Change vs Prev Close (watchlist-style)
+prevCloseStr = not na(PCd) ? ("\"prev_close\":" + f_fmt(PCd, 2) + ",") : ""
+dayChangeVal = not na(PCd) and PCd > 0 ? (price_now - PCd) : na
+dayChgStr = not na(dayChangeVal) ? ("\"day_change\":" + f_fmt(dayChangeVal, 2) + ",\"change\":" + f_fmt(dayChangeVal, 2) + ",") : ""
+dayPctVal = not na(dayChangeVal) and PCd > 0 ? ((dayChangeVal / PCd) * 100.0) : na
+dayPctStr = not na(dayPctVal) ? ("\"day_change_pct\":" + f_fmt(dayPctVal, 2) + ",\"change_pct\":" + f_fmt(dayPctVal, 2) + ",") : ""
+
+// Build RSI JSON string
+rsiStr = not na(currentRSI) ? ("\"rsi\":{" + "\"value\":" + f_fmt(currentRSI, 2) + "," + "\"level\":\"" + rsiLevel + "\"," + "\"divergence\":{" + "\"type\":\"" + rsiDivType + "\"," + "\"strength\":" + f_fmt(rsiDivStrength, 2) + "}" + "},") : ""
+
+//─────────────────────────────────────────────────────────────────────────────
+// Per-timeframe technical summary (compact) for Right Rail
+//─────────────────────────────────────────────────────────────────────────────
+f_vis_mask(float px, float e5, float e13, float e21, float e48, float e89, float e200, float e233) =>
+    int m = 0
+    m += (not na(px) and not na(e5) and px >= e5) ? 1 : 0
+    m += (not na(px) and not na(e13) and px >= e13) ? 2 : 0
+    m += (not na(px) and not na(e21) and px >= e21) ? 4 : 0
+    m += (not na(px) and not na(e48) and px >= e48) ? 8 : 0
+    m += (not na(px) and not na(e89) and px >= e89) ? 16 : 0
+    m += (not na(px) and not na(e200) and px >= e200) ? 32 : 0
+    m += (not na(px) and not na(e233) and px >= e233) ? 64 : 0
+    m
+
+f_stack_strength(float e5, float e13, float e21, float e48, float e89, float e200, float e233) =>
+    bull = 0
+    bear = 0
+    bull += (not na(e5) and not na(e13) and e5 > e13) ? 1 : 0
+    bull += (not na(e13) and not na(e21) and e13 > e21) ? 1 : 0
+    bull += (not na(e21) and not na(e48) and e21 > e48) ? 1 : 0
+    bull += (not na(e48) and not na(e89) and e48 > e89) ? 1 : 0
+    bull += (not na(e89) and not na(e200) and e89 > e200) ? 1 : 0
+    bull += (not na(e200) and not na(e233) and e200 > e233) ? 1 : 0
+    bear += (not na(e5) and not na(e13) and e5 < e13) ? 1 : 0
+    bear += (not na(e13) and not na(e21) and e13 < e21) ? 1 : 0
+    bear += (not na(e21) and not na(e48) and e21 < e48) ? 1 : 0
+    bear += (not na(e48) and not na(e89) and e48 < e89) ? 1 : 0
+    bear += (not na(e89) and not na(e200) and e89 < e200) ? 1 : 0
+    bear += (not na(e200) and not na(e233) and e200 < e233) ? 1 : 0
+    bull >= 4 and bull > bear ? bull : bear >= 4 and bear > bull ? -bear : 0
+
+f_trend_sig(float px, float e21, float e200) =>
+    int out = 0
+    if not na(px) and not na(e21) and not na(e200)
+        if px >= e21 and e21 >= e200
+            out := 1
+        else if px <= e21 and e21 <= e200
+            out := -1
+    out
+
+f_atr_band_json(float px, float prevPx, float pc, float atr) =>
+    // NOTE: Implemented as a statement-based function (vs if-expression)
+    // to avoid Pine parser "end of line without line continuation" errors.
+    string out = "null"
+    if not (na(pc) or na(atr) or atr <= 0 or na(px))
+        int side = px >= pc ? 1 : -1
+        float dist = math.abs(px - pc) / atr
+        float lo = 0.0
+        float hi = 0.382
+
+        // Determine band (0.0–0.382, 0.382–0.5, ..., 2.618–3.0, 3.0+)
+        for i = 0 to 13
+            float mult = f_get_mult(i)
+            if not na(mult) and dist >= mult
+                lo := mult
+
+        // Find next higher multiplier
+        bool hiSet = false
+        for i = 0 to 13
+            float mult = f_get_mult(i)
+            if not na(mult) and dist < mult and not hiSet
+                hi := mult
+                hiSet := true
+        string hiFinal = hiSet ? f_fmt(hi, 3) : "null"
+
+        // Last ATR level crossed (pick largest mult crossed on this bar)
+        float crossMult = na
+        string crossDir = ""
+        int crossSide = 0
+        if not na(prevPx)
+            for i = 0 to 13
+                float mult = f_get_mult(i)
+                if not na(mult)
+                    float lvlUp = pc + mult * atr
+                    float lvlDn = pc - mult * atr
+                    // Crosses (explicit bools to avoid line-continuation parser issues)
+                    bool crossUpUp = prevPx < lvlUp and px >= lvlUp
+                    bool crossUpDn = prevPx < lvlDn and px >= lvlDn
+                    bool crossDnUp = prevPx > lvlUp and px <= lvlUp
+                    bool crossDnDn = prevPx > lvlDn and px <= lvlDn
+                    if crossUpUp or crossUpDn or crossDnUp or crossDnDn
+                        if na(crossMult) or mult > crossMult
+                            crossMult := mult
+                            crossDir := (crossUpUp or crossUpDn) ? "up" : "dn"
+                            crossSide := (crossUpUp or crossDnUp) ? 1 : -1
+
+        string xStr = na(crossMult) ? "null" : f_fmt(crossMult, 3)
+        // Keep this as a single expression to avoid Pine parser issues.
+        out := "{\"s\":" + str.tostring(side) + ",\"lo\":" + f_fmt(lo, 3) + ",\"hi\":" + hiFinal + ",\"x\":" + xStr + ",\"xd\":\"" + crossDir + "\",\"xs\":" + str.tostring(crossSide) + "}"
+    out
+
+f_tf_entry(string tfKey, float px, float prevPx, float pc, float atr, float e5, float e13, float e21, float e48, float e89, float e200, float e233,
+           bool comp, bool sqOn, bool sqRel, float phaseV,
+           int dot0, int dot1, int dot2, int dot3, int dot4,
+           int phDiv0, int phDiv1,
+           float rsi5v, float rsi14v, int rsiDiv0, int rsiDiv1) =>
+    vis = f_vis_mask(px, e5, e13, e21, e48, e89, e200, e233)
+    stack = f_stack_strength(e5, e13, e21, e48, e89, e200, e233)
+    sig = f_trend_sig(px, e21, e200)
+    atrStr = f_atr_band_json(px, prevPx, pc, atr)
+    phaseVStr = na(phaseV) ? "null" : f_fmt(phaseV, 1)
+    rsi5Str = na(rsi5v) ? "null" : f_fmt(rsi5v, 1)
+    rsi14Str = na(rsi14v) ? "null" : f_fmt(rsi14v, 1)
+    dotsStr = f_i_arr5(dot0, dot1, dot2, dot3, dot4)
+    phDivStr = f_i_arr2(phDiv0, phDiv1)
+    rsiDivStr = f_i_arr2(rsiDiv0, rsiDiv1)
+    s = "\"" + tfKey + "\":{" + "\"atr\":" + atrStr + "," + "\"ema\":{" + "\"vis\":" + str.tostring(vis) + ",\"stack\":" + str.tostring(stack) + ",\"sig\":" + str.tostring(sig) + "}," + "\"ph\":{" + "\"v\":" + phaseVStr + ",\"dots\":" + dotsStr + ",\"div\":" + phDivStr + "}," + "\"sq\":{" + "\"c\":" + (comp ? "1" : "0") + ",\"s\":" + (sqOn ? "1" : "0") + ",\"r\":" + (sqRel ? "1" : "0") + "}," + "\"rsi\":{" + "\"r5\":" + rsi5Str + ",\"r14\":" + rsi14Str + ",\"div\":" + rsiDivStr + "}" +  "}"
+    s
+
+// Send
+if shouldSend
+    // Build triggers array only when sending (avoids per-bar string allocations).
+    string triggersBody = ""
+    if sq30_rel
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"SQUEEZE_RELEASE_30M\""
+    if crossUp30
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_30M_13_48_BULL\""
+    if crossDn30
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_30M_13_48_BEAR\""
+    if crossUp1H_1348_evt
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_1H_13_48_BULL\""
+    if crossDn1H_1348_evt
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_1H_13_48_BEAR\""
+    if stFlip30
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"ST_FLIP_30M\""
+    if stFlip1H
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"ST_FLIP_1H\""
+    if buyableDipLong
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"BUYABLE_DIP_1H_13_48_LONG\""
+    if buyableDipShort
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"BUYABLE_DIP_1H_13_48_SHORT\""
+    // LTF early timing: 10m, 3m (5m/1m removed for request limit)
+    if sq10_rel
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"SQUEEZE_RELEASE_10M\""
+    if crossUp10
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_10M_13_48_BULL\""
+    if crossDn10
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_10M_13_48_BEAR\""
+    if stFlip10
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"ST_FLIP_10M\""
+    if sq5_rel
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"SQUEEZE_RELEASE_5M\""
+    if crossUp5
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_5M_13_48_BULL\""
+    if crossDn5
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"EMA_CROSS_5M_13_48_BEAR\""
+    if stFlip5
+        triggersBody += (str.length(triggersBody) > 0 ? "," : "") + "\"ST_FLIP_5M\""
+    string triggersStr = "[" + triggersBody + "]"
+    string phaseZoneStr = usePhaseZones ? f_phase_zone_str(phaseZoneD_i) : ""
+
+    string tfTechStr = "{" + f_tf_entry("W",  cW,  pcW,  pcW,  atr14W,  e5W,  e13W,  e21W,  e48W,  e89W,  e200W,  e233W,  compW,  sqW,  sqRelW,  phW,  dotW0, dotW1, dotW2, dotW3, dotW4,  phDivW0, phDivW1,  rsi5W,  rsi14W,  rsiDivW0, rsiDivW1) + "," + f_tf_entry("D",  cD,  pcD,  pcD,  atr14D,  e5D,  e13D,  e21D,  e48D,  e89D,  e200D,  e233D,  compD,  sqD,  sqRelD,  phD,  dotD0, dotD1, dotD2, dotD3, dotD4,  phDivD0, phDivD1,  rsi5D,  rsi14D,  rsiDivD0, rsiDivD1) + "," + f_tf_entry("4H", c4,  pc4,  pc4,  atr14_4, e5H,  e13H,  e21H,  e48H,  e89H,  e200H,  e233H,  comp4,  sq4,  sqRel4,  ph4,  dot4H0, dot4H1, dot4H2, dot4H3, dot4H4,  phDiv4H0, phDiv4H1,  rsi5_4,  rsi14_4,  rsiDiv4H0, rsiDiv4H1) + "," + f_tf_entry("1H", c1,  pc1,  pc1,  atr14_1, e5_1, e13_1, e21_1, e48_1, e89_1, e200_1, e233_1, comp1,  sq1,  sqRel1,  ph1,  dot1H0, dot1H1, dot1H2, dot1H3, dot1H4,  phDiv1H0, phDiv1H1,  rsi5_1,  rsi14_1,  rsiDiv1H0, rsiDiv1H1) + "," + f_tf_entry("30", c30, pc30, pc30, atr14_30, e5_30, e13_30, e21_30, e48_30, e89_30, e200_30, e233_30, comp30, sq30, sqRel30, ph30, dot300, dot301, dot302, dot303, dot304,  phDiv300, phDiv301,  rsi5_30, rsi14_30, rsiDiv300, rsiDiv301) + "," + f_tf_entry("10", c10, pc10, pc10, atr14_10, e5_10, e13_10, e21_10, e48_10, e89_10, e200_10, e233_10, comp10, sq10, sqRel10, ph10, dot100, dot101, dot102, dot103, dot104,  phDiv100, phDiv101,  rsi5_10, rsi14_10, rsiDiv100, rsiDiv101) + "," + f_tf_entry("5", c5, pc5, pc5, atr14_5, e5_5, e13_5, e21_5, e48_5, e89_5, e200_5, e233_5, comp5, sq5, sqRel5, ph5, dot50, dot51, dot52, dot53, dot54, phDiv50, phDiv51, rsi5_5, rsi14_5, rsiDiv50, rsiDiv51) + "}"
+
+    // UNIFIED: Build context string (only when shouldSendContext is true)
+    string contextStr = ""
+    if shouldSendContext
+        companyName = f_json_escape(syminfo.description)
+        sector = f_json_escape(syminfo.sector)
+        industry = f_json_escape(syminfo.industry)
+        country = f_json_escape(syminfo.country)
+        exchange = f_json_escape(syminfo.prefix)
+        assetType = f_json_escape(syminfo.type)
+        currency = f_json_escape(syminfo.currency)
+        contextStr := ",\"context\":{\"name\":\"" + companyName + "\",\"sector\":\"" + sector + "\",\"industry\":\"" + industry + "\",\"country\":\"" + country + "\",\"exchange\":\"" + exchange + "\",\"type\":\"" + assetType + "\",\"currency\":\"" + currency + "\"}"
+        lastContextSentTs := time
+
+    // UNIFIED: Build multi-TF candles string (using _can suffix to avoid shadowing bundle variables)
+    string candlesStr = ""
+    if includeCandles
+        [o5_can, h5_can, l5_can, c5_can, v5_can, t5_can] = f_candle("5")
+        [o10_can, h10_can, l10_can, c10_can, v10_can, t10_can] = f_candle("10")
+        [o30_can, h30_can, l30_can, c30_can, v30_can, t30_can] = f_candle("30")
+        [o60_can, h60_can, l60_can, c60_can, v60_can, t60_can] = f_candle("60")
+        [o240_can, h240_can, l240_can, c240_can, v240_can, t240_can] = f_candle("240")
+        [oD_can, hD_can, lD_can, cD_can, vD_can, tD_can] = f_candle("D")
+        [oW_can, hW_can, lW_can, cW_can, vW_can, tW_can] = f_candle("W")
+        candlesStr := ",\"tf_candles\":{\"5\":{\"ts\":" + f_num(t5_can) + ",\"o\":" + f_num(o5_can) + ",\"h\":" + f_num(h5_can) + ",\"l\":" + f_num(l5_can) + ",\"c\":" + f_num(c5_can) + ",\"v\":" + f_num(v5_can) + "},\"10\":{\"ts\":" + f_num(t10_can) + ",\"o\":" + f_num(o10_can) + ",\"h\":" + f_num(h10_can) + ",\"l\":" + f_num(l10_can) + ",\"c\":" + f_num(c10_can) + ",\"v\":" + f_num(v10_can) + "},\"30\":{\"ts\":" + f_num(t30_can) + ",\"o\":" + f_num(o30_can) + ",\"h\":" + f_num(h30_can) + ",\"l\":" + f_num(l30_can) + ",\"c\":" + f_num(c30_can) + ",\"v\":" + f_num(v30_can) + "},\"60\":{\"ts\":" + f_num(t60_can) + ",\"o\":" + f_num(o60_can) + ",\"h\":" + f_num(h60_can) + ",\"l\":" + f_num(l60_can) + ",\"c\":" + f_num(c60_can) + ",\"v\":" + f_num(v60_can) + "},\"240\":{\"ts\":" + f_num(t240_can) + ",\"o\":" + f_num(o240_can) + ",\"h\":" + f_num(h240_can) + ",\"l\":" + f_num(l240_can) + ",\"c\":" + f_num(c240_can) + ",\"v\":" + f_num(v240_can) + "},\"D\":{\"ts\":" + f_num(tD_can) + ",\"o\":" + f_num(oD_can) + ",\"h\":" + f_num(hD_can) + ",\"l\":" + f_num(lD_can) + ",\"c\":" + f_num(cD_can) + ",\"v\":" + f_num(vD_can) + "},\"W\":{\"ts\":" + f_num(tW_can) + ",\"o\":" + f_num(oW_can) + ",\"h\":" + f_num(hW_can) + ",\"l\":" + f_num(lW_can) + ",\"c\":" + f_num(cW_can) + ",\"v\":" + f_num(vW_can) + "}}"
+
+    // UNIFIED: Session and market data strings
+    string sessionJsonStr = ",\"session\":\"" + sessionStr + "\",\"is_rth\":" + str.tostring(isRthSession)
+    string avgVolStr = not na(avgVol30D) ? ",\"avg_vol_30\":" + str.tostring(avgVol30D) : ""
+    string adrStr = not na(adr14D) ? ",\"adr_14\":" + str.tostring(adr14D) : ""
+    string basingStr = ",\"basing\":" + (isBasing ? "true" : "false")
+    string unifiedStr = ",\"unified\":true"
+
+    string json = "{" + "\"script_version\":\"" + SCRIPT_VERSION + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + sectorStr + industryStr + epsStr + peStr + epsGrowthStr + pegStr + marketCapStr + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"htf_score\":" + f_fmt(htfScore, 2) + "," + "\"ltf_score\":" + f_fmt(ltfScore, 2) + "," + "\"completion\":" + f_fmt(completion, 2) + "," + "\"phase_pct\":" + f_fmt(phasePct, 2) + "," + "\"phase_zone\":\"" + phaseZoneStr + "\"," + "\"state\":\"" + state + "\"," + "\"price\":" + f_fmt(price_now, 2) + "," + prevCloseStr + dayChgStr + dayPctStr + "\"trigger_ts\":" + (na(triggerTs) ? "null" : str.tostring(triggerTs)) + "," + "\"trigger_price\":" + (na(triggerPrice) ? "null" : f_fmt(triggerPrice, 2)) + "," + "\"trigger_reason\":\"" + triggerReason + "\"," + "\"trigger_dir\":\"" + triggerDirStr + "\"," + "\"trigger_tf\":\"" + triggerTfStr + "\"," + "\"triggers\":" + triggersStr + "," + "\"tf_tech\":" + tfTechStr + "," + "\"sl\":" + (na(sl) ? "null" : f_fmt(sl, 2)) + "," + "\"tp\":" + (na(tp) ? "null" : f_fmt(tp, 2)) + "," + "\"tp_levels\":" + tpArrayStr + "," + "\"eta_days\":" + (na(etaDays) ? "null" : f_fmt(etaDays, 2)) + "," + "\"rr\":" + (na(rr) ? "null" : f_fmt(rr, 2)) + "," + "\"momentum_pct\":{" + "\"week\":" + (na(pctChangeWeek) ? "null" : f_fmt(pctChangeWeek * 100, 2)) + "," + "\"month\":" + (na(pctChangeMonth) ? "null" : f_fmt(pctChangeMonth * 100, 2)) + "," + "\"three_months\":" + (na(pctChange3Months) ? "null" : f_fmt(pctChange3Months * 100, 2)) + "," + "\"six_months\":" + (na(pctChange6Months) ? "null" : f_fmt(pctChange6Months * 100, 2)) + "}," + dailyEMAStr + fourHEMAStr + oneHEMAStr + ichimokuDStr + ichimokuWStr + rsiStr + "\"flags\":{" + "\"sq30_on\":" + (sq30 ? "true" : "false") + "," + "\"sq30_release\":" + (sq30_rel ? "true" : "false") + "," + "\"phase_dot\":" + (phaseDot ? "true" : "false") + "," + "\"phase_zone_change\":" + (phaseZoneChange ? "true" : "false") + "," + "\"momentum_elite\":" + (momentumElite ? "true" : "false") + "," + "\"ema_cross_1h_13_48\":" + (crossUp1H_1348 or crossDn1H_1348 ? "true" : "false") + "," + "\"st_flip_1h\":" + (stFlip1H ? "true" : "false") + "," + "\"st_flip_30m\":" + (stFlip30 ? "true" : "false") + "," + "\"buyable_dip_1h_13_48\":" + (buyableDipLong or buyableDipShort ? "true" : "false") + "," + "\"sq10_release\":" + (sq10_rel ? "true" : "false") + "," + "\"ema_cross_10m_13_48\":" + (crossUp10 or crossDn10 ? "true" : "false") + "," + "\"st_flip_10m\":" + (stFlip10 ? "true" : "false") + "," + "\"sq5_release\":" + (sq5_rel ? "true" : "false") + "," + "\"ema_cross_5m_13_48\":" + (crossUp5 or crossDn5 ? "true" : "false") + "," + "\"st_flip_5m\":" + (stFlip5 ? "true" : "false") + "}," + "\"td_sequential\":{" + "\"bullish_prep_count\":" + str.tostring(bullishPrepCount) + "," + "\"bearish_prep_count\":" + str.tostring(bearishPrepCount) + "," + "\"bullish_leadup_count\":" + str.tostring(bullishLeadupCount) + "," + "\"bearish_leadup_count\":" + str.tostring(bearishLeadupCount) + "," + "\"td9_bullish\":" + (td9Bullish ? "true" : "false") + "," + "\"td9_bearish\":" + (td9Bearish ? "true" : "false") + "," + "\"td13_bullish\":" + (td13Bullish ? "true" : "false") + "," + "\"td13_bearish\":" + (td13Bearish ? "true" : "false") + "," + "\"exit_long\":" + (tdSeqExitLong ? "true" : "false") + "," + "\"exit_short\":" + (tdSeqExitShort ? "true" : "false") + "," + "\"boost\":" + f_fmt(tdSeqBoost, 2) + "}," + "\"reasons\":[" + "\"" + reason1 + "\"," + "\"" + reason2 + "\"," + "\"" + reason3 + "\"," + "\"" + reason4 + "\"" + "]" + sessionJsonStr + avgVolStr + adrStr + basingStr + unifiedStr + contextStr + candlesStr + "}"
+
+    alert(json, alert.freq_once_per_bar_close)
+    sentBaseline  := true
+    lastSentHTF   := htfScore
+    lastSentLTF   := ltfScore
+    lastSentState := state
+    lastSentTime  := time
+
+// Debug - show payload info on chart
+if debugHeartbeat and barstate.isconfirmed
+    label.new(bar_index, htfScore, "Unified v" + SCRIPT_VERSION + "\nBasing: " + str.tostring(isBasing), style=label.style_label_down, size=size.tiny)
+
+//─────────────────────────────────────────────────────────────────────────────
+// Visual sanity
+//─────────────────────────────────────────────────────────────────────────────
+plot(ltfScore, "LTF Score (X)", color=color.black, linewidth=2)
+plot(htfScore, "HTF Score (Y)", linewidth=2)
+hline(0, "Zero", color=color.red, linestyle=hline.style_dotted, linewidth=3)
+
+plotchar(sq30_rel, title="30m Squeeze Release", char="🚀", location=location.top)
+plotchar(phaseDot, title="Daily Phase Dot/Zone Change", char="⚫️", location=location.bottom)
+

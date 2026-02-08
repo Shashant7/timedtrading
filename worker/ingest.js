@@ -26,7 +26,10 @@ export function normalizeTfKey(tf) {
   if (raw === "60" || raw === "1H" || raw === "1HR") return "60";
   if (raw === "240" || raw === "4H" || raw === "4HR") return "240";
   if (raw === "D" || raw === "1D" || raw === "DAY") return "D";
-  if (raw === "W" || raw === "1W" || raw === "WEEK") return "W";
+  if (raw === "W" || raw === "1W" || raw === "WEEK" || raw === "WEEKLY") return "W";
+  // Monthly: "M" standalone, "MONTH", "MONTHLY", "1MONTH"
+  // Note: "1M" is already mapped to 1-minute above, so not included here
+  if (raw === "M" || raw === "MONTH" || raw === "MONTHLY" || raw === "1MONTH") return "M";
   return null;
 }
 

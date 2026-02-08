@@ -1,0 +1,94 @@
+{
+  "ticker": "COST",
+  "dataRange": {
+    "firstTs": 1768404300000,
+    "lastTs": 1770152340000,
+    "firstDate": "2026-01-14",
+    "lastDate": "2026-02-03",
+    "totalPoints": 2487,
+    "daysCovered": 20
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "UP",
+      "startIdx": 1,
+      "endIdx": 1199,
+      "startTs": 1768407300000,
+      "endTs": 1769025780000,
+      "startPrice": 942.57,
+      "endPrice": 988.95,
+      "movePct": 4.920589452242273,
+      "duration": 10308,
+      "signalSequence": [
+        {
+          "ts": 1768404300000,
+          "time": "2026-01-14T15:25:00",
+          "price": 946.2,
+          "htf": 7.45,
+          "ltf": 16.53,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 49,
+          "completion": 0.48,
+          "phase": 0.64,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768407300000,
+          "time": "2026-01-14T16:15:00",
+          "price": 942.57,
+          "htf": 7.37,
+          "ltf": 7.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 52,
+          "completion": 0.46,
+          "phase": 0.62,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1768407300000,
+        "price": 942.57,
+        "htf": 7.37,
+        "ltf": 7.47,
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 52,
+        "completion": 0.46,
+        "phase": 0.62,
+        "rr": null,
+        "flags": {
+          "sq30_on": false,
+          "sq30_release": false,
+          "phase_dot": false,
+          "phase_zone_change": false,
+          "momentum_elite": false
+        },
+        "trigger_reason": "SQUEEZE_RELEASE"
+      }
+    }
+  ],
+  "biggestUp": {
+    "direction": "UP",
+    "startIdx": 1,
+    "endIdx": 1199,
+    "startTs": 1768407300000,
+    "endTs": 1769025780000,
+    "startPrice": 942.57,
+    "endPrice": 988.95,
+    "movePct": 4.920589452242273,
+    "duration": 10308
+  },
+  "biggestDown": null
+}

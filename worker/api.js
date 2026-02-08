@@ -30,7 +30,7 @@ export function corsHeaders(env, req, allowNoOrigin = false) {
   });
 
   let allowed;
-  if (allowedOrigins.length === 0) {
+  if (allowedOrigins.length === 0 || allowedOrigins.includes("*")) {
     allowed = "*";
   } else if (origin === "" && allowNoOrigin) {
     allowed = "*";

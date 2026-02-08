@@ -1,0 +1,487 @@
+{
+  "generated": "2026-02-04T03:30:02.881Z",
+  "window": {
+    "since": "2026-02-02T00:00:00.000Z",
+    "until": "2026-02-04T00:00:00.000Z",
+    "days": 2
+  },
+  "overallStats": {
+    "totalTrades": 1244,
+    "winners": 563,
+    "losers": 575,
+    "trims": 70,
+    "open": 36,
+    "winRate": 0.5240066225165563,
+    "avgWinPnl": 24.197398777440416,
+    "avgLossPnl": -25.32662202936381,
+    "avgWinPct": 1.9444211171508536,
+    "avgLossPct": -2.010149349823107,
+    "profitFactor": 0.9354745199772122
+  },
+  "patternAnalysis": {
+    "winners": {
+      "label": "Winners",
+      "count": 563,
+      "avgRR": 20.40635267067484,
+      "medianRR": 2.91366551554021,
+      "p25RR": 2.292629742695158,
+      "p75RR": 7.1706263498920135,
+      "avgRank": 0,
+      "medianRank": 0,
+      "avgPnlPct": 1.9444211171508536,
+      "medianPnlPct": 1.0158350761876198,
+      "longPct": 0.4493783303730018,
+      "shortPct": 0.5506216696269982
+    },
+    "losers": {
+      "label": "Losers",
+      "count": 575,
+      "avgRR": 5.158250222998394,
+      "medianRR": 3.5019867549668895,
+      "p25RR": 2.2644853442399535,
+      "p75RR": 5.0315533980582465,
+      "avgRank": 0,
+      "medianRank": 0,
+      "avgPnlPct": -2.010149349823107,
+      "medianPnlPct": -1.0454545454545459,
+      "longPct": 0.6573913043478261,
+      "shortPct": 0.3426086956521739
+    },
+    "trims": {
+      "label": "TP_HIT_TRIM",
+      "count": 70,
+      "avgRR": 4.9150501778762115,
+      "medianRR": 2.2841089027717736,
+      "p25RR": 1.3617747440273038,
+      "p75RR": 3.905660377358535,
+      "avgRank": 0,
+      "medianRank": 0,
+      "avgPnlPct": 2.6214923456323693,
+      "medianPnlPct": 2.13921059542331,
+      "longPct": 0.6714285714285714,
+      "shortPct": 0.32857142857142857
+    }
+  },
+  "frequencyAnalysis": {
+    "totalTickers": 153,
+    "avgTradesPerTicker": 8.130718954248366,
+    "maxTradesOnTicker": 276,
+    "maxTradesTicker": "TLN",
+    "churningTickers": [
+      {
+        "ticker": "TLN",
+        "tradeCount": 276,
+        "wins": 136,
+        "losses": 139,
+        "winRate": 0.49454545454545457,
+        "totalPnl": -110.98176297497557,
+        "avgGapMinutes": 6.942509393939394,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1052,
+        "rapidTrades": 273
+      },
+      {
+        "ticker": "SHOP",
+        "tradeCount": 174,
+        "wins": 90,
+        "losses": 83,
+        "winRate": 0.5202312138728323,
+        "totalPnl": 89.86129719578305,
+        "avgGapMinutes": 8.306358381502891,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1060,
+        "rapidTrades": 170
+      },
+      {
+        "ticker": "CRWD",
+        "tradeCount": 125,
+        "wins": 63,
+        "losses": 61,
+        "winRate": 0.5080645161290323,
+        "totalPnl": -40.29176747989978,
+        "avgGapMinutes": 11.25,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1055,
+        "rapidTrades": 122
+      },
+      {
+        "ticker": "CDNS",
+        "tradeCount": 85,
+        "wins": 42,
+        "losses": 42,
+        "winRate": 0.5,
+        "totalPnl": 32.61419529849601,
+        "avgGapMinutes": 2.0952380952380953,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 9,
+        "rapidTrades": 84
+      },
+      {
+        "ticker": "NBIS",
+        "tradeCount": 68,
+        "wins": 33,
+        "losses": 34,
+        "winRate": 0.4925373134328358,
+        "totalPnl": -14.991494863969143,
+        "avgGapMinutes": 23.208955223880597,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1391,
+        "rapidTrades": 65
+      },
+      {
+        "ticker": "AYI",
+        "tradeCount": 59,
+        "wins": 28,
+        "losses": 30,
+        "winRate": 0.4827586206896552,
+        "totalPnl": 52.26253795824602,
+        "avgGapMinutes": 25.70689655172414,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1323,
+        "rapidTrades": 54
+      },
+      {
+        "ticker": "BRK-B",
+        "tradeCount": 57,
+        "wins": 27,
+        "losses": 29,
+        "winRate": 0.48214285714285715,
+        "totalPnl": 15.019996347894125,
+        "avgGapMinutes": 2.125,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 9,
+        "rapidTrades": 56
+      },
+      {
+        "ticker": "VIX",
+        "tradeCount": 49,
+        "wins": 24,
+        "losses": 24,
+        "winRate": 0.5,
+        "totalPnl": 11.367522036321848,
+        "avgGapMinutes": 32.104166666666664,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1314,
+        "rapidTrades": 46
+      },
+      {
+        "ticker": "PSTG",
+        "tradeCount": 47,
+        "wins": 23,
+        "losses": 23,
+        "winRate": 0.5,
+        "totalPnl": -51.34257411755253,
+        "avgGapMinutes": 27.08695652173913,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1056,
+        "rapidTrades": 44
+      },
+      {
+        "ticker": "APP",
+        "tradeCount": 21,
+        "wins": 10,
+        "losses": 10,
+        "winRate": 0.5,
+        "totalPnl": 26.50833375107765,
+        "avgGapMinutes": 2.15,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 7,
+        "rapidTrades": 20
+      },
+      {
+        "ticker": "RGLD",
+        "tradeCount": 3,
+        "wins": 0,
+        "losses": 2,
+        "winRate": 0,
+        "totalPnl": -60.471983250215786,
+        "avgGapMinutes": 4.5,
+        "minGapMinutes": 2,
+        "maxGapMinutes": 7,
+        "rapidTrades": 2
+      }
+    ],
+    "topTickers": [
+      {
+        "ticker": "TLN",
+        "tradeCount": 276,
+        "wins": 136,
+        "losses": 139,
+        "winRate": 0.49454545454545457,
+        "totalPnl": -110.98176297497557,
+        "avgGapMinutes": 6.942509393939394,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1052,
+        "rapidTrades": 273
+      },
+      {
+        "ticker": "SHOP",
+        "tradeCount": 174,
+        "wins": 90,
+        "losses": 83,
+        "winRate": 0.5202312138728323,
+        "totalPnl": 89.86129719578305,
+        "avgGapMinutes": 8.306358381502891,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1060,
+        "rapidTrades": 170
+      },
+      {
+        "ticker": "CRWD",
+        "tradeCount": 125,
+        "wins": 63,
+        "losses": 61,
+        "winRate": 0.5080645161290323,
+        "totalPnl": -40.29176747989978,
+        "avgGapMinutes": 11.25,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1055,
+        "rapidTrades": 122
+      },
+      {
+        "ticker": "CDNS",
+        "tradeCount": 85,
+        "wins": 42,
+        "losses": 42,
+        "winRate": 0.5,
+        "totalPnl": 32.61419529849601,
+        "avgGapMinutes": 2.0952380952380953,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 9,
+        "rapidTrades": 84
+      },
+      {
+        "ticker": "NBIS",
+        "tradeCount": 68,
+        "wins": 33,
+        "losses": 34,
+        "winRate": 0.4925373134328358,
+        "totalPnl": -14.991494863969143,
+        "avgGapMinutes": 23.208955223880597,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1391,
+        "rapidTrades": 65
+      },
+      {
+        "ticker": "AYI",
+        "tradeCount": 59,
+        "wins": 28,
+        "losses": 30,
+        "winRate": 0.4827586206896552,
+        "totalPnl": 52.26253795824602,
+        "avgGapMinutes": 25.70689655172414,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1323,
+        "rapidTrades": 54
+      },
+      {
+        "ticker": "BRK-B",
+        "tradeCount": 57,
+        "wins": 27,
+        "losses": 29,
+        "winRate": 0.48214285714285715,
+        "totalPnl": 15.019996347894125,
+        "avgGapMinutes": 2.125,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 9,
+        "rapidTrades": 56
+      },
+      {
+        "ticker": "VIX",
+        "tradeCount": 49,
+        "wins": 24,
+        "losses": 24,
+        "winRate": 0.5,
+        "totalPnl": 11.367522036321848,
+        "avgGapMinutes": 32.104166666666664,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1314,
+        "rapidTrades": 46
+      },
+      {
+        "ticker": "PSTG",
+        "tradeCount": 47,
+        "wins": 23,
+        "losses": 23,
+        "winRate": 0.5,
+        "totalPnl": -51.34257411755253,
+        "avgGapMinutes": 27.08695652173913,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 1056,
+        "rapidTrades": 44
+      },
+      {
+        "ticker": "APP",
+        "tradeCount": 21,
+        "wins": 10,
+        "losses": 10,
+        "winRate": 0.5,
+        "totalPnl": 26.50833375107765,
+        "avgGapMinutes": 2.15,
+        "minGapMinutes": 1,
+        "maxGapMinutes": 7,
+        "rapidTrades": 20
+      },
+      {
+        "ticker": "TWLO",
+        "tradeCount": 7,
+        "wins": 4,
+        "losses": 2,
+        "winRate": 0.6666666666666666,
+        "totalPnl": 51.701360544217664,
+        "avgGapMinutes": 255,
+        "minGapMinutes": 2,
+        "maxGapMinutes": 1078,
+        "rapidTrades": 3
+      },
+      {
+        "ticker": "MP",
+        "tradeCount": 7,
+        "wins": 0,
+        "losses": 7,
+        "winRate": 0,
+        "totalPnl": -781.3878067758834,
+        "avgGapMinutes": 255,
+        "minGapMinutes": 10,
+        "maxGapMinutes": 1231,
+        "rapidTrades": 0
+      },
+      {
+        "ticker": "BTCUSD",
+        "tradeCount": 6,
+        "wins": 0,
+        "losses": 5,
+        "winRate": 0,
+        "totalPnl": -139.62129579871612,
+        "avgGapMinutes": 18,
+        "minGapMinutes": 2,
+        "maxGapMinutes": 32,
+        "rapidTrades": 2
+      },
+      {
+        "ticker": "AMD",
+        "tradeCount": 5,
+        "wins": 5,
+        "losses": 0,
+        "winRate": 1,
+        "totalPnl": 85.2299111216056,
+        "avgGapMinutes": 374.25,
+        "minGapMinutes": 9,
+        "maxGapMinutes": 1080,
+        "rapidTrades": 1
+      },
+      {
+        "ticker": "ANET",
+        "tradeCount": 5,
+        "wins": 0,
+        "losses": 5,
+        "winRate": 0,
+        "totalPnl": -268.16501776532516,
+        "avgGapMinutes": 13.75,
+        "minGapMinutes": 4,
+        "maxGapMinutes": 29,
+        "rapidTrades": 2
+      }
+    ]
+  },
+  "tpAnalysis": {
+    "winners": {
+      "avgPct": 1.9444211171508536,
+      "medianPct": 1.0158350761876198,
+      "p25Pct": 0.5024013971765354,
+      "p75Pct": 1.7264216599690185,
+      "p90Pct": 2.9175281415115917,
+      "distribution": {
+        "0-1%": 275,
+        "1-2%": 184,
+        "2-3%": 50,
+        "3-5%": 35,
+        "5%+": 19
+      }
+    },
+    "losers": {
+      "avgPct": -2.010149349823107,
+      "medianPct": -1.0454545454545459,
+      "p25Pct": -1.8299970122497673,
+      "p75Pct": -0.5320913986319338
+    },
+    "recommendedTP": {
+      "conservative": 1.0158350761876198,
+      "moderate": 1.4012516373162598,
+      "aggressive": 1.9414932324261436
+    }
+  },
+  "rrAnalysis": [
+    {
+      "min": 0,
+      "max": 2,
+      "label": "RR 0-2",
+      "count": 252,
+      "wins": 146,
+      "losses": 94,
+      "winRate": 0.6083333333333333
+    },
+    {
+      "min": 2,
+      "max": 5,
+      "label": "RR 2-5",
+      "count": 609,
+      "wins": 322,
+      "losses": 266,
+      "winRate": 0.5476190476190477
+    },
+    {
+      "min": 5,
+      "max": 10,
+      "label": "RR 5-10",
+      "count": 177,
+      "wins": 29,
+      "losses": 148,
+      "winRate": 0.1638418079096045
+    },
+    {
+      "min": 10,
+      "max": 20,
+      "label": "RR 10-20",
+      "count": 68,
+      "wins": 20,
+      "losses": 48,
+      "winRate": 0.29411764705882354
+    },
+    {
+      "min": 20,
+      "max": null,
+      "label": "RR 20+",
+      "count": 138,
+      "wins": 116,
+      "losses": 19,
+      "winRate": 0.8592592592592593
+    }
+  ],
+  "recommendations": [
+    {
+      "category": "RR Filter",
+      "issue": "Trades with RR < 0 have lower win rates",
+      "recommendation": "Consider raising minimum RR from 1.2 to 2",
+      "impact": "Win rate in RR 0-2: 60.8%"
+    },
+    {
+      "category": "Trade Frequency",
+      "issue": "11 tickers have excessive trades (964 total)",
+      "recommendation": "Implement per-ticker daily trade limit (max 3) and cooldown period (min 30 min)",
+      "impact": "Top churner: TLN with 276 trades"
+    },
+    {
+      "category": "TP Normalization",
+      "issue": "Winner median gain is 1.0%",
+      "recommendation": "Set TP target to ~1.7% (75th percentile of winners)",
+      "impact": "P25/P50/P75 of winner gains: 0.5% / 1.0% / 1.7%"
+    },
+    {
+      "category": "Direction Bias",
+      "issue": "SHORT trades have higher win rate",
+      "recommendation": "Consider SHORT-biased position sizing or stricter LONG filters",
+      "impact": "Winners: 44.9% LONG vs Losers: 65.7% LONG"
+    }
+  ]
+}

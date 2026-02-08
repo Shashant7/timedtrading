@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS timed_trail (
   flags_json TEXT,
   trigger_reason TEXT,
   trigger_dir TEXT,
+  kanban_stage TEXT, -- computed Kanban lane at this point (for time-travel)
   payload_json TEXT, -- full ingest payload (JSON string) for accurate replays
 
   PRIMARY KEY (ticker, ts)

@@ -39,6 +39,8 @@ database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 # - TIMED_API_KEY: API key for POST /timed/ingest authentication
 # - DISCORD_WEBHOOK_URL: Discord webhook URL
 # - OPENAI_API_KEY: OpenAI API key for AI Assistant
+# - ALPACA_API_KEY_ID: Alpaca Markets API Key ID (Algo Trader+ plan)
+# - ALPACA_API_SECRET_KEY: Alpaca Markets API Secret Key
 #
 # Environment Variables (non-sensitive - stored in wrangler.toml):
 [env.production.vars]
@@ -50,6 +52,9 @@ ALERT_MIN_RANK = "70"
 OPENAI_MODEL = "gpt-3.5-turbo"
 CORS_ALLOW_ORIGIN = "*"
 TV_ACK_ALWAYS_200 = "true"
+ALPACA_ENABLED = "true"
+EXECUTION_MODE = "simulation"
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 
 # Scheduled triggers for periodic AI updates
 # Times are in UTC (9:45 AM ET = 14:45 UTC, 12:00 PM ET = 17:00 UTC, 3:30 PM ET = 20:30 UTC)
@@ -58,9 +63,14 @@ crons = [
   "45 14 * * 1-5",  # 9:45 AM ET (14:45 UTC) on weekdays - AI Market Update
   "0 17 * * 1-5",   # 12:00 PM ET (17:00 UTC) on weekdays - AI Market Update
   "30 20 * * 1-5",  # 3:30 PM ET (20:30 UTC) on weekdays - AI Market Update
-  "*/5 * * * *",    # Every 5 minutes - Update open trades
+  "*/1 13-21 * * 1-5", # Every 1 min during market hours (8AM-4PM ET = 13-21 UTC weekdays) - Full universe scoring
+  "*/5 * * * *",    # Every 5 minutes - Off-hours scoring + trade updates
   "*/15 * * * 1-5", # Every 15 minutes during market hours (weekdays) - Proactive Alerts & Pattern Recognition
   "0 */6 * * *",    # Every 6 hours - ML model training from labeled queue
   "0 4 * * *",      # 4:00 AM UTC daily - Data lifecycle (aggregate trail → 5m, purge old raw)
+  "*/1 9-21 * * 1-5",  # Every 1 min pre-market + market hours (4AM-4PM ET = 9-21 UTC) - Alpaca bar fetching
+  "*/5 21-23 * * 1-5", # Every 5 min after-hours early (4PM-7PM ET = 21-23 UTC) - Alpaca AH bar fetching
+  "*/5 0-1 * * 2-6",   # Every 5 min after-hours late (7PM-8PM ET = 0-1 UTC next day, Tue-Sat) - Alpaca AH bar fetching
+  "15 21 * * 5",        # Fridays 4:15 PM ET (21:15 UTC) - Weekly model retrospective
 ]
 

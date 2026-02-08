@@ -1,0 +1,1205 @@
+{
+  "ticker": "AMGN",
+  "dataRange": {
+    "firstTs": 1770056040000,
+    "lastTs": 1770152340000,
+    "firstDate": "2026-02-02",
+    "lastDate": "2026-02-03",
+    "totalPoints": 549,
+    "daysCovered": 1
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "DOWN",
+      "startIdx": 199,
+      "endIdx": 548,
+      "startTs": 1770131340000,
+      "endTs": 1770152340000,
+      "startPrice": 349.25,
+      "endPrice": 338.69,
+      "movePct": -3.0236220472440953,
+      "duration": 350,
+      "signalSequence": [
+        {
+          "ts": 1770065340000,
+          "time": "2026-02-02T20:49:00",
+          "price": 344.24,
+          "htf": 37.19,
+          "ltf": 23.34,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 69,
+          "completion": 0.65,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_1d"
+          ],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065400000,
+          "time": "2026-02-02T20:50:00",
+          "price": 344.13,
+          "htf": 27.19,
+          "ltf": 23.34,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 74,
+          "completion": 0.49,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065460000,
+          "time": "2026-02-02T20:51:00",
+          "price": 344.35,
+          "htf": 27.19,
+          "ltf": 23.34,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 74,
+          "completion": 0.44,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770065520000,
+          "time": "2026-02-02T20:52:00",
+          "price": 344.49,
+          "htf": 37.19,
+          "ltf": 22.88,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 74,
+          "completion": 0.59,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065580000,
+          "time": "2026-02-02T20:53:00",
+          "price": 344.58,
+          "htf": 33.01,
+          "ltf": 22.88,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 69,
+          "completion": 0.68,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_1d"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065640000,
+          "time": "2026-02-02T20:54:00",
+          "price": 344.91,
+          "htf": 37.19,
+          "ltf": 18.52,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 70,
+          "completion": 0.52,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065700000,
+          "time": "2026-02-02T20:55:00",
+          "price": 344.76,
+          "htf": 27.19,
+          "ltf": 18.52,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 65,
+          "completion": 0.95,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065760000,
+          "time": "2026-02-02T20:56:00",
+          "price": 344.76,
+          "htf": 31.36,
+          "ltf": 22.88,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 69,
+          "completion": 0.93,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_1d"
+          ],
+          "activeFlags": [
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065820000,
+          "time": "2026-02-02T20:57:00",
+          "price": 344.92,
+          "htf": 37.19,
+          "ltf": 22.88,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 74,
+          "completion": 0.53,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065880000,
+          "time": "2026-02-02T20:58:00",
+          "price": 344.73,
+          "htf": 27.19,
+          "ltf": 22.88,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 69,
+          "completion": 0.88,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770065940000,
+          "time": "2026-02-02T20:59:00",
+          "price": 344.65,
+          "htf": 27.19,
+          "ltf": 22.88,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 69,
+          "completion": 0.8,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129000000,
+          "time": "2026-02-03T14:30:00",
+          "price": 341.65,
+          "htf": 31.36,
+          "ltf": -7.53,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_BULL",
+          "rank": 73,
+          "completion": 0.07,
+          "phase": 0.28,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "st_flip_10m",
+            "st_flip_3m",
+            "htf_improving_4h",
+            "flip_watch"
+          ],
+          "activeFlags": [
+            "st_flip_10m",
+            "st_flip_3m",
+            "htf_improving_4h",
+            "flip_watch"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129060000,
+          "time": "2026-02-03T14:31:00",
+          "price": 345.88,
+          "htf": 38.28,
+          "ltf": 8.11,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_PULLBACK",
+          "rank": 80,
+          "completion": 0.03,
+          "phase": 0.32,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "st_flip_10m",
+            "st_flip_3m",
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129120000,
+          "time": "2026-02-03T14:32:00",
+          "price": 345.97,
+          "htf": 38.28,
+          "ltf": 14.77,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 82,
+          "completion": 0.03,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "sq3_release"
+          ],
+          "activeFlags": [
+            "sq3_release",
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129180000,
+          "time": "2026-02-03T14:33:00",
+          "price": 346.72,
+          "htf": 30.9,
+          "ltf": 8.64,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 77,
+          "completion": 0.05,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129240000,
+          "time": "2026-02-03T14:34:00",
+          "price": 346.81,
+          "htf": 38.28,
+          "ltf": 17.99,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.05,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "sq10_release",
+            "st_flip_30m",
+            "htf_improving_4h",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "sq10_release",
+            "st_flip_30m",
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129300000,
+          "time": "2026-02-03T14:35:00",
+          "price": 346.36,
+          "htf": 28.28,
+          "ltf": 14.77,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 81,
+          "completion": 0.04,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129360000,
+          "time": "2026-02-03T14:36:00",
+          "price": 345.21,
+          "htf": 28.28,
+          "ltf": 13,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 81,
+          "completion": 0.01,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "st_flip_30m"
+          ],
+          "activeFlags": [
+            "st_flip_30m"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129420000,
+          "time": "2026-02-03T14:37:00",
+          "price": 345.02,
+          "htf": 28.28,
+          "ltf": 13,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 80,
+          "completion": 0.01,
+          "phase": 0.32,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770129480000,
+          "time": "2026-02-03T14:38:00",
+          "price": 346.74,
+          "htf": 38.28,
+          "ltf": 20.77,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.05,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "st_flip_30m",
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "st_flip_30m",
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129540000,
+          "time": "2026-02-03T14:39:00",
+          "price": 347.53,
+          "htf": 38.28,
+          "ltf": 19.37,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 83,
+          "completion": 0.07,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "sq10_release"
+          ],
+          "activeFlags": [
+            "sq10_release",
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129600000,
+          "time": "2026-02-03T14:40:00",
+          "price": 348.18,
+          "htf": 38.28,
+          "ltf": 22.61,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 82,
+          "completion": 0.08,
+          "phase": 0.36,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129660000,
+          "time": "2026-02-03T14:41:00",
+          "price": 348.94,
+          "htf": 38.28,
+          "ltf": 19.61,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 80,
+          "completion": 0.1,
+          "phase": 0.37,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129720000,
+          "time": "2026-02-03T14:42:00",
+          "price": 348.6,
+          "htf": 28.28,
+          "ltf": 23.41,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.09,
+          "phase": 0.36,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129780000,
+          "time": "2026-02-03T14:43:00",
+          "price": 349.24,
+          "htf": 38.28,
+          "ltf": 19.17,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 82,
+          "completion": 0.1,
+          "phase": 0.37,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129840000,
+          "time": "2026-02-03T14:44:00",
+          "price": 348.6,
+          "htf": 38.28,
+          "ltf": 19.17,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 82,
+          "completion": 0.09,
+          "phase": 0.37,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129900000,
+          "time": "2026-02-03T14:45:00",
+          "price": 347.97,
+          "htf": 28.28,
+          "ltf": 23,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.07,
+          "phase": 0.36,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770129960000,
+          "time": "2026-02-03T14:46:00",
+          "price": 347.36,
+          "htf": 28.28,
+          "ltf": 23,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.06,
+          "phase": 0.36,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770130020000,
+          "time": "2026-02-03T14:47:00",
+          "price": 347.45,
+          "htf": 28.28,
+          "ltf": 22.54,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.06,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_1d"
+          ],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130080000,
+          "time": "2026-02-03T14:48:00",
+          "price": 346.36,
+          "htf": 28.28,
+          "ltf": 21.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 83,
+          "completion": 0.04,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130140000,
+          "time": "2026-02-03T14:49:00",
+          "price": 345.73,
+          "htf": 28.28,
+          "ltf": 13.7,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 81,
+          "completion": 0.02,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "st_flip_30m"
+          ],
+          "activeFlags": [
+            "st_flip_30m",
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130200000,
+          "time": "2026-02-03T14:50:00",
+          "price": 345.59,
+          "htf": 36.72,
+          "ltf": 13.7,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 82,
+          "completion": 0.02,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130260000,
+          "time": "2026-02-03T14:51:00",
+          "price": 346.05,
+          "htf": 38.28,
+          "ltf": 15.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 83,
+          "completion": 0.03,
+          "phase": 0.33,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_1d"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130320000,
+          "time": "2026-02-03T14:52:00",
+          "price": 347.42,
+          "htf": 38.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 85,
+          "completion": 0.06,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "st_flip_30m"
+          ],
+          "activeFlags": [
+            "st_flip_30m",
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130380000,
+          "time": "2026-02-03T14:53:00",
+          "price": 347.17,
+          "htf": 28.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.06,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770130440000,
+          "time": "2026-02-03T14:54:00",
+          "price": 347.56,
+          "htf": 28.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.07,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770130500000,
+          "time": "2026-02-03T14:55:00",
+          "price": 347.5,
+          "htf": 38.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.06,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130560000,
+          "time": "2026-02-03T14:56:00",
+          "price": 347.37,
+          "htf": 38.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.06,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130620000,
+          "time": "2026-02-03T14:57:00",
+          "price": 347.64,
+          "htf": 28.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.07,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770130680000,
+          "time": "2026-02-03T14:58:00",
+          "price": 347.85,
+          "htf": 38.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.07,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130740000,
+          "time": "2026-02-03T14:59:00",
+          "price": 348,
+          "htf": 38.28,
+          "ltf": 23.47,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.08,
+          "phase": 0.36,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130800000,
+          "time": "2026-02-03T15:00:00",
+          "price": 347,
+          "htf": 38.28,
+          "ltf": 30.69,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 86,
+          "completion": 0.05,
+          "phase": 0.36,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130860000,
+          "time": "2026-02-03T15:01:00",
+          "price": 346.97,
+          "htf": 28.28,
+          "ltf": 24.65,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.05,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770130920000,
+          "time": "2026-02-03T15:02:00",
+          "price": 347.53,
+          "htf": 28.28,
+          "ltf": 24.65,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.07,
+          "phase": 0.34,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770130980000,
+          "time": "2026-02-03T15:03:00",
+          "price": 347.54,
+          "htf": 38.28,
+          "ltf": 25.11,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 85,
+          "completion": 0.07,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770131040000,
+          "time": "2026-02-03T15:04:00",
+          "price": 347.37,
+          "htf": 28.28,
+          "ltf": 24.65,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.06,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_1d"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770131100000,
+          "time": "2026-02-03T15:05:00",
+          "price": 348.49,
+          "htf": 28.28,
+          "ltf": 24.65,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.09,
+          "phase": 0.35,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1770131160000,
+          "time": "2026-02-03T15:06:00",
+          "price": 348.78,
+          "htf": 38.28,
+          "ltf": 30.32,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 86,
+          "completion": 0.09,
+          "phase": 0.36,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770131220000,
+          "time": "2026-02-03T15:07:00",
+          "price": 349.04,
+          "htf": 38.28,
+          "ltf": 26.97,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 85,
+          "completion": 0.1,
+          "phase": 0.37,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770131280000,
+          "time": "2026-02-03T15:08:00",
+          "price": 349.05,
+          "htf": 38.28,
+          "ltf": 24.55,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.1,
+          "phase": 0.37,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "htf_improving_4h",
+            "htf_improving_1d",
+            "htf_move_4h_ge_5"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1770131340000,
+          "time": "2026-02-03T15:09:00",
+          "price": 349.25,
+          "htf": 30.9,
+          "ltf": 24.57,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 84,
+          "completion": 0.1,
+          "phase": 0.37,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1770131340000,
+        "price": 349.25,
+        "htf": 30.9,
+        "ltf": 24.57,
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 84,
+        "completion": 0.1,
+        "phase": 0.37,
+        "rr": null,
+        "flags": {
+          "sq30_on": false,
+          "sq30_release": false,
+          "phase_dot": false,
+          "phase_zone_change": false,
+          "momentum_elite": false,
+          "ema_cross_1h_13_48": false,
+          "st_flip_1h": false,
+          "st_flip_30m": false,
+          "buyable_dip_1h_13_48": false,
+          "sq10_release": false,
+          "ema_cross_10m_13_48": false,
+          "st_flip_10m": false,
+          "sq3_release": false,
+          "ema_cross_3m_13_48": false,
+          "st_flip_3m": false,
+          "move_invalidated": false,
+          "move_completed": false,
+          "htf_improving_4h": false,
+          "htf_improving_1d": false,
+          "htf_move_4h_ge_5": false,
+          "thesis_match": false,
+          "flip_watch": false
+        },
+        "trigger_reason": "EMA_CROSS_30M_13_48"
+      }
+    }
+  ],
+  "biggestUp": null,
+  "biggestDown": {
+    "direction": "DOWN",
+    "startIdx": 199,
+    "endIdx": 548,
+    "startTs": 1770131340000,
+    "endTs": 1770152340000,
+    "startPrice": 349.25,
+    "endPrice": 338.69,
+    "movePct": -3.0236220472440953,
+    "duration": 350
+  }
+}

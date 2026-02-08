@@ -17,11 +17,15 @@ export const KANBAN_STAGE_ORDER = {
   setup: 1,       // In corridor + pullback - preparing for entry
   enter: 2,       // Gold Standard criteria met - actionable NOW
   // Management mode (has position)
-  active: 3,      // Healthy position - hold, monitor
-  trim: 4,        // Approaching profit target - take partial profits
-  exit: 5,        // Stop hit or invalidated - close position
+  just_entered: 3, // Position just opened, < 15 min hold period
+  hold: 4,        // Healthy position - on track, no action needed
+  defend: 5,      // Warning signals - tighten SL, protect capital
+  trim: 6,        // At extremes - take partial profit
+  exit: 7,        // SL breach or critical - close position NOW
+  // Legacy aliases
+  active: 4,      // Maps to hold
   // Archive
-  closed: 6,      // Position closed - completed, stopped, or expired
+  closed: 8,      // Position closed - completed, stopped, or expired
 };
 
 /** Legacy stage mapping for backward compatibility */
@@ -29,8 +33,7 @@ export const LEGACY_STAGE_MAP = {
   'setup_watch': 'setup',
   'flip_watch': 'setup',
   'enter_now': 'enter',
-  'just_entered': 'active',
-  'hold': 'active',
+  'active': 'hold',
   'archive': 'closed',
 };
 

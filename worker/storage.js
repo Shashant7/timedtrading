@@ -120,8 +120,11 @@ export function slimPayloadForD1(obj) {
 /** Minimal payload for D1 when slim is still too large (replay + UI essentials). */
 const D1_MINIMAL_KEYS = [
   "ts", "price", "close", "htf_score", "ltf_score", "completion", "phase_pct", "state", "rank",
-  "flags", "trigger_reason", "trigger_dir", "sl", "tp", "trigger_ts", "ingest_ts",
+  "flags", "trigger_reason", "trigger_dir", "trigger_price", "sl", "tp", "trigger_ts", "ingest_ts",
   "kanban_stage", "kanban_meta", "entry_ts", "entry_price", "prev_kanban_stage", "move_status",
+  "rr", "score", "tp_levels",
+  // Model pattern match enrichment
+  "pattern_match",
   // Daily change / Current price display (many tickers missing these when minimal was used)
   "prev_close", "previous_close", "prior_close", "yclose", "close_prev",
   "day_change", "daily_change", "session_change", "chg",
@@ -169,6 +172,7 @@ export async function d1InsertTrailPoint(env, ticker, payload) {
     flags: payload?.flags || {},
     trigger_reason: payload?.trigger_reason,
     trigger_dir: payload?.trigger_dir,
+    kanban_stage: payload?.kanban_stage || null,
   };
 
   const flagsJson =
@@ -182,9 +186,9 @@ export async function d1InsertTrailPoint(env, ticker, payload) {
     await db
       .prepare(
         `INSERT OR REPLACE INTO timed_trail
-          (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, payload_json)
+          (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
          VALUES
-          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+          (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`,
       )
       .bind(
         String(ticker || "").toUpperCase(),
@@ -199,6 +203,7 @@ export async function d1InsertTrailPoint(env, ticker, payload) {
         flagsJson,
         point?.trigger_reason != null ? String(point.trigger_reason) : null,
         point?.trigger_dir != null ? String(point.trigger_dir) : null,
+        point?.kanban_stage != null ? String(point.kanban_stage) : null,
         (() => {
           try {
             let slim = slimPayloadForD1(payload);

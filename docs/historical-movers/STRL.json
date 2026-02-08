@@ -1,0 +1,112 @@
+{
+  "ticker": "STRL",
+  "dataRange": {
+    "firstTs": 1768413600000,
+    "lastTs": 1770152340000,
+    "firstDate": "2026-01-14",
+    "lastDate": "2026-02-03",
+    "totalPoints": 2014,
+    "daysCovered": 20
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "UP",
+      "startIdx": 2,
+      "endIdx": 2012,
+      "startTs": 1768415400000,
+      "endTs": 1770152280000,
+      "startPrice": 312.17,
+      "endPrice": 387.08,
+      "movePct": 23.996540346606004,
+      "duration": 28948,
+      "signalSequence": [
+        {
+          "ts": 1768413600000,
+          "time": "2026-01-14T18:00:00",
+          "price": 312.67,
+          "htf": 22.19,
+          "ltf": -15.18,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 63,
+          "completion": 0.02,
+          "phase": 0,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768414200000,
+          "time": "2026-01-14T18:10:00",
+          "price": 312.56,
+          "htf": 12.19,
+          "ltf": -15.06,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 59,
+          "completion": 0.02,
+          "phase": 0,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768415400000,
+          "time": "2026-01-14T18:30:00",
+          "price": 312.17,
+          "htf": 12.19,
+          "ltf": -13.9,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 59,
+          "completion": 0.02,
+          "phase": 0,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1768415400000,
+        "price": 312.17,
+        "htf": 12.19,
+        "ltf": -13.9,
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 59,
+        "completion": 0.02,
+        "phase": 0,
+        "rr": null,
+        "flags": {
+          "sq30_on": false,
+          "sq30_release": false,
+          "phase_dot": false,
+          "phase_zone_change": false,
+          "momentum_elite": false
+        },
+        "trigger_reason": "SQUEEZE_RELEASE"
+      }
+    }
+  ],
+  "biggestUp": {
+    "direction": "UP",
+    "startIdx": 2,
+    "endIdx": 2012,
+    "startTs": 1768415400000,
+    "endTs": 1770152280000,
+    "startPrice": 312.17,
+    "endPrice": 387.08,
+    "movePct": 23.996540346606004,
+    "duration": 28948
+  },
+  "biggestDown": null
+}

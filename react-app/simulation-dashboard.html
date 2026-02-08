@@ -15,21 +15,21 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      /* Trade Tracker — refined design system */
+      /* Trade Tracker — Robinhood-inspired dark (v3) */
       :root {
-        --tt-bg-base: #0c0f14;
-        --tt-bg-surface: #13171e;
-        --tt-bg-elevated: #1a1f28;
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.02);
+        --tt-bg-elevated: rgba(255,255,255,0.035);
         --tt-bg-hover: rgba(255,255,255,0.04);
-        --tt-border: rgba(255,255,255,0.08);
-        --tt-border-strong: rgba(255,255,255,0.12);
-        --tt-text: #f0f2f5;
-        --tt-text-muted: #8b92a0;
-        --tt-text-faint: #5c6475;
-        --tt-accent: #22c55e;
-        --tt-accent-dim: rgba(34, 197, 94, 0.2);
-        --tt-negative: #ef4444;
-        --tt-negative-dim: rgba(239, 68, 68, 0.2);
+        --tt-border: rgba(255,255,255,0.04);
+        --tt-border-strong: rgba(255,255,255,0.08);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #6b7280;
+        --tt-text-faint: #4b5563;
+        --tt-accent: #00c853;
+        --tt-accent-dim: rgba(0, 200, 83, 0.12);
+        --tt-negative: #ff5252;
+        --tt-negative-dim: rgba(255, 82, 82, 0.12);
         --tt-radius: 12px;
         --tt-radius-sm: 8px;
         --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -104,7 +104,7 @@
   <body>
     <div id="root"></div>
 
-    <script src="shared-right-rail.compiled.js?v=2"></script>
+    <script src="shared-right-rail.compiled.js?v=3" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
 
@@ -1094,7 +1094,7 @@
         const warnings = Array.isArray(decision.warnings) ? decision.warnings : [];
         const label = (code) => String(code || "").replace(/_/g, " ");
         if (decision.ok) return { status: "Eligible", detail: "All entry checks passed", tone: "text-green-400", bg: "bg-green-500/20", blockers: [], warnings: warnings.map(label) };
-        if (blockers.length === 0) return { status: "Waiting", detail: "Setup not confirmed yet", tone: "text-[#8b92a0]", bg: "bg-[#252b36]", blockers: [], warnings: warnings.map(label) };
+        if (blockers.length === 0) return { status: "Waiting", detail: "Setup not confirmed yet", tone: "text-[#6b7280]", bg: "bg-white/[0.04]", blockers: [], warnings: warnings.map(label) };
         const shown = blockers.slice(0, 3).map(label);
         return { status: "Blocked", detail: shown.join(", "), tone: "text-yellow-400", bg: "bg-yellow-500/20", blockers: blockers.map(label), warnings: warnings.map(label) };
       }
@@ -5728,6 +5728,7 @@
         // Make Proof the default landing view (high-signal summary).
         // Single view: no Proof/Trades/Alerts tabs
         const [accountChartRange, setAccountChartRange] = useState("1D"); // 1D | 5D | 10D | 30D | 1Y
+        const [chartHover, setChartHover] = useState(null); // { idx, x, y, val, ts, pnl }
         const [expandedPositionTicker, setExpandedPositionTicker] = useState(null); // ticker for expanded card
         const initialLedgerTicker = (() => {
           try {
@@ -6631,23 +6632,27 @@
         return (
           <div className="tt-root">
             <div className="min-h-screen px-5 py-8" style={{ background: "var(--tt-bg-base)" }}>
+              {/* ═══ Unified Nav Bar ═══ */}
+              <nav className="flex items-center justify-between px-4 py-2.5 mb-4 border-b border-white/[0.04]">
+                <div className="flex items-center gap-5">
+                  <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+                  <div className="flex items-center gap-0.5">
+                    <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Dashboard</a>
+                    <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Trades</a>
+                    <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-[#4b5563]">Paper · $1k/trade</span>
+                </div>
+              </nav>
+
               <div className="w-full mx-auto">
-                {/* Header — professional */}
                 <header className="flex items-center justify-between gap-4 flex-wrap mb-6">
                   <div className="flex items-center gap-4">
-                    <a
-                      href="index-react.html"
-                      className="text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] text-sm transition-colors"
-                      title="Back to Dashboard"
-                    >
-                      ← Dashboard
-                    </a>
-                    <h1 className="text-xl font-semibold tracking-tight text-[var(--tt-text)]">
+                    <h1 className="text-lg font-semibold tracking-tight text-[var(--tt-text)]">
                       Simulated Account
                     </h1>
-                    <span className="text-xs text-[var(--tt-text-faint)] px-2 py-1 rounded bg-[var(--tt-bg-elevated)] border border-[var(--tt-border)]">
-                      Paper trading · $1,000/trade
-                    </span>
                   </div>
                   <div className="flex items-center gap-4 flex-wrap">
                     <DateRangeSlider
@@ -6753,7 +6758,28 @@
                               const y = (v) => h - pad - ((v - minV) / rangeV) * (h - 2 * pad);
                               const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(BASELINE_ACCOUNT + p.value)}`).join(" ");
                               return (
-                                <svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="overflow-visible">
+                                <svg
+                                  width="100%" height="100%"
+                                  viewBox={`0 0 ${w} ${h}`}
+                                  preserveAspectRatio="none"
+                                  className="overflow-visible cursor-crosshair"
+                                  onMouseMove={(e) => {
+                                    const svg = e.currentTarget;
+                                    const rect = svg.getBoundingClientRect();
+                                    const mouseX = ((e.clientX - rect.left) / rect.width) * w;
+                                    // Find closest point
+                                    let closest = 0;
+                                    let closestDist = Infinity;
+                                    for (let i = 0; i < pts.length; i++) {
+                                      const dist = Math.abs(x(i) - mouseX);
+                                      if (dist < closestDist) { closestDist = dist; closest = i; }
+                                    }
+                                    const p = pts[closest];
+                                    const val = BASELINE_ACCOUNT + p.value;
+                                    setChartHover({ idx: closest, x: x(closest), y: y(val), val, ts: p.ts, pnl: p.value });
+                                  }}
+                                  onMouseLeave={() => setChartHover(null)}
+                                >
                                   <defs>
                                     <linearGradient id="tt-chart-gradient" x1="0" y1="0" x2="0" y2="1">
                                       <stop offset="0%" stopColor="var(--tt-accent)" stopOpacity="0.25" />
@@ -6762,6 +6788,16 @@
                                   </defs>
                                   <path fill="url(#tt-chart-gradient)" d={`${d} L ${x(pts.length - 1)} ${h} L ${x(0)} ${h} Z`} />
                                   <path fill="none" stroke="var(--tt-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d={d} />
+                                  {chartHover && (
+                                    <>
+                                      <line x1={chartHover.x} y1={0} x2={chartHover.x} y2={h} stroke="var(--tt-text-faint)" strokeWidth="1" strokeDasharray="3,3" />
+                                      <circle cx={chartHover.x} cy={chartHover.y} r="4" fill="var(--tt-accent)" stroke="var(--tt-bg)" strokeWidth="2" />
+                                      <rect x={Math.min(chartHover.x + 8, w - 130)} y={Math.max(2, chartHover.y - 28)} width="120" height="24" rx="4" fill="var(--tt-bg-card)" stroke="var(--tt-border)" strokeWidth="1" />
+                                      <text x={Math.min(chartHover.x + 14, w - 124)} y={Math.max(18, chartHover.y - 10)} fill="var(--tt-text)" fontSize="10" fontWeight="600">
+                                        {fmtUsd(chartHover.val)} {chartHover.ts > 0 ? new Date(chartHover.ts).toLocaleDateString() : ""}
+                                      </text>
+                                    </>
+                                  )}
                                 </svg>
                               );
                             })() : (
@@ -6911,45 +6947,34 @@
                             const longPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "LONG");
                             const shortPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "SHORT");
                             
+                            // ── Redesigned Position Card (Robinhood-style with P&L bar) ──
                             const renderCompactCard = (pos) => {
                               const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                               const isLong = dir === "LONG";
                               const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
-                              const completion = completionForSize(tickerData || {});
-                              const completionPct = Math.min(100, Math.max(0, completion * 100));
-                              // phase_pct from Pine is 0–1 (magnitude). Use for fill 0–100% and show as percentage.
-                              const phaseRaw = tickerData?.phase_pct != null ? Number(tickerData.phase_pct) : null;
-                              const phasePct01 = Number.isFinite(phaseRaw) ? Math.max(0, Math.min(1, Math.abs(phaseRaw))) : null;
-                              const phaseFillPct = phasePct01 != null ? Math.round(phasePct01 * 100) : 0;
-                              
                               const currentPrice = pos.current || Number(tickerData?.price) || null;
                               const entryPrice = pos.entryPrice || Number(pos.trade?.entryPrice) || null;
                               const pnlOpen = pos.pnlOpen;
                               const retOpenPct = pos.retOpenPct;
                               const trimmedPct = Number(pos.trade?.trimmedPct || 0);
-                              
                               const stageInfo = getPositionStage(pos);
-                              const dirPillCls = isLong
-                                ? "bg-cyan-400/20 text-cyan-200 border-cyan-400/50"
-                                : "bg-red-500/20 text-red-200 border-red-400/50";
-                              const dirAccentCls = isLong ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-red-500";
-                              const tintAlpha = (retOpenPct != null && retOpenPct !== 0) ? 0.06 + Math.min(0.2, Math.abs(retOpenPct) / 10) : 0.04;
-                              const tint = (retOpenPct ?? 0) >= 0 ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
-                              const phaseFill = phaseFillPct > 0
-                                ? `linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.05) ${phaseFillPct}%, rgba(255,255,255,0) ${phaseFillPct}%, rgba(255,255,255,0) 100%)`
-                                : null;
+                              const qty = pos.qty != null ? Number(pos.qty) : null;
                               
-                              let tierBadge = null;
-                              if (trimmedPct >= 0.8) tierBadge = "🚀";
-                              else if (trimmedPct >= 0.6) tierBadge = "💰";
-                              else if (trimmedPct > 0) tierBadge = "🎯";
+                              // Entry date
+                              const entryTs = Number(pos.trade?.entry_ts || pos.trade?.entryTime || 0);
+                              const entryMs = entryTs < 1e12 ? entryTs * 1000 : entryTs;
+                              const entryDate = entryMs > 0 ? new Date(entryMs) : null;
+                              const fmtShortDate = (d) => d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
                               
-                              const rr = pos.trade?.rr != null ? Number(pos.trade.rr) : null;
-                              const sl = pos.trade?.sl != null || pos.trade?.sl_price != null ? Number(pos.trade.sl ?? pos.trade.sl_price) : null;
-                              const tp = pos.trade?.tp != null ? Number(pos.trade.tp) : null;
-                              const score = tickerData?.gold_score ?? tickerData?.htf_score ?? null;
-                              const isActionLane = ["trim", "exit"].includes(stageInfo?.stage || "");
-                              const pulseCls = isActionLane ? (isLong ? "card-pulse" : "card-pulse-short") : "";
+                              // Trims from events
+                              const events = pos.events || pos.trade?.history || [];
+                              const trims = events.filter(e => String(e.type || e.action || "").toUpperCase().includes("TRIM"));
+                              
+                              // P&L bar calculation: bar width = |retOpenPct| capped at 10% range = 100% width
+                              const pnlPctCapped = Math.min(10, Math.max(-10, retOpenPct || 0));
+                              const barWidth = Math.abs(pnlPctCapped) * 10; // 10% => 100% width
+                              const isPositive = (retOpenPct ?? 0) >= 0;
+                              const pnlColor = isPositive ? "#00c853" : "#ff5252";
                               
                               return (
                                 <button
@@ -6959,121 +6984,96 @@
                                     setSelectedTicker(pos.ticker);
                                     setSelectedTrade(pos.trade);
                                     const match = trades.find(t => (t.id || t.trade_id) === pos.trade?.id);
-                                    const events = (match?.history?.length ? match.history : pos.events || pos.trade?.history || []);
-                                    setSelectedPositionEvents(Array.isArray(events) ? events : []);
+                                    const evts = (match?.history?.length ? match.history : events);
+                                    setSelectedPositionEvents(Array.isArray(evts) ? evts : []);
                                   }}
-                                  className={`w-full text-left px-3 py-2 rounded-lg border border-[#252b36] hover:brightness-[1.06] hover:border-[#3a4aa0] transition-all overflow-hidden relative ${dirAccentCls} ${pulseCls}`}
-                                  style={{ backgroundColor: "#13171e", backgroundImage: phaseFill ? `${phaseFill}, linear-gradient(0deg, ${tint}, ${tint})` : `linear-gradient(0deg, ${tint}, ${tint})` }}
+                                  className="w-full text-left py-3 border-b border-white/[0.03] hover:bg-white/[0.02] transition-all"
                                   title="Open in right rail"
                                 >
-                                  {/* Header: Viewport-style — Ticker, emojis, LONG/SHORT pill | Price, change */}
-                                  <div className="flex items-start justify-between gap-2 mb-1">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="text-xs font-bold text-white truncate">{pos.ticker}</span>
-                                      {tierBadge && (
-                                        <span className="px-2 py-0.5 rounded border border-[#252b36] bg-[#1a1f28] text-[10px] font-semibold text-[#f0f2f5]">
-                                          {tierBadge}
+                                  <div className="flex items-start gap-3">
+                                    {/* Left: Ticker + Direction */}
+                                    <div className="w-[60px] shrink-0">
+                                      <div className="text-[13px] font-semibold text-white">{pos.ticker}</div>
+                                      <div className={`text-[10px] ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{dir}</div>
+                                    </div>
+                                    
+                                    {/* Center: P&L bar chart + details */}
+                                    <div className="flex-1 min-w-0">
+                                      {/* P&L value + percentage */}
+                                      <div className="flex items-baseline gap-2 mb-1.5">
+                                        <span className={`text-[14px] font-semibold tabular-nums ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                                          {pnlOpen != null ? `${isPositive ? "+" : ""}${fmtUsd(pnlOpen)}` : "—"}
                                         </span>
+                                        <span className={`text-[11px] tabular-nums ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
+                                          {retOpenPct != null ? `${isPositive ? "+" : ""}${retOpenPct.toFixed(2)}%` : ""}
+                                        </span>
+                                      </div>
+                                      
+                                      {/* Horizontal P&L bar (center-anchored, negative goes left, positive goes right) */}
+                                      <div className="relative h-[6px] rounded-full bg-white/[0.04] mb-2 overflow-hidden">
+                                        {isPositive ? (
+                                          <div className="absolute left-1/2 top-0 h-full rounded-r-full" style={{ width: `${barWidth / 2}%`, background: `linear-gradient(90deg, ${pnlColor}40, ${pnlColor})` }} />
+                                        ) : (
+                                          <div className="absolute top-0 h-full rounded-l-full" style={{ right: "50%", width: `${barWidth / 2}%`, background: `linear-gradient(270deg, ${pnlColor}40, ${pnlColor})` }} />
+                                        )}
+                                        {/* Center tick */}
+                                        <div className="absolute left-1/2 top-0 w-px h-full bg-white/10" />
+                                      </div>
+                                      
+                                      {/* Entry details row */}
+                                      <div className="flex items-center gap-3 text-[10px] text-[#6b7280]">
+                                        <span>{fmtShortDate(entryDate)}</span>
+                                        <span className="text-[#9ca3af]">{qty != null ? `${qty} sh` : ""}</span>
+                                        <span>@ ${entryPrice != null ? entryPrice.toFixed(2) : "—"}</span>
+                                        <span className="text-white/40">→</span>
+                                        <span className="text-[#9ca3af]">${currentPrice != null ? currentPrice.toFixed(2) : "—"}</span>
+                                      </div>
+                                      
+                                      {/* Trims (if any) */}
+                                      {trims.length > 0 && (
+                                        <div className="mt-1.5 space-y-0.5">
+                                          {trims.slice(0, 3).map((trim, ti) => {
+                                            const tTs = Number(trim.ts || trim.time || 0);
+                                            const tMs = tTs < 1e12 ? tTs * 1000 : tTs;
+                                            const tDate = tMs > 0 ? new Date(tMs) : null;
+                                            const tPrice = Number(trim.price || trim.trimPrice || 0);
+                                            const tQty = Number(trim.qty || trim.shares || 0);
+                                            return (
+                                              <div key={`trim-${ti}`} className="flex items-center gap-2 text-[9px] text-amber-400/60">
+                                                <span className="text-amber-400/40">TRIM</span>
+                                                <span>{tDate ? tDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
+                                                {tQty > 0 && <span>{tQty} sh</span>}
+                                                {tPrice > 0 && <span>@ ${tPrice.toFixed(2)}</span>}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
                                       )}
-                                      <span className={`px-3 py-1 rounded-md border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`}>
-                                        {isLong ? "L" : "S"}
-                                      </span>
-                                      <span className={`text-[9px] px-1.5 py-0.5 rounded border shrink-0 ${stageInfo.bg} ${stageInfo.color} font-medium`}>
+                                    </div>
+                                    
+                                    {/* Right: Stage badge */}
+                                    <div className="shrink-0 flex flex-col items-end gap-1">
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded ${stageInfo.bg} ${stageInfo.color} font-medium`}>
                                         {stageInfo.label}
                                       </span>
                                     </div>
-                                    <div className="flex flex-col items-end shrink-0">
-                                      <span className="text-white font-bold text-[11px]">
-                                        {currentPrice != null ? `$${currentPrice.toFixed(2)}` : "—"}
-                                      </span>
-                                      {(() => {
-                                        const dc = getDailyChange(tickerData || {});
-                                        let dPct = dc?.dayPct;
-                                        let dChg = dc?.dayChg;
-                                        const pickNum = (obj, keys) => {
-                                          for (const k of keys) {
-                                            const v = Number(obj?.[k]);
-                                            if (Number.isFinite(v)) return v;
-                                          }
-                                          return null;
-                                        };
-                                        if (!Number.isFinite(dPct)) dPct = pickNum(tickerData, ["day_change_pct","daily_change_pct","session_change_pct","change_pct","pct_change","chp"]);
-                                        if (!Number.isFinite(dChg)) dChg = pickNum(tickerData, ["day_change","daily_change","session_change","change","chg","ch"]);
-                                        const priceNum = Number(tickerData?.price ?? tickerData?.close);
-                                        const prevClose = pickNum(tickerData, ["prev_close","previous_close","prior_close","yclose","close_prev"]);
-                                        if ((!Number.isFinite(dChg) || !Number.isFinite(dPct)) && Number.isFinite(priceNum) && priceNum > 0 && Number.isFinite(prevClose) && prevClose > 0) {
-                                          const chg = priceNum - prevClose;
-                                          const pct = (chg / prevClose) * 100;
-                                          if (!Number.isFinite(dChg)) dChg = chg;
-                                          if (!Number.isFinite(dPct)) dPct = pct;
-                                        }
-                                        const hasDaily = Number.isFinite(dPct) || Number.isFinite(dChg);
-                                        if (!hasDaily) return null;
-                                        const up = Number(dChg ?? dPct ?? 0) >= 0;
-                                        const cls = up ? "text-sky-300" : "text-orange-300";
-                                        const sign = up ? "+" : "";
-                                        return (
-                                          <span className={`text-[9px] font-semibold ${cls}`}>
-                                            {Number.isFinite(dPct) ? `${sign}${dPct.toFixed(2)}%` : "—"}
-                                            {Number.isFinite(dChg) ? ` (${sign}${fmtUsdAbs(dChg)})` : ""}
-                                          </span>
-                                        );
-                                      })()}
-                                      <span className={`text-[9px] font-semibold ${(retOpenPct ?? 0) >= 0 ? "text-sky-300" : "text-orange-300"}`}>
-                                        {retOpenPct != null ? `Since entry: ${retOpenPct >= 0 ? "+" : ""}${retOpenPct.toFixed(2)}%` : "—"}
-                                        {pnlOpen != null ? ` ${fmtUsd(pnlOpen)}` : ""}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  {/* If open position: Entry Price, Qty, % change */}
-                                  <div className="flex items-center justify-between text-[9px] text-[#8b92a0] mb-1">
-                                    <span>Entry {entryPrice != null ? `$${entryPrice.toFixed(2)}` : "—"}
-                                      {(pos.qty != null && Number.isFinite(pos.qty)) && (
-                                        <span className="ml-2 text-[#9fb0df]">Qty {Number(pos.qty).toFixed((pos.ticker && (FUTURES_SPECS[pos.ticker] || String(pos.ticker).endsWith("1!"))) ? 0 : 2)}</span>
-                                      )}
-                                    </span>
-                                    {retOpenPct != null && (
-                                      <span className={(retOpenPct ?? 0) >= 0 ? "text-sky-300 font-semibold" : "text-orange-300 font-semibold"}>
-                                        {retOpenPct >= 0 ? "+" : ""}{retOpenPct.toFixed(2)}%
-                                      </span>
-                                    )}
-                                  </div>
-                                  {/* Contents: Score, R:R, SL, TP | Phase | Completion */}
-                                  <div className="flex items-center justify-between gap-2 text-[9px] text-[#8b92a0] flex-wrap">
-                                    {score != null && <span>Score {Number(score).toFixed(1)}</span>}
-                                    {rr != null && <span>R:R {Number(rr).toFixed(2)}</span>}
-                                    {sl != null && <span className="text-red-300">SL ${sl.toFixed(2)}</span>}
-                                    {tp != null && <span className="text-green-300">TP ${tp.toFixed(2)}</span>}
-                                    {phasePct01 != null && <span>Phase {phaseFillPct}%</span>}
-                                  </div>
-                                  {/* Completion bar with TP markers */}
-                                  {(completionPct > 0 || trimmedPct > 0) && (
-                                    <div className="mt-1">
-                                      <div className="flex items-center justify-between text-[8px] text-[#8b92a0] mb-0.5">
-                                        <span>Completion {Math.round(trimmedPct > 0 ? trimmedPct * 100 : completionPct)}%</span>
-                                      </div>
-                                      <div className="h-1.5 rounded bg-[#252b36] overflow-hidden flex">
-                                        <div className="h-full bg-yellow-500/70" style={{ width: `${Math.min(60, (trimmedPct || completion) * 100)}%` }} />
-                                        <div className="h-full bg-orange-500/70" style={{ width: `${Math.max(0, Math.min(20, ((trimmedPct || completion) * 100) - 60))}%` }} />
-                                        <div className={`h-full ${isLong ? "bg-cyan-500/70" : "bg-fuchsia-500/70"}`} style={{ width: `${Math.max(0, ((trimmedPct || completion) * 100) - 80)}%` }} />
-                                      </div>
-                                    </div>
-                                  )}
-                                  <div className="absolute top-1 right-1 px-1 py-0.5 rounded bg-white/5 text-[#9fb0df] text-[10px] border border-white/10">
-                                    ↗
                                   </div>
                                 </button>
                               );
                             };
                             
                             return (
-                              <div className="tt-card p-4">
+                              <div className="p-4">
                                 <div className="flex items-center justify-between mb-3">
-                                  <h2 className="text-sm font-semibold text-[var(--tt-text)] uppercase tracking-wide">Holdings</h2>
-                                  <span className="text-xs text-[var(--tt-text-faint)]">{openPositionCards.length} open</span>
+                                  <h2 className="text-[13px] font-medium text-[#d1d5db]">Open Positions</h2>
+                                  <span className="text-[11px] text-[#4b5563]">{openPositionCards.length} open</span>
                                 </div>
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                  {/* LONG positions */}
+                                <div className="space-y-0">
+                                  {/* All positions sorted by P&L */}
+                                  {[...openPositionCards].sort((a, b) => (b.pnlOpen || 0) - (a.pnlOpen || 0)).map(pos => renderCompactCard(pos))}
+                                </div>
+                                {false && <div>
+                                  {/* OLD LONG positions */}
                                   <div>
                                     <div className="flex items-center gap-2 mb-2">
                                       <span className="text-emerald-400 font-semibold text-xs">LONG</span>
@@ -7101,7 +7101,7 @@
                                       <p className="text-xs text-[var(--tt-text-faint)]">No short positions</p>
                                     )}
                                   </div>
-                                </div>
+                                </div>}
                               </div>
                             );
                           })()
@@ -7184,23 +7184,45 @@
                                         </div>
                                         {isExpanded && day.events && day.events.length > 0 && (
                                           <div className="px-2 pb-2 pt-0 border-t border-[var(--tt-border)]">
-                                            <div className="mt-1 space-y-0.5 text-[10px]">
-                                              {day.events.map((ev, i) => {
-                                                const ticker = ev.trade?.ticker || "—";
-                                                const action = ev.type;
-                                                const timeStr = ev.ts != null ? new Date(ev.ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
-                                                const priceStr = ev.price != null && Number.isFinite(ev.price) ? `$${Number(ev.price).toFixed(2)}` : (ev.trade?.entry_price != null ? `$${Number(ev.trade.entry_price).toFixed(2)}` : (ev.trade?.exit_price != null ? `$${Number(ev.trade.exit_price).toFixed(2)}` : "—"));
-                                                const actionColor = action === "ENTRY" ? "text-cyan-400" : action === "EXIT" ? "text-green-400" : "text-yellow-400";
-                                                return (
-                                                  <div key={i} className="flex items-center justify-between py-0.5 px-1.5 rounded bg-[var(--tt-bg)]">
-                                                    <span className="font-medium text-[var(--tt-text)]">{ticker}</span>
-                                                    <span className={actionColor}>{action}</span>
-                                                    <span className="text-[var(--tt-text-muted)]">{timeStr}</span>
-                                                    <span className="text-[var(--tt-text)]">{priceStr}</span>
+                                            {/* Group by ticker (alphabetical), then sort by time within each group */}
+                                            {(() => {
+                                              const byTicker = {};
+                                              for (const ev of day.events) {
+                                                const tk = (ev.trade?.ticker || "—").toUpperCase();
+                                                if (!byTicker[tk]) byTicker[tk] = [];
+                                                byTicker[tk].push(ev);
+                                              }
+                                              // Sort tickers alphabetically
+                                              const sortedTickers = Object.keys(byTicker).sort();
+                                              return (
+                                                <div className="mt-1 space-y-1.5 text-[10px]">
+                                                  {/* Table header */}
+                                                  <div className="grid grid-cols-[60px_44px_52px_60px_60px] gap-1 px-1 text-[9px] text-[var(--tt-text-faint)] font-medium uppercase">
+                                                    <span>Ticker</span><span>Action</span><span>Time</span><span>Price</span><span className="text-right">P&L</span>
                                                   </div>
-                                                );
-                                              })}
-                                            </div>
+                                                  {sortedTickers.map(tk => {
+                                                    const evs = byTicker[tk].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+                                                    return evs.map((ev, i) => {
+                                                      const action = ev.type;
+                                                      const timeStr = ev.ts != null ? new Date(ev.ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true }) : "—";
+                                                      const priceStr = ev.price != null && Number.isFinite(ev.price) ? `$${Number(ev.price).toFixed(2)}` : "—";
+                                                      const actionColor = action === "ENTRY" ? "text-cyan-400" : action === "EXIT" ? (ev.trade?.status === "WIN" ? "text-green-400" : "text-red-400") : "text-yellow-400";
+                                                      const pnlStr = action === "EXIT" && ev.trade?.pnl != null ? fmtUsd(Number(ev.trade.pnl)) : "";
+                                                      const pnlColor = Number(ev.trade?.pnl) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                                                      return (
+                                                        <div key={`${tk}-${i}`} className="grid grid-cols-[60px_44px_52px_60px_60px] gap-1 py-0.5 px-1 rounded bg-[var(--tt-bg)] items-center">
+                                                          <span className="font-medium text-[var(--tt-text)] truncate">{i === 0 ? tk : ""}</span>
+                                                          <span className={`${actionColor} font-semibold`}>{action}</span>
+                                                          <span className="text-[var(--tt-text-muted)]">{timeStr}</span>
+                                                          <span className="text-[var(--tt-text)]">{priceStr}</span>
+                                                          <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
+                                                        </div>
+                                                      );
+                                                    });
+                                                  })}
+                                                </div>
+                                              );
+                                            })()}
                                           </div>
                                         )}
                                       </div>
@@ -7243,7 +7265,7 @@
 
                   {/* Right rail — same component and look as Dashboard */}
                   {(selectedTicker || selectedTrade) && (
-                    <div className="fixed right-0 top-0 w-[450px] h-screen z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#13171e] border-l-2 border-[#252b36]">
+                    <div className="fixed right-0 top-0 w-[450px] h-screen z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
                       <TickerDetailsLoader
                         tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
                         trade={selectedTrade}

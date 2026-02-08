@@ -1,19 +1,23 @@
 # Timed Trading
 
-A TradingView Indicator system that scores tickers against signals across LTF and HTF, with a CloudFlare Worker backend and interactive Bubble Quadrant visualization.
+A TradingView Indicator system that scores tickers against signals across LTF and HTF, with a CloudFlare Worker backend, D1 ledger, and interactive Bubble Quadrant visualization.
 
 ## Project Structure
 
 ```
 timedtrading/
-├── react-app/index-react.html          # Main React Dashboard (Bubble Quadrant Chart)
-├── worker/                             # CloudFlare Worker
-│   ├── index.js                       # Worker code (KV storage, Discord alerts)
-│   ├── wrangler.toml                  # Worker configuration
-│   └── README.md                      # Worker setup instructions
-└── tradingview/                        # TradingView Indicator
-    ├── TimedTrading_ScoreEngine.pine  # Pine Script indicator (v1.1.0)
-    └── README.md                       # Indicator documentation
+├── react-app/
+│   ├── index-react.html               # Main Dashboard (Bubble Chart, Kanban, Viewport)
+│   └── simulation-dashboard.html      # Simulated Account (holdings, trade history)
+├── worker/                            # CloudFlare Worker
+│   ├── index.js                       # Main handler (routes, ingest, trades)
+│   ├── storage.js, ingest.js, trading.js, api.js, alerts.js  # Modules
+│   ├── wrangler.toml                  # KV, D1, cron triggers
+│   └── README.md
+├── tradingview/
+│   ├── TimedTrading_Unified.pine      # Primary indicator (ScoreEngine + Heartbeat)
+│   └── README.md
+└── docs/                              # Documentation index in docs/README.md
 ```
 
 ## Components
@@ -25,16 +29,15 @@ timedtrading/
 
 ### 2. CloudFlare Worker
 - Receives webhook data from TradingView alerts
-- Stores data in CloudFlare KV
-- Maintains historical trails for tickers
-- Sends Discord alerts when trading opportunities are detected (corridor-only logic)
-- Provides REST API endpoints for data retrieval
+- Stores data in KV and D1 (ledger, positions, trail)
+- Paper-trade simulation (Kanban-driven entries/trims/exits)
+- Discord alerts when opportunities meet criteria
+- REST API for tickers, portfolio, ledger, sectors
 
-### 3. CloudFlare Pages
-- Interactive Bubble Quadrant Chart visualization
-- Displays tickers in Q1-Q4 quadrants based on HTF/LTF scores
-- Shows trails, corridors, and various filters
-- Real-time updates from the Worker API
+### 3. React UI
+- **index-react.html**: Bubble Chart, Kanban lanes, Viewport, Opportunities, Time Travel
+- **simulation-dashboard.html**: Simulated Account (holdings LONG/SHORT, trade history by day/ticker)
+- Embedded in Worker and served at `/` and `/dashboard`
 
 ## Setup
 
@@ -62,16 +65,16 @@ wrangler deploy
 ### TradingView Indicator
 
 1. Open TradingView Pine Editor
-2. Copy the contents of `tradingview/TimedTrading_ScoreEngine.pine`
-3. Save and add to chart
+2. Copy the contents of `tradingview/TimedTrading_Unified.pine` (or `TimedTrading_ScoreEngine.pine`)
+3. Save and add to chart (5m timeframe recommended)
 4. Create an alert:
-   - Condition: TimedTrading_ScoreEngine
+   - Condition: TimedTrading_Unified
    - Frequency: Once Per Bar Close
    - Webhook URL: `https://timed-trading-ingest.shashant.workers.dev/timed/ingest?key=YOUR_API_KEY`
-   - Message: `{{message}}` (indicator auto-generates JSON)
+   - Message: `{{message}}`
 5. Apply to watchlist for multiple tickers
 
-See `tradingview/README.md` for detailed setup instructions.
+See `tradingview/README.md` for detailed setup.
 
 ## Features
 
@@ -84,11 +87,12 @@ See `tradingview/README.md` for detailed setup instructions.
 
 ## API Endpoints
 
-- `POST /timed/ingest?key=...` - Ingest data from TradingView
-- `GET /timed/all` - Get all tickers
-- `GET /timed/latest?ticker=XYZ` - Get latest data for a ticker
-- `GET /timed/trail?ticker=XYZ` - Get historical trail
-- `GET /timed/top?bucket=long|short|setup&n=10` - Get top tickers by rank
+- `POST /timed/ingest?key=...` - Ingest from TradingView
+- `GET /timed/all` - All tickers
+- `GET /timed/latest?ticker=XYZ` - Latest for a ticker
+- `GET /timed/trail?ticker=XYZ` - Historical trail
+- `GET /timed/portfolio` - Paper portfolio (open positions, executions)
+- `GET /timed/ledger/trades` - Trade history (D1)
 - `GET /timed/health` - Health check
 
 ## Alert Criteria
@@ -101,9 +105,10 @@ Discord alerts are sent when:
 
 ## Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture, data flow, and scoring logic
-- [docs/README.md](docs/README.md) - Full documentation index
-- [tasks/WORKFLOW_ORCHESTRATION.md](tasks/WORKFLOW_ORCHESTRATION.md) - Development workflow (plan, verify, lessons)
+- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture, data flow, scoring
+- [docs/README.md](docs/README.md) - Documentation index
+- [tasks/WORKFLOW_ORCHESTRATION.md](tasks/WORKFLOW_ORCHESTRATION.md) - Dev workflow
+- [SECRETS_MANAGEMENT.md](SECRETS_MANAGEMENT.md) - Secrets (API keys, webhooks)
 
 ## License
 

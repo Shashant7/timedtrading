@@ -1,0 +1,94 @@
+{
+  "ticker": "MSTR",
+  "dataRange": {
+    "firstTs": 1768401600000,
+    "lastTs": 1770132660000,
+    "firstDate": "2026-01-14",
+    "lastDate": "2026-02-03",
+    "totalPoints": 2465,
+    "daysCovered": 20
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "DOWN",
+      "startIdx": 1,
+      "endIdx": 2435,
+      "startTs": 1768402200000,
+      "endTs": 1770130920000,
+      "startPrice": 190.1,
+      "endPrice": 134.43,
+      "movePct": -29.28458705944239,
+      "duration": 28812,
+      "signalSequence": [
+        {
+          "ts": 1768401600000,
+          "time": "2026-01-14T14:40:00",
+          "price": 182.78,
+          "htf": -7.97,
+          "ltf": 23.17,
+          "state": "HTF_BEAR_LTF_PULLBACK",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 61,
+          "completion": 0.11,
+          "phase": 0.16,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768402200000,
+          "time": "2026-01-14T14:50:00",
+          "price": 190.1,
+          "htf": 4.84,
+          "ltf": 22.49,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": true,
+          "prevState": "HTF_BEAR_LTF_PULLBACK",
+          "rank": 68,
+          "completion": 0.15,
+          "phase": 0.21,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1768402200000,
+        "price": 190.1,
+        "htf": 4.84,
+        "ltf": 22.49,
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 68,
+        "completion": 0.15,
+        "phase": 0.21,
+        "rr": null,
+        "flags": {
+          "sq30_on": false,
+          "sq30_release": false,
+          "phase_dot": false,
+          "phase_zone_change": false,
+          "momentum_elite": false
+        },
+        "trigger_reason": "EMA_CROSS"
+      }
+    }
+  ],
+  "biggestUp": null,
+  "biggestDown": {
+    "direction": "DOWN",
+    "startIdx": 1,
+    "endIdx": 2435,
+    "startTs": 1768402200000,
+    "endTs": 1770130920000,
+    "startPrice": 190.1,
+    "endPrice": 134.43,
+    "movePct": -29.28458705944239,
+    "duration": 28812
+  }
+}

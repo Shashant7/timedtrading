@@ -1,12 +1,12 @@
 // Compare platform tickers with group tickers
 
 const groups = {
-  "Upticks": ["TSLA", "STX", "AU", "CCJ", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL", "AMZN", "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "ULTA", "SHOP", "CSX", "PWR", "HOOD", "SPGI", "APP", "PANW", "RDDT", "TT", "GLXY", "ETHA"],
-  "Super Granny": ["META", "NVDA", "AMD", "ANET", "GS"],
-  "GRNI": ["VST", "TSLA", "TJX", "SPGI", "SOFI", "PWR", "PNC", "PLTR", "PANW", "NVDA", "NFLX", "MSTR", "MSFT", "MNST", "META", "LRCX", "KLAC", "JPM", "HOOD", "GS", "GOOGL", "GEV", "GE", "EXPE", "ETN", "EMR", "DE", "CRWD", "COST", "CDNS", "CAT", "BK", "AXP", "AXON", "AVGO", "ANET", "AMZN", "AMD", "AAPL"],
-  "GRNJ": ["RKLB", "LITE", "SN", "ALB", "RDDT", "RGLD", "MTZ", "ON", "ALLY", "DY", "CCJ", "EWBC", "PATH", "WFRD", "WAL", "IESC", "ENS", "TWLO", "MLI", "KTOS", "MDB", "TLN", "EME", "AWI", "IBP", "DCI", "WTS", "FIX", "UTHR", "NBIS", "SGI", "AYI", "RIOT", "NXT", "SANM", "BWXT", "PEGA", "JOBY", "IONQ", "SOFI", "ITT", "STRL", "QLYS", "MP", "GLXY", "HIMS", "IOT", "BE", "NEU", "AVAV", "PSTG", "RBLX"],
-  "GRNY": ["GEV", "LRCX", "PNC", "GOOGL", "GS", "META", "MNST", "KLAC", "TJX", "GE", "EXPE", "CAT", "BK", "SPGI", "TSLA", "EMR", "JPM", "AXP", "ANET", "AXON", "AAPL", "NVDA", "AVGO", "PWR", "CDNS", "DE", "MSFT", "COST", "VST", "PLTR", "AMZN", "HOOD", "ETN", "SOFI", "AMD", "PANW", "CRWD", "NFLX", "MSTR"],
-  "Social": ["CSCO", "BA", "NKE", "AAPL", "PI", "APLD", "MU"]
+  UPTICKS: ["TSLA", "STX", "AU", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL", "AMZN", "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "CSX", "PWR", "SPGI", "APP", "PANW", "RDDT", "TT", "GLXY", "ETHA", "KO", "GILD", "MTB", "AMGN"],
+  SuperGranny: ["META", "NVDA", "AMD", "ANET", "GS"],
+  GRNI: ["VST", "TSLA", "TJX", "SPGI", "SOFI", "PWR", "PNC", "PLTR", "PANW", "NVDA", "NFLX", "MSTR", "MSFT", "MNST", "META", "LRCX", "KLAC", "JPM", "HOOD", "GS", "GOOGL", "GEV", "GE", "EXPE", "ETN", "EMR", "DE", "CRWD", "COST", "CDNS", "CAT", "BK", "AXP", "AXON", "AVGO", "ANET", "AMZN", "AMD", "AAPL"],
+  GRNJ: ["RKLB", "LITE", "SN", "ALB", "RDDT", "RGLD", "MTZ", "ON", "ALLY", "DY", "CCJ", "EWBC", "PATH", "WFRD", "WAL", "IESC", "ENS", "TWLO", "MLI", "KTOS", "MDB", "TLN", "EME", "AWI", "IBP", "DCI", "WTS", "FIX", "UTHR", "NBIS", "SGI", "AYI", "RIOT", "NXT", "SANM", "BWXT", "PEGA", "JOBY", "IONQ", "SOFI", "ITT", "STRL", "QLYS", "MP", "GLXY", "HIMS", "IOT", "BE", "NEU", "AVAV", "PSTG", "RBLX"],
+  GRNY: ["GEV", "LRCX", "PNC", "GOOGL", "GS", "META", "MNST", "KLAC", "TJX", "GE", "EXPE", "CAT", "BK", "SPGI", "TSLA", "EMR", "JPM", "AXP", "ANET", "AXON", "AAPL", "NVDA", "AVGO", "PWR", "CDNS", "DE", "MSFT", "COST", "VST", "PLTR", "AMZN", "HOOD", "ETN", "SOFI", "AMD", "PANW", "CRWD", "NFLX", "MSTR"],
+  Social: ["CSCO", "BA", "NKE", "AAPL", "PI", "APLD", "MU", "HOOD", "CCJ", "ULTA", "STX", "SWK", "AEHR", "SLV", "SNDK", "INTC", "SOXL", "IREN", "RKLB", "CRWV", "BE", "ONDS", "ASTS", "LITE", "AGQ", "IBRX", "LRCX", "WDC", "CRVS", "GDXJ", "HL", "MP", "B"],
 };
 
 // Get all unique tickers from all groups

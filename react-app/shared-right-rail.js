@@ -88,6 +88,10 @@
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
 
+        // Candle-based performance data (5D/15D/30D/90D from daily candles)
+        const [candlePerf, setCandlePerf] = useState(null);
+        const [candlePerfLoading, setCandlePerfLoading] = useState(false);
+
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | CHART | TECHNICALS | JOURNEY | TRADE_HISTORY
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
@@ -98,8 +102,13 @@
         const [crosshair, setCrosshair] = useState(null);
         const chartScrollRef = useRef(null);
         
+        // Model signal data (ticker + sector + market level)
+        const [modelSignal, setModelSignal] = useState(null);
+        const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false });
+        
         // Accordion states (MUST be at component level, not inside IIFE blocks)
         const [scoreExpanded, setScoreExpanded] = useState(false);
+        const [emaExpanded, setEmaExpanded] = useState(false);
         const [tpExpanded, setTpExpanded] = useState(false);
 
         // Prevent stale crosshair data from crashing renders when switching
@@ -120,15 +129,25 @@
         }, [tickerSymbol]);
 
         // Auto-scroll chart to most recent candle when data loads
+        // Use multiple attempts to handle rendering timing
         useEffect(() => {
-          if (chartScrollRef.current && chartCandles.length > 0 && railTab === "ANALYSIS") {
-            setTimeout(() => {
+          if (chartScrollRef.current && chartCandles.length > 0 && (railTab === "ANALYSIS" || railTab === "CHART")) {
+            const scrollToEnd = () => {
               if (chartScrollRef.current) {
                 chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
               }
-            }, 100);
+            };
+            // Immediate + delayed attempts for reliable scroll
+            scrollToEnd();
+            setTimeout(scrollToEnd, 50);
+            setTimeout(scrollToEnd, 200);
+            // Use requestAnimationFrame for after-render scroll
+            requestAnimationFrame(() => requestAnimationFrame(scrollToEnd));
           }
-        }, [chartCandles.length, railTab]);
+        }, [chartCandles.length, railTab, chartTf]);
+
+        // In-memory candle cache: key = "TICKER:TF", value = { data, ts }
+        const candleCacheRef = useRef({});
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")
@@ -141,9 +160,20 @@
             try {
               setChartLoading(true);
               setChartError(null);
+              const tf = String(chartTf || "30");
+              const cacheKey = `${sym}:${tf}`;
+
+              // Check cache (60-second TTL)
+              const cached = candleCacheRef.current[cacheKey];
+              if (cached && Date.now() - cached.ts < 60000) {
+                if (!cancelled) setChartCandles(cached.data);
+                if (!cancelled) setChartLoading(false);
+                return;
+              }
+
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
-              qs.set("tf", String(chartTf || "30"));
+              qs.set("tf", tf);
               qs.set("limit", "200");
               const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, {
                 cache: "no-store",
@@ -152,6 +182,8 @@
               const json = await res.json();
               if (!json.ok) throw new Error(json.error || "candles_failed");
               const candles = Array.isArray(json.candles) ? json.candles : [];
+              // Store in cache
+              candleCacheRef.current[cacheKey] = { data: candles, ts: Date.now() };
               if (!cancelled) setChartCandles(candles);
             } catch (e) {
               if (!cancelled) {
@@ -214,6 +246,32 @@
             cancelled = true;
           };
         }, [tickerSymbol]);
+
+        // Fetch model signals (ticker + sector + market level)
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) { setModelSignal(null); return; }
+          let cancelled = false;
+          (async () => {
+            try {
+              const res = await fetch(`${API_BASE}/timed/model/signals`, { cache: "no-store" });
+              if (!res.ok) return;
+              const json = await res.json();
+              if (!json.ok || cancelled) return;
+              const tickerSig = (json.ticker || []).find(t => t.ticker === sym);
+              const src = latestTicker || ticker;
+              const sectorName = src?.sector || tickerSig?.sector || "";
+              const sectorSig = (json.sector || []).find(s => s.sector === sectorName);
+              setModelSignal({
+                ticker: tickerSig || null,
+                sector: sectorSig || null,
+                market: json.market || null,
+                patternMatch: src?.pattern_match || null,
+              });
+            } catch { /* model signals are a boost, not a gate */ }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, latestTicker]);
 
         useEffect(() => {
           const sym = String(tickerSymbol || "")
@@ -295,7 +353,7 @@
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
               // Server may return oldest->newest; grab a reasonable window and sort client-side.
-              qs.set("limit", "250");
+              qs.set("limit", "500");
               const res = await fetch(
                 `${API_BASE}/timed/trail?${qs.toString()}`,
                 {
@@ -317,7 +375,7 @@
                 })
                 .filter(Boolean)
                 .sort((a, b) => a.__ts_ms - b.__ts_ms);
-              // Keep more history for Journey time-period analysis
+              // Keep last 200 for bubble journey table (which self-limits via downsample + slice)
               const last200 = withTs.slice(-200);
               if (!cancelled) setBubbleJourney(last200);
             } catch (e) {
@@ -331,6 +389,28 @@
           };
 
           fetchBubbleJourney();
+
+          // Also fetch candle-based performance (lightweight, separate from trail)
+          const fetchCandlePerf = async () => {
+            try {
+              setCandlePerfLoading(true);
+              const res = await fetch(
+                `${API_BASE}/timed/trail/performance?ticker=${encodeURIComponent(sym)}`,
+                { cache: "no-store" },
+              );
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (json.ok && json.performance) {
+                if (!cancelled) setCandlePerf(json);
+              }
+            } catch {
+              // Non-critical: performance section will just not render
+            } finally {
+              if (!cancelled) setCandlePerfLoading(false);
+            }
+          };
+          fetchCandlePerf();
+
           return () => {
             cancelled = true;
           };
@@ -461,12 +541,12 @@
         return (
           <div className="w-full h-full flex flex-col">
             <div
-              className="bg-[#13171e] border-2 border-[#252b36] rounded-xl w-full h-full flex flex-col shadow-2xl"
+              className="bg-[#0b0e11] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Scrollable Content Area */}
               <div className="flex-1 overflow-y-auto">
-                <div className="sticky top-0 z-30 bg-[#13171e] border-b border-[#252b36] px-6 py-4">
+                <div className="sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-6 py-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-xl font-bold">{tickerSymbol}</h3>
@@ -498,7 +578,7 @@
                               ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)`
                               : ""}
                             {!marketOpen && (
-                              <span className="ml-2 text-[10px] text-[#8b92a0]">
+                              <span className="ml-2 text-[10px] text-[#6b7280]">
                                 AH
                                 {stale?.ageLabel
                                   ? ` • as of ${stale.ageLabel}`
@@ -602,7 +682,7 @@
                                     className={`text-[9px] px-1.5 py-0.5 rounded border ${
                                       isSocial
                                         ? "bg-purple-500/15 border-purple-500/40 text-purple-200"
-                                        : "bg-[#13171e] border-[#252b36] text-[#f0f2f5]"
+                                        : "bg-white/[0.02] border-white/[0.06] text-[#f0f2f5]"
                                     }`}
                                   >
                                     {label}
@@ -618,7 +698,7 @@
                     </div>
                     <button
                       onClick={onClose}
-                      className="text-[#8b92a0] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-[#252b36]"
+                      className="text-[#6b7280] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04]"
                     >
                       ✕
                     </button>
@@ -673,7 +753,7 @@
                       }
                       return (
                         <div className="mt-2 text-xs flex items-center gap-2">
-                          <span className="text-[#8b92a0]">Last Ingest:</span>
+                          <span className="text-[#6b7280]">Last Ingest:</span>
                           <span className="text-white font-semibold">
                             {displayDate} {displayTime}
                           </span>
@@ -697,6 +777,13 @@
                     if (!ms || !ms.status) return null;
 
                     const status = String(ms.status || "").toUpperCase();
+
+                    // Suppress misleading "Move: ACTIVE" when kanban_stage is a discovery/entry stage.
+                    // move_status can show ACTIVE from a stale entry_ts even when no position
+                    // is open, creating a confusing contradiction with "Action: ENTER".
+                    const discoveryStages = new Set(["watch", "setup_watch", "setup", "flip_watch", "enter", "enter_now", "just_flipped", ""]);
+                    const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+                    const suppressMove = status === "ACTIVE" && discoveryStages.has(rawStage);
                     const severity = String(ms.severity || "").toUpperCase();
                     const reasonsRaw = Array.isArray(ms.reasons)
                       ? ms.reasons
@@ -769,34 +856,47 @@
                               ? "bg-blue-500/15 text-blue-300 border-blue-500/40"
                               : kanbanStage === "ENTER_NOW"
                                 ? "bg-green-500/15 text-green-300 border-green-500/40"
-                                : "bg-white/5 text-[#8b92a0] border-white/10";
+                                : "bg-white/5 text-[#6b7280] border-white/10";
+
+                    // Human-friendly stage label
+                    const stageLabel = {
+                      "WATCH": "Watch", "SETUP_WATCH": "Setup Watch", "SETUP": "Setup",
+                      "FLIP_WATCH": "Flip Watch", "JUST_FLIPPED": "Just Flipped",
+                      "ENTER": "Enter", "ENTER_NOW": "Enter Now",
+                      "JUST_ENTERED": "Just Entered", "HOLD": "Hold",
+                      "DEFEND": "Defend", "TRIM": "Trim", "EXIT": "Exit",
+                    }[kanbanStage] || kanbanStage;
 
                     return (
                       <div className="mt-2">
                         <div className="flex items-center gap-2 flex-wrap text-[11px]">
-                          <span className="text-[#8b92a0]">Move:</span>
-                          <span
-                            className={`px-2 py-0.5 rounded border font-semibold ${pill}`}
-                          >
-                            {icon} {status}
-                            {severity ? (
-                              <span className="ml-1 text-[10px] opacity-80">
-                                ({severity})
+                          {!suppressMove ? (
+                            <>
+                              <span className="text-[#6b7280]">Move:</span>
+                              <span
+                                className={`px-2 py-0.5 rounded border font-semibold ${pill}`}
+                              >
+                                {icon} {status}
+                                {severity && severity !== "NONE" ? (
+                                  <span className="ml-1 text-[10px] opacity-80">
+                                    ({severity})
+                                  </span>
+                                ) : null}
                               </span>
-                            ) : null}
-                          </span>
+                            </>
+                          ) : null}
                           {kanbanStage ? (
                             <>
-                              <span className="text-[#8b92a0]">Action:</span>
+                              <span className="text-[#6b7280]">{suppressMove ? "Stage:" : "Action:"}</span>
                               <span
                                 className={`px-2 py-0.5 rounded border font-semibold ${kanbanPill}`}
                               >
-                                {kanbanStage}
+                                {stageLabel}
                               </span>
                             </>
                           ) : null}
                         </div>
-                        <div className="mt-1 text-[10px] text-[#5c6475]">
+                        <div className="mt-1 text-[10px] text-[#4b5563]">
                           <span className={`font-semibold ${freshnessCls}`}>
                             {freshnessLabel}
                           </span>
@@ -806,7 +906,7 @@
                             <span>
                               {" "}
                               •{" "}
-                              <span className="text-[#8b92a0]">
+                              <span className="text-[#6b7280]">
                                 {status === "INVALIDATED"
                                   ? "Invalidated"
                                   : "Completed"}
@@ -823,7 +923,7 @@
                           severity !== "NONE" ? (
                             <span>
                               {" "}
-                              • <span className="text-[#8b92a0]">
+                              • <span className="text-[#6b7280]">
                                 Reason:
                               </span>{" "}
                               <span className="text-[#f0f2f5]">
@@ -865,6 +965,7 @@
                     {[
                       { k: "ANALYSIS", label: "Analysis" },
                       { k: "TECHNICALS", label: "Technicals" },
+                      { k: "MODEL", label: "Model" },
                       { k: "JOURNEY", label: "Journey" },
                       {
                         k: "TRADE_HISTORY",
@@ -879,7 +980,7 @@
                           className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
                             active
                               ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                              : "border-[#252b36] bg-[#1a1f28] text-[#8b92a0] hover:text-white"
+                              : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"
                           }`}
                         >
                           {t.label}
@@ -893,6 +994,84 @@
                 <div className="p-6 pt-4">
                   {railTab === "ANALYSIS" ? (
                     <>
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {/* MODEL INTELLIGENCE — Prominent, data-driven signal card    */}
+                      {/* ═══════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const ms = modelSignal;
+                        const pm = (latestTicker || ticker)?.pattern_match;
+                        const ts = ms?.ticker;
+                        const ss = ms?.sector;
+                        const mk = ms?.market;
+                        if (!ts && !pm && !mk) return null;
+
+                        const dirColor = (d) => d === "BULLISH" ? "text-emerald-400" : d === "BEARISH" ? "text-red-400" : "text-slate-400";
+                        const dirBg = (d) => d === "BULLISH" ? "bg-emerald-500/10 border-emerald-500/30" : d === "BEARISH" ? "bg-red-500/10 border-red-500/30" : "bg-slate-500/10 border-slate-500/30";
+                        const regimeBg = (r) => {
+                          if (!r) return "";
+                          if (r.includes("BULL")) return "bg-emerald-500/15 border-emerald-500/40";
+                          if (r.includes("BEAR")) return "bg-red-500/15 border-red-500/40";
+                          return "bg-slate-500/10 border-slate-500/30";
+                        };
+
+                        return (
+                          <div className="mb-4 p-3 rounded-2xl border border-white/[0.08]" style={{background:"rgba(255,255,255,0.03)",backdropFilter:"blur(12px) saturate(1.2)",WebkitBackdropFilter:"blur(12px) saturate(1.2)",boxShadow:"0 2px 12px rgba(0,0,0,0.25), inset 0 0.5px 0 rgba(255,255,255,0.06)"}}>
+                            <div className="flex items-center gap-2 mb-3">
+                              <div className="w-5 h-5 rounded-md bg-blue-500/20 flex items-center justify-center text-[10px]">🧠</div>
+                              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Model Intelligence</span>
+                            </div>
+
+                            {/* Ticker Signal */}
+                            {(ts || pm) && (
+                              <div className={`rounded-lg p-2.5 mb-2 border ${dirBg(ts?.direction || pm?.direction)}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Ticker Signal</span>
+                                  <span className={`text-xs font-bold ${dirColor(ts?.direction || pm?.direction)}`}>
+                                    {ts?.direction || pm?.direction || "—"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-[11px]">
+                                  <span className="text-slate-400">Net: <span className={`font-semibold ${(ts?.netSignal || pm?.netSignal || 0) > 0 ? "text-emerald-400" : (ts?.netSignal || pm?.netSignal || 0) < 0 ? "text-red-400" : "text-slate-300"}`}>
+                                    {((ts?.netSignal || pm?.netSignal || 0) > 0 ? "+" : "")}{(ts?.netSignal || pm?.netSignal || 0).toFixed(2)}
+                                  </span></span>
+                                  <span className="text-slate-400">Patterns: <span className="text-white font-semibold">{ts?.bullPatterns || pm?.bullCount || 0}B / {ts?.bearPatterns || pm?.bearCount || 0}S</span></span>
+                                </div>
+                                {pm?.bestBull && (
+                                  <div className="mt-1.5 text-[10px] text-emerald-300/80">
+                                    Top: {pm.bestBull.name} ({(pm.bestBull.conf * 100).toFixed(0)}% conf, EV: {pm.bestBull.ev > 0 ? "+" : ""}{pm.bestBull.ev})
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Sector + Market in a row */}
+                            <div className="grid grid-cols-2 gap-2">
+                              {ss && (
+                                <div className={`rounded-lg p-2 border ${regimeBg(ss.regime)}`}>
+                                  <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5">Sector</div>
+                                  <div className="text-[11px] font-bold text-white truncate">{ss.sector}</div>
+                                  <div className="text-[10px] text-slate-400">{ss.breadthBullPct}% bull · {ss.regime}</div>
+                                </div>
+                              )}
+                              {mk && (mk.totalTickers || 0) > 5 && (
+                                <div className={`rounded-lg p-2 border ${regimeBg(mk.signal)}`}>
+                                  <div className="text-[9px] text-slate-400 uppercase font-semibold mb-0.5">Market</div>
+                                  <div className={`text-[11px] font-bold ${mk.signal?.includes("BULL") ? "text-emerald-400" : mk.signal?.includes("BEAR") ? "text-red-400" : "text-slate-300"}`}>
+                                    {mk.signal?.replace(/_/g, " ")}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">{mk.breadthBullPct}% breadth</div>
+                                </div>
+                              )}
+                            </div>
+                            {mk?.riskFlag && (mk.totalTickers || 0) > 5 && (
+                              <div className="mt-2 text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+                                {mk.riskFlag}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {/* Context (optional enrichment from /timed/ingest-context) */}
                       {(() => {
                         const baseCtx =
@@ -967,12 +1146,12 @@
                         };
 
                         return (
-                          <div className="mb-4 p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg">
-                            <div className="text-sm text-[#8b92a0] mb-2">
+                          <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
+                            <div className="text-sm text-[#6b7280] mb-2">
                               Context
                             </div>
                             {latestTickerLoading ? (
-                              <div className="text-xs text-[#5c6475]">
+                              <div className="text-xs text-[#4b5563]">
                                 Loading context…
                               </div>
                             ) : null}
@@ -987,11 +1166,11 @@
                               </div>
                             ) : null}
                             {description ? (
-                              <div className="mt-1 text-xs text-[#8b92a0] leading-snug">
+                              <div className="mt-1 text-xs text-[#6b7280] leading-snug">
                                 {description}
                               </div>
                             ) : null}
-                            <div className="mt-1 text-[11px] text-[#8b92a0]">
+                            <div className="mt-1 text-[11px] text-[#6b7280]">
                               {[sector, industry, country]
                                 .filter(Boolean)
                                 .join(" • ") || "—"}
@@ -1000,8 +1179,8 @@
                             {(trStatus || trValue != null || lastEarnTs || events?.next_earnings_ts) ? (
                               <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
                                 {(trStatus || trValue != null) ? (
-                                  <div className="p-2 bg-[#13171e] border border-[#252b36] rounded">
-                                    <div className="text-[9px] text-[#8b92a0] mb-1" title="Normalized score: 0=Strong Sell, 0.5=Neutral, 1=Strong Buy">
+                                  <div className="p-2 bg-white/[0.02] border border-white/[0.06] rounded">
+                                    <div className="text-[9px] text-[#6b7280] mb-1" title="Normalized score: 0=Strong Sell, 0.5=Neutral, 1=Strong Buy">
                                       Tech Rating {trValue != null ? `(${trValue.toFixed(2)})` : ''}
                                     </div>
                                     <div className="text-xs font-semibold text-white no-ligatures">
@@ -1019,8 +1198,8 @@
                                     </div>
                                   </div>
                                 ) : lastEarnTs ? (
-                                  <div className="p-2 bg-[#13171e] border border-[#252b36] rounded">
-                                    <div className="text-[9px] text-[#8b92a0] mb-1">
+                                  <div className="p-2 bg-white/[0.02] border border-white/[0.06] rounded">
+                                    <div className="text-[9px] text-[#6b7280] mb-1">
                                       Last Earnings
                                     </div>
                                     <div className="text-xs font-semibold text-white">
@@ -1072,8 +1251,8 @@
                                 ? "👎"
                                 : "😒";
                           return (
-                            <div className="mb-4 p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg">
-                              <div className="text-sm text-[#8b92a0] mb-2">
+                            <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
+                              <div className="text-sm text-[#6b7280] mb-2">
                                 Sector
                               </div>
                               <div className="flex items-center gap-2 flex-wrap">
@@ -1087,14 +1266,14 @@
                                       ? "bg-green-500/20 text-green-400"
                                       : rating === "underweight"
                                         ? "bg-red-500/20 text-red-400"
-                                        : "bg-[#252b36] text-[#8b92a0]"
+                                        : "bg-white/[0.04] text-[#6b7280]"
                                   }`}
                                 >
                                   {rating.charAt(0).toUpperCase() +
                                     rating.slice(1)}
                                 </span>
                                 {Number.isFinite(boost) && boost !== 0 && (
-                                  <span className="text-[9px] text-[#8b92a0]">
+                                  <span className="text-[9px] text-[#6b7280]">
                                     Boost {boost > 0 ? `+${boost}` : boost}
                                   </span>
                                 )}
@@ -1110,7 +1289,7 @@
                         className={`mb-4 p-4 rounded-lg border-2 ${actionInfo.bg} border-current/30`}
                       >
                         <div className="flex items-center justify-between mb-3">
-                          <div className="text-sm text-[#8b92a0] font-semibold">
+                          <div className="text-sm text-[#6b7280] font-semibold">
                             System Guidance
                           </div>
                           {decisionSummary && (
@@ -1203,7 +1382,7 @@
                           
                           return (
                             <div className="mt-3 pt-3 border-t border-current/20">
-                              <div className="text-xs text-[#8b92a0] mb-2 font-semibold">
+                              <div className="text-xs text-[#6b7280] mb-2 font-semibold">
                                 Key Factors:
                               </div>
                               <div className="space-y-1.5">
@@ -1221,8 +1400,8 @@
 
                       {/* Score and Ranking */}
                       <div className="space-y-2.5 text-sm">
-                        <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                          <span className="text-[#8b92a0]">Score</span>
+                        <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                          <span className="text-[#6b7280]">Score</span>
                           <span className="font-semibold text-blue-400 text-lg">
                             {Number.isFinite(displayScore)
                               ? displayScore.toFixed(1)
@@ -1230,22 +1409,22 @@
                           </span>
                         </div>
                         {rankTotal > 0 && (
-                          <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                            <span className="text-[#8b92a0]">Rank</span>
+                          <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                            <span className="text-[#6b7280]">Rank</span>
                             <span className="font-semibold">
                               {rankPosition > 0
                                 ? `#${rankPosition} of ${rankTotal}`
                                 : "—"}
                               {rankAsOfText && (
-                                <span className="ml-2 text-[10px] text-[#8b92a0] font-normal">
+                                <span className="ml-2 text-[10px] text-[#6b7280] font-normal">
                                   (as of {rankAsOfText})
                                 </span>
                               )}
                             </span>
                           </div>
                         )}
-                        {/* Model Score (Worker-provided) */}
-                        {(() => {
+                        {/* Model Score (Worker-provided) — REMOVED: replaced by Model Intelligence card */}
+                        {false && (() => {
                           const ml =
                             ticker?.ml ||
                             ticker?.model ||
@@ -1301,8 +1480,8 @@
                             <>
                               {has4h && (
                                 <>
-                                  <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                    <span className="text-[#8b92a0]">
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
                                       Model (4h)
                                     </span>
                                     <span className="font-semibold text-purple-300">
@@ -1318,8 +1497,8 @@
                               )}
                               {has1d && (
                                 <>
-                                  <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                    <span className="text-[#8b92a0]">
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
                                       Model (1d)
                                     </span>
                                     <span className="font-semibold text-purple-300">
@@ -1378,7 +1557,7 @@
                           if (!elite) return null;
 
                           return (
-                            <div className="border-t border-[#252b36] my-3 pt-3">
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
                               <div className="flex items-center gap-2 mb-2">
                                 <span className="text-xs text-purple-300 font-bold">🚀 Momentum Elite</span>
                                 <span className="text-[9px] px-1.5 py-0.5 rounded border bg-purple-500/20 border-purple-500/40 text-purple-200">
@@ -1388,32 +1567,32 @@
                               <div className="grid grid-cols-2 gap-1.5 text-[9px]">
                                 {Number.isFinite(w) && (
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">1W:</span>
-                                    <span className={`font-semibold ${okW ? 'text-green-400' : 'text-[#8b92a0]'}`}>
+                                    <span className="text-[#6b7280]">1W:</span>
+                                    <span className={`font-semibold ${okW ? 'text-green-400' : 'text-[#6b7280]'}`}>
                                       {w.toFixed(1)}%
                                     </span>
                                   </div>
                                 )}
                                 {Number.isFinite(m) && (
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">1M:</span>
-                                    <span className={`font-semibold ${okM ? 'text-green-400' : 'text-[#8b92a0]'}`}>
+                                    <span className="text-[#6b7280]">1M:</span>
+                                    <span className={`font-semibold ${okM ? 'text-green-400' : 'text-[#6b7280]'}`}>
                                       {m.toFixed(1)}%
                                     </span>
                                   </div>
                                 )}
                                 {Number.isFinite(m3) && (
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">3M:</span>
-                                    <span className={`font-semibold ${ok3 ? 'text-green-400' : 'text-[#8b92a0]'}`}>
+                                    <span className="text-[#6b7280]">3M:</span>
+                                    <span className={`font-semibold ${ok3 ? 'text-green-400' : 'text-[#6b7280]'}`}>
                                       {m3.toFixed(1)}%
                                     </span>
                                   </div>
                                 )}
                                 {Number.isFinite(m6) && (
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">6M:</span>
-                                    <span className={`font-semibold ${ok6 ? 'text-green-400' : 'text-[#8b92a0]'}`}>
+                                    <span className="text-[#6b7280]">6M:</span>
+                                    <span className={`font-semibold ${ok6 ? 'text-green-400' : 'text-[#6b7280]'}`}>
                                       {m6.toFixed(1)}%
                                     </span>
                                   </div>
@@ -1517,10 +1696,10 @@
                           ].filter(Boolean);
 
                           return breakdownComponents.length > 0 ? (
-                            <div className="border-t border-[#252b36] my-3 pt-3">
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
                               <button
                                 onClick={() => setScoreExpanded(!scoreExpanded)}
-                                className="w-full flex items-center justify-between text-xs text-[#8b92a0] mb-2 font-semibold hover:text-white transition-colors"
+                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
                               >
                                 <span>Score Breakdown</span>
                                 <span className="text-base">{scoreExpanded ? "▼" : "▶"}</span>
@@ -1532,7 +1711,7 @@
                                       key={idx}
                                       className="flex justify-between items-center text-xs"
                                     >
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         {comp.label}
                                       </span>
                                       <span
@@ -1542,8 +1721,8 @@
                                       </span>
                                     </div>
                                   ))}
-                                  <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[#252b36]">
-                                    <span className="text-[#8b92a0] font-semibold">
+                                  <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
+                                    <span className="text-[#6b7280] font-semibold">
                                       Total Score
                                     </span>
                                     <span className="text-blue-400 font-bold text-base">
@@ -1556,6 +1735,54 @@
                               )}
                             </div>
                           ) : null;
+                        })()}
+
+                        {/* EMA Structure Analysis (from new ema_map triplet) */}
+                        {(() => {
+                          const emaMap = ticker?.ema_map;
+                          if (!emaMap || typeof emaMap !== 'object') return null;
+                          const tfDisplayOrder = ['D', '240', '60', '30', '10', '3'];
+                          const tfLabels = { 'W': 'Weekly', 'D': 'Daily', '240': '4H', '60': '1H', '30': '30m', '10': '10m', '3': '3m' };
+                          const entries = tfDisplayOrder.map(tf => emaMap[tf] ? { tf, ...emaMap[tf] } : null).filter(Boolean);
+                          if (entries.length === 0) return null;
+
+                          const depthLabel = (d) => d >= 9 ? 'Extremely Bullish' : d >= 7 ? 'Bullish' : d >= 5 ? 'Neutral-Bull' : d >= 4 ? 'Neutral-Bear' : d >= 2 ? 'Bearish' : 'Extremely Bearish';
+                          const depthColor = (d) => d >= 8 ? 'text-green-400' : d >= 6 ? 'text-green-300/70' : d >= 4 ? 'text-yellow-300' : d >= 2 ? 'text-orange-400' : 'text-red-400';
+
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <button
+                                onClick={() => setEmaExpanded?.(!emaExpanded)}
+                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+                              >
+                                <span>EMA Structure</span>
+                                <span className="text-base">{emaExpanded ? "▼" : "▶"}</span>
+                              </button>
+                              {emaExpanded && (
+                                <div className="space-y-2">
+                                  {entries.map(e => (
+                                    <div key={e.tf} className="flex items-center justify-between text-[11px] py-1 border-b border-white/[0.06]/50 last:border-0">
+                                      <span className="text-[#6b7280] font-medium w-10">{tfLabels[e.tf] || e.tf}</span>
+                                      <div className="flex items-center gap-3">
+                                        <span className={`font-bold ${depthColor(e.depth)}`} title={depthLabel(e.depth)}>
+                                          {e.depth}/10
+                                        </span>
+                                        <span className="text-[10px] text-[#6b7280]">
+                                          S:<span className={`font-semibold ml-0.5 ${e.structure > 0.3 ? 'text-green-400' : e.structure < -0.3 ? 'text-red-400' : 'text-yellow-300'}`}>{(e.structure > 0 ? '+' : '') + e.structure.toFixed(2)}</span>
+                                        </span>
+                                        <span className="text-[10px] text-[#6b7280]">
+                                          M:<span className={`font-semibold ml-0.5 ${e.momentum > 0.3 ? 'text-green-400' : e.momentum < -0.3 ? 'text-red-400' : 'text-yellow-300'}`}>{(e.momentum > 0 ? '+' : '') + e.momentum.toFixed(2)}</span>
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <div className="text-[10px] text-[#4b5563] mt-1">
+                                    Depth: EMAs above (0-10) | S: Structure (macro) | M: Momentum (impulse)
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
                         })()}
 
                         {/* Momentum Elite (Compact) */}
@@ -1582,9 +1809,9 @@
                           if (!elite) return null;
                           
                           return (
-                            <div className="border-t border-[#252b36] my-3 pt-3">
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs text-[#8b92a0] font-semibold">🚀 Momentum Elite</span>
+                                <span className="text-xs text-[#6b7280] font-semibold">🚀 Momentum Elite</span>
                                 <span className="text-[10px] px-2 py-0.5 rounded border bg-purple-500/20 border-purple-500/40 text-purple-200">
                                   ACTIVE
                                 </span>
@@ -1603,10 +1830,25 @@
 
                         {/* 3-Tier TP System Display */}
                         {(() => {
-                          // Check for 3-tier tpArray from trade object first, then fallback to ticker.tp_levels
-                          const tpArray = trade?.tpArray || ticker?.tpArray || [];
+                          // Check for 3-tier tpArray from trade object first, then ATR Fibonacci levels, then legacy tp_levels
+                          let tpArray = trade?.tpArray || ticker?.tpArray || [];
                           const trimTiers = trade?.trimTiers || [];
                           const trimmedPct = Number(trade?.trimmedPct || 0);
+                          
+                          // If no trade tpArray, build from ATR Fibonacci TP levels
+                          if (tpArray.length === 0) {
+                            const tpTrim = Number(ticker?.tp_trim);
+                            const tpExit = Number(ticker?.tp_exit);
+                            const tpRunner = Number(ticker?.tp_runner);
+                            if (Number.isFinite(tpTrim) && tpTrim > 0) {
+                              tpArray = [
+                                { price: tpTrim, trimPct: 0.60, tier: "TRIM", label: "TRIM (60%) @ 61.8% ATR" },
+                                ...(Number.isFinite(tpExit) && tpExit > 0 ? [{ price: tpExit, trimPct: 0.85, tier: "EXIT", label: "EXIT (85%) @ 100% ATR" }] : []),
+                                ...(Number.isFinite(tpRunner) && tpRunner > 0 ? [{ price: tpRunner, trimPct: 0.95, tier: "RUNNER", label: "RUNNER (95%) @ 161.8% ATR" }] : []),
+                              ];
+                            }
+                          }
+                          
                           const has3TierSystem = tpArray.length > 0 && tpArray.some(tp => tp.tier);
                           
                           // Get trade SL protection info
@@ -1654,10 +1896,10 @@
                             };
                             
                             return (
-                              <div className="border-t border-[#252b36] my-3 pt-3">
+                              <div className="border-t border-white/[0.06] my-3 pt-3">
                                 <button
                                   onClick={() => setTpExpanded(!tpExpanded)}
-                                  className="w-full flex items-center justify-between text-xs text-[#8b92a0] mb-2 font-semibold hover:text-white transition-colors"
+                                  className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
                                 >
                                   <span className="flex items-center gap-1.5">
                                     <span>3-Tier TP System</span>
@@ -1696,7 +1938,7 @@
                                               <span className={`text-xs font-semibold ${colors.text}`}>
                                                 {config.label}
                                               </span>
-                                              <span className="text-[10px] text-[#8b92a0]">
+                                              <span className="text-[10px] text-[#6b7280]">
                                                 ({Math.round(config.pct * 100)}% off)
                                               </span>
                                               {isHit && (
@@ -1711,13 +1953,13 @@
                                           {/* Progress bar */}
                                           {!isHit && (
                                             <div className="mb-1.5">
-                                              <div className="h-1.5 bg-[#252b36] rounded-full overflow-hidden">
+                                              <div className="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
                                                 <div
                                                   className={`h-full ${colors.bar} transition-all duration-300`}
                                                   style={{ width: `${Math.round(progress * 100)}%` }}
                                                 />
                                               </div>
-                                              <div className="flex justify-between text-[10px] text-[#8b92a0] mt-0.5">
+                                              <div className="flex justify-between text-[10px] text-[#6b7280] mt-0.5">
                                                 <span>{Math.round(progress * 100)}% to target</span>
                                                 <span>{config.slAction}</span>
                                               </div>
@@ -1726,7 +1968,7 @@
                                           
                                           {/* Show SL action when tier is hit */}
                                           {isHit && (
-                                            <div className="text-[10px] text-[#8b92a0]">
+                                            <div className="text-[10px] text-[#6b7280]">
                                               {config.slAction} applied
                                             </div>
                                           )}
@@ -1742,7 +1984,7 @@
                                           {tradeSl && <div className="text-xs font-semibold text-red-400">${tradeSl.toFixed(2)}</div>}
                                         </div>
                                         {slProtectReason && (
-                                          <div className="text-[10px] text-[#8b92a0] mt-1">
+                                          <div className="text-[10px] text-[#6b7280] mt-1">
                                             {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "Moved to breakeven after TRIM TP" :
                                              slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "Moved to TRIM TP after EXIT TP" :
                                              slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR trailing (1.5x ATR)" :
@@ -1810,10 +2052,10 @@
                           );
 
                           return (
-                            <div className="border-t border-[#252b36] my-3 pt-3">
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
                               <button
                                 onClick={() => setTpExpanded(!tpExpanded)}
-                                className="w-full flex items-center justify-between text-xs text-[#8b92a0] mb-2 font-semibold hover:text-white transition-colors"
+                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
                               >
                                 <span>TP Levels ({tpPrices.length})</span>
                                 <span className="text-base">{tpExpanded ? "▼" : "▶"}</span>
@@ -1836,21 +2078,21 @@
                                     return (
                                       <div
                                         key={idx}
-                                        className="flex justify-between items-center text-xs bg-[#1a1f28] rounded px-2 py-1.5 border border-[#252b36]/30"
+                                        className="flex justify-between items-center text-xs bg-white/[0.03] rounded px-2 py-1.5 border border-white/[0.06]/30"
                                       >
                                         <div className="flex items-center gap-2">
                                           <span className="text-green-400 font-semibold">
                                             ${tpItem.price.toFixed(2)}
                                           </span>
-                                          <span className="text-[#8b92a0] text-[10px]">
+                                          <span className="text-[#6b7280] text-[10px]">
                                             {tpItem.tier && <span className="text-yellow-400">{tpItem.tier}</span>}
-                                            {trimLabel && <span className="text-[#8b92a0]">{trimLabel}</span>}
+                                            {trimLabel && <span className="text-[#6b7280]">{trimLabel}</span>}
                                             {tpItem.timeframe && !tpItem.tier
                                               ? ` (${tfLabel})`
                                               : ""}
                                           </span>
                                         </div>
-                                        <span className="text-[#8b92a0] text-[10px]">
+                                        <span className="text-[#6b7280] text-[10px]">
                                           {tpItem.type !== "ATR_FIB"
                                             ? tpItem.type
                                             : ""}
@@ -1866,9 +2108,9 @@
                       </div>
 
                       {/* Chart */}
-                      <div className="mb-4 p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg">
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="text-sm text-[#8b92a0]">Chart</div>
+                          <div className="text-sm text-[#6b7280]">Chart</div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
                               { tf: "1", label: "1m" },
@@ -1889,7 +2131,7 @@
                                   className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
                                     active
                                       ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                                      : "border-[#252b36] bg-[#13171e] text-[#8b92a0] hover:text-white"
+                                      : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"
                                   }`}
                                   title={`Show ${t.label} candles`}
                                 >
@@ -1901,7 +2143,7 @@
                         </div>
 
                         {chartLoading ? (
-                          <div className="text-xs text-[#8b92a0]">
+                          <div className="text-xs text-[#6b7280]">
                             Loading candles…
                           </div>
                         ) : chartError ? (
@@ -1910,7 +2152,7 @@
                           </div>
                         ) : !Array.isArray(chartCandles) ||
                           chartCandles.length < 2 ? (
-                          <div className="text-xs text-[#8b92a0]">
+                          <div className="text-xs text-[#6b7280]">
                             No candles yet for this timeframe.
                           </div>
                         ) : (
@@ -1952,6 +2194,32 @@
                                 .filter(Boolean);
 
                               candles.sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
+
+                              // Snap intraday timestamps to clean timeframe boundaries
+                              // e.g. 10m candle at 9:33 → 9:30, 4H candle at 10:15 → 9:30
+                              const tfMin = chartTf === "D" ? 0 : chartTf === "W" ? 0 : Number(chartTf);
+                              if (Number.isFinite(tfMin) && tfMin > 0) {
+                                const ivMs = tfMin * 60 * 1000;
+                                candles = candles.map(c => {
+                                  const snapped = Math.floor(c.__ts_ms / ivMs) * ivMs;
+                                  return { ...c, ts: snapped, __ts_ms: snapped };
+                                });
+                                // Re-dedupe after snapping (aggregate candles that land in same bucket)
+                                const snappedMap = new Map();
+                                for (const c of candles) {
+                                  const key = c.__ts_ms;
+                                  const prev = snappedMap.get(key);
+                                  if (!prev) {
+                                    snappedMap.set(key, { ...c });
+                                  } else {
+                                    // Aggregate: keep first open, max high, min low, last close
+                                    prev.h = Math.max(prev.h, c.h);
+                                    prev.l = Math.min(prev.l, c.l);
+                                    prev.c = c.c; // last close wins
+                                  }
+                                }
+                                candles = Array.from(snappedMap.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
+                              }
 
                               const weekStartUtcMs = (tsMs) => {
                                 const d0 = new Date(Number(tsMs));
@@ -2006,7 +2274,7 @@
                               const n = candles.length;
                               if (n < 2) {
                                 return (
-                                  <div className="text-xs text-[#8b92a0]">
+                                  <div className="text-xs text-[#6b7280]">
                                     Candle data loaded, but not in expected format.
                                   </div>
                                 );
@@ -2025,7 +2293,7 @@
                               minL -= pad;
                               maxH += pad;
 
-                            const H = 280;
+                            const H = 320;
                             const leftMargin = 10;
                             const rightMargin = 70;
                             const candleW = 8;
@@ -2037,6 +2305,63 @@
                             const y = (p) =>
                               plotH - ((p - minL) / (maxH - minL)) * plotH;
                             const bodyW = candleW * 0.9;
+
+                            // ── Compute Indicator Overlays ───────────────────
+                            const computeEMA = (arr, period) => {
+                              // Use available data even if fewer candles than period
+                              const effPeriod = Math.min(period, arr.length);
+                              if (effPeriod < 2) return [];
+                              const k = 2 / (effPeriod + 1);
+                              const out = new Array(arr.length).fill(null);
+                              let s = 0;
+                              for (let j = 0; j < effPeriod; j++) s += arr[j];
+                              out[effPeriod - 1] = s / effPeriod;
+                              for (let j = effPeriod; j < arr.length; j++) out[j] = arr[j] * k + out[j - 1] * (1 - k);
+                              return out;
+                            };
+                            const closesForEma = candles.map(c => Number(c.c));
+                            const highsForST = candles.map(c => Number(c.h));
+                            const lowsForST = candles.map(c => Number(c.l));
+                            const ema21Data = chartOverlays.ema21 ? computeEMA(closesForEma, 21) : [];
+                            const ema48Data = chartOverlays.ema48 ? computeEMA(closesForEma, 48) : [];
+                            const ema200Data = chartOverlays.ema200 ? computeEMA(closesForEma, 200) : [];
+
+                            // SuperTrend (period=10, mult=3)
+                            let superTrendData = [];
+                            if (chartOverlays.supertrend && n >= 11) {
+                              const stP = 10, stM = 3;
+                              const tr = new Array(n).fill(0);
+                              for (let i = 1; i < n; i++) tr[i] = Math.max(highsForST[i] - lowsForST[i], Math.abs(highsForST[i] - closesForEma[i-1]), Math.abs(lowsForST[i] - closesForEma[i-1]));
+                              const atrArr = new Array(n).fill(null);
+                              let aSum = 0;
+                              for (let i = 1; i <= stP; i++) aSum += tr[i];
+                              atrArr[stP] = aSum / stP;
+                              for (let i = stP + 1; i < n; i++) atrArr[i] = tr[i] * (2/(stP+1)) + atrArr[i-1] * (1 - 2/(stP+1));
+                              const stUpArr = new Array(n).fill(null), stDnArr = new Array(n).fill(null), stDirArr = new Array(n).fill(1);
+                              superTrendData = new Array(n).fill(null);
+                              for (let i = stP; i < n; i++) {
+                                if (!atrArr[i]) continue;
+                                const hl2 = (highsForST[i] + lowsForST[i]) / 2;
+                                let up = hl2 - stM * atrArr[i], dn = hl2 + stM * atrArr[i];
+                                if (stUpArr[i-1] != null) up = closesForEma[i-1] > stUpArr[i-1] ? Math.max(up, stUpArr[i-1]) : up;
+                                if (stDnArr[i-1] != null) dn = closesForEma[i-1] < stDnArr[i-1] ? Math.min(dn, stDnArr[i-1]) : dn;
+                                stUpArr[i] = up; stDnArr[i] = dn;
+                                if (i === stP) stDirArr[i] = closesForEma[i] > dn ? 1 : -1;
+                                else { stDirArr[i] = stDirArr[i-1] === 1 && closesForEma[i] < stUpArr[i] ? -1 : stDirArr[i-1] === -1 && closesForEma[i] > stDnArr[i] ? 1 : stDirArr[i-1]; }
+                                superTrendData[i] = { val: stDirArr[i] === 1 ? stUpArr[i] : stDnArr[i], dir: stDirArr[i] };
+                              }
+                            }
+
+                            const buildEmaPath = (emaArr) => {
+                              let d = "";
+                              for (let i = 0; i < emaArr.length; i++) {
+                                if (emaArr[i] == null) continue;
+                                const px = leftMargin + i * candleStep + candleStep / 2;
+                                const py = y(emaArr[i]);
+                                d += d === "" ? `M${px},${py}` : ` L${px},${py}`;
+                              }
+                              return d;
+                            };
 
                             const priceStep = (maxH - minL) / 5;
                             const priceTicks = [];
@@ -2069,9 +2394,31 @@
 
                             return (
                               <div className="w-full relative -mx-3 px-3">
+                                {/* Overlay toggles */}
+                                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                  {[
+                                    { key: "ema21", label: "21 EMA", color: "#fbbf24" },
+                                    { key: "ema48", label: "48 EMA", color: "#a78bfa" },
+                                    { key: "ema200", label: "200 EMA", color: "#f87171" },
+                                    { key: "supertrend", label: "SuperTrend", color: "#34d399" },
+                                  ].map(ov => (
+                                    <button
+                                      key={ov.key}
+                                      onClick={() => setChartOverlays(prev => ({ ...prev, [ov.key]: !prev[ov.key] }))}
+                                      className={`px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${
+                                        chartOverlays[ov.key]
+                                          ? "border-white/20 text-white"
+                                          : "border-white/[0.06] text-[#555] hover:text-[#6b7280]"
+                                      }`}
+                                      style={chartOverlays[ov.key] ? { borderColor: ov.color + "80", color: ov.color, background: ov.color + "15" } : {}}
+                                    >
+                                      {ov.label}
+                                    </button>
+                                  ))}
+                                </div>
                                 <div
                                   ref={chartScrollRef}
-                                  className="overflow-x-auto overflow-y-hidden bg-[#0c0f14]"
+                                  className="overflow-x-auto overflow-y-hidden bg-[#0b0e11] rounded-lg"
                                   style={{
                                     scrollbarWidth: "thin",
                                     scrollbarColor: "#252b36 #0c0f14",
@@ -2157,6 +2504,34 @@
                                     );
                                   })}
 
+                                  {/* EMA Overlays */}
+                                  {ema21Data.length > 0 && <path d={buildEmaPath(ema21Data)} fill="none" stroke="#fbbf24" strokeWidth="1.3" strokeOpacity="0.8" />}
+                                  {ema48Data.length > 0 && <path d={buildEmaPath(ema48Data)} fill="none" stroke="#a78bfa" strokeWidth="1.3" strokeOpacity="0.8" />}
+                                  {ema200Data.length > 0 && <path d={buildEmaPath(ema200Data)} fill="none" stroke="#f87171" strokeWidth="1.3" strokeOpacity="0.7" />}
+
+                                  {/* SuperTrend Overlay */}
+                                  {superTrendData.length > 0 && (() => {
+                                    // Build segments of same direction for coloring
+                                    const segments = [];
+                                    let curSeg = null;
+                                    for (let i = 0; i < superTrendData.length; i++) {
+                                      const st = superTrendData[i];
+                                      if (!st) continue;
+                                      const px = leftMargin + i * candleStep + candleStep / 2;
+                                      const py = y(st.val);
+                                      if (!curSeg || curSeg.dir !== st.dir) {
+                                        if (curSeg) segments.push(curSeg);
+                                        curSeg = { dir: st.dir, d: `M${px},${py}` };
+                                      } else {
+                                        curSeg.d += ` L${px},${py}`;
+                                      }
+                                    }
+                                    if (curSeg) segments.push(curSeg);
+                                    return segments.map((seg, si) => (
+                                      <path key={`st-${si}`} d={seg.d} fill="none" stroke={seg.dir === 1 ? "#34d399" : "#f87171"} strokeWidth="1.5" strokeOpacity="0.7" />
+                                    ));
+                                  })()}
+
                                   {crosshair ? (
                                     <>
                                       <line
@@ -2219,10 +2594,12 @@
 
                                 {crosshair && crosshair.candle ? (
                                   <div
-                                    className="absolute top-2 left-2 px-3 py-2 bg-[#13171e]/95 border border-[#252b36] rounded-lg text-[11px] pointer-events-none z-10"
+                                    className="absolute top-2 left-2 px-3 py-2 border border-white/[0.10] rounded-2xl text-[11px] pointer-events-none z-10"
                                     style={{
-                                      backdropFilter: "blur(8px)",
-                                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                                      background: "rgba(255,255,255,0.06)",
+                                      backdropFilter: "blur(24px) saturate(1.4)",
+                                      WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+                                      boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)",
                                     }}
                                   >
                                     <div className="font-semibold text-white mb-1">
@@ -2246,19 +2623,19 @@
                                       })()}
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                                      <div className="text-[#8b92a0]">O:</div>
+                                      <div className="text-[#6b7280]">O:</div>
                                       <div className="text-white font-mono">
                                         ${Number(crosshair.candle.o).toFixed(2)}
                                       </div>
-                                      <div className="text-[#8b92a0]">H:</div>
+                                      <div className="text-[#6b7280]">H:</div>
                                       <div className="text-sky-300 font-mono">
                                         ${Number(crosshair.candle.h).toFixed(2)}
                                       </div>
-                                      <div className="text-[#8b92a0]">L:</div>
+                                      <div className="text-[#6b7280]">L:</div>
                                       <div className="text-orange-300 font-mono">
                                         ${Number(crosshair.candle.l).toFixed(2)}
                                       </div>
-                                      <div className="text-[#8b92a0]">C:</div>
+                                      <div className="text-[#6b7280]">C:</div>
                                       <div
                                         className={`font-mono font-semibold ${
                                           Number(crosshair.candle.c) >=
@@ -2273,7 +2650,7 @@
                                   </div>
                                 ) : null}
 
-                                <div className="mt-2 text-[10px] text-[#8b92a0] flex items-center justify-between">
+                                <div className="mt-2 text-[10px] text-[#6b7280] flex items-center justify-between">
                                   <span>
                                     {String(chartTf) === "D"
                                       ? "Daily"
@@ -2305,11 +2682,11 @@
                   {railTab === "TECHNICALS" ? (
                     <>
                       {/* Triggers */}
-                      <div className="mt-6 pt-6 border-t-2 border-[#252b36]">
-                        <div className="text-sm font-bold text-[#8b92a0] mb-4">
+                      <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                        <div className="text-sm font-bold text-[#6b7280] mb-4">
                           ⚡ Triggers
                         </div>
-                        <div className="p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
+                        <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                           {triggerItems.length > 0 ? (
                             <div className="space-y-2">
                               {triggerItems.slice(0, 12).map((t, idx) => {
@@ -2363,7 +2740,7 @@
                               })}
                             </div>
                           ) : (
-                            <div className="text-xs text-[#8b92a0]">
+                            <div className="text-xs text-[#6b7280]">
                               No trigger signals detected.
                             </div>
                           )}
@@ -2371,11 +2748,11 @@
                       </div>
 
                       {/* Timeframes (Per-TF technicals) */}
-                      <div className="mt-6 pt-6 border-t-2 border-[#252b36]">
-                        <div className="text-sm font-bold text-[#8b92a0] mb-4">
+                      <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                        <div className="text-sm font-bold text-[#6b7280] mb-4">
                           ⏱ Timeframes
                         </div>
-                        <div className="p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
+                        <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                           {tfTech ? (
                             <div className="space-y-3">
                               {tfOrder.map(({ k, label }) => {
@@ -2435,13 +2812,13 @@
                                 return (
                                   <div
                                     key={k}
-                                    className="bg-[#13171e] border border-[#252b36] rounded-lg p-3"
+                                    className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-3"
                                   >
                                     <div className="flex items-center justify-between mb-2">
                                       <div className="text-sm font-semibold text-white">
                                         {label}
                                       </div>
-                                      <div className="text-xs text-[#8b92a0] flex items-center gap-2">
+                                      <div className="text-xs text-[#6b7280] flex items-center gap-2">
                                         <span>{sqIcons}</span>
                                         <span
                                           className={`font-semibold ${
@@ -2449,7 +2826,7 @@
                                               ? "text-green-400"
                                               : sig === -1
                                                 ? "text-red-400"
-                                                : "text-[#8b92a0]"
+                                                : "text-[#6b7280]"
                                           }`}
                                         >
                                           {sigLabel}
@@ -2459,7 +2836,7 @@
 
                                     <div className="grid grid-cols-2 gap-3">
                                       <div>
-                                        <div className="text-[11px] text-[#8b92a0] mb-1">
+                                        <div className="text-[11px] text-[#6b7280] mb-1">
                                           ATR band / last cross
                                         </div>
                                         <div className="text-xs text-white">
@@ -2469,13 +2846,13 @@
                                                 {atrBand}
                                               </span>
                                               {atrLastCross ? (
-                                                <span className="ml-2 text-[#8b92a0]">
+                                                <span className="ml-2 text-[#6b7280]">
                                                   {atrLastCross}
                                                 </span>
                                               ) : null}
                                             </>
                                           ) : (
-                                            <span className="text-[#8b92a0]">
+                                            <span className="text-[#6b7280]">
                                               —
                                             </span>
                                           )}
@@ -2483,7 +2860,7 @@
                                       </div>
 
                                       <div>
-                                        <div className="text-[11px] text-[#8b92a0] mb-1">
+                                        <div className="text-[11px] text-[#6b7280] mb-1">
                                           EMA visibility / stack
                                         </div>
                                         <div className="flex flex-wrap gap-1 items-center">
@@ -2504,7 +2881,7 @@
                                             );
                                           })}
                                           {ema && ema.stack != null && (
-                                            <span className="ml-2 text-[10px] text-[#8b92a0]">
+                                            <span className="ml-2 text-[10px] text-[#6b7280]">
                                               stack:{" "}
                                               <span className="text-white font-semibold">
                                                 {ema.stack}
@@ -2517,14 +2894,14 @@
 
                                     <div className="grid grid-cols-2 gap-3 mt-3">
                                       <div>
-                                        <div className="text-[11px] text-[#8b92a0] mb-1">
+                                        <div className="text-[11px] text-[#6b7280] mb-1">
                                           Phase Level
                                         </div>
                                         <div className="text-xs text-white font-semibold">
                                           {ph && ph.v != null ? ph.v : "—"}
                                         </div>
                                         <div className="mt-1.5">
-                                          <div className="text-[10px] text-[#8b92a0]">
+                                          <div className="text-[10px] text-[#6b7280]">
                                             Last 5 dots (recent first):
                                           </div>
                                           <div className="text-xs text-[#cbd5ff] mt-0.5">
@@ -2548,13 +2925,13 @@
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="text-[11px] text-[#8b92a0] mb-1">
+                                        <div className="text-[11px] text-[#6b7280] mb-1">
                                           Divergence
                                         </div>
                                         <div className="text-base">
                                           {(() => {
                                             const divs = (ph && Array.isArray(ph.div) ? ph.div : []).slice(0, 3);
-                                            if (divs.length === 0) return <span className="text-xs text-[#8b92a0]">None</span>;
+                                            if (divs.length === 0) return <span className="text-xs text-[#6b7280]">None</span>;
                                             
                                             const mostRecent = divs[0];
                                             const emoji = mostRecent === "B" ? "🐂" : mostRecent === "S" ? "🐻" : "";
@@ -2570,7 +2947,7 @@
                                         </div>
                                       </div>
                                       <div>
-                                        <div className="text-[11px] text-[#8b92a0] mb-1">
+                                        <div className="text-[11px] text-[#6b7280] mb-1">
                                           RSI(5/14) / div
                                         </div>
                                         <div className="text-xs text-white">
@@ -2579,7 +2956,7 @@
                                               ? rsi.r5
                                               : "—"}
                                           </span>
-                                          <span className="text-[#8b92a0]">
+                                          <span className="text-[#6b7280]">
                                             {" "}
                                             /{" "}
                                           </span>
@@ -2606,7 +2983,7 @@
                               })}
                             </div>
                           ) : (
-                            <div className="text-xs text-[#8b92a0]">
+                            <div className="text-xs text-[#6b7280]">
                               No per-timeframe technicals available yet (update
                               TradingView script + refresh data).
                             </div>
@@ -2618,19 +2995,19 @@
                         (() => {
                           const tdSeq = ticker.td_sequential;
                           return (
-                            <div className="mt-6 pt-6 border-t-2 border-[#252b36]">
-                              <div className="text-sm font-bold text-[#8b92a0] mb-4">
+                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                              <div className="text-sm font-bold text-[#6b7280] mb-4">
                                 📈 TD Sequential
                               </div>
 
                               {/* Counts */}
-                              <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                <div className="text-xs text-[#8b92a0] mb-2">
+                              <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                <div className="text-xs text-[#6b7280] mb-2">
                                   Counts
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-xs">
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">
+                                    <span className="text-[#6b7280]">
                                       Bullish Prep:
                                     </span>
                                     <span
@@ -2642,14 +3019,14 @@
                                                 tdSeq.bullish_prep_count || 0,
                                               ) >= 3
                                             ? "text-green-400"
-                                            : "text-[#8b92a0]"
+                                            : "text-[#6b7280]"
                                       }`}
                                     >
                                       {tdSeq.bullish_prep_count || 0}/9
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">
+                                    <span className="text-[#6b7280]">
                                       Bearish Prep:
                                     </span>
                                     <span
@@ -2661,14 +3038,14 @@
                                                 tdSeq.bearish_prep_count || 0,
                                               ) >= 3
                                             ? "text-red-400"
-                                            : "text-[#8b92a0]"
+                                            : "text-[#6b7280]"
                                       }`}
                                     >
                                       {tdSeq.bearish_prep_count || 0}/9
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">
+                                    <span className="text-[#6b7280]">
                                       Bullish Leadup:
                                     </span>
                                     <span
@@ -2681,14 +3058,14 @@
                                                 tdSeq.bullish_leadup_count || 0,
                                               ) >= 3
                                             ? "text-green-400"
-                                            : "text-[#8b92a0]"
+                                            : "text-[#6b7280]"
                                       }`}
                                     >
                                       {tdSeq.bullish_leadup_count || 0}/13
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-[#8b92a0]">
+                                    <span className="text-[#6b7280]">
                                       Bearish Leadup:
                                     </span>
                                     <span
@@ -2701,7 +3078,7 @@
                                                 tdSeq.bearish_leadup_count || 0,
                                               ) >= 3
                                             ? "text-red-400"
-                                            : "text-[#8b92a0]"
+                                            : "text-[#6b7280]"
                                       }`}
                                     >
                                       {tdSeq.bearish_leadup_count || 0}/13
@@ -2711,8 +3088,8 @@
                               </div>
 
                               {/* Signals */}
-                              <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                <div className="text-xs text-[#8b92a0] mb-2">
+                              <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                <div className="text-xs text-[#6b7280] mb-2">
                                   Signals
                                 </div>
                                 <div className="space-y-2">
@@ -2722,7 +3099,7 @@
                                       <span className="text-green-400 font-bold">
                                         TD9
                                       </span>
-                                      <span className="text-xs text-[#8b92a0]">
+                                      <span className="text-xs text-[#6b7280]">
                                         Bullish (Prep Complete)
                                       </span>
                                     </div>
@@ -2733,7 +3110,7 @@
                                       <span className="text-red-400 font-bold">
                                         TD9
                                       </span>
-                                      <span className="text-xs text-[#8b92a0]">
+                                      <span className="text-xs text-[#6b7280]">
                                         Bearish (Prep Complete)
                                       </span>
                                     </div>
@@ -2744,7 +3121,7 @@
                                       <span className="text-green-400 font-bold">
                                         TD13
                                       </span>
-                                      <span className="text-xs text-[#8b92a0]">
+                                      <span className="text-xs text-[#6b7280]">
                                         Bullish (Leadup Complete)
                                       </span>
                                     </div>
@@ -2755,7 +3132,7 @@
                                       <span className="text-red-400 font-bold">
                                         TD13
                                       </span>
-                                      <span className="text-xs text-[#8b92a0]">
+                                      <span className="text-xs text-[#6b7280]">
                                         Bearish (Leadup Complete)
                                       </span>
                                     </div>
@@ -2764,7 +3141,7 @@
                                     !tdSeq.td9_bearish &&
                                     !tdSeq.td13_bullish &&
                                     !tdSeq.td13_bearish && (
-                                      <div className="text-xs text-[#8b92a0]">
+                                      <div className="text-xs text-[#6b7280]">
                                         No TD9/TD13 signals active
                                       </div>
                                     )}
@@ -2785,7 +3162,7 @@
                                   }`}
                                 >
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#8b92a0]">
+                                    <span className="text-xs text-[#6b7280]">
                                       Exit Signal
                                     </span>
                                     <span className="font-bold text-sm text-red-400">
@@ -2795,7 +3172,7 @@
                                         : "EXIT SHORT"}
                                     </span>
                                   </div>
-                                  <div className="text-xs text-[#8b92a0] mt-1">
+                                  <div className="text-xs text-[#6b7280] mt-1">
                                     TD Sequential exhaustion/reversal detected
                                   </div>
                                 </div>
@@ -2805,9 +3182,9 @@
                               {tdSeq.boost !== undefined &&
                                 tdSeq.boost !== null &&
                                 Number(tdSeq.boost) !== 0 && (
-                                  <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
+                                  <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                                     <div className="flex justify-between items-center">
-                                      <span className="text-xs text-[#8b92a0]">
+                                      <span className="text-xs text-[#6b7280]">
                                         Score Boost
                                       </span>
                                       <span
@@ -2855,15 +3232,15 @@
                                   : "text-blue-400";
 
                           return (
-                            <div className="mt-6 pt-6 border-t-2 border-[#252b36]">
-                              <div className="text-sm font-bold text-[#8b92a0] mb-4">
+                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                              <div className="text-sm font-bold text-[#6b7280] mb-4">
                                 📊 RSI & Divergence
                               </div>
 
                               {/* RSI Value */}
-                              <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
+                              <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                                 <div className="flex justify-between items-center mb-2">
-                                  <span className="text-xs text-[#8b92a0]">
+                                  <span className="text-xs text-[#6b7280]">
                                     RSI (14)
                                   </span>
                                   <span
@@ -2873,7 +3250,7 @@
                                   </span>
                                 </div>
                                 <div className="flex justify-between items-center">
-                                  <span className="text-xs text-[#8b92a0]">
+                                  <span className="text-xs text-[#6b7280]">
                                     Level
                                   </span>
                                   <span
@@ -2884,7 +3261,7 @@
                                   </span>
                                 </div>
                                 {/* RSI Visual Bar */}
-                                <div className="mt-2 h-2 bg-[#252b36] rounded-full overflow-hidden">
+                                <div className="mt-2 h-2 bg-white/[0.04] rounded-full overflow-hidden">
                                   <div
                                     className={`h-full rounded-full transition-all ${
                                       rsiValue >= 70
@@ -2898,7 +3275,7 @@
                                     style={{ width: `${rsiValue}%` }}
                                   />
                                 </div>
-                                <div className="flex justify-between text-[10px] text-[#8b92a0] mt-1">
+                                <div className="flex justify-between text-[10px] text-[#6b7280] mt-1">
                                   <span>0</span>
                                   <span>30</span>
                                   <span>50</span>
@@ -2917,7 +3294,7 @@
                                   }`}
                                 >
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs text-[#8b92a0]">
+                                    <span className="text-xs text-[#6b7280]">
                                       Divergence
                                     </span>
                                     <span
@@ -2932,21 +3309,21 @@
                                         : "🔽 BEARISH"}
                                     </span>
                                   </div>
-                                  <div className="text-xs text-[#8b92a0]">
+                                  <div className="text-xs text-[#6b7280]">
                                     {divType === "bullish"
                                       ? "Price lower low, RSI higher low (potential reversal up)"
                                       : "Price higher high, RSI lower high (potential reversal down)"}
                                   </div>
                                   {divStrength > 0 && (
-                                    <div className="text-xs text-[#8b92a0] mt-1">
+                                    <div className="text-xs text-[#6b7280] mt-1">
                                       Strength: {divStrength.toFixed(2)}
                                     </div>
                                   )}
                                 </div>
                               )}
                               {divType === "none" && (
-                                <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                  <div className="text-xs text-[#8b92a0]">
+                                <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <div className="text-xs text-[#6b7280]">
                                     No divergence detected
                                   </div>
                                 </div>
@@ -2956,19 +3333,19 @@
                         })()}
 
                       {/* State, Horizon, Detected Patterns */}
-                      <div className="mb-4 p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg">
-                        <div className="text-sm text-[#8b92a0] mb-2">
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
+                        <div className="text-sm text-[#6b7280] mb-2">
                           State & Horizon
                         </div>
                         <div className="space-y-2 text-xs">
                           <div className="flex justify-between items-center">
-                            <span className="text-[#8b92a0]">State</span>
+                            <span className="text-[#6b7280]">State</span>
                             <span className="font-semibold">
                               {ticker.state || "—"}
                             </span>
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-[#8b92a0]">Horizon</span>
+                            <span className="text-[#6b7280]">Horizon</span>
                             <span className="font-semibold">
                               {(() => {
                                 const bucket = String(
@@ -2987,7 +3364,7 @@
                           </div>
                         </div>
                         {detectedPatterns && detectedPatterns.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-[#252b36]">
+                          <div className="mt-3 pt-3 border-t border-white/[0.06]">
                             <div className="text-xs font-semibold text-yellow-400 mb-2">
                               Detected Patterns
                             </div>
@@ -2995,7 +3372,7 @@
                               {detectedPatterns.map((pattern, idx) => (
                                 <div
                                   key={`pattern-${idx}`}
-                                  className="p-2 rounded border bg-[#13171e] border-[#252b36]"
+                                  className="p-2 rounded border bg-white/[0.02] border-white/[0.06]"
                                 >
                                   <div className="flex items-center justify-between">
                                     <div className="text-xs text-white font-semibold">
@@ -3006,7 +3383,7 @@
                                     </span>
                                   </div>
                                   {pattern.quadrant && (
-                                    <div className="text-[10px] text-[#8b92a0] mt-0.5">
+                                    <div className="text-[10px] text-[#6b7280] mt-0.5">
                                       {pattern.quadrant}
                                     </div>
                                   )}
@@ -3039,18 +3416,18 @@
                           };
 
                           return (
-                            <div className="mt-6 pt-6 border-t-2 border-[#252b36]">
-                              <div className="text-sm font-bold text-[#8b92a0] mb-4">
+                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                              <div className="text-sm font-bold text-[#6b7280] mb-4">
                                 ☁️ EMA Cloud Positions
                               </div>
 
                               {daily && (
-                                <div className="mb-3 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                  <div className="text-xs text-[#8b92a0] mb-2 font-semibold">
+                                <div className="mb-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <div className="text-xs text-[#6b7280] mb-2 font-semibold">
                                     Daily (5-8 EMA)
                                   </div>
                                   <div className="flex justify-between items-center mb-1">
-                                    <span className="text-xs text-[#8b92a0]">
+                                    <span className="text-xs text-[#6b7280]">
                                       Position
                                     </span>
                                     <span
@@ -3064,7 +3441,7 @@
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs mt-2">
                                     <div className="flex justify-between">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Upper:
                                       </span>
                                       <span className="text-white">
@@ -3072,7 +3449,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Lower:
                                       </span>
                                       <span className="text-white">
@@ -3080,7 +3457,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between col-span-2">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Price:
                                       </span>
                                       <span className="text-white font-semibold">
@@ -3092,12 +3469,12 @@
                               )}
 
                               {fourH && (
-                                <div className="mb-3 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                  <div className="text-xs text-[#8b92a0] mb-2 font-semibold">
+                                <div className="mb-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <div className="text-xs text-[#6b7280] mb-2 font-semibold">
                                     4H (8-13 EMA)
                                   </div>
                                   <div className="flex justify-between items-center mb-1">
-                                    <span className="text-xs text-[#8b92a0]">
+                                    <span className="text-xs text-[#6b7280]">
                                       Position
                                     </span>
                                     <span
@@ -3111,7 +3488,7 @@
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs mt-2">
                                     <div className="flex justify-between">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Upper:
                                       </span>
                                       <span className="text-white">
@@ -3119,7 +3496,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Lower:
                                       </span>
                                       <span className="text-white">
@@ -3127,7 +3504,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between col-span-2">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Price:
                                       </span>
                                       <span className="text-white font-semibold">
@@ -3139,12 +3516,12 @@
                               )}
 
                               {oneH && (
-                                <div className="mb-3 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                  <div className="text-xs text-[#8b92a0] mb-2 font-semibold">
+                                <div className="mb-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <div className="text-xs text-[#6b7280] mb-2 font-semibold">
                                     1H (13-21 EMA)
                                   </div>
                                   <div className="flex justify-between items-center mb-1">
-                                    <span className="text-xs text-[#8b92a0]">
+                                    <span className="text-xs text-[#6b7280]">
                                       Position
                                     </span>
                                     <span
@@ -3158,7 +3535,7 @@
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs mt-2">
                                     <div className="flex justify-between">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Upper:
                                       </span>
                                       <span className="text-white">
@@ -3166,7 +3543,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Lower:
                                       </span>
                                       <span className="text-white">
@@ -3174,7 +3551,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between col-span-2">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Price:
                                       </span>
                                       <span className="text-white font-semibold">
@@ -3215,8 +3592,8 @@
                                 : "bg-yellow-500/20 border-yellow-500/50";
 
                           return (
-                            <div className="mt-6 pt-6 border-t-2 border-[#252b36]">
-                              <div className="text-sm font-bold text-[#8b92a0] mb-4">
+                            <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
+                              <div className="text-sm font-bold text-[#6b7280] mb-4">
                                 📊 Fundamental & Valuation
                               </div>
 
@@ -3226,7 +3603,7 @@
                                   className={`mb-4 p-3 rounded-lg border-2 ${signalBg}`}
                                 >
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#8b92a0]">
+                                    <span className="text-xs text-[#6b7280]">
                                       Valuation Signal
                                     </span>
                                     <span
@@ -3236,7 +3613,7 @@
                                     </span>
                                   </div>
                                   {fund.valuation_confidence && (
-                                    <div className="text-xs text-[#8b92a0] mt-1">
+                                    <div className="text-xs text-[#6b7280] mt-1">
                                       Confidence:{" "}
                                       <span className="font-semibold">
                                         {fund.valuation_confidence}
@@ -3246,14 +3623,14 @@
                                   {fund.valuation_reasons &&
                                     fund.valuation_reasons.length > 0 && (
                                       <div className="mt-2 pt-2 border-t border-current/30">
-                                        <div className="text-[10px] text-[#8b92a0] mb-1">
+                                        <div className="text-[10px] text-[#6b7280] mb-1">
                                           Reasons:
                                         </div>
                                         {fund.valuation_reasons.map(
                                           (reason, idx) => (
                                             <div
                                               key={idx}
-                                              className="text-[10px] text-[#8b92a0]/80 mb-0.5"
+                                              className="text-[10px] text-[#6b7280]/80 mb-0.5"
                                             >
                                               • {reason}
                                             </div>
@@ -3267,8 +3644,8 @@
                               {/* Basic Metrics */}
                               <div className="space-y-2 text-sm mb-4">
                                 {fund.pe_ratio !== null && (
-                                  <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                    <span className="text-[#8b92a0]">
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
                                       P/E Ratio
                                     </span>
                                     <span className="font-semibold">
@@ -3277,8 +3654,8 @@
                                   </div>
                                 )}
                                 {fund.peg_ratio !== null && (
-                                  <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                    <span className="text-[#8b92a0]">
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
                                       PEG Ratio
                                     </span>
                                     <span
@@ -3289,7 +3666,7 @@
                                             ? "text-yellow-400"
                                             : fund.peg_ratio > 1.5
                                               ? "text-red-400"
-                                              : "text-[#8b92a0]"
+                                              : "text-[#6b7280]"
                                       }`}
                                     >
                                       {Number(fund.peg_ratio).toFixed(2)}
@@ -3297,8 +3674,8 @@
                                   </div>
                                 )}
                                 {fund.eps !== null && (
-                                  <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                    <span className="text-[#8b92a0]">
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
                                       EPS (TTM)
                                     </span>
                                     <span className="font-semibold">
@@ -3307,8 +3684,8 @@
                                   </div>
                                 )}
                                 {fund.eps_growth_rate !== null && (
-                                  <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                    <span className="text-[#8b92a0]">
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
                                       EPS Growth (Annual)
                                     </span>
                                     <span
@@ -3318,7 +3695,7 @@
                                           : fund.eps_growth_rate > 10
                                             ? "text-yellow-400"
                                             : fund.eps_growth_rate > 0
-                                              ? "text-[#8b92a0]"
+                                              ? "text-[#6b7280]"
                                               : "text-red-400"
                                       }`}
                                     >
@@ -3349,8 +3726,8 @@
                                     formatted = `$${numCap.toLocaleString()}`;
                                   }
                                   return (
-                                    <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                      <span className="text-[#8b92a0]">
+                                    <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                      <span className="text-[#6b7280]">
                                         Market Cap
                                       </span>
                                       <span className="font-semibold">
@@ -3360,8 +3737,8 @@
                                   );
                                 })()}
                                 {fund.industry && (
-                                  <div className="flex justify-between items-center py-1 border-b border-[#252b36]/50">
-                                    <span className="text-[#8b92a0]">
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
                                       Industry
                                     </span>
                                     <span className="font-semibold text-xs">
@@ -3374,12 +3751,12 @@
                               {/* Fair Value */}
                               {fund.fair_value_price !== null &&
                                 fund.fair_value_price > 0 && (
-                                  <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                    <div className="text-xs text-[#8b92a0] mb-2">
+                                  <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                    <div className="text-xs text-[#6b7280] mb-2">
                                       Fair Value
                                     </div>
                                     <div className="flex items-center justify-between mb-2">
-                                      <span className="text-sm text-[#8b92a0]">
+                                      <span className="text-sm text-[#6b7280]">
                                         Fair Value Price
                                       </span>
                                       <span className="font-bold text-lg text-blue-400">
@@ -3391,7 +3768,7 @@
                                     </div>
                                     {fund.premium_discount_pct !== null && (
                                       <div className="flex items-center justify-between">
-                                        <span className="text-xs text-[#8b92a0]">
+                                        <span className="text-xs text-[#6b7280]">
                                           Premium/Discount
                                         </span>
                                         <span
@@ -3402,7 +3779,7 @@
                                                 ? "text-yellow-400"
                                                 : fund.premium_discount_pct > 10
                                                   ? "text-red-400"
-                                                  : "text-[#8b92a0]"
+                                                  : "text-[#6b7280]"
                                           }`}
                                         >
                                           {fund.premium_discount_pct > 0
@@ -3417,7 +3794,7 @@
                                     )}
                                     {fund.fair_value_pe &&
                                       fund.fair_value_pe.preferred && (
-                                        <div className="mt-2 pt-2 border-t border-[#252b36] text-xs text-[#8b92a0]">
+                                        <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs text-[#6b7280]">
                                           Fair P/E:{" "}
                                           <span className="font-semibold">
                                             {Number(
@@ -3431,14 +3808,14 @@
 
                               {/* Historical P/E Percentiles */}
                               {fund.pe_percentiles && (
-                                <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                  <div className="text-xs text-[#8b92a0] mb-2">
+                                <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                  <div className="text-xs text-[#6b7280] mb-2">
                                     Historical P/E Percentiles
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs">
                                     {fund.pe_percentiles.p10 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#8b92a0]">
+                                        <span className="text-[#6b7280]">
                                           10th:
                                         </span>
                                         <span className="font-semibold">
@@ -3450,7 +3827,7 @@
                                     )}
                                     {fund.pe_percentiles.p25 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#8b92a0]">
+                                        <span className="text-[#6b7280]">
                                           25th:
                                         </span>
                                         <span className="font-semibold">
@@ -3462,7 +3839,7 @@
                                     )}
                                     {fund.pe_percentiles.p50 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#8b92a0]">
+                                        <span className="text-[#6b7280]">
                                           50th (Median):
                                         </span>
                                         <span className="font-semibold text-blue-400">
@@ -3474,7 +3851,7 @@
                                     )}
                                     {fund.pe_percentiles.p75 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#8b92a0]">
+                                        <span className="text-[#6b7280]">
                                           75th:
                                         </span>
                                         <span className="font-semibold">
@@ -3486,7 +3863,7 @@
                                     )}
                                     {fund.pe_percentiles.p90 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#8b92a0]">
+                                        <span className="text-[#6b7280]">
                                           90th:
                                         </span>
                                         <span className="font-semibold">
@@ -3497,8 +3874,8 @@
                                       </div>
                                     )}
                                     {fund.pe_percentiles.avg !== null && (
-                                      <div className="flex justify-between col-span-2 pt-1 border-t border-[#252b36]">
-                                        <span className="text-[#8b92a0]">
+                                      <div className="flex justify-between col-span-2 pt-1 border-t border-white/[0.06]">
+                                        <span className="text-[#6b7280]">
                                           Average:
                                         </span>
                                         <span className="font-semibold">
@@ -3510,8 +3887,8 @@
                                     )}
                                   </div>
                                   {fund.pe_percentile_position && (
-                                    <div className="mt-2 pt-2 border-t border-[#252b36] text-xs">
-                                      <span className="text-[#8b92a0]">
+                                    <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs">
+                                      <span className="text-[#6b7280]">
                                         Current Position:{" "}
                                       </span>
                                       <span
@@ -3524,7 +3901,7 @@
                                                   "Top",
                                                 )
                                               ? "text-red-400"
-                                              : "text-[#8b92a0]"
+                                              : "text-[#6b7280]"
                                         }`}
                                       >
                                         {fund.pe_percentile_position}
@@ -3540,12 +3917,12 @@
                                   undefined &&
                                 ticker.rank_components.valuation_boost !==
                                   0 && (
-                                  <div className="mb-4 p-3 bg-[#1a1f28] rounded-lg border border-[#252b36]">
-                                    <div className="text-xs text-[#8b92a0] mb-1">
+                                  <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                                    <div className="text-xs text-[#6b7280] mb-1">
                                       Rank Components
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Base Rank
                                       </span>
                                       <span className="font-semibold">
@@ -3554,7 +3931,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs mt-1">
-                                      <span className="text-[#8b92a0]">
+                                      <span className="text-[#6b7280]">
                                         Valuation Boost
                                       </span>
                                       <span
@@ -3572,8 +3949,8 @@
                                         {ticker.rank_components.valuation_boost}
                                       </span>
                                     </div>
-                                    <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-[#252b36]">
-                                      <span className="text-[#8b92a0] font-semibold">
+                                    <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
+                                      <span className="text-[#6b7280] font-semibold">
                                         Final Rank
                                       </span>
                                       <span className="font-bold text-blue-400">
@@ -3592,9 +3969,9 @@
 
                   {railTab === "CHART" ? (
                     <>
-                      <div className="mb-4 p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg">
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="text-sm text-[#8b92a0]">Chart</div>
+                          <div className="text-sm text-[#6b7280]">Chart</div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
                               { tf: "1", label: "1m" },
@@ -3615,7 +3992,7 @@
                                   className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
                                     active
                                       ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                                      : "border-[#252b36] bg-[#13171e] text-[#8b92a0] hover:text-white"
+                                      : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"
                                   }`}
                                   title={`Show ${t.label} candles`}
                                 >
@@ -3627,7 +4004,7 @@
                         </div>
 
                         {chartLoading ? (
-                          <div className="text-xs text-[#8b92a0]">
+                          <div className="text-xs text-[#6b7280]">
                             Loading candles…
                           </div>
                         ) : chartError ? (
@@ -3636,7 +4013,7 @@
                           </div>
                         ) : !Array.isArray(chartCandles) ||
                           chartCandles.length < 2 ? (
-                          <div className="text-xs text-[#8b92a0]">
+                          <div className="text-xs text-[#6b7280]">
                             No candles yet for this timeframe. (Waiting for the
                             TradingView candle capture feed.)
                           </div>
@@ -3738,7 +4115,7 @@
                               const n = candles.length;
                               if (n < 2) {
                                 return (
-                                  <div className="text-xs text-[#8b92a0]">
+                                  <div className="text-xs text-[#6b7280]">
                                     Candle data loaded, but it’s not in the expected OHLC format yet.
                                     (Waiting for valid captures.)
                                   </div>
@@ -3809,7 +4186,7 @@
                               <div className="w-full relative">
                                 <div
                                   ref={chartScrollRef}
-                                  className="overflow-x-auto overflow-y-hidden rounded border border-[#252b36] bg-[#0c0f14] scrollbar-hide"
+                                  className="overflow-x-auto overflow-y-hidden rounded border border-white/[0.06] bg-[#0b0e11] scrollbar-hide"
                                   style={{
                                     scrollbarWidth: "thin",
                                     scrollbarColor: "#252b36 #0c0f14"
@@ -3962,10 +4339,12 @@
                                 {/* Crosshair tooltip */}
                                 {crosshair && crosshair.candle ? (
                                   <div
-                                    className="absolute top-2 left-2 px-3 py-2 bg-[#13171e]/95 border border-[#252b36] rounded-lg text-[11px] pointer-events-none z-10"
+                                    className="absolute top-2 left-2 px-3 py-2 border border-white/[0.10] rounded-2xl text-[11px] pointer-events-none z-10"
                                     style={{
-                                      backdropFilter: "blur(8px)",
-                                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                                      background: "rgba(255,255,255,0.06)",
+                                      backdropFilter: "blur(24px) saturate(1.4)",
+                                      WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+                                      boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)",
                                     }}
                                   >
                                     <div className="font-semibold text-white mb-1">
@@ -4004,23 +4383,23 @@
                                       })()}
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                                      <div className="text-[#8b92a0]">Price:</div>
+                                      <div className="text-[#6b7280]">Price:</div>
                                       <div className="text-yellow-300 font-mono font-semibold">
                                         ${Number(crosshair.price).toFixed(2)}
                                       </div>
-                                      <div className="text-[#8b92a0]">O:</div>
+                                      <div className="text-[#6b7280]">O:</div>
                                       <div className="text-white font-mono">
                                         ${Number(crosshair.candle.o).toFixed(2)}
                                       </div>
-                                      <div className="text-[#8b92a0]">H:</div>
+                                      <div className="text-[#6b7280]">H:</div>
                                       <div className="text-sky-300 font-mono">
                                         ${Number(crosshair.candle.h).toFixed(2)}
                                       </div>
-                                      <div className="text-[#8b92a0]">L:</div>
+                                      <div className="text-[#6b7280]">L:</div>
                                       <div className="text-orange-300 font-mono">
                                         ${Number(crosshair.candle.l).toFixed(2)}
                                       </div>
-                                      <div className="text-[#8b92a0]">C:</div>
+                                      <div className="text-[#6b7280]">C:</div>
                                       <div
                                         className={`font-mono font-semibold ${
                                           Number(crosshair.candle.c) >=
@@ -4035,7 +4414,7 @@
                                   </div>
                                 ) : null}
 
-                                <div className="mt-2 text-[10px] text-[#8b92a0] flex items-center justify-between">
+                                <div className="mt-2 text-[10px] text-[#6b7280] flex items-center justify-between">
                                   <span>
                                     {String(chartTf) === "D"
                                       ? "Daily"
@@ -4066,9 +4445,9 @@
 
                   {railTab === "TRADE_HISTORY" ? (
                     <>
-                      <div className="mb-4 p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg">
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between mb-2">
-                          <div className="text-sm text-[#8b92a0]">
+                          <div className="text-sm text-[#6b7280]">
                             Trade Journey
                           </div>
                           <a
@@ -4099,16 +4478,16 @@
                                     ? "bg-blue-500/15 text-blue-300 border-blue-500/40"
                                     : up === "enter_now"
                                       ? "bg-green-500/15 text-green-300 border-green-500/40"
-                                      : "bg-white/5 text-[#8b92a0] border-white/10";
+                                      : "bg-white/5 text-[#6b7280] border-white/10";
                           return (
                             <div className="mb-2 text-[11px] flex items-center gap-2">
-                              <span className="text-[#8b92a0]">Now:</span>
+                              <span className="text-[#6b7280]">Now:</span>
                               <span
                                 className={`px-2 py-0.5 rounded border font-semibold ${cls}`}
                               >
                                 {label}
                               </span>
-                              <span className="text-[#5c6475]">
+                              <span className="text-[#4b5563]">
                                 (ledger may still show an open trade while we
                                 are in an exit lane)
                               </span>
@@ -4116,7 +4495,7 @@
                           );
                         })()}
                         {ledgerTradesLoading ? (
-                          <div className="text-xs text-[#8b92a0] flex items-center gap-2">
+                          <div className="text-xs text-[#6b7280] flex items-center gap-2">
                             <div className="loading-spinner"></div>
                             Loading ledger trades…
                           </div>
@@ -4125,7 +4504,7 @@
                             Ledger unavailable: {ledgerTradesError}
                           </div>
                         ) : ledgerTrades.length === 0 ? (
-                          <div className="text-xs text-[#8b92a0]">
+                          <div className="text-xs text-[#6b7280]">
                             No ledger trades found for this ticker.
                           </div>
                         ) : (
@@ -4163,7 +4542,7 @@
                               return (
                                 <div
                                   key={t.trade_id}
-                                  className="p-3 bg-[#13171e] border border-[#252b36] rounded"
+                                  className="p-3 bg-white/[0.02] border border-white/[0.06] rounded"
                                 >
                                   {/* Header: Status and P&L */}
                                   <div className="flex items-center justify-between mb-2">
@@ -4215,20 +4594,20 @@
                                   {/* Entry */}
                                   <div className="space-y-1 text-xs">
                                     <div className="flex items-center justify-between">
-                                      <span className="text-[#8b92a0]">Entered:</span>
+                                      <span className="text-[#6b7280]">Entered:</span>
                                       <span className="text-white font-semibold">
                                         {formatDateTime(t.entry_ts)}
                                       </span>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                      <span className="text-[#8b92a0]">Entry Price:</span>
+                                      <span className="text-[#6b7280]">Entry Price:</span>
                                       <span className="text-green-400 font-semibold">
                                         ${entryPrice > 0 ? entryPrice.toFixed(2) : "—"}
                                       </span>
                                     </div>
                                     {quantity > 0 && (
                                       <div className="flex items-center justify-between">
-                                        <span className="text-[#8b92a0]">Quantity:</span>
+                                        <span className="text-[#6b7280]">Quantity:</span>
                                         <span className="text-white font-semibold">
                                           {quantity.toFixed(0)} shares
                                         </span>
@@ -4247,14 +4626,14 @@
                                         </div>
                                         {trimPrice > 0 && (
                                           <div className="flex items-center justify-between">
-                                            <span className="text-[#8b92a0]">Trim Price:</span>
+                                            <span className="text-[#6b7280]">Trim Price:</span>
                                             <span className="text-yellow-300 font-semibold">
                                               ${trimPrice.toFixed(2)}
                                             </span>
                                           </div>
                                         )}
                                         <div className="flex items-center justify-between">
-                                          <span className="text-[#8b92a0]">Amount Trimmed:</span>
+                                          <span className="text-[#6b7280]">Amount Trimmed:</span>
                                           <span className="text-yellow-300 font-semibold">
                                             {Math.round(trimmedPct * 100)}%
                                           </span>
@@ -4265,15 +4644,15 @@
                                     {/* Exit (if closed) */}
                                     {isClosed && (
                                       <>
-                                        <div className="border-t border-[#252b36]/50 my-1.5"></div>
+                                        <div className="border-t border-white/[0.06]/50 my-1.5"></div>
                                         <div className="flex items-center justify-between">
-                                          <span className="text-[#8b92a0]">Exited:</span>
+                                          <span className="text-[#6b7280]">Exited:</span>
                                           <span className="text-white font-semibold">
                                             {formatDateTime(t.exit_ts)}
                                           </span>
                                         </div>
                                         <div className="flex items-center justify-between">
-                                          <span className="text-[#8b92a0]">Exit Price:</span>
+                                          <span className="text-[#6b7280]">Exit Price:</span>
                                           <span className="text-red-400 font-semibold">
                                             ${exitPrice > 0 ? exitPrice.toFixed(2) : "—"}
                                           </span>
@@ -4285,7 +4664,7 @@
                               );
                             })}
                             {ledgerTrades.length > 5 && (
-                              <div className="text-[10px] text-[#5c6475] text-center">
+                              <div className="text-[10px] text-[#4b5563] text-center">
                                 Showing 5 of {ledgerTrades.length} recent trades
                               </div>
                             )}
@@ -4297,117 +4676,206 @@
                     </>
                   ) : null}
 
+                  {railTab === "MODEL" ? (
+                    <>
+                      {/* ═══════════════════════════════════════════════════════════════ */}
+                      {/* MODEL TAB: Pattern matches, signals, and prediction context    */}
+                      {/* ═══════════════════════════════════════════════════════════════ */}
+                      {(() => {
+                        const src = latestTicker || ticker;
+                        const pm = src?.pattern_match;
+                        const kanbanMeta = src?.kanban_meta;
+                        const patternBoost = src?.__pattern_boost;
+                        const patternCaution = src?.__pattern_caution;
+
+                        return (
+                          <div className="space-y-4">
+                            {/* Pattern Signal Summary */}
+                            <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                              <div className="text-sm font-bold text-[#6b7280] mb-3">🧠 Model Signal</div>
+                              {pm ? (
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-[#6b7280]">Direction</span>
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                      pm.direction === "BULLISH" ? "bg-emerald-900/50 text-emerald-300 border border-emerald-700/50" :
+                                      pm.direction === "BEARISH" ? "bg-red-900/50 text-red-300 border border-red-700/50" :
+                                      "bg-slate-800 text-slate-400 border border-slate-700"
+                                    }`}>{pm.direction}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-[#6b7280]">Net Signal</span>
+                                    <span className={`text-sm font-bold ${pm.netSignal > 0 ? "text-emerald-400" : pm.netSignal < 0 ? "text-red-400" : "text-slate-300"}`}>
+                                      {pm.netSignal > 0 ? "+" : ""}{pm.netSignal.toFixed(3)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-[#6b7280]">Patterns Matched</span>
+                                    <span className="text-xs text-white font-semibold">{pm.bullCount} bull / {pm.bearCount} bear</span>
+                                  </div>
+                                  {patternBoost && (
+                                    <div className="p-2 rounded bg-emerald-900/30 border border-emerald-700/50 text-xs text-emerald-300">
+                                      Entry confidence boosted to <strong>{patternBoost}</strong> by pattern match
+                                    </div>
+                                  )}
+                                  {patternCaution && (
+                                    <div className="p-2 rounded bg-amber-900/30 border border-amber-700/50 text-xs text-amber-300">
+                                      Caution: strong bear patterns detected (confidence: {patternCaution})
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-[#555] italic">No pattern matches for this ticker at this time.</div>
+                              )}
+                            </div>
+
+                            {/* Matched Patterns Detail */}
+                            {pm && pm.matched && pm.matched.length > 0 && (
+                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                                <div className="text-sm font-bold text-[#6b7280] mb-3">Matched Patterns</div>
+                                <div className="space-y-2">
+                                  {pm.matched.map((m, i) => (
+                                    <div key={m.id || i} className="flex items-center justify-between bg-[#0d1117] rounded-lg p-2 border border-[#1e2530]">
+                                      <div className="flex-1">
+                                        <div className="text-xs font-semibold text-white">{m.name}</div>
+                                        <div className="text-[10px] text-[#555]">{m.id}</div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                          m.dir === "UP" ? "bg-emerald-900/50 text-emerald-300" : "bg-red-900/50 text-red-300"
+                                        }`}>{m.dir}</span>
+                                        <span className="text-xs text-[#6b7280]">{(m.conf * 100).toFixed(0)}%</span>
+                                        <span className={`text-xs font-semibold ${m.ev > 0 ? "text-emerald-400" : m.ev < 0 ? "text-red-400" : "text-slate-400"}`}>
+                                          EV: {m.ev > 0 ? "+" : ""}{m.ev}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Best Match Spotlight */}
+                            {pm && (pm.bestBull || pm.bestBear) && (
+                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                                <div className="text-sm font-bold text-[#6b7280] mb-3">Strongest Signals</div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  {pm.bestBull && (
+                                    <div className="p-2 bg-emerald-900/20 border border-emerald-700/30 rounded-lg">
+                                      <div className="text-[10px] text-emerald-400 uppercase font-bold mb-1">Top Bull</div>
+                                      <div className="text-xs text-white font-semibold">{pm.bestBull.name}</div>
+                                      <div className="text-[10px] text-emerald-300 mt-1">
+                                        {(pm.bestBull.conf * 100).toFixed(0)}% confidence · EV: {pm.bestBull.ev > 0 ? "+" : ""}{pm.bestBull.ev}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {pm.bestBear && (
+                                    <div className="p-2 bg-red-900/20 border border-red-700/30 rounded-lg">
+                                      <div className="text-[10px] text-red-400 uppercase font-bold mb-1">Top Bear</div>
+                                      <div className="text-xs text-white font-semibold">{pm.bestBear.name}</div>
+                                      <div className="text-[10px] text-red-300 mt-1">
+                                        {(pm.bestBear.conf * 100).toFixed(0)}% confidence · EV: {pm.bestBear.ev > 0 ? "+" : ""}{pm.bestBear.ev}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Kanban Meta with Pattern Context */}
+                            {kanbanMeta && kanbanMeta.patternMatch && (
+                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                                <div className="text-sm font-bold text-[#6b7280] mb-2">🧠 Pattern-Driven Setup</div>
+                                <div className="text-xs text-blue-300">
+                                  This ticker was promoted from Watch to Setup by the model's pattern recognition engine.
+                                </div>
+                              </div>
+                            )}
+
+                            {/* No-match explanation */}
+                            {!pm && (
+                              <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                                <div className="text-xs text-[#555]">
+                                  The model evaluates {tickerSymbol} against 17+ active patterns every scoring cycle.
+                                  Matches appear when the ticker's scoring state, signals, and indicators align
+                                  with historically profitable setups.
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : null}
+
                   {railTab === "JOURNEY" ? (
                     <>
-                      {/* Performance Overview */}
+                      {/* Performance Overview — powered by daily candle closes */}
                       {(() => {
-                        const currentPrice = Number(ticker.price);
-                        if (!Number.isFinite(currentPrice) || currentPrice <= 0) return null;
-                        
-                        // Calculate performance for different time periods
-                        const calculatePerformance = (daysBack) => {
-                          const now = Date.now();
-                          const cutoff = now - (daysBack * 24 * 60 * 60 * 1000);
-                          
-                          // Find price at cutoff from bubbleJourney (closest to cutoff time, going back)
-                          let oldPrice = null;
-                          if (Array.isArray(bubbleJourney) && bubbleJourney.length > 0) {
-                            // Get all valid points with timestamps and prices
-                            const validPoints = bubbleJourney
-                              .map(p => ({
-                                ts: Number(p.__ts_ms || p.ts),
-                                price: Number(p.price)
-                              }))
-                              .filter(p => Number.isFinite(p.ts) && Number.isFinite(p.price) && p.price > 0)
-                              .sort((a, b) => a.ts - b.ts); // Ascending: oldest first
-                            
-                            if (validPoints.length === 0) return null;
-                            
-                            // Find closest point at or before cutoff
-                            let closestPoint = null;
-                            for (const p of validPoints) {
-                              if (p.ts <= cutoff) {
-                                closestPoint = p;
-                              } else {
-                                break; // Since sorted, we can stop
-                              }
-                            }
-                            
-                            // If no point before cutoff, use oldest available
-                            if (!closestPoint && validPoints.length > 0) {
-                              closestPoint = validPoints[0];
-                            }
-                            
-                            if (closestPoint) {
-                              oldPrice = closestPoint.price;
-                            }
-                          }
-                          
-                          if (!oldPrice) return null;
-                          
-                          const changePct = ((currentPrice - oldPrice) / oldPrice) * 100;
-                          const changePoints = currentPrice - oldPrice;
-                          
-                          return {
-                            oldPrice,
-                            changePct,
-                            changePoints,
-                            isUp: changePct >= 0
-                          };
-                        };
-                        
-                        const periods = [
-                          { label: 'Today', days: 1 },
-                          { label: '5D', days: 5 },
-                          { label: '15D', days: 15 },
-                          { label: '30D', days: 30 },
-                          { label: '90D', days: 90 }
-                        ];
-                        
-                        const performanceData = periods.map(p => ({
-                          ...p,
-                          perf: calculatePerformance(p.days)
-                        })).filter(p => p.perf !== null);
-                        
-                        if (performanceData.length === 0) {
+                        if (candlePerfLoading) {
                           return (
-                            <div className="mb-4 p-3 bg-[#1a1f28] border border-[#252b36] rounded-lg text-xs text-[#8b92a0]">
-                              Performance data loading... Check back after we collect more history.
+                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280] flex items-center gap-2">
+                              <div className="loading-spinner"></div>
+                              Loading performance…
                             </div>
                           );
                         }
-                        
+
+                        const perf = candlePerf?.performance;
+                        if (!perf || Object.keys(perf).length === 0) {
+                          return (
+                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280]">
+                              Performance data unavailable.
+                            </div>
+                          );
+                        }
+
+                        const sym = String(ticker.ticker).toUpperCase();
+                        const periods = [
+                          { label: '1D', key: '1D' },
+                          { label: '5D', key: '5D' },
+                          { label: '15D', key: '15D' },
+                          { label: '30D', key: '30D' },
+                          { label: '90D', key: '90D' },
+                        ];
+
+                        const available = periods
+                          .map(p => ({ ...p, data: perf[p.key] }))
+                          .filter(p => p.data);
+
+                        if (available.length === 0) return null;
+
+                        const getInterpretation = (changePct, isUp, label) => {
+                          const absChg = Math.abs(changePct);
+                          if (absChg < 2) {
+                            return `${sym} is trading relatively flat over ${label}, showing ${absChg.toFixed(1)}% ${isUp ? 'gain' : 'loss'}. Price action suggests consolidation.`;
+                          } else if (absChg < 5) {
+                            return `${sym} is ${isUp ? 'up' : 'down'} ${absChg.toFixed(1)}% over ${label}, showing ${isUp ? 'modest bullish momentum' : 'mild weakness'}.`;
+                          } else if (absChg < 10) {
+                            return `${sym} has ${isUp ? 'gained' : 'lost'} ${absChg.toFixed(1)}% in ${label}, indicating ${isUp ? 'strong momentum' : 'significant selling pressure'}.`;
+                          } else if (absChg < 20) {
+                            return `${sym} is showing ${isUp ? 'explosive upside' : 'severe downside'} with a ${absChg.toFixed(1)}% ${isUp ? 'rally' : 'decline'} over ${label}.`;
+                          } else {
+                            return `${sym} has ${isUp ? 'surged' : 'plunged'} ${absChg.toFixed(1)}% in ${label}—a ${isUp ? 'parabolic' : 'dramatic'} move.`;
+                          }
+                        };
+
                         return (
                           <div className="mb-4 space-y-3">
-                            {performanceData.map((item, idx) => {
-                              const { label, days, perf } = item;
-                              const { changePct, changePoints, isUp } = perf;
-                              
-                              // Generate LLM-style interpretation
-                              const getInterpretation = () => {
-                                const absChg = Math.abs(changePct);
-                                const tickerSymbol = String(ticker.ticker).toUpperCase();
-                                
-                                if (absChg < 2) {
-                                  return `${tickerSymbol} is trading relatively flat over the past ${label.toLowerCase()}, showing ${absChg.toFixed(1)}% ${isUp ? 'gain' : 'loss'}. Price action suggests consolidation.`;
-                                } else if (absChg < 5) {
-                                  return `${tickerSymbol} is ${isUp ? 'up' : 'down'} ${absChg.toFixed(1)}% over the past ${label.toLowerCase()}, showing ${isUp ? 'modest bullish momentum' : 'mild weakness'}. Watch for ${isUp ? 'continuation or profit-taking' : 'support levels'}.`;
-                                } else if (absChg < 10) {
-                                  return `${tickerSymbol} has ${isUp ? 'gained' : 'lost'} ${absChg.toFixed(1)}% in the past ${label.toLowerCase()}, indicating ${isUp ? 'strong momentum' : 'significant selling pressure'}. ${isUp ? 'Momentum players may be accumulating' : 'Consider risk management'}.`;
-                                } else if (absChg < 20) {
-                                  return `${tickerSymbol} is showing ${isUp ? 'explosive' : 'severe'} ${isUp ? 'upside' : 'downside'} with a ${absChg.toFixed(1)}% ${isUp ? 'rally' : 'decline'} over ${label.toLowerCase()}. ${isUp ? 'High volatility suggests strong interest' : 'Caution warranted at these levels'}.`;
-                                } else {
-                                  return `${tickerSymbol} has ${isUp ? 'surged' : 'plunged'} ${absChg.toFixed(1)}% in ${label.toLowerCase()}—a ${isUp ? 'parabolic' : 'dramatic'} move. ${isUp ? 'Extreme momentum, watch for exhaustion' : 'Oversold conditions may present opportunity'}.`;
-                                }
-                              };
-                              
+                            {available.map(({ label, data }) => {
+                              const { changePct, changePoints, isUp, actualDays } = data;
                               return (
                                 <div
                                   key={label}
-                                  className="p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg"
+                                  className="p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
                                 >
                                   <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-bold text-[#8b92a0]">{label}</span>
+                                    <div>
+                                      <span className="text-xs font-bold text-[#6b7280]">{label}</span>
+                                      {actualDays != null && (
+                                        <span className="ml-1.5 text-[10px] text-[#4b5563]">({actualDays}d ago)</span>
+                                      )}
+                                    </div>
                                     <div className="text-right">
                                       <div className={`text-lg font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
                                         {isUp ? '+' : ''}{changePct.toFixed(2)}%
@@ -4417,8 +4885,8 @@
                                       </div>
                                     </div>
                                   </div>
-                                  <div className="text-xs text-[#cbd5ff] leading-relaxed bg-[#13171e] p-2 rounded border border-[#252b36]/50">
-                                    {getInterpretation()}
+                                  <div className="text-xs text-[#cbd5ff] leading-relaxed bg-white/[0.02] p-2 rounded border border-white/[0.06]/50">
+                                    {getInterpretation(changePct, isUp, label)}
                                   </div>
                                 </div>
                               );
@@ -4428,9 +4896,9 @@
                       })()}
 
                       {/* Bubble Journey (15m increments) */}
-                      <div className="mb-4 p-3 bg-[#1a1f28] border-2 border-[#252b36] rounded-lg">
+                      <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between mb-2">
-                          <div className="text-sm text-[#8b92a0]">
+                          <div className="text-sm text-[#6b7280]">
                             Bubble Journey (15m increments)
                           </div>
                           <a
@@ -4445,7 +4913,7 @@
                         </div>
 
                         {bubbleJourneyLoading ? (
-                          <div className="text-xs text-[#8b92a0] flex items-center gap-2">
+                          <div className="text-xs text-[#6b7280] flex items-center gap-2">
                             <div className="loading-spinner"></div>
                             Loading trail…
                           </div>
@@ -4454,15 +4922,31 @@
                             Trail unavailable: {bubbleJourneyError}
                           </div>
                         ) : bubbleJourney.length === 0 ? (
-                          <div className="text-xs text-[#8b92a0]">
+                          <div className="text-xs text-[#6b7280]">
                             No trail points found for this ticker.
                           </div>
                         ) : (
                           <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
-                            {downsampleByInterval(bubbleJourney, 15 * 60 * 1000)
-                              .slice()
-                              .reverse()
-                              .slice(0, 40)
+                            {(() => {
+                              // Downsample and then deduplicate by removing consecutive entries
+                              // where state, kanban_stage, and scores haven't meaningfully changed
+                              const sampled = downsampleByInterval(bubbleJourney, 15 * 60 * 1000).slice().reverse().slice(0, 80);
+                              const deduped = [];
+                              let prev = null;
+                              for (const p of sampled) {
+                                if (!prev) { deduped.push(p); prev = p; continue; }
+                                const stateChanged = (p.state || '') !== (prev.state || '');
+                                const kanbanChanged = (p.kanban_stage || '') !== (prev.kanban_stage || '');
+                                const htfDelta = Math.abs((Number(p.htf_score) || 0) - (Number(prev.htf_score) || 0));
+                                const ltfDelta = Math.abs((Number(p.ltf_score) || 0) - (Number(prev.ltf_score) || 0));
+                                const priceDelta = Math.abs((Number(p.price) || 0) - (Number(prev.price) || 0)) / Math.max(Number(prev.price) || 1, 1);
+                                if (stateChanged || kanbanChanged || htfDelta >= 1.0 || ltfDelta >= 1.0 || priceDelta >= 0.003) {
+                                  deduped.push(p);
+                                  prev = p;
+                                }
+                              }
+                              return deduped.slice(0, 40);
+                            })()
                               .map((p, idx) => {
                                 const ts = Number(p.__ts_ms);
                                 const state =
@@ -4520,10 +5004,10 @@
                                 return (
                                   <div
                                     key={`${ts}-${idx}`}
-                                    className={`px-2 py-1 bg-[#13171e] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                                    className={`px-2 py-1 bg-white/[0.02] border rounded flex items-center justify-between gap-2 cursor-pointer transition-colors ${
                                       isSelected
                                         ? "border-cyan-400/80 bg-cyan-500/10"
-                                        : "border-[#252b36] hover:border-cyan-400/40 hover:bg-[#16224a]"
+                                        : "border-white/[0.06] hover:border-cyan-400/40 hover:bg-[#16224a]"
                                     }`}
                                     onMouseEnter={() => {
                                       if (onJourneyHover)
@@ -4538,34 +5022,34 @@
                                     }}
                                   >
                                     <div className="min-w-0">
-                                      <div className="text-[10px] text-[#8b92a0]">
+                                      <div className="text-[10px] text-[#6b7280]">
                                         {Number.isFinite(ts)
                                           ? new Date(ts).toLocaleString()
                                           : "—"}
                                       </div>
                                       <div className="text-xs text-white truncate">
                                         {state}
-                                        <span className="text-[#5c6475]">
+                                        <span className="text-[#4b5563]">
                                           {" "}
                                           •{" "}
                                         </span>
-                                        <span className="text-[#8b92a0]">
+                                        <span className="text-[#6b7280]">
                                           Phase
                                         </span>{" "}
                                         {phasePct}
                                       </div>
-                                      <div className="text-[10px] text-[#8b92a0]">
-                                        <span className="text-[#5c6475]">
+                                      <div className="text-[10px] text-[#6b7280]">
+                                        <span className="text-[#4b5563]">
                                           HTF
                                         </span>{" "}
                                         <span className="text-white font-semibold">
                                           {htf}
                                         </span>
-                                        <span className="text-[#5c6475]">
+                                        <span className="text-[#4b5563]">
                                           {" "}
                                           •{" "}
                                         </span>
-                                        <span className="text-[#5c6475]">
+                                        <span className="text-[#4b5563]">
                                           LTF
                                         </span>{" "}
                                         <span className="text-white font-semibold">
@@ -4573,9 +5057,9 @@
                                         </span>
                                       </div>
                                     </div>
-                                    <div className="text-right text-[10px] text-[#8b92a0] whitespace-nowrap">
+                                    <div className="text-right text-[10px] text-[#6b7280] whitespace-nowrap">
                                       <div>
-                                        <span className="text-[#5c6475]">
+                                        <span className="text-[#4b5563]">
                                           Rank
                                         </span>{" "}
                                         <span className="text-white font-semibold">
@@ -4583,7 +5067,7 @@
                                         </span>
                                       </div>
                                       <div>
-                                        <span className="text-[#5c6475]">
+                                        <span className="text-[#4b5563]">
                                           RR
                                         </span>{" "}
                                         <span className="text-white font-semibold">
@@ -4599,17 +5083,17 @@
                       </div>
 
                       {/* Current State Summary */}
-                      <div className="mb-4 p-3 bg-[#1a1f28] border border-[#252b36] rounded-lg">
-                        <div className="text-xs text-[#8b92a0] mb-2 font-semibold">Current Status</div>
+                      <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
+                        <div className="text-xs text-[#6b7280] mb-2 font-semibold">Current Status</div>
                         <div className="grid grid-cols-3 gap-2 text-xs">
                           <div>
-                            <div className="text-[#8b92a0] text-[10px]">Phase</div>
+                            <div className="text-[#6b7280] text-[10px]">Phase</div>
                             <div className="text-white font-semibold" style={{ color: phaseColor }}>
                               {(phase * 100).toFixed(0)}%
                             </div>
                           </div>
                           <div>
-                            <div className="text-[#8b92a0] text-[10px]">Completion</div>
+                            <div className="text-[#6b7280] text-[10px]">Completion</div>
                             <div className="text-white font-semibold">
                               {ticker.completion != null
                                 ? `${(Number(ticker.completion) * 100).toFixed(0)}%`
@@ -4617,7 +5101,7 @@
                             </div>
                           </div>
                           <div>
-                            <div className="text-[#8b92a0] text-[10px]">ETA</div>
+                            <div className="text-[#6b7280] text-[10px]">ETA</div>
                             <div className="text-white font-semibold">
                               {(() => {
                                 const eta = computeEtaDays(ticker);
@@ -4633,7 +5117,7 @@
               </div>
 
               {/* Fixed Footer */}
-              <div className="flex-shrink-0 p-6 pt-4 border-t border-[#252b36] bg-[#13171e]">
+              <div className="flex-shrink-0 p-6 pt-4 border-t border-white/[0.06] bg-white/[0.02]">
                 <a
                   href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(
                     tickerSymbol,

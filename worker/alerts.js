@@ -100,19 +100,21 @@ export function shouldSendDiscordAlert(env, type, ctx = {}) {
     return false;
   }
 
+  // Kanban lane transitions (aligned with 7-lane system)
   if (t === "KANBAN_ENTER") return true;
-  if (t === "KANBAN_ENTER_NOW") return true;
-  if (t === "KANBAN_JUST_ENTERED") return true;
+  if (t === "KANBAN_ENTER_NOW") return true; // Legacy alias → maps to KANBAN_ENTER
   if (t === "KANBAN_DEFEND") return true;
   if (t === "KANBAN_TRIM") return true;
   if (t === "KANBAN_EXIT") return true;
 
+  // Deprecated: folded into kanban/trade embeds
+  if (t === "KANBAN_JUST_ENTERED") return false; // Redundant with TRADE_ENTRY
   if (t === "FLIP_WATCH") return false;
-  if (t === "TDSEQ_DEFENSE") return false;
-  if (t === "TD9_EXIT") return false;
-  if (t === "TD9_ENTRY") return false;
+  if (t === "TDSEQ_DEFENSE") return false;          // Folded into KANBAN_DEFEND
+  if (t === "TD9_EXIT") return false;                // Folded into TRADE_EXIT
+  if (t === "TD9_ENTRY") return false;               // Folded into KANBAN_ENTER
   if (t === "SYSTEM") return false;
-  if (t === "ALERT_ENTRY") return false;
+  if (t === "ALERT_ENTRY") return false;             // Folded into KANBAN_ENTER
 
   return false;
 }

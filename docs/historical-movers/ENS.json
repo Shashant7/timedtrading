@@ -1,0 +1,172 @@
+{
+  "ticker": "ENS",
+  "dataRange": {
+    "firstTs": 1768401300000,
+    "lastTs": 1770132600000,
+    "firstDate": "2026-01-14",
+    "lastDate": "2026-02-03",
+    "totalPoints": 1094,
+    "daysCovered": 20
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "UP",
+      "startIdx": 5,
+      "endIdx": 1060,
+      "startTs": 1768408800000,
+      "endTs": 1770129840000,
+      "startPrice": 161.51,
+      "endPrice": 191.17,
+      "movePct": 18.364187975976716,
+      "duration": 28684,
+      "signalSequence": [
+        {
+          "ts": 1768401300000,
+          "time": "2026-01-14T14:35:00",
+          "price": 164.1,
+          "htf": 25.78,
+          "ltf": 12.74,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 65,
+          "completion": 0.13,
+          "phase": 0.67,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768402500000,
+          "time": "2026-01-14T14:55:00",
+          "price": 163.41,
+          "htf": 25.89,
+          "ltf": 7.36,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 64,
+          "completion": 0.12,
+          "phase": 0.65,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768404300000,
+          "time": "2026-01-14T15:25:00",
+          "price": 162.14,
+          "htf": 26.06,
+          "ltf": -0.39,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_BULL",
+          "rank": 55,
+          "completion": 0.1,
+          "phase": 0.62,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768407000000,
+          "time": "2026-01-14T16:10:00",
+          "price": 161.87,
+          "htf": 27.23,
+          "ltf": 0.76,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_PULLBACK",
+          "rank": 64,
+          "completion": 0.1,
+          "phase": 0.61,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768407600000,
+          "time": "2026-01-14T16:20:00",
+          "price": 162.47,
+          "htf": 36.41,
+          "ltf": -0.25,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_BULL",
+          "rank": 57,
+          "completion": 0.11,
+          "phase": 0.62,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [
+            "phase_dot",
+            "phase_zone_change"
+          ],
+          "activeFlags": [
+            "phase_dot",
+            "phase_zone_change"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1768408800000,
+          "time": "2026-01-14T16:40:00",
+          "price": 161.51,
+          "htf": 27.05,
+          "ltf": 0.63,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_PULLBACK",
+          "rank": 64,
+          "completion": 0.09,
+          "phase": 0.6,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1768408800000,
+        "price": 161.51,
+        "htf": 27.05,
+        "ltf": 0.63,
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 64,
+        "completion": 0.09,
+        "phase": 0.6,
+        "rr": null,
+        "flags": {
+          "sq30_on": false,
+          "sq30_release": false,
+          "phase_dot": false,
+          "phase_zone_change": false,
+          "momentum_elite": false
+        },
+        "trigger_reason": "EMA_CROSS"
+      }
+    }
+  ],
+  "biggestUp": {
+    "direction": "UP",
+    "startIdx": 5,
+    "endIdx": 1060,
+    "startTs": 1768408800000,
+    "endTs": 1770129840000,
+    "startPrice": 161.51,
+    "endPrice": 191.17,
+    "movePct": 18.364187975976716,
+    "duration": 28684
+  },
+  "biggestDown": null
+}

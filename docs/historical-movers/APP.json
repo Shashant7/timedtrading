@@ -1,0 +1,94 @@
+{
+  "ticker": "APP",
+  "dataRange": {
+    "firstTs": 1768401900000,
+    "lastTs": 1770132660000,
+    "firstDate": "2026-01-14",
+    "lastDate": "2026-02-03",
+    "totalPoints": 2173,
+    "daysCovered": 20
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "DOWN",
+      "startIdx": 1,
+      "endIdx": 2160,
+      "startTs": 1768402800000,
+      "endTs": 1770131940000,
+      "startPrice": 622,
+      "endPrice": 450.56,
+      "movePct": -27.562700964630228,
+      "duration": 28819,
+      "signalSequence": [
+        {
+          "ts": 1768401900000,
+          "time": "2026-01-14T14:45:00",
+          "price": 631.81,
+          "htf": 6.06,
+          "ltf": -8.59,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 55,
+          "completion": 0.03,
+          "phase": 0.14,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": false
+        },
+        {
+          "ts": 1768402800000,
+          "time": "2026-01-14T15:00:00",
+          "price": 622,
+          "htf": 13.08,
+          "ltf": -12.02,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 60,
+          "completion": 0.06,
+          "phase": 0.16,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1768402800000,
+        "price": 622,
+        "htf": 13.08,
+        "ltf": -12.02,
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 60,
+        "completion": 0.06,
+        "phase": 0.16,
+        "rr": null,
+        "flags": {
+          "sq30_on": false,
+          "sq30_release": false,
+          "phase_dot": false,
+          "phase_zone_change": false,
+          "momentum_elite": false
+        },
+        "trigger_reason": "SQUEEZE_RELEASE"
+      }
+    }
+  ],
+  "biggestUp": null,
+  "biggestDown": {
+    "direction": "DOWN",
+    "startIdx": 1,
+    "endIdx": 2160,
+    "startTs": 1768402800000,
+    "endTs": 1770131940000,
+    "startPrice": 622,
+    "endPrice": 450.56,
+    "movePct": -27.562700964630228,
+    "duration": 28819
+  }
+}

@@ -24,11 +24,11 @@ Before starting, ensure you have:
 2. Click "Pine Editor" at the bottom
 3. Create a new script (or open existing)
 
-### Step 1.2: Copy Enhanced Script
-1. Open `tradingview/TimedTrading_ScoreEngine_Enhanced.pine`
+### Step 1.2: Copy Script
+1. Open `tradingview/TimedTrading_Unified.pine` (primary) or `tradingview/TimedTrading_ScoreEngine_Enhanced.pine`
 2. Copy **entire contents**
 3. Paste into Pine Editor
-4. Click "Save" (name it "TimedTrading_ScoreEngine_Enhanced")
+4. Click "Save"
 
 ### Step 1.3: Configure Webhook URL
 1. In Pine Editor, find the alert configuration section
@@ -42,7 +42,7 @@ Before starting, ensure you have:
 ### Step 1.4: Set Up Alert
 1. Add the indicator to a chart
 2. Right-click on chart → "Add Alert"
-3. Condition: "TimedTrading_ScoreEngine_Enhanced"
+3. Condition: "TimedTrading_Unified" (or your saved script name)
 4. Webhook URL: (from Step 1.3)
 5. Message: Use the JSON payload (the script sends it automatically)
 6. Save alert
