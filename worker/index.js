@@ -13607,6 +13607,7 @@ const SECTOR_MAP = {
   RBLX: "Consumer Discretionary",
   ULTA: "Consumer Discretionary",
   APP: "Consumer Discretionary",
+  W: "Consumer Discretionary",
   // Industrials
   CAT: "Industrials",
   GE: "Industrials",
@@ -18238,7 +18239,8 @@ export default {
           );
         }
 
-        // Prefer D1 for reads (fast index table)
+        // Prefer D1 for reads (fast index table). Merge with KV watchlist so tickers
+        // in timed:tickers (and not in timed:removed) always appear even if D1 is out of sync.
         let tickers = [];
         try {
           if (env?.DB) {
@@ -18254,15 +18256,24 @@ export default {
         } catch (e) {
           console.error(`[D1 LATEST] /timed/tickers read failed:`, String(e));
         }
-        // If D1 is still warming up, fall back to KV index to avoid hiding tickers.
         const kvTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-        if (
+        const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+        const kvActive = Array.isArray(kvTickers)
+          ? kvTickers.map((t) => String(t).toUpperCase()).filter((t) => t && !removedSet.has(t))
+          : [];
+        const merged = [...new Set([...tickers, ...kvActive])].sort();
+        if (merged.length > (tickers.length || 0)) {
+          tickers = merged;
+          try {
+            ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 50));
+          } catch {
+            // ignore
+          }
+        } else if (
           !Array.isArray(tickers) ||
-          tickers.length === 0 ||
-          (Array.isArray(kvTickers) && kvTickers.length > tickers.length)
+          tickers.length === 0
         ) {
-          tickers = Array.isArray(kvTickers) ? kvTickers : [];
-          // Kick a background sync so D1 catches up without blocking the request.
+          tickers = kvActive.length > 0 ? kvActive : (Array.isArray(kvTickers) ? kvTickers : []);
           try {
             ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 50));
           } catch {
@@ -20172,15 +20183,19 @@ export default {
             } catch (_) { /* best-effort */ }
           }
 
-          // Add to D1 ticker_index so /timed/tickers and dashboard include the new ticker immediately
+          // Add to D1 ticker_index and a minimal ticker_latest row so /timed/tickers and
+          // /timed/all include the new ticker immediately (dashboard and Tickers Page show it).
           const db = env?.DB;
           if (db && added.length > 0) {
             try {
+              const now = Date.now();
               for (const tickerUpper of added) {
-                await d1UpsertTickerIndex(env, tickerUpper, Date.now());
+                await d1UpsertTickerIndex(env, tickerUpper, now);
+                const placeholder = { ticker: tickerUpper, ts: now };
+                await d1UpsertTickerLatest(env, tickerUpper, placeholder);
               }
             } catch (e) {
-              console.warn("[WATCHLIST ADD] D1 ticker_index insert failed:", String(e?.message || e).slice(0, 200));
+              console.warn("[WATCHLIST ADD] D1 ticker_index/ticker_latest insert failed:", String(e?.message || e).slice(0, 200));
             }
           }
 
@@ -23561,6 +23576,33 @@ export default {
             const dc = (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
             const dp = (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
             prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(prevClose * 100) / 100, dc, dp, t: Date.now() };
+          }
+          // Fallback for tickers missing from Alpaca (e.g. single-letter "W")
+          const missing = allTickers.filter(s => !prices[s] || !(Number(prices[s]?.p) > 0));
+          if (missing.length > 0 && env?.DB) {
+            const KV = env.KV_TIMED;
+            for (const sym of missing) {
+              try {
+                let price = 0;
+                let prevClose = 0;
+                const res = await d1GetCandles(env, sym, "1", 1);
+                if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
+                  price = Number(res.candles[0].c);
+                if (!(price > 0) && KV) {
+                  const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
+                  if (latest && Number(latest.price) > 0) {
+                    price = Number(latest.price);
+                    prevClose = Number(latest.prev_close || latest.previous_close || 0) || 0;
+                  }
+                }
+                if (price > 0) {
+                  const pc = prevClose > 0 ? prevClose : price;
+                  const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : 0;
+                  const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+                  prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(pc * 100) / 100, dc, dp, t: Date.now() };
+                }
+              } catch (_) { /* best-effort */ }
+            }
           }
           // Store in KV
           await kvPutJSON(env.KV_TIMED, "timed:prices", { prices, updated_at: Date.now(), ticker_count: Object.keys(prices).length });
@@ -30698,6 +30740,14 @@ Provide 3-5 actionable next steps:
       const KV = env.KV_TIMED;
       try {
         const allTickers = Object.keys(SECTOR_MAP);
+        // Alpaca universe: same filter as bar cron — stocks/ETFs only (exclude futures, crypto, indices)
+        const ALPACA_SYMBOL_BLOCKLIST = new Set([
+          "ES1!", "NQ1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "US500", "VIX", "BRK-B",
+        ]);
+        const alpacaUniverseTickers = allTickers.filter(
+          (t) => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
+        );
+
         const snapResult = await alpacaFetchSnapshots(env, allTickers);
         const snapshots = snapResult.snapshots || {};
 
@@ -30722,6 +30772,34 @@ Provide 3-5 actionable next steps:
             dv: snap.dailyVolume || 0,                    // daily volume
             t: Date.now(),                                // per-ticker timestamp
           };
+        }
+
+        // If a ticker is in the Alpaca universe but missing from the first response (e.g. single-letter "W"),
+        // retry with only those symbols so we always get live price from Alpaca when possible.
+        const missingAfterFirst = alpacaUniverseTickers.filter((s) => !prices[s] || !(Number(prices[s]?.p) > 0));
+        if (missingAfterFirst.length > 0) {
+          const retryResult = await alpacaFetchSnapshots(env, missingAfterFirst);
+          const retrySnap = retryResult.snapshots || {};
+          for (const [sym, snap] of Object.entries(retrySnap)) {
+            const price = snap.price;
+            const prevClose = snap.prevDailyClose;
+            const dailyChange = (price && prevClose && prevClose > 0)
+              ? Math.round((price - prevClose) * 100) / 100
+              : 0;
+            const dailyChangePct = (price && prevClose && prevClose > 0)
+              ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
+              : 0;
+            prices[sym] = {
+              p: Math.round(price * 100) / 100,
+              pc: Math.round(prevClose * 100) / 100,
+              dc: dailyChange,
+              dp: dailyChangePct,
+              dh: Math.round((snap.dailyHigh || 0) * 100) / 100,
+              dl: Math.round((snap.dailyLow || 0) * 100) / 100,
+              dv: snap.dailyVolume || 0,
+              t: Date.now(),
+            };
+          }
         }
 
         // Merge TV heartbeat prices for futures/macro tickers
@@ -30751,6 +30829,40 @@ Provide 3-5 actionable next steps:
               };
             }
           } catch (_) { /* best-effort */ }
+        }
+
+        // Fallback for tickers still missing after initial + retry (e.g. Alpaca delayed/unavailable).
+        // Use latest 1m candle or timed:latest so the UI shows a valid price.
+        const missingFromSnap = allTickers.filter(s => !prices[s] || !(Number(prices[s]?.p) > 0));
+        if (missingFromSnap.length > 0 && env?.DB) {
+          for (const sym of missingFromSnap) {
+            try {
+              let price = 0;
+              let prevClose = 0;
+              const res = await d1GetCandles(env, sym, "1", 1);
+              if (res?.ok && res.candles?.length > 0 && Number.isFinite(res.candles[0].c))
+                price = Number(res.candles[0].c);
+              if (!(price > 0)) {
+                const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
+                if (latest && Number(latest.price) > 0) {
+                  price = Number(latest.price);
+                  prevClose = Number(latest.prev_close || latest.previous_close || 0) || 0;
+                }
+              }
+              if (price > 0) {
+                const pc = prevClose > 0 ? prevClose : price;
+                const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : 0;
+                const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+                prices[sym] = {
+                  p: Math.round(price * 100) / 100,
+                  pc: Math.round(pc * 100) / 100,
+                  dc, dp,
+                  dh: price, dl: price, dv: 0,
+                  t: Date.now(),
+                };
+              }
+            } catch (_) { /* best-effort */ }
+          }
         }
 
         // ── Build 1m candles from snapshot prices ──
