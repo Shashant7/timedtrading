@@ -11534,10 +11534,11 @@
           const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
           const pulseCls = isActionLane ? (dir === "LONG" ? "card-pulse" : "card-pulse-short") : "";
 
-          // ── Card background: solid dark base with subtle directional tint ──
-          const cardBg = dir === "LONG"
-            ? "linear-gradient(135deg, rgba(8,145,178,0.08) 0%, rgba(15,23,42,0.95) 40%)"
-            : "linear-gradient(135deg, rgba(225,29,72,0.08) 0%, rgba(15,23,42,0.95) 40%)";
+          // ── Card background: skin's daily-change tint + phase fill layered on dark base ──
+          const baseBg = "rgba(13,17,23,0.92)";
+          const cardBgImage = skin?.bgImage
+            ? `${skin.bgImage}, linear-gradient(0deg, ${baseBg}, ${baseBg})`
+            : `linear-gradient(0deg, ${baseBg}, ${baseBg})`;
 
           return (
             <div
@@ -11556,10 +11557,10 @@
               className={
                 "w-full text-left rounded-lg cursor-pointer transition-all hover:brightness-110 relative overflow-hidden border " +
                 (dir === "LONG" ? "border-cyan-400/25 " : "border-rose-400/25 ") +
-                pulseCls
+                pulseCls + " " + (skin?.dayEdgeClass || "")
               }
               style={{
-                background: cardBg,
+                backgroundImage: cardBgImage,
                 boxShadow: "0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)",
                 minHeight: "110px",
               }}
@@ -11802,10 +11803,25 @@
           flipWatch.length + justFlipped.length + highProb.length;
 
         // Kanban stage counts (for pipeline summary badge)
+        // Applies the same trade-lifecycle override as the lane categoriser
         const kanbanStageCounts = React.useMemo(() => {
           const counts = { setup: 0, enter: 0, hold: 0, defend: 0, trim: 0, exit: 0 };
           tickers.forEach((t) => {
-            const stage = String(t?.kanban_stage || "").toLowerCase();
+            let stage = String(t?.kanban_stage || "").toLowerCase();
+            const sym = String(t?.ticker || "").toUpperCase();
+            const trade = tradeByTicker.get(sym);
+            if (trade) {
+              const st = String(trade.status || "").toUpperCase();
+              const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+              const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
+              const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
+              if (isClosed) { stage = "exit"; }
+              else if (isOpen) {
+                if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
+                else if (stage !== "defend" && stage !== "trim" && stage !== "exit" &&
+                         stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+              }
+            }
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;
             else if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;
             else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;
@@ -11814,7 +11830,7 @@
             else if (stage === "exit") counts.exit++;
           });
           return counts;
-        }, [tickers]);
+        }, [tickers, tradeByTicker]);
 
         // Total tickers in actionable kanban stages (excluding watch and null)
         const kanbanActiveCount = 
@@ -12077,13 +12093,27 @@
               trimmedPct >= 0.9999;
             const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
 
-            // Override from trades: exited -> exit lane; trimmed -> trim lane; OPEN in exit lane -> hold
+            // ═══════════════════════════════════════════════════════════════
+            // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
+            // discovery lanes (setup/enter).  They stay in management lanes.
+            // Priority: exit > trim > defend > hold (based on trade state)
+            // ═══════════════════════════════════════════════════════════════
             if (trade && isClosed) {
               stage = "exit";
-            } else if (trade && isOpen && (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0))) {
-              stage = "trim";
-            } else if (trade && isOpen && (stage === "exit" || stage === "archive")) {
-              stage = "hold";
+            } else if (trade && isOpen) {
+              // Trim lane: partial TP hit or manually trimmed
+              if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) {
+                stage = "trim";
+              }
+              // If stage is already a valid management lane, keep it
+              else if (stage === "defend" || stage === "trim" || stage === "exit") {
+                // keep stage as-is
+              }
+              // Everything else (setup, enter, flip_watch, just_flipped, archive, empty, etc.)
+              // → force to HOLD.  An open trade is a held position, period.
+              else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") {
+                stage = "hold";
+              }
             }
 
             // Map server stages to UI lanes
@@ -12236,9 +12266,10 @@
 
         return (
           <div>
-            {/* Legend Bar: Lanes | Badges | Indicators */}
-            <div className="mb-2 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center justify-between flex-wrap gap-y-1.5 gap-x-4">
-              <div className="flex items-center gap-2.5 text-[10px] text-[#6b7280]">
+            {/* Legend Bar: Lanes | Badges | Indicators — descriptions inline */}
+            <div className="mb-2 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex flex-wrap gap-y-1.5 gap-x-5 text-[10px] text-[#6b7280]">
+              {/* ── Lanes ─────────────────────────────── */}
+              <div className="flex items-center gap-2">
                 <span className="text-[11px] font-semibold text-white/70">Lanes</span>
                 <span className="text-amber-300">📋 Setup</span>
                 <span className="text-teal-300">🎯 Enter</span>
@@ -12247,21 +12278,42 @@
                 <span className="text-yellow-300">✂️ Trim</span>
                 <span className="text-rose-300">🚪 Exit</span>
               </div>
-              <div className="flex items-center gap-2.5 text-[10px] text-[#6b7280]">
+              {/* ── Badges ────────────────────────────── */}
+              <div className="flex items-center gap-2">
                 <span className="text-[11px] font-semibold text-white/70">Badges</span>
-                <span title="Top-quality setup: Rank≥70, RR≥1.5, early phase + confirmation signal">⭐ Prime</span>
-                <span title="In scoring entry zone — actionable timing window">🎯 Entry Zone</span>
-                <span title="Momentum Elite: strong fundamentals + price momentum">🔥 MoElite</span>
-                <span title="In squeeze (coiling, building pressure)">🧨 Squeeze</span>
-                <span title="Squeeze just released — breakout">⚡ Release</span>
+                <span>⭐ Prime</span>
+                <span>🎯 Entry Zone</span>
+                <span>🔥 MoElite</span>
+                <span>🧨 Squeeze</span>
+                <span>⚡ Release</span>
               </div>
-              <div className="flex items-center gap-2 text-[10px] text-[#6b7280]">
+              {/* ── Indicators (expanded descriptions) ── */}
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[11px] font-semibold text-white/70">Indicators</span>
-                <span className="px-1 py-px rounded border bg-emerald-500/20 text-emerald-300 border-emerald-400/40 text-[9px] font-semibold" title="Entry Quality Score (0-100). Green ≥70, Amber ≥50, Red &lt;50">Q</span>
-                <span className="px-1 py-px rounded border bg-cyan-500/20 text-cyan-300 border-cyan-400/40 text-[9px] font-semibold" title="Timeframe Consensus: bullish TFs out of 5 (10m/30m/1H/4H/D)">TF</span>
-                <span className="px-1 py-px rounded border bg-orange-500/15 text-orange-300 border-orange-400/30 text-[9px] font-semibold" title="Volatility Tier: LOW / MEDIUM / HIGH / EXTREME (based on daily ATR %)">Vol</span>
-                <span className="px-1 py-px rounded border bg-emerald-500/15 text-emerald-300 border-emerald-400/30 text-[9px] font-semibold" title="Swing Regime: Strong/Early/Late Bull or Bear, CT, Neutral (Daily+Weekly pivots)">Regime</span>
-                <span className="px-1 py-px rounded border bg-purple-500/15 text-purple-300 border-purple-400/30 text-[9px] font-semibold" title="Fresh EMA Cross on a specific timeframe — recent directional change">{"{TF}"}x</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="px-1 py-px rounded border bg-emerald-500/20 text-emerald-300 border-emerald-400/40 text-[9px] font-semibold">Q</span>
+                  <span className="text-[#8b95a5]">Entry Quality (0-100)</span>
+                </span>
+                <span className="text-white/10">|</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="px-1 py-px rounded border bg-cyan-500/20 text-cyan-300 border-cyan-400/40 text-[9px] font-semibold">TF</span>
+                  <span className="text-[#8b95a5]">Bullish TFs / 5</span>
+                </span>
+                <span className="text-white/10">|</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="px-1 py-px rounded border bg-orange-500/15 text-orange-300 border-orange-400/30 text-[9px] font-semibold">Vol</span>
+                  <span className="text-[#8b95a5]">LOW / MED / HIGH / EXTREME</span>
+                </span>
+                <span className="text-white/10">|</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="px-1 py-px rounded border bg-emerald-500/15 text-emerald-300 border-emerald-400/30 text-[9px] font-semibold">Regime</span>
+                  <span className="text-[#8b95a5]">Bull/Bear strength (D+W)</span>
+                </span>
+                <span className="text-white/10">|</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="px-1 py-px rounded border bg-purple-500/15 text-purple-300 border-purple-400/30 text-[9px] font-semibold">{"{TF}"}x</span>
+                  <span className="text-[#8b95a5]">Fresh EMA cross</span>
+                </span>
               </div>
             </div>
             <div>

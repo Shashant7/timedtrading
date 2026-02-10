@@ -17964,7 +17964,14 @@ export default {
           try {
             const prevStage =
               data?.kanban_stage != null ? String(data.kanban_stage) : null;
-            const stage = classifyKanbanStage(data);
+            // CRITICAL: Fetch open position so classifyKanbanStage produces
+            // a management-mode stage when there IS an active trade.
+            // Without this, read-time recompute can revert "hold" → "setup".
+            let readTimePosition = null;
+            try {
+              if (env?.DB) readTimePosition = await getPositionContext(env, ticker);
+            } catch { /* non-critical */ }
+            const stage = classifyKanbanStage(data, readTimePosition);
             data.kanban_stage = stage;
             data.kanban_meta = deriveKanbanMeta(data, stage);
             // Track lane transitions even on read-time recompute (so UI can show prev lane + highlight).
