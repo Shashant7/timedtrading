@@ -167,11 +167,13 @@
         const [actionStatus, setActionStatus] = useState(null);
         const [backfillStatus, setBackfillStatus] = useState({});
         const [priceData, setPriceData] = useState({});
+        const [pendingTickers, setPendingTickers] = useState(new Set()); // Optimistic: tickers just added, show until they appear from API
+        const pollUntilRef = useRef(null); // When to stop polling after add
         const addRef = useRef(null);
 
         // ── Fetch data ──
-        const fetchData = useCallback(async () => {
-          setLoading(true);
+        const fetchData = useCallback(async (clearPendingFromResponse = true, skipLoading = false) => {
+          if (!skipLoading) setLoading(true);
           setError(null);
           try {
             const [statusRes, priceRes] = await Promise.all([
@@ -181,6 +183,13 @@
             const json = await statusRes.json();
             if (!json.ok) throw new Error(json.error || "Failed to fetch");
             setData(json);
+            if (clearPendingFromResponse && json.tickers && json.tickers.length) {
+              setPendingTickers(prev => {
+                const next = new Set(prev);
+                json.tickers.forEach(t => next.delete(t.ticker));
+                return next;
+              });
+            }
             try {
               const pJson = await priceRes.json();
               if (pJson.ok && pJson.prices) {
@@ -190,17 +199,42 @@
           } catch (e) {
             setError(e.message);
           } finally {
-            setLoading(false);
+            if (!skipLoading) setLoading(false);
           }
         }, []);
 
         useEffect(() => { fetchData(); }, [fetchData]);
 
-        // ── Derived data ──
+        // After adding tickers: poll ingestion-status every 4s for ~2 min so coverage updates in real time
+        useEffect(() => {
+          if (pendingTickers.size === 0 || !pollUntilRef.current) return;
+          const interval = setInterval(() => {
+            if (Date.now() > pollUntilRef.current) {
+              pollUntilRef.current = null;
+              return;
+            }
+            fetchData(true, true);
+          }, 4000);
+          return () => clearInterval(interval);
+        }, [pendingTickers.size, fetchData]);
+
+        // ── Derived data: merge API tickers with optimistic placeholders for just-added tickers ──
         const tickers = useMemo(() => {
-          if (!data?.tickers) return [];
-          return data.tickers;
-        }, [data]);
+          const fromApi = data?.tickers || [];
+          const fromApiSet = new Set(fromApi.map(t => t.ticker));
+          const placeholders = [...pendingTickers]
+            .filter(t => !fromApiSet.has(t))
+            .map(t => ({
+              ticker: t,
+              sector: "Unknown",
+              pct: 0,
+              quality: 0,
+              missing: [...TFS],
+              tfs: {},
+              backfilling: true,
+            }));
+          return [...fromApi, ...placeholders].sort((a, b) => (a.ticker || "").localeCompare(b.ticker || ""));
+        }, [data, pendingTickers]);
 
         const sectors = useMemo(() => {
           const s = new Set(tickers.map(t => t.sector).filter(Boolean));
@@ -279,17 +313,22 @@
         async function handleAdd() {
           const raw = addInput.trim().toUpperCase();
           if (!raw) return;
-          const tickers = raw.split(/[,\s]+/).filter(Boolean);
-          setActionStatus({ type: "info", msg: `Adding ${tickers.join(", ")}...` });
+          const toAdd = raw.split(/[,\s]+/).filter(Boolean);
+          setActionStatus({ type: "info", msg: `Adding ${toAdd.join(", ")}...` });
           try {
             const res = await fetch(`${API_BASE}/timed/watchlist/add`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
-              body: JSON.stringify({ tickers }),
+              body: JSON.stringify({ tickers: toAdd }),
             });
             const json = await res.json();
             if (json.ok) {
+              const addedList = Array.isArray(json.addedTickers) ? json.addedTickers : (json.added > 0 ? toAdd : []);
+              if (addedList.length > 0) {
+                setPendingTickers(prev => new Set([...prev, ...addedList]));
+                pollUntilRef.current = Date.now() + 120000; // Poll for 2 min so coverage updates
+              }
               const parts = [];
               if (json.added > 0) parts.push(`${json.added} ticker(s) added`);
               if (json.reactivated > 0) parts.push(`${json.reactivated} reactivated`);
@@ -300,7 +339,10 @@
               setAddInput("");
               fetchData();
             } else {
-              setActionStatus({ type: "error", msg: json.error });
+              const msg = json.error === "alpaca_symbol_not_found" && json.message
+                ? json.message
+                : (json.invalid?.length ? `Not in Alpaca universe: ${json.invalid.join(", ")}. Try another symbol.` : json.error);
+              setActionStatus({ type: "error", msg });
             }
           } catch (e) {
             setActionStatus({ type: "error", msg: e.message });
@@ -736,7 +778,7 @@
                             key={t.ticker}
                             className={`border-b border-white/[0.03] hover:bg-white/[0.02] ${
                               selected.has(t.ticker) ? "bg-blue-900/10" : ""
-                            } ${idx % 2 === 0 ? "" : "bg-white/[0.01]"}`}
+                            } ${t.backfilling ? "bg-blue-900/5" : ""} ${idx % 2 === 0 ? "" : "bg-white/[0.01]"}`}
                           >
                             <td className="px-2 py-1.5">
                               <input
@@ -748,7 +790,8 @@
                             </td>
                             <td className="px-3 py-1.5">
                               <span className="font-semibold text-white text-xs">{t.ticker}</span>
-                              {isTV && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-purple-900/40 text-purple-400">TV</span>}
+                              {t.backfilling && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-400" title="Backfill in progress; coverage will update shortly">Backfilling</span>}
+                              {isTV && !t.backfilling && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-purple-900/40 text-purple-400">TV</span>}
                             </td>
                             <td className="px-2 py-1 text-[11px] text-gray-500 max-w-[100px] truncate" title={COMPANY_NAMES[t.ticker] || ""}>{COMPANY_NAMES[t.ticker] || "—"}</td>
                             <td className="px-2 py-1 text-[11px] text-gray-400 max-w-[100px] truncate" title={t.sector}>{t.sector || "—"}</td>
@@ -765,13 +808,17 @@
                                 );
                               })()}
                             </td>
-                            <td className="px-2 py-1.5 text-center" title={`Count-based: ${t.pct}% | Quality: ${t.quality ?? t.pct}%`}>
-                              <span
-                                className="text-xs font-bold px-2 py-0.5 rounded"
-                                style={{ color: pctColor(t.quality ?? t.pct), background: pctBg(t.quality ?? t.pct) }}
-                              >
-                                {t.quality ?? t.pct}%
-                              </span>
+                            <td className="px-2 py-1.5 text-center" title={t.backfilling ? "Backfill in progress" : `Count-based: ${t.pct}% | Quality: ${t.quality ?? t.pct}%`}>
+                              {t.backfilling ? (
+                                <span className="text-[10px] text-amber-400">…</span>
+                              ) : (
+                                <span
+                                  className="text-xs font-bold px-2 py-0.5 rounded"
+                                  style={{ color: pctColor(t.quality ?? t.pct), background: pctBg(t.quality ?? t.pct) }}
+                                >
+                                  {t.quality ?? t.pct}%
+                                </span>
+                              )}
                             </td>
                             {(() => {
                               const pd = priceData?.prices?.[t.ticker];

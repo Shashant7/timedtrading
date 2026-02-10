@@ -2588,9 +2588,10 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
  * @param {string[]} tickers
  * @param {object|Function} _unused - DEPRECATED: previously upsertCandle callback, now ignored
  * @param {string} tfKey - single timeframe to backfill (or "all")
+ * @param {number} [sinceDays] - if set, backfill only the previous N calendar days (default: deep history)
  * @returns {Promise<object>}
  */
-export async function alpacaBackfill(env, tickers, _unused, tfKey = "all") {
+export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", sinceDays = null) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db_binding" };
 
@@ -2611,23 +2612,29 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all") {
     } catch { /* best-effort */ }
   };
 
-  // Calculate start dates per timeframe for deep history.
-  // Intraday TFs: market is open ~6.5h/day (390 min), 5 days/week.
-  // To get N bars: trading_days = N * bar_minutes / 390, calendar_days = trading_days * 7/5 + 5 (buffer).
   const now = new Date();
   const DAY_MS = 24 * 60 * 60 * 1000;
-  const tradingCalDays = (bars, barMinutes) => Math.ceil(bars * barMinutes / 390 * 7 / 5) + 5;
-  const startDates = {
-    "M": new Date(now.getTime() - 365 * 10 * DAY_MS).toISOString(),                    // ~10 years of monthly bars (~120/ticker)
-    "W": new Date(now.getTime() - 300 * 7 * DAY_MS).toISOString(),                     // ~5.8 years (~200 weekly bars)
-    "D": new Date(now.getTime() - 450 * DAY_MS).toISOString(),                         // ~450 calendar days (~300 trading days)
-    "240": new Date(now.getTime() - tradingCalDays(1000, 240) * DAY_MS).toISOString(),  // ~880 calendar days (~300 4H bars)
-    "60": new Date(now.getTime() - tradingCalDays(1000, 60) * DAY_MS).toISOString(),    // ~225 calendar days (~300 1H bars)
-    "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),    // ~115 calendar days (~300 30m bars)
-    "10": new Date(now.getTime() - tradingCalDays(3000, 10) * DAY_MS).toISOString(),    // ~110 calendar days (~3000 10m bars / ~77 trading days)
-    "5": new Date(now.getTime() - tradingCalDays(5000, 5) * DAY_MS).toISOString(),     // ~90 calendar days (~5000 5m bars / ~64 trading days)
-    "1": new Date(now.getTime() - tradingCalDays(390, 1) * DAY_MS).toISOString(),       // ~3 calendar days (~390 1m bars / 1 trading day)
-  };
+
+  // When sinceDays is set (e.g. 30), use a single start date for all TFs: previous N days.
+  // Otherwise use deep-history start dates per TF.
+  let startDates;
+  if (typeof sinceDays === "number" && sinceDays > 0) {
+    const start = new Date(now.getTime() - sinceDays * DAY_MS).toISOString();
+    startDates = { "M": start, "W": start, "D": start, "240": start, "60": start, "30": start, "10": start, "5": start, "1": start };
+  } else {
+    const tradingCalDays = (bars, barMinutes) => Math.ceil(bars * barMinutes / 390 * 7 / 5) + 5;
+    startDates = {
+      "M": new Date(now.getTime() - 365 * 10 * DAY_MS).toISOString(),
+      "W": new Date(now.getTime() - 300 * 7 * DAY_MS).toISOString(),
+      "D": new Date(now.getTime() - 450 * DAY_MS).toISOString(),
+      "240": new Date(now.getTime() - tradingCalDays(1000, 240) * DAY_MS).toISOString(),
+      "60": new Date(now.getTime() - tradingCalDays(1000, 60) * DAY_MS).toISOString(),
+      "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),
+      "10": new Date(now.getTime() - tradingCalDays(3000, 10) * DAY_MS).toISOString(),
+      "5": new Date(now.getTime() - tradingCalDays(5000, 5) * DAY_MS).toISOString(),
+      "1": new Date(now.getTime() - tradingCalDays(390, 1) * DAY_MS).toISOString(),
+    };
+  }
 
   // Process in symbol batches; 4H uses smaller batches to avoid Alpaca pagination timeouts
   const getBatchSize = (tf) => tf === "240" ? 15 : 50;

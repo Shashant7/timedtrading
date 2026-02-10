@@ -12580,6 +12580,26 @@ async function d1GetAllPositionsAsTrades(env) {
   }
 }
 
+/** Get price from timed_trail at or closest to the given timestamp (for correct entry price from candle history). */
+async function getPriceFromTrailAtTimestamp(db, ticker, tsMs) {
+  if (!db || !ticker || !Number.isFinite(tsMs) || tsMs <= 0) return null;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT price FROM timed_trail
+         WHERE ticker = ?1 AND price IS NOT NULL AND price > 0
+         ORDER BY ABS(ts - ?2) ASC
+         LIMIT 1`
+      )
+      .bind(String(ticker).toUpperCase(), tsMs)
+      .first();
+    const p = Number(row?.price);
+    return Number.isFinite(p) && p > 0 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Load all trades from D1 for simulation (same shape as KV). Includes shares from positions. */
 async function d1LoadTradesForSimulation(env) {
   const db = env?.DB;
@@ -12634,7 +12654,7 @@ async function d1LoadTradesForSimulation(env) {
       });
     }
 
-    return rows.map((r) => {
+    const out = rows.map((r) => {
       const history = eventsByTradeId[r.trade_id] || [];
       const entryTs = r.entry_ts != null ? Number(r.entry_ts) : null;
       const posQty = Number(r.pos_qty) || 0;
@@ -12648,6 +12668,7 @@ async function d1LoadTradesForSimulation(env) {
         ticker: String(r.ticker || "").toUpperCase(),
         direction: r.direction,
         entryPrice: r.entry_price != null ? Number(r.entry_price) : undefined,
+        entry_price: r.entry_price != null ? Number(r.entry_price) : undefined,
         entry_ts: entryTs,
         entryTime: entryTs != null ? new Date(entryTs).toISOString() : undefined,
         rank: r.rank,
@@ -12669,6 +12690,17 @@ async function d1LoadTradesForSimulation(env) {
         history,
       };
     });
+
+    // Enrich open trades: resolve entry price from candle history at entry_ts (fixes stale/wrong EP e.g. ULTA)
+    const openTrades = out.filter((t) => (t.status === "OPEN" || !t.exit_ts) && t.entry_ts);
+    for (const t of openTrades) {
+      const fromTrail = await getPriceFromTrailAtTimestamp(db, t.ticker, t.entry_ts);
+      if (fromTrail != null) {
+        t.entryPrice = fromTrail;
+        t.entry_price = fromTrail;
+      }
+    }
+    return out;
   } catch (err) {
     console.error("[D1 LEDGER] d1LoadTradesForSimulation failed:", err);
     return null;
@@ -20006,9 +20038,46 @@ export default {
         }
       }
 
+      // Check which symbols exist and are tradable in Alpaca's US equity universe.
+      // Returns { valid: string[], invalid: string[] }. If Alpaca not configured, returns all as valid.
+      async function alpacaValidateSymbols(env, symbols) {
+        const apiKeyId = env?.ALPACA_API_KEY_ID;
+        const apiSecret = env?.ALPACA_API_SECRET_KEY;
+        if (!apiKeyId || !apiSecret || !symbols.length) {
+          return { valid: [...symbols], invalid: [] };
+        }
+        const base = env.ALPACA_API_BASE || "https://paper-api.alpaca.markets";
+        const valid = [];
+        const invalid = [];
+        for (const sym of symbols) {
+          try {
+            const url = `${base}/v2/assets/${encodeURIComponent(sym)}`;
+            const resp = await fetch(url, {
+              headers: {
+                "APCA-API-KEY-ID": apiKeyId,
+                "APCA-API-SECRET-KEY": apiSecret,
+                "Accept": "application/json",
+              },
+            });
+            if (!resp.ok) {
+              invalid.push(sym);
+              continue;
+            }
+            const asset = await resp.json();
+            if (asset && asset.tradable === true) {
+              valid.push(sym);
+            } else {
+              invalid.push(sym);
+            }
+          } catch (_) {
+            invalid.push(sym);
+          }
+        }
+        return { valid, invalid };
+      }
+
       // POST /timed/watchlist/add?key=... - Add tickers to watchlist
-      // If a ticker was previously removed, it is un-removed and re-activated.
-      // After adding, triggers Alpaca candle backfill so scoring can begin immediately.
+      // Validates equity symbols against Alpaca universe before adding. Then triggers backfill (prev 30 days).
       // Supports both API key and CF Access JWT (admin) authentication.
       if (routeKey === "POST /timed/watchlist/add") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -20026,12 +20095,40 @@ export default {
             );
           }
 
+          // Normalize and dedupe
+          const normalized = [...new Set(tickersToAdd.map(t => String(t).toUpperCase().trim()).filter(Boolean))];
+          if (normalized.length === 0) {
+            return sendJSON(
+              { ok: false, error: "no valid ticker symbols" },
+              400,
+              corsHeaders(env, req),
+            );
+          }
+
+          // Validate equity symbols against Alpaca (skip futures 1!, crypto, etc.)
+          const toValidate = normalized.filter(t => !t.endsWith("1!"));
+          if (toValidate.length > 0 && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+            const { valid: alpacaValid, invalid: alpacaInvalid } = await alpacaValidateSymbols(env, toValidate);
+            if (alpacaInvalid.length > 0) {
+              return sendJSON(
+                {
+                  ok: false,
+                  error: "alpaca_symbol_not_found",
+                  invalid: alpacaInvalid,
+                  message: `These symbols are not in the Alpaca US equity universe or are not tradable: ${alpacaInvalid.join(", ")}. Try another symbol.`,
+                },
+                400,
+                corsHeaders(env, req),
+              );
+            }
+          }
+
           const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
           const blocklist = new Set((await kvGetJSON(KV, "timed:removed")) || []);
           const added = [];
           const reactivated = [];
 
-          for (const ticker of tickersToAdd) {
+          for (const ticker of normalized) {
             const tickerUpper = String(ticker).toUpperCase().trim();
             if (!tickerUpper) continue;
 
@@ -20064,13 +20161,36 @@ export default {
           await kvPutJSON(KV, "timed:tickers", currentTickers);
           await kvPutJSON(KV, "timed:removed", [...blocklist]);
 
+          // Ensure new tickers have a sector_map entry so ingestion-status and SECTOR_MAP show them
+          for (const tickerUpper of added) {
+            try {
+              const existing = await KV.get(`timed:sector_map:${tickerUpper}`, "text");
+              if (!existing || existing.trim() === "") {
+                await KV.put(`timed:sector_map:${tickerUpper}`, "Unknown");
+                SECTOR_MAP[tickerUpper] = "Unknown";
+              }
+            } catch (_) { /* best-effort */ }
+          }
+
+          // Add to D1 ticker_index so /timed/tickers and dashboard include the new ticker immediately
+          const db = env?.DB;
+          if (db && added.length > 0) {
+            try {
+              for (const tickerUpper of added) {
+                await d1UpsertTickerIndex(env, tickerUpper, Date.now());
+              }
+            } catch (e) {
+              console.warn("[WATCHLIST ADD] D1 ticker_index insert failed:", String(e?.message || e).slice(0, 200));
+            }
+          }
+
           // Trigger Alpaca candle backfill for added tickers (background via ctx.waitUntil)
           const backfillTriggered = [];
           if (added.length > 0 && env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
             const tickersToBackfill = added.filter((t) => !t.endsWith("1!")).slice(0, 10);
             if (tickersToBackfill.length > 0) {
               ctx.waitUntil(
-                alpacaBackfill(env, tickersToBackfill, d1UpsertCandle, "all")
+                alpacaBackfill(env, tickersToBackfill, d1UpsertCandle, "all", 30)
                   .then((res) => console.log(`[WATCHLIST ADD] Backfill done:`, JSON.stringify(res)))
                   .catch((err) => console.error(`[WATCHLIST ADD] Backfill error:`, err))
               );
@@ -23318,8 +23438,8 @@ export default {
       // ALPACA INTEGRATION ENDPOINTS
       // ═══════════════════════════════════════════════════════════════════════
 
-      // POST /timed/admin/alpaca-backfill?key=...&tf=all|D|W|...
-      // One-time backfill of historical bars from Alpaca for EMA200 warm-up.
+      // POST /timed/admin/alpaca-backfill?key=...&tf=all|D|W|...&sinceDays=30
+      // One-time backfill of historical bars from Alpaca. sinceDays=30 limits to previous 30 days (default: deep history).
       if (routeKey === "POST /timed/admin/alpaca-backfill") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -23332,6 +23452,8 @@ export default {
         }
 
         const tfParam = url.searchParams.get("tf") || "all";
+        const sinceDaysParam = url.searchParams.get("sinceDays");
+        const sinceDays = sinceDaysParam != null && sinceDaysParam !== "" ? Math.max(1, Number(sinceDaysParam) || 30) : null;
         const tickerParam = normTicker(url.searchParams.get("ticker")) || null;
         const batchOffset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
         const rawLimit = url.searchParams.get("limit");
@@ -23343,7 +23465,7 @@ export default {
 
         // Run backfill in background (will take a while)
         ctx.waitUntil(
-          alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam)
+          alpacaBackfill(env, allTickers, d1UpsertCandle, tfParam, sinceDays)
             .then(res => console.log(`[ALPACA BACKFILL] Done:`, JSON.stringify(res)))
             .catch(err => console.error(`[ALPACA BACKFILL] Error:`, err))
         );
@@ -23554,16 +23676,19 @@ export default {
             gapData[r.ticker][r.tf] = r.date_count;
           }
 
-          // Build report — only include tickers actively tracked in SECTOR_MAP
-          // AND not on the persistent removal blocklist
+          // Build report from canonical watchlist (KV timed:tickers) so newly added
+          // tickers appear immediately even before they have candle data or sector mapping.
           const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+          const kvTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const allTickersSorted = [...new Set([
+            ...kvTickers.filter(t => !removedSet.has(String(t).toUpperCase())),
+            ...Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)),
+          })].map(t => String(t).toUpperCase()).filter(Boolean).sort();
           const report = [];
-          const activeTickers = new Set(Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)));
-          const tickerNames = Object.keys(byTicker).filter(t => activeTickers.has(t)).sort();
           let totalComplete = 0, totalExpected = 0;
           const nowMs = Date.now();
 
-          for (const t of tickerNames) {
+          for (const t of allTickersSorted) {
             const tfData = {};
             let tickerQualitySum = 0;
             let tickerPct = 0;
@@ -23624,16 +23749,15 @@ export default {
           // Sort by quality ascending (worst first)
           report.sort((a, b) => a.quality - b.quality);
 
-          // Summary — also exclude removed tickers
-          const allTickers = Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t));
-          const tickersWithData = new Set(tickerNames);
-          const tickersNoData = allTickers.filter(t => !tickersWithData.has(t));
+          // Summary — based on canonical list
+          const tickersWithData = new Set(report.filter(r => (r.tfs && Object.values(r.tfs).some(tf => tf && tf.count > 0))).map(r => r.ticker));
+          const tickersNoData = allTickersSorted.filter(t => !tickersWithData.has(t));
 
           return sendJSON({
             ok: true,
             summary: {
-              total_tickers_in_system: allTickers.length,
-              tickers_with_candle_data: tickerNames.length,
+              total_tickers_in_system: allTickersSorted.length,
+              tickers_with_candle_data: tickersWithData.size,
               tickers_no_data: tickersNoData.length,
               tickers_no_data_list: tickersNoData.slice(0, 30),
               overall_pct: totalExpected > 0 ? Math.round((totalComplete / totalExpected) * 100) : 0,
