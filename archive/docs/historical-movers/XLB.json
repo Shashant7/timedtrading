@@ -1,0 +1,197 @@
+{
+  "ticker": "XLB",
+  "dataRange": {
+    "firstTs": 1765377000000,
+    "lastTs": 1770690027739,
+    "firstDate": "2025-12-10",
+    "lastDate": "2026-02-10",
+    "totalPoints": 1538,
+    "daysCovered": 61
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "UP",
+      "startIdx": 6,
+      "endIdx": 1504,
+      "startTs": 1765378800000,
+      "endTs": 1770671430088,
+      "startPrice": 43.48,
+      "endPrice": 52.43,
+      "movePct": 20.58417663293469,
+      "duration": 88210.50146666667,
+      "signalSequence": [
+        {
+          "ts": 1765377000000,
+          "time": "2025-12-10T14:30:00",
+          "price": 43.555,
+          "htf": 27.4,
+          "ltf": -4.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.274,
+          "phase": 0.193,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "move_invalidated"
+          ],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765377300000,
+          "time": "2025-12-10T14:35:00",
+          "price": 43.555,
+          "htf": 27.4,
+          "ltf": -4.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.274,
+          "phase": 0.193,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765377600000,
+          "time": "2025-12-10T14:40:00",
+          "price": 43.555,
+          "htf": 27.4,
+          "ltf": -4.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.274,
+          "phase": 0.193,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765377900000,
+          "time": "2025-12-10T14:45:00",
+          "price": 43.555,
+          "htf": 27.4,
+          "ltf": -4.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.274,
+          "phase": 0.193,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765378200000,
+          "time": "2025-12-10T14:50:00",
+          "price": 43.555,
+          "htf": 27.4,
+          "ltf": -4.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.274,
+          "phase": 0.193,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765378500000,
+          "time": "2025-12-10T14:55:00",
+          "price": 43.555,
+          "htf": 27.4,
+          "ltf": -4.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.274,
+          "phase": 0.193,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765378800000,
+          "time": "2025-12-10T15:00:00",
+          "price": 43.48,
+          "htf": 27.3,
+          "ltf": -11,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.274,
+          "phase": 0.193,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1765378800000,
+        "price": 43.48,
+        "htf": 27.3,
+        "ltf": -11,
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": 0.274,
+        "phase": 0.193,
+        "rr": null,
+        "flags": {
+          "move_invalidated": true,
+          "move_completed": false
+        },
+        "trigger_reason": "EMA_CROSS_30M_13_48"
+      }
+    }
+  ],
+  "biggestUp": {
+    "direction": "UP",
+    "startIdx": 6,
+    "endIdx": 1504,
+    "startTs": 1765378800000,
+    "endTs": 1770671430088,
+    "startPrice": 43.48,
+    "endPrice": 52.43,
+    "movePct": 20.58417663293469,
+    "duration": 88210.50146666667
+  },
+  "biggestDown": null
+}

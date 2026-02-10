@@ -38,6 +38,9 @@ npm-debug.log*
 # Cloudflare Pages asset limit (25 MiB/file)
 docs/BEST_SETUPS_ANALYSIS.json
 
+# Local exports (TradingView, etc.)
+TV Exports/
+
 # CloudFlare
 .wrangler/
 wrangler.toml.local

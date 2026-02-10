@@ -1,0 +1,1201 @@
+{
+  "ticker": "GILD",
+  "dataRange": {
+    "firstTs": 1765377000000,
+    "lastTs": 1770690025008,
+    "firstDate": "2025-12-10",
+    "lastDate": "2026-02-10",
+    "totalPoints": 1563,
+    "daysCovered": 61
+  },
+  "movesFound": 2,
+  "topMoves": [
+    {
+      "direction": "UP",
+      "startIdx": 224,
+      "endIdx": 1413,
+      "startTs": 1765569600000,
+      "endTs": 1770409200000,
+      "startPrice": 119.58,
+      "endPrice": 153.035,
+      "movePct": 27.97708646930925,
+      "duration": 80660,
+      "signalSequence": [
+        {
+          "ts": 1765554600000,
+          "time": "2025-12-12T15:50:00",
+          "price": 122.859,
+          "htf": 43.1,
+          "ltf": -5.3,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [
+            "move_invalidated"
+          ],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765554900000,
+          "time": "2025-12-12T15:55:00",
+          "price": 122.77,
+          "htf": 43.1,
+          "ltf": -5.3,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765555200000,
+          "time": "2025-12-12T16:00:00",
+          "price": 122.715,
+          "htf": 39.6,
+          "ltf": 1.3,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_PULLBACK",
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765555500000,
+          "time": "2025-12-12T16:05:00",
+          "price": 123.2804,
+          "htf": 39.6,
+          "ltf": 5.4,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765555800000,
+          "time": "2025-12-12T16:10:00",
+          "price": 123.43,
+          "htf": 39.6,
+          "ltf": 7.1,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765556100000,
+          "time": "2025-12-12T16:15:00",
+          "price": 123.3,
+          "htf": 39.6,
+          "ltf": 5.4,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765556400000,
+          "time": "2025-12-12T16:20:00",
+          "price": 123.19,
+          "htf": 39.6,
+          "ltf": 5.4,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765556700000,
+          "time": "2025-12-12T16:25:00",
+          "price": 123.2875,
+          "htf": 39.6,
+          "ltf": 5.4,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765557000000,
+          "time": "2025-12-12T16:30:00",
+          "price": 123.18,
+          "htf": 39.6,
+          "ltf": -6.3,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": true,
+          "prevState": "HTF_BULL_LTF_BULL",
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [
+            "st_flip_30m"
+          ],
+          "activeFlags": [
+            "st_flip_30m",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765557300000,
+          "time": "2025-12-12T16:35:00",
+          "price": 123.29,
+          "htf": 39.6,
+          "ltf": -6.1,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "st_flip_30m",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765557600000,
+          "time": "2025-12-12T16:40:00",
+          "price": 123.06,
+          "htf": 39.6,
+          "ltf": -11.5,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "st_flip_30m",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765557900000,
+          "time": "2025-12-12T16:45:00",
+          "price": 122.88,
+          "htf": 39.6,
+          "ltf": -11.5,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "st_flip_30m",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765558200000,
+          "time": "2025-12-12T16:50:00",
+          "price": 122.475,
+          "htf": 39.6,
+          "ltf": -11.9,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "st_flip_30m",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765558500000,
+          "time": "2025-12-12T16:55:00",
+          "price": 122.39,
+          "htf": 39.6,
+          "ltf": -11.6,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "st_flip_30m",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765558800000,
+          "time": "2025-12-12T17:00:00",
+          "price": 122.25,
+          "htf": 37.6,
+          "ltf": -22.1,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [
+            "sq30_release",
+            "momentum_elite",
+            "st_flip_1h"
+          ],
+          "activeFlags": [
+            "sq30_release",
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765559100000,
+          "time": "2025-12-12T17:05:00",
+          "price": 121.92,
+          "htf": 37.6,
+          "ltf": -22.1,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "sq30_release",
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765559400000,
+          "time": "2025-12-12T17:10:00",
+          "price": 121.975,
+          "htf": 37.6,
+          "ltf": -22.1,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "sq30_release",
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765559700000,
+          "time": "2025-12-12T17:15:00",
+          "price": 122.075,
+          "htf": 37.6,
+          "ltf": -20.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "sq30_release",
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765560000000,
+          "time": "2025-12-12T17:20:00",
+          "price": 122.02,
+          "htf": 37.6,
+          "ltf": -20.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "sq30_release",
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765560300000,
+          "time": "2025-12-12T17:25:00",
+          "price": 121.935,
+          "htf": 37.6,
+          "ltf": -22.2,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "sq30_release",
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765560600000,
+          "time": "2025-12-12T17:30:00",
+          "price": 121.88,
+          "htf": 37.6,
+          "ltf": -15.9,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765560900000,
+          "time": "2025-12-12T17:35:00",
+          "price": 121.45,
+          "htf": 37.6,
+          "ltf": -16.7,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765561200000,
+          "time": "2025-12-12T17:40:00",
+          "price": 121.315,
+          "htf": 37.6,
+          "ltf": -16.7,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765561500000,
+          "time": "2025-12-12T17:45:00",
+          "price": 121.4224,
+          "htf": 37.6,
+          "ltf": -16.8,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765561800000,
+          "time": "2025-12-12T17:50:00",
+          "price": 121.74,
+          "htf": 37.6,
+          "ltf": -15.6,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765562100000,
+          "time": "2025-12-12T17:55:00",
+          "price": 121.895,
+          "htf": 37.6,
+          "ltf": -15.9,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "st_flip_1h",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765562400000,
+          "time": "2025-12-12T18:00:00",
+          "price": 121.79,
+          "htf": 38,
+          "ltf": -7.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765562700000,
+          "time": "2025-12-12T18:05:00",
+          "price": 121.42,
+          "htf": 38,
+          "ltf": -7.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765563000000,
+          "time": "2025-12-12T18:10:00",
+          "price": 121.33,
+          "htf": 38,
+          "ltf": -7.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765563300000,
+          "time": "2025-12-12T18:15:00",
+          "price": 121.26,
+          "htf": 38,
+          "ltf": -7.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765563600000,
+          "time": "2025-12-12T18:20:00",
+          "price": 121.265,
+          "htf": 38,
+          "ltf": -9.2,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765563900000,
+          "time": "2025-12-12T18:25:00",
+          "price": 121.26,
+          "htf": 38,
+          "ltf": -7.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765564200000,
+          "time": "2025-12-12T18:30:00",
+          "price": 121.45,
+          "htf": 38,
+          "ltf": -11.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765564500000,
+          "time": "2025-12-12T18:35:00",
+          "price": 121.02,
+          "htf": 38,
+          "ltf": -13.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765564800000,
+          "time": "2025-12-12T18:40:00",
+          "price": 120.8,
+          "htf": 38,
+          "ltf": -12.8,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765565100000,
+          "time": "2025-12-12T18:45:00",
+          "price": 120.44,
+          "htf": 38,
+          "ltf": -12.8,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765565400000,
+          "time": "2025-12-12T18:50:00",
+          "price": 120.525,
+          "htf": 38,
+          "ltf": -12.9,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765565700000,
+          "time": "2025-12-12T18:55:00",
+          "price": 120.335,
+          "htf": 38,
+          "ltf": -12.8,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765566000000,
+          "time": "2025-12-12T19:00:00",
+          "price": 120.43,
+          "htf": 37.9,
+          "ltf": -13.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765566300000,
+          "time": "2025-12-12T19:05:00",
+          "price": 120.45,
+          "htf": 37.9,
+          "ltf": -11.6,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765566600000,
+          "time": "2025-12-12T19:10:00",
+          "price": 120.34,
+          "htf": 37.9,
+          "ltf": -11.6,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765566900000,
+          "time": "2025-12-12T19:15:00",
+          "price": 120.19,
+          "htf": 37.9,
+          "ltf": -13.3,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765567200000,
+          "time": "2025-12-12T19:20:00",
+          "price": 120.265,
+          "htf": 37.9,
+          "ltf": -13.4,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765567500000,
+          "time": "2025-12-12T19:25:00",
+          "price": 120.385,
+          "htf": 37.9,
+          "ltf": -12.2,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765567800000,
+          "time": "2025-12-12T19:30:00",
+          "price": 120.12,
+          "htf": 37.9,
+          "ltf": -13,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765568100000,
+          "time": "2025-12-12T19:35:00",
+          "price": 119.94,
+          "htf": 37.9,
+          "ltf": -14.8,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765568400000,
+          "time": "2025-12-12T19:40:00",
+          "price": 119.93,
+          "htf": 37.9,
+          "ltf": -14.8,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765568700000,
+          "time": "2025-12-12T19:45:00",
+          "price": 120.02,
+          "htf": 37.9,
+          "ltf": -14.8,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765569000000,
+          "time": "2025-12-12T19:50:00",
+          "price": 120.13,
+          "htf": 37.9,
+          "ltf": -13.6,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765569300000,
+          "time": "2025-12-12T19:55:00",
+          "price": 119.94,
+          "htf": 37.9,
+          "ltf": -13,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [],
+          "activeFlags": [
+            "momentum_elite",
+            "move_invalidated"
+          ],
+          "isStart": false
+        },
+        {
+          "ts": 1765569600000,
+          "time": "2025-12-12T20:00:00",
+          "price": 119.58,
+          "htf": 36.5,
+          "ltf": -11.6,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": false,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.306,
+          "phase": 0.256,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [
+            "ema_cross_1h_13_48"
+          ],
+          "activeFlags": [
+            "momentum_elite",
+            "ema_cross_1h_13_48",
+            "move_invalidated"
+          ],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1765569600000,
+        "price": 119.58,
+        "htf": 36.5,
+        "ltf": -11.6,
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": 0.306,
+        "phase": 0.256,
+        "rr": null,
+        "flags": {
+          "ema_cross_1h_13_48": true,
+          "ema_cross_1h_13_48_ts": 1765569600000,
+          "momentum_elite": true,
+          "move_invalidated": true,
+          "move_completed": false
+        },
+        "trigger_reason": "SQUEEZE_RELEASE"
+      }
+    },
+    {
+      "direction": "UP",
+      "startIdx": 0,
+      "endIdx": 127,
+      "startTs": 1765377000000,
+      "endTs": 1765477800000,
+      "startPrice": 119,
+      "endPrice": 123.605,
+      "movePct": 3.8697478991596674,
+      "duration": 1680,
+      "signalSequence": [
+        {
+          "ts": 1765377000000,
+          "time": "2025-12-10T14:30:00",
+          "price": 119,
+          "htf": 36.4,
+          "ltf": -8.2,
+          "state": "HTF_BULL_LTF_PULLBACK",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.3,
+          "phase": 0.196,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [
+            "move_invalidated"
+          ],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1765377000000,
+        "price": 119,
+        "htf": 36.4,
+        "ltf": -8.2,
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": 0.3,
+        "phase": 0.196,
+        "rr": null,
+        "flags": {
+          "move_invalidated": true,
+          "move_completed": false
+        },
+        "trigger_reason": "SQUEEZE_RELEASE"
+      }
+    }
+  ],
+  "biggestUp": {
+    "direction": "UP",
+    "startIdx": 224,
+    "endIdx": 1413,
+    "startTs": 1765569600000,
+    "endTs": 1770409200000,
+    "startPrice": 119.58,
+    "endPrice": 153.035,
+    "movePct": 27.97708646930925,
+    "duration": 80660
+  },
+  "biggestDown": null
+}

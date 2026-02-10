@@ -1,0 +1,70 @@
+{
+  "ticker": "GOOG",
+  "dataRange": {
+    "firstTs": 1770560133198,
+    "lastTs": 1770656437808,
+    "firstDate": "2026-02-08",
+    "lastDate": "2026-02-09",
+    "totalPoints": 33,
+    "daysCovered": 1
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "DOWN",
+      "startIdx": 0,
+      "endIdx": 27,
+      "startTs": 1770560133198,
+      "endTs": 1770651935495,
+      "startPrice": 344.32,
+      "endPrice": 324.735,
+      "movePct": -5.6880227695167225,
+      "duration": 1530.0382833333333,
+      "signalSequence": [
+        {
+          "ts": 1770560133198,
+          "time": "2026-02-08T14:15:33",
+          "price": 344.32,
+          "htf": 44.4,
+          "ltf": 4.6,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 0,
+          "completion": 1,
+          "phase": 0.114,
+          "rr": null,
+          "trigger_reason": null,
+          "newFlags": [],
+          "activeFlags": [],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1770560133198,
+        "price": 344.32,
+        "htf": 44.4,
+        "ltf": 4.6,
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": 1,
+        "phase": 0.114,
+        "rr": null,
+        "flags": {},
+        "trigger_reason": null
+      }
+    }
+  ],
+  "biggestUp": null,
+  "biggestDown": {
+    "direction": "DOWN",
+    "startIdx": 0,
+    "endIdx": 27,
+    "startTs": 1770560133198,
+    "endTs": 1770651935495,
+    "startPrice": 344.32,
+    "endPrice": 324.735,
+    "movePct": -5.6880227695167225,
+    "duration": 1530.0382833333333
+  }
+}

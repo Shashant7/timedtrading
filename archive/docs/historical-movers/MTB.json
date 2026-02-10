@@ -1,0 +1,77 @@
+{
+  "ticker": "MTB",
+  "dataRange": {
+    "firstTs": 1765377000000,
+    "lastTs": 1770690024533,
+    "firstDate": "2025-12-10",
+    "lastDate": "2026-02-10",
+    "totalPoints": 1536,
+    "daysCovered": 61
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "UP",
+      "startIdx": 0,
+      "endIdx": 1398,
+      "startTs": 1765377000000,
+      "endTs": 1770404700000,
+      "startPrice": 196.74,
+      "endPrice": 238.495,
+      "movePct": 21.22344210633323,
+      "duration": 83795,
+      "signalSequence": [
+        {
+          "ts": 1765377000000,
+          "time": "2025-12-10T14:30:00",
+          "price": 196.74,
+          "htf": 48,
+          "ltf": 1.7,
+          "state": "HTF_BULL_LTF_BULL",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.281,
+          "phase": 0.982,
+          "rr": null,
+          "trigger_reason": "SQUEEZE_RELEASE",
+          "newFlags": [
+            "move_invalidated"
+          ],
+          "activeFlags": [
+            "move_invalidated"
+          ],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1765377000000,
+        "price": 196.74,
+        "htf": 48,
+        "ltf": 1.7,
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": 0.281,
+        "phase": 0.982,
+        "rr": null,
+        "flags": {
+          "move_invalidated": true,
+          "move_completed": false
+        },
+        "trigger_reason": "SQUEEZE_RELEASE"
+      }
+    }
+  ],
+  "biggestUp": {
+    "direction": "UP",
+    "startIdx": 0,
+    "endIdx": 1398,
+    "startTs": 1765377000000,
+    "endTs": 1770404700000,
+    "startPrice": 196.74,
+    "endPrice": 238.495,
+    "movePct": 21.22344210633323,
+    "duration": 83795
+  },
+  "biggestDown": null
+}

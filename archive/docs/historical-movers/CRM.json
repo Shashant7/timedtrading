@@ -1,0 +1,76 @@
+{
+  "ticker": "CRM",
+  "dataRange": {
+    "firstTs": 1770560128623,
+    "lastTs": 1770656425943,
+    "firstDate": "2026-02-08",
+    "lastDate": "2026-02-09",
+    "totalPoints": 33,
+    "daysCovered": 1
+  },
+  "movesFound": 1,
+  "topMoves": [
+    {
+      "direction": "DOWN",
+      "startIdx": 0,
+      "endIdx": 27,
+      "startTs": 1770560128623,
+      "endTs": 1770651924312,
+      "startPrice": 199.63,
+      "endPrice": 188.1,
+      "movePct": -5.7756850172819725,
+      "duration": 1529.92815,
+      "signalSequence": [
+        {
+          "ts": 1770560128623,
+          "time": "2026-02-08T14:15:28",
+          "price": 199.63,
+          "htf": -34.5,
+          "ltf": 10.2,
+          "state": "HTF_BEAR_LTF_PULLBACK",
+          "stateChanged": null,
+          "prevState": null,
+          "rank": 0,
+          "completion": 0.34,
+          "phase": 0.952,
+          "rr": null,
+          "trigger_reason": "EMA_CROSS_30M_13_48",
+          "newFlags": [
+            "momentum_elite"
+          ],
+          "activeFlags": [
+            "momentum_elite"
+          ],
+          "isStart": true
+        }
+      ],
+      "atStart": {
+        "ts": 1770560128623,
+        "price": 199.63,
+        "htf": -34.5,
+        "ltf": 10.2,
+        "state": "HTF_BEAR_LTF_PULLBACK",
+        "rank": 0,
+        "completion": 0.34,
+        "phase": 0.952,
+        "rr": null,
+        "flags": {
+          "momentum_elite": true
+        },
+        "trigger_reason": "EMA_CROSS_30M_13_48"
+      }
+    }
+  ],
+  "biggestUp": null,
+  "biggestDown": {
+    "direction": "DOWN",
+    "startIdx": 0,
+    "endIdx": 27,
+    "startTs": 1770560128623,
+    "endTs": 1770651924312,
+    "startPrice": 199.63,
+    "endPrice": 188.1,
+    "movePct": -5.7756850172819725,
+    "duration": 1529.92815
+  }
+}
