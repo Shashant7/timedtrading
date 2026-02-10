@@ -1,0 +1,11 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Cloudflare Pages configuration
+#
+# This wrangler.toml enables Pages Functions (the _worker.js proxy) for the
+# timedtrading Pages project.  The API Worker has its own config at
+# worker/wrangler.toml — they don't conflict.
+# ═══════════════════════════════════════════════════════════════════════════
+
+name = "timedtrading"
+pages_build_output_dir = "react-app"
+compatibility_date = "2024-09-23"
