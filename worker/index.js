@@ -32,8 +32,11 @@ import {
   ackJSON,
   readBodyAsJSON,
   requireKeyOr401,
+  requireKeyOrAdmin,
   checkRateLimit,
   checkRateLimitFixedWindow,
+  authenticateUser,
+  requireUser,
 } from "./api.js";
 import {
   notifyDiscord,
@@ -43,6 +46,7 @@ import {
 import {
   alpacaCronFetchLatest,
   alpacaBackfill,
+  alpacaFetchSnapshots,
   computeServerSideScores,
   computeTfBundle,
   assembleTickerData,
@@ -163,6 +167,7 @@ const ROUTES = [
   ["GET", "/timed/latest", "GET /timed/latest"],
   ["GET", "/timed/tickers", "GET /timed/tickers"],
   ["GET", "/timed/all", "GET /timed/all"],
+  ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/candles", "GET /timed/candles"],
   ["GET", "/timed/trail/performance", "GET /timed/trail/performance"],
   ["GET", "/timed/trail", "GET /timed/trail"],
@@ -175,6 +180,7 @@ const ROUTES = [
   ["GET", (p) => p.startsWith("/timed/sectors/") && p.endsWith("/tickers"), "GET /timed/sectors/:sector/tickers"],
   ["POST", "/timed/debug/fix-index", "POST /timed/debug/fix-index"],
   ["POST", "/timed/watchlist/add", "POST /timed/watchlist/add"],
+  ["POST", "/timed/watchlist/remove", "POST /timed/watchlist/remove"],
   ["GET", "/timed/activity", "GET /timed/activity"],
   ["GET", "/timed/check-ticker", "GET /timed/check-ticker"],
   ["GET", "/timed/ingest-status", "GET /timed/ingest-status"],
@@ -242,7 +248,11 @@ const ROUTES = [
   ["POST", "/timed/admin/backfill-derived", "POST /timed/admin/backfill-derived"],
   ["POST", "/timed/admin/alpaca-backfill", "POST /timed/admin/alpaca-backfill"],
   ["POST", "/timed/admin/alpaca-compute", "POST /timed/admin/alpaca-compute"],
+  ["POST", "/timed/admin/purge-ticker-candles", "POST /timed/admin/purge-ticker-candles"],
   ["GET", "/timed/admin/alpaca-status", "GET /timed/admin/alpaca-status"],
+  ["GET", "/timed/admin/ingestion-status", "GET /timed/admin/ingestion-status"],
+  ["GET", "/timed/admin/backfill-status", "GET /timed/admin/backfill-status"],
+  ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
   ["POST", "/timed/admin/run-lifecycle", "POST /timed/admin/run-lifecycle"],
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
@@ -253,6 +263,13 @@ const ROUTES = [
   ["GET", "/timed/model/patterns", "GET /timed/model/patterns"],
   ["GET", "/timed/model/changelog", "GET /timed/model/changelog"],
   ["GET", "/timed/model/signals", "GET /timed/model/signals"],
+  // Screener / Discovery
+  ["GET", "/timed/screener/candidates", "GET /timed/screener/candidates"],
+  ["POST", "/timed/screener/candidates", "POST /timed/screener/candidates"],
+  // User / Auth
+  ["GET", "/timed/me", "GET /timed/me"],
+  ["GET", "/timed/admin/users", "GET /timed/admin/users"],
+  ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -295,6 +312,22 @@ function isNyWeekend(tsMs) {
     return wd.startsWith("sat") || wd.startsWith("sun");
   } catch {
     return false;
+  }
+}
+
+// Check if NY regular trading hours (9:30 AM - 4:00 PM ET weekdays)
+function isNyRegularMarketOpen(now = new Date()) {
+  try {
+    const wd = String(NY_WD_FMT.format(now)).toLowerCase();
+    const isWeekday = wd.startsWith("mon") || wd.startsWith("tue") || wd.startsWith("wed") || wd.startsWith("thu") || wd.startsWith("fri");
+    if (!isWeekday) return false;
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(now);
+    const map = {};
+    for (const p of parts) map[p.type] = Number(p.value);
+    const mins = (map.hour || 0) * 60 + (map.minute || 0);
+    return mins >= 570 && mins < 960; // 9:30 AM - 3:59 PM ET (no new entries at 4:00 PM close)
+  } catch {
+    return true; // fail open
   }
 }
 
@@ -561,24 +594,20 @@ async function ensureTickerIndex(KV, ticker) {
   try {
     const key = "timed:tickers";
 
+    // Respect the persistent removal blocklist — never re-add removed tickers
+    try {
+      const blocklist = await KV.get("timed:removed", "json");
+      if (Array.isArray(blocklist) && blocklist.includes(ticker)) {
+        return; // Ticker was intentionally removed, don't re-add
+      }
+    } catch (_) { /* best-effort blocklist check */ }
+
     // Use retry logic to handle race conditions
     let retries = 3;
     let success = false;
 
     while (retries > 0 && !success) {
       const cur = (await kvGetJSON(KV, key)) || [];
-
-      // Debug: Always log for BMNR/BABA/ETHT
-      if (ticker === "BMNR" || ticker === "BABA" || ticker === "ETHT") {
-        console.log(
-          `[TICKER INDEX] ensureTickerIndex called for ${ticker} (retries: ${retries}):`,
-          {
-            alreadyInIndex: cur.includes(ticker),
-            currentIndexSize: cur.length,
-            indexSample: cur.slice(0, 10),
-          },
-        );
-      }
 
       if (!cur.includes(ticker)) {
         cur.push(ticker);
@@ -647,7 +676,7 @@ function marketType(ticker) {
   const t = String(ticker || "").toUpperCase();
   if (t.endsWith("USDT") || t.endsWith("USD")) return "CRYPTO_24_7";
   if (t.endsWith("1!")) return "FUTURES_24_5";
-  if (["DXY", "US500", "USOIL", "GOLD", "SILVER"].includes(t)) return "MACRO";
+  if (["DXY", "US500", "USOIL", "GOLD", "SILVER", "GC1!", "SI1!"].includes(t)) return "MACRO";
   return "EQUITY_RTH";
 }
 
@@ -805,40 +834,39 @@ function hasPayloadChangedMeaningfully(existing, newPayload) {
 }
 
 function computeRR(d) {
-  // RR should be based on the "entry reference" (trigger price when available),
-  // otherwise it looks artificially better/worse after a move has already run.
+  // RR is always based on CURRENT price — "if I enter now, what's my R:R?"
+  // Using trigger_price caused two bugs:
+  //   1. trigger near SL → inflated RR (e.g. 26x when realistic is 1.7x)
+  //   2. SL recalculated to wrong side of trigger → null RR
+  // Current price is the only actionable reference for trade decisions.
   const price = Number(d.price);
-  const entryRefRaw = Number(d.trigger_price);
-  const entryRef =
-    Number.isFinite(entryRefRaw) && entryRefRaw > 0 ? entryRefRaw : price;
   const sl = Number(d.sl);
-  if (!Number.isFinite(entryRef) || !Number.isFinite(sl)) return null;
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(sl) || sl <= 0)
+    return null;
 
-  // Use MAX TP from tp_levels if available, otherwise fall back to first TP
-  let tp = Number(d.tp_max_price);
-  if (!Number.isFinite(tp)) tp = Number(d.tp_target_price);
-  if (!Number.isFinite(tp)) tp = Number(d.tp);
-  if (d.tp_levels && Array.isArray(d.tp_levels) && d.tp_levels.length > 0) {
-    // Extract prices from tp_levels (handle both object and number formats)
-    const tpPrices = d.tp_levels
-      .map((tpItem) => {
-        if (
-          typeof tpItem === "object" &&
-          tpItem !== null &&
-          tpItem.price != null
-        ) {
-          return Number(tpItem.price);
-        }
-        return typeof tpItem === "number" ? Number(tpItem) : Number(tpItem);
-      })
-      .filter((p) => Number.isFinite(p));
-
-    if (tpPrices.length > 0) {
-      // Use maximum TP for LONG, minimum for SHORT
-      const state = String(d.state || "");
-      const isLong = state.includes("BULL");
-      const isShort = state.includes("BEAR");
-      tp = isShort ? Math.min(...tpPrices) : Math.max(...tpPrices);
+  // Prefer 3-Tier TP exit level (swing-scaled, 1.0× weekly ATR), then legacy TPs
+  let tp = Number(d.tp_exit);
+  if (!Number.isFinite(tp) || tp <= 0) tp = Number(d.tp_runner);
+  const has3TierTP = Number.isFinite(tp) && tp > 0;
+  if (!has3TierTP) {
+    tp = Number(d.tp_max_price);
+    if (!Number.isFinite(tp) || tp <= 0) tp = Number(d.tp_target_price);
+    if (!Number.isFinite(tp) || tp <= 0) tp = Number(d.tp);
+    // Legacy tp_levels fallback (only when no 3-tier TPs)
+    if (d.tp_levels && Array.isArray(d.tp_levels) && d.tp_levels.length > 0) {
+      const tpPrices = d.tp_levels
+        .map((tpItem) => {
+          if (typeof tpItem === "object" && tpItem !== null && tpItem.price != null) {
+            return Number(tpItem.price);
+          }
+          return Number(tpItem);
+        })
+        .filter((p) => Number.isFinite(p));
+      if (tpPrices.length > 0) {
+        const state = String(d.state || "");
+        const isShort = state.includes("BEAR");
+        tp = isShort ? Math.min(...tpPrices) : Math.max(...tpPrices);
+      }
     }
   }
 
@@ -852,17 +880,17 @@ function computeRR(d) {
   let risk, gain;
 
   if (isLong) {
-    // For LONG: SL should be below entryRef, TP should be above entryRef
-    risk = entryRef - sl;
-    gain = tp - entryRef;
+    // For LONG: SL below price, TP above price
+    risk = price - sl;
+    gain = tp - price;
   } else if (isShort) {
-    // For SHORT: SL should be above entryRef, TP should be below entryRef
-    risk = sl - entryRef;
-    gain = entryRef - tp;
+    // For SHORT: SL above price, TP below price
+    risk = sl - price;
+    gain = price - tp;
   } else {
     // Fallback to absolute values if direction unclear
-    risk = Math.abs(entryRef - sl);
-    gain = Math.abs(tp - entryRef);
+    risk = Math.abs(price - sl);
+    gain = Math.abs(tp - price);
   }
 
   // Ensure both risk and gain are positive
@@ -1050,10 +1078,13 @@ function computeRRTargets(ticker) {
   const price = Number(ticker?.price);
   const triggerPrice = Number(ticker?.trigger_price);
   const sl = Number(ticker?.sl);
+  // Prefer 3-Tier tp_exit (swing-scaled), then legacy TPs
   const tpLikely =
+    Number(ticker?.tp_exit) ||
+    Number(ticker?.tp_runner) ||
     Number(ticker?.tp_target_price) ||
     Number(ticker?.tp_target) ||
-    Number(ticker?.tp_target_price);
+    Number(ticker?.tp);
   const tpRef = Number.isFinite(tpLikely) && tpLikely > 0 ? tpLikely : null;
   if (!tpRef || !Number.isFinite(sl) || sl <= 0) return null;
 
@@ -1706,56 +1737,67 @@ function qualifiesForEnter(d, asOfTs = null) {
   // UNIVERSAL HARD GATES: Apply to ALL entries
   // ═══════════════════════════════════════════════════════════════════════════
   
-  // Trigger freshness: reject stale triggers (> 7 days old for replays, allows more historical data)
-  // Use asOfTs for replays (historical data), otherwise current time
+  // Trigger freshness: reject stale triggers
+  // Live: 15 minutes max (server-side scoring refreshes trigger_ts every cycle)
+  // Replay: 7 days max (allows historical data processing)
   const triggerTs = Number(d?.trigger_ts) || 0;
   const now = asOfTs > 0 ? asOfTs : Date.now();
-  const triggerAgeDays = triggerTs > 0 ? (now - triggerTs) / (1000 * 60 * 60 * 24) : 999;
-  if (triggerAgeDays > 7) {
+  const isReplayMode = asOfTs > 0;
+  const maxTriggerAgeMs = isReplayMode ? 7 * 24 * 60 * 60 * 1000 : 15 * 60 * 1000;
+  const triggerAgeMs = triggerTs > 0 ? (now - triggerTs) : Infinity;
+  if (triggerAgeMs > maxTriggerAgeMs) {
     return { qualifies: false, reason: "trigger_stale" };
   }
   
+  // ── Phase 1a: Entry Quality Score Gate ──
+  // Minimum quality score from Phoenix-inspired multi-TF alignment check.
+  // Momentum entries need >= 60, pullback entries need >= 45.
+  // Volatility tier can raise the minimum (HIGH/EXTREME harder to qualify).
+  const eqScore = Number(d?.entry_quality?.score) || 0;
+  const volTier = String(d?.volatility_tier || "MEDIUM");
+  const volEntryMin = volTier === "EXTREME" ? 70 : volTier === "HIGH" ? 65 : volTier === "MEDIUM" ? 55 : 50;
+
+  // ── Phase 1c: RSI Exhaustion Block on 1H ──
+  // No LONG if 1H RSI > 72, no SHORT if 1H RSI < 28 (swing-appropriate levels)
+  const rsi1H = Number(d?.entry_quality?.details?.rsi1H) || 50;
+  const inferredSideForRSI = sideFromStateOrScores(d);
+  if (inferredSideForRSI === "LONG" && rsi1H > 72) {
+    return { qualifies: false, reason: "rsi_1h_overbought", rsi1H };
+  }
+  if (inferredSideForRSI === "SHORT" && rsi1H < 28) {
+    return { qualifies: false, reason: "rsi_1h_oversold", rsi1H };
+  }
+
   // Completion gate: must have room to run
-  // JOURNEY DATA: Top sustained moves had median completion <30% at start.
-  // Tighter than before: cap at 50% (momentum) / 70% (pullback)
+  // Phase 1c: tightened from 50%/70% to 40%/60%
   const isPullback = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
-  const maxCompletion = isPullback ? 0.70 : 0.50;
+  const maxCompletion = isPullback ? 0.60 : 0.40;
   if (completion > maxCompletion) {
     return { qualifies: false, reason: "move_too_advanced" };
   }
   
   // Fuel gate (replaces binary phase gate): continuous 0-100% measure of move exhaustion
-  // Combines phase oscillator (60%) + RSI distance from extremes (40%)
-  // Minimum fuel required: 40% for momentum, 30% for pullback (pullbacks inherently show lower fuel)
-  // Legacy fallback: if fuel data not available, use the old phase gate
+  // Phase 1c: tightened fuel minimums (40→45 momentum, 30→35 pullback)
   const hasFuelData = d?.fuel != null;
   if (hasFuelData) {
-    const minFuel = isPullback ? 30 : 40;
+    const minFuel = isPullback ? 35 : 45;
     if (primaryFuel < minFuel) {
       return { qualifies: false, reason: "fuel_exhausted", fuelPct: primaryFuel };
     }
   } else {
-    // Legacy phase gate (backward compat for data without fuel fields)
-    const maxPhase = isPullback ? 0.60 : 0.45;
+    // Legacy phase gate — Phase 1c: tightened from 0.60/0.45 to 0.50/0.35
+    const maxPhase = isPullback ? 0.50 : 0.35;
     if (Math.abs(phase) > maxPhase) {
       return { qualifies: false, reason: "phase_too_late" };
     }
   }
   
   // RR gate: must have favorable risk/reward
-  // CANDLE BACKTEST DATA (Jan 13 - Feb 7, 2,257 closed trades):
-  //   RR < 1.5: 22.8% WR (1,166 trades — too many bad entries)
-  //   RR 1.5-3: 48.0% WR (546 trades — breakeven+)
-  //   RR 3-5:   66.2% WR (296 trades — good edge)
-  //   RR 5+:    87.1% WR (249 trades — strong edge)
-  // TUNING v2: Pullback entries naturally have lower computed RR (tight ATR-based SL).
-  //   Fully blocking RR < 1.5 killed 84% of trades including the 37.8% WR pullback longs.
-  //   Graduated: RR >= 1.5 for momentum, RR >= 1.0 for pullbacks (prevents only truly terrible setups)
-  // Skip R:R check when RR cannot be computed (missing SL/TP in stored data)
+  // Phase 1c: tighten minimums — 1.5 for momentum, 1.2 for pullbacks
   // Skip R:R check for gold_short entries (TradingView sends LONG-oriented SL/TP)
   const isPotentialGoldShort = state === "HTF_BULL_LTF_BULL" && htf >= 25 && ltf >= 15;
   const rrKnown = Number.isFinite(rr) && rr > 0;
-  const rrMin = isPullback ? 1.0 : 1.5;
+  const rrMin = isPullback ? 1.2 : 1.5;
   if (rrKnown && rr < rrMin && !isPotentialGoldShort) {
     return { qualifies: false, reason: "rr_too_low" };
   }
@@ -1883,9 +1925,20 @@ function qualifiesForEnter(d, asOfTs = null) {
   
   // ── PRECISION ENRICHMENT HELPER ──
   // Wraps entry path results with precision scoring context.
+  // Phase 1a: Apply entry quality score gate here (after path-specific logic).
   // Golden Gate active → confidence upgrade. Multi-horizon gate → highest conviction.
   const enrichResult = (result) => {
     if (!result.qualifies) return result;
+
+    // Phase 1a: Entry quality gate — reject low-quality setups
+    // Momentum paths: minimum volEntryMin (55-70 depending on vol tier)
+    // Pullback/gold paths: minimum 45 (pullbacks naturally have lower alignment)
+    const isGoldPath = result.path?.includes("gold") || result.path?.includes("pullback");
+    const minQuality = isGoldPath ? 45 : volEntryMin;
+    if (eqScore > 0 && eqScore < minQuality) {
+      return { qualifies: false, reason: "entry_quality_too_low", eqScore, minQuality };
+    }
+
     // Golden Gate confidence boost
     const isLong = !result.path?.includes("short");
     const gateMatch = isLong ? hasActiveBullGate : hasActiveBearGate;
@@ -1905,6 +1958,8 @@ function qualifiesForEnter(d, asOfTs = null) {
       emaMom30, emaMomD,
       activeGateCount: activeGates.length,
     };
+    // Phase 1a: attach entry quality for model learning and dashboard
+    result.entryQuality = eqScore;
     return result;
   };
   
@@ -2077,7 +2132,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const direction = String(openPosition.direction || "").toUpperCase();
     const entryPrice = Number(openPosition.entryPrice || openPosition.avgEntry);
     const entryTs = Number(openPosition.entry_ts || openPosition.created_at) || 0;
-    const now = Date.now();
+    const now = (asOfTs != null && Number.isFinite(Number(asOfTs))) ? Number(asOfTs) : Date.now();
     const positionAgeMin = entryTs > 0 ? (now - entryTs) / (1000 * 60) : 999;
     
     // Calculate P&L
@@ -2288,6 +2343,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     tickerData.__entry_path = entry.path;
     tickerData.__entry_confidence = entry.confidence;
     tickerData.__entry_reason = entry.reason;
+    tickerData.__entry_quality = entry.entryQuality || 0;
     // PATTERN BOOST: Upgrade entry confidence when patterns strongly match
     const pm = tickerData?.pattern_match;
     if (pm && pm.direction === "BULLISH" && pm.bestBull?.conf > 0.6) {
@@ -2356,12 +2412,14 @@ function deriveKanbanMeta(tickerData, stage) {
     const path = tickerData?.__entry_path || "unknown";
     const confidence = tickerData?.__entry_confidence || "medium";
     const reason = tickerData?.__entry_reason || "criteria_met";
+    const eqScore = tickerData?.__entry_quality || Number(tickerData?.entry_quality?.score) || 0;
     const emoji = confidence === "high" ? "🎯" : "✅";
     return {
       bucket: path,
       emoji,
       reason,
       confidence,
+      entryQuality: eqScore,
       reasons: [reason],
     };
   }
@@ -2693,6 +2751,12 @@ function computeMoveStatus(tickerData) {
 }
 
 function sideFromStateOrScores(tickerData) {
+  // Phase 2b: Primary — use swing-TF consensus direction (fixes NFLX-type errors)
+  // When 4/5 TFs agree on direction, that overrides the lagging state-based direction.
+  const consensusDir = tickerData?.swing_consensus?.direction;
+  if (consensusDir === "LONG" || consensusDir === "SHORT") return consensusDir;
+
+  // Fallback — state-based direction (original logic)
   const state = String(tickerData?.state || "");
   if (state.includes("BULL")) return "LONG";
   if (state.includes("BEAR")) return "SHORT";
@@ -2914,8 +2978,13 @@ function computeRRAtTrigger(d) {
       .filter((p) => Number.isFinite(p));
 
     if (tpPrices.length > 0) {
-      // Use maximum TP (best-case scenario for RR calculation)
-      tp = Math.max(...tpPrices);
+      // Best-case TP depends on direction:
+      //   LONG  → highest price (max reward going up)
+      //   SHORT → lowest price  (max reward going down)
+      const stateDir = String(d.state || "");
+      tp = stateDir.includes("BEAR")
+        ? Math.min(...tpPrices)
+        : Math.max(...tpPrices);
     }
   }
 
@@ -2929,15 +2998,12 @@ function computeRRAtTrigger(d) {
   let risk, gain;
 
   if (isLong) {
-    // For LONG: SL should be below trigger price, TP should be above trigger price
-    risk = triggerPrice - sl; // Risk is distance from trigger price to SL (down)
-    gain = tp - triggerPrice; // Gain is distance from trigger price to TP (up)
+    risk = triggerPrice - sl;
+    gain = tp - triggerPrice;
   } else if (isShort) {
-    // For SHORT: SL should be above trigger price, TP should be below trigger price
-    risk = sl - triggerPrice; // Risk is distance from trigger price to SL (up)
-    gain = triggerPrice - tp; // Gain is distance from trigger price to TP (down)
+    risk = sl - triggerPrice;
+    gain = triggerPrice - tp;
   } else {
-    // Fallback to absolute values if direction unclear
     risk = Math.abs(triggerPrice - sl);
     gain = Math.abs(tp - triggerPrice);
   }
@@ -3691,18 +3757,18 @@ function shouldTriggerTradeSimulation(ticker, tickerData, prevData) {
     (justEnteredCorridor || enteredAligned || trigOk || sqRelease || flipWatch);
 
   const momentumElite = !!flags.momentum_elite;
-  // Relaxed thresholds for testing exit/trim system
-  const baseMinRR = 0.3;  // Lowered from 1.2 to allow more entries for testing
-  const baseMaxComp = 0.8;  // Raised from 0.5
-  const baseMaxPhase = 0.85;  // Raised from 0.65
-  const minRR = momentumElite ? Math.max(0.2, baseMinRR * 0.9) : baseMinRR;
+  // Phase 1c: tightened thresholds from testing mode to production swing-trading gates
+  const baseMinRR = 1.5;   // Phase 1c: up from 0.3 (testing) to proper swing RR
+  const baseMaxComp = 0.60; // Phase 1c: down from 0.8 to 0.60 — enter earlier
+  const baseMaxPhase = 0.70; // Phase 1c: down from 0.85 to 0.70 — avoid extremes
+  const minRR = momentumElite ? Math.max(1.0, baseMinRR * 0.8) : baseMinRR;
   const maxComp = flipWatch || sqRelease
-    ? Math.min(0.9, baseMaxComp * 1.2)
+    ? Math.min(0.75, baseMaxComp * 1.2)
     : momentumElite
-      ? Math.min(0.85, baseMaxComp * 1.1)
+      ? Math.min(0.70, baseMaxComp * 1.1)
       : baseMaxComp;
   const maxPhase = momentumElite
-    ? Math.min(0.9, baseMaxPhase * 1.15)
+    ? Math.min(0.80, baseMaxPhase * 1.15)
     : baseMaxPhase;
 
   // Relaxed rank threshold for testing (will tighten after validating exit system)
@@ -3821,24 +3887,34 @@ function getEntryBlockers(ticker, tickerData, prevData) {
     (trigOk || sqRelease || flipWatch || justEnteredCorridor);
   const enhancedTrigger = shouldConsiderAlert || momentumEliteTrigger;
 
-  // Relaxed thresholds for testing exit/trim system
+  // Phase 1c: tightened thresholds for swing trading
   const rank = Number(tickerData.rank ?? tickerData.rank_position ?? tickerData.position) || 0;
-  const minRank = momentumElite ? 40 : 50;  // Lowered for testing
+  const minRank = momentumElite ? 40 : 50;
   if (rank < minRank) blockers.push(`rank_below_min(${rank}<${minRank})`);
 
   const rr = Number(tickerData.rr) || 0;
-  const minRR = momentumElite ? Math.max(0.2, 0.3 * 0.9) : 0.3;  // Lowered for testing
+  const minRR = momentumElite ? Math.max(1.0, 1.5 * 0.8) : 1.5;
   if (rr < minRR) blockers.push(`rr_below_min(${rr?.toFixed(2)}<${minRR})`);
 
   const compRaw = completionForSize(tickerData);
   const compToMax = computeCompletionToTpMax(tickerData);
   const comp = Number.isFinite(compToMax) ? compToMax : compRaw;
-  const maxComp = flipWatch || sqRelease ? 0.9 : momentumElite ? 0.85 : 0.8;  // Raised for testing
+  const maxComp = flipWatch || sqRelease ? 0.75 : momentumElite ? 0.70 : 0.60;
   if (comp > maxComp) blockers.push(`completion_high(${(comp*100).toFixed(0)}%>${(maxComp*100).toFixed(0)}%)`);
 
   const phase = Number(tickerData.phase_pct) || 0;
-  const maxPhase = momentumElite ? 0.9 : 0.85;  // Raised for testing
+  const maxPhase = momentumElite ? 0.80 : 0.70;
   if (phase > maxPhase) blockers.push(`phase_high(${(phase*100).toFixed(0)}%>${(maxPhase*100).toFixed(0)}%)`);
+
+  // Phase 1a: Entry quality gate
+  const eqScore = Number(tickerData?.entry_quality?.score) || 0;
+  if (eqScore > 0 && eqScore < 50) blockers.push(`entry_quality_low(${eqScore})`);
+
+  // Phase 1c: RSI exhaustion block
+  const rsi1HDebug = Number(tickerData?.entry_quality?.details?.rsi1H) || 50;
+  const debugSide = sideFromStateOrScores(tickerData);
+  if (debugSide === "LONG" && rsi1HDebug > 72) blockers.push(`rsi_1h_overbought(${rsi1HDebug.toFixed(0)})`);
+  if (debugSide === "SHORT" && rsi1HDebug < 28) blockers.push(`rsi_1h_oversold(${rsi1HDebug.toFixed(0)})`);
 
   const ms = tickerData?.move_status || computeMoveStatus(tickerData);
   if (ms?.status === "INVALIDATED") blockers.push("move_invalidated");
@@ -4356,8 +4432,8 @@ const GOLD_STANDARD_PATTERNS = {
     },
     // Move statistics (for TP calibration)
     moveStats: { median: 5.94, p75: 9.5, p90: 15.19, avg: 8.17 },
-    // TP multipliers (calibrated to median/P90 move)
-    tpMultipliers: { trim: 0.6, exit: 1.0, runner: 1.5 },
+    // TP multipliers (widened to let winners run — old: 0.6/1.0/1.5)
+    tpMultipliers: { trim: 1.5, exit: 2.5, runner: 4.0 },
   },
 
   // SHORT ENTRIES (from 306 DOWN moves, median -6.34%)
@@ -4383,8 +4459,8 @@ const GOLD_STANDARD_PATTERNS = {
     },
     // Move statistics (for TP calibration)
     moveStats: { median: 6.34, p75: 10.5, p90: 18.0, avg: 9.61 },
-    // TP multipliers (calibrated to median/P90 move)
-    tpMultipliers: { trim: 0.6, exit: 1.0, runner: 1.618 },
+    // TP multipliers (widened to let winners run — old: 0.6/1.0/1.618)
+    tpMultipliers: { trim: 1.5, exit: 2.5, runner: 4.0 },
   },
 };
 
@@ -4553,19 +4629,18 @@ function computeDirectionAwareSL(tickerData, baseSL, direction, entryPrice) {
 // exactly 3 tiers with fixed quantities and progressive SL trailing.
 // NOTE: These are now direction-aware via GOLD_STANDARD_PATTERNS.tpMultipliers
 const THREE_TIER_CONFIG = {
-  // ATR multiplier ranges for each tier (based on ATR-Fibonacci levels from Pine)
-  // JOURNEY DATA (28 detailed journeys, 103 pullbacks):
-  //   Median pullback depth: 1.22% / 2.53 ATR
-  //   TRIM before pullback signals: ST flip (21%), ATR spike (14%), RSI OB (4%)
-  //   Peak exhaustion signals: RSI OB (57%), price overextended (57%), RSI extreme (43%)
-  //   Support during pullbacks: FVG (most), EMA8 (21%), EMA21 (9%), ST (6%)
+  // ATR multiplier ranges for each tier.
+  // HISTORICAL MOVERS DATA (Feb 2026, 817 moves across 164 tickers):
+  //   Median UP move: +8.34%, Median DOWN move: -6.81%
+  //   Median duration: ~47 hours (2 trading days)
+  //   Old TP1 at 0.6x ATR (~1.2%) was far too tight — avg winner was only 0.4%.
   //
-  // TRIM should fire BEFORE the typical pullback (1-2x ATR from entry).
-  // EXIT should capture the bulk of the move (2-3x ATR).
-  // RUNNER lets position ride for extended moves with trailing stop.
-  TRIM: { minMult: 1.0, maxMult: 1.5, trimPct: 0.5, label: "TRIM TP" },    // 50% off at 1-1.5x ATR
-  EXIT: { minMult: 1.5, maxMult: 2.5, trimPct: 0.75, label: "EXIT TP" },   // additional 25% at 1.5-2.5x ATR
-  RUNNER: { minMult: 2.5, maxMult: 5.0, trimPct: 1.0, label: "RUNNER TP" }, // final 25% with trailing stop
+  // WIDENED TIERS to let winners run closer to median move size:
+  // TRIM at 1.5-2.5x ATR (~3%), EXIT at 2.5-4x ATR (~5%), RUNNER at 4-7x ATR (~8%).
+  // Equal trim tranches (33/33/34) instead of front-loaded 50/25/25.
+  TRIM:   { minMult: 1.5, maxMult: 2.5, trimPct: 0.33, label: "TRIM TP" },   // 33% off at 1.5-2.5x ATR
+  EXIT:   { minMult: 2.5, maxMult: 4.0, trimPct: 0.66, label: "EXIT TP" },   // another 33% at 2.5-4x ATR
+  RUNNER: { minMult: 4.0, maxMult: 7.0, trimPct: 1.0,  label: "RUNNER TP" }, // final 34% at 4-7x ATR
 };
 
 // Helper: Infer ATR from TP levels when not directly available
@@ -4598,7 +4673,7 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
   }
 
   // ── PRECISION ENGINE: Use ATR Fibonacci level-based TPs if available ──
-  // These are computed from daily ATR levels: TRIM=61.8%, EXIT=100%, RUNNER=161.8%
+  // These are computed from daily ATR levels: TRIM=1.5x, EXIT=2.5x, RUNNER=4.0x
   const pTrim = Number(tickerData.tp_trim);
   const pExit = Number(tickerData.tp_exit);
   const pRunner = Number(tickerData.tp_runner);
@@ -4618,28 +4693,28 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
           price: pTrim,
           trimPct: THREE_TIER_CONFIG.TRIM.trimPct,
           tier: "TRIM",
-          label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%) @ 61.8% ATR`,
-          source: "ATR Fibonacci (Daily 61.8%)",
+          label: `TRIM TP (${Math.round(THREE_TIER_CONFIG.TRIM.trimPct * 100)}%) @ 1.5x ATR`,
+          source: "ATR Fibonacci (Daily 1.5x)",
           timeframe: "D",
-          multiplier: 0.618,
+          multiplier: 1.5,
         },
         {
           price: pExit,
           trimPct: THREE_TIER_CONFIG.EXIT.trimPct,
           tier: "EXIT",
-          label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%) @ 100% ATR`,
-          source: "ATR Fibonacci (Daily 100%)",
+          label: `EXIT TP (${Math.round(THREE_TIER_CONFIG.EXIT.trimPct * 100)}%) @ 2.5x ATR`,
+          source: "ATR Fibonacci (Daily 2.5x)",
           timeframe: "D",
-          multiplier: 1.0,
+          multiplier: 2.5,
         },
         {
           price: pRunner,
           trimPct: THREE_TIER_CONFIG.RUNNER.trimPct,
           tier: "RUNNER",
-          label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%) @ 161.8% ATR`,
-          source: "ATR Fibonacci (Daily 161.8%)",
+          label: `RUNNER TP (${Math.round(THREE_TIER_CONFIG.RUNNER.trimPct * 100)}%) @ 4.0x ATR`,
+          source: "ATR Fibonacci (Daily 4.0x)",
           timeframe: "D",
-          multiplier: 1.618,
+          multiplier: 4.0,
         },
       ];
       // Sort by distance from entry (closest first)
@@ -4797,7 +4872,7 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
     });
   } else {
     // Interpolate: use direction-specific multiplier from gold standard
-    const trimMult = gsTpMult.trim || 0.75;
+    const trimMult = gsTpMult.trim || 1.5;
     const interpPrice = isLong
       ? entryPrice + atr * trimMult
       : entryPrice - atr * trimMult;
@@ -4825,7 +4900,7 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
     });
   } else {
     // Interpolate: use direction-specific multiplier from gold standard
-    const exitMult = gsTpMult.exit || 1.272;
+    const exitMult = gsTpMult.exit || 2.5;
     const interpPrice = isLong
       ? entryPrice + atr * exitMult
       : entryPrice - atr * exitMult;
@@ -4853,7 +4928,7 @@ function build3TierTPArray(tickerData, entryPrice, direction) {
     });
   } else {
     // Interpolate: use direction-specific multiplier from gold standard
-    const runnerMult = gsTpMult.runner || 2.0;
+    const runnerMult = gsTpMult.runner || 4.0;
     const interpPrice = isLong
       ? entryPrice + atr * runnerMult
       : entryPrice - atr * runnerMult;
@@ -5917,19 +5992,27 @@ async function processTradeSimulation(
     }
     
     // ─────────────────────────────────────────────────────────────────────────
-    // FIX: Check for recent trades (ANY status) to prevent rapid re-entry
-    // During replay, trades can be immediately marked WIN/LOSS in the same cycle,
-    // causing isOpenTradeStatus to return false and allowing duplicate entries.
-    // Block entry if there's ANY trade for this ticker within the last 30 minutes.
+    // FIX: Check for recent trades (ANY status) to prevent rapid re-entry.
+    // Checks BOTH entry_ts AND exit_ts — a recently-closed trade blocks immediate
+    // re-entry even if the entry was long ago.
     // ─────────────────────────────────────────────────────────────────────────
-    const RECENT_TRADE_WINDOW_MS = 10 * 60 * 1000; // 10 minutes (reduced from 30m to allow faster re-entry after quick exits)
+    const RECENT_TRADE_WINDOW_MS = 30 * 60 * 1000; // 30 minutes — safety net on top of 4h ENTER_COOLDOWN
     const recentTrade = allTrades.find((t) => {
       if (String(t?.ticker || "").toUpperCase() !== sym) return false;
+      const nowForCheck = isReplay && Number.isFinite(asOfMs) ? asOfMs : Date.now();
+      // Check entry age
       const entryTs = Number(t?.entry_ts) || isoToMs(t?.entryTime) || 0;
       const entryTsNorm = entryTs < 1e12 ? entryTs * 1000 : entryTs;
-      const nowForCheck = isReplay && Number.isFinite(asOfMs) ? asOfMs : Date.now();
-      const age = nowForCheck - entryTsNorm;
-      return age >= 0 && age < RECENT_TRADE_WINDOW_MS;
+      const entryAge = nowForCheck - entryTsNorm;
+      if (entryAge >= 0 && entryAge < RECENT_TRADE_WINDOW_MS) return true;
+      // Check exit age — prevents immediate re-entry after close
+      const exitTs = Number(t?.exit_ts) || 0;
+      const exitTsNorm = exitTs > 0 && exitTs < 1e12 ? exitTs * 1000 : exitTs;
+      if (exitTsNorm > 0) {
+        const exitAge = nowForCheck - exitTsNorm;
+        if (exitAge >= 0 && exitAge < RECENT_TRADE_WINDOW_MS) return true;
+      }
+      return false;
     }) || null;
     
     // If we have an open trade from KV but no D1 context, try to use trade's SL
@@ -6005,9 +6088,13 @@ async function processTradeSimulation(
     // ingests (cooldown prevents churn).
     const isExit = stage === "exit";
 
-    // Idempotency / anti-flap guards (per ticker) — skipped in replay (no cooldown for historical)
+    // Idempotency / anti-flap guards (per ticker)
+    // In replay mode: use in-memory Map from replayCtx.execStates (persists across intervals)
+    // In live mode: use KV storage
     const execKey = `timed:exec:last:${sym}`;
-    const execState = isReplay ? {} : (await kvGetJSON(KV, execKey)) || {};
+    const execState = isReplay
+      ? (replayCtx?.execStates?.get(sym) || {})
+      : (await kvGetJSON(KV, execKey)) || {};
     const lastEnterMs = Number(execState.lastEnterMs);
     const lastTrimMs = Number(execState.lastTrimMs);
     const lastExitMs = Number(execState.lastExitMs);
@@ -6026,10 +6113,10 @@ async function processTradeSimulation(
     // DATA: Winner median hold = 3min for trims, so 10min gives room without blocking good trims
     const MIN_MINUTES_SINCE_ENTRY_BEFORE_TRIM = 10;
     // Require position to be open at least N minutes before exit
-    // DATA: 62/80 trades exited in <15min. Losers median hold = 5min.
-    // Increasing to 25min forces trades to survive initial noise.
-    // Only exception: hard SL breach (handled separately)
-    const MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT = 25;
+    // Phase 1b: Increased to 240min (4 hours) for swing-trade holds.
+    // Swing trades need time to develop — intraday noise should not trigger exits.
+    // Only exception: hard SL breach (handled separately by fuse exit logic)
+    const MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT = 240;
     const entryMs =
       openTrade == null
         ? null
@@ -6132,12 +6219,15 @@ async function processTradeSimulation(
 
       trade.exitReason = closeReason;
       trade.exitPrice = p;
-      trade.status = trade.realizedPnl >= 0 ? "WIN" : "LOSS";
+      trade.exit_ts = Number.isFinite(asOfMs) ? asOfMs : (isoToMs(eventTs()) || Date.now());
+      trade.status = trade.realizedPnl > 0 ? "WIN" : trade.realizedPnl < 0 ? "LOSS" : "FLAT";
       trade.pnl = trade.realizedPnl;
       trade.pnlPct =
         Number.isFinite(Number(trade.notional)) && Number(trade.notional) > 0
           ? (trade.pnl / Number(trade.notional)) * 100
-          : null;
+          : (Number.isFinite(trade.entryPrice) && trade.entryPrice > 0
+            ? (trade.pnl / (trade.entryPrice * (Number(trade.shares) || 1))) * 100
+            : null);
       trade.lastUpdate = eventTs();
 
       // Portfolio cash increases by proceeds
@@ -6294,7 +6384,7 @@ async function processTradeSimulation(
       trade.trimmedPct = tgt;
       const isFullClose = tgt >= 0.9999;
       trade.status = isFullClose
-        ? (trade.realizedPnl >= 0 ? "WIN" : "LOSS")
+        ? (trade.realizedPnl > 0 ? "WIN" : trade.realizedPnl < 0 ? "LOSS" : "FLAT")
         : tgt > 0
           ? "TP_HIT_TRIM"
           : "OPEN";
@@ -6305,7 +6395,9 @@ async function processTradeSimulation(
         trade.pnlPct =
           Number.isFinite(Number(trade.notional)) && Number(trade.notional) > 0
             ? (trade.realizedPnl / Number(trade.notional)) * 100
-            : null;
+            : (Number.isFinite(trade.entryPrice) && trade.entryPrice > 0
+              ? (trade.realizedPnl / (trade.entryPrice * (Number(trade.shares) || 1))) * 100
+              : null);
       }
 
       // ─────────────────────────────────────────────────────────────────────
@@ -6525,16 +6617,134 @@ async function processTradeSimulation(
     // During replay, use the simulation time (asOfMs) to check weekend, not wall-clock time.
     const weekendNow = isNyWeekend(isReplay && Number.isFinite(asOfMs) ? asOfMs : Date.now());
 
+    // RTH guard: New trade ENTRIES are restricted to regular trading hours (9:30 AM - 4:00 PM ET).
+    // Trade management (exits, trims, defend, SL) can still run during extended hours.
+    // During replay, use the simulation time to check RTH.
+    const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
+    const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Phase 4a/4b/4c: FUSE EXIT ENGINE — Swing-adapted exit system
+    // Fires independently of kanban stage, based on structural signals.
+    // Hard fuse: extreme RSI on 1H+4H → close immediately
+    // Soft fuse: arm on 1H RSI → confirm with Daily EMA break → close
+    // Trailing: after TP1, trail SL using Daily EMA(21)
+    // ═══════════════════════════════════════════════════════════════════════════
+    let fuseExitFired = false;
+    if (openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow) {
+      const tradeDir = String(openTrade.direction || "").toUpperCase();
+      const isLong = tradeDir === "LONG";
+      const entryPx = Number(openTrade.entryPrice);
+
+      // Extract RSI values from tf_tech
+      const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
+      const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
+
+      // Phase 4a: HARD FUSE — double confirmation extreme RSI
+      const hardFuseLong = isLong && rsi1H >= 85 && rsi4H >= 80;
+      const hardFuseShort = !isLong && rsi1H <= 15 && rsi4H <= 20;
+
+      if (hardFuseLong || hardFuseShort) {
+        console.log(`[FUSE EXIT] ${sym} HARD FUSE: ${isLong ? "LONG" : "SHORT"} rsi1H=${rsi1H} rsi4H=${rsi4H}`);
+        tickerData.__exit_reason = `hard_fuse_rsi_extreme`;
+        // Force exit regardless of kanban stage
+        await closeTradeAtPrice(openTrade, pxNow, "HARD_FUSE_RSI_EXTREME");
+        const fuseExecUpdate = { ...execState, lastExitMs: now };
+        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+        else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+        fuseExitFired = true;
+      }
+
+      // Phase 4b: SOFT FUSE — arm on moderate RSI, confirm with structure break
+      if (!fuseExitFired) {
+        const softArmLong = isLong && rsi1H >= 75;
+        const softArmShort = !isLong && rsi1H <= 25;
+
+        if (softArmLong || softArmShort) {
+          // Check structural confirmation: Daily EMA(21) break or 4H SuperTrend flip
+          const dailyEma21 = tickerData?.tf_tech?.D?.ema?.depth ?? 5;
+          const st4HFlip = tickerData?.tf_tech?.["4H"]?.atr;
+          const st4HBear = st4HFlip?.x === "bear" || st4HFlip?.xs === 1;
+          const st4HBull = st4HFlip?.x === "bull" || st4HFlip?.xs === -1;
+          const phaseOsc4H = tickerData?.tf_tech?.["4H"]?.ph?.v ?? 0;
+          const phaseDot4H = Math.abs(phaseOsc4H) > 61.8;
+
+          // Confirm for LONG: price broke below Daily EMA(21) OR 4H ST flipped bear OR phase leaving distribution
+          const dEma21Break = isLong ? (dailyEma21 < 4) : (dailyEma21 > 6); // depth < 4 means below key EMAs
+          const stConfirm = isLong ? st4HBear : st4HBull;
+
+          if (dEma21Break || stConfirm || phaseDot4H) {
+            console.log(`[FUSE EXIT] ${sym} SOFT FUSE: ${isLong ? "LONG" : "SHORT"} rsi1H=${rsi1H} dEma21Break=${dEma21Break} stConfirm=${stConfirm}`);
+            tickerData.__exit_reason = `soft_fuse_rsi_confirmed`;
+            await closeTradeAtPrice(openTrade, pxNow, "SOFT_FUSE_RSI_CONFIRMED");
+            const fuseExecUpdate = { ...execState, lastExitMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, fuseExecUpdate);
+            else if (!isReplay) await kvPutJSON(KV, execKey, fuseExecUpdate);
+            fuseExitFired = true;
+          }
+        }
+      }
+
+      // Phase 4c: DYNAMIC TRAILING STOP — trail using Daily EMA(21) after profit
+      if (!fuseExitFired && Number.isFinite(entryPx) && entryPx > 0) {
+        const pnlPct = isLong
+          ? ((pxNow - entryPx) / entryPx) * 100
+          : ((entryPx - pxNow) / entryPx) * 100;
+
+        // Only trail after position is profitable (> 1%)
+        if (pnlPct > 1.0) {
+          const currentSL = Number(openTrade.sl);
+          const atrD = Number(tickerData?.atr_d) || 0;
+
+          // After TP1 hit (use completion as proxy): trail with Daily EMA(21)
+          // Approximate Daily EMA(21) from tf_tech
+          const dBundle = tickerData?.tf_tech?.D;
+          const dEmaStructure = dBundle?.ema?.structure ?? 0;
+
+          if (atrD > 0 && Number.isFinite(currentSL)) {
+            let newSL;
+            if (isLong) {
+              // Trail: SL = price - 1x Daily ATR (gives room for pullbacks)
+              newSL = Math.round((pxNow - 1.0 * atrD) * 100) / 100;
+              // Only ratchet up, never down
+              if (newSL > currentSL) {
+                openTrade.sl = newSL;
+                console.log(`[TRAILING SL] ${sym} LONG trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%)`);
+              }
+            } else {
+              // SHORT: trail SL downward
+              newSL = Math.round((pxNow + 1.0 * atrD) * 100) / 100;
+              if (newSL < currentSL) {
+                openTrade.sl = newSL;
+                console.log(`[TRAILING SL] ${sym} SHORT trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%)`);
+              }
+            }
+          }
+        }
+      }
+    }
+
     // 1) EXIT: close any open trade while in EXIT lane
-    // Guard: position must be open for at least MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT (15 min)
+    // Guard: position must be open for at least MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT (4 hours)
     // to prevent rapid enter→exit churn from volatile price movements
     // CRITICAL: Verify trade is actually still open before executing (prevents ghost events on closed trades)
-    if (isExit && !weekendNow && exitCooldownOk && exitMinAgeOk && openTrade && isOpenTradeStatus(openTrade.status)) {
-      // Use the specific exit reason from classifyKanbanStage if available, otherwise use move_status reason
-      const exitReason = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
-      await closeTradeAtPrice(openTrade, pxNow, exitReason);
-      if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastExitMs: now });
-    } else if (isExit && openTrade && !exitMinAgeOk) {
+    // FLAT-PRICE GUARD: If exit price equals entry price (no movement), skip exit unless SL hit.
+    // This prevents $0 P&L "WIN" trades from stale candle data during replay.
+    const flatPriceExit = openTrade && Number.isFinite(pxNow) && Number.isFinite(Number(openTrade.entryPrice))
+      && Math.abs(pxNow - Number(openTrade.entryPrice)) / Number(openTrade.entryPrice) < 0.001; // < 0.1% movement
+    const exitReasonRaw = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
+    const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
+    if (isExit && !weekendNow && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status)) {
+      if (flatPriceExit && !isSLExit) {
+        // Price hasn't moved — keep holding instead of closing at $0 P&L
+        console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
+      } else {
+        await closeTradeAtPrice(openTrade, pxNow, exitReasonRaw);
+        const exitExecUpdate = { ...execState, lastExitMs: now };
+        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
+        else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
+      }
+    } else if (isExit && openTrade && !exitMinAgeOk && !fuseExitFired) {
       const ageMin = Number.isFinite(entryMsNorm) ? Math.round((now - entryMsNorm) / 60000) : 0;
       console.log(
         `[TRADE SIM] ${sym} exit blocked: position only ${ageMin}m old (min ${MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT}m)`
@@ -6566,16 +6776,16 @@ async function processTradeSimulation(
         let defendAction = null;
         
         // DATA-DRIVEN SL TIGHTENING:
-        // 62/80 trades exited in <15min because SL was tightened too aggressively.
-        // Winners need room to breathe. Only tighten when gains are substantial.
-        if (pnlPct >= 3) {
-          // Strong profit >= 3%: Move SL to breakeven + 1% buffer
+        // Old thresholds (3%/1.5%) were too aggressive — avg winner was only 0.4%.
+        // Widened to let winners develop before locking in breakeven.
+        if (pnlPct >= 5) {
+          // Strong profit >= 5%: Move SL to breakeven + 1% buffer
           // This protects meaningful gains while allowing normal retracement
           const buffer = entryPx * 0.01; // 1% buffer above breakeven
           newSL = isLong ? entryPx + buffer : entryPx - buffer;
           defendAction = "BREAKEVEN_PLUS";
-        } else if (pnlPct >= 1.5) {
-          // Good profit (1.5-3%): Move SL to breakeven
+        } else if (pnlPct >= 3) {
+          // Good profit (3-5%): Move SL to breakeven
           // Only move to breakeven when we have a meaningful cushion
           newSL = entryPx;
           defendAction = "BREAKEVEN";
@@ -6632,7 +6842,9 @@ async function processTradeSimulation(
             }
           }
           
-          if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastDefendMs: now });
+          const defendExecUpdate = { ...execState, lastDefendMs: now };
+          if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, defendExecUpdate);
+          else if (!isReplay) await kvPutJSON(KV, execKey, defendExecUpdate);
         }
       }
     }
@@ -6689,12 +6901,15 @@ async function processTradeSimulation(
       
       if (target > 0) {
         await trimTradeToPct(openTrade, target, pxNow, reason);
-        if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastTrimMs: now });
+        const trimExecUpdate = { ...execState, lastTrimMs: now };
+        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, trimExecUpdate);
+        else if (!isReplay) await kvPutJSON(KV, execKey, trimExecUpdate);
       }
     }
 
     // 3) ENTER: open trade while in ENTER_NOW lane
-    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle) {
+    // Entries restricted to regular market hours (9:30 AM - 4:00 PM ET)
+    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle) {
       // If we already have an open trade in the opposite direction, close it first (flip).
       if (
         openTrade &&
@@ -6703,7 +6918,9 @@ async function processTradeSimulation(
         exitCooldownOk
       ) {
         await closeTradeAtPrice(openTrade, pxNow, `FLIP_${reason}`);
-        if (!isReplay) await kvPutJSON(KV, execKey, { ...execState, lastExitMs: now });
+        const flipExecUpdate = { ...execState, lastExitMs: now };
+        if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, flipExecUpdate);
+        else if (!isReplay) await kvPutJSON(KV, execKey, flipExecUpdate);
         openTrade = null;
       }
     }
@@ -6718,7 +6935,7 @@ async function processTradeSimulation(
     let positionLimitBlocked = false;
     const db = env?.DB;
     // IMPORTANT: Skip position limits entirely during replay (we're processing historical data)
-    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade && db && !isReplay) {
+    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && db && !isReplay) {
       try {
         // Check current open position count
         const countResult = await db.prepare(
@@ -6782,10 +6999,10 @@ async function processTradeSimulation(
       console.log(`[RECENT_TRADE_BLOCKED] ${sym}: Found recent trade ${recentTrade?.id} (status=${recentTrade?.status}), blocking new entry`);
     }
     
-    if (isEnter && (!weekendNow || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || positionLimitBlocked)) {
-      console.log(`[ENTRY_BLOCKED_EARLY] ${sym} weekendNow=${weekendNow} enterCooldownOk=${enterCooldownOk} sameEnterCycle=${sameEnterCycle} openTrade=${!!openTrade} recentTradeBlocked=${recentTradeBlocked} positionLimitBlocked=${positionLimitBlocked}`);
+    if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || positionLimitBlocked)) {
+      console.log(`[ENTRY_BLOCKED_EARLY] ${sym} weekendNow=${weekendNow} outsideRTH=${outsideRTH} enterCooldownOk=${enterCooldownOk} sameEnterCycle=${sameEnterCycle} openTrade=${!!openTrade} recentTradeBlocked=${recentTradeBlocked} positionLimitBlocked=${positionLimitBlocked}`);
     }
-    if (isEnter && !weekendNow && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !positionLimitBlocked) {
+    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !positionLimitBlocked) {
       console.log(`[ENTRY_CREATE_START] ${sym} passed all gates, attempting trade creation`);
       const entryPx = Number(entryPxCandidate);
       let slCandidate = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
@@ -6988,7 +7205,7 @@ async function processTradeSimulation(
 
             allTrades.push(trade);
             console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares} isReplay=${isReplay}`);
-            if (!isReplay) await kvPutJSON(KV, execKey, {
+            const entryExecUpdate = {
               ...execState,
               lastEnterMs: now,
               lastEnterTriggerTs:
@@ -6996,7 +7213,9 @@ async function processTradeSimulation(
                   ? curTriggerTs
                   : null,
               lastEnterSide: direction,
-            });
+            };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, entryExecUpdate);
+            else if (!isReplay) await kvPutJSON(KV, execKey, entryExecUpdate);
             // Persist via execution adapter (trade + position + lot + execution_action)
             if (adapter) {
               const tsPos = entryTsMs != null && Number.isFinite(entryTsMs) ? entryTsMs : Date.now();
@@ -7115,6 +7334,27 @@ async function processTradeSimulation(
                 console.error("[KANBAN TRADE] entry discord error:", e);
               }
             }
+
+            // ── Instant transition: Enter → just_entered ──
+            // Update kanban_stage immediately so the UI reflects the trade within
+            // seconds (instead of waiting up to 5 min for the next scoring cron).
+            if (!isReplay) {
+              try {
+                const latestPayload = await kvGetJSON(KV, `timed:latest:${sym}`);
+                if (latestPayload && typeof latestPayload === "object") {
+                  latestPayload.prev_kanban_stage = latestPayload.kanban_stage;
+                  latestPayload.prev_kanban_stage_ts = Date.now();
+                  latestPayload.kanban_stage = "just_entered";
+                  latestPayload.entry_price = entryPx;
+                  latestPayload.entry_ts = Date.now();
+                  await kvPutJSON(KV, `timed:latest:${sym}`, latestPayload);
+                  console.log(`[INSTANT TRANSITION] ${sym} enter → just_entered @ $${entryPx}`);
+                }
+              } catch (e) {
+                // Non-critical — next scoring cycle will correct
+                console.warn(`[INSTANT TRANSITION] ${sym} failed:`, String(e).slice(0, 100));
+              }
+            }
           }
         } else {
           tickerData.flags =
@@ -7166,7 +7406,7 @@ async function processTradeSimulation(
           slCooldownOk &&
           !weekendNow &&
           Number.isFinite(pnlPct) &&
-          (pnlPct >= 2.0 ||
+          (pnlPct >= 4.0 ||                           // was 2.0 — give winners more room
             trimmedPct > 0 ||
             (Number.isFinite(completion) && completion >= 0.6));
 
@@ -7175,7 +7415,7 @@ async function processTradeSimulation(
           let slReason = "PROTECT_GAINS";
 
           // ─────────────────────────────────────────────────────────────────────
-          // RUNNER PHASE: ATR-based trailing stop (1.5x ATR below current high)
+          // RUNNER PHASE: ATR-based trailing stop (2.5x ATR below current high)
           // ─────────────────────────────────────────────────────────────────────
           if (isRunnerPhase) {
             // Get ATR from ticker data or infer from TP levels
@@ -7188,8 +7428,8 @@ async function processTradeSimulation(
               atr = entry * 0.02;
             }
 
-            // ATR trailing: 1.5x ATR from current price
-            const atrMultiplier = 1.5;
+            // ATR trailing: 2.5x ATR from current price (was 1.5x — too tight for normal volatility)
+            const atrMultiplier = 2.5;
             const trailStop = dir === "LONG"
               ? mark - (atr * atrMultiplier)
               : mark + (atr * atrMultiplier);
@@ -7198,11 +7438,11 @@ async function processTradeSimulation(
             if (dir === "LONG" && trailStop > oldSl) {
               candidate = trailStop;
               slReason = "ATR_TRAILING_RUNNER";
-              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (1.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (2.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
             } else if (dir === "SHORT" && trailStop < oldSl) {
               candidate = trailStop;
               slReason = "ATR_TRAILING_RUNNER";
-              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (1.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
+              console.log(`[3-TIER] ${sym} RUNNER ATR trail: $${trailStop.toFixed(2)} (2.5x ATR=$${(atr * atrMultiplier).toFixed(2)})`);
             }
           }
 
@@ -7210,10 +7450,10 @@ async function processTradeSimulation(
           // NON-RUNNER: Standard protection logic
           // ─────────────────────────────────────────────────────────────────────
           if (!isRunnerPhase || candidate == null) {
-            // Candidate 1: break-even once +3% (or after trim with gains)
-            // DATA: Breakeven at +2% was too aggressive - winners need room.
+            // Candidate 1: break-even once +5% (or after trim with gains)
+            // DATA: Breakeven at +3% was too aggressive — winners need room to develop.
             // Only move to breakeven when we have a significant cushion.
-            if (pnlPct >= 3.0 || (trimmedPct > 0 && pnlPct >= 1.0)) {
+            if (pnlPct >= 5.0 || (trimmedPct > 0 && pnlPct >= 2.0)) {
               candidate = entry;
             }
 
@@ -7287,10 +7527,9 @@ async function processTradeSimulation(
                 console.error("[EXEC] SL_TIGHTEN adapter.replaceOrder failed:", e);
               });
             }
-            if (!isReplay) await kvPutJSON(KV, execKey, {
-              ...execState,
-              lastSlTightenMs: now,
-            });
+            const slExecUpdate = { ...execState, lastSlTightenMs: now };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, slExecUpdate);
+            else if (!isReplay) await kvPutJSON(KV, execKey, slExecUpdate);
           }
         }
       } catch (e) {
@@ -8074,6 +8313,10 @@ async function processTradeSimulation(
             newStatus === "WIN" || newStatus === "LOSS" ? exitCategory : null,
           exitPrice:
             newStatus === "WIN" || newStatus === "LOSS" ? exitPrice : null,
+          exit_ts:
+            newStatus === "WIN" || newStatus === "LOSS"
+              ? (Number.isFinite(asOfMs) ? asOfMs : (isoToMs(eventTs()) || Date.now()))
+              : (existingOpenTrade.exit_ts ?? null),
         };
 
         const tradeIndex = allTrades.findIndex(
@@ -10854,6 +11097,37 @@ async function d1UpsertCandle(env, ticker, tf, candle) {
   }
 }
 
+/**
+ * Upsert a candle from ingest price data. Unlike d1UpsertCandle (which overwrites
+ * all OHLCV), this merges the price into an existing candle:
+ *   - If no candle exists: creates one with o=h=l=c=price
+ *   - If candle exists: updates h=MAX(h,price), l=MIN(l,price), c=price
+ *     (preserves original open and Alpaca volume)
+ */
+async function d1UpsertIngestCandle(env, ticker, tf, price, tsMs) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true };
+  const sym = String(ticker || "").toUpperCase();
+  const tfKey = normalizeTfKey(tf);
+  if (!sym || !tfKey || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tsMs)) return { ok: false };
+  try {
+    await d1EnsureCandleSchema(env);
+    await db.prepare(
+      `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)
+       ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+         h = MAX(ticker_candles.h, excluded.h),
+         l = MIN(ticker_candles.l, excluded.l),
+         c = excluded.c,
+         updated_at = excluded.updated_at`
+    ).bind(sym, tfKey, tsMs, price, price, price, price, Date.now()).run();
+    return { ok: true };
+  } catch (err) {
+    console.warn(`[INGEST CANDLE] ${sym} ${tfKey} upsert failed:`, String(err).slice(0, 100));
+    return { ok: false };
+  }
+}
+
 async function d1GetCandles(env, ticker, tf, limit = 200) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db_binding" };
@@ -10889,6 +11163,54 @@ async function d1GetCandles(env, ticker, tf, limit = 200) {
   } catch (err) {
     console.error(`[D1 CANDLES] Read failed for ${sym} ${tfKey}:`, err);
     return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * Batch-fetch candles for ALL timeframes of a single ticker in ONE D1 batch call.
+ * Returns a Map<tf, {ok, candles}> — same shape as d1GetCandles per TF.
+ * This reduces 9 D1 subrequests to 1, critical for staying under the 1000/invocation limit.
+ */
+async function d1GetCandlesAllTfs(env, ticker, tfConfigs) {
+  const db = env?.DB;
+  if (!db) return {};
+  const sym = String(ticker || "").toUpperCase();
+  if (!sym) return {};
+
+  const stmts = [];
+  const tfKeys = [];
+  for (const { tf, limit } of tfConfigs) {
+    const tfKey = normalizeTfKey(tf);
+    if (!tfKey) continue;
+    const n = Math.max(10, Math.min(3000, Number(limit) || 200));
+    stmts.push(
+      db.prepare(
+        `SELECT ts, o, h, l, c, v FROM ticker_candles
+         WHERE ticker = ?1 AND tf = ?2 ORDER BY ts DESC LIMIT ?3`
+      ).bind(sym, tfKey, n)
+    );
+    tfKeys.push(tfKey);
+  }
+  if (stmts.length === 0) return {};
+
+  try {
+    const batchResults = await db.batch(stmts);
+    const out = {};
+    for (let i = 0; i < tfKeys.length; i++) {
+      const rows = batchResults[i]?.results || [];
+      const candles = rows
+        .map(r => ({
+          ts: Number(r?.ts), o: Number(r?.o), h: Number(r?.h),
+          l: Number(r?.l), c: Number(r?.c), v: r?.v != null ? Number(r?.v) : null,
+        }))
+        .filter(x => Number.isFinite(x.ts) && Number.isFinite(x.o))
+        .sort((a, b) => a.ts - b.ts);
+      out[tfKeys[i]] = { ok: true, ticker: sym, tf: tfKeys[i], candles };
+    }
+    return out;
+  } catch (err) {
+    console.error(`[D1 CANDLES] Batch read failed for ${sym}:`, String(err).slice(0, 150));
+    return {};
   }
 }
 
@@ -13114,34 +13436,22 @@ const SECTOR_MAP = {
   TSLA: "Consumer Discretionary",
   NKE: "Consumer Discretionary",
   TJX: "Consumer Discretionary",
-  HD: "Consumer Discretionary",
-  MCD: "Consumer Discretionary",
-  SBUX: "Consumer Discretionary",
-  LOW: "Consumer Discretionary",
-  BKNG: "Consumer Discretionary",
-  CMG: "Consumer Discretionary",
-  ABNB: "Consumer Discretionary",
+  BABA: "Consumer Discretionary",
   EXPE: "Consumer Discretionary",
   RBLX: "Consumer Discretionary",
   ULTA: "Consumer Discretionary",
-  SHOP: "Consumer Discretionary",
+  APP: "Consumer Discretionary",
   // Industrials
   CAT: "Industrials",
   GE: "Industrials",
   BA: "Industrials",
-  HON: "Industrials",
-  RTX: "Industrials",
   EMR: "Industrials",
   ETN: "Industrials",
   DE: "Industrials",
   PH: "Industrials",
   CSX: "Industrials",
-  UNP: "Industrials",
-  UPS: "Industrials",
-  FDX: "Industrials",
-  LMT: "Industrials",
-  NOC: "Industrials",
-  GD: "Industrials",
+  HII: "Industrials",
+  GEV: "Industrials",
   TT: "Industrials",
   PWR: "Industrials",
   AWI: "Industrials",
@@ -13150,6 +13460,15 @@ const SECTOR_MAP = {
   FIX: "Industrials",
   ITT: "Industrials",
   STRL: "Industrials",
+  JCI: "Industrials",
+  IBP: "Industrials",
+  DCI: "Industrials",
+  EME: "Industrials",
+  IESC: "Industrials",
+  BWXT: "Industrials",
+  BE: "Industrials",
+  JOBY: "Industrials",
+  AVAV: "Industrials",
   // Information Technology
   AAPL: "Information Technology",
   MSFT: "Information Technology",
@@ -13157,13 +13476,7 @@ const SECTOR_MAP = {
   AVGO: "Information Technology",
   AMD: "Information Technology",
   ORCL: "Information Technology",
-  CRM: "Information Technology",
-  ADBE: "Information Technology",
-  INTC: "Information Technology",
   CSCO: "Information Technology",
-  QCOM: "Information Technology",
-  TXN: "Information Technology",
-  AMAT: "Information Technology",
   LRCX: "Information Technology",
   KLAC: "Information Technology",
   ANET: "Information Technology",
@@ -13179,25 +13492,22 @@ const SECTOR_MAP = {
   PSTG: "Information Technology",
   MU: "Information Technology",
   APLD: "Information Technology",
+  CLS: "Information Technology",
+  CRS: "Information Technology",
+  SANM: "Information Technology",
+  IONQ: "Information Technology",
+  LITE: "Information Technology",
+  ON: "Information Technology",
+  KTOS: "Information Technology",
+  STX: "Information Technology",
+  PI: "Information Technology",
   // Communication Services
   META: "Communication Services",
   GOOGL: "Communication Services",
-  GOOG: "Communication Services",
   NFLX: "Communication Services",
-  DIS: "Communication Services",
-  CMCSA: "Communication Services",
-  VZ: "Communication Services",
-  T: "Communication Services",
   TWLO: "Communication Services",
   RDDT: "Communication Services",
   // Basic Materials
-  LIN: "Basic Materials",
-  APD: "Basic Materials",
-  ECL: "Basic Materials",
-  SHW: "Basic Materials",
-  PPG: "Basic Materials",
-  FCX: "Basic Materials",
-  NEM: "Basic Materials",
   ALB: "Basic Materials",
   MP: "Basic Materials",
   NEU: "Basic Materials",
@@ -13206,92 +13516,77 @@ const SECTOR_MAP = {
   RGLD: "Basic Materials",
   SN: "Basic Materials",
   // Energy
-  XOM: "Energy",
-  CVX: "Energy",
-  SLB: "Energy",
-  EOG: "Energy",
-  COP: "Energy",
-  MPC: "Energy",
-  PSX: "Energy",
   VST: "Energy",
   FSLR: "Energy",
+  TLN: "Energy",
+  WFRD: "Energy",
+  ENS: "Energy",
   // Financials
   JPM: "Financials",
-  BAC: "Financials",
-  WFC: "Financials",
   GS: "Financials",
-  MS: "Financials",
-  C: "Financials",
   AXP: "Financials",
-  COF: "Financials",
+  AXON: "Industrials",
   SPGI: "Financials",
-  MCO: "Financials",
-  BLK: "Financials",
-  SCHW: "Financials",
   PNC: "Financials",
   BK: "Financials",
-  TFC: "Financials",
-  USB: "Financials",
   ALLY: "Financials",
   EWBC: "Financials",
   WAL: "Financials",
   SOFI: "Financials",
   HOOD: "Financials",
-  // Real Estate
-  AMT: "Real Estate",
-  PLD: "Real Estate",
-  EQIX: "Real Estate",
-  PSA: "Real Estate",
-  WELL: "Real Estate",
-  SPG: "Real Estate",
-  O: "Real Estate",
-  DLR: "Real Estate",
-  VICI: "Real Estate",
-  EXPI: "Real Estate",
+  MTB: "Financials",
   // Consumer Staples
-  PG: "Consumer Staples",
   KO: "Consumer Staples",
-  PEP: "Consumer Staples",
   WMT: "Consumer Staples",
   COST: "Consumer Staples",
-  MDLZ: "Consumer Staples",
-  CL: "Consumer Staples",
-  KMB: "Consumer Staples",
-  STZ: "Consumer Staples",
-  TGT: "Consumer Staples",
+  MNST: "Consumer Staples",
   // Health Care
-  UNH: "Health Care",
-  JNJ: "Health Care",
-  LLY: "Health Care",
-  ABBV: "Health Care",
-  MRK: "Health Care",
-  TMO: "Health Care",
-  ABT: "Health Care",
-  DHR: "Health Care",
-  BMY: "Health Care",
   AMGN: "Health Care",
   GILD: "Health Care",
-  REGN: "Health Care",
-  VRTX: "Health Care",
-  BIIB: "Health Care",
   UTHR: "Health Care",
   HIMS: "Health Care",
   NBIS: "Health Care",
-  // Utilities
-  NEE: "Utilities",
-  DUK: "Utilities",
-  SO: "Utilities",
-  D: "Utilities",
-  AEP: "Utilities",
-  SRE: "Utilities",
-  EXC: "Utilities",
-  XEL: "Utilities",
-  WEC: "Utilities",
-  ES: "Utilities",
-  PEG: "Utilities",
-  ETR: "Utilities",
-  FE: "Utilities",
-  AEE: "Utilities",
+  // ETFs & Index Tracking
+  QQQ: "ETF",
+  SPY: "ETF",
+  IWM: "ETF",
+  XLB: "ETF",
+  XLC: "ETF",
+  XLE: "ETF",
+  XLF: "ETF",
+  XLI: "ETF",
+  XLK: "ETF",
+  XLP: "ETF",
+  XLRE: "ETF",
+  XLU: "ETF",
+  XLV: "ETF",
+  XLY: "ETF",
+  AAPU: "ETF",
+  // Crypto-Related
+  BTCUSD: "Crypto",
+  ETHUSD: "Crypto",
+  GLXY: "Crypto",
+  RIOT: "Crypto",
+  ETHA: "Crypto",
+  // Precious Metals (GC1!/SI1! are the canonical TV continuous contract symbols)
+  // Growth / Momentum
+  MSTR: "Information Technology",
+  RKLB: "Aerospace & Defense",
+  MLI: "Industrials",
+  MTZ: "Industrials",
+  NXT: "Industrials",
+  SGI: "Industrials",
+  AYI: "Industrials",
+  COIN: "Financials",
+  // Futures (TradingView sourced)
+  "ES1!": "Futures",
+  "NQ1!": "Futures",
+  "GC1!": "Futures",
+  "SI1!": "Futures",
+  VIX: "Futures",
+  US500: "Futures",
+  // Additional tracked tickers
+  "BRK-B": "Financials",
 };
 
 const SECTOR_RATINGS = {
@@ -13328,9 +13623,14 @@ async function loadSectorMappingsFromKV(KV) {
       return;
     }
 
+    // Respect the persistent removal blocklist
+    const removedList = await KV.get("timed:removed", "json");
+    const removedSet = new Set(Array.isArray(removedList) ? removedList : []);
+
     let loadedCount = 0;
     for (const ticker of tickersList) {
       const tickerUpper = String(ticker).toUpperCase();
+      if (removedSet.has(tickerUpper)) continue; // Skip removed tickers
       const sectorKey = `timed:sector_map:${tickerUpper}`;
       const sector = await KV.get(sectorKey, "text");
 
@@ -13342,7 +13642,7 @@ async function loadSectorMappingsFromKV(KV) {
 
     if (loadedCount > 0) {
       console.log(
-        `[SECTOR LOAD] Loaded ${loadedCount} sector mappings from KV`,
+        `[SECTOR LOAD] Loaded ${loadedCount} sector mappings from KV (${removedSet.size} blocklisted)`,
       );
     }
   } catch (err) {
@@ -13810,15 +14110,17 @@ export default {
               ),
             ]);
 
-          await withTimeout(loadSectorMappingsFromKV(KV), 1000);
+          await withTimeout(loadSectorMappingsFromKV(KV), 3000);
           sectorMappingsLoaded = true;
         } catch (sectorLoadErr) {
-          console.error(`[SECTOR LOAD] Failed to load sector mappings:`, {
-            error: String(sectorLoadErr),
-            message: sectorLoadErr?.message,
-          });
-          // Continue anyway - sector mappings are optional
-          sectorMappingsLoaded = true; // Mark as loaded to prevent retry loops
+          // Sector mappings are optional — don't spam error logs for a non-critical timeout.
+          // Only log once and move on; sectorMappingsLoaded=true prevents retry loops.
+          if (sectorLoadErr?.message === "sector_mappings_timeout") {
+            console.warn(`[SECTOR LOAD] Timed out (3s) — continuing without KV mappings`);
+          } else {
+            console.error(`[SECTOR LOAD] Failed:`, String(sectorLoadErr).slice(0, 150));
+          }
+          sectorMappingsLoaded = true;
         }
       }
 
@@ -13944,6 +14246,21 @@ export default {
               );
             },
           );
+
+          // ── Replay lock: skip KV latest writes if a replay is in progress ──
+          // Candle D1 writes and receipt logging still happen, but we don't
+          // overwrite the replay's scored KV state with raw capture data.
+          let _replayLockActive = false;
+          try {
+            const replayLock = await kvGetJSON(KV, "timed:replay:running");
+            if (replayLock && typeof replayLock === "object" && replayLock.since) {
+              const lockAge = Date.now() - replayLock.since;
+              if (lockAge < 15 * 60 * 1000) { // 15 min expiry
+                _replayLockActive = true;
+                console.log(`[INGEST] ${ticker} — replay in progress, skipping KV latest write`);
+              }
+            }
+          } catch { /* non-critical */ }
 
           // Migrate BRK.B to BRK-B if needed (TradingView sends BRK.B, but we use BRK-B)
           // Check BEFORE normalization to catch BRK.B from TradingView
@@ -14136,9 +14453,9 @@ export default {
           payload.age_min = stale.ageMin;
           payload.staleness = stale.bucket;
 
-          // Derived: rr/rank
-          payload.rr = payload.rr ?? computeRR(payload);
-          // (optional clamp to prevent any bizarre edge cases)
+          // Derived: rr/rank — always recompute from current price (not stale KV value)
+          payload.rr = computeRR(payload);
+          // Sanity cap (with price-based RR, extreme values indicate data issues)
           if (payload.rr != null && Number(payload.rr) > 25) payload.rr = 25;
           
           // RR Warning: Data-driven warning based on historical win rates
@@ -14589,10 +14906,12 @@ export default {
                 }
               }
 
-              // Discord notification for kanban lane transitions (aligned with 7-lane system)
+              // Discord notification for kanban lane transitions
               const actionableStages = [
                 "enter",
-                "enter_now", // Legacy alias → treated as "enter"
+                "enter_now",
+                "just_entered",
+                "hold",
                 "defend",
                 "trim",
                 "exit",
@@ -15302,9 +15621,35 @@ export default {
 
           // Store latest (do this BEFORE alert so UI has it)
           // Delta-based write: skip if no meaningful change to reduce KV write pressure
+          // ALSO skip if replay is in progress (replay's scored state takes precedence)
           const _kvWriteNeeded = hasPayloadChangedMeaningfully(existing, payload);
-          if (_kvWriteNeeded) {
+          if (_kvWriteNeeded && !_replayLockActive) {
             await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+          }
+
+          // ═══════════════════════════════════════════════════════════════════
+          // INGEST → 1m CANDLE: Create a 1-minute candle from the ingest price.
+          // TradingView sends prices every ~1 min. We floor the timestamp to
+          // the current minute and upsert an OHLCV candle. Overlapping writes
+          // (multiple ingests in the same minute) update H/L/C naturally via
+          // the UPSERT's MAX(h)/MIN(l) logic in d1UpsertCandle.
+          // This gives us continuous 1m coverage for all ingested tickers,
+          // independent of the Alpaca cron.
+          // ═══════════════════════════════════════════════════════════════════
+          try {
+            const ingestPrice = Number(payload.price);
+            const ingestTs = Number(payload.ts);
+            if (Number.isFinite(ingestPrice) && ingestPrice > 0 && Number.isFinite(ingestTs) && ingestTs > 0) {
+              // Floor to minute boundary (ms)
+              const tsMs = ingestTs > 1e12 ? ingestTs : ingestTs * 1000;
+              const minuteTs = Math.floor(tsMs / 60000) * 60000;
+              ctx.waitUntil(
+                d1UpsertIngestCandle(env, ticker, "1", ingestPrice, minuteTs)
+                  .catch(e => console.warn(`[INGEST→CANDLE] ${ticker} 1m failed:`, String(e).slice(0, 100)))
+              );
+            }
+          } catch (e) {
+            // Non-critical — don't let candle creation break the ingest flow
           }
 
           // Enqueue for ML training (4h and 1d horizons)
@@ -15357,7 +15702,20 @@ export default {
                       entry_path: predCheck.entry_path || payload.__entry_path,
                       entry_reason: predCheck.entry_reason || payload.__entry_reason,
                       sector: payload.sector,
-                      flags_json: JSON.stringify(flagsWithTD),
+                      flags_json: JSON.stringify({
+                        ...flagsWithTD,
+                        // Phase 1a/2b/3a: entry quality + swing consensus + volatility for model learning
+                        entry_quality_score: payload.entry_quality?.score ?? null,
+                        entry_quality_structure: payload.entry_quality?.structure ?? null,
+                        entry_quality_momentum: payload.entry_quality?.momentum ?? null,
+                        swing_consensus_dir: payload.swing_consensus?.direction ?? null,
+                        swing_consensus_bullish: payload.swing_consensus?.bullish_count ?? null,
+                        regime_daily: payload.regime?.daily ?? null,
+                        regime_weekly: payload.regime?.weekly ?? null,
+                        regime_combined: payload.regime?.combined ?? null,
+                        volatility_tier: payload.volatility_tier ?? null,
+                        volatility_atr_pct: payload.volatility_atr_pct ?? null,
+                      }),
                       matched_patterns: matchedIds || null,
                     });
                   } catch (e) {
@@ -16641,6 +16999,22 @@ export default {
 
           await kvPutText(KV, "timed:capture:last_ingest_ms", String(now));
 
+          // ── Build 1m candle from capture ingest price ──
+          // The capture heartbeat fires every ~1 min for futures/indices.
+          // Use it to build continuous 1m candles for these symbols.
+          try {
+            const capPrice = Number(payload.price);
+            const capTs = Number(payload.ts);
+            if (Number.isFinite(capPrice) && capPrice > 0 && Number.isFinite(capTs) && capTs > 0) {
+              const tsMs = capTs > 1e12 ? capTs : capTs * 1000;
+              const minuteTs = Math.floor(tsMs / 60000) * 60000;
+              ctx.waitUntil(
+                d1UpsertIngestCandle(env, ticker, "1", capPrice, minuteTs)
+                  .catch(e => console.warn(`[CAPTURE→CANDLE] ${ticker} 1m failed:`, String(e).slice(0, 100)))
+              );
+            }
+          } catch (_) { /* non-critical */ }
+
           // If payload includes tf_candles, upsert them to D1 (heartbeat can now send both capture + candles).
           if (payload.tf_candles && typeof payload.tf_candles === "object") {
             try {
@@ -16658,14 +17032,51 @@ export default {
             }
           }
 
-          // Promote capture payload into main latest/trail when it contains full score fields.
+                    // --- Server-side re-score when capture has candles but no scores ---
+          // The Capture Heartbeat sends OHLCV but not scores. After upserting candles
+          // to D1, re-compute scores from the full candle history so timed:latest stays fresh.
+          let captureServerScored = false;
+          try {
+            const hasScoresAlready =
+              isNum(payload?.htf_score) &&
+              isNum(payload?.ltf_score);
+            if (!hasScoresAlready && payload.tf_candles && isNum(payload?.price)) {
+              const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+              const scored = await computeServerSideScores(ticker, d1GetCandles, env, existing);
+              if (scored) {
+                // Merge capture-specific fields into the scored result
+                scored.script_version = payload.script_version || scored.script_version;
+                scored.session = payload.session ?? scored.session;
+                scored.is_rth = payload.is_rth ?? scored.is_rth;
+                scored.prev_close = payload.prev_close ?? scored.prev_close;
+                scored.day_change = payload.day_change ?? scored.day_change;
+                scored.day_change_pct = payload.day_change_pct ?? scored.day_change_pct;
+                scored.change = payload.change ?? scored.change;
+                scored.change_pct = payload.change_pct ?? scored.change_pct;
+                scored.ingest_ts = payload.ingest_ts;
+                scored.ingest_time = payload.ingest_time;
+                scored.ingest_kind = "capture+server_score";
+                // Save to KV + D1 (skip KV if replay in progress)
+                if (!_replayLockActive) {
+                  await kvPutJSON(KV, `timed:latest:${ticker}`, scored);
+                }
+                ctx.waitUntil(d1UpsertTickerLatest(env, ticker, scored));
+                captureServerScored = true;
+                console.log(`[CAPTURE SCORE] ${ticker}: server-side re-scored, price=${scored.price}, htf=${scored.htf_score}, ltf=${scored.ltf_score}`);
+              }
+            }
+          } catch (scoreErr) {
+            console.error(`[CAPTURE SCORE] Server-side scoring failed for ${ticker}:`, String(scoreErr));
+          }
+
+// Promote capture payload into main latest/trail when it contains full score fields.
           // This fixes the “stale latest despite fresh receipts” issue when some alerts are wired to /ingest-capture.
           try {
             const hasScores =
               isNum(payload?.htf_score) &&
               isNum(payload?.ltf_score) &&
               isNum(payload?.ts);
-            if (hasScores) {
+            if (hasScores && !captureServerScored) {
               // Ensure RR is present (used widely by UI/alerts)
               if (!isNum(payload?.rr)) {
                 try {
@@ -16853,7 +17264,9 @@ export default {
                 // Discord notification for kanban lane transitions (capture-promote path)
                 const actionableStages = [
                   "enter",
-                  "enter_now", // Legacy alias → treated as "enter"
+                  "enter_now",
+                  "just_entered",
+                  "hold",
                   "defend",
                   "trim",
                   "exit",
@@ -16938,7 +17351,9 @@ export default {
                 );
               }
 
-              await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+              if (!_replayLockActive) {
+                await kvPutJSON(KV, `timed:latest:${ticker}`, payload);
+              }
 
               // Upsert latest snapshot to D1 for fast UI reads (best-effort)
               try {
@@ -17031,26 +17446,61 @@ export default {
           try {
             await d1EnsureCandleSchema(env);
           } catch {
-            // ignore (d1UpsertCandle will surface errors)
+            // ignore
           }
 
-          if (isBulk) {
-            // Bulk mode: each TF has an array of candles
-            for (const [tf, candleArray] of Object.entries(tfCandles)) {
-              if (!Array.isArray(candleArray)) continue;
-              for (const candle of candleArray) {
-                if (!candle || typeof candle !== "object") continue;
-                const res = await d1UpsertCandle(env, ticker, tf, candle);
-                if (res?.ok) okCount++;
-                else errCount++;
+          const db = env?.DB;
+          if (!db) {
+            return ackJSON(env, { ok: false, error: "no_db_binding" }, 500, req);
+          }
+
+          // Collect all valid candle statements for batch execution.
+          // This avoids the "Too many API requests" error that occurs with
+          // individual d1UpsertCandle calls when TradingView sends bulk data.
+          const stmts = [];
+          const updatedAt = Date.now();
+          const tfKeyNorm = (tf) => normalizeTfKey(tf);
+
+          for (const [tf, candleOrArray] of Object.entries(tfCandles)) {
+            const tfKey = tfKeyNorm(tf);
+            if (!tfKey) continue;
+            const candles = (isBulk && Array.isArray(candleOrArray))
+              ? candleOrArray
+              : [candleOrArray];
+            for (const candle of candles) {
+              if (!candle || typeof candle !== "object") continue;
+              const ts = Number(candle.ts);
+              const o = Number(candle.o);
+              const h = Number(candle.h);
+              const l = Number(candle.l);
+              const c = Number(candle.c);
+              const v = candle.v != null ? Number(candle.v) : null;
+              if (!Number.isFinite(ts) || ![o, h, l, c].every(x => Number.isFinite(x))) {
+                errCount++;
+                continue;
               }
+              stmts.push(
+                db.prepare(
+                  `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                   ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+                     o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
+                     updated_at=excluded.updated_at`
+                ).bind(ticker, tfKey, ts, o, h, l, c, v, updatedAt)
+              );
             }
-          } else {
-            // Single-candle mode: each TF has one candle object
-            for (const [tf, candle] of Object.entries(tfCandles)) {
-              const res = await d1UpsertCandle(env, ticker, tf, candle);
-              if (res?.ok) okCount++;
-              else errCount++;
+          }
+
+          // D1 batch limit is 500 statements per call
+          const BATCH_SIZE = 500;
+          for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+            const chunk = stmts.slice(i, i + BATCH_SIZE);
+            try {
+              await db.batch(chunk);
+              okCount += chunk.length;
+            } catch (batchErr) {
+              console.error(`[CANDLES INGEST] Batch ${i / BATCH_SIZE} failed for ${ticker}:`, String(batchErr).slice(0, 200));
+              errCount += chunk.length;
             }
           }
 
@@ -17430,7 +17880,7 @@ export default {
                   data.flags.thesis_match = !!computed.flags?.thesis_match;
 
                   // Persist backfill so future reads don’t need to recompute.
-                  await kvPutJSON(KV, `timed:latest:${ticker}`, data);
+                  if (!_replayLockActive) { await kvPutJSON(KV, `timed:latest:${ticker}`, data); }
                 }
               }
             }
@@ -17639,7 +18089,13 @@ export default {
             `SELECT ticker, payload_json, updated_at, kanban_stage, prev_kanban_stage FROM ticker_latest`,
           ).all();
 
-          const results = rows?.results || [];
+          // Filter: must be in active SECTOR_MAP AND not on the persistent removal blocklist
+          const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+          const activeSet = new Set(Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)));
+          const results = (rows?.results || []).filter(r => {
+            const sym = String(r?.ticker || "").toUpperCase();
+            return sym && activeSet.has(sym);
+          });
           const data = {};
           let maxUpdatedAt = 0;
 
@@ -17789,9 +18245,19 @@ export default {
               try {
                 const prevStage =
                   obj?.kanban_stage != null ? String(obj.kanban_stage) : null;
-                // POSITION-AWARE: Pass open position to enable management mode classification
+                // POSITION-AWARE: Only re-classify when there's an open position
+                // (needs real-time SL/phase checks). Otherwise trust the stored stage
+                // from the last process cycle — avoids lane flipping on read.
+                // LIFECYCLE GATE: Management stages require an open position.
+                // If no position exists, reclassify to prevent stale replay stages
+                // from showing tickers in hold/defend/trim/exit without a real trade.
                 const openPosition = openPositionsMap.get(sym) || null;
-                const stage = classifyKanbanStage(obj, openPosition);
+                const mgmtStages = new Set(["active", "hold", "just_entered", "defend", "trim", "exit"]);
+                const stage = openPosition
+                  ? classifyKanbanStage(obj, openPosition)
+                  : (prevStage && !mgmtStages.has(prevStage))
+                    ? prevStage
+                    : classifyKanbanStage(obj);
                 obj.kanban_stage = stage;
                 // Attach sector alignment data for UI display
                 const sectorInfo = getSectorAlignmentCached(sym);
@@ -17854,11 +18320,12 @@ export default {
             }
           }
 
-          // POSITION RECONCILIATION: Ensure ALL tickers with open positions appear in data
+          // POSITION RECONCILIATION: Ensure active tickers with open positions appear in data
           // Even if they're missing from ticker_latest, we need them visible in kanban
+          // But skip tickers on the removal blocklist
           try {
             for (const [sym, pos] of openPositionsMap.entries()) {
-              if (!data[sym]) {
+              if (!data[sym] && !removedSet.has(sym)) {
                 // Try to get latest data from KV
                 let latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
                 
@@ -17926,25 +18393,22 @@ export default {
               }
             }
             
-            // RE-CLASSIFY KANBAN STAGE with updated prices
-            // This is critical for detecting stale signals where price has moved below SL
+            // RE-CLASSIFY KANBAN STAGE with updated prices — ONLY for tickers
+            // with open positions (need real-time SL breach detection).
+            // Discovery-mode tickers keep their stored stage to prevent lane
+            // flipping on every UI refresh when market is closed.
             if (tickersWithPriceUpdate.size > 0) {
               for (const sym of tickersWithPriceUpdate) {
                 const obj = data[sym];
                 if (!obj) continue;
+                const openPosition = openPositionsMap.get(sym) || null;
+                if (!openPosition) continue; // trust stored stage for discovery tickers
                 try {
-                  const openPosition = openPositionsMap.get(sym) || null;
                   const prevStage = obj.kanban_stage;
                   const newStage = classifyKanbanStage(obj, openPosition);
                   if (newStage !== prevStage) {
                     obj.kanban_stage = newStage;
                     obj.kanban_meta = deriveKanbanMeta(obj, newStage);
-                    // Clear stale entry metadata if no longer qualifying for enter
-                    if (prevStage === "enter" && newStage !== "enter") {
-                      delete obj.__entry_path;
-                      delete obj.__entry_confidence;
-                      delete obj.__entry_reason;
-                    }
                   }
                 } catch (reClassifyErr) {
                   console.warn(`[HEARTBEAT] Re-classification failed for ${sym}:`, String(reClassifyErr?.message || reClassifyErr));
@@ -18472,6 +18936,31 @@ export default {
         return sendJSON(responseData, 200, corsHeaders(env, req));
         */
         // END OF REMOVED ON-DEMAND COMPUTATION CODE
+      }
+
+      // GET /timed/prices — lightweight real-time price feed
+      // Returns current price + daily change for all tickers from KV cache
+      // Updated every 1 minute by the price feed cron
+      if (routeKey === "GET /timed/prices") {
+        try {
+          const cached = await kvGetJSON(KV, "timed:prices");
+          if (cached) {
+            return sendJSON(
+              { ok: true, prices: cached.prices || {}, updated_at: cached.updated_at || 0 },
+              200,
+              { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
+            );
+          }
+          // Fallback: no cached prices yet
+          return sendJSON(
+            { ok: true, prices: {}, updated_at: 0, note: "price_feed_not_initialized" },
+            200,
+            corsHeaders(env, req),
+          );
+        } catch (e) {
+          console.error("[PRICES] /timed/prices error:", e);
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
       }
 
       // GET /timed/candles?ticker=&tf=&limit=
@@ -19266,8 +19755,11 @@ export default {
       }
 
       // POST /timed/watchlist/add?key=... - Add tickers to watchlist
+      // If a ticker was previously removed, it is un-removed and re-activated.
+      // After adding, triggers Alpaca candle backfill so scoring can begin immediately.
+      // Supports both API key and CF Access JWT (admin) authentication.
       if (routeKey === "POST /timed/watchlist/add") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
         try {
@@ -19283,34 +19775,148 @@ export default {
           }
 
           const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const blocklist = new Set((await kvGetJSON(KV, "timed:removed")) || []);
           const added = [];
-          const alreadyExists = [];
+          const reactivated = [];
 
           for (const ticker of tickersToAdd) {
             const tickerUpper = String(ticker).toUpperCase().trim();
             if (!tickerUpper) continue;
 
-            if (!currentTickers.includes(tickerUpper)) {
+            const wasRemoved = blocklist.has(tickerUpper);
+            const inIndex = currentTickers.includes(tickerUpper);
+
+            if (wasRemoved) {
+              // Ticker was removed — un-remove it and ensure it's in the index
+              blocklist.delete(tickerUpper);
+              if (!inIndex) {
+                currentTickers.push(tickerUpper);
+                await ensureTickerIndex(KV, tickerUpper);
+              }
+              reactivated.push(tickerUpper);
+              added.push(tickerUpper);
+            } else if (!inIndex) {
+              // Brand new ticker
               currentTickers.push(tickerUpper);
               added.push(tickerUpper);
               await ensureTickerIndex(KV, tickerUpper);
             } else {
-              alreadyExists.push(tickerUpper);
+              // Already in index and not removed — still treat as "added" for backfill
+              reactivated.push(tickerUpper);
+              added.push(tickerUpper);
             }
           }
 
           // Sort and save
           currentTickers.sort();
           await kvPutJSON(KV, "timed:tickers", currentTickers);
+          await kvPutJSON(KV, "timed:removed", [...blocklist]);
+
+          // Trigger Alpaca candle backfill for added tickers (background via ctx.waitUntil)
+          const backfillTriggered = [];
+          if (added.length > 0 && env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+            const tickersToBackfill = added.filter((t) => !t.endsWith("1!")).slice(0, 10);
+            if (tickersToBackfill.length > 0) {
+              ctx.waitUntil(
+                alpacaBackfill(env, tickersToBackfill, d1UpsertCandle, "all")
+                  .then((res) => console.log(`[WATCHLIST ADD] Backfill done:`, JSON.stringify(res)))
+                  .catch((err) => console.error(`[WATCHLIST ADD] Backfill error:`, err))
+              );
+              backfillTriggered.push(...tickersToBackfill);
+            }
+          }
 
           return sendJSON(
             {
               ok: true,
               added: added.length,
-              alreadyExists: alreadyExists.length,
+              reactivated: reactivated.length,
               addedTickers: added,
-              alreadyExistsTickers: alreadyExists,
+              reactivatedTickers: reactivated,
               totalTickers: currentTickers.length,
+              backfillTriggered: backfillTriggered,
+            },
+            200,
+            corsHeaders(env, req),
+          );
+        } catch (err) {
+          return sendJSON(
+            { ok: false, error: err.message },
+            500,
+            corsHeaders(env, req),
+          );
+        }
+      }
+
+      // POST /timed/watchlist/remove?key=... - Remove tickers from watchlist
+      if (routeKey === "POST /timed/watchlist/remove") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const { obj: body } = await readBodyAsJSON(req);
+          const tickersToRemove = body.tickers || [];
+
+          if (!Array.isArray(tickersToRemove) || tickersToRemove.length === 0) {
+            return sendJSON(
+              { ok: false, error: "tickers array required" },
+              400,
+              corsHeaders(env, req),
+            );
+          }
+
+          const removeSet = new Set(tickersToRemove.map(t => String(t).toUpperCase().trim()).filter(Boolean));
+          const removed = [...removeSet];
+
+          // 1) Remove from KV ticker index (if present)
+          const currentTickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const updatedTickers = currentTickers.filter(t => !removeSet.has(t));
+          updatedTickers.sort();
+          await kvPutJSON(KV, "timed:tickers", updatedTickers);
+
+          // 2) Add to persistent blocklist in KV so ingestion-status filters them out
+          //    across all worker isolates (SECTOR_MAP is per-isolate and resets on cold start)
+          const blocklist = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+          for (const t of removed) blocklist.add(t);
+          await kvPutJSON(KV, "timed:removed", [...blocklist]);
+
+          // 3) Remove from in-memory SECTOR_MAP (helps this isolate immediately)
+          for (const ticker of removed) {
+            delete SECTOR_MAP[ticker];
+          }
+
+          // 4) Clean up ALL KV data for removed tickers (preserves D1 candle data)
+          const cleanKV = body.cleanKV !== false; // default true
+          if (cleanKV) {
+            for (const ticker of removed) {
+              try {
+                await KV.delete(`timed:latest:${ticker}`);
+                await KV.delete(`timed:trail:${ticker}`);
+                await KV.delete(`timed:sector_map:${ticker}`); // Prevent re-add via loadSectorMappingsFromKV
+              } catch (_) { /* best-effort */ }
+            }
+          }
+
+          // 5) Remove from D1 ticker_index + ticker_latest (so /timed/tickers reflects removal)
+          const db = env?.DB;
+          if (db && removed.length > 0) {
+            try {
+              const placeholders = removed.map((_, i) => `?${i + 1}`).join(",");
+              await db.batch([
+                db.prepare(`DELETE FROM ticker_index WHERE ticker IN (${placeholders})`).bind(...removed),
+                db.prepare(`DELETE FROM ticker_latest WHERE ticker IN (${placeholders})`).bind(...removed),
+              ]);
+            } catch (e) {
+              console.warn("[WATCHLIST REMOVE] D1 cleanup failed:", String(e?.message || e).slice(0, 200));
+            }
+          }
+
+          return sendJSON(
+            {
+              ok: true,
+              removed: removed.length,
+              removedTickers: removed,
+              totalTickers: updatedTickers.length,
             },
             200,
             corsHeaders(env, req),
@@ -21091,10 +21697,10 @@ export default {
         if (statusNorm && statusNorm !== "all") {
           // UX-friendly filters used by the ledger UI
           if (statusNorm === "closed") {
-            where += " AND status IN ('WIN','LOSS')";
+            where += " AND status IN ('WIN','LOSS','FLAT')";
           } else if (statusNorm === "open") {
             // Includes OPEN + TRIMMED-style intermediate statuses + nulls
-            where += " AND (status IS NULL OR status NOT IN ('WIN','LOSS'))";
+            where += " AND (status IS NULL OR status NOT IN ('WIN','LOSS','FLAT'))";
           } else {
             // Exact match fallback (stored statuses are uppercase)
             where += " AND status = ?";
@@ -22474,10 +23080,12 @@ export default {
         }
 
         const tfParam = url.searchParams.get("tf") || "all";
+        const tickerParam = normTicker(url.searchParams.get("ticker")) || null;
         const batchOffset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
-        const batchLimit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 0));
-        let allTickers = Object.keys(SECTOR_MAP);
-        if (batchLimit > 0) {
+        const rawLimit = url.searchParams.get("limit");
+        const batchLimit = rawLimit ? Math.max(1, Math.min(200, Number(rawLimit) || 0)) : 0;
+        let allTickers = tickerParam ? [tickerParam] : Object.keys(SECTOR_MAP);
+        if (!tickerParam && batchLimit > 0) {
           allTickers = allTickers.slice(batchOffset, batchOffset + batchLimit);
         }
 
@@ -22491,8 +23099,9 @@ export default {
         return sendJSON(
           {
             ok: true,
-            message: "Alpaca backfill started in background",
+            message: `Alpaca backfill started in background for ${allTickers.length} ticker(s)`,
             tickers: allTickers.length,
+            tickerList: allTickers.length <= 5 ? allTickers : undefined,
             tf: tfParam,
           },
           200, corsHeaders(env, req),
@@ -22519,8 +23128,9 @@ export default {
           );
         }
 
-        // Save to KV
+        // Save to KV + D1 for immediate propagation
         await kvPutJSON(KV, `timed:latest:${tickerParam}`, result);
+        ctx.waitUntil(d1UpsertTickerLatest(env, tickerParam, result));
 
         return sendJSON(
           {
@@ -22530,12 +23140,60 @@ export default {
             ltf_score: result.ltf_score,
             state: result.state,
             price: result.price,
+            sl: result.sl,
+            tp_trim: result.tp_trim,
+            tp_exit: result.tp_exit,
+            tp_runner: result.tp_runner,
+            rr: result.rr,
             data_source: result.data_source,
             flags: result.flags,
             td_sequential: result.td_sequential || null,
           },
           200, corsHeaders(env, req),
         );
+      }
+
+      // POST /timed/admin/purge-ticker-candles?key=...&ticker=GOLD (delete all candles for a ticker from D1)
+      if (routeKey === "POST /timed/admin/purge-ticker-candles") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const tickerParam = normTicker(url.searchParams.get("ticker"));
+        if (!tickerParam) return sendJSON({ ok: false, error: "missing ticker param" }, 400, corsHeaders(env, req));
+        const db = env.DB || env.D1;
+        let totalDeleted = 0;
+        for (;;) {
+          const del = await db.prepare(`DELETE FROM ticker_candles WHERE rowid IN (SELECT rowid FROM ticker_candles WHERE ticker = ?1 LIMIT 5000)`).bind(tickerParam).run();
+          const changed = del?.meta?.changes || 0;
+          totalDeleted += changed;
+          if (changed < 5000) break;
+        }
+        // Also clear ticker_latest entry
+        try { await db.prepare(`DELETE FROM ticker_latest WHERE ticker = ?1`).bind(tickerParam).run(); } catch {}
+        return sendJSON({ ok: true, ticker: tickerParam, deleted_candles: totalDeleted }, 200, corsHeaders(env, req));
+      }
+
+      // POST /timed/admin/refresh-prices — manually trigger price refresh (debug)
+      if (routeKey === "POST /timed/admin/refresh-prices") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        try {
+          const allTickers = Object.keys(SECTOR_MAP);
+          const snapResult = await alpacaFetchSnapshots(env, allTickers);
+          const snapshots = snapResult.snapshots || {};
+          const prices = {};
+          for (const [sym, snap] of Object.entries(snapshots)) {
+            const price = snap.price;
+            const prevClose = snap.prevDailyClose;
+            const dc = (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
+            const dp = (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+            prices[sym] = { p: Math.round(price * 100) / 100, pc: Math.round(prevClose * 100) / 100, dc, dp, t: Date.now() };
+          }
+          // Store in KV
+          await kvPutJSON(env.KV_TIMED, "timed:prices", { prices, updated_at: Date.now(), ticker_count: Object.keys(prices).length });
+          return sendJSON({ ok: true, ticker_count: Object.keys(prices).length, snapshot_count: Object.keys(snapshots).length, input_count: allTickers.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e), stack: String(e?.stack || "").slice(0, 500) }, 500, corsHeaders(env, req));
+        }
       }
 
       // GET /timed/admin/alpaca-status?key=...
@@ -22586,6 +23244,167 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
+      // GET /timed/admin/ingestion-status?key=...&ticker=NVDA (candle coverage report)
+      // Returns candle count per ticker per TF, compared to expected minimums.
+      if (routeKey === "GET /timed/admin/ingestion-status") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
+
+        const tickerFilter = normTicker(url.searchParams.get("ticker")) || null;
+
+        // Expected minimums per TF (approximate for good chart + scoring coverage)
+        // Canonical 9 TFs (3m dropped)
+        const expected = { "1": 1950, "5": 500, "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
+        const tfs = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
+
+        // Expected trading days in the last N calendar days (for gap detection)
+        // Intraday TFs: check last 30 calendar days (~21 trading days)
+        // D/W/M: check longer windows
+        const GAP_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 calendar days
+        const gapSinceTs = Date.now() - GAP_WINDOW_MS;
+        const EXPECTED_TRADING_DAYS = 21; // ~21 trading days in 30 calendar days
+        // Which TFs should have daily coverage (intraday TFs)
+        const INTRADAY_TFS = new Set(["1", "5", "10", "30", "60", "240"]);
+
+        try {
+          // Run two queries in parallel via db.batch():
+          // 1. Count + min/max per ticker+TF (existing)
+          // 2. Distinct trading-date count in last 30 days per ticker+TF (new — for gap detection)
+          const stmts = [];
+          if (tickerFilter) {
+            stmts.push(
+              db.prepare("SELECT ticker, tf, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles WHERE ticker = ?1 GROUP BY ticker, tf ORDER BY ticker, tf").bind(tickerFilter),
+              db.prepare("SELECT ticker, tf, COUNT(DISTINCT date(ts/1000, 'unixepoch', '-5 hours')) as date_count FROM ticker_candles WHERE ticker = ?1 AND ts >= ?2 GROUP BY ticker, tf").bind(tickerFilter, gapSinceTs),
+            );
+          } else {
+            stmts.push(
+              db.prepare("SELECT ticker, tf, COUNT(*) as cnt, MIN(ts) as min_ts, MAX(ts) as max_ts FROM ticker_candles GROUP BY ticker, tf ORDER BY ticker, tf"),
+              db.prepare("SELECT ticker, tf, COUNT(DISTINCT date(ts/1000, 'unixepoch', '-5 hours')) as date_count FROM ticker_candles WHERE ts >= ?1 GROUP BY ticker, tf").bind(gapSinceTs),
+            );
+          }
+          const batchRes = await db.batch(stmts);
+          const rows = batchRes[0]?.results || [];
+          const gapRows = batchRes[1]?.results || [];
+
+          // Build per-ticker summary
+          const byTicker = {};
+          for (const r of rows) {
+            if (!byTicker[r.ticker]) byTicker[r.ticker] = {};
+            byTicker[r.ticker][r.tf] = { count: r.cnt, min_ts: r.min_ts, max_ts: r.max_ts };
+          }
+
+          // Build gap data: { TICKER: { TF: date_count } }
+          const gapData = {};
+          for (const r of gapRows) {
+            if (!gapData[r.ticker]) gapData[r.ticker] = {};
+            gapData[r.ticker][r.tf] = r.date_count;
+          }
+
+          // Build report — only include tickers actively tracked in SECTOR_MAP
+          // AND not on the persistent removal blocklist
+          const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+          const report = [];
+          const activeTickers = new Set(Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)));
+          const tickerNames = Object.keys(byTicker).filter(t => activeTickers.has(t)).sort();
+          let totalComplete = 0, totalExpected = 0;
+          const nowMs = Date.now();
+
+          for (const t of tickerNames) {
+            const tfData = {};
+            let tickerQualitySum = 0;
+            let tickerPct = 0;
+            for (const tf of tfs) {
+              const d = byTicker[t]?.[tf];
+              const cnt = d?.count || 0;
+              const exp = expected[tf] || 200;
+              const pct = Math.min(100, Math.round((cnt / exp) * 100));
+
+              // Freshness: hours since latest candle
+              const maxTs = d?.max_ts || 0;
+              const freshnessHours = maxTs > 0 ? Math.round((nowMs - maxTs) / 3600000 * 10) / 10 : null;
+
+              // Gap detection: distinct trading dates in last 30 days vs expected
+              const recentDates = gapData[t]?.[tf] || 0;
+              let gapDays = null;
+              if (INTRADAY_TFS.has(tf)) {
+                gapDays = Math.max(0, EXPECTED_TRADING_DAYS - recentDates);
+              }
+
+              // Quality: weighted score factoring count + freshness + gaps
+              // count_score: 0-40 points (did we reach expected count?)
+              // freshness_score: 0-30 points (is data current?)
+              // gap_score: 0-30 points (is data contiguous for intraday TFs?)
+              const countScore = Math.min(40, Math.round((cnt / exp) * 40));
+              const freshScore = freshnessHours == null ? 30
+                : freshnessHours <= 1 ? 30
+                : freshnessHours <= 24 ? 20
+                : freshnessHours <= 72 ? 10
+                : 0;
+              let gapScore = 30; // default full marks for D/W/M
+              if (INTRADAY_TFS.has(tf) && recentDates > 0) {
+                gapScore = Math.min(30, Math.round((recentDates / EXPECTED_TRADING_DAYS) * 30));
+              } else if (INTRADAY_TFS.has(tf) && recentDates === 0) {
+                gapScore = 0;
+              }
+              const qualityPct = Math.min(100, countScore + freshScore + gapScore);
+
+              tfData[tf] = {
+                count: cnt, expected: exp, pct,
+                min_ts: d?.min_ts || null, max_ts: d?.max_ts || null,
+                freshness_hours: freshnessHours,
+                gap_days: gapDays,
+                recent_dates: recentDates,
+                quality: qualityPct,
+              };
+              tickerPct += pct;
+              tickerQualitySum += qualityPct;
+              totalComplete += cnt;
+              totalExpected += exp;
+            }
+            const avgPct = Math.round(tickerPct / tfs.length);
+            const avgQuality = Math.round(tickerQualitySum / tfs.length);
+            const missingTfs = tfs.filter(tf => !tfData[tf] || tfData[tf].count === 0);
+            report.push({ ticker: t, sector: SECTOR_MAP[t] || "Unknown", pct: avgPct, quality: avgQuality, missing: missingTfs, tfs: tfData });
+          }
+
+          // Sort by quality ascending (worst first)
+          report.sort((a, b) => a.quality - b.quality);
+
+          // Summary — also exclude removed tickers
+          const allTickers = Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t));
+          const tickersWithData = new Set(tickerNames);
+          const tickersNoData = allTickers.filter(t => !tickersWithData.has(t));
+
+          return sendJSON({
+            ok: true,
+            summary: {
+              total_tickers_in_system: allTickers.length,
+              tickers_with_candle_data: tickerNames.length,
+              tickers_no_data: tickersNoData.length,
+              tickers_no_data_list: tickersNoData.slice(0, 30),
+              overall_pct: totalExpected > 0 ? Math.round((totalComplete / totalExpected) * 100) : 0,
+            },
+            tickers: report,
+            worst_10: report.slice(0, 10).map(r => ({ ticker: r.ticker, pct: r.pct, quality: r.quality, missing: r.missing })),
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: String(err) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════════
+      // GET /timed/admin/backfill-status?key=...
+      // Returns current backfill progress from KV (written by alpacaBackfill).
+      if (routeKey === "GET /timed/admin/backfill-status") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const status = await kvGetJSON(KV, "timed:backfill:status");
+        return sendJSON({ ok: true, status: status || null }, 200, corsHeaders(env, req));
+      }
+
+
       // POST /timed/admin/candle-replay
       // Pure candle-based replay: generates scoring snapshots from Alpaca historical
       // candle data (no trail/webhook dependency). Pre-loads candles into memory,
@@ -22637,36 +23456,60 @@ export default {
           intervals.push(ts);
         }
 
-        // Clean slate: purge ALL trades on first batch of a day
+        // Set replay-running lock (prevents live scoring cron from overwriting replay trades)
+        await kvPutJSON(KV, "timed:replay:running", { since: Date.now(), date: dateParam, offset: tickerOffset });
+
+        // Clean slate: purge ALL trades on first batch of a day (KV + D1)
         if (cleanSlate && tickerOffset === 0) {
           await kvPutJSON(KV, "timed:trades:all", []);
           await kvPutJSON(KV, "timed:portfolio:v1", null);
           await kvPutJSON(KV, "timed:activity:feed", null);
+
+          // Also purge D1 trade-related tables so metrics stay in sync.
+          // Run core tables first (guaranteed to exist), optional tables separately.
+          if (db) {
+            try {
+              await db.batch([
+                db.prepare("DELETE FROM trade_events"),
+                db.prepare("DELETE FROM trades"),
+              ]);
+              console.log("[REPLAY cleanSlate] Purged D1 trade_events + trades");
+            } catch (d1Err) {
+              console.warn("[REPLAY cleanSlate] D1 trades purge error:", String(d1Err?.message || d1Err).slice(0, 200));
+            }
+            // Optional tables — may not exist; purge individually
+            for (const tbl of ["positions", "execution_actions", "lots", "alerts"]) {
+              try {
+                await db.prepare(`DELETE FROM ${tbl}`).run();
+              } catch { /* table may not exist */ }
+            }
+          }
         }
 
         // Pre-load all candles for batch tickers (all 7 TFs) in parallel
-        const REPLAY_TFS = ["W", "D", "240", "60", "30", "10", "3"];
+        const REPLAY_TFS = ["W", "D", "240", "60", "30", "10", "5"];
         const candleCache = {}; // { TICKER: { TF: [candles sorted asc by ts] } }
 
+        // Use batch D1 reads (1 call per ticker instead of 7) to stay under subrequest limit
         await Promise.all(
           batchTickers.map(async (ticker) => {
             candleCache[ticker] = {};
-            await Promise.all(
-              REPLAY_TFS.map(async (tf) => {
-                try {
-                  const res = await d1GetCandles(env, ticker, tf, 1500);
-                  candleCache[ticker][tf] = (res?.ok && Array.isArray(res.candles)) ? res.candles : [];
-                } catch {
-                  candleCache[ticker][tf] = [];
-                }
-              })
-            );
+            try {
+              const tfConfigs = REPLAY_TFS.map(tf => ({ tf, limit: 1500 }));
+              const batchResult = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
+              for (const tf of REPLAY_TFS) {
+                const res = batchResult[tf];
+                candleCache[ticker][tf] = (res?.ok && Array.isArray(res.candles)) ? res.candles : [];
+              }
+            } catch {
+              for (const tf of REPLAY_TFS) candleCache[ticker][tf] = [];
+            }
           })
         );
 
         // Load existing trades for trade simulation
         let allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
-        const replayCtx = { allTrades };
+        const replayCtx = { allTrades, execStates: new Map() };
 
         // State map: track evolving ticker state across intervals
         const stateMap = {};
@@ -22681,6 +23524,7 @@ export default {
         const errors = [];
         const timeline = [];
         const stageCounts = {}; // Track stage distribution
+        const pendingTrail = []; // Collect trail points for batch write
 
         for (const intervalTs of intervals) {
           for (const ticker of batchTickers) {
@@ -22709,11 +23553,19 @@ export default {
                 "60": bundles["60"] || null,
                 "30": bundles["30"] || null,
                 "10": bundles["10"] || null,
-                "3": bundles["3"] || null,
+                "5": bundles["5"] || null,
               };
 
+              // Pass raw Daily/Weekly candles for Phase 2a regime detection
+              const rawBars = {};
+              for (const tf of ["D", "W"]) {
+                const allCandles = candleCache[ticker]?.[tf] || [];
+                const sliced = allCandles.filter(c => c.ts <= intervalTs);
+                if (sliced.length >= 25) rawBars[tf] = sliced;
+              }
+
               const existing = stateMap[ticker] || {};
-              const result = assembleTickerData(ticker, bundleMap, existing);
+              const result = assembleTickerData(ticker, bundleMap, existing, { rawBars });
               if (!result) { skipped++; continue; }
 
               // Enrich with timestamp and derived fields
@@ -22722,11 +23574,9 @@ export default {
               result.data_source = "candle_replay";
               result.data_source_ts = intervalTs;
 
-              // Compute RR, rank, move status
-              if (result.rr == null || !Number.isFinite(Number(result.rr))) {
-                result.rr = computeRR(result);
-                if (result.rr != null && Number(result.rr) > 25) result.rr = 25;
-              }
+              // Compute RR, rank, move status — always recompute from current price
+              result.rr = computeRR(result);
+              if (result.rr != null && Number(result.rr) > 25) result.rr = 25;
               if (result.score == null && result.rank == null) {
                 result.score = computeRank(result);
               }
@@ -22785,14 +23635,16 @@ export default {
               }
 
               // Track entry price on stage transitions
-              if ((finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter") {
+              const isNewEntry = (finalStage === "enter_now" || finalStage === "enter") && prevStage !== "enter_now" && prevStage !== "enter";
+              if (isNewEntry) {
                 const price = Number(result?.price);
                 if (Number.isFinite(price) && price > 0) {
                   result.entry_price = price;
                   result.entry_ts = intervalTs;
                 }
               }
-              if (finalStage && existing?.entry_price) {
+              // Carry forward entry_price from previous interval ONLY if this is NOT a fresh entry
+              if (!isNewEntry && finalStage && existing?.entry_price && result.entry_price == null) {
                 result.entry_price = existing.entry_price;
                 result.entry_ts = existing.entry_ts;
               }
@@ -22809,10 +23661,8 @@ export default {
               // Track stage distribution
               stageCounts[finalStage || "null"] = (stageCounts[finalStage || "null"] || 0) + 1;
 
-              // Write trail point to D1 for historical backfill (always, regardless of trailOnly)
-              try {
-                await d1InsertTrailPoint(env, ticker, result);
-              } catch (e) { /* non-critical */ }
+              // Collect trail point for batch write at end (avoids 1000+ individual D1 calls)
+              pendingTrail.push({ ticker, result: { ...result } });
 
               if (!trailOnly) {
                 // Run trade simulation (with Discord disabled and no D1 writes)
@@ -22836,6 +23686,39 @@ export default {
           }
         }
 
+        // Batch-write all trail points to D1 (reduces 1000+ individual calls to a few batches)
+        let trailWritten = 0;
+        if (pendingTrail.length > 0 && db) {
+          try {
+            const trailStmts = [];
+            for (const { ticker: t, result: r } of pendingTrail) {
+              const ts = Number(r?.ts);
+              if (!Number.isFinite(ts)) continue;
+              const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
+              trailStmts.push(
+                db.prepare(
+                  `INSERT OR REPLACE INTO timed_trail
+                    (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                ).bind(
+                  String(t).toUpperCase(), ts,
+                  r?.price ?? null, r?.htf_score ?? null, r?.ltf_score ?? null,
+                  r?.completion ?? null, r?.phase_pct ?? null,
+                  r?.state ?? null, r?.rank ?? null, flagsJson,
+                  r?.trigger_reason ?? null, r?.trigger_dir ?? null,
+                  r?.kanban_stage ?? null, null
+                )
+              );
+            }
+            for (let i = 0; i < trailStmts.length; i += 500) {
+              await db.batch(trailStmts.slice(i, i + 500));
+              trailWritten += Math.min(500, trailStmts.length - i);
+            }
+          } catch (trailErr) {
+            errors.push({ ticker: "TRAIL_BATCH", error: String(trailErr?.message || trailErr).slice(0, 150) });
+          }
+        }
+
         // Write final state for each ticker to KV (skip when trailOnly to preserve current state)
         if (!trailOnly) {
           for (const ticker of batchTickers) {
@@ -22846,12 +23729,75 @@ export default {
             }
           }
 
-          // Persist trades
+          // Persist trades to KV
           try {
             await kvPutJSON(KV, "timed:trades:all", replayCtx.allTrades);
           } catch (e) {
             errors.push({ ticker: "TRADES_SAVE", error: String(e?.message || e) });
           }
+
+          // Also persist trades to D1 (source of truth) so they survive cron overwrites
+          // Only upsert trades belonging to this batch's tickers to stay under D1 subrequest limits
+          if (db) {
+            const batchTickerSet = new Set(batchTickers.map(t => t.toUpperCase()));
+            const batchTrades = replayCtx.allTrades.filter(t =>
+              batchTickerSet.has(String(t?.ticker || "").toUpperCase())
+            );
+            try {
+              for (const trade of batchTrades) {
+                await d1UpsertTrade(env, trade).catch(() => {});
+              }
+            } catch (e) {
+              errors.push({ ticker: "TRADES_D1_SYNC", error: String(e?.message || e).slice(0, 150) });
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // Sync OPEN trades → D1 positions table
+            // The capture handler + scoring cron use getPositionContext() which
+            // queries the positions table. Without this, they classify kanban in
+            // discovery mode (watch/setup/enter) and overwrite the replay's
+            // correct management stages (hold/defend/trim/exit).
+            // ═══════════════════════════════════════════════════════════════════
+            const openBatchTrades = batchTrades.filter(t =>
+              String(t?.status || "").toUpperCase() === "OPEN"
+            );
+            let positionsSynced = 0;
+            for (const trade of openBatchTrades) {
+              try {
+                const sym = String(trade.ticker).toUpperCase();
+                const dir = String(trade.direction || "LONG").toUpperCase();
+                const shares = Number(trade.shares) || 0;
+                const ep = Number(trade.entryPrice) || 0;
+                const costBasis = shares * ep;
+                const entryTs = Number(trade.entry_ts) || Number(trade.created_at) || Date.now();
+                const sl = Number(trade.sl);
+                const tp = Number(trade.tp);
+                const posId = trade.id || `replay-${sym}-${entryTs}`;
+                await d1InsertPosition(env, {
+                  position_id: posId,
+                  ticker: sym,
+                  direction: dir,
+                  status: "OPEN",
+                  total_qty: shares,
+                  cost_basis: costBasis,
+                  created_at: entryTs,
+                  updated_at: entryTs,
+                  stop_loss: Number.isFinite(sl) ? sl : null,
+                  take_profit: Number.isFinite(tp) ? tp : null,
+                });
+                positionsSynced++;
+              } catch { /* non-critical */ }
+            }
+            if (positionsSynced > 0) {
+              console.log(`[REPLAY] Synced ${positionsSynced} open positions to D1 positions table`);
+            }
+          }
+        }
+
+        // Clear replay lock when this is the last batch
+        if (!hasMore) {
+          await kvPutJSON(KV, "timed:replay:running", null);
+          console.log("[REPLAY] Last batch done, cleared replay:running lock");
         }
 
         return sendJSON({
@@ -23081,6 +24027,187 @@ export default {
             `SELECT * FROM pattern_library WHERE status = ? ORDER BY expected_value DESC`
           ).bind(status).all();
           return sendJSON({ ok: true, patterns: results || [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SCREENER / DISCOVERY ENDPOINTS
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/screener/candidates - Get latest screener discovery results
+      if (routeKey === "GET /timed/screener/candidates") {
+        try {
+          const raw = await KV.get("timed:screener:candidates");
+          const data = raw ? JSON.parse(raw) : { candidates: [], scan_ts: null, count: 0 };
+          return sendJSON({ ok: true, ...data }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/screener/candidates?key=... - Receive screener discovery results
+      if (routeKey === "POST /timed/screener/candidates") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const { obj: body } = await readBodyAsJSON(req);
+          if (!body || !Array.isArray(body.candidates)) {
+            return sendJSON({ ok: false, error: "candidates array required" }, 400, corsHeaders(env, req));
+          }
+
+          // Merge with existing: keep last 7 days of candidates, dedup by ticker
+          const existing = await KV.get("timed:screener:candidates");
+          const prev = existing ? JSON.parse(existing) : { candidates: [] };
+          const sevenDaysAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
+
+          // Combine: new candidates first, then recent existing (dedup by ticker)
+          const seen = new Set();
+          const merged = [];
+          for (const c of [...body.candidates, ...(prev.candidates || [])]) {
+            if (seen.has(c.ticker)) continue;
+            if (c.discovered_at && c.discovered_at < sevenDaysAgo) continue;
+            seen.add(c.ticker);
+            merged.push(c);
+          }
+
+          const payload = {
+            candidates: merged.slice(0, 500), // cap at 500
+            scan_ts: body.scan_ts || new Date().toISOString(),
+            count: merged.length,
+            last_updated: new Date().toISOString(),
+          };
+
+          await KV.put("timed:screener:candidates", JSON.stringify(payload), {
+            expirationTtl: 7 * 86400, // expire after 7 days
+          });
+
+          return sendJSON({
+            ok: true,
+            stored: merged.length,
+            new: body.candidates.length,
+            message: `Stored ${merged.length} candidates (${body.candidates.length} new)`,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // USER / AUTH ENDPOINTS
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/me - Return current authenticated user info
+      // Auto-promotes ADMIN_EMAIL to admin role/tier on every check.
+      // Supports ?return=<url> for cross-origin login flow (Pages → Worker → CF Access → back to Pages).
+      if (routeKey === "GET /timed/me") {
+        const returnUrl = url.searchParams.get("return");
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user) {
+            // If return param and not authenticated, CF Access didn't gate this path —
+            // fall through with normal JSON so the client auth-gate shows login.
+            return sendJSON({ ok: true, authenticated: false, user: null }, 200, corsHeaders(env, req));
+          }
+
+          // Auto-promote admin email if not already admin
+          const adminEmail = (env.ADMIN_EMAIL || "").toLowerCase().trim();
+          if (adminEmail && user.email?.toLowerCase() === adminEmail && (user.role !== "admin" || user.tier !== "admin")) {
+            user.role = "admin";
+            user.tier = "admin";
+            try {
+              const DB = env?.DB;
+              if (DB) {
+                await DB.prepare(
+                  `UPDATE users SET role = 'admin', tier = 'admin', updated_at = ? WHERE email = ?`
+                ).bind(Date.now(), user.email).run();
+                console.log(`[AUTH] Auto-promoted ${user.email} to admin`);
+              }
+            } catch (e) {
+              console.warn("[AUTH] Admin auto-promote failed:", String(e?.message || e));
+            }
+          }
+
+          // ── Cross-origin login redirect ──────────────────────────────────
+          // If ?return=<url> is present, the user arrived here from a Pages-hosted
+          // dashboard that redirected to the worker domain so CF Access could set
+          // its cookie. Now that login succeeded, redirect back to the Pages URL.
+          if (returnUrl) {
+            // Allow-list: only redirect to our own Pages / localhost origins
+            const SAFE_RETURN_PREFIXES = [
+              "https://timedtrading.pages.dev",
+              "http://localhost",
+              "http://127.0.0.1",
+            ];
+            const isSafe = SAFE_RETURN_PREFIXES.some((p) => returnUrl.startsWith(p));
+            if (isSafe) {
+              return new Response(null, {
+                status: 302,
+                headers: { Location: returnUrl },
+              });
+            }
+          }
+
+          return sendJSON({
+            ok: true,
+            authenticated: true,
+            user: {
+              email: user.email,
+              display_name: user.display_name,
+              role: user.role,
+              tier: user.tier,
+              last_login_at: user.last_login_at,
+            },
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/users?key=... - List all users (admin only)
+      if (routeKey === "GET /timed/admin/users") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const DB = env?.DB;
+          if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const { results } = await DB.prepare(
+            `SELECT email, display_name, role, tier, created_at, last_login_at, expires_at FROM users ORDER BY last_login_at DESC`
+          ).all();
+          return sendJSON({ ok: true, users: results || [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/users/:email/tier?key=...&tier=pro|free - Update user tier
+      if (routeKey === "POST /timed/admin/users/:email/tier") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        try {
+          const DB = env?.DB;
+          if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+          // Extract email from path: /timed/admin/users/{email}/tier
+          const pathParts = url.pathname.split("/");
+          const emailIdx = pathParts.indexOf("users") + 1;
+          const email = decodeURIComponent(pathParts[emailIdx]);
+          const tier = url.searchParams.get("tier");
+          const expiresAt = url.searchParams.get("expires_at") || null;
+
+          if (!tier || !["free", "pro", "admin"].includes(tier)) {
+            return sendJSON({ ok: false, error: "tier must be free, pro, or admin" }, 400, corsHeaders(env, req));
+          }
+
+          await DB.prepare(
+            `UPDATE users SET tier = ?, expires_at = ?, updated_at = ? WHERE email = ?`
+          ).bind(tier, expiresAt, Date.now(), email).run();
+
+          return sendJSON({ ok: true, email, tier, expires_at: expiresAt }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -23523,6 +24650,17 @@ export default {
         // D1 SOURCE: Build open positions from D1 positions table
         // ═══════════════════════════════════════════════════════════════════════
         if (useD1 && d1Positions.length > 0) {
+          // Fetch SL/TP from positions table (they aren't in the basic query above)
+          let positionSLTP = {};
+          try {
+            const slTpRes = await env.DB.prepare(
+              `SELECT position_id, stop_loss, take_profit FROM positions WHERE status = 'OPEN'`
+            ).all();
+            for (const r of (slTpRes?.results || [])) {
+              positionSLTP[r.position_id] = { stop_loss: r.stop_loss, take_profit: r.take_profit };
+            }
+          } catch (e) { /* ignore — SL/TP enrichment is best-effort */ }
+
           for (const p of d1Positions) {
             if (p.status !== "OPEN") continue;
             const tkr = String(p.ticker || "").toUpperCase();
@@ -23541,6 +24679,11 @@ export default {
             // Calculate realized P&L from actions
             const posActions = d1Actions.filter(a => a.position_id === p.position_id);
             const realizedPnl = posActions.reduce((sum, a) => sum + (Number(a.pnl_realized) || 0), 0);
+
+            // SL/TP from position, with fallback to latest ticker data
+            const posSLTP = positionSLTP[p.position_id] || {};
+            const sl = Number(posSLTP.stop_loss ?? latest?.sl ?? latest?.sl_price ?? latest?.stop_loss);
+            const tp = Number(posSLTP.take_profit ?? latest?.tp ?? latest?.tp_max_price ?? latest?.tp_target_price ?? latest?.tp_target);
             
             openPositions.push({
               ticker: tkr,
@@ -23551,11 +24694,15 @@ export default {
               value: Number.isFinite(val) ? val : null,
               phase_pct: latest?.phase_pct != null ? Number(latest.phase_pct) : null,
               completion: latest?.completion != null ? Number(latest.completion) : null,
-              tp: tpTargetPrice(latest),
+              tp: Number.isFinite(tp) && tp > 0 ? tp : tpTargetPrice(latest),
+              sl: Number.isFinite(sl) && sl > 0 ? sl : null,
               kanban_stage: latest?.kanban_stage || null,
               position_id: p.position_id,
               entry_ts: p.created_at,
               realized_pnl: realizedPnl,
+              day_change: latest?.day_change != null ? Number(latest.day_change) : null,
+              day_change_pct: latest?.day_change_pct != null ? Number(latest.day_change_pct) : (latest?.change_pct != null ? Number(latest.change_pct) : null),
+              prev_close: latest?.prev_close != null ? Number(latest.prev_close) : null,
               source: "d1",
             });
           }
@@ -27305,7 +28452,7 @@ Provide 3-5 actionable next steps:
         }
 
         const findOpenInArray = (trades, sym) => trades.find((x) => String(x?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(x?.status)) || null;
-        const replayCtx = { allTrades };
+        const replayCtx = { allTrades, execStates: new Map() };
         let processed = 0, tradesCreated = 0;
         const laneCounts = {};
 
@@ -27863,7 +29010,7 @@ Provide 3-5 actionable next steps:
 
           const stateMap = {};
           const findOpenInArray = (trades, sym) => trades.find((x) => String(x?.ticker || "").toUpperCase() === sym && isOpenTradeStatus(x?.status)) || null;
-          const replayCtx = { allTrades };
+          const replayCtx = { allTrades, execStates: new Map() };
           let tradesCreated = 0;
 
           for (const row of rows) {
@@ -28290,7 +29437,7 @@ Provide 3-5 actionable next steps:
               isOpenTradeStatus(x?.status),
           ) || null;
 
-        const replayCtx = { allTrades };
+        const replayCtx = { allTrades, execStates: new Map() };
 
         let processed = 0;
         let tradesCreated = 0;
@@ -29065,10 +30212,10 @@ Provide 3-5 actionable next steps:
     // ═══════════════════════════════════════════════════════════════════════
     // ALPACA BAR FETCHING — extended hours coverage
     //   Pre-market + RTH: */1 9-21 * * 1-5  (4AM-4PM ET = 9-21 UTC, every 1 min)
-    //   After-hours:      */5 21-23 * * 1-5  (4PM-7PM ET, every 5 min)
+    //   After-hours:      */5 21-23 * * 1-5  (4PM-6PM ET, every 5 min)
+    //                     */5 23 * * 1-5     (6PM-7PM ET, every 5 min)
     //                     */5 0-1 * * 2-6    (7PM-8PM ET, every 5 min)
-    // This cron ONLY fetches bars from Alpaca and stores them in D1.
-    // Scoring and trade updates happen in the */5 cron cycle below.
+    // This cron fetches bars from Alpaca and stores them in D1.
     // ═══════════════════════════════════════════════════════════════════════
     const isAlpacaBarCron = event.cron === "*/1 9-21 * * 1-5"
       || event.cron === "*/5 21-23 * * 1-5"
@@ -29076,124 +30223,288 @@ Provide 3-5 actionable next steps:
     if (isAlpacaBarCron) {
       if (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
         try {
-          const allTickers = Object.keys(SECTOR_MAP);
+          // Filter to Alpaca-compatible stock/ETF symbols only.
+          // Alpaca /v2/stocks/bars rejects the ENTIRE batch if any symbol is invalid.
+          // Excluded: futures (ES1!, NQ1!), crypto (BTCUSD, ETHUSD), indices (US500, VIX),
+          // and symbols with special chars (BRK-B → Alpaca uses BRK.B, handled separately).
+          const ALPACA_SYMBOL_BLOCKLIST = new Set([
+            "ES1!", "NQ1!", "GC1!", "SI1!",  // futures
+            "BTCUSD", "ETHUSD",               // crypto (Alpaca uses /v1beta3/crypto endpoint)
+            "US500", "VIX",                    // indices (not tradable stocks)
+            "BRK-B",                           // TradingView format (Alpaca uses BRK.B)
+          ]);
+          const allTickers = Object.keys(SECTOR_MAP).filter(
+            t => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
+          );
           const result = await alpacaCronFetchLatest(env, allTickers, d1UpsertCandle);
-          console.log(`[ALPACA CRON] Fetched bars: ${result.upserted} upserted, ${result.errors} errors`);
+          console.log(`[ALPACA CRON] Fetched bars for ${allTickers.length} stocks: ${result.upserted} upserted, ${result.errors} errors`);
         } catch (err) {
           console.error("[ALPACA CRON] Error:", err);
         }
       }
-      return; // Only bar fetching on this cron; the */5 cron handles scoring + trades
+      return; // Bar fetching only — scoring runs on the */5 cron
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // FAST SCORING CRON (*/1 13-21 * * 1-5) — dedicated scoring-only path
-    // Scores ~60 tickers per 1-min cycle with rolling cursor + priority.
-    // Full universe covered in ~4-5 cycles (4-5 minutes).
-    // Skips D1 sync, trade updates, alerts — those run on the */5 cron.
-    // Subrequest budget: ~60 * 9 = ~540 (well within 1,000 limit)
+    // PRICE FEED CRON (*/1 13-21 * * 1-5) — real-time price display + SL/TP checks
+    // Uses Alpaca Snapshots API for efficient batch price fetching.
+    // Stores prices in KV as `timed:prices` for the UI to poll.
+    // Also checks open positions against SL/TP levels.
     // ═══════════════════════════════════════════════════════════════════════
-    // TEMP: match "*/1 * * * *" for validation; revert to "*/1 13-21 * * 1-5"
-    const isMarketHoursScoringCron = event.cron === "*/1 * * * *" || event.cron === "*/1 13-21 * * 1-5";
-    if (isMarketHoursScoringCron && env.ALPACA_ENABLED === "true") {
+    // Price feed: extended hours Mon-Fri + Sunday 6pm ET futures/crypto open
+    const PRICE_FEED_CRONS = new Set([
+      "*/1 9-23 * * 1-5",   // Mon-Fri pre-market + RTH + early AH
+      "*/1 0-1 * * 2-6",    // After-hours carry-over (next UTC day)
+      "*/5 22-23 * * 7",    // Sunday 5-6pm ET futures/crypto open
+    ]);
+    const isPriceFeedCron = PRICE_FEED_CRONS.has(event.cron);
+    if (isPriceFeedCron && env.ALPACA_ENABLED === "true") {
       const KV = env.KV_TIMED;
       try {
-        const scoringStart = Date.now();
         const allTickers = Object.keys(SECTOR_MAP);
+        const snapResult = await alpacaFetchSnapshots(env, allTickers);
+        const snapshots = snapResult.snapshots || {};
 
-        // Rolling cursor: advance through the universe across 1-min cycles
-        const cursorKey = "timed:scoring:fast_cursor";
-        let cursor = 0;
-        try {
-          cursor = Number(await KV.get(cursorKey)) || 0;
-          if (!Number.isFinite(cursor) || cursor < 0 || cursor >= allTickers.length) cursor = 0;
-        } catch { cursor = 0; }
-
-        // Get open positions (always scored first, regardless of cursor)
-        const openTradesCheck = ((await kvGetJSON(KV, "timed:trades:all")) || [])
-          .filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
-        const openTickerSet = new Set(openTradesCheck.map(t => String(t.ticker || "").toUpperCase()));
-
-        // Build kanban cache for priority ordering within the batch
-        const kanbanCache = {};
-        try {
-          const d1Rows = await env.DB?.prepare(
-            `SELECT ticker, kanban_stage FROM ticker_latest WHERE kanban_stage IN ('setup', 'enter', 'enter_now') LIMIT 100`
-          ).all();
-          for (const row of (d1Rows?.results || [])) {
-            kanbanCache[row.ticker] = row.kanban_stage;
-          }
-        } catch { /* non-critical */ }
-
-        // Batch of 45 tickers per 1-min cycle. Full universe in ~6 cycles (~6 min).
-        // Subrequest budget: 45 * ~9 + overhead = ~420 (safe margin under 1,000)
-        const FAST_BATCH = 45;
-        const end = Math.min(cursor + FAST_BATCH, allTickers.length);
-        const batchTickers = allTickers.slice(cursor, end);
-
-        // Always include open-position tickers (P0 priority)
-        const tickersToScore = [...openTickerSet];
-        const batchSet = new Set(batchTickers);
-        for (const t of batchTickers) {
-          if (!openTickerSet.has(t)) tickersToScore.push(t);
+        // Build compact price payload for KV
+        const prices = {};
+        for (const [sym, snap] of Object.entries(snapshots)) {
+          const price = snap.price;
+          const prevClose = snap.prevDailyClose;
+          const dailyChange = (price && prevClose && prevClose > 0)
+            ? Math.round((price - prevClose) * 100) / 100
+            : 0;
+          const dailyChangePct = (price && prevClose && prevClose > 0)
+            ? Math.round(((price - prevClose) / prevClose) * 10000) / 100
+            : 0;
+          prices[sym] = {
+            p: Math.round(price * 100) / 100,          // current price
+            pc: Math.round(prevClose * 100) / 100,      // previous close
+            dc: dailyChange,                              // daily change $
+            dp: dailyChangePct,                           // daily change %
+            dh: Math.round((snap.dailyHigh || 0) * 100) / 100,  // daily high
+            dl: Math.round((snap.dailyLow || 0) * 100) / 100,   // daily low
+            dv: snap.dailyVolume || 0,                    // daily volume
+            t: Date.now(),                                // per-ticker timestamp
+          };
         }
 
-        // Priority sort within this batch
-        tickersToScore.sort((a, b) => {
-          const pa = openTickerSet.has(a) ? 0
-            : (kanbanCache[a] === "setup" || kanbanCache[a] === "enter" || kanbanCache[a] === "enter_now") ? 1 : 2;
-          const pb = openTickerSet.has(b) ? 0
-            : (kanbanCache[b] === "setup" || kanbanCache[b] === "enter" || kanbanCache[b] === "enter_now") ? 1 : 2;
-          return pa - pb;
+        // Merge TV heartbeat prices for futures/macro tickers
+        // These come from TradingView Pine heartbeat alerts.
+        // Pine sends syminfo.ticker (e.g. "GC1!", "SI1!", "ES1!", "NQ1!")
+        // stored as timed:heartbeat:{ticker}. Also check timed:latest:{ticker} as fallback.
+        const TV_FUTURES = ["ES1!", "NQ1!", "GC1!", "SI1!", "VIX", "US500"];
+        for (const tvSym of TV_FUTURES) {
+          try {
+            // Try heartbeat first (fresher, 2d TTL), then latest as fallback
+            const hbData = await kvGetJSON(KV, `timed:heartbeat:${tvSym}`);
+            const latestData = await kvGetJSON(KV, `timed:latest:${tvSym}`);
+            const tvData = (hbData && hbData.price > 0) ? hbData : latestData;
+            if (tvData && tvData.price > 0) {
+              const prevClose = Number(tvData.prev_close || tvData.previous_close || 0);
+              const price = Number(tvData.price);
+              const dc = prevClose > 0 ? Math.round((price - prevClose) * 100) / 100 : 0;
+              const dp = prevClose > 0 ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
+              prices[tvSym] = {
+                p: Math.round(price * 100) / 100,
+                pc: Math.round(prevClose * 100) / 100,
+                dc, dp,
+                dh: Math.round(Number(tvData.high || tvData.dailyHigh || 0) * 100) / 100,
+                dl: Math.round(Number(tvData.low || tvData.dailyLow || 0) * 100) / 100,
+                dv: Number(tvData.volume || 0),
+                t: Number(tvData.ts || tvData.timestamp || tvData.ingest_ts || 0) || Date.now(),
+              };
+            }
+          } catch (_) { /* best-effort */ }
+        }
+
+        // ── Build 1m candles from snapshot prices ──
+        // Every minute we have prices for ALL tickers. Use them to build/update
+        // 1m candles in D1, providing continuous coverage independent of the
+        // Alpaca bar cron and TradingView webhooks.
+        try {
+          const db = env?.DB;
+          if (db) {
+            const minuteTs = Math.floor(Date.now() / 60000) * 60000;
+            const updatedAt = Date.now();
+            const stmts = [];
+            for (const [sym, snap] of Object.entries(prices)) {
+              const price = snap.p;
+              if (!Number.isFinite(price) || price <= 0) continue;
+              stmts.push(
+                db.prepare(
+                  `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+                   VALUES (?1, '1', ?2, ?3, ?4, ?5, ?6, NULL, ?7)
+                   ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+                     h = MAX(ticker_candles.h, excluded.h),
+                     l = MIN(ticker_candles.l, excluded.l),
+                     c = excluded.c,
+                     updated_at = excluded.updated_at`
+                ).bind(sym.toUpperCase(), minuteTs, price, price, price, price, updatedAt)
+              );
+            }
+            // Batch write in chunks of 500 (D1 limit)
+            for (let i = 0; i < stmts.length; i += 500) {
+              ctx.waitUntil(
+                db.batch(stmts.slice(i, i + 500)).catch(e =>
+                  console.warn(`[PRICE→CANDLE] batch ${i/500} failed:`, String(e).slice(0, 120))
+                )
+              );
+            }
+          }
+        } catch (candleErr) {
+          // Non-critical — don't break the price feed
+          console.warn(`[PRICE→CANDLE] error:`, String(candleErr).slice(0, 120));
+        }
+
+        // Store in KV with timestamp
+        await kvPutJSON(KV, "timed:prices", {
+          prices,
+          updated_at: Date.now(),
+          ticker_count: Object.keys(prices).length,
         });
 
-        let scored = 0, skipped = 0, errors = 0;
+        // ── SL/TP Exit Checking on price loop ──
+        // Check open positions against current prices for fast SL/TP reaction
+        try {
+          const allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
+          const openTrades = allTrades.filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
+          let slTriggered = 0, tpTriggered = 0;
 
-        const scoreTicker = async (ticker) => {
-          try {
-            const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            const result = await computeServerSideScores(ticker, d1GetCandles, env, existing);
-            if (!result) { skipped++; return; }
+          for (const trade of openTrades) {
+            const sym = String(trade.ticker || "").toUpperCase();
+            const snap = prices[sym];
+            if (!snap || !snap.p) continue;
 
-            result.data_source = "alpaca";
-            result.data_source_ts = Date.now();
+            const currentPrice = snap.p;
+            const sl = Number(trade.stop_loss || trade.sl);
+            const tp = Number(trade.take_profit || trade.tp);
+            const direction = String(trade.direction || "").toUpperCase();
+            const isLong = direction === "LONG";
 
-            // Compute kanban_stage
-            try {
-              const openPos = openTradesCheck.find(t => String(t.ticker || "").toUpperCase() === ticker) || null;
-              result.kanban_stage = classifyKanbanStage(result, openPos);
-            } catch { /* non-critical */ }
-
-            // Delta-based write
-            if (hasPayloadChangedMeaningfully(existing, result)) {
-              await kvPutJSON(KV, `timed:latest:${ticker}`, result);
-              scored++;
-            } else {
-              skipped++;
+            // SL check
+            if (Number.isFinite(sl) && sl > 0) {
+              const slHit = isLong ? currentPrice <= sl : currentPrice >= sl;
+              if (slHit) {
+                slTriggered++;
+                // Flag for the scoring loop to process the exit
+                trade._price_sl_triggered = true;
+                trade._price_sl_triggered_at = Date.now();
+                trade._price_sl_price = currentPrice;
+              }
             }
-          } catch (e) {
-            errors++;
-            console.warn(`[FAST SCORING] ${ticker}:`, String(e));
-          }
-        };
 
-        // Process in parallel batches of 10 (conservative for subrequest budget)
-        const PARALLEL = 10;
-        for (let i = 0; i < tickersToScore.length; i += PARALLEL) {
-          const batch = tickersToScore.slice(i, i + PARALLEL);
-          await Promise.allSettled(batch.map(scoreTicker));
+            // TP check (first tier)
+            if (Number.isFinite(tp) && tp > 0) {
+              const tpHit = isLong ? currentPrice >= tp : currentPrice <= tp;
+              if (tpHit) {
+                tpTriggered++;
+                trade._price_tp_triggered = true;
+                trade._price_tp_triggered_at = Date.now();
+                trade._price_tp_price = currentPrice;
+              }
+            }
+          }
+
+          // Write back flagged trades if any SL/TP triggered
+          if (slTriggered > 0 || tpTriggered > 0) {
+            await kvPutJSON(KV, "timed:trades:all", allTrades);
+            console.log(`[PRICE FEED] SL/TP check: ${slTriggered} SL triggered, ${tpTriggered} TP triggered`);
+          }
+        } catch (e) {
+          console.warn("[PRICE FEED] SL/TP check error:", e);
         }
 
-        // Advance cursor
-        const nextCursor = end >= allTickers.length ? 0 : end;
-        try { await KV.put(cursorKey, String(nextCursor), { expirationTtl: 3600 }); } catch {}
+        console.log(`[PRICE FEED] Updated ${Object.keys(prices).length} tickers`);
 
-        const elapsed = Date.now() - scoringStart;
-        console.log(`[FAST SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${elapsed}ms, cursor ${cursor}→${nextCursor} (${tickersToScore.length} tickers)`);
+        // ── Chain: trigger full scoring immediately after price refresh ──
+        // Every 5th minute (0, 5, 10, ...) we chain a full scoring pass.
+        // This ensures scoring always uses the freshest prices.
+        const minute = new Date().getUTCMinutes();
+        if (minute % 5 === 0) {
+          ctx.waitUntil((async () => {
+            try {
+              const scoreStart = Date.now();
+              const scoreTickers = Object.keys(SECTOR_MAP);
+              const removedForScore = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+              const activeForScore = scoreTickers.filter(t => !removedForScore.has(t));
+              
+              // Get open positions for priority and kanban context
+              const openTradesForScore = ((await kvGetJSON(KV, "timed:trades:all")) || [])
+                .filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
+              const openTickerSetForScore = new Set(openTradesForScore.map(t => String(t.ticker || "").toUpperCase()));
+              const marketOpen = isNyRegularMarketOpen();
+
+              let scored = 0, skipped = 0, errors = 0;
+              const PARALLEL = 15;
+
+              const scoreOne = async (ticker) => {
+                try {
+                  const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
+
+                  // Batch-fetch all TFs in 1 D1 call (same optimization as main scoring cron)
+                  const tfConfigs = [
+                    { tf: "W", limit: 300 }, { tf: "D", limit: 300 },
+                    { tf: "240", limit: 300 }, { tf: "60", limit: 300 },
+                    { tf: "30", limit: 300 }, { tf: "10", limit: 300 },
+                    { tf: "5", limit: 300 }, { tf: "1", limit: 60 },
+                    { tf: "M", limit: 60 },
+                  ];
+                  const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
+                  const getCandlesCached = async (_env, _ticker, tf, _limit) => {
+                    const tfKey = normalizeTfKey(tf);
+                    return candleCache[tfKey] || { ok: false, candles: [] };
+                  };
+
+                  const result = await computeServerSideScores(ticker, getCandlesCached, env, existing);
+                  if (!result) {
+                    if (existing && typeof existing === "object") {
+                      existing.trigger_ts = Date.now();
+                      existing.data_source_ts = Date.now();
+                      await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
+                    }
+                    skipped++; return;
+                  }
+
+                  result.data_source = "alpaca";
+                  result.data_source_ts = Date.now();
+                  result.trigger_ts = Date.now();
+
+                  // Kanban stage
+                  const openPos = openTradesForScore.find(t => String(t.ticker || "").toUpperCase() === ticker) || null;
+                  if (openPos) {
+                    result.kanban_stage = classifyKanbanStage(result, openPos);
+                  } else if (marketOpen) {
+                    result.kanban_stage = classifyKanbanStage(result);
+                  } else {
+                    result.kanban_stage = existing?.kanban_stage || classifyKanbanStage(result);
+                  }
+
+                  const triggerStale = !existing?.trigger_ts || (Date.now() - existing.trigger_ts) > 6 * 60 * 60 * 1000;
+                  if (hasPayloadChangedMeaningfully(existing, result) || triggerStale) {
+                    await kvPutJSON(KV, `timed:latest:${ticker}`, result);
+                    scored++;
+                  } else {
+                    skipped++;
+                  }
+                } catch { errors++; }
+              };
+
+              // Score all tickers in parallel batches
+              for (let i = 0; i < activeForScore.length; i += PARALLEL) {
+                const batch = activeForScore.slice(i, i + PARALLEL);
+                await Promise.allSettled(batch.map(scoreOne));
+              }
+
+              console.log(`[PRICE→SCORE CHAIN] ${scored} scored, ${skipped} skipped, ${errors} errors, ${Date.now() - scoreStart}ms, ${activeForScore.length} tickers`);
+            } catch (e) {
+              console.error("[PRICE→SCORE CHAIN] Error:", String(e));
+            }
+          })());
+        }
       } catch (e) {
-        console.error("[FAST SCORING] Error:", e);
+        console.error("[PRICE FEED] Error:", e);
       }
-      return; // Fast path done — no trade updates, D1 sync, or alerts on this cron
+      return;
     }
 
     const KV = env.KV_TIMED;
@@ -29202,63 +30513,109 @@ Provide 3-5 actionable next steps:
     const minute = now.getUTCMinutes();
     const processedTickers = new Set();
 
-    // KV → D1 warm-up (*/5 cron only). Reduced batch to 25 to stay within
-    // Cloudflare's per-invocation subrequest limit alongside scoring.
-    try {
-      ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 25));
-    } catch (e) {
-      console.error("[D1 SYNC] scheduled kickoff failed:", String(e));
+    // KV → D1 warm-up: skip during scoring-heavy minutes (0, 5, 10, ...)
+    // to leave subrequest budget for scoring. Run on off-minutes only.
+    if (minute % 5 !== 0) {
+      try {
+        ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 25));
+      } catch (e) {
+        console.error("[D1 SYNC] scheduled kickoff failed:", String(e));
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // ALPACA SERVER-SIDE SCORING — STANDARD CRON (*/5, off-hours fallback)
+    // SCORING CRON (*/5) — PRIMARY SCORING LOOP
     //
-    // Scores ~60 tickers per 5-min cycle with rolling cursor + priority.
-    // Full universe covered in ~25 minutes off-hours.
-    // During market hours, the */1 fast cron handles scoring so this is additive.
+    // Every 5 minutes: fetch scores for all tickers using 7 TFs (W,D,4H,1H,30m,10m,5m).
+    // This is the sole scoring loop (old */1 fast scoring removed — caused whiplash).
+    // 5m cadence provides trend confirmation; UI uses 2-consecutive-cycle logic for
+    // entry signals (10m effective confirmation window).
     //
     // Priority order: P0 open positions → P1 setup/enter → P2 rest
-    // Parallel: 10 tickers concurrently, each with 7 concurrent D1 reads
+    // Parallel: 10 tickers concurrently, each with 7+ concurrent D1 reads
     // ═══════════════════════════════════════════════════════════════════════
     if (env.ALPACA_ENABLED === "true") {
       try {
+        // Skip scoring if a replay is in progress (prevents overwriting replay trades)
+        const replayLock = await kvGetJSON(KV, "timed:replay:running");
+        if (replayLock && typeof replayLock === "object" && replayLock.since) {
+          const lockAge = Date.now() - replayLock.since;
+          // Auto-expire stale locks after 15 minutes (multi-batch replay can take 3-5 min)
+          if (lockAge < 15 * 60 * 1000) {
+            console.log(`[SCORING CRON] Skipping — replay in progress (started ${Math.round(lockAge / 1000)}s ago)`);
+            return;
+          } else {
+            console.warn(`[SCORING CRON] Stale replay lock (${Math.round(lockAge / 1000)}s old), clearing and proceeding`);
+            await kvPutJSON(KV, "timed:replay:running", null);
+          }
+        }
+
         const scoringStart = Date.now();
         const allTickers = Object.keys(SECTOR_MAP);
 
-        // Rolling cursor for off-hours/standard cron
-        const cursorKey = "timed:scoring:std_cursor";
-        let cursor = 0;
-        try {
-          cursor = Number(await KV.get(cursorKey)) || 0;
-          if (!Number.isFinite(cursor) || cursor < 0 || cursor >= allTickers.length) cursor = 0;
-        } catch { cursor = 0; }
-
+        // Score ALL tickers every cycle — no more rolling cursor
+        // With ~140 tickers and 15-way parallelism, full cycle completes in ~10-15s
         let scored = 0, skipped = 0, errors = 0, trailWrites = 0;
+        const pendingTrailPoints = []; // Collect trail points for batch write at end
 
         // Get open positions for priority sorting and kanban context
         const openTradesCheck = ((await kvGetJSON(KV, "timed:trades:all")) || [])
           .filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
         const openTickerSet = new Set(openTradesCheck.map(t => String(t.ticker || "").toUpperCase()));
 
-        // Batch of 60 tickers from cursor position
-        const STD_BATCH = 40;
-        const end = Math.min(cursor + STD_BATCH, allTickers.length);
-        const batchTickers = allTickers.slice(cursor, end);
-
-        // Always include open positions
-        const tickersToScore = [...openTickerSet];
-        for (const t of batchTickers) {
-          if (!openTickerSet.has(t)) tickersToScore.push(t);
+        // Filter out removed tickers
+        const removedForScoring = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+        
+        // Priority: open positions first, then everything else
+        const tickersToScore = [];
+        for (const t of openTickerSet) {
+          if (!removedForScoring.has(t)) tickersToScore.push(t);
         }
+        for (const t of allTickers) {
+          if (!openTickerSet.has(t) && !removedForScoring.has(t)) tickersToScore.push(t);
+        }
+
+        // Check if market is currently open — if closed, pin kanban stage for discovery tickers
+        const stdCronMarketOpen = isNyRegularMarketOpen();
 
         const scoreTicker = async (ticker) => {
           try {
             const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
-            const result = await computeServerSideScores(ticker, d1GetCandles, env, existing);
-            if (!result) { skipped++; return; }
+
+            // Pre-fetch ALL timeframes for this ticker in a single D1 batch call.
+            // This reduces 9 D1 subrequests to 1, critical for staying under the
+            // 1000 subrequests/invocation limit with 140+ tickers.
+            const tfConfigs = [
+              { tf: "W", limit: 300 }, { tf: "D", limit: 300 },
+              { tf: "240", limit: 300 }, { tf: "60", limit: 300 },
+              { tf: "30", limit: 300 }, { tf: "10", limit: 300 },
+              { tf: "5", limit: 300 }, { tf: "1", limit: 60 },
+              { tf: "M", limit: 60 },
+            ];
+            const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
+            // Wrap cache in a getCandles-compatible function (no additional D1 calls)
+            const getCandlesCached = async (_env, _ticker, tf, _limit) => {
+              const tfKey = normalizeTfKey(tf);
+              return candleCache[tfKey] || { ok: false, candles: [] };
+            };
+
+            const result = await computeServerSideScores(ticker, getCandlesCached, env, existing);
+            if (!result) {
+              if (existing && typeof existing === "object") {
+                existing.trigger_ts = Date.now();
+                existing.data_source_ts = Date.now();
+                existing._scoring_skip_reason = "insufficient_candle_data";
+                await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
+              }
+              skipped++;
+              return;
+            }
 
             result.data_source = "alpaca";
             result.data_source_ts = Date.now();
+            // Keep trigger_ts fresh: server-side scoring is the signal source now.
+            // Without this, qualifiesForEnter blocks entries after 7 days (trigger_stale).
+            result.trigger_ts = Date.now();
 
             // Overnight signal injection (throttled to once/day)
             try {
@@ -29268,7 +30625,7 @@ Provide 3-5 actionable next steps:
                 const alreadyDone = await KV.get(overnightKey);
                 if (!alreadyDone) {
                   const lastCloseTs = Date.now() - 18 * 3600 * 1000;
-                  const overnight = await computeOvernightSignals(ticker, lastCloseTs, Date.now(), d1GetCandles, env);
+                  const overnight = await computeOvernightSignals(ticker, lastCloseTs, Date.now(), getCandlesCached, env);
                   if (overnight?.overnightFlags && Object.keys(overnight.overnightFlags).length > 0) {
                     result.flags = { ...(result.flags || {}), ...overnight.overnightFlags };
                     result._overnight_signals = overnight.signals;
@@ -29278,30 +30635,81 @@ Provide 3-5 actionable next steps:
               }
             } catch { /* overnight injection non-critical */ }
 
-            // Compute kanban_stage
+            // ── Consecutive Confirmation Logic ──
+            // Entry signals require 2 consecutive scoring cycles confirming alignment
+            // (effectively 10-minute confirmation window at 5m cadence).
+            // Score-based exits also require 2 consecutive deterioration cycles.
+            try {
+              const prevState = existing?.state;
+              const prevConfirmCount = Number(existing?._confirm_count) || 0;
+              const prevExitCount = Number(existing?._exit_deterioration_count) || 0;
+
+              // Entry confirmation: track consecutive cycles in the same entry state
+              // (e.g., HTF_BULL_LTF_BULL for LONG, HTF_BEAR_LTF_BEAR for SHORT)
+              const isEntryState = result.state === "HTF_BULL_LTF_BULL" || result.state === "HTF_BEAR_LTF_BEAR";
+              if (isEntryState && result.state === prevState) {
+                result._confirm_count = prevConfirmCount + 1;
+              } else if (isEntryState) {
+                result._confirm_count = 1; // First cycle in new entry state
+              } else {
+                result._confirm_count = 0; // Not in entry state
+              }
+              result._entry_confirmed = result._confirm_count >= 2; // 2 cycles = 10 min confirmation
+
+              // Exit deterioration: track consecutive cycles where score moves against position
+              const htf = result.htf_score || 0;
+              const ltf = result.ltf_score || 0;
+              const prevHtf = existing?.htf_score || 0;
+              const prevLtf = existing?.ltf_score || 0;
+              const scoreDeterioration = (
+                (htf >= 0 && ltf < prevLtf - 3) || // Long: LTF dropping significantly
+                (htf < 0 && ltf > prevLtf + 3)     // Short: LTF rising significantly
+              );
+              if (scoreDeterioration) {
+                result._exit_deterioration_count = prevExitCount + 1;
+              } else {
+                result._exit_deterioration_count = 0;
+              }
+              result._score_exit_signal = result._exit_deterioration_count >= 2; // 2 consecutive cycles
+            } catch { /* confirmation tracking non-critical */ }
+
+            // Compute kanban_stage — pin discovery tickers when market is closed
+            // Management stages (hold, defend, trim, exit) require an open position;
+            // if no position exists, force reclassification to prevent stale replay stages.
             try {
               const openPos = openTradesCheck.find(t => String(t.ticker || "").toUpperCase() === ticker) || null;
-              result.kanban_stage = classifyKanbanStage(result, openPos);
+              if (openPos) {
+                result.kanban_stage = classifyKanbanStage(result, openPos);
+              } else if (stdCronMarketOpen) {
+                result.kanban_stage = classifyKanbanStage(result);
+              } else {
+                // Market closed: pin discovery stages but NOT management stages without a position
+                const prev = existing?.kanban_stage;
+                const mgmtStages = new Set(["active", "hold", "just_entered", "defend", "trim", "exit"]);
+                if (prev && mgmtStages.has(prev)) {
+                  // No open position + management stage = stale from replay. Reclassify.
+                  result.kanban_stage = classifyKanbanStage(result);
+                } else {
+                  result.kanban_stage = prev || classifyKanbanStage(result);
+                }
+              }
             } catch { /* non-critical */ }
 
-            // Delta-based write
-            if (hasPayloadChangedMeaningfully(existing, result)) {
+            // Always write during market hours (prices always change).
+            // Off-hours: delta-based write to reduce KV churn.
+            const triggerStale = !existing?.trigger_ts || (Date.now() - existing.trigger_ts) > 6 * 60 * 60 * 1000;
+            if (stdCronMarketOpen || hasPayloadChangedMeaningfully(existing, result) || triggerStale) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
             } else {
               skipped++;
             }
 
-            // D1 trail point (10-minute cadence)
+            // Collect trail points for batch write (don't make individual D1 calls here)
             const TRAIL_CADENCE_MS = 10 * 60 * 1000;
             const lastTrailTs = Number(existing?._last_trail_ts) || 0;
-            if (Date.now() - lastTrailTs >= TRAIL_CADENCE_MS && env?.DB) {
-              try {
-                await d1InsertTrailPoint(env, ticker, result);
-                result._last_trail_ts = Date.now();
-                await kvPutJSON(KV, `timed:latest:${ticker}`, result);
-                trailWrites++;
-              } catch { /* trail write non-critical */ }
+            if (Date.now() - lastTrailTs >= TRAIL_CADENCE_MS) {
+              pendingTrailPoints.push({ ticker, result });
             }
           } catch (e) {
             errors++;
@@ -29309,86 +30717,141 @@ Provide 3-5 actionable next steps:
           }
         };
 
-        // Process in parallel batches of 10
-        const PARALLEL = 10;
+        // Process in parallel batches of 15 (up from 10 — fewer tickers, can be more aggressive)
+        const PARALLEL = 15;
         for (let i = 0; i < tickersToScore.length; i += PARALLEL) {
           const batch = tickersToScore.slice(i, i + PARALLEL);
           await Promise.allSettled(batch.map(scoreTicker));
         }
 
-        // Advance cursor
-        const nextCursor = end >= allTickers.length ? 0 : end;
-        try { await KV.put(cursorKey, String(nextCursor), { expirationTtl: 7 * 24 * 3600 }); } catch {}
+        // Batch-write all trail points in one D1 batch call (saves ~100 individual D1 calls)
+        if (pendingTrailPoints.length > 0 && env?.DB) {
+          try {
+            const db = env.DB;
+            const trailStmts = [];
+            for (const { ticker, result } of pendingTrailPoints) {
+              const ts = Number(result?.ts);
+              if (!Number.isFinite(ts)) continue;
+              const flagsJson = result?.flags ? JSON.stringify(result.flags) : null;
+              trailStmts.push(
+                db.prepare(
+                  `INSERT OR REPLACE INTO timed_trail
+                    (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+                ).bind(
+                  String(ticker).toUpperCase(), ts,
+                  result?.price ?? null, result?.htf_score ?? null, result?.ltf_score ?? null,
+                  result?.completion ?? null, result?.phase_pct ?? null,
+                  result?.state ?? null, result?.rank ?? null, flagsJson,
+                  result?.trigger_reason ?? null, result?.trigger_dir ?? null,
+                  result?.kanban_stage ?? null, null
+                )
+              );
+            }
+            // Write in chunks of 500 (D1 batch limit)
+            for (let i = 0; i < trailStmts.length; i += 500) {
+              await db.batch(trailStmts.slice(i, i + 500));
+            }
+            trailWrites = pendingTrailPoints.length;
+            // Update _last_trail_ts for all trail tickers (batch KV writes via waitUntil)
+            ctx.waitUntil(Promise.allSettled(
+              pendingTrailPoints.map(({ ticker, result }) => {
+                result._last_trail_ts = Date.now();
+                return kvPutJSON(KV, `timed:latest:${ticker}`, result);
+              })
+            ));
+          } catch (trailErr) {
+            console.warn(`[SCORING] Trail batch write failed:`, String(trailErr).slice(0, 150));
+          }
+        }
 
         const elapsed = Date.now() - scoringStart;
-        console.log(`[SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${trailWrites} trail, ${elapsed}ms, cursor ${cursor}→${nextCursor} (${tickersToScore.length} tickers)`);
+        console.log(`[SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${trailWrites} trail, ${elapsed}ms, ALL ${tickersToScore.length} tickers`);
       } catch (e) {
         console.error("[SCORING] Error:", e);
       }
     }
 
-    // Always update open trades (runs every 5 minutes)
-    try {
-      const tradesKey = "timed:trades:all";
-      const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
-      const openTrades = allTrades.filter(
-        (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM",
-      );
+    // --- MARKET-HOURS GATE: Only run trade/execution logic when US market is open ---
+    // This prevents phantom entries, trims, and exits during weekends and overnight
+    // when prices are stale.
+    const executionMarketOpen = isNyRegularMarketOpen();
+    // Extended window: also allow during pre-market (4am-9:30am ET) and after-hours (4pm-8pm ET)
+    const nowExecCheck = new Date();
+    const etHourStr = nowExecCheck.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+    const etHour = Number(etHourStr) || 0;
+    const etDayStr = nowExecCheck.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+    const isWeekdayExec = !["Sat", "Sun"].includes(etDayStr);
+    const isExtendedHours = isWeekdayExec && (etHour >= 4 && etHour < 20); // 4am-8pm ET weekdays
+    const allowExecution = executionMarketOpen || isExtendedHours;
 
-      if (openTrades.length > 0) {
-        console.log(
-          `[TRADE UPDATE CRON] Updating ${openTrades.length} open trades`,
-        );
-
-        for (const trade of openTrades) {
-          try {
-            processedTickers.add(String(trade.ticker || "").toUpperCase());
-            const latestData = await kvGetJSON(
-              KV,
-              `timed:latest:${trade.ticker}`,
-            );
-            if (latestData) {
-              // Use processTradeSimulation to ensure entry price correction logic runs
-              const prevLatest = null; // No previous data for scheduled updates
-              await processTradeSimulation(
-                KV,
-                trade.ticker,
-                latestData,
-                prevLatest,
-                env,
-              );
-            }
-          } catch (err) {
-            console.error(
-              `[TRADE UPDATE CRON] Error updating trade ${trade.ticker}:`,
-              err,
-            );
-          }
-        }
-
-        // Re-read trades to get latest state (processTradeSimulation saves them)
-        const finalTrades = (await kvGetJSON(KV, tradesKey)) || [];
-        // Sort and save (in case processTradeSimulation doesn't sort)
-        finalTrades.sort((a, b) => {
-          const timeA = new Date(a.entryTime || 0).getTime();
-          const timeB = new Date(b.entryTime || 0).getTime();
-          return timeB - timeA;
-        });
-        await kvPutJSON(KV, tradesKey, finalTrades);
-        console.log(`[TRADE UPDATE CRON] Updated ${openTrades.length} trades`);
-      }
-    } catch (error) {
-      console.error("[TRADE UPDATE CRON ERROR]", error);
+    if (!allowExecution) {
+      console.log(`[EXECUTION GATE] Market closed (ET hour=${etHour}, day=${etDayStr}). Skipping trade updates and Kanban executions.`);
     }
 
-    // Always evaluate Kanban-driven executions for all tickers (covers missed/absent ingests).
-    // This is critical for reliability: entries/trims/exits should still happen even if a watchlist alert didn’t fire.
-    try {
-      const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
-      if (Array.isArray(tickers) && tickers.length > 0) {
-        console.log(`[KANBAN CRON] Evaluating ${tickers.length} tickers`);
-        for (const t of tickers) {
-          const sym = String(t || "").toUpperCase();
+    // Update open trades (runs every 5 minutes, ONLY during market/extended hours)
+    if (allowExecution) {
+      try {
+        const tradesKey = "timed:trades:all";
+        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        const openTrades = allTrades.filter(
+          (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM",
+        );
+
+        if (openTrades.length > 0) {
+          console.log(
+            `[TRADE UPDATE CRON] Updating ${openTrades.length} open trades`,
+          );
+
+          for (const trade of openTrades) {
+            try {
+              processedTickers.add(String(trade.ticker || "").toUpperCase());
+              const latestData = await kvGetJSON(
+                KV,
+                `timed:latest:${trade.ticker}`,
+              );
+              if (latestData) {
+                const prevLatest = null;
+                await processTradeSimulation(
+                  KV,
+                  trade.ticker,
+                  latestData,
+                  prevLatest,
+                  env,
+                );
+              }
+            } catch (err) {
+              console.error(
+                `[TRADE UPDATE CRON] Error updating trade ${trade.ticker}:`,
+                err,
+              );
+            }
+          }
+
+          const finalTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          finalTrades.sort((a, b) => {
+            const timeA = new Date(a.entryTime || 0).getTime();
+            const timeB = new Date(b.entryTime || 0).getTime();
+            return timeB - timeA;
+          });
+          await kvPutJSON(KV, tradesKey, finalTrades);
+          console.log(`[TRADE UPDATE CRON] Updated ${openTrades.length} trades`);
+        }
+      } catch (error) {
+        console.error("[TRADE UPDATE CRON ERROR]", error);
+      }
+    }
+
+    // Kanban-driven executions: evaluate entries/trims/exits (ONLY during market/extended hours).
+    // Prevents phantom trades during off-hours when prices are stale.
+    // Uses SECTOR_MAP as ticker source (same as scoring loop) to avoid gaps where
+    // a ticker is scored but not evaluated for trade entry.
+    if (allowExecution) {
+      try {
+        const execRemovedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
+        const executionTickers = Object.keys(SECTOR_MAP).filter(t => !execRemovedSet.has(t));
+        console.log(`[KANBAN CRON] Evaluating ${executionTickers.length} tickers`);
+        for (const sym of executionTickers) {
           if (!sym) continue;
           if (processedTickers.has(sym)) continue;
           try {
@@ -29399,11 +30862,9 @@ Provide 3-5 actionable next steps:
             console.error(`[KANBAN CRON] Error processing ${sym}:`, e);
           }
         }
-      } else {
-        console.log("[KANBAN CRON] No tickers list found (timed:tickers empty)");
+      } catch (e) {
+        console.error("[KANBAN CRON] top-level error:", e);
       }
-    } catch (e) {
-      console.error("[KANBAN CRON] top-level error:", e);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

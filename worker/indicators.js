@@ -284,6 +284,8 @@ export function computeTfBundle(bars, anchors = null) {
   const last = n - 1;
 
   const px = closes[last];
+  // Track the timestamp of the most recent bar for freshness comparison
+  const lastTs = bars[last]?.ts || bars[last]?.t || 0;
 
   // EMAs — 10-EMA gradient ribbon
   const e3s = emaSeries(closes, 3);
@@ -542,7 +544,7 @@ export function computeTfBundle(bars, anchors = null) {
   }
 
   return {
-    px,
+    px, lastTs,
     e3, e5, e8, e13, e21, e34, e48, e89, e200, e233,
     eFast, eSlow,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
@@ -709,17 +711,18 @@ function volatilityAdjustedHTFWeights(atrRW, atrRD, atrR4, atrR1) {
 }
 
 /**
- * Session-aware LTF weights (mirrors Pine f_session_adjusted_ltf_weights).
+ * Session-aware LTF weights.
+ * Updated: 3m dropped, replaced with 5m. Weights: 30m(55%), 10m(30%), 5m(15%).
  * @param {boolean} isRTH - whether we're in Regular Trading Hours
  */
 function sessionAdjustedLTFWeights(isRTH) {
-  const w30_base = 0.60, w10_base = 0.30, w3_base = 0.10;
-  if (!isRTH) return { w30: w30_base, w10: w10_base, w3: w3_base };
+  const w30_base = 0.55, w10_base = 0.30, w5_base = 0.15;
+  if (!isRTH) return { w30: w30_base, w10: w10_base, w5: w5_base };
   let w30 = w30_base * 1.15;
   let w10 = w10_base * 1.0;
-  let w3 = w3_base * 0.7;
-  const total = w30 + w10 + w3;
-  return { w30: w30 / total, w10: w10 / total, w3: w3 / total };
+  let w5 = w5_base * 0.7;
+  const total = w30 + w10 + w5;
+  return { w30: w30 / total, w10: w10 / total, w5: w5 / total };
 }
 
 /**
@@ -748,21 +751,22 @@ export function computeWeightedHTFScore(wBundle, dBundle, h4Bundle, h1Bundle) {
 
 /**
  * Compute final LTF score from 3 timeframe bundles.
+ * Updated: uses 5m instead of 3m. Weights: 30m(55%), 10m(30%), 5m(15%).
  * @param {object} m30Bundle - 30m bundle
  * @param {object} m10Bundle - 10m bundle
- * @param {object} m3Bundle - 3m bundle
+ * @param {object} m5Bundle - 5m bundle (was 3m)
  * @param {{ ATRd: number }} anchors - daily anchors
  * @param {boolean} isRTH - Regular Trading Hours flag
  * @returns {number} weighted LTF score in [-50, 50]
  */
-export function computeWeightedLTFScore(m30Bundle, m10Bundle, m3Bundle, anchors = null, isRTH = true) {
+export function computeWeightedLTFScore(m30Bundle, m10Bundle, m5Bundle, anchors = null, isRTH = true) {
   const ltf30 = computeLTFBundleScore(m30Bundle, anchors);
   const ltf10 = computeLTFBundleScore(m10Bundle, anchors);
-  const ltf3 = computeLTFBundleScore(m3Bundle, anchors);
+  const ltf5 = computeLTFBundleScore(m5Bundle, anchors);
 
-  const { w30, w10, w3 } = sessionAdjustedLTFWeights(isRTH);
+  const { w30, w10, w5 } = sessionAdjustedLTFWeights(isRTH);
 
-  return clamp(ltf30 * w30 + ltf10 * w10 + ltf3 * w3, -50, 50);
+  return clamp(ltf30 * w30 + ltf10 * w10 + ltf5 * w5, -50, 50);
 }
 
 /**
@@ -775,6 +779,409 @@ export function classifyState(htfScore, ltfScore) {
   if (htfBull && !ltfBull) return "HTF_BULL_LTF_PULLBACK";
   if (!htfBull && !ltfBull) return "HTF_BEAR_LTF_BEAR";
   return "HTF_BEAR_LTF_PULLBACK";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ENTRY QUALITY SCORE — Phoenix-Inspired, Swing-Calibrated (0-100)
+//
+// Adapted from Phoenix v2 Cross Quality Score for swing/position trading.
+// Timeframe mapping: Phoenix LTF(1m/3m) → TT LTF(10m/30m),
+//                    Phoenix chart(3m)  → TT decision(30m/1H),
+//                    Phoenix HTF(10m/30m/60m) → TT HTF(4H/D/W)
+//
+// Three pillars:
+//   Structure (35 pts): Multi-TF EMA alignment across the swing stack
+//   Momentum  (35 pts): SuperTrend Matrix across 10m/30m/1H/4H
+//   Confirm   (30 pts): Regime + Phase + RSI confluence
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compute Entry Quality Score (0-100) for swing/position trading.
+ *
+ * @param {object} bundles - { W, D, "240", "60", "30", "10", "5" }
+ * @param {string} side - "LONG" or "SHORT"
+ * @param {object} regime - { daily, weekly, combined } from computeSwingRegime
+ * @returns {{ score: number, structure: number, momentum: number, confirmation: number, details: object }}
+ */
+export function computeEntryQualityScore(bundles, side, regime = null) {
+  const isLong = side === "LONG";
+  const mult = isLong ? 1 : -1; // flip comparisons for SHORT
+
+  const b10  = bundles?.["10"];
+  const b30  = bundles?.["30"];
+  const b1H  = bundles?.["60"];
+  const b4H  = bundles?.["240"];
+  const bD   = bundles?.D;
+
+  // ── STRUCTURE (35 pts): Multi-TF EMA(13)/EMA(48) alignment ──
+  let structure = 0;
+  const emaChecks = [
+    { b: b10,  pts: 5,  label: "10m" },
+    { b: b30,  pts: 7,  label: "30m" },
+    { b: b1H,  pts: 8,  label: "1H"  },
+    { b: b4H,  pts: 8,  label: "4H"  },
+    { b: bD,   pts: 7,  label: "D"   },
+  ];
+  const emaAligned = {};
+  for (const { b, pts, label } of emaChecks) {
+    if (!b || !Number.isFinite(b.e13) || !Number.isFinite(b.e48)) continue;
+    const bullish = b.e13 > b.e48;
+    const aligned = isLong ? bullish : !bullish;
+    emaAligned[label] = aligned;
+    if (aligned) structure += pts;
+  }
+
+  // ── MOMENTUM (35 pts): SuperTrend Matrix across 10m/30m/1H/4H ──
+  // Each TF: supportive + sloping = +9, supportive + flat = +5,
+  //           opposing + flat = -2, opposing + sloping = -5
+  let momentumRaw = 0;
+  const stChecks = [
+    { b: b10,  label: "10m" },
+    { b: b30,  label: "30m" },
+    { b: b1H,  label: "1H"  },
+    { b: b4H,  label: "4H"  },
+  ];
+  for (const { b } of stChecks) {
+    if (!b || !Number.isFinite(b.stDir)) continue;
+    // Pine convention: stDir < 0 = bullish (price above ST), stDir > 0 = bearish
+    const stBull = b.stDir < 0;
+    const supportive = isLong ? stBull : !stBull;
+    const sloping = isLong
+      ? (b.stSlopeUp || false)
+      : (b.stSlopeDn || false);
+    if (supportive && sloping) momentumRaw += 9;
+    else if (supportive) momentumRaw += 5;
+    else if (!sloping) momentumRaw -= 2;
+    else momentumRaw -= 5;
+  }
+  // Range: theoretical -20 to +36, normalize to 0-35
+  const momentum = Math.max(0, Math.min(35, Math.round(((momentumRaw + 20) / 56) * 35)));
+
+  // ── CONFIRMATION (30 pts): Regime + Phase + RSI ──
+  let confirmation = 0;
+  const confirmDetails = {};
+
+  // Daily regime (12 pts)
+  if (regime) {
+    const dReg = regime.daily;
+    const wantUp = isLong ? "uptrend" : "downtrend";
+    if (dReg === wantUp) {
+      confirmation += 12;
+      confirmDetails.regime = "aligned";
+    } else if (dReg === "transition") {
+      confirmation += 6;
+      confirmDetails.regime = "transition";
+    } else {
+      confirmDetails.regime = "opposing";
+    }
+  } else {
+    // Fallback: use HTF score direction as proxy
+    const htfScore = computeWeightedHTFScore(bundles?.W, bD, b4H, b1H);
+    if ((isLong && htfScore > 10) || (!isLong && htfScore < -10)) {
+      confirmation += 10;
+      confirmDetails.regime = "score_aligned";
+    } else if (Math.abs(htfScore) <= 10) {
+      confirmation += 5;
+      confirmDetails.regime = "score_neutral";
+    }
+  }
+
+  // Phase oscillator not at extreme (8 pts) — use 1H phase as decision TF
+  const phaseOsc1H = b1H?.phaseOsc ?? 0;
+  const phaseAbs = Math.abs(phaseOsc1H);
+  if (phaseAbs < 61.8) {
+    confirmation += 8;
+    confirmDetails.phase = "healthy";
+  } else if (phaseAbs < 80) {
+    confirmation += 4;
+    confirmDetails.phase = "elevated";
+  } else {
+    confirmDetails.phase = "extreme";
+  }
+
+  // 1H RSI positioning (10 pts)
+  // LONG: 40-65 ideal (not overbought, room to run)
+  // SHORT: 35-60 ideal (not oversold, room to drop)
+  const rsi1H = b1H?.rsi ?? 50;
+  if (isLong) {
+    if (rsi1H >= 40 && rsi1H <= 65) {
+      confirmation += 10;
+      confirmDetails.rsi = "ideal";
+    } else if (rsi1H >= 30 && rsi1H <= 72) {
+      confirmation += 5;
+      confirmDetails.rsi = "acceptable";
+    } else {
+      confirmDetails.rsi = "extreme";
+    }
+  } else {
+    if (rsi1H >= 35 && rsi1H <= 60) {
+      confirmation += 10;
+      confirmDetails.rsi = "ideal";
+    } else if (rsi1H >= 28 && rsi1H <= 70) {
+      confirmation += 5;
+      confirmDetails.rsi = "acceptable";
+    } else {
+      confirmDetails.rsi = "extreme";
+    }
+  }
+
+  // Bonus: recent squeeze release on 30m or 1H (replaces some confirmation pts)
+  const sq30Release = b30?.sqRelease || false;
+  const sq1HRelease = b1H?.sqRelease || false;
+  if (sq30Release || sq1HRelease) {
+    confirmation = Math.min(30, confirmation + 5);
+    confirmDetails.squeeze_release = true;
+  }
+
+  const total = structure + momentum + confirmation;
+
+  return {
+    score: Math.min(100, total),
+    structure,
+    momentum,
+    confirmation,
+    details: {
+      emaAligned,
+      confirmDetails,
+      rsi1H: Math.round(rsi1H * 10) / 10,
+      phaseOsc1H: Math.round(phaseOsc1H * 10) / 10,
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWING STRUCTURE REGIME DETECTION (Phase 2a)
+//
+// Port of Phoenix v2 Regime Structure, but on Daily and Weekly timeframes.
+// Detects Higher Highs / Higher Lows (uptrend) vs Lower Highs / Lower Lows
+// (downtrend) to catch trend turns earlier than EMA-weighted scores.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Find swing pivots (highs and lows) from OHLC bars.
+ * Uses lookback bars on each side to confirm a pivot.
+ *
+ * @param {Array} bars - sorted ascending by time, { o, h, l, c, ts }
+ * @param {number} lookback - bars on each side required for pivot confirmation
+ * @returns {{ highs: Array<{price:number, idx:number, ts:number}>, lows: Array<{price:number, idx:number, ts:number}> }}
+ */
+function findSwingPivots(bars, lookback) {
+  const highs = [];
+  const lows = [];
+  if (!bars || bars.length < lookback * 2 + 1) return { highs, lows };
+
+  for (let i = lookback; i < bars.length - lookback; i++) {
+    let isHigh = true;
+    let isLow = true;
+    for (let j = 1; j <= lookback; j++) {
+      if (bars[i].h <= bars[i - j].h || bars[i].h <= bars[i + j].h) isHigh = false;
+      if (bars[i].l >= bars[i - j].l || bars[i].l >= bars[i + j].l) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) highs.push({ price: bars[i].h, idx: i, ts: bars[i].ts || 0 });
+    if (isLow)  lows.push({ price: bars[i].l, idx: i, ts: bars[i].ts || 0 });
+  }
+  return { highs, lows };
+}
+
+/**
+ * Classify regime from the last N swing pivots.
+ * @param {{ highs: Array, lows: Array }} pivots
+ * @returns {"uptrend"|"downtrend"|"transition"}
+ */
+function classifyRegimeFromPivots(pivots) {
+  const { highs, lows } = pivots;
+  if (highs.length < 2 || lows.length < 2) return "transition";
+
+  const lastH = highs[highs.length - 1].price;
+  const prevH = highs[highs.length - 2].price;
+  const lastL = lows[lows.length - 1].price;
+  const prevL = lows[lows.length - 2].price;
+
+  const hh = lastH > prevH; // higher high
+  const hl = lastL > prevL; // higher low
+  const lh = lastH < prevH; // lower high
+  const ll = lastL < prevL; // lower low
+
+  if (hh && hl) return "uptrend";
+  if (lh && ll) return "downtrend";
+  return "transition";
+}
+
+/**
+ * Compute swing regime on Daily and Weekly bars.
+ *
+ * @param {Array} dailyBars - sorted ascending, min ~30 bars
+ * @param {Array} weeklyBars - sorted ascending, min ~20 bars
+ * @returns {{ daily: string, weekly: string, combined: string }}
+ */
+export function computeSwingRegime(dailyBars, weeklyBars) {
+  // Daily: 15-bar lookback (~3 weeks of trading days)
+  const dailyPivots = findSwingPivots(dailyBars, 15);
+  const daily = classifyRegimeFromPivots(dailyPivots);
+
+  // Weekly: 10-bar lookback (~10 weeks)
+  const weeklyPivots = findSwingPivots(weeklyBars, 10);
+  const weekly = classifyRegimeFromPivots(weeklyPivots);
+
+  // Combined regime label
+  const COMBINED = {
+    "uptrend_uptrend": "STRONG_BULL",
+    "uptrend_transition": "EARLY_BULL",
+    "uptrend_downtrend": "COUNTER_TREND_BULL",
+    "transition_uptrend": "LATE_BULL",
+    "transition_transition": "NEUTRAL",
+    "transition_downtrend": "EARLY_BEAR",
+    "downtrend_uptrend": "COUNTER_TREND_BEAR",
+    "downtrend_transition": "LATE_BEAR",
+    "downtrend_downtrend": "STRONG_BEAR",
+  };
+  const combined = COMBINED[`${daily}_${weekly}`] || "NEUTRAL";
+
+  return {
+    daily,
+    weekly,
+    combined,
+    pivots: {
+      daily: {
+        lastHigh: dailyPivots.highs[dailyPivots.highs.length - 1] || null,
+        lastLow: dailyPivots.lows[dailyPivots.lows.length - 1] || null,
+        prevHigh: dailyPivots.highs[dailyPivots.highs.length - 2] || null,
+        prevLow: dailyPivots.lows[dailyPivots.lows.length - 2] || null,
+      },
+      weekly: {
+        lastHigh: weeklyPivots.highs[weeklyPivots.highs.length - 1] || null,
+        lastLow: weeklyPivots.lows[weeklyPivots.lows.length - 1] || null,
+      },
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWING-TF DIRECTION CONSENSUS (Phase 2b)
+//
+// Count EMA(13)/EMA(48) alignment across the 5 swing timeframes:
+// 10m, 30m, 1H, 4H, Daily — if >= 4/5 agree, that's the direction.
+// Also tracks EMA cross freshness per TF (Phase 2c).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compute swing-TF direction consensus and per-TF EMA cross tracking.
+ *
+ * @param {object} bundles - { "10", "30", "60", "240", D }
+ * @param {object} regime - from computeSwingRegime (optional)
+ * @returns {{ direction: "LONG"|"SHORT"|null, bullishCount: number, bearishCount: number,
+ *             tfStack: object[], freshestCrossTf: string|null, freshestCrossAge: number }}
+ */
+export function computeSwingConsensus(bundles, regime = null) {
+  const TFS = [
+    { key: "10",  label: "10m", b: bundles?.["10"] },
+    { key: "30",  label: "30m", b: bundles?.["30"] },
+    { key: "60",  label: "1H",  b: bundles?.["60"] },
+    { key: "240", label: "4H",  b: bundles?.["240"] },
+    { key: "D",   label: "D",   b: bundles?.D },
+  ];
+
+  let bullishCount = 0;
+  let bearishCount = 0;
+  const tfStack = [];
+  let freshestCrossTf = null;
+  let freshestCrossAge = Infinity;
+
+  for (const { key, label, b } of TFS) {
+    if (!b || !Number.isFinite(b.e13) || !Number.isFinite(b.e48)) {
+      tfStack.push({ tf: label, bias: "unknown", crossAge: null, crossDir: null });
+      continue;
+    }
+
+    const bullish = b.e13 > b.e48;
+    if (bullish) bullishCount++;
+    else bearishCount++;
+
+    // EMA cross tracking (Phase 2c)
+    const crossUp = b.emaCross13_48_up || false;
+    const crossDn = b.emaCross13_48_dn || false;
+    const crossDir = crossUp ? "up" : crossDn ? "down" : null;
+
+    // Cross age: estimate from timestamps if available
+    const crossTs = crossUp ? b.emaCross13_48_up_ts : crossDn ? b.emaCross13_48_dn_ts : 0;
+    const crossAge = (crossTs > 0 && b.lastTs > 0) ? Math.max(0, b.lastTs - crossTs) : null;
+
+    if (crossTs > 0 && crossAge !== null && crossAge < freshestCrossAge) {
+      freshestCrossAge = crossAge;
+      freshestCrossTf = label;
+    }
+
+    tfStack.push({
+      tf: label,
+      bias: bullish ? "bullish" : "bearish",
+      crossDir,
+      crossAge: crossAge !== null ? Math.round(crossAge / 60000) : null, // in minutes
+    });
+  }
+
+  // Direction determination
+  let direction = null;
+  const regimeDaily = regime?.daily || "transition";
+
+  // Primary: >= 4 of 5 TFs agree AND regime not opposing
+  if (bullishCount >= 4 && regimeDaily !== "downtrend") {
+    direction = "LONG";
+  } else if (bearishCount >= 4 && regimeDaily !== "uptrend") {
+    direction = "SHORT";
+  }
+  // Secondary: 3/5 agree with regime confirmation
+  else if (bullishCount >= 3 && (regimeDaily === "uptrend" || regimeDaily === "transition")) {
+    direction = "LONG";
+  } else if (bearishCount >= 3 && (regimeDaily === "downtrend" || regimeDaily === "transition")) {
+    direction = "SHORT";
+  }
+
+  return {
+    direction,
+    bullishCount,
+    bearishCount,
+    tfStack,
+    freshestCrossTf,
+    freshestCrossAge: freshestCrossAge === Infinity ? null : Math.round(freshestCrossAge / 60000),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VOLATILITY TIER CLASSIFICATION (Phase 3a)
+//
+// Based on 20-day Daily ATR/price ratio.
+// LOW (< 1.5%): WMT, COST — steady compounders
+// MEDIUM (1.5-3%): AAPL, MSFT — standard swing candidates
+// HIGH (3-5%): TSLA, NVDA — bigger moves, bigger risk
+// EXTREME (> 5%): MSTR, IONQ — position-size carefully
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Classify ticker volatility tier from Daily ATR and price.
+ *
+ * @param {number} atr14Daily - 14-period ATR on Daily candles
+ * @param {number} price - current price
+ * @returns {{ tier: "LOW"|"MEDIUM"|"HIGH"|"EXTREME", atrPct: number,
+ *             slCap: {min:number, max:number}, entryQualityMin: number }}
+ */
+export function classifyVolatilityTier(atr14Daily, price) {
+  if (!Number.isFinite(atr14Daily) || !Number.isFinite(price) || price <= 0) {
+    return { tier: "MEDIUM", atrPct: 0, slCap: { min: 0.01, max: 0.03 }, entryQualityMin: 55 };
+  }
+
+  const atrPct = (atr14Daily / price) * 100;
+
+  if (atrPct < 1.5) {
+    return { tier: "LOW", atrPct: Math.round(atrPct * 100) / 100, slCap: { min: 0.008, max: 0.02 }, entryQualityMin: 50 };
+  }
+  if (atrPct < 3.0) {
+    return { tier: "MEDIUM", atrPct: Math.round(atrPct * 100) / 100, slCap: { min: 0.01, max: 0.03 }, entryQualityMin: 55 };
+  }
+  if (atrPct < 5.0) {
+    return { tier: "HIGH", atrPct: Math.round(atrPct * 100) / 100, slCap: { min: 0.015, max: 0.04 }, entryQualityMin: 65 };
+  }
+  return { tier: "EXTREME", atrPct: Math.round(atrPct * 100) / 100, slCap: { min: 0.02, max: 0.05 }, entryQualityMin: 70 };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -791,13 +1198,13 @@ export function detectFlags(bundles) {
   const b30 = bundles?.["30"];
   const b60 = bundles?.["60"];
   const b10 = bundles?.["10"];
-  const b3 = bundles?.["3"];
+  const b5 = bundles?.["5"];
 
   // SuperTrend flips (with timestamps)
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
   if (b60?.stFlip) { flags.st_flip_1h = true; flags.st_flip_1h_ts = b60.stFlip_ts; }
   if (b10?.stFlip) { flags.st_flip_10m = true; flags.st_flip_10m_ts = b10.stFlip_ts; }
-  if (b3?.stFlip) { flags.st_flip_3m = true; flags.st_flip_3m_ts = b3.stFlip_ts; }
+  if (b5?.stFlip) { flags.st_flip_5m = true; flags.st_flip_5m_ts = b5.stFlip_ts; }
 
   // Bear-side ST flip (timestamp is the most recent bear flip)
   if (b30?.stFlipDir === -1 || b60?.stFlipDir === -1) {
@@ -823,7 +1230,7 @@ export function detectFlags(bundles) {
   if (b60?.sqRelease) { flags.sq1h_release = true; flags.sq1h_release_ts = b60.sqRelease_ts; }
 
   // Momentum elite: strong momentum across multiple TFs
-  const strongMom = [b30, b10, b3].filter(b => {
+  const strongMom = [b30, b10, b5].filter(b => {
     if (!b || !Number.isFinite(b.mom) || !Number.isFinite(b.momStd) || b.momStd <= 0) return false;
     return Math.abs(b.mom / b.momStd) > 1.0;
   });
@@ -849,7 +1256,7 @@ export function detectFlags(bundles) {
  * @returns {object} { map, bullCount, bearCount, slopeAligned, supportScore }
  */
 export function buildSTSupportMap(bundles) {
-  const TF_WEIGHTS = { W: 0.25, D: 0.22, "240": 0.18, "60": 0.14, "30": 0.10, "10": 0.07, "3": 0.04 };
+  const TF_WEIGHTS = { W: 0.25, D: 0.22, "240": 0.18, "60": 0.14, "30": 0.10, "10": 0.07, "5": 0.04 };
   const map = {};
   let bullCount = 0;
   let bearCount = 0;
@@ -1073,16 +1480,17 @@ export function computeFuelGauge(bundle) {
  * @param {string} ticker
  * @param {object} bundles - { W, D, "240", "60", "30", "10", "3" }
  * @param {object} existingData - existing KV timed:latest data (for merge)
+ * @param {object} [opts] - Optional: { rawBars: { D: [], W: [] }, regime: object }
  * @returns {object} tickerData payload
  */
-export function assembleTickerData(ticker, bundles, existingData = null) {
+export function assembleTickerData(ticker, bundles, existingData = null, opts = null) {
   const bW = bundles?.W;
   const bD = bundles?.D;
   const b4H = bundles?.["240"];
   const b1H = bundles?.["60"];
   const b30 = bundles?.["30"];
   const b10 = bundles?.["10"];
-  const b3 = bundles?.["3"];
+  const b5 = bundles?.["5"];
 
   // Compute daily anchors for Golden Gate
   let anchors = null;
@@ -1097,7 +1505,7 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
 
   // Compute scores
   const htfScore = computeWeightedHTFScore(bW, bD, b4H, b1H);
-  const ltfScore = computeWeightedLTFScore(b30, b10, b3, anchors, isRTHNow());
+  const ltfScore = computeWeightedLTFScore(b30, b10, b5, anchors, isRTHNow());
   const state = classifyState(htfScore, ltfScore);
 
   // Detect flags
@@ -1109,8 +1517,19 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
   const phaseDir = phaseOsc > 0 ? "bull" : phaseOsc < 0 ? "bear" : "flat";
   const phaseZone = bD?.phaseZone || "LOW";
 
-  // Completion (approximate from 30m price movement since trigger)
-  const price = b30?.px || b10?.px || bD?.px || 0;
+  // ── Price: use the most recent close across all timeframes (by timestamp).
+  // Previously `b30?.px || b10?.px || bD?.px` which silently used stale intraday
+  // prices when intraday data had gaps but daily was current.
+  const priceCandidates = [
+    { px: b5?.px,  ts: b5?.lastTs  || 0 },
+    { px: b10?.px, ts: b10?.lastTs || 0 },
+    { px: b30?.px, ts: b30?.lastTs || 0 },
+    { px: b1H?.px, ts: b1H?.lastTs || 0 },
+    { px: b4H?.px, ts: b4H?.lastTs || 0 },
+    { px: bD?.px,  ts: bD?.lastTs  || 0 },
+  ].filter(c => Number.isFinite(c.px) && c.px > 0 && c.ts > 0);
+  const freshest = priceCandidates.reduce((a, b) => b.ts > a.ts ? b : a, priceCandidates[0] || { px: 0 });
+  const price = freshest?.px || b30?.px || b10?.px || bD?.px || 0;
 
   // ── NEW: SuperTrend Support Map ──
   const stSupport = buildSTSupportMap(bundles);
@@ -1128,7 +1547,7 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
 
   // ── EMA Triplet Map per key timeframe ──
   const emaMap = {};
-  const tfEmaSources = { W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10, "3": b3 };
+  const tfEmaSources = { W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10, "5": b5 };
   for (const [tf, b] of Object.entries(tfEmaSources)) {
     if (b && Number.isFinite(b.emaDepth)) {
       emaMap[tf] = {
@@ -1148,7 +1567,14 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
     }
   }
 
-  // TP/SL — cascading ATR-based fallback so TP is never null when price + ATR exists
+  // TP/SL — SWING-TRADE HORIZON: Weekly ATR is the primary reference because
+  // we hold for days/weeks, not hours.  Daily ATR produces targets too tight
+  // (XLF current price above TP1, BABA TPs clustered within $1, CSCO R:R 95:1).
+  //
+  // Hierarchy: Weekly ATR → Daily ATR × √5 → Intraday scaled up.
+  // TP1 (Trim 60%)  = 0.618 × swingATR   ~3-day move
+  // TP2 (Exit 85%)  = 1.000 × swingATR   ~5-day move (full week)
+  // TP3 (Runner 15%) = 1.618 × swingATR  ~8-day extended move
   const ATRw = bW?.atr14 || 0;
   const ATRd = bD?.atr14 || 0;
   const ATR1H = b1H?.atr14 || 0;
@@ -1157,50 +1583,19 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
 
   let tp, sl, tp_trim, tp_exit, tp_runner;
 
-  // Priority 1: Daily ATR Fibonacci levels (most precise)
-  // FIB_RATIOS = [0.236, 0.382, 0.500, 0.618, 0.786, 1.000, 1.236, 1.618, ...]
-  // index:         0       1       2       3       4       5       6       7
-  const dayLevels = atrLevels.day;
-  if (dayLevels && dayLevels.levels_up?.length >= 8) {
-    const levels = dir === 1 ? dayLevels.levels_up : dayLevels.levels_dn;
-    tp_trim  = levels[3]?.price || 0; // 61.8% (gate completion) — primary trim target
-    tp_exit  = levels[5]?.price || 0; // 100% (1 ATR) — exit target
-    tp_runner = levels[7]?.price || 0; // 161.8% — runner target
-    tp = tp_trim;
-  }
+  // Determine the swing-scale ATR (weekly-equivalent)
+  // Priority: Weekly ATR (direct) → Daily ATR × √5 → Intraday scaled
+  const swingATR = ATRw > 0 ? ATRw
+    : ATRd > 0 ? ATRd * Math.sqrt(5)
+    : ATR1H > 0 ? ATR1H * Math.sqrt(6.5) * Math.sqrt(5)
+    : ATR30 > 0 ? ATR30 * Math.sqrt(13) * Math.sqrt(5)
+    : 0;
 
-  // Priority 2: Daily ATR simple multiples (if Fib levels failed but ATRd exists)
-  if (!tp && ATRd > 0 && Number.isFinite(price) && price > 0) {
-    tp_trim  = Math.round((price + dir * 0.618 * ATRd) * 100) / 100;
-    tp_exit  = Math.round((price + dir * 1.0   * ATRd) * 100) / 100;
-    tp_runner = Math.round((price + dir * 1.618 * ATRd) * 100) / 100;
+  if (swingATR > 0 && Number.isFinite(price) && price > 0) {
+    tp_trim  = Math.round((price + dir * 0.618 * swingATR) * 100) / 100;
+    tp_exit  = Math.round((price + dir * 1.0   * swingATR) * 100) / 100;
+    tp_runner = Math.round((price + dir * 1.618 * swingATR) * 100) / 100;
     tp = tp_trim;
-  }
-
-  // Priority 3: Weekly ATR simple multiples (scaled down for daily targets)
-  if (!tp && ATRw > 0 && Number.isFinite(price) && price > 0) {
-    // Weekly ATR ≈ daily ATR × sqrt(5), so scale back: daily ≈ ATRw / 2.236
-    const dailyProxy = ATRw / Math.sqrt(5);
-    tp_trim  = Math.round((price + dir * 0.618 * dailyProxy) * 100) / 100;
-    tp_exit  = Math.round((price + dir * 1.0   * dailyProxy) * 100) / 100;
-    tp_runner = Math.round((price + dir * 1.618 * dailyProxy) * 100) / 100;
-    tp = tp_trim;
-  }
-
-  // Priority 4: Intraday ATR scaled up (1H or 30m → daily estimate)
-  if (!tp && Number.isFinite(price) && price > 0) {
-    // Scale intraday ATR to daily: ATRd ≈ ATR_1H × sqrt(6.5) or ATR_30 × sqrt(13)
-    const dailyFromIntraday = ATR1H > 0
-      ? ATR1H * Math.sqrt(6.5)
-      : ATR30 > 0
-        ? ATR30 * Math.sqrt(13)
-        : 0;
-    if (dailyFromIntraday > 0) {
-      tp_trim  = Math.round((price + dir * 0.618 * dailyFromIntraday) * 100) / 100;
-      tp_exit  = Math.round((price + dir * 1.0   * dailyFromIntraday) * 100) / 100;
-      tp_runner = Math.round((price + dir * 1.618 * dailyFromIntraday) * 100) / 100;
-      tp = tp_trim;
-    }
   }
 
   // SL: use best available ATR (daily preferred, then scaled weekly/intraday)
@@ -1209,14 +1604,30 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
     : ATR1H > 0 ? ATR1H * Math.sqrt(6.5)
     : ATR30 > 0 ? ATR30 * Math.sqrt(13)
     : 0;
-  sl = slATR > 0
+  const rawSL = slATR > 0
     ? Math.round((price - dir * 1.5 * slATR) * 100) / 100
     : 0;
-  const rr = (tp && sl && Math.abs(price - sl) > 0) ? Math.abs(tp - price) / Math.abs(price - sl) : 0;
+
+  // Phase 1b: Clamp SL to [min%, max%] of price — prevents noise stops and ruin stops
+  // Volatility tier provides per-tier caps; fall back to 1%-5% universal range
+  const volTier = classifyVolatilityTier(ATRd, price);
+  const slMinPct = volTier.slCap.min; // e.g. 0.008 for LOW, 0.02 for EXTREME
+  const slMaxPct = volTier.slCap.max; // e.g. 0.02 for LOW, 0.05 for EXTREME
+  if (rawSL && Number.isFinite(price) && price > 0) {
+    const slDist = Math.abs(rawSL - price);
+    const clampedDist = Math.max(slMinPct * price, Math.min(slMaxPct * price, slDist));
+    sl = Math.round((price - dir * clampedDist) * 100) / 100;
+  } else {
+    sl = rawSL;
+  }
+  // R:R uses tp_exit (1.0× weekly ATR = full-week move) as the reward reference,
+  // not tp_trim (partial target). This gives a realistic risk/reward for the trade.
+  const rrTarget = tp_exit || tp_runner || tp;
+  const rr = (rrTarget && sl && Math.abs(price - sl) > 0) ? Math.abs(rrTarget - price) / Math.abs(price - sl) : 0;
 
   // Build tf_tech for compatibility with existing worker logic
   const tfTech = {};
-  const tfMap = { W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "10": b10, "3": b3 };
+  const tfMap = { W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "10": b10, "5": b5 };
   for (const [tfLabel, b] of Object.entries(tfMap)) {
     if (!b) continue;
     // ATR band: which Fibonacci ATR zone price is in
@@ -1280,6 +1691,32 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
   // Merge: keep existing fields that we don't compute (e.g., Ichimoku, daily EMA cloud)
   const base = existingData || {};
 
+  // ── Phase 2a: Swing Regime Detection ──
+  // If caller passed raw bars (from computeServerSideScores), compute regime.
+  // Otherwise falls back to null (consensus uses TF-based heuristic only).
+  const rawBars = opts?.rawBars || null;
+  let regime = opts?.regime || null;
+  if (!regime && rawBars) {
+    const dailyBars = rawBars.D || rawBars.daily || [];
+    const weeklyBars = rawBars.W || rawBars.weekly || [];
+    if (dailyBars.length >= 35 && weeklyBars.length >= 25) {
+      regime = computeSwingRegime(dailyBars, weeklyBars);
+    }
+  }
+
+  // ── Phase 2b: Swing-TF Direction Consensus ──
+  const swingConsensus = computeSwingConsensus(bundles, regime);
+
+  // ── Phase 3a: Volatility Tier (already computed above for SL clamp) ──
+  // volTier = classifyVolatilityTier(ATRd, price); -- computed at SL section
+
+  // ── Phase 1a: Entry Quality Score ──
+  // Use the swing consensus direction as the basis for quality scoring.
+  // Fall back to HTF score if consensus has no opinion.
+  const eqSide = swingConsensus.direction
+    || (htfScore >= 0 ? "LONG" : "SHORT");
+  const entryQuality = computeEntryQualityScore(bundles, eqSide, regime);
+
   return {
     ...base,
     ticker: ticker.toUpperCase(),
@@ -1311,12 +1748,36 @@ export function assembleTickerData(ticker, bundles, existingData = null) {
     tf_tech: tfTech,
     atr_d: ATRd ? Math.round(ATRd * 100) / 100 : undefined,
     atr_w: ATRw ? Math.round(ATRw * 100) / 100 : undefined,
-    // ── NEW precision scoring fields ──
+    // ── Precision scoring fields ──
     st_support: stSupport,
     atr_levels: atrLevels,
     fuel,
     ema_map: emaMap,
     active_gates: activeGates.length > 0 ? activeGates : undefined,
+    // ── Phoenix-inspired swing fields (Phase 1a, 2b, 3a) ──
+    entry_quality: {
+      score: entryQuality.score,
+      structure: entryQuality.structure,
+      momentum: entryQuality.momentum,
+      confirmation: entryQuality.confirmation,
+      details: entryQuality.details,
+    },
+    swing_consensus: {
+      direction: swingConsensus.direction,
+      bullish_count: swingConsensus.bullishCount,
+      bearish_count: swingConsensus.bearishCount,
+      tf_stack: swingConsensus.tfStack,
+      freshest_cross_tf: swingConsensus.freshestCrossTf,
+      freshest_cross_age: swingConsensus.freshestCrossAge,
+    },
+    // Phase 2a: Swing regime from Daily/Weekly pivot detection
+    regime: regime ? {
+      daily: regime.daily,
+      weekly: regime.weekly,
+      combined: regime.combined,
+    } : undefined,
+    volatility_tier: volTier.tier,
+    volatility_atr_pct: volTier.atrPct,
     data_source: "alpaca",
   };
 }
@@ -1476,26 +1937,28 @@ export function computeTDSequential(candles, tf, opts = {}) {
 }
 
 /**
- * Compute TD Sequential across multiple timeframes (D, W, M) and merge.
+ * Compute TD Sequential across ALL 9 timeframes and merge.
  *
  * Priority: Monthly provides long-term context, Weekly is primary signal,
  * Daily is most actionable. Merge logic:
  *   - Daily td9/td13 signals are used directly
  *   - Weekly td9/td13 override Daily (stronger signal)
  *   - Monthly td13 overrides everything (strongest exhaustion signal)
- *   - Boost is summed across timeframes (capped at ±15)
+ *   - Boost is summed across D/W/M timeframes (capped at ±15)
  *   - Counts from the highest-tf active signal are preferred
+ *   - per_tf breakdown includes ALL available TFs for chart overlays
  *
- * @param {object} candlesByTf - { D: [...candles], W: [...candles], M: [...candles] }
+ * @param {object} candlesByTf - { "1": [...], "5": [...], "10": [...], "30": [...], "60": [...], "240": [...], D: [...], W: [...], M: [...] }
  * @param {boolean} htfBull - Higher-timeframe bullish bias
- * @returns {object} merged td_sequential object
+ * @returns {object} merged td_sequential object with per_tf breakdown for all TFs
  */
 export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
-  const tfs = ["D", "W", "M"];
+  // Compute TD Sequential on ALL available TFs
+  const allTfs = ["1", "5", "10", "30", "60", "240", "D", "W", "M"];
   const results = {};
   const perTf = {};
 
-  for (const tf of tfs) {
+  for (const tf of allTfs) {
     const candles = candlesByTf[tf];
     if (candles && candles.length >= 14) {
       results[tf] = computeTDSequential(candles, tf, { htfBull });
@@ -1503,6 +1966,7 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
     }
   }
 
+  // Merge logic uses D/W/M for the primary merged signal (as before)
   const dR = results.D || null;
   const wR = results.W || null;
   const mR = results.M || null;
@@ -1539,7 +2003,7 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
   merged.exit_long = merged.td9_bearish || merged.td13_bearish;
   merged.exit_short = merged.td9_bullish || merged.td13_bullish;
 
-  // Sum boosts across timeframes, capped at ±15
+  // Sum boosts across D/W/M timeframes, capped at ±15
   let totalBoost = (dR?.boost || 0) + (wR?.boost || 0) * 1.5 + (mR?.boost || 0) * 2.0;
   merged.boost = Math.max(-15, Math.min(15, Math.round(totalBoost * 10) / 10));
 
@@ -1555,9 +2019,8 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
     merged.bullish_leadup_count = wR.bullish_leadup_count;
     merged.bearish_leadup_count = wR.bearish_leadup_count;
   }
-  // else keep Daily counts (already in merged)
 
-  // Attach per-tf breakdown for model and UI transparency
+  // Attach per-tf breakdown for ALL TFs (used by chart TD overlays)
   merged.per_tf = perTf;
 
   return merged;
@@ -1644,7 +2107,8 @@ const ALPACA_BASE = "https://data.alpaca.markets/v2";
 
 // Map our internal TF keys to Alpaca timeframe format
 const TF_TO_ALPACA = {
-  "3": "3Min",
+  "1": "1Min",
+  "5": "5Min",
   "10": "10Min",
   "30": "30Min",
   "60": "1Hour",
@@ -1654,11 +2118,17 @@ const TF_TO_ALPACA = {
   "M": "1Month",
 };
 
-// All timeframes we need for scoring (M excluded — used only for TD Sequential)
-const ALL_TFS = ["W", "D", "240", "60", "30", "10", "3"];
+// Canonical 9 timeframes: 1m, 5m, 10m, 30m, 1H, 4H, D, W, M
+// (3m dropped — too noisy, causes whiplash)
 
-// TD Sequential timeframes (Daily, Weekly, Monthly)
-const TD_SEQ_TFS = ["D", "W", "M"];
+// All timeframes we need for scoring
+const ALL_TFS = ["W", "D", "240", "60", "30", "10", "5"];
+
+// All timeframes we fetch from Alpaca for candle storage
+const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
+
+// TD Sequential timeframes — computed on ALL 9 TFs for chart overlays
+const TD_SEQ_TFS = ["1", "5", "10", "30", "60", "240", "D", "W", "M"];
 
 /**
  * Fetch historical bars from Alpaca for multiple symbols.
@@ -1758,15 +2228,25 @@ export async function alpacaFetchAllBars(env, symbols, tfKey, start, end = null,
           "Accept": "application/json",
         },
       });
-      if (!resp.ok) break;
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        console.warn(`[ALPACA] Fetch bars failed: ${resp.status} ${errText.slice(0, 200)}`);
+        break;
+      }
       const data = await resp.json();
       const bars = data.bars || {};
+      let pageBars = 0;
       for (const [sym, barArr] of Object.entries(bars)) {
         if (!allBars[sym]) allBars[sym] = [];
         allBars[sym].push(...barArr);
+        pageBars += barArr.length;
+      }
+      if (pages === 0) {
+        console.log(`[ALPACA] TF=${tfKey} page 0: ${Object.keys(bars).length} symbols, ${pageBars} bars`);
       }
       pageToken = data.next_page_token || null;
-    } catch {
+    } catch (fetchErr) {
+      console.warn(`[ALPACA] Fetch error:`, String(fetchErr).slice(0, 200));
       break;
     }
     pages++;
@@ -1838,8 +2318,160 @@ export function alpacaBarToCandle(bar) {
 }
 
 /**
- * Fetch latest bars (last 3) for all tickers across all timeframes and store in D1.
- * Designed to run every 1 minute during market hours.
+ * Fetch real-time snapshots from Alpaca for price display.
+ * Uses GET /v2/stocks/snapshots (batch endpoint) for efficiency.
+ * Returns: { AAPL: { price, dailyOpen, dailyHigh, dailyLow, dailyClose, dailyVolume, minuteBar, prevDailyClose }, ... }
+ *
+ * @param {object} env - Worker env with ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY
+ * @param {string[]} symbols - array of ticker symbols (stocks only; crypto handled separately)
+ * @returns {Promise<object>} { snapshots: {...}, error?: string }
+ */
+export async function alpacaFetchSnapshots(env, symbols) {
+  const apiKeyId = env?.ALPACA_API_KEY_ID;
+  const apiSecret = env?.ALPACA_API_SECRET_KEY;
+  if (!apiKeyId || !apiSecret) {
+    return { snapshots: {}, error: "missing_credentials" };
+  }
+  if (!symbols || symbols.length === 0) {
+    return { snapshots: {}, error: "no_symbols" };
+  }
+
+  const headers = {
+    "APCA-API-KEY-ID": apiKeyId,
+    "APCA-API-SECRET-KEY": apiSecret,
+    "Accept": "application/json",
+  };
+
+  // Crypto pairs that need the crypto endpoint (not the stocks endpoint)
+  const CRYPTO_PAIRS = { "BTCUSD": "BTC/USD", "ETHUSD": "ETH/USD" };
+  // Non-Alpaca tickers (futures/commodities from TradingView) — skip entirely
+  const NON_ALPACA = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "VIX", "US500", "GC1!", "SI1!"]);
+
+  // Symbol normalization for Alpaca API: BRK-B → BRK.B, etc.
+  const ALPACA_SYM_MAP = { "BRK-B": "BRK.B" };
+  const reverseSymMap = {}; // Alpaca format → our format
+  for (const [ours, alpaca] of Object.entries(ALPACA_SYM_MAP)) reverseSymMap[alpaca] = ours;
+
+  const stockSymbols = [];
+  const cryptoSymbols = [];
+  for (const sym of symbols) {
+    if (NON_ALPACA.has(sym)) continue;
+    if (CRYPTO_PAIRS[sym]) { cryptoSymbols.push(sym); continue; }
+    // Use Alpaca-compatible symbol format for the API call
+    stockSymbols.push(ALPACA_SYM_MAP[sym] || sym);
+  }
+
+  const snapshots = {};
+
+  // ── Helper: parse Alpaca stock snapshot into our standard format ──
+  function parseStockSnap(sym, snap) {
+    // Map Alpaca symbol back to our internal format (BRK.B → BRK-B)
+    const ourSym = reverseSymMap[sym] || sym;
+    const lt = snap.latestTrade;
+    const db = snap.dailyBar;
+    const pdb = snap.prevDailyBar;
+    const mb = snap.minuteBar;
+    snapshots[ourSym] = {
+      price: lt?.p || db?.c || 0,
+      trade_ts: lt?.t ? new Date(lt.t).getTime() : 0,
+      dailyOpen: db?.o || 0,
+      dailyHigh: db?.h || 0,
+      dailyLow: db?.l || 0,
+      dailyClose: db?.c || 0,
+      dailyVolume: db?.v || 0,
+      prevDailyClose: pdb?.c || 0,
+      minuteBar: mb ? { o: mb.o, h: mb.h, l: mb.l, c: mb.c, v: mb.v, ts: new Date(mb.t).getTime() } : null,
+    };
+  }
+
+  // ── Fetch stocks in batches (sip feed first, then iex fallback for missing) ──
+  const BATCH_SIZE = 100;
+  async function fetchStockBatch(syms, feed) {
+    const returned = new Set();
+    for (let i = 0; i < syms.length; i += BATCH_SIZE) {
+      const batch = syms.slice(i, i + BATCH_SIZE);
+      const params = new URLSearchParams();
+      params.set("symbols", batch.join(","));
+      params.set("feed", feed);
+      const url = `${ALPACA_BASE}/stocks/snapshots?${params.toString()}`;
+      try {
+        const resp = await fetch(url, { headers });
+        if (!resp.ok) {
+          const text = await resp.text();
+          console.error(`[ALPACA SNAPSHOTS] ${feed} HTTP ${resp.status}: ${text.slice(0, 200)}`);
+          continue;
+        }
+        const data = await resp.json();
+        for (const [sym, snap] of Object.entries(data)) {
+          parseStockSnap(sym, snap);
+          returned.add(sym);
+        }
+      } catch (err) {
+        console.error(`[ALPACA SNAPSHOTS] ${feed} fetch error:`, err);
+      }
+    }
+    return returned;
+  }
+
+  // Primary: SIP feed (most complete for paid plans)
+  const sipReturned = await fetchStockBatch(stockSymbols, "sip");
+
+  // Fallback: IEX feed for symbols missing from SIP (covers ETFs on free/basic plans)
+  const missingSip = stockSymbols.filter(s => !sipReturned.has(s));
+  if (missingSip.length > 0) {
+    console.log(`[ALPACA SNAPSHOTS] ${missingSip.length} symbols missing from SIP, trying IEX fallback...`);
+    await fetchStockBatch(missingSip, "iex");
+  }
+
+  // ── Fetch crypto snapshots (separate endpoint) ──
+  if (cryptoSymbols.length > 0) {
+    try {
+      const alpacaCryptoSyms = cryptoSymbols.map(s => CRYPTO_PAIRS[s]).filter(Boolean);
+      const params = new URLSearchParams();
+      params.set("symbols", alpacaCryptoSyms.join(","));
+      const url = `https://data.alpaca.markets/v1beta3/crypto/us/snapshots?${params.toString()}`;
+      const resp = await fetch(url, { headers });
+      if (resp.ok) {
+        const data = await resp.json();
+        // Crypto response: { "snapshots": { "BTC/USD": { latestTrade, dailyBar, prevDailyBar, minuteBar } } }
+        const cryptoSnaps = data.snapshots || data;
+        // Map back from "BTC/USD" to "BTCUSD"
+        const reverseMap = {};
+        for (const [k, v] of Object.entries(CRYPTO_PAIRS)) reverseMap[v] = k;
+        for (const [alpacaSym, snap] of Object.entries(cryptoSnaps)) {
+          const ourSym = reverseMap[alpacaSym] || alpacaSym.replace("/", "");
+          const lt = snap.latestTrade;
+          const db = snap.dailyBar;
+          const pdb = snap.prevDailyBar;
+          const mb = snap.minuteBar;
+          snapshots[ourSym] = {
+            price: lt?.p || db?.c || 0,
+            trade_ts: lt?.t ? new Date(lt.t).getTime() : 0,
+            dailyOpen: db?.o || 0,
+            dailyHigh: db?.h || 0,
+            dailyLow: db?.l || 0,
+            dailyClose: db?.c || 0,
+            dailyVolume: db?.v || 0,
+            prevDailyClose: pdb?.c || 0,
+            minuteBar: mb ? { o: mb.o, h: mb.h, l: mb.l, c: mb.c, v: mb.v, ts: new Date(mb.t).getTime() } : null,
+          };
+        }
+      } else {
+        console.error(`[ALPACA SNAPSHOTS] Crypto HTTP ${resp.status}`);
+      }
+    } catch (err) {
+      console.error(`[ALPACA SNAPSHOTS] Crypto fetch error:`, err);
+    }
+  }
+
+  return { snapshots };
+}
+
+/**
+ * Fetch latest bars (last 3-5) for all tickers across all timeframes and store in D1.
+ * Simplified: no group rotation. Uses 2 groups on alternating minutes for load distribution.
+ * Group A (even minutes): scoring TFs — D, 30, 10, 5 + higher TFs W, 240, M
+ * Group B (odd minutes): supplementary — 60, 1
  *
  * @param {object} env - Worker environment
  * @param {string[]} allTickers - full list of tickers
@@ -1853,33 +2485,88 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
   if (!allTickers || allTickers.length === 0) {
     return { ok: false, error: "no_tickers" };
   }
+  const db = env?.DB;
+  if (!db) {
+    return { ok: false, error: "no_db_binding" };
+  }
 
-  const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // last 24h
+  // 4-group rotation to spread API load across cron ticks.
+  // Alpaca multi-symbol endpoint limit is TOTAL across all symbols (not per-symbol),
+  // so we use alpacaFetchAllBars with pagination to get complete coverage.
+  //
+  // Group 0: D, W, M          — daily+ TFs, small payloads
+  // Group 1: 30, 60, 240      — medium-frequency intraday
+  // Group 2: 5, 10             — scoring-critical intraday
+  // Group 3: 1                 — 1-minute bars (largest payload)
+  const TF_GROUPS = [
+    ["D", "W", "M"],
+    ["30", "60", "240"],
+    ["5", "10"],
+    ["1"],
+  ];
+  const minuteOfHour = new Date().getUTCMinutes();
+  const groupIdx = minuteOfHour % TF_GROUPS.length;
+  const tfsThisCycle = TF_GROUPS[groupIdx];
+
+  // Lookback windows per TF — just enough to catch up if a cron tick was missed.
+  // Shorter windows = smaller Alpaca responses = faster fetches.
+  const TF_LOOKBACK_MS = {
+    "1":   30 * 60 * 1000,         // 30 minutes (covers ~4 cron ticks of missed 1m)
+    "5":   2 * 60 * 60 * 1000,     // 2 hours
+    "10":  3 * 60 * 60 * 1000,     // 3 hours
+    "30":  6 * 60 * 60 * 1000,     // 6 hours
+    "60":  24 * 60 * 60 * 1000,    // 24 hours
+    "240": 48 * 60 * 60 * 1000,    // 48 hours
+    "D":   7 * 24 * 60 * 60 * 1000,  // 7 days
+    "W":   35 * 24 * 60 * 60 * 1000, // 5 weeks
+    "M":   95 * 24 * 60 * 60 * 1000, // ~3 months
+  };
+
   let totalUpserted = 0;
   let totalErrors = 0;
 
-  // For intraday TFs (3, 10, 30, 60, 240), fetch latest bars
-  // For daily/weekly, just fetch latest 3
-  for (const tf of ALL_TFS) {
+  for (const tf of tfsThisCycle) {
     try {
-      const limit = (tf === "W" || tf === "D") ? 3 : 5;
-      const result = await alpacaFetchBars(env, allTickers, tf, start, null, limit);
-      if (result.error) {
-        console.warn(`[ALPACA CRON] TF ${tf} error: ${result.error}`);
-        totalErrors++;
-        continue;
-      }
+      const lookback = TF_LOOKBACK_MS[tf] || 24 * 60 * 60 * 1000;
+      const start = new Date(Date.now() - lookback).toISOString();
+      // Use paginated fetch — limit=10000 per page (Alpaca max), auto-paginates
+      const barsBySymbol = await alpacaFetchAllBars(env, allTickers, tf, start, null, 10000);
 
-      for (const [sym, bars] of Object.entries(result.bars)) {
+      // Collect all candle statements for batch execution.
+      // D1 batch() executes multiple statements in a single round trip,
+      // avoiding the "Too many API requests by single worker invocation" error.
+      const updatedAt = Date.now();
+      const stmts = [];
+      for (const [sym, bars] of Object.entries(barsBySymbol)) {
         if (!Array.isArray(bars)) continue;
         for (const bar of bars) {
           const candle = alpacaBarToCandle(bar);
-          try {
-            await upsertCandle(env, sym, tf, candle);
-            totalUpserted++;
-          } catch (e) {
-            totalErrors++;
-          }
+          if (!candle || !Number.isFinite(candle.ts)) continue;
+          const { ts, o, h, l, c, v } = candle;
+          if (![o, h, l, c].every(x => Number.isFinite(x))) continue;
+          stmts.push(
+            db.prepare(
+              `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+               ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+                 o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
+                 updated_at=excluded.updated_at`
+            ).bind(sym.toUpperCase(), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
+          );
+        }
+      }
+
+      // D1 batch limit is 500 statements per batch call.
+      // Chunk into batches and execute sequentially.
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+        const chunk = stmts.slice(i, i + BATCH_SIZE);
+        try {
+          await db.batch(chunk);
+          totalUpserted += chunk.length;
+        } catch (batchErr) {
+          console.error(`[ALPACA CRON] Batch ${i / BATCH_SIZE} for TF ${tf} failed:`, String(batchErr).slice(0, 200));
+          totalErrors += chunk.length;
         }
       }
     } catch (err) {
@@ -1888,27 +2575,43 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
     }
   }
 
-  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: allTickers.length };
+  console.log(`[ALPACA CRON] Group ${groupIdx} TFs=[${tfsThisCycle}] upserted=${totalUpserted} errors=${totalErrors}`);
+  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: allTickers.length, group: groupIdx, tfs: tfsThisCycle };
 }
 
 /**
  * Backfill historical bars for all tickers (for EMA200 warm-up).
- * Fetches 300 bars per timeframe per ticker.
- * Should be called once via admin endpoint.
+ * Uses batch D1 writes (500 per chunk) to avoid hitting subrequest limits.
+ * Reports progress to KV (`timed:backfill:status`) for UI polling.
  *
- * @param {object} env
+ * @param {object} env - Worker env with DB binding and optionally KV
  * @param {string[]} tickers
- * @param {Function} upsertCandle
+ * @param {object|Function} _unused - DEPRECATED: previously upsertCandle callback, now ignored
  * @param {string} tfKey - single timeframe to backfill (or "all")
  * @returns {Promise<object>}
  */
-export async function alpacaBackfill(env, tickers, upsertCandle, tfKey = "all") {
-  const tfsToBackfill = tfKey === "all" ? ALL_TFS : [tfKey];
+export async function alpacaBackfill(env, tickers, _unused, tfKey = "all") {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db_binding" };
+
+  const tfsToBackfill = tfKey === "all" ? CRON_FETCH_TFS : [tfKey];
   let totalUpserted = 0;
   let totalErrors = 0;
+  const perTfStats = {};
+
+  // KV for progress reporting (optional — fails gracefully)
+  const KV = env?.KV_TIMED || env?.TIMED_KV || env?.KV || null;
+  const updateProgress = async (status) => {
+    if (!KV) return;
+    try {
+      await KV.put("timed:backfill:status", JSON.stringify({
+        ...status,
+        updated_at: Date.now(),
+      }), { expirationTtl: 600 }); // auto-expire after 10 min
+    } catch { /* best-effort */ }
+  };
 
   // Calculate start dates per timeframe for deep history.
-  // Intraday TFs use 1000 bars for deeper backtesting coverage.
   // Intraday TFs: market is open ~6.5h/day (390 min), 5 days/week.
   // To get N bars: trading_days = N * bar_minutes / 390, calendar_days = trading_days * 7/5 + 5 (buffer).
   const now = new Date();
@@ -1916,50 +2619,111 @@ export async function alpacaBackfill(env, tickers, upsertCandle, tfKey = "all") 
   const tradingCalDays = (bars, barMinutes) => Math.ceil(bars * barMinutes / 390 * 7 / 5) + 5;
   const startDates = {
     "M": new Date(now.getTime() - 365 * 10 * DAY_MS).toISOString(),                    // ~10 years of monthly bars (~120/ticker)
-    "W": new Date(now.getTime() - 300 * 7 * DAY_MS).toISOString(),                     // ~5.8 years
+    "W": new Date(now.getTime() - 300 * 7 * DAY_MS).toISOString(),                     // ~5.8 years (~200 weekly bars)
     "D": new Date(now.getTime() - 450 * DAY_MS).toISOString(),                         // ~450 calendar days (~300 trading days)
-    "240": new Date(now.getTime() - tradingCalDays(1000, 240) * DAY_MS).toISOString(),  // ~880 calendar days
-    "60": new Date(now.getTime() - tradingCalDays(1000, 60) * DAY_MS).toISOString(),    // ~225 calendar days
-    "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),    // ~115 calendar days
-    "10": new Date(now.getTime() - tradingCalDays(1000, 10) * DAY_MS).toISOString(),    // ~42 calendar days
-    "3": new Date(now.getTime() - tradingCalDays(1000, 3) * DAY_MS).toISOString(),      // ~16 calendar days
+    "240": new Date(now.getTime() - tradingCalDays(1000, 240) * DAY_MS).toISOString(),  // ~880 calendar days (~300 4H bars)
+    "60": new Date(now.getTime() - tradingCalDays(1000, 60) * DAY_MS).toISOString(),    // ~225 calendar days (~300 1H bars)
+    "30": new Date(now.getTime() - tradingCalDays(1000, 30) * DAY_MS).toISOString(),    // ~115 calendar days (~300 30m bars)
+    "10": new Date(now.getTime() - tradingCalDays(3000, 10) * DAY_MS).toISOString(),    // ~110 calendar days (~3000 10m bars / ~77 trading days)
+    "5": new Date(now.getTime() - tradingCalDays(5000, 5) * DAY_MS).toISOString(),     // ~90 calendar days (~5000 5m bars / ~64 trading days)
+    "1": new Date(now.getTime() - tradingCalDays(390, 1) * DAY_MS).toISOString(),       // ~3 calendar days (~390 1m bars / 1 trading day)
   };
 
   // Process in symbol batches; 4H uses smaller batches to avoid Alpaca pagination timeouts
   const getBatchSize = (tf) => tf === "240" ? 15 : 50;
+  const BATCH_SIZE = 500; // D1 batch limit
 
-  for (const tf of tfsToBackfill) {
+  for (let tfIdx = 0; tfIdx < tfsToBackfill.length; tfIdx++) {
+    const tf = tfsToBackfill[tfIdx];
     const start = startDates[tf];
     if (!start) continue;
     const batchSize = getBatchSize(tf);
+    let tfUpserted = 0;
+    let tfErrors = 0;
+
+    await updateProgress({
+      phase: "fetching",
+      tickers: tickers.length === 1 ? tickers[0] : `${tickers.length} tickers`,
+      tf,
+      tfIndex: tfIdx + 1,
+      tfTotal: tfsToBackfill.length,
+      upserted: totalUpserted,
+      errors: totalErrors,
+    });
 
     for (let i = 0; i < tickers.length; i += batchSize) {
       const batch = tickers.slice(i, i + batchSize);
       try {
         const allBars = await alpacaFetchAllBars(env, batch, tf, start, null, 10000);
 
+        // Collect all candle INSERT statements for this Alpaca batch
+        const stmts = [];
+        const updatedAt = Date.now();
         for (const [sym, bars] of Object.entries(allBars)) {
           if (!Array.isArray(bars)) continue;
           for (const bar of bars) {
             const candle = alpacaBarToCandle(bar);
-            try {
-              await upsertCandle(env, sym, tf, candle);
-              totalUpserted++;
-            } catch {
-              totalErrors++;
-            }
+            if (!candle || !Number.isFinite(candle.ts)) continue;
+            const { ts, o, h, l, c, v } = candle;
+            if (![o, h, l, c].every(x => Number.isFinite(x))) continue;
+            stmts.push(
+              db.prepare(
+                `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+                   o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
+                   updated_at=excluded.updated_at`
+              ).bind(sym.toUpperCase(), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
+            );
           }
         }
+
+        // Execute in D1-safe chunks of 500
+        for (let j = 0; j < stmts.length; j += BATCH_SIZE) {
+          const chunk = stmts.slice(j, j + BATCH_SIZE);
+          try {
+            await db.batch(chunk);
+            tfUpserted += chunk.length;
+            totalUpserted += chunk.length;
+          } catch (batchErr) {
+            console.error(`[ALPACA BACKFILL] TF ${tf} batch chunk ${j / BATCH_SIZE} failed:`, String(batchErr).slice(0, 200));
+            tfErrors += chunk.length;
+            totalErrors += chunk.length;
+          }
+        }
+
+        // Report progress after each Alpaca API batch
+        await updateProgress({
+          phase: "writing",
+          tickers: tickers.length === 1 ? tickers[0] : `${tickers.length} tickers`,
+          tf,
+          tfIndex: tfIdx + 1,
+          tfTotal: tfsToBackfill.length,
+          bars: stmts.length,
+          upserted: totalUpserted,
+          errors: totalErrors,
+        });
       } catch (err) {
         console.error(`[ALPACA BACKFILL] TF ${tf} batch ${i} error:`, err);
         totalErrors++;
+        tfErrors++;
       }
     }
 
-    console.log(`[ALPACA BACKFILL] TF ${tf} complete: ${totalUpserted} upserted, ${totalErrors} errors`);
+    perTfStats[tf] = { upserted: tfUpserted, errors: tfErrors };
+    console.log(`[ALPACA BACKFILL] TF ${tf} complete: ${tfUpserted} upserted, ${tfErrors} errors`);
   }
 
-  return { ok: true, upserted: totalUpserted, errors: totalErrors };
+  // Final progress: done
+  await updateProgress({
+    phase: "done",
+    tickers: tickers.length === 1 ? tickers[0] : `${tickers.length} tickers`,
+    upserted: totalUpserted,
+    errors: totalErrors,
+    perTf: perTfStats,
+  });
+
+  return { ok: true, upserted: totalUpserted, errors: totalErrors, perTf: perTfStats };
 }
 
 /**
@@ -1974,10 +2738,10 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   const bundles = {};
   let hasData = false;
 
-  // Fetch candles for all 7 scoring timeframes + TD Sequential timeframes in PARALLEL
-  // Scoring TFs: W, D, 240, 60, 30, 10, 3
-  // TD Sequential TFs: D, W, M (D and W overlap with scoring — M is additional)
-  const allTfsToFetch = [...new Set([...ALL_TFS, ...TD_SEQ_TFS])]; // adds "M"
+  // Fetch candles for all scoring timeframes + TD Sequential timeframes in PARALLEL
+  // Scoring TFs: W, D, 240, 60, 30, 10, 5
+  // TD Sequential TFs: all 9 TFs (1, 5, 10, 30, 60, 240, D, W, M)
+  const allTfsToFetch = [...new Set([...ALL_TFS, ...TD_SEQ_TFS])]; // union of scoring + TD TFs
   const tfResults = await Promise.all(
     allTfsToFetch.map(async (tf) => {
       try {
@@ -1992,8 +2756,9 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     })
   );
 
-  // Separate scoring candles and TD Sequential candles
+  // Separate scoring candles, TD Sequential candles, and raw bars for regime
   const tdSeqCandles = {};
+  const rawBars = {}; // Phase 2a: raw OHLC bars for regime detection
 
   for (const { tf, result } of tfResults) {
     if (result?.ok && result.candles && result.candles.length > 0) {
@@ -2010,6 +2775,10 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       if (TD_SEQ_TFS.includes(tf) && deduped.length >= 14) {
         tdSeqCandles[tf] = deduped;
       }
+      // Collect raw Daily & Weekly bars for Phase 2a regime detection
+      if (tf === "D" || tf === "W") {
+        rawBars[tf] = deduped;
+      }
     }
   }
 
@@ -2023,10 +2792,11 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     "60": bundles["60"] || null,
     "30": bundles["30"] || null,
     "10": bundles["10"] || null,
-    "3": bundles["3"] || null,
+    "5": bundles["5"] || null,
   };
 
-  const tickerData = assembleTickerData(ticker, bundleMap, existingData);
+  // Pass raw bars so assembleTickerData can compute swing regime (Phase 2a)
+  const tickerData = assembleTickerData(ticker, bundleMap, existingData, { rawBars });
   if (!tickerData) return null;
 
   // ── Compute TD Sequential (D/W/M) and attach ──

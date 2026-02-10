@@ -716,9 +716,33 @@ async function computeMultiLevelPredictions(DB, sectorMap) {
     const sector = sectorMap?.[ticker] || payload.sector || "Unknown";
     const matched = matchPatterns(payload, activePatterns);
 
-    if (matched.length === 0) continue;
+    // ── Compute state-based signal from current scoring data ──
+    // This ensures a ticker's actual bullish/bearish state (HTF/LTF scores,
+    // kanban stage) is factored in, so a strongly bullish ticker can't show
+    // BEARISH purely because generic bear patterns happen to match.
+    const stateSignal = (() => {
+      let sig = 0;
+      const st = String(payload.state || "");
+      // State quadrant: strongest signal
+      if (st === "HTF_BULL_LTF_BULL") sig += 0.5;
+      else if (st === "HTF_BULL_LTF_PULLBACK") sig += 0.25;
+      else if (st === "HTF_BULL_LTF_BEAR") sig += 0.05;
+      else if (st === "HTF_BEAR_LTF_BEAR") sig -= 0.5;
+      else if (st === "HTF_BEAR_LTF_PULLBACK") sig -= 0.25;
+      else if (st === "HTF_BEAR_LTF_BULL") sig -= 0.05;
+      // Kanban stage conviction
+      const ks = String(row.kanban_stage || "");
+      if (ks === "enter_now" || ks === "enter") sig += 0.2;
+      else if (ks === "setup" || ks === "flip_watch" || ks === "just_flipped") sig += 0.1;
+      else if (ks === "exit") sig -= 0.2;
+      else if (ks === "trim") sig -= 0.1;
+      // HTF score (normalize: typically -5 to +5 → -0.2 to +0.2)
+      const htf = Number(payload.htf_score);
+      if (Number.isFinite(htf)) sig += Math.max(-0.2, Math.min(0.2, htf * 0.04));
+      return Math.max(-1, Math.min(1, sig));
+    })();
 
-    // Classify matches
+    // Classify pattern matches
     const bullPatterns = matched.filter((m) => m.expected_direction === "UP");
     const bearPatterns = matched.filter((m) => m.expected_direction === "DOWN");
 
@@ -729,7 +753,14 @@ async function computeMultiLevelPredictions(DB, sectorMap) {
       ? bearPatterns.reduce((s, m) => s + (m.confidence || 0.5), 0) / bearPatterns.length
       : 0;
 
-    const netSignal = bullConfidence - bearConfidence;
+    const patternNetSignal = bullConfidence - bearConfidence;
+
+    // Blend pattern signal with state signal
+    // When patterns exist: 50/50 blend; when no patterns: use state alone
+    const hasPatterns = matched.length > 0;
+    const netSignal = hasPatterns
+      ? 0.5 * patternNetSignal + 0.5 * stateSignal
+      : stateSignal;
     const direction = netSignal > 0.1 ? "BULLISH" : netSignal < -0.1 ? "BEARISH" : "NEUTRAL";
 
     const topBullEV = bullPatterns.length > 0
@@ -752,6 +783,8 @@ async function computeMultiLevelPredictions(DB, sectorMap) {
       bullConfidence: Math.round(bullConfidence * 100) / 100,
       bearConfidence: Math.round(bearConfidence * 100) / 100,
       netSignal: Math.round(netSignal * 100) / 100,
+      patternNetSignal: Math.round(patternNetSignal * 100) / 100,
+      stateSignal: Math.round(stateSignal * 100) / 100,
       topBullEV: Math.round(topBullEV * 10) / 10,
       topBearEV: Math.round(topBearEV * 10) / 10,
       matchedPatterns: matched.map((m) => m.pattern_id),

@@ -98,7 +98,7 @@
           if (root && root.innerHTML === "") {
             if (typeof React === "undefined") {
               root.innerHTML =
-                '<div style="padding: 40px; text-align: center; color: #f0f2f5;"><h2 style="color: #ef4444;">Loading Error</h2><p>React failed to load. Check console (F12) for details.</p></div>';
+                '<div style="padding: 40px; text-align: center; color: #f0f2f5;"><h2 style="color: #e11d48;">Loading Error</h2><p>React failed to load. Check console (F12) for details.</p></div>';
             }
           }
         }, 2000);
@@ -117,10 +117,10 @@
         --tt-text: #e5e7eb;
         --tt-text-muted: #6b7280;
         --tt-text-faint: #4b5563;
-        --tt-accent: #00c853;
-        --tt-accent-dim: rgba(0, 200, 83, 0.12);
-        --tt-negative: #ff5252;
-        --tt-negative-dim: rgba(255, 82, 82, 0.12);
+        --tt-accent: #14b8a6;
+        --tt-accent-dim: rgba(20, 184, 166, 0.12);
+        --tt-negative: #e11d48;
+        --tt-negative-dim: rgba(225, 29, 72, 0.12);
         --tt-radius: 12px;
         --tt-radius-sm: 8px;
         --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -339,12 +339,12 @@
       .phase-gradient {
         background: linear-gradient(
           to right,
-          #22c55e 0%,
-          #16a34a 20%,
+          #14b8a6 0%,
+          #0d9488 20%,
           #eab308 40%,
           #f97316 60%,
-          #ef4444 80%,
-          #b91c1c 100%
+          #e11d48 80%,
+          #9f1239 100%
         );
       }
 
@@ -366,6 +366,7 @@
       </div>
     </div>
 
+    <script src="auth-gate.js"></script>
     <script src="shared-right-rail.compiled.js?v=3" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -408,7 +409,7 @@
       // ─────────────────────────────────────────────────────────────
       const LONG_CORRIDOR = { ltfMin: -8, ltfMax: 12 };
       const SHORT_CORRIDOR = { ltfMin: -12, ltfMax: 8 };
-      const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+      const API_BASE = "";
       const TRADE_SIZE = 1000; // $1000 per trade (used by Right Rail)
       const FUTURES_SPECS = {
         "ES1!": { pointValue: 50, name: "E-mini S&P 500" },
@@ -771,6 +772,7 @@
 
         return {
           data,
+          setData,
           socialAdditions,
           loading,
           error,
@@ -779,6 +781,87 @@
           tickersWithoutScores,
           refetch: fetchData,
         };
+      }
+
+      // ── Real-time price feed hook ──
+      // Polls /timed/prices every 30 seconds for near-real-time Current Price and Daily Change.
+      // Merges price data into the main tickerData object without replacing scoring data.
+      function usePriceFeed(tickerData, setTickerData) {
+        const priceUpdateRef = useRef(0);
+        const [priceLastUpdated, setPriceLastUpdated] = useState(0);
+
+        // Use a ref for tickerData to avoid re-creating fetchPrices on every data change
+        const tickerDataRef = useRef(tickerData);
+        tickerDataRef.current = tickerData;
+        const setTickerDataRef = useRef(setTickerData);
+        setTickerDataRef.current = setTickerData;
+        const [priceReady, setPriceReady] = useState(false);
+
+        // Mark ready when tickerData first loads
+        useEffect(() => {
+          if (tickerData && Object.keys(tickerData).length > 0 && !priceReady) {
+            setPriceReady(true);
+          }
+        }, [tickerData, priceReady]);
+
+        const fetchPrices = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`, {
+              cache: "no-store",
+            });
+            if (!res.ok) return;
+            const json = await res.json();
+            if (!json.ok || !json.prices) return;
+
+            setPriceLastUpdated(json.updated_at || Date.now());
+
+            const currentData = tickerDataRef.current;
+            const setter = setTickerDataRef.current;
+            // Merge prices into existing tickerData — only update tickers whose price actually changed
+            if (currentData && typeof currentData === "object" && Object.keys(currentData).length > 0) {
+              const updatedData = { ...currentData };
+              let changed = false;
+              for (const [sym, priceInfo] of Object.entries(json.prices)) {
+                const normalizedSym = normTicker(sym);
+                const existing = updatedData[normalizedSym];
+                if (!existing || !(priceInfo.p > 0)) continue;
+                // Skip update if price hasn't meaningfully changed (avoid re-render churn)
+                if (existing._live_price === priceInfo.p &&
+                    existing._live_daily_change_pct === priceInfo.dp) continue;
+                updatedData[normalizedSym] = {
+                  ...existing,
+                  price: priceInfo.p,
+                  _live_price: priceInfo.p,
+                  _live_prev_close: priceInfo.pc,
+                  _live_daily_change: priceInfo.dc,
+                  _live_daily_change_pct: priceInfo.dp,
+                  _live_daily_high: priceInfo.dh,
+                  _live_daily_low: priceInfo.dl,
+                  _live_daily_volume: priceInfo.dv,
+                  _price_updated_at: json.updated_at || Date.now(),
+                };
+                changed = true;
+              }
+              if (changed && setter) {
+                setter(updatedData);
+                priceUpdateRef.current++;
+              }
+            }
+          } catch (e) {
+            // Price feed is non-critical — silently fail
+            console.warn("[PRICE FEED] Error:", e);
+          }
+        }, []); // stable callback — reads from refs
+
+        useEffect(() => {
+          if (!priceReady) return;
+          // Fetch immediately, then poll every 30 seconds
+          fetchPrices();
+          const interval = setInterval(fetchPrices, 30000);
+          return () => clearInterval(interval);
+        }, [priceReady, fetchPrices]);
+
+        return { priceLastUpdated, priceUpdateCount: priceUpdateRef.current };
       }
 
       function useDebounce(value, delay) {
@@ -1278,8 +1361,6 @@
         Social: new Set([
           "CSCO", "BA", "NKE", "AAPL", "PI", "APLD", "MU",
           "HOOD", "CCJ", "ULTA", "STX",
-          "SWK", "AEHR", "SLV", "SNDK", "INTC", "SOXL", "IREN", "RKLB", "CRWV", "BE",
-          "ONDS", "ASTS", "LITE", "AGQ", "IBRX", "LRCX", "WDC", "CRVS", "GDXJ", "HL", "MP", "B",
         ]),
         SP_Sectors: new Set([
           "XLK",
@@ -1357,49 +1438,49 @@
       function phaseCompletionToColor(phasePct) {
         const p = Math.max(0, Math.min(1, phasePct));
         if (p < 0.3) {
-          // Green: #22c55e (under 30%)
-          return "#22c55e";
+          // Green: #14b8a6 (under 30%)
+          return "#14b8a6";
         } else if (p < 0.6) {
           // Yellow: #eab308 (30-60%)
           return "#eab308";
         } else {
-          // Red: #ef4444 (60-100%)
-          return "#ef4444";
+          // Red: #e11d48 (60-100%)
+          return "#e11d48";
         }
       }
 
       function phaseToColor(phase) {
         const p = Math.max(0, Math.min(1, phase));
         if (p < 0.2) {
-          // Green to light green: #22c55e to #16a34a
+          // Teal to darker teal: #14b8a6 (20,184,166) → #0d9488 (13,148,136)
           const t = p / 0.2;
-          return `rgb(${Math.round(34 + (22 - 34) * t)}, ${Math.round(
-            197 + (163 - 197) * t,
-          )}, ${Math.round(94 + (74 - 94) * t)})`;
+          return `rgb(${Math.round(20 + (13 - 20) * t)}, ${Math.round(
+            184 + (148 - 184) * t,
+          )}, ${Math.round(166 + (136 - 166) * t)})`;
         } else if (p < 0.4) {
-          // Light green to yellow: #16a34a to #eab308
+          // Darker teal to yellow: #0d9488 (13,148,136) → #eab308 (234,179,8)
           const t = (p - 0.2) / 0.2;
-          return `rgb(${Math.round(22 + (234 - 22) * t)}, ${Math.round(
-            163 + (179 - 163) * t,
-          )}, ${Math.round(74 + (8 - 74) * t)})`;
+          return `rgb(${Math.round(13 + (234 - 13) * t)}, ${Math.round(
+            148 + (179 - 148) * t,
+          )}, ${Math.round(136 + (8 - 136) * t)})`;
         } else if (p < 0.6) {
-          // Yellow to orange: #eab308 to #f97316
+          // Yellow to orange: #eab308 (234,179,8) → #f97316 (249,115,22)
           const t = (p - 0.4) / 0.2;
           return `rgb(${Math.round(234 + (249 - 234) * t)}, ${Math.round(
             179 + (115 - 179) * t,
           )}, ${Math.round(8 + (22 - 8) * t)})`;
         } else if (p < 0.8) {
-          // Orange to red: #f97316 to #ef4444
+          // Orange to cherry: #f97316 (249,115,22) → #e11d48 (225,29,72)
           const t = (p - 0.6) / 0.2;
-          return `rgb(${Math.round(249 + (239 - 249) * t)}, ${Math.round(
-            115 + (68 - 115) * t,
-          )}, ${Math.round(22 + (68 - 22) * t)})`;
+          return `rgb(${Math.round(249 + (225 - 249) * t)}, ${Math.round(
+            115 + (29 - 115) * t,
+          )}, ${Math.round(22 + (72 - 22) * t)})`;
         } else {
-          // Red to dark red: #ef4444 to #b91c1c
+          // Cherry to dark cherry: #e11d48 (225,29,72) → #9f1239 (159,18,57)
           const t = (p - 0.8) / 0.2;
-          return `rgb(${Math.round(239 + (185 - 239) * t)}, ${Math.round(
-            68 + (28 - 68) * t,
-          )}, ${Math.round(68 + (28 - 68) * t)})`;
+          return `rgb(${Math.round(225 + (159 - 225) * t)}, ${Math.round(
+            29 + (18 - 29) * t,
+          )}, ${Math.round(72 + (57 - 72) * t)})`;
         }
       }
 
@@ -1451,8 +1532,8 @@
             severity,
             reasons,
             icon: "⛔",
-            pillCls: "bg-red-500/15 text-red-300 border-red-500/40",
-            stroke: "#ef4444",
+            pillCls: "bg-rose-500/15 text-rose-300 border-rose-500/40",
+            stroke: "#e11d48",
             dash: "4 3",
             headlineReason,
           };
@@ -1478,8 +1559,8 @@
           severity,
           reasons,
           icon: "🟢",
-          pillCls: "bg-green-500/10 text-green-300 border-green-500/30",
-          stroke: "#22c55e",
+          pillCls: "bg-teal-500/10 text-teal-300 border-teal-500/30",
+          stroke: "#14b8a6",
           dash: null,
           headlineReason,
         };
@@ -1676,29 +1757,54 @@
         };
       }
 
+      // ── Unified Prime Badge ──────────────────────────────────────
+      // Merges the old Prime, Thesis, and Winner badges into one clear
+      // quality signal.  Returns false | { reason: string } so the UI
+      // can show a tooltip explaining WHY it qualified.
+      //
+      // A ticker is Prime when it passes a quality gate AND at least one
+      // confirmation signal fires:
+      //   Quality:  rank ≥ 70, RR ≥ 1.5, completion < 0.5, phase < 0.65
+      //   Confirm:  aligned state, thesis match, winner pattern,
+      //             squeeze release, phase zone change, momentum elite
       function isPrimeBubble(ticker) {
+        if (!ticker) return false;
         const rank = Number(ticker.rank || 0);
         const rr = ticker.rr != null ? Number(ticker.rr) : 0;
         const comp = ticker.completion != null ? Number(ticker.completion) : 1;
         const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : 1;
         const flags = ticker.flags || {};
+        const state = String(ticker.state || "");
+
+        // ── Quality gate (all must pass) ──
+        if (!(rank >= 70 && rr >= 1.5 && comp < 0.5 && phase < 0.65)) return false;
+
+        // ── Confirmation signals (at least one) ──
+        const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
         const sqRel = !!flags.sq30_release;
         const phaseZoneChange = !!flags.phase_zone_change;
-        const state = String(ticker.state || "");
-        const aligned =
-          state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
+        const thesisMatch = flags.thesis_match === true;
+        const momentumElite = !!flags.momentum_elite;
 
-        return (
-          rank >= 75 &&
-          rr >= 1.5 &&
-          comp < 0.4 &&
-          phase < 0.6 &&
-          (aligned || sqRel || phaseZoneChange)
-        );
+        // Winner pattern: pullback + corridor + very early
+        const ent = entryType(ticker);
+        const inPullback = state.includes("PULLBACK");
+        const inCorridor = !!ent?.corridor;
+        const veryEarly = comp < 0.15 && phase < 0.6;
+        const inSqueeze = !!flags.sq30_on && !flags.sq30_release;
+        const winnerPattern = inPullback && inCorridor && veryEarly;
+
+        if (aligned) return { reason: "aligned" };
+        if (thesisMatch) return { reason: "thesis" };
+        if (winnerPattern) return { reason: "winner" };
+        if (sqRel) return { reason: "squeeze_release" };
+        if (momentumElite) return { reason: "momentum" };
+        if (phaseZoneChange) return { reason: "phase_change" };
+
+        return false;
       }
 
-      // Winner Signature (early-run high-probability pattern)
-      // Note: UI classification uses only the *current* snapshot (no sequence mining yet).
+      // Keep winnerSignatureScore for ranking/sorting (returns 0-5 count)
       function winnerSignatureScore(ticker) {
         if (!ticker) return 0;
         const flags = ticker.flags || {};
@@ -1706,41 +1812,18 @@
         const ent = entryType(ticker);
         const comp = completionForSize(ticker);
         const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : NaN;
-
         const isSetup = state.includes("PULLBACK");
         const inCorridor = !!ent?.corridor;
         const lowCompletion = Number.isFinite(comp) && comp < 0.15;
         const earlyPhase = Number.isFinite(phase) && phase < 0.6;
         const inSqueeze = !!flags.sq30_on && !flags.sq30_release;
-
-        return [
-          isSetup,
-          inCorridor,
-          lowCompletion,
-          earlyPhase,
-          inSqueeze,
-        ].filter(Boolean).length;
+        return [isSetup, inCorridor, lowCompletion, earlyPhase, inSqueeze].filter(Boolean).length;
       }
 
+      // Kept for backward compat (filters, sorting) but UI no longer shows separate badge
       function isWinnerSignature(ticker) {
-        if (!ticker) return false;
-        const flags = ticker.flags || {};
-        const state = String(ticker.state || "");
-        const ent = entryType(ticker);
-        const comp = completionForSize(ticker);
-        const phase = ticker.phase_pct != null ? Number(ticker.phase_pct) : NaN;
-
-        const isSetup = state.includes("PULLBACK");
-        const inCorridor = !!ent?.corridor;
-        const lowCompletion = Number.isFinite(comp) && comp < 0.15;
-        const earlyPhase = Number.isFinite(phase) && phase < 0.6;
-        const inSqueeze = !!flags.sq30_on && !flags.sq30_release;
-
-        // Core: setup + corridor + low completion
-        // Plus: early phase OR in squeeze (pressure build marker)
-        if (!(isSetup && inCorridor && lowCompletion)) return false;
-        if (!(earlyPhase || inSqueeze)) return false;
-        return true;
+        const p = isPrimeBubble(ticker);
+        return p && p.reason === "winner";
       }
 
       function entryType(ticker) {
@@ -1936,6 +2019,27 @@
 
       function getDailyChange(t) {
         const marketOpen = isNyRegularMarketOpen();
+
+        // ── Live price feed data (from /timed/prices) ──
+        // If we have fresh live price data, use it directly — it's more reliable than
+        // derived values from scoring snapshots.
+        const livePrice = Number(t?._live_price);
+        const livePrevClose = Number(t?._live_prev_close);
+        const liveDailyChange = Number(t?._live_daily_change);
+        const liveDailyChangePct = Number(t?._live_daily_change_pct);
+        const priceAge = t?._price_updated_at ? (Date.now() - t._price_updated_at) / 60000 : Infinity;
+
+        if (Number.isFinite(livePrice) && livePrice > 0 && Number.isFinite(liveDailyChangePct) && priceAge < 5) {
+          return {
+            dayChg: liveDailyChange,
+            dayPct: liveDailyChangePct,
+            stale: { isStale: false, ageMin: priceAge },
+            marketOpen,
+            livePrice: true,
+          };
+        }
+
+        // ── Fallback to scoring snapshot data ──
         // In after-hours/weekends, allow a wider "fresh" window so we can still show daily change for analysis.
         // We still treat explicit STALE flags as stale (trust > convenience).
         const maxAgeMin = marketOpen ? 90 : 72 * 60;
@@ -2102,15 +2206,17 @@
           if (!Number.isFinite(dayPct)) dayPct = pct;
         }
 
-        // Subtle color tint based on daily change (Robinhood-style)
+        // Color tint based on daily change — aggressive scaling for quick visual scan
+        // Uses sqrt curve: small moves (0.5%) already visible, big moves (3%+) vivid
+        // 0% = transparent, 0.5% = subtle, 1% = clear, 2% = strong, 3%+ = vivid
         const dayAbs = Number.isFinite(dayPct) ? Math.abs(dayPct) : 0;
-        const dayIntensity = Math.max(0, Math.min(1, dayAbs / 5));
-        const tintAlpha = 0.02 + dayIntensity * 0.08;
+        const dayIntensity = Math.max(0, Math.min(1, Math.sqrt(dayAbs / 4)));
+        const tintAlpha = dayAbs > 0.05 ? (0.06 + dayIntensity * 0.38) : 0;
         const tint =
           Number.isFinite(dayPct) && dayPct !== 0
             ? dayPct >= 0
-              ? `rgba(0,200,83,${tintAlpha})`
-              : `rgba(255,82,82,${tintAlpha})`
+              ? `rgba(20,184,166,${tintAlpha.toFixed(3)})`   // teal #14b8a6
+              : `rgba(225,29,72,${tintAlpha.toFixed(3)})`    // cherry #e11d48
             : "rgba(0,0,0,0)";
 
         // Phase Oscillator fill: |phaseOsc| / 100 → 0..100%
@@ -2122,7 +2228,7 @@
           : null;
         // Use a warm amber tint for the phase fill so it contrasts against both blue and red backgrounds
         const phaseFill = phasePct != null
-          ? `linear-gradient(90deg, rgba(245,190,80,0.18) 0%, rgba(245,190,80,0.18) ${phasePct}%, rgba(0,0,0,0) ${phasePct}%, rgba(0,0,0,0) 100%)`
+          ? `linear-gradient(90deg, rgba(245,190,80,0.32) 0%, rgba(245,190,80,0.32) ${phasePct}%, rgba(0,0,0,0) ${phasePct}%, rgba(0,0,0,0) 100%)`
           : null;
         const bgTint = `linear-gradient(0deg, ${tint}, ${tint})`;
         const bgImage = phaseFill ? `${phaseFill}, ${bgTint}` : bgTint;
@@ -3020,7 +3126,7 @@
             if (!flags.flip_watch) continue;
           }
 
-          // Kanban Stage filter (7 lanes - dual mode with legacy support)
+          // Kanban Stage filter (6 lanes)
           if (
             effectiveFilters.kanbanStage &&
             typeof effectiveFilters.kanbanStage === "string"
@@ -3028,17 +3134,15 @@
             const stage = String(d.kanban_stage || "");
             const wantStage = String(effectiveFilters.kanbanStage).trim();
             const matches =
-              wantStage === "watch"
-                ? stage === "watch"
-                : wantStage === "setup"
-                  ? stage === "setup" || stage === "setup_watch" || stage === "flip_watch"
-                  : wantStage === "enter"
-                    ? stage === "enter" || stage === "enter_now" || stage === "just_flipped"
-                    : wantStage === "active"
-                      ? stage === "active" || stage === "just_entered" || stage === "hold"
-                      : wantStage === "closed"
-                        ? stage === "closed" || stage === "archive"
-                        : stage === wantStage;
+              wantStage === "setup"
+                ? stage === "setup" || stage === "setup_watch" || stage === "flip_watch"
+                : wantStage === "enter"
+                  ? stage === "enter" || stage === "enter_now" || stage === "just_flipped"
+                  : wantStage === "hold"
+                    ? stage === "active" || stage === "just_entered" || stage === "hold"
+                    : wantStage === "defend"
+                      ? stage === "defend"
+                      : stage === wantStage;
             if (!matches) continue;
           }
 
@@ -3384,187 +3488,63 @@
           const ent = entryType(ticker);
           const move = getMoveStatusInfo(ticker);
 
-          // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
-          // Use gray for tickers waiting for data
-          // SIMPLIFIED: Direct calculation to ensure it always works
-          let color;
-
-          // DEBUG: Log phase calculation for first few bubbles
-          if (window._svgBubbleCallCount <= 5) {
-            console.log(`[BUBBLE COLOR CALC] ${ticker.ticker}:`, {
-              waitingForData,
-              validPhasePct,
-              phasePct,
-              rawPhasePct: ticker.phase_pct,
-              hasPhasePct: "phase_pct" in ticker,
-            });
-          }
-
-          if (waitingForData) {
-            color = "#5c6475"; // Gray for waiting
-          } else {
-            // Direct color calculation based on phase percentage
-            // Ensure validPhasePct is a number
-            const p = Number.isFinite(validPhasePct)
-              ? Math.max(0, Math.min(1, validPhasePct))
-              : 0.1; // Default to 0.1 (green) if invalid
-
-            if (p < 0.3) {
-              color = "#22c55e"; // Green: under 30%
-            } else if (p < 0.6) {
-              color = "#eab308"; // Yellow: 30-60%
-            } else {
-              color = "#ef4444"; // Red: 60-100%
-            }
-          }
-
-          // Final safety: ensure color is always valid
-          if (!color || typeof color !== "string" || !color.startsWith("#")) {
-            console.warn(
-              `[BUBBLE COLOR] Invalid color for ${ticker.ticker}, using green fallback:`,
-              color,
-            );
-            color = "#22c55e"; // Green fallback
-          }
-
-          // Ensure opacity is high enough to be visible (minimum 0.6)
-          const baseOpacity = waitingForData
-            ? 0.6
-            : isHovered
-              ? 1
-              : prime
-                ? 0.95
-                : winnerSig
-                  ? 0.95
-                  : 0.85; // Increased from 0.7 to 0.85 for better visibility
-          const moveOpacityMult =
-            waitingForData || isHovered
-              ? 1
-              : move.status === "INVALIDATED"
-                ? 0.28
-                : move.status === "COMPLETED"
-                  ? 0.65
-                  : 1;
-          const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
-
+          // ── Bubble color: direction-aware (matches kanban cards) ──
+          // LONG = cyan tones, SHORT = red tones, neutral = phase-based
           const flipWatch = !!flags.flip_watch;
           const dir = getDirectionFromState(ticker);
+          let color;
 
-          const borderWidth = waitingForData
-            ? 2
-            : dir
-              ? 2.5 // Thicker border for direction (LONG/SHORT) to match cards
-              : flipWatch
-                ? 3.5
-                : prime
-                  ? 3
-                  : winnerSig
-                    ? 3
-                    : flags.sq30_release
-                      ? 2
-                      : flags.sq30_on
-                        ? 2
-                        : 1.5;
+          if (waitingForData) {
+            color = "#5c6475";
+          } else if (dir === "LONG") {
+            // Cyan-to-green gradient anchor based on phase
+            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
+            color = p < 0.3 ? "#22d3ee" : p < 0.6 ? "#06b6d4" : "#0891b2"; // Cyan spectrum
+          } else if (dir === "SHORT") {
+            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
+            color = p < 0.3 ? "#fb7185" : p < 0.6 ? "#e11d48" : "#be123c"; // Red spectrum
+          } else {
+            // Neutral: phase-based (green → yellow → red)
+            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
+            color = p < 0.3 ? "#14b8a6" : p < 0.6 ? "#eab308" : "#e11d48";
+          }
 
-          let borderColor = waitingForData
-            ? "#8b92a0"
-            : dir === "LONG"
-              ? "#22d3ee" // Cyan/blue for LONG (matches card outline)
-              : dir === "SHORT"
-                ? "#ef4444" // Red for SHORT (matches card outline)
-                : flipWatch
-                  ? "#fbbf24" // Amber for flip watch
-                  : prime
-                    ? "#22c55e"
-                    : winnerSig
-                      ? "#a855f7"
-                      : flags.sq30_release
-                        ? "#00ffff"
-                        : flags.sq30_on
-                          ? "#ffd700"
-                          : "#ffffff";
+          if (!color || typeof color !== "string" || !color.startsWith("#")) {
+            color = "#14b8a6";
+          }
+
+          // Opacity: direction bubbles stay vivid, invalidated/completed fade
+          const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : dir ? 0.92 : prime || winnerSig ? 0.9 : 0.8;
+          const moveOpacityMult = waitingForData || isHovered ? 1
+            : move.status === "INVALIDATED" ? 0.25
+            : move.status === "COMPLETED" ? 0.6
+            : 1;
+          const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
+
+          // Border: direction accent color (matches card left-border accent)
+          const borderWidth = waitingForData ? 1.5
+            : dir ? 2.5
+            : flipWatch ? 3.5
+            : prime ? 3
+            : winnerSig ? 3
+            : flags.sq30_release ? 2
+            : flags.sq30_on ? 2
+            : 1.5;
+
+          let borderColor = waitingForData ? "#8b92a0"
+            : dir === "LONG" ? "#22d3ee"
+            : dir === "SHORT" ? "#e11d48"
+            : flipWatch ? "#fbbf24"
+            : prime ? "#14b8a6"
+            : winnerSig ? "#a855f7"
+            : flags.sq30_release ? "#00ffff"
+            : flags.sq30_on ? "#ffd700"
+            : "rgba(255,255,255,0.25)";
           if (!waitingForData && move.status !== "ACTIVE" && !dir) {
             borderColor = move.stroke;
           }
 
           const bubbleSize = isHovered ? finalSize * 1.2 : finalSize;
-
-          // Debug logging for first few tickers to verify calculations
-          const shouldLog =
-            ticker.ticker === "AAPL" ||
-            ticker.ticker === "QQQ" ||
-            ticker.ticker === "NVDA" ||
-            ticker.ticker === "ITT" ||
-            ticker.ticker === "GOOGL" ||
-            ticker.ticker === "MSFT";
-
-          if (shouldLog) {
-            console.log(`[BUBBLE DEBUG] ${ticker.ticker}:`, {
-              size: size.toFixed(2),
-              finalSize: finalSize.toFixed(2),
-              bubbleSize: bubbleSize.toFixed(2),
-              color,
-              opacity,
-              borderColor,
-              borderWidth,
-              validRR: validRR.toFixed(2),
-              validComp: validComp.toFixed(2),
-              validPhasePct: validPhasePct.toFixed(2),
-              rawRR: rr,
-              rawComp: comp,
-              rawPhasePct: phasePct,
-              prime,
-              flags,
-              hasColor: !!color && color !== "#ffffff",
-              hasSize: size > 0,
-              tickerKeys: Object.keys(ticker).slice(0, 15),
-            });
-          }
-
-          // ALWAYS log first bubble to ensure code is running
-          if (!window._bubbleDebugLogged) {
-            window._bubbleDebugLogged = true;
-            console.log(`[BUBBLE DEBUG] FIRST BUBBLE: ${ticker.ticker}`, {
-              size: size.toFixed(2),
-              finalSize: finalSize.toFixed(2),
-              bubbleSize: bubbleSize.toFixed(2),
-              color,
-              opacity,
-              borderColor,
-              borderWidth,
-              validRR,
-              validComp,
-              validPhasePct,
-              rawRR: rr,
-              rawComp: comp,
-              rawPhasePct: phasePct,
-              tickerKeys: Object.keys(ticker),
-              ticker: ticker,
-            });
-          }
-
-          // Log first 10 bubbles to verify styling is applied
-          if (window._svgBubbleCallCount <= 10) {
-            console.log(`[BUBBLE STYLE] ${ticker.ticker}:`, {
-              color,
-              colorType: typeof color,
-              colorLength: color ? color.length : 0,
-              size: bubbleSize.toFixed(2),
-              phasePct: validPhasePct,
-              rr: validRR,
-              completion: validComp,
-              rawPhasePct: phasePct,
-              rawRR: rr,
-              rawComp: comp,
-              opacity,
-              borderColor,
-              borderWidth,
-              tickerKeys: Object.keys(ticker).slice(0, 20),
-              hasPhasePct: "phase_pct" in ticker,
-              hasRR: "rr" in ticker,
-              hasCompletion: "completion" in ticker,
-            });
-          }
 
           // Calculate position correctly:
           // BubbleChart passes pre-adjusted offsets:
@@ -3585,17 +3565,17 @@
             ? Number(layoutY)
             : htfScore * scaleY + offsetY;
 
-          // Determine emojis and label position (show all applicable emojis)
+          // Determine emojis — 5 distinct badges:
+          //   ⭐ Prime (quality)  🎯 Entry Zone (timing)
+          //   🔥 MoElite          🧨 Squeeze  ⚡ Release
           const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
           const emojis = [];
           if (isTopRanked) emojis.push("👑");
-          if (flags.thesis_match === true && !waitingForData) emojis.push("🧠");
           if (waitingForData) emojis.push("⏳");
           if (!waitingForData) {
-            if (flipWatch) emojis.push("🎯"); // Flip watch - about to transition
-            if (!!flags.momentum_elite) emojis.push("🚀");
             if (prime) emojis.push("⭐");
-            if (winnerSig) emojis.push("🏆");
+            if (flipWatch) emojis.push("🎯");
+            if (!!flags.momentum_elite) emojis.push("🔥");
             if (flags.sq30_release) emojis.push("⚡");
             if (isInSqueeze) emojis.push("🧨");
           }
@@ -3604,122 +3584,72 @@
           const labelY =
             y - bubbleSize - (emojiText ? (isTopRanked ? 20 : 12) : 8);
 
-          // FINAL SAFETY CHECK - ensure all values are valid before rendering
-          // CRITICAL: Double-check color is valid before using
-          const finalColor =
-            color && typeof color === "string" && color.startsWith("#")
-              ? color
-              : "#22c55e"; // Force green if invalid
-
-          const finalOpacity =
-            typeof opacity === "number" && opacity >= 0 && opacity <= 1
-              ? opacity
-              : 0.85;
-          const renderedSize = Math.max(3, Math.min(50, bubbleSize)); // Clamp size between 3 and 50
-          const finalBorderColor =
-            borderColor && typeof borderColor === "string"
-              ? borderColor
-              : "#ffffff";
-          const finalBorderWidth =
-            typeof borderWidth === "number" && borderWidth > 0
-              ? borderWidth
-              : 1.5;
+          const finalColor = color && typeof color === "string" && color.startsWith("#") ? color : "#14b8a6";
+          const finalOpacity = typeof opacity === "number" && opacity >= 0 && opacity <= 1 ? opacity : 0.85;
+          const renderedSize = Math.max(3, Math.min(50, bubbleSize));
+          const finalBorderColor = borderColor && typeof borderColor === "string" ? borderColor : "rgba(255,255,255,0.25)";
+          const finalBorderWidth = typeof borderWidth === "number" && borderWidth > 0 ? borderWidth : 1.5;
           const decisionSummary = summarizeEntryDecision(ticker);
-          const decisionTooltip = decisionSummary
-            ? `System ${decisionSummary.status}: ${decisionSummary.detail}`
-            : null;
+          const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
 
-          // Log first 5 bubbles to verify styling
-          if (window._svgBubbleCallCount <= 5) {
-            console.log(`[BUBBLE STYLE] ${ticker.ticker}:`, {
-              originalColor: color,
-              finalColor: finalColor,
-              size: renderedSize,
-              phasePct: validPhasePct,
-              opacity: finalOpacity,
-              borderColor: finalBorderColor,
-              willRender: true,
-            });
-          }
+          // Unique gradient ID per bubble
+          const gradId = `bg-${ticker.ticker}`;
 
           return (
             <g
               onClick={() => onClick(ticker.ticker)}
               onMouseEnter={() => onHover(ticker.ticker)}
               onMouseLeave={() => onHover(null)}
-              onTouchStart={(e) => {
-                e.preventDefault();
-                onHover(ticker.ticker);
-                onClick(ticker.ticker);
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                onHover(null);
-              }}
-              style={{
-                cursor: "pointer",
-                transition: "all 0.2s ease-out",
-                touchAction: "manipulation",
-              }}
+              onTouchStart={(e) => { e.preventDefault(); onHover(ticker.ticker); onClick(ticker.ticker); }}
+              onTouchEnd={(e) => { e.preventDefault(); onHover(null); }}
+              style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
             >
               {decisionTooltip && <title>{decisionTooltip}</title>}
-              {/* Pulsing glow effect for flip watch */}
-              {flipWatch && (
-                <>
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={renderedSize + 4}
-                    fill="none"
-                    stroke="#fbbf24"
-                    strokeWidth="2"
-                    opacity="0.5"
-                  >
-                    <animate
-                      attributeName="r"
-                      values={`${renderedSize + 3};${renderedSize + 6};${renderedSize + 3}`}
-                      dur="2s"
-                      repeatCount="indefinite"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0.3;0.7;0.3"
-                      dur="2s"
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                  <circle
-                    cx={x}
-                    cy={y}
-                    r={renderedSize + 2}
-                    fill="none"
-                    stroke="#fbbf24"
-                    strokeWidth="1"
-                    opacity="0.4"
-                  />
-                </>
-              )}
-              {/* Glow effect for prime */}
-              {prime && (
+              {/* Radial gradient fill for glassmorphic depth */}
+              <defs>
+                <radialGradient id={gradId} cx="35%" cy="35%">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.18" />
+                  <stop offset="50%" stopColor={finalColor} stopOpacity={finalOpacity} />
+                  <stop offset="100%" stopColor={finalColor} stopOpacity={finalOpacity * 0.7} />
+                </radialGradient>
+              </defs>
+              {/* Outer glow ring for direction / special states */}
+              {(dir || flipWatch || prime || winnerSig) && (
                 <circle
-                  cx={x}
-                  cy={y}
-                  r={renderedSize + 2}
+                  cx={x} cy={y}
+                  r={renderedSize + 3}
                   fill="none"
-                  stroke="#22c55e"
-                  strokeWidth="1"
-                  opacity="0.3"
-                />
+                  stroke={finalBorderColor}
+                  strokeWidth={flipWatch ? 2 : 1}
+                  opacity={flipWatch ? 0.5 : 0.2}
+                >
+                  {flipWatch && (
+                    <>
+                      <animate attributeName="r" values={`${renderedSize + 3};${renderedSize + 6};${renderedSize + 3}`} dur="2s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite" />
+                    </>
+                  )}
+                </circle>
               )}
+              {/* Main bubble — radial gradient for depth */}
               <circle
-                cx={x}
-                cy={y}
+                cx={x} cy={y}
                 r={renderedSize}
-                fill={finalColor}
-                fillOpacity={finalOpacity}
+                fill={`url(#${gradId})`}
                 stroke={finalBorderColor}
                 strokeWidth={finalBorderWidth}
               />
+              {/* Subtle highlight arc (top-left) for glassy look */}
+              {renderedSize > 5 && (
+                <circle
+                  cx={x - renderedSize * 0.2}
+                  cy={y - renderedSize * 0.2}
+                  r={renderedSize * 0.45}
+                  fill="#ffffff"
+                  fillOpacity="0.08"
+                  style={{ pointerEvents: "none" }}
+                />
+              )}
               {/* Emoji above bubble - show multiple when applicable */}
               {emojiText && (
                 <g style={{ pointerEvents: "none" }}>
@@ -3788,7 +3718,7 @@
                         : waitingForData
                           ? "#8b92a0"
                           : prime
-                            ? "#22c55e"
+                            ? "#14b8a6"
                             : winnerSig
                               ? "#a855f7"
                               : flags.sq30_release
@@ -3911,200 +3841,73 @@
 
       const Bubble = memo(
         ({ ticker, onClick, onHover, isHovered, showLabels }) => {
-          // DEBUG: Log Recharts Bubble component calls
-          if (!window._rechartsBubbleCallCount) {
-            window._rechartsBubbleCallCount = 0;
-          }
-          window._rechartsBubbleCallCount++;
-          if (window._rechartsBubbleCallCount <= 5) {
-            console.log(
-              `[RECHARTS BUBBLE CALLED] #${window._rechartsBubbleCallCount} - ${
-                ticker?.ticker || "NO TICKER"
-              }`,
-              {
-                ticker: ticker,
-                hasTicker: !!ticker,
-                tickerKeys: ticker ? Object.keys(ticker) : [],
-              },
-            );
-          }
-
-          // Ensure we have valid numeric values - check for null/undefined explicitly
-          const comp =
-            ticker.completion != null ? Number(ticker.completion) : 0;
-          const phasePct =
-            ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
+          const comp = ticker.completion != null ? Number(ticker.completion) : 0;
+          const phasePct = ticker.phase_pct != null ? Number(ticker.phase_pct) : 0;
           const rr = ticker.rr != null ? Number(ticker.rr) : 0;
           const waitingForData = ticker.waitingForData === true;
 
-          // Validate values are finite numbers and clamp to valid ranges
-          const validComp = Number.isFinite(comp)
-            ? Math.max(0, Math.min(1, comp))
-            : 0;
-          const validPhasePct = Number.isFinite(phasePct)
-            ? Math.max(0, Math.min(1, phasePct))
-            : 0;
+          const validComp = Number.isFinite(comp) ? Math.max(0, Math.min(1, comp)) : 0;
+          const validPhasePct = Number.isFinite(phasePct) ? Math.max(0, Math.min(1, phasePct)) : 0;
           const validRR = Number.isFinite(rr) && rr > 0 ? rr : 0;
 
-          // Bubble size based on RR, adjusted for completion (lower completion = larger size)
-          // CAP: Any RR over 5 should max out at size for RR=5 (relative to list, not absolute)
-          const cappedRR = Math.min(validRR, 5); // Cap RR at 5 for size calculation
-          const completionPenalty = 1 - validComp; // 1.0 when completion is 0, 0.0 when completion is 1
+          const cappedRR = Math.min(validRR, 5);
+          const completionPenalty = 1 - validComp;
           const baseSize = 8;
-          const rrMultiplier = 6; // Scale factor for RR
-          // Smaller size for tickers waiting for data
-          const size = waitingForData
-            ? baseSize * 0.7
-            : baseSize + cappedRR * rrMultiplier * completionPenalty;
-
-          // Force minimum size variation - if all sizes are the same, add variation based on ticker
-          const sizeVariation = (ticker.ticker?.charCodeAt(0) || 0) % 3; // Add small variation based on ticker name
-          const finalSize = Math.max(baseSize, size + sizeVariation * 0.5); // Add 0-1px variation, ensure minimum baseSize
+          const rrMultiplier = 6;
+          const size = waitingForData ? baseSize * 0.7 : baseSize + cappedRR * rrMultiplier * completionPenalty;
+          const sizeVariation = (ticker.ticker?.charCodeAt(0) || 0) % 3;
+          const finalSize = Math.max(baseSize, size + sizeVariation * 0.5);
 
           const prime = isPrimeBubble(ticker);
           const flags = ticker.flags || {};
+          const dir = getDirectionFromState(ticker);
+          const flipWatch = !!flags.flip_watch;
+          const winnerSig = isWinnerSignature(ticker);
 
-          // Phase Completion color (Green < 30%, Yellow 30-60%, Red 60-100%)
-          // Use gray for tickers waiting for data
-          // SIMPLIFIED: Direct calculation to ensure it always works
+          // Direction-aware color (matches kanban card accents)
           let color;
           if (waitingForData) {
-            color = "#5c6475"; // Gray for waiting
+            color = "#5c6475";
+          } else if (dir === "LONG") {
+            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
+            color = p < 0.3 ? "#22d3ee" : p < 0.6 ? "#06b6d4" : "#0891b2";
+          } else if (dir === "SHORT") {
+            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
+            color = p < 0.3 ? "#fb7185" : p < 0.6 ? "#e11d48" : "#be123c";
           } else {
-            // Direct color calculation based on phase percentage
-            // Ensure validPhasePct is a number
-            const p = Number.isFinite(validPhasePct)
-              ? Math.max(0, Math.min(1, validPhasePct))
-              : 0.1; // Default to 0.1 (green) if invalid
-
-            if (p < 0.3) {
-              color = "#22c55e"; // Green: under 30%
-            } else if (p < 0.6) {
-              color = "#eab308"; // Yellow: 30-60%
-            } else {
-              color = "#ef4444"; // Red: 60-100%
-            }
+            const p = Number.isFinite(validPhasePct) ? Math.max(0, Math.min(1, validPhasePct)) : 0.1;
+            color = p < 0.3 ? "#14b8a6" : p < 0.6 ? "#eab308" : "#e11d48";
           }
+          if (!color || typeof color !== "string" || !color.startsWith("#")) color = "#14b8a6";
 
-          // Final safety: ensure color is always valid
-          if (!color || typeof color !== "string" || !color.startsWith("#")) {
-            color = "#22c55e"; // Green fallback
-          }
+          const opacity = waitingForData ? 0.55 : isHovered ? 1 : dir ? 0.92 : prime ? 0.9 : 0.85;
 
-          // Ensure opacity is high enough to be visible (minimum 0.6)
-          const opacity = waitingForData
-            ? 0.6
-            : isHovered
-              ? 1
-              : prime
-                ? 0.95
-                : 0.85; // Increased from 0.7 to 0.85 for better visibility
+          const borderWidth = waitingForData ? 1.5
+            : dir ? 2.5
+            : flipWatch ? 3.5
+            : prime ? 3
+            : winnerSig ? 3
+            : flags.sq30_release ? 2
+            : flags.sq30_on ? 2
+            : 1.5;
 
-          const borderWidth = waitingForData
-            ? 2
-            : prime
-              ? 3
-              : flags.sq30_release
-                ? 2
-                : flags.sq30_on
-                  ? 2
-                  : 1.5; // Increased from 1 to 1.5 for better visibility
-
-          const borderColor = waitingForData
-            ? "#8b92a0"
-            : prime
-              ? "#22c55e"
-              : flags.sq30_release
-                ? "#00ffff"
-                : flags.sq30_on
-                  ? "#ffd700"
-                  : "#ffffff";
-
-          // Debug logging for first few tickers to verify calculations
-          if (
-            ticker.ticker === "AAPL" ||
-            ticker.ticker === "QQQ" ||
-            ticker.ticker === "NVDA"
-          ) {
-            console.log(`[BUBBLE DEBUG] ${ticker.ticker}:`, {
-              size: size.toFixed(2),
-              bubbleSize: (isHovered ? size * 1.2 : size).toFixed(2),
-              color,
-              opacity,
-              borderColor,
-              borderWidth,
-              rr: rr.toFixed(2),
-              comp: comp.toFixed(2),
-              phasePct: phasePct.toFixed(2),
-              prime,
-              flags,
-            });
-          }
+          const borderColor = waitingForData ? "#8b92a0"
+            : dir === "LONG" ? "#22d3ee"
+            : dir === "SHORT" ? "#e11d48"
+            : flipWatch ? "#fbbf24"
+            : prime ? "#14b8a6"
+            : winnerSig ? "#a855f7"
+            : flags.sq30_release ? "#00ffff"
+            : flags.sq30_on ? "#ffd700"
+            : "rgba(255,255,255,0.25)";
 
           const bubbleSize = isHovered ? finalSize * 1.2 : finalSize;
-
-          // Debug logging for first few tickers
-          const shouldLog =
-            ticker.ticker === "AAPL" ||
-            ticker.ticker === "QQQ" ||
-            ticker.ticker === "NVDA" ||
-            ticker.ticker === "ITT" ||
-            ticker.ticker === "GOOGL" ||
-            ticker.ticker === "MSFT";
-
-          if (shouldLog) {
-            console.log(`[RECHARTS BUBBLE DEBUG] ${ticker.ticker}:`, {
-              size: size.toFixed(2),
-              finalSize: finalSize.toFixed(2),
-              bubbleSize: bubbleSize.toFixed(2),
-              color,
-              opacity,
-              borderColor,
-              borderWidth,
-              validRR: validRR.toFixed(2),
-              validComp: validComp.toFixed(2),
-              validPhasePct: validPhasePct.toFixed(2),
-              rawRR: rr,
-              rawComp: comp,
-              rawPhasePct: phasePct,
-              prime,
-              flags,
-            });
-          }
-
-          // ALWAYS log first bubble to ensure code is running
-          if (!window._rechartsBubbleDebugLogged) {
-            window._rechartsBubbleDebugLogged = true;
-            console.log(
-              `[RECHARTS BUBBLE DEBUG] FIRST BUBBLE: ${ticker.ticker}`,
-              {
-                size: size.toFixed(2),
-                finalSize: finalSize.toFixed(2),
-                bubbleSize: bubbleSize.toFixed(2),
-                color,
-                opacity,
-                borderColor,
-                borderWidth,
-                validRR,
-                validComp,
-                validPhasePct,
-                ticker: ticker,
-              },
-            );
-          }
 
           const x = Number(ticker.ltf_score) || 0;
           const y = Number(ticker.htf_score) || 0;
 
-          // Determine emoji and label position
           const hasSqueeze = flags.sq30_release || flags.sq30_on;
-          const emoji = prime
-            ? "⭐"
-            : flags.sq30_release
-              ? "⚡"
-              : flags.sq30_on
-                ? "🧨"
-                : "";
+          const emoji = prime ? "⭐" : flags.sq30_release ? "⚡" : flags.sq30_on ? "🧨" : "";
           const labelY = y - bubbleSize - (emoji ? 12 : 8);
 
           return (
@@ -4134,7 +3937,7 @@
                   cy={y}
                   r={bubbleSize + 2}
                   fill="none"
-                  stroke="#22c55e"
+                  stroke="#14b8a6"
                   strokeWidth="1"
                   opacity="0.3"
                 />
@@ -4176,7 +3979,7 @@
                   fontSize={prime ? "14" : "12"}
                   fill={
                     prime
-                      ? "#22c55e"
+                      ? "#14b8a6"
                       : flags.sq30_release
                         ? "#00ffff"
                         : "#ffd700"
@@ -4263,7 +4066,7 @@
               for (let attempt = 0; attempt < 3; attempt++) {
                 try {
                   const res = await fetch(
-                    `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
+                    `/timed/trail?ticker=${encodeURIComponent(
                       ticker,
                     )}`,
                     {
@@ -5485,16 +5288,16 @@
                         }
                         return null;
                       })()}
-                      {isPrimeBubble(tooltip) && (
-                        <div className="mb-2 px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-semibold text-center">
-                          ⭐ PRIME SETUP
-                        </div>
-                      )}
-                      {isWinnerSignature(tooltip) && (
-                        <div className="mb-2 px-2 py-1 rounded bg-purple-500/20 text-purple-300 text-xs font-semibold text-center border border-purple-500/30">
-                          🏆 WINNER SIGNATURE
-                        </div>
-                      )}
+                      {(() => {
+                        const p = isPrimeBubble(tooltip);
+                        if (!p) return null;
+                        const labels = { aligned: "Aligned", thesis: "Thesis Confirmed", winner: "Early Pattern", squeeze_release: "Squeeze Release", momentum: "Momentum", phase_change: "Phase Shift" };
+                        return (
+                          <div className="mb-2 px-2 py-1 rounded bg-teal-500/20 text-teal-400 text-xs font-semibold text-center">
+                            ⭐ PRIME — {labels[p.reason] || "Quality Setup"}
+                          </div>
+                        );
+                      })()}
                       {(() => {
                         const mv = getMoveStatusInfo(tooltip);
                         return (
@@ -5662,184 +5465,140 @@
             const sizeVariation = (tickerHash % 5) * 0.8;
             const finalSize = Math.max(baseSize, size + sizeVariation);
 
-            // Color based on phase
-            let color = "#22c55e"; // Green default
-            if (waitingForData) {
-              color = "#5c6475"; // Gray for waiting
-            } else if (validPhase >= 0.6) {
-              color = "#ef4444"; // Red: 60-100%
-            } else if (validPhase >= 0.3) {
-              color = "#eab308"; // Yellow: 30-60%
-            }
-
+            // Direction-aware color (matches kanban card accents)
             const flags = ticker.flags || {};
             const prime = isPrimeBubble(ticker);
             const winnerSig = isWinnerSignature(ticker);
             const move = getMoveStatusInfo(ticker);
+            const dir = getDirectionFromState(ticker);
+            const flipWatch = !!flags.flip_watch;
             const isTopRanked = topRankedTicker === ticker.ticker;
             const isBubbleHovered = hoveredTicker === ticker.ticker;
             const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
 
-            // Determine emojis (show all applicable)
+            let color;
+            if (waitingForData) {
+              color = "#5c6475";
+            } else if (dir === "LONG") {
+              color = validPhase < 0.3 ? "#22d3ee" : validPhase < 0.6 ? "#06b6d4" : "#0891b2";
+            } else if (dir === "SHORT") {
+              color = validPhase < 0.3 ? "#fb7185" : validPhase < 0.6 ? "#e11d48" : "#be123c";
+            } else {
+              color = validPhase < 0.3 ? "#14b8a6" : validPhase < 0.6 ? "#eab308" : "#e11d48";
+            }
+
             const emojis = [];
             if (isTopRanked) emojis.push("👑");
-            if (flags.thesis_match === true && !waitingForData)
-              emojis.push("🧠");
             if (waitingForData) emojis.push("⏳");
             if (!waitingForData) {
-              if (!!flags.momentum_elite) emojis.push("🚀");
               if (prime) emojis.push("⭐");
-              if (winnerSig) emojis.push("🏆");
+              if (flipWatch) emojis.push("🎯");
+              if (!!flags.momentum_elite) emojis.push("🔥");
               if (flags.sq30_release) emojis.push("⚡");
               if (isInSqueeze) emojis.push("🧨");
             }
             const emojiText = emojis.join("");
 
-            let borderColor = waitingForData
-              ? "#8b92a0"
-              : prime
-                ? "#22c55e"
-                : winnerSig
-                  ? "#a855f7"
-                  : flags.sq30_release
-                    ? "#00ffff"
-                    : flags.sq30_on
-                      ? "#ffd700"
-                      : "#ffffff";
+            let borderColor = waitingForData ? "#8b92a0"
+              : dir === "LONG" ? "#22d3ee"
+              : dir === "SHORT" ? "#e11d48"
+              : flipWatch ? "#fbbf24"
+              : prime ? "#14b8a6"
+              : winnerSig ? "#a855f7"
+              : flags.sq30_release ? "#00ffff"
+              : flags.sq30_on ? "#ffd700"
+              : "rgba(255,255,255,0.25)";
 
-            const baseOpacity = waitingForData
-              ? 0.6
-              : isBubbleHovered
-                ? 1
-                : prime
-                  ? 0.95
-                  : winnerSig
-                    ? 0.95
-                    : 0.85;
-            const moveOpacityMult =
-              waitingForData || isBubbleHovered
-                ? 1
-                : move.status === "INVALIDATED"
-                  ? 0.28
-                  : move.status === "COMPLETED"
-                    ? 0.65
-                    : 1;
+            const baseOpacity = waitingForData ? 0.55
+              : isBubbleHovered ? 1
+              : dir ? 0.92
+              : prime || winnerSig ? 0.9
+              : 0.8;
+            const moveOpacityMult = waitingForData || isBubbleHovered ? 1
+              : move.status === "INVALIDATED" ? 0.25
+              : move.status === "COMPLETED" ? 0.6
+              : 1;
             const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
 
-            // Make Move Status visually obvious on-chart
-            if (!waitingForData && move.status !== "ACTIVE") {
+            if (!waitingForData && move.status !== "ACTIVE" && !dir) {
               borderColor = move.stroke;
             }
-            const borderWidth = waitingForData
-              ? 2
-              : prime
-                ? 3
-                : winnerSig
-                  ? 3
-                  : flags.sq30_release || flags.sq30_on
-                    ? 2
-                    : 1.5;
+            const borderWidth = waitingForData ? 1.5
+              : dir ? 2.5
+              : flipWatch ? 3.5
+              : prime || winnerSig ? 3
+              : flags.sq30_release || flags.sq30_on ? 2
+              : 1.5;
             const bubbleSize = isBubbleHovered ? finalSize * 1.2 : finalSize;
             const labelY =
               cy - bubbleSize - (emojiText ? (isTopRanked ? 20 : 12) : 8);
 
+            const rcGradId = `rc-bg-${ticker.ticker}`;
+            const rcRenderedSize = Math.max(3, bubbleSize);
+
             return (
               <g
-                onClick={() => {
-                  console.log(
-                    `[BUBBLE CLICK] Direct click on ticker: ${ticker.ticker}`,
-                  );
-                  onBubbleClick(ticker.ticker);
-                }}
+                onClick={() => onBubbleClick(ticker.ticker)}
                 onMouseEnter={() => onHover(ticker.ticker)}
                 onMouseLeave={() => onHover(null)}
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  onHover(ticker.ticker);
-                  console.log(
-                    `[BUBBLE CLICK] Touch on ticker: ${ticker.ticker}`,
-                  );
-                  onBubbleClick(ticker.ticker);
-                }}
-                onTouchEnd={(e) => {
-                  e.preventDefault();
-                  onHover(null);
-                }}
-                style={{
-                  cursor: "pointer",
-                  transition: "all 0.2s ease-out",
-                  touchAction: "manipulation",
-                }}
+                onTouchStart={(e) => { e.preventDefault(); onHover(ticker.ticker); onBubbleClick(ticker.ticker); }}
+                onTouchEnd={(e) => { e.preventDefault(); onHover(null); }}
+                style={{ cursor: "pointer", transition: "all 0.2s ease-out", touchAction: "manipulation" }}
               >
-                {/* Glow effect for prime */}
-                {prime && (
+                <defs>
+                  <radialGradient id={rcGradId} cx="35%" cy="35%">
+                    <stop offset="0%" stopColor="#ffffff" stopOpacity="0.18" />
+                    <stop offset="50%" stopColor={color} stopOpacity={opacity} />
+                    <stop offset="100%" stopColor={color} stopOpacity={opacity * 0.7} />
+                  </radialGradient>
+                </defs>
+                {/* Outer glow ring for direction / special states */}
+                {(dir || flipWatch || prime || winnerSig) && (
                   <circle
-                    cx={cx}
-                    cy={cy}
-                    r={bubbleSize + 2}
+                    cx={cx} cy={cy}
+                    r={rcRenderedSize + 3}
                     fill="none"
-                    stroke="#22c55e"
-                    strokeWidth="1"
-                    opacity="0.3"
-                  />
+                    stroke={borderColor}
+                    strokeWidth={flipWatch ? 2 : 1}
+                    opacity={flipWatch ? 0.5 : 0.2}
+                  >
+                    {flipWatch && (
+                      <>
+                        <animate attributeName="r" values={`${rcRenderedSize + 3};${rcRenderedSize + 6};${rcRenderedSize + 3}`} dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite" />
+                      </>
+                    )}
+                  </circle>
                 )}
-                {/* Additional glow effects for #1 ranked - reduced size */}
+                {/* #1 ranked glow */}
                 {isTopRanked && (
                   <>
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={bubbleSize + 4}
-                      fill="none"
-                      stroke="#ffd700"
-                      strokeWidth="2"
-                      opacity="0.6"
-                    >
-                      <animate
-                        attributeName="opacity"
-                        values="0.3;0.9;0.3"
-                        dur="2s"
-                        repeatCount="indefinite"
-                      />
-                      <animate
-                        attributeName="r"
-                        values={`${bubbleSize + 3};${bubbleSize + 6};${
-                          bubbleSize + 3
-                        }`}
-                        dur="2s"
-                        repeatCount="indefinite"
-                      />
-                    </circle>
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={bubbleSize + 6}
-                      fill="none"
-                      stroke="#ffd700"
-                      strokeWidth="1.5"
-                      opacity="0.3"
-                    >
-                      <animate
-                        attributeName="opacity"
-                        values="0.1;0.5;0.1"
-                        dur="2s"
-                        repeatCount="indefinite"
-                      />
+                    <circle cx={cx} cy={cy} r={rcRenderedSize + 5} fill="none" stroke="#ffd700" strokeWidth="2" opacity="0.6">
+                      <animate attributeName="opacity" values="0.3;0.9;0.3" dur="2s" repeatCount="indefinite" />
+                      <animate attributeName="r" values={`${rcRenderedSize + 4};${rcRenderedSize + 7};${rcRenderedSize + 4}`} dur="2s" repeatCount="indefinite" />
                     </circle>
                   </>
                 )}
+                {/* Main bubble — gradient fill */}
                 <circle
-                  cx={cx}
-                  cy={cy}
-                  r={Math.max(3, bubbleSize)}
-                  fill={color}
-                  fillOpacity={opacity}
+                  cx={cx} cy={cy}
+                  r={rcRenderedSize}
+                  fill={`url(#${rcGradId})`}
                   stroke={borderColor}
                   strokeWidth={borderWidth}
-                  strokeDasharray={
-                    !waitingForData && move.dash ? move.dash : undefined
-                  }
+                  strokeDasharray={!waitingForData && move.dash ? move.dash : undefined}
                 />
+                {/* Highlight arc for glassy look */}
+                {rcRenderedSize > 5 && (
+                  <circle
+                    cx={cx - rcRenderedSize * 0.2}
+                    cy={cy - rcRenderedSize * 0.2}
+                    r={rcRenderedSize * 0.45}
+                    fill="#ffffff"
+                    fillOpacity="0.08"
+                    style={{ pointerEvents: "none" }}
+                  />
+                )}
                 {/* Move status badge (Completed / Invalidated) */}
                 {!waitingForData && move.status !== "ACTIVE" && (
                   <g style={{ pointerEvents: "none" }}>
@@ -5924,7 +5683,7 @@
                           : waitingForData
                             ? "#8b92a0"
                             : prime
-                              ? "#22c55e"
+                              ? "#14b8a6"
                               : winnerSig
                                 ? "#a855f7"
                                 : flags.sq30_release
@@ -6221,16 +5980,16 @@
                           }
                           return null;
                         })()}
-                        {isPrimeBubble(t) && (
-                          <div className="mb-2 px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-semibold text-center">
-                            ⭐ PRIME SETUP
-                          </div>
-                        )}
-                        {isWinnerSignature(t) && (
-                          <div className="mb-2 px-2 py-1 rounded bg-purple-500/20 text-purple-300 text-xs font-semibold text-center border border-purple-500/30">
-                            🏆 WINNER SIGNATURE
-                          </div>
-                        )}
+                        {(() => {
+                          const p = isPrimeBubble(t);
+                          if (!p) return null;
+                          const labels = { aligned: "Aligned", thesis: "Thesis Confirmed", winner: "Early Pattern", squeeze_release: "Squeeze Release", momentum: "Momentum", phase_change: "Phase Shift" };
+                          return (
+                            <div className="mb-2 px-2 py-1 rounded bg-teal-500/20 text-teal-400 text-xs font-semibold text-center">
+                              ⭐ PRIME — {labels[p.reason] || "Quality Setup"}
+                            </div>
+                          );
+                        })()}
                         {(() => {
                           const mv = getMoveStatusInfo(t);
                           return (
@@ -6671,8 +6430,8 @@
           return {
             status: "Eligible",
             detail: "All entry checks passed",
-            tone: "text-green-400",
-            bg: "bg-green-500/20",
+            tone: "text-teal-400",
+            bg: "bg-teal-500/20",
             blockers: [],
             warnings: warnings.map(label),
           };
@@ -6706,11 +6465,11 @@
         if (state.includes("BULL"))
           return {
             text: "LONG",
-            color: "text-green-400",
-            bg: "bg-green-500/20",
+            color: "text-teal-400",
+            bg: "bg-teal-500/20",
           };
         if (state.includes("BEAR"))
-          return { text: "SHORT", color: "text-red-400", bg: "bg-red-500/20" };
+          return { text: "SHORT", color: "text-rose-400", bg: "bg-rose-500/20" };
         return { text: "—", color: "text-[#6b7280]", bg: "bg-white/[0.04]" };
       }
 
@@ -6737,7 +6496,7 @@
                 : momentumElite
                   ? "border-purple-500 bg-purple-500/15 momentum-elite-glow border-2"
                   : prime
-                    ? "border-green-500 bg-green-500/10 prime-glow"
+                    ? "border-teal-500 bg-teal-500/10 prime-glow"
                     : "border-white/[0.06] bg-white/[0.03] hover:brightness-[1.06] hover:border-[#3a4aa0]"
             }`}
             onClick={onClick}
@@ -6755,10 +6514,10 @@
                     className="text-purple-400 text-xs font-bold"
                     title="Momentum Elite"
                   >
-                    🚀
+                    🔥
                   </span>
                 )}
-                {prime && <span className="text-green-500 text-xs">⭐</span>}
+                {prime && <span className="text-teal-500 text-xs">⭐</span>}
                 {flags.sq30_release && (
                   <span className="text-cyan-400 text-xs">⚡</span>
                 )}
@@ -6777,14 +6536,16 @@
                         getDailyChange(ticker);
                       if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct))
                         return null;
-                      const sign =
-                        Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
-                      const cls =
-                        Number(dayChg || dayPct || 0) >= 0
-                          ? "text-green-400"
-                          : "text-red-400";
+                      const val = Number(dayChg || dayPct || 0);
+                      const sign = val >= 0 ? "+" : "-";
+                      // Scale color brightness by magnitude: <0.5% muted, 1-3% normal, >3% vivid
+                      const absP = Math.abs(Number(dayPct || 0));
+                      const bright = Math.min(1, 0.5 + absP / 4);
+                      const chgColor = val >= 0
+                        ? `rgba(74,222,128,${bright.toFixed(2)})`
+                        : `rgba(248,113,113,${bright.toFixed(2)})`;
                       return (
-                        <div className={`text-[10px] ${cls}`}>
+                        <div className="text-[10px]" style={{ color: chgColor }}>
                           {Number.isFinite(dayPct)
                             ? `${sign}${Math.abs(dayPct).toFixed(2)}%`
                             : "—"}{" "}
@@ -6901,13 +6662,13 @@
               )}
               <div>
                 <div className="text-[8px] text-[#6b7280]">SL</div>
-                <div className="font-semibold text-red-400">
+                <div className="font-semibold text-rose-400">
                   {ticker.sl ? `$${Number(ticker.sl).toFixed(2)}` : "—"}
                 </div>
               </div>
               <div>
                 <div className="text-[8px] text-[#6b7280]">TP</div>
-                <div className="font-semibold text-green-400">
+                <div className="font-semibold text-teal-400">
                   {ticker.tp ? `$${Number(ticker.tp).toFixed(2)}` : "—"}
                 </div>
               </div>
@@ -6972,7 +6733,7 @@
                   {tpLevels.slice(0, 2).map((tp, idx) => (
                     <span
                       key={idx}
-                      className="px-0.5 py-0 rounded bg-green-500/20 text-green-400 text-[7px] font-mono"
+                      className="px-0.5 py-0 rounded bg-teal-500/20 text-teal-400 text-[7px] font-mono"
                     >
                       TP{idx + 1}: ${Number(tp).toFixed(2)}
                     </span>
@@ -7057,7 +6818,7 @@
 
         // Lane-aware guidance: when the Kanban lane is explicit, keep the headline aligned
         // with the lane so the UI doesn't contradict itself. Add phase/completion as caution.
-        if (stage === "watch" || stage === "setup_watch" || stage === "flip_watch" || stage === "just_flipped" || stage === "enter_now") {
+        if (stage === "watch" || stage === "setup_watch" || stage === "flip_watch" || stage === "just_flipped" || stage === "enter_now" || stage === "enter") {
           const late =
             (Number.isFinite(phase) && phase > 0.7) ||
             (Number.isFinite(comp) && comp > 0.8);
@@ -7103,12 +6864,12 @@
               bg: "bg-cyan-500/15",
             };
           }
-          // enter_now
+          // enter_now / enter
           return {
             action: late ? "Enter Now (Late-cycle)" : "Enter Now",
-            description: `Ticker is in the Enter Now lane: it meets momentum + quality gates for an entry candidate. If you have no open trade, the paper portfolio may enter when conditions persist (cooldowns apply). ${caution}`.trim(),
-            color: late ? "text-yellow-300" : "text-green-300",
-            bg: late ? "bg-yellow-500/15" : "bg-green-500/15",
+            description: `Ticker meets the system's entry criteria and is in the Enter lane. Review current price levels, SL/TP targets below, and position sizing before executing. ${isPullback ? "Currently in pullback — this can offer a better entry if price holds above SL. " : ""}${caution}`.trim(),
+            color: late ? "text-yellow-300" : "text-teal-300",
+            bg: late ? "bg-yellow-500/15" : "bg-teal-500/15",
           };
         }
 
@@ -7176,8 +6937,8 @@
             description: `Momentum Elite stock${momentumStr} showing Prime setup with exceptional alignment. Both HTF and LTF are aligned, price is in entry corridor, rank is strong (${rank}), and risk/reward is favorable (${rr.toFixed(
               2,
             )}:1). This represents a high-probability setup with strong fundamentals backing the technical signal. Consider entering with full position size, using TP levels as profit targets.`,
-            color: "text-green-400",
-            bg: "bg-green-500/20",
+            color: "text-teal-400",
+            bg: "bg-teal-500/20",
           };
         }
 
@@ -7190,8 +6951,8 @@
           return {
             action: "Initiate Position - Momentum Breakout",
             description: `Momentum Elite stock${momentumStr} experiencing squeeze release with timeframe alignment. This indicates pent-up energy being released in the direction of the trend. The combination of Momentum Elite fundamentals and technical squeeze release creates a high-probability momentum continuation setup. Enter on pullback to corridor or on break of squeeze high/low, targeting TP levels.`,
-            color: "text-green-400",
-            bg: "bg-green-500/20",
+            color: "text-teal-400",
+            bg: "bg-teal-500/20",
           };
         }
 
@@ -7210,8 +6971,8 @@
             ).toFixed(
               0,
             )}%) suggests room to run. Consider entering position, using SL for risk management and TP levels as profit targets.`,
-            color: "text-green-400",
-            bg: "bg-green-500/20",
+            color: "text-teal-400",
+            bg: "bg-teal-500/20",
           };
         }
 
@@ -7254,8 +7015,8 @@
             ).toFixed(
               0,
             )}%) suggest continuation potential. Enter on pullback or break, using SL for protection and TP levels as targets.`,
-            color: "text-green-400",
-            bg: "bg-green-500/20",
+            color: "text-teal-400",
+            bg: "bg-teal-500/20",
           };
         }
 
@@ -7390,7 +7151,7 @@
             // Add timestamp to URL to prevent caching on hard refresh
             const timestamp = Date.now();
             const res = await fetch(
-              `https://timed-trading-ingest.shashant.workers.dev/timed/activity?limit=50&_t=${timestamp}`,
+              `/timed/activity?limit=50&_t=${timestamp}`,
               {
                 signal: controller.signal,
                 cache: "no-store", // Prevent caching issues on hard refresh
@@ -7503,7 +7264,7 @@
             case "state_aligned":
               return "🎯";
             case "momentum_elite":
-              return "🚀";
+              return "🔥";
             case "td9_exit":
               return "🔢";
             case "td9_entry":
@@ -7526,7 +7287,7 @@
             case "squeeze_start":
               return "text-yellow-400";
             case "squeeze_release":
-              return "text-green-400";
+              return "text-teal-400";
             case "state_aligned":
               return "text-purple-400";
             case "momentum_elite":
@@ -7538,9 +7299,9 @@
             case "discord_alert":
               return "text-indigo-400";
             case "trade_entry":
-              return "text-green-400";
+              return "text-teal-400";
             case "ingest_missing":
-              return "text-red-400";
+              return "text-rose-400";
             default:
               return "text-gray-400";
           }
@@ -7828,7 +7589,7 @@
                           <span className="text-[#4b5563] text-[10px]">
                             SL:
                           </span>
-                          <span className="text-red-400 font-mono text-[10px]">
+                          <span className="text-rose-400 font-mono text-[10px]">
                             {eventData.sl != null
                               ? `$${Number(eventData.sl).toFixed(2)}`
                               : "—"}
@@ -7840,7 +7601,7 @@
                           <span className="text-[#4b5563] text-[10px]">
                             Max TP:
                           </span>
-                          <span className="text-green-400 font-mono text-[10px]">
+                          <span className="text-teal-400 font-mono text-[10px]">
                             {maxTP != null
                               ? `$${Number(maxTP).toFixed(2)}`
                               : "—"}
@@ -7875,9 +7636,9 @@
                                   backgroundColor: (() => {
                                     const phase =
                                       Number(eventData.phase_pct) || 0;
-                                    if (phase < 0.3) return "#22c55e";
+                                    if (phase < 0.3) return "#14b8a6";
                                     if (phase < 0.6) return "#eab308";
-                                    return "#ef4444";
+                                    return "#e11d48";
                                   })(),
                                 }}
                               />
@@ -7946,7 +7707,7 @@
                     <li>
                       Manage as it moves through lanes:{" "}
                       <strong className="text-white">
-                        Hold → Defend → Trim → Exit
+                        Active → Trim → Exit
                       </strong>
                     </li>
                   </ol>
@@ -7990,8 +7751,8 @@
                       (do nothing)
                     </div>
                     <div>
-                      <strong className="text-white">Defend</strong>: protect the
-                      position (tighten risk / reduce)
+                      <strong className="text-white">Active</strong>: hold and
+                      monitor position (tighten risk as needed)
                     </div>
                     <div>
                       <strong className="text-white">Trim</strong>: take partials
@@ -8031,7 +7792,7 @@
                     </li>
                     <li>
                       If lane is <strong className="text-white">Enter Now</strong>: execute.
-                      If lane is <strong className="text-white">Hold/Defend/Trim/Exit</strong>: manage only.
+                      If lane is <strong className="text-white">Active/Trim/Exit</strong>: manage only.
                     </li>
                   </ol>
                 </div>
@@ -8074,8 +7835,7 @@
                     </li>
                     <li>
                       <strong className="text-white">Specials</strong>: In
-                      Squeeze 🧨 / Squeeze Release ⚡ / Momentum Elite 🚀 /
-                      Winner Signature 🏆
+                      Squeeze 🧨 / Release ⚡ / Momentum Elite 🔥
                     </li>
                     <li>
                       <strong className="text-white">Groups</strong>: Upticks /
@@ -8088,8 +7848,8 @@
                   </ul>
                 </div>
 
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     🔭 Viewport (left panel)
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-1">
@@ -8110,17 +7870,14 @@
                   </ul>
                 </div>
 
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-                  <h3 className="text-yellow-400 font-semibold mb-2">
-                    🏆 Winner Signature
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
+                    ⭐ Prime Badge
                   </h3>
                   <p className="text-sm text-[#6b7280]">
-                    Winner Signature highlights{" "}
-                    <strong className="text-white">early-run</strong> candidates
-                    that match the current “winner-like” pattern (setup +
-                    corridor + low completion, plus early phase or squeeze
-                    build). Use it to narrow the universe, then confirm
-                    direction in Q1/Q4 and check SL/TP in the Right Rail.
+                    The Prime badge unifies quality signals —{" "}
+                    <strong className="text-white">strong rank, good R:R, and early in the move</strong>,
+                    plus at least one confirmation (aligned state, thesis match, winner pattern, squeeze release, or momentum). Check the tooltip for the specific reason.
                   </p>
                 </div>
               </div>
@@ -8135,8 +7892,8 @@
                   the highest-quality opportunities. They have a ⭐ icon and
                   appear with a green glow.
                 </p>
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     Prime Setup Criteria:
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-1">
@@ -8185,7 +7942,7 @@
             ),
           },
           {
-            title: "In Corridor 🎯",
+            title: "Entry Zone 🎯",
             content: (
               <div className="space-y-4">
                 <p className="text-[#d1d5db]">
@@ -8202,8 +7959,8 @@
                     the setup is most likely to succeed.
                   </p>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
-                      <div className="font-bold text-green-400 mb-1">
+                    <div className="bg-teal-500/10 border border-teal-500/30 rounded p-3">
+                      <div className="font-bold text-teal-400 mb-1">
                         Long Corridor 📈
                       </div>
                       <div className="text-xs text-[#6b7280]">
@@ -8211,8 +7968,8 @@
                         LTF Score: -8 to +12
                       </div>
                     </div>
-                    <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
-                      <div className="font-bold text-red-400 mb-1">
+                    <div className="bg-rose-500/10 border border-rose-500/30 rounded p-3">
+                      <div className="font-bold text-rose-400 mb-1">
                         Short Corridor 📉
                       </div>
                       <div className="text-xs text-[#6b7280]">
@@ -8271,8 +8028,8 @@
                     signals potential exhaustion and reversal.
                   </p>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-green-500/10 border border-green-500/30 rounded p-3">
-                      <div className="font-bold text-green-400 mb-1">
+                    <div className="bg-teal-500/10 border border-teal-500/30 rounded p-3">
+                      <div className="font-bold text-teal-400 mb-1">
                         TD9 Bullish 📈
                       </div>
                       <div className="text-xs text-[#6b7280]">
@@ -8283,8 +8040,8 @@
                         <strong>Action:</strong> Look for LONG entries
                       </div>
                     </div>
-                    <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
-                      <div className="font-bold text-red-400 mb-1">
+                    <div className="bg-rose-500/10 border border-rose-500/30 rounded p-3">
+                      <div className="font-bold text-rose-400 mb-1">
                         TD9 Bearish 📉
                       </div>
                       <div className="text-xs text-[#6b7280]">
@@ -8427,16 +8184,16 @@
                     </div>
                     <div>
                       <strong className="text-white">
-                        "Winner Signature" Filter:
+                        "Prime" Filter:
                       </strong>{" "}
-                      A focused list of early-run candidates (often setup +
-                      corridor + low completion). Use it as your “shortlist”,
-                      then confirm direction and risk.
+                      Shows only tickers with the ⭐ Prime badge — the best
+                      quality setups with strong rank, favorable R:R, and at
+                      least one confirmation signal.
                     </div>
                   </div>
                 </div>
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     💡 Best Practices:
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-1">
@@ -8494,7 +8251,7 @@
                     </li>
                     <li>
                       <strong className="text-white">Badges/icons</strong> =
-                      Prime ⭐, Squeeze 🧨/⚡, Winner Signature 🏆.
+                      Prime ⭐, Entry Zone 🎯, MoElite 🔥, Squeeze 🧨/⚡.
                     </li>
                   </ul>
                   <p className="text-xs text-[#6b7280] mt-2">
@@ -8548,11 +8305,11 @@
                       </span>
                       <br />
                       <span className="text-xs ml-4">
-                        • Momentum Elite 🚀: Best fundamentals
+                        • Momentum Elite 🔥: Strong momentum
                       </span>
                       <br />
                       <span className="text-xs ml-4">
-                        • Winner Signature 🏆: Winner-like early-run shortlist
+                        • Prime ⭐: Top-quality setup (rank, R:R, confirmation)
                       </span>
                     </li>
                     <li>
@@ -8611,8 +8368,8 @@
                     </li>
                   </ol>
                 </div>
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     ⭐ The Perfect Setup Checklist:
                   </h3>
                   <div className="text-sm text-[#6b7280] space-y-1">
@@ -8627,7 +8384,7 @@
                       ✅ TD9 signal OR Squeeze Release (bonus confirmation)
                     </div>
                     <div>
-                      ✅ Winner Signature 🏆 (optional shortlist accelerator)
+                      ✅ Prime ⭐ badge (quality + confirmation)
                     </div>
                   </div>
                 </div>
@@ -8675,7 +8432,7 @@
                           i === currentStep
                             ? "bg-blue-400 w-8"
                             : i < currentStep
-                              ? "bg-green-400"
+                              ? "bg-teal-400"
                               : "bg-white/[0.04]"
                         }`}
                       />
@@ -8759,8 +8516,8 @@
                     (it shows what lane you were in and why)
                   </p>
                 </div>
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     The compounding loop
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-1">
@@ -8832,8 +8589,8 @@
                   early, and don’t “hope” in HOLD.
                 </p>
 
-                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                  <h3 className="text-red-400 font-semibold mb-2">
+                <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-4">
+                  <h3 className="text-rose-400 font-semibold mb-2">
                     What to flag immediately
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-2">
@@ -8846,8 +8603,8 @@
                   </ul>
                 </div>
 
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     What to record (so we compound)
                   </h3>
                   <div className="text-sm text-[#6b7280] space-y-2">
@@ -8876,8 +8633,8 @@
                   Understanding how profit and loss is calculated helps you
                   interpret the results:
                 </p>
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     📈 For Stocks:
                   </h3>
                   <div className="text-sm text-[#6b7280] space-y-2">
@@ -8937,7 +8694,7 @@
                     </div>
                     <div className="ml-4">
                       P&L: ($155 - $150) × 6.67 ={" "}
-                      <span className="text-green-400">+$33.35</span>
+                      <span className="text-teal-400">+$33.35</span>
                     </div>
                     <div className="mt-2">
                       <strong className="text-white">Futures Trade:</strong>{" "}
@@ -8948,7 +8705,7 @@
                     </div>
                     <div className="ml-4">
                       P&L: 100 × 1 × $20 ={" "}
-                      <span className="text-green-400">+$2,000</span>
+                      <span className="text-teal-400">+$2,000</span>
                     </div>
                   </div>
                 </div>
@@ -8963,8 +8720,8 @@
                   The Trade Tracker provides powerful analytics to help you
                   learn:
                 </p>
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     📈 Performance Metrics:
                   </h3>
                   <ul className="text-sm text-[#6b7280] list-disc list-inside space-y-1">
@@ -9109,8 +8866,8 @@
                     </li>
                   </ol>
                 </div>
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4">
+                  <h3 className="text-teal-400 font-semibold mb-2">
                     ⭐ Key Takeaways:
                   </h3>
                   <div className="text-sm text-[#6b7280] space-y-1">
@@ -9164,7 +8921,7 @@
                           i === currentStep
                             ? "bg-blue-400 w-8"
                             : i < currentStep
-                              ? "bg-green-400"
+                              ? "bg-teal-400"
                               : "bg-white/[0.04]"
                         }`}
                       />
@@ -9521,7 +9278,7 @@
                   batch.map(async (ticker) => {
                     try {
                       const res = await fetch(
-                        `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
+                        `/timed/trail?ticker=${encodeURIComponent(
                           ticker,
                         )}&include_kanban=1`,
                       );
@@ -10166,12 +9923,12 @@
           {
             label: "Momentum Elite",
             filter: { momentumElite: true },
-            icon: "🚀",
+            icon: "🔥",
           },
           {
-            label: "Winner Signature",
-            filter: { winnerSignature: true },
-            icon: "🏆",
+            label: "Prime",
+            filter: { prime: true },
+            icon: "⭐",
           },
           {
             label: "Q1: Bull Setup",
@@ -10444,7 +10201,7 @@
               key={i}
               className={`px-4 py-2 rounded-lg border text-sm font-semibold transition-all ${
                 active
-                  ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
+                  ? "border-teal-500 bg-teal-500/20 text-teal-400 shadow-lg"
                   : "border-white/[0.06] bg-white/[0.03] hover:bg-white/5 hover:border-[#3a4aa0] text-[#6b7280]"
               }`}
               onClick={() => handlePresetClick(preset)}
@@ -10466,7 +10223,7 @@
               {/* Reset Filters Button */}
               <button
                 onClick={resetAllFilters}
-                className="px-4 py-2 rounded-lg border border-red-500/50 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-semibold transition-all"
+                className="px-4 py-2 rounded-lg border border-rose-500/50 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-sm font-semibold transition-all"
                 title="Reset all filters to defaults"
               >
                 🔄 Reset Filters
@@ -10508,7 +10265,7 @@
                       }}
                       className={`px-2 py-1 rounded-lg border text-xs font-semibold transition-all ${
                         isActive
-                          ? "border-green-500 bg-green-500/20 text-green-400 shadow-lg"
+                          ? "border-teal-500 bg-teal-500/20 text-teal-400 shadow-lg"
                           : "border-white/[0.06] bg-white/[0.03] hover:bg-white/5 hover:border-[#3a4aa0] text-[#6b7280]"
                       }`}
                       title={`${sectorName} - ${
@@ -10598,16 +10355,16 @@
         };
 
         const PILL_TOOLTIPS = {
-          "🧠 Thesis":
-            "Thesis preset (Rank≥74, RR≥1.5, Completion≤0.6, Phase≤0.6) plus requires a richer winner pattern (computed live in the Worker).",
+          "⭐ Prime":
+            "Top-quality setup: strong rank (≥70), good R:R (≥1.5), early phase + confirmation signal (aligned, thesis, winner pattern, squeeze release, or momentum).",
+          "🎯 Entry Zone":
+            "Flip Watch active — ticker is in or near the scoring entry corridor. Actionable timing window.",
           "🧨 In Squeeze":
-            "Currently in squeeze (sq30_on=true and sq30_release=false).",
+            "Currently in squeeze (sq30_on=true and sq30_release=false). Building pressure.",
           "⚡ Squeeze Release":
-            "Squeeze release just fired (sq30_release=true).",
-          "🚀 Momentum Elite":
-            "Fundamental/momentum overlay: Momentum Elite flag is on.",
-          "🏆 Winner Signature":
-            "High-quality setup snapshot signature (tight, selective).",
+            "Squeeze release just fired (sq30_release=true). Breakout in progress.",
+          "🔥 Momentum Elite":
+            "Strong fundamental + price momentum overlay.",
         };
 
         const pillCounts = React.useMemo(() => {
@@ -10684,21 +10441,19 @@
           const winnerSignature = countWith({ ...base, winnerSignature: true });
           const flipWatch = countWith({ ...base, flipWatch: true });
 
-          // Kanban Stages (7 lanes - dual mode: Discovery + Management)
-          const kanbanWatch = countWith({ ...base, kanbanStage: "watch" });
+          // Kanban Stages (6 lanes - Discovery + Management)
           const kanbanSetup = countWith({ ...base, kanbanStage: "setup" }) +
             countWith({ ...base, kanbanStage: "setup_watch" }) +
             countWith({ ...base, kanbanStage: "flip_watch" });
           const kanbanEnter = countWith({ ...base, kanbanStage: "enter" }) +
             countWith({ ...base, kanbanStage: "enter_now" }) +
             countWith({ ...base, kanbanStage: "just_flipped" });
-          const kanbanActive = countWith({ ...base, kanbanStage: "active" }) +
+          const kanbanHold = countWith({ ...base, kanbanStage: "active" }) +
             countWith({ ...base, kanbanStage: "just_entered" }) +
             countWith({ ...base, kanbanStage: "hold" });
+          const kanbanDefend = countWith({ ...base, kanbanStage: "defend" });
           const kanbanTrim = countWith({ ...base, kanbanStage: "trim" });
           const kanbanExit = countWith({ ...base, kanbanStage: "exit" });
-          const kanbanClosed = countWith({ ...base, kanbanStage: "closed" }) +
-            countWith({ ...base, kanbanStage: "archive" });
 
           // Action Moves Pattern Groups
           const patternSqueezeMomentum = countWith({
@@ -10805,13 +10560,12 @@
               UNCLEAR: patternUnclear,
             },
             kanban: {
-              WATCH: kanbanWatch,
               SETUP: kanbanSetup,
               ENTER: kanbanEnter,
-              ACTIVE: kanbanActive,
+              HOLD: kanbanHold,
+              DEFEND: kanbanDefend,
               TRIM: kanbanTrim,
               EXIT: kanbanExit,
-              CLOSED: kanbanClosed,
             },
             groups: {
               ALL: groupAll,
@@ -10931,14 +10685,6 @@
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "👀 Watch",
-                      pillCounts?.kanban?.WATCH,
-                    ),
-                    filters.kanbanStage === "watch",
-                    () => onChange({ kanbanStage: "watch" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount(
                       "📋 Setup",
                       pillCounts?.kanban?.SETUP,
                     ),
@@ -10947,7 +10693,7 @@
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "🚀 Enter",
+                      "🎯 Enter",
                       pillCounts?.kanban?.ENTER,
                     ),
                     filters.kanbanStage === "enter",
@@ -10955,14 +10701,22 @@
                   )}
                   {pill(
                     pillLabelWithCount(
-                      "💎 Active",
-                      pillCounts?.kanban?.ACTIVE,
+                      "💎 Hold",
+                      pillCounts?.kanban?.HOLD,
                     ),
-                    filters.kanbanStage === "active",
-                    () => onChange({ kanbanStage: "active" }),
+                    filters.kanbanStage === "hold",
+                    () => onChange({ kanbanStage: "hold" }),
                   )}
                   {pill(
-                    pillLabelWithCount("📊 Trim", pillCounts?.kanban?.TRIM),
+                    pillLabelWithCount(
+                      "🛡 Defend",
+                      pillCounts?.kanban?.DEFEND,
+                    ),
+                    filters.kanbanStage === "defend",
+                    () => onChange({ kanbanStage: "defend" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("✂️ Trim", pillCounts?.kanban?.TRIM),
                     filters.kanbanStage === "trim",
                     () => onChange({ kanbanStage: "trim" }),
                   )}
@@ -10970,14 +10724,6 @@
                     pillLabelWithCount("🚪 Exit", pillCounts?.kanban?.EXIT),
                     filters.kanbanStage === "exit",
                     () => onChange({ kanbanStage: "exit" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount(
-                      "🗂 Closed",
-                      pillCounts?.kanban?.CLOSED,
-                    ),
-                    filters.kanbanStage === "closed",
-                    () => onChange({ kanbanStage: "closed" }),
                   )}
                 </div>
               </div>
@@ -11097,54 +10843,53 @@
               <div className="text-[10px] text-[#4b5563] font-semibold">
                 Groups
               </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                  {pill(
-                    pillLabelWithCount("All", pillCounts?.groups?.ALL),
-                    group === "ALL",
-                    () => onChange({ group: "ALL" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount("Upticks", pillCounts?.groups?.UPTICKS),
-                    group === "UPTICKS",
-                    () => onChange({ group: "UPTICKS" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount(
-                      "Super Granny",
-                      pillCounts?.groups?.SuperGranny,
-                    ),
-                    group === "SuperGranny",
-                    () => onChange({ group: "SuperGranny" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount("GRNY", pillCounts?.groups?.GRNY),
-                    group === "GRNY",
-                    () => onChange({ group: "GRNY" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount("GRNJ", pillCounts?.groups?.GRNJ),
-                    group === "GRNJ",
-                    () => onChange({ group: "GRNJ" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount("GRNI", pillCounts?.groups?.GRNI),
-                    group === "GRNI",
-                    () => onChange({ group: "GRNI" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount("Social", pillCounts?.groups?.Social),
-                    group === "Social",
-                    () => onChange({ group: "Social" }),
-                  )}
-                  {pill(
-                    pillLabelWithCount(
-                      "Other",
-                      pillCounts?.groups?.UNGROUPED,
-                    ),
-                    group === "UNGROUPED",
-                    () => onChange({ group: "UNGROUPED" }),
-                  )}
-                </div>
+              <div className="flex gap-2 flex-wrap items-center">
+                {pill(
+                  pillLabelWithCount("All", pillCounts?.groups?.ALL),
+                  group === "ALL",
+                  () => onChange({ group: "ALL" }),
+                )}
+                {pill(
+                  pillLabelWithCount("Upticks", pillCounts?.groups?.UPTICKS),
+                  group === "UPTICKS",
+                  () => onChange({ group: "UPTICKS" }),
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    "Super Granny",
+                    pillCounts?.groups?.SuperGranny,
+                  ),
+                  group === "SuperGranny",
+                  () => onChange({ group: "SuperGranny" }),
+                )}
+                {pill(
+                  pillLabelWithCount("GRNY", pillCounts?.groups?.GRNY),
+                  group === "GRNY",
+                  () => onChange({ group: "GRNY" }),
+                )}
+                {pill(
+                  pillLabelWithCount("GRNJ", pillCounts?.groups?.GRNJ),
+                  group === "GRNJ",
+                  () => onChange({ group: "GRNJ" }),
+                )}
+                {pill(
+                  pillLabelWithCount("GRNI", pillCounts?.groups?.GRNI),
+                  group === "GRNI",
+                  () => onChange({ group: "GRNI" }),
+                )}
+                {pill(
+                  pillLabelWithCount("Social", pillCounts?.groups?.Social),
+                  group === "Social",
+                  () => onChange({ group: "Social" }),
+                )}
+                {pill(
+                  pillLabelWithCount(
+                    "Other",
+                    pillCounts?.groups?.UNGROUPED,
+                  ),
+                  group === "UNGROUPED",
+                  () => onChange({ group: "UNGROUPED" }),
+                )}
               </div>
             </div>
           </div>
@@ -11355,12 +11100,12 @@
           if (a === "ENTRY")
             return {
               label: "ENTRY",
-              cls: "bg-green-500/15 text-green-300 border-green-500/40",
+              cls: "bg-teal-500/15 text-teal-300 border-teal-500/40",
             };
           if (a === "EXIT")
             return {
               label: "EXIT",
-              cls: "bg-red-500/15 text-red-300 border-red-500/40",
+              cls: "bg-rose-500/15 text-rose-300 border-rose-500/40",
             };
           if (a === "WAIT")
             return {
@@ -11424,14 +11169,12 @@
                       ? "In corridor"
                       : "Out of corridor";
                     const corridorCls = r.inCorridor
-                      ? "text-green-300"
+                      ? "text-teal-300"
                       : "text-yellow-300";
                     const badges = [
-                      r.flipWatch ? "🎯" : null,
-                      r.momentumElite ? "🚀" : null,
-                      r.thesis ? "🧠" : null,
                       r.prime ? "⭐" : null,
-                      r.winnerSig ? "🏆" : null,
+                      r.flipWatch ? "🎯" : null,
+                      r.momentumElite ? "🔥" : null,
                       r.sqRelease ? "⚡" : null,
                       r.inSqueeze ? "🧨" : null,
                     ].filter(Boolean);
@@ -11492,7 +11235,7 @@
                               <div className="font-bold text-white">
                                 {r.sym}
                               </div>
-                              <span className="px-2 py-0.5 rounded bg-green-500/25 text-green-300 text-[10px] font-bold border border-green-500/60 shadow-sm">
+                              <span className="px-2 py-0.5 rounded bg-teal-500/25 text-teal-300 text-[10px] font-bold border border-teal-500/60 shadow-sm">
                                 OPEN
                               </span>
                               <span
@@ -11579,13 +11322,13 @@
                               </span>
                               <span>
                                 <span className="text-[#6b7280]">SL</span>{" "}
-                                <span className="text-red-300 font-semibold">
+                                <span className="text-rose-300 font-semibold">
                                   {slText}
                                 </span>
                               </span>
                               <span>
                                 <span className="text-[#6b7280]">TP</span>{" "}
-                                <span className="text-green-300 font-semibold">
+                                <span className="text-teal-300 font-semibold">
                                   {tpText}
                                 </span>
                               </span>
@@ -11608,26 +11351,31 @@
                         </div>
 
                         <div className="mt-2">
-                          <div className="h-2 rounded bg-white/[0.03] border border-white/[0.06] overflow-hidden">
-                            <div
-                              className="h-full"
-                              style={{
-                                width: `${pPct != null ? pPct : 0}%`,
-                                background:
-                                  pPct != null ? "#22c55e" : "#252b36",
-                              }}
-                            />
-                          </div>
-                          <div className="mt-1 flex items-center justify-between text-[10px] text-[#4b5563]">
-                            <span>
-                              {phasePct != null
-                                ? `Phase ${phasePct}%`
-                                : "Phase —"}
-                            </span>
-                            <span>
-                              {r.price != null ? `$${r.price.toFixed(2)}` : "—"}
-                            </span>
-                          </div>
+                          {(() => {
+                            const isShort = dir === "SHORT";
+                            const barPct = pPct != null ? pPct : 0;
+                            return (
+                              <>
+                                <div className="h-2 rounded bg-white/[0.03] border border-white/[0.06] overflow-hidden relative">
+                                  <div
+                                    className={`h-full absolute top-0 ${isShort ? "right-0" : "left-0"}`}
+                                    style={{
+                                      width: `${barPct}%`,
+                                      background: pPct != null ? (isShort ? "#e11d48" : "#14b8a6") : "#252b36",
+                                    }}
+                                  />
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[10px] text-[#4b5563]">
+                                  <span>
+                                    {phasePct != null ? `Phase ${phasePct}%` : "Phase —"}
+                                  </span>
+                                  <span>
+                                    {r.price != null ? `$${r.price.toFixed(2)}` : "—"}
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </button>
                     );
@@ -11674,7 +11422,7 @@
           })();
           const biasPillCls = (() => {
             if (biasLabel === "LONG") return "bg-cyan-400/20 text-cyan-200 border-cyan-400/50";
-            if (biasLabel === "SHORT") return "bg-red-500/20 text-red-200 border-red-400/50";
+            if (biasLabel === "SHORT") return "bg-rose-500/20 text-rose-200 border-rose-400/50";
             if (biasLabel === "PULLBACK" || biasLabel === "BOUNCE") return "bg-amber-500/20 text-amber-200 border-amber-400/50";
             if (biasLabel === "CAUTION") return "bg-orange-500/20 text-orange-200 border-orange-400/50";
             return "bg-slate-500/20 text-slate-200 border-slate-400/50";
@@ -11729,13 +11477,25 @@
                 : ((entryPrice - price) / entryPrice) * 100
               : null;
 
+          // Phoenix-inspired swing fields
+          const eqScore = Number(t?.entry_quality?.score) || 0;
+          const volTier = String(t?.volatility_tier || "");
+          const swingDir = t?.swing_consensus?.direction || null;
+          const swingBullCt = Number(t?.swing_consensus?.bullish_count) || 0;
+          const swingBearCt = Number(t?.swing_consensus?.bearish_count) || 0;
+          const freshCrossTf = t?.swing_consensus?.freshest_cross_tf || null;
+          const regimeCombined = t?.regime?.combined || null;
+          const regimeLabel = {
+            STRONG_BULL: "Strong Bull", EARLY_BULL: "Early Bull", LATE_BULL: "Late Bull",
+            COUNTER_TREND_BULL: "CT Bull", NEUTRAL: "Neutral", COUNTER_TREND_BEAR: "CT Bear",
+            EARLY_BEAR: "Early Bear", LATE_BEAR: "Late Bear", STRONG_BEAR: "Strong Bear",
+          }[regimeCombined] || null;
+
           // Emoji badges
           const badges = [];
-          if (flags.flip_watch) badges.push("🎯");
-          if (flags.momentum_elite) badges.push("🚀");
-          if (flags.thesis_match) badges.push("🧠");
           if (isPrimeBubble(t)) badges.push("⭐");
-          if (isWinnerSignature(t)) badges.push("🏆");
+          if (flags.flip_watch) badges.push("🎯");
+          if (flags.momentum_elite) badges.push("🔥");
           if (flags.sq30_release) badges.push("⚡");
           if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
 
@@ -11761,7 +11521,7 @@
           const badgesText = badges.length > 0 ? badges.join("") : "";
           const dirPillCls = biasPillCls;
           const dirAccentCls = dir === "LONG" ? "border-l-4 border-l-cyan-400" : "border-l-4 border-l-red-500";
-          const dirOutlineCls = dir === "LONG" ? "border border-cyan-400/40" : "border border-red-500/40";
+          const dirOutlineCls = dir === "LONG" ? "border border-cyan-400/40" : "border border-rose-500/40";
           const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
           const pulseCls = isActionLane ? (dir === "LONG" ? "card-pulse" : "card-pulse-short") : "";
 
@@ -11781,22 +11541,20 @@
               }}
               className={
                 "w-full text-left px-3 py-2.5 rounded-2xl cursor-pointer transition-all hover:bg-white/[0.06] relative overflow-hidden border " +
-                (dir === "LONG" ? "border-cyan-400/20 " : "border-red-400/20 ") +
+                (dir === "LONG" ? "border-cyan-400/20 " : "border-rose-400/20 ") +
                 pulseCls + " " + (skin?.dayEdgeClass || "")
               }
               style={{
                 background: skin?.bgImage ? undefined : "rgba(255,255,255,0.03)",
                 backgroundImage: skin?.bgImage || undefined,
-                backdropFilter: "blur(12px) saturate(1.2)",
-                WebkitBackdropFilter: "blur(12px) saturate(1.2)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.2), inset 0 0.5px 0 rgba(255,255,255,0.06)",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.15), inset 0 0.5px 0 rgba(255,255,255,0.05)",
               }}
             >
               {/* ROW 1: Ticker, Direction, Emojis, Bias, Price, Daily Change */}
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-sm font-bold text-white truncate shrink-0">{sym}</span>
-                  <span className={`text-[10px] font-black shrink-0 ${dir === "LONG" ? "text-cyan-400" : "text-red-400"}`}>{dir === "LONG" ? "L" : "S"}</span>
+                  <span className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-md text-[11px] font-black shrink-0 ${dir === "LONG" ? "bg-cyan-400/25 text-cyan-300 ring-1 ring-cyan-400/40" : "bg-rose-500/25 text-rose-300 ring-1 ring-rose-400/40"}`}>{dir === "LONG" ? "L" : "S"}</span>
                   {badgesText && <span className="text-[11px] shrink-0">{badgesText}</span>}
                   <span className={`px-1.5 py-0.5 rounded border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
                     {biasLabel}
@@ -11808,7 +11566,7 @@
                   </span>
                   {(() => {
                     const up = Number(dayPct ?? 0) >= 0;
-                    const cls = up ? "text-green-400" : "text-red-400";
+                    const cls = up ? "text-teal-400" : "text-rose-400";
                     const sign = up ? "+" : "";
                     return (
                       <span className={`text-[10px] font-semibold ${cls}`}>
@@ -11827,7 +11585,7 @@
                     Entry <span className="text-white font-semibold">${entryPrice.toFixed(2)}</span>
                   </span>
                   {Number.isFinite(entryChangePct) && (
-                    <span className={`font-bold ${entryChangePct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    <span className={`font-bold ${entryChangePct >= 0 ? "text-teal-400" : "text-rose-400"}`}>
                       {entryChangePct >= 0 ? "+" : ""}{entryChangePct.toFixed(2)}%
                     </span>
                   )}
@@ -11838,8 +11596,46 @@
               <div className="flex items-center justify-between gap-1.5 text-[10px] text-[#6b7280] font-medium mb-1.5">
                 <span>Score <span className="text-white font-semibold">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
                 <span>R:R <span className="text-white font-semibold">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
-                <span className="text-red-300">SL <span className="font-semibold">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
-                <span className="text-green-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
+                <span className="text-rose-300">SL <span className="font-semibold">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
+                <span className="text-teal-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
+              </div>
+
+              {/* ROW 3.5: Phoenix Badges — Quality, Consensus, Volatility */}
+              <div className="flex items-center gap-1 text-[9px] font-medium mb-1 flex-wrap">
+                {eqScore > 0 && (
+                  <span className={`px-1 py-0.5 rounded-sm border ${eqScore >= 70 ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40"}`}
+                    title={`Entry Quality: Structure=${t?.entry_quality?.structure || 0} Momentum=${t?.entry_quality?.momentum || 0} Confirm=${t?.entry_quality?.confirmation || 0}`}>
+                    Q:{eqScore}
+                  </span>
+                )}
+                {(swingBullCt > 0 || swingBearCt > 0) && (
+                  <span className={`px-1 py-0.5 rounded-sm border ${swingDir === "LONG" ? "bg-cyan-500/20 text-cyan-300 border-cyan-400/40" : swingDir === "SHORT" ? "bg-rose-500/20 text-rose-300 border-rose-400/40" : "bg-slate-500/20 text-slate-300 border-slate-400/40"}`}
+                    title={`Swing Consensus: ${swingBullCt}/5 bullish, ${swingBearCt}/5 bearish${freshCrossTf ? `, fresh ${freshCrossTf} cross` : ""}`}>
+                    {swingBullCt}/{5} TF
+                  </span>
+                )}
+                {volTier && (
+                  <span className={`px-1 py-0.5 rounded-sm border ${volTier === "LOW" ? "bg-blue-500/15 text-blue-300 border-blue-400/30" : volTier === "MEDIUM" ? "bg-slate-500/15 text-slate-300 border-slate-400/30" : volTier === "HIGH" ? "bg-orange-500/15 text-orange-300 border-orange-400/30" : "bg-red-500/15 text-red-300 border-red-400/30"}`}
+                    title={`Volatility: ${t?.volatility_atr_pct || "?"}% daily ATR`}>
+                    {volTier}
+                  </span>
+                )}
+                {regimeLabel && (
+                  <span className={`px-1 py-0.5 rounded-sm border ${
+                    regimeCombined?.includes("BULL") ? "bg-emerald-500/15 text-emerald-300 border-emerald-400/30"
+                    : regimeCombined?.includes("BEAR") ? "bg-rose-500/15 text-rose-300 border-rose-400/30"
+                    : "bg-slate-500/15 text-slate-300 border-slate-400/30"
+                  }`}
+                    title={`Regime: Daily=${t?.regime?.daily || "?"}, Weekly=${t?.regime?.weekly || "?"}`}>
+                    {regimeLabel}
+                  </span>
+                )}
+                {freshCrossTf && (
+                  <span className="px-1 py-0.5 rounded-sm bg-purple-500/15 text-purple-300 border border-purple-400/30"
+                    title={`Fresh EMA cross on ${freshCrossTf}`}>
+                    {freshCrossTf}x
+                  </span>
+                )}
               </div>
 
               {/* Progress Bar with SL/EP/TP/XP markers */}
@@ -11893,23 +11689,30 @@
                       );
                     };
 
-                    const cpPctStr = `${fillPct}%`;
+                    const isShort = dir === "SHORT";
+
+                    const fillColor = fillPct >= 50
+                      ? (fillPct >= 80 ? "bg-emerald-500/40" : "bg-emerald-500/25")
+                      : (fillPct <= 20 ? "bg-rose-500/30" : "bg-white/[0.18]");
 
                     return (
-                      <div className="relative h-3 rounded bg-white/[0.03] border border-white/[0.06] overflow-visible mt-5 mb-5">
+                      <div className="relative h-3 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-5 mb-5">
                         {cp && (
                           <div
-                            className="absolute top-0 bottom-0 left-0 bg-white/[0.08] overflow-visible"
-                            style={{ width: cpPctStr }}
+                            className={`absolute top-0 bottom-0 ${isShort ? "right-0" : "left-0"} ${fillColor} overflow-visible`}
+                            style={{ width: isShort ? `${100 - fillPct}%` : `${fillPct}%` }}
                             title={`CP: $${cp.toFixed(2)}`}
                           >
-                            <span className="absolute -translate-x-1/2 text-[8px] font-extrabold text-white whitespace-nowrap" style={{ left: "100%", bottom: "-16px" }}>CP</span>
+                            <span
+                              className="absolute -translate-x-1/2 text-[8px] font-extrabold text-white whitespace-nowrap"
+                              style={{ left: isShort ? "0%" : "100%", bottom: "-16px" }}
+                            >CP</span>
                           </div>
                         )}
-                        <Marker val={slP} label="SL" color={slMovedPastEntry ? "bg-green-500" : "bg-red-500/80"} textColor={slMovedPastEntry ? "text-green-400" : "text-red-400"} bold={slMovedPastEntry} />
+                        <Marker val={slP} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} bold={slMovedPastEntry} />
                         <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" />
-                        <Marker val={tp1} label="TP" color="bg-green-400/80" textColor="text-green-300" />
-                        <Marker val={tp2} label="TP2" color="bg-green-400/80" textColor="text-green-300" />
+                        <Marker val={tp1} label="TP" color="bg-teal-400/80" textColor="text-teal-300" />
+                        <Marker val={tp2} label="TP2" color="bg-teal-400/80" textColor="text-teal-300" />
                         <Marker val={xp} label="XP" color="bg-emerald-400" textColor="text-emerald-300" bold />
                       </div>
                     );
@@ -11978,17 +11781,16 @@
         const earlyMoversCount =
           flipWatch.length + justFlipped.length + highProb.length;
 
-        // Kanban stage counts (for historical/replay data - shows current state)
+        // Kanban stage counts (for pipeline summary badge)
         const kanbanStageCounts = React.useMemo(() => {
-          const counts = { watch: 0, setup: 0, enter: 0, active: 0, trim: 0, exit: 0, defend: 0 };
+          const counts = { setup: 0, enter: 0, hold: 0, defend: 0, trim: 0, exit: 0 };
           tickers.forEach((t) => {
             const stage = String(t?.kanban_stage || "").toLowerCase();
-            if (stage === "watch") counts.watch++;
-            else if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;
+            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") counts.setup++;
             else if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") counts.enter++;
-            else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.active++;
-            else if (stage === "trim") counts.trim++;
+            else if (stage === "active" || stage === "just_entered" || stage === "hold") counts.hold++;
             else if (stage === "defend") counts.defend++;
+            else if (stage === "trim") counts.trim++;
             else if (stage === "exit") counts.exit++;
           });
           return counts;
@@ -11998,9 +11800,9 @@
         const kanbanActiveCount = 
           kanbanStageCounts.setup + 
           kanbanStageCounts.enter + 
-          kanbanStageCounts.active + 
-          kanbanStageCounts.trim + 
+          kanbanStageCounts.hold + 
           kanbanStageCounts.defend + 
+          kanbanStageCounts.trim + 
           kanbanStageCounts.exit;
 
         // Has kanban data if there are tickers in any stage beyond watch
@@ -12150,8 +11952,11 @@
           return new Date(ms).toISOString().slice(0, 10) === todayKey;
         });
         const todayWins = todayTrades.filter((t) => String(t?.status || "").toUpperCase() === "WIN").length;
-        const todayLosses = todayTrades.filter((t) => String(t?.status || "").toUpperCase() === "LOSS").length;
-        const todayPnl = todayTrades.reduce((sum, t) => sum + (Number(t?.realizedPnl) || 0), 0);
+        const todayLosses = todayTrades.filter((t) => {
+          const s = String(t?.status || "").toUpperCase();
+          return s === "LOSS" || s === "FLAT";
+        }).length;
+        const todayPnl = todayTrades.reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
 
         return (
           <div className="mb-4 rounded-xl border-2 border-[var(--tt-border)] p-4" style={{ background: "#13171e" }}>
@@ -12160,20 +11965,18 @@
                 <div className="mb-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center gap-4 flex-wrap">
                   <span className="text-xs font-semibold text-[#6b7280]">Today</span>
                   <span className="text-sm text-white">{todayTrades.length} trades</span>
-                  <span className="text-sm text-green-300">{todayWins}W</span>
-                  <span className="text-sm text-red-300">{todayLosses}L</span>
+                  <span className="text-sm text-teal-300">{todayWins}W</span>
+                  <span className="text-sm text-rose-300">{todayLosses}L</span>
                   <span className={`text-sm font-bold ${todayPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
                     {todayPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayPnl) : `$${todayPnl.toFixed(2)}`}
                   </span>
                 </div>
               )}
-              <div className="flex items-baseline gap-2">
+              <div className="flex items-baseline gap-3">
                 <span className="text-[13px] font-medium text-[#d1d5db] tracking-tight">Action Center</span>
-                <span className="text-[10px] text-[#4b5563]">Trading Lifecycle Flow</span>
-              </div>
-                            <div className="mt-1 text-[10px] text-[#4b5563]">Tickers scored and ranked by signal strength, flowing through lifecycle stages.</div>
-              <div className="mt-1 text-[11px] text-[var(--tt-text-muted)]">
-                {kanbanCount > 0 ? `${kanbanCount} tickers in play` : hasKanbanData ? `${kanbanActiveCount} in actionable stages` : "No active tickers"} • 👀 Watch → 📋 Setup → 🚀 Enter → 💎 Active → 📊 Trim → 🚪 Exit
+                {kanbanActiveCount > 0 && (
+                  <span className="text-[10px] text-[#6b7280]">{kanbanActiveCount} in pipeline</span>
+                )}
               </div>
             </div>
 
@@ -12183,32 +11986,32 @@
                 <button
                   onClick={() => toggleSection("earlyMovers")}
                   className="w-full flex items-center justify-between p-3 rounded-2xl border border-white/[0.08] hover:border-white/[0.12] transition-all mb-3"
-                  style={{background:"rgba(255,255,255,0.03)",backdropFilter:"blur(12px) saturate(1.2)",WebkitBackdropFilter:"blur(12px) saturate(1.2)",boxShadow:"0 2px 8px rgba(0,0,0,0.2), inset 0 0.5px 0 rgba(255,255,255,0.06)"}}
+                  style={{background:"rgba(255,255,255,0.03)",boxShadow:"0 1px 4px rgba(0,0,0,0.15), inset 0 0.5px 0 rgba(255,255,255,0.05)"}}
                 >
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2.5">
                     <span className="text-sm font-bold text-white">
                       📊 Trading Pipeline
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-purple-500/30 text-purple-200 text-[10px] font-bold border border-purple-400/60">
-                      {kanbanCount > 0 ? kanbanCount : kanbanActiveCount} active
-                    </span>
-                    {hasKanbanData && !hasEarlyMovers && (
-                      <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-200 text-[10px] border border-blue-400/40">
-                        📋 {kanbanStageCounts.setup} setup • 🚀 {kanbanStageCounts.enter} enter • 💎 {kanbanStageCounts.active} hold • 📊 {kanbanStageCounts.trim} trim • 🚪 {kanbanStageCounts.exit} exit
+                    {kanbanActiveCount > 0 && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold border" style={{
+                        background: "rgba(168,85,247,0.15)",
+                        borderColor: "rgba(168,85,247,0.4)",
+                        color: "#d8b4fe"
+                      }}>
+                        {[
+                          kanbanStageCounts.setup > 0 && `${kanbanStageCounts.setup} setup`,
+                          kanbanStageCounts.enter > 0 && `${kanbanStageCounts.enter} enter`,
+                          kanbanStageCounts.hold > 0 && `${kanbanStageCounts.hold} hold`,
+                          kanbanStageCounts.defend > 0 && `${kanbanStageCounts.defend} defend`,
+                          kanbanStageCounts.trim > 0 && `${kanbanStageCounts.trim} trim`,
+                          kanbanStageCounts.exit > 0 && `${kanbanStageCounts.exit} exit`,
+                        ].filter(Boolean).join(" \u2022 ") || "0 active"}
                       </span>
                     )}
-                    <span className="text-[10px] text-[var(--tt-text-muted)]">
-                      👀 Watch → 📋 Setup → 🚀 Enter → 💎 Active → 📊 Trim → 🚪 Exit
-                    </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-[var(--tt-text-faint)]">
-                      Horizontal flow
-                    </span>
-                    <span className="text-[var(--tt-text-muted)]">
-                      {expandedSections.earlyMovers ? "▼" : "▶"}
-                    </span>
-                  </div>
+                  <span className="text-[var(--tt-text-muted)]">
+                    {expandedSections.earlyMovers ? "▼" : "▶"}
+                  </span>
                 </button>
 
                 {expandedSections.earlyMovers && (
@@ -12272,17 +12075,16 @@
           return map;
         }, [trades]);
 
-        // Categorize tickers into 6 Kanban lanes (dual-mode: Discovery + Management)
-        // Discovery: Watch | Setup | Enter
-        // Management: Active | Trim | Exit | Closed
+        // Categorize tickers into Kanban lanes
+        // Discovery: Setup | Enter
+        // Management: Hold | Defend | Trim | Exit
         const categories = React.useMemo(() => {
-          const watch = [];
           const setup = [];
           const enter = [];
-          const active = [];
+          const hold = [];
+          const defend = [];
           const trim = [];
           const exit = [];
-          const closed = [];
 
           tickers.forEach((t) => {
             if (t?.kanban_stage === null) return;
@@ -12296,7 +12098,7 @@
               status === "WIN" ||
               status === "LOSS" ||
               !!(trade?.exit_ts ?? trade?.exitTs) ||
-              trimmedPct >= 0.9999; // Safety net: treat 100% trim as closed
+              trimmedPct >= 0.9999;
             const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
 
             // Override from trades: exited -> exit lane; trimmed -> trim lane; OPEN in exit lane -> hold
@@ -12308,14 +12110,8 @@
               stage = "hold";
             }
 
-            // No client-side classification fallback — server is authoritative.
-            // If server hasn't assigned a stage, ticker defaults to Watch.
-
             // Map server stages to UI lanes
             switch (stage) {
-              case "watch":
-                watch.push(t);
-                break;
               case "setup":
               case "setup_watch":
               case "flip_watch":
@@ -12329,7 +12125,10 @@
               case "active":
               case "just_entered":
               case "hold":
-                active.push(t);
+                hold.push(t);
+                break;
+              case "defend":
+                defend.push(t);
                 break;
               case "trim":
                 trim.push(t);
@@ -12337,13 +12136,8 @@
               case "exit":
                 exit.push(t);
                 break;
-              case "closed":
-              case "archive":
-                closed.push(t);
-                break;
               default:
-                // No stage or unrecognized stage → watch
-                watch.push(t);
+                // watch, closed, archive, unrecognized → not shown in pipeline
                 break;
             }
           });
@@ -12352,42 +12146,39 @@
           const sortLane = (arr) => arr.sort((a, b) => {
             const sa = Number(a?.score ?? a?.flip_watch_score ?? 0) || 0;
             const sb = Number(b?.score ?? b?.flip_watch_score ?? 0) || 0;
-            if (sb !== sa) return sb - sa; // Higher score first
+            if (sb !== sa) return sb - sa;
             return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
           });
 
           return {
-            watch: sortLane(watch),
             setup: sortLane(setup),
             enter: sortLane(enter),
-            active: sortLane(active),
+            hold: sortLane(hold),
+            defend: sortLane(defend),
             trim: sortLane(trim),
             exit: sortLane(exit),
-            closed: sortLane(closed),
           };
         }, [tickers, tradeByTicker]);
 
         const {
-          watch,
           setup,
           enter,
-          active,
+          hold,
+          defend,
           trim,
           exit,
-          closed,
         } = categories;
 
         // Compact card renderer — delegates to shared top-level function
         const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker });
 
         if (
-          watch.length === 0 &&
           setup.length === 0 &&
           enter.length === 0 &&
-          active.length === 0 &&
+          hold.length === 0 &&
+          defend.length === 0 &&
           trim.length === 0 &&
-          exit.length === 0 &&
-          closed.length === 0
+          exit.length === 0
         ) {
           return null;
         }
@@ -12423,29 +12214,27 @@
           return (
             <div className="flex-1 min-w-[230px] max-w-[310px]">
               <div
-                className={`p-2 rounded-t-2xl border-t ${color}`}
+                className={`px-3 py-2.5 rounded-t-xl border-t-2 border-l border-r border-white/[0.04] ${color}`}
                 style={{
-                  background: "rgba(255,255,255,0.025)",
-                  backdropFilter: "blur(12px) saturate(1.2)",
-                  WebkitBackdropFilter: "blur(12px) saturate(1.2)",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)",
                 }}
               >
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[11px] font-medium text-[#9ca3af] tracking-wide">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-white/90 tracking-wide">
                     {icon} {title}
                   </span>
-                  <span className="text-[10px] font-medium text-[#6b7280] tabular-nums">
+                  <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md border ${count > 0 ? "text-white/80 bg-white/[0.06] border-white/[0.1]" : "text-[#4b5563] bg-transparent border-transparent"}`}>
                     {count}
                   </span>
                 </div>
                 {subtitle && (
-                  <div className="text-[9px] text-[#4b5563]">{subtitle}</div>
+                  <div className="text-[9px] text-[#6b7280] mt-0.5">{subtitle}</div>
                 )}
               </div>
               <div
                 ref={listRef}
-                className="rounded-b-2xl p-1 max-h-[560px] overflow-y-auto scrollbar-hide"
-                style={{ overflowAnchor: "none", scrollBehavior: "smooth", WebkitOverflowScrolling: "touch" }}
+                className="rounded-b-xl border-l border-r border-b border-white/[0.04] p-1.5 max-h-[560px] overflow-y-auto scrollbar-hide"
+                style={{ overflowAnchor: "none", scrollBehavior: "smooth", WebkitOverflowScrolling: "touch", background: "rgba(255,255,255,0.01)" }}
                 onScroll={() => {
                   try {
                     const el = listRef.current;
@@ -12458,7 +12247,11 @@
                   <div className="space-y-2">
                     {items
                       .slice(0, 50)
-                      .map((t) => renderCompactCard(t))}
+                      .map((t) => (
+                        <React.Fragment key={t.ticker || t.symbol || Math.random()}>
+                          {renderCompactCard(t)}
+                        </React.Fragment>
+                      ))}
                   </div>
                 ) : (
                   <div className="text-[10px] text-[#4b5563] italic">
@@ -12472,26 +12265,29 @@
 
         return (
           <div>
-            <div className="mb-1 text-[10px] text-[#4b5563] flex items-center gap-2 flex-wrap">
-              <span className="text-violet-300">Watch</span>
-              <span className="text-amber-300">Setup</span>
-              <span className="text-green-300">Enter</span>
-              <span className="text-cyan-300">Active</span>
-              <span className="text-yellow-300">Trim</span>
-              <span className="text-red-300">Exit</span>
+            {/* Emoji Legend + Lane Labels */}
+            <div className="mb-2 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center justify-between flex-wrap gap-y-1">
+              <div className="flex items-center gap-3 text-[10px] text-[#6b7280]">
+                <span className="text-[11px] font-semibold text-white/70">Lanes</span>
+                <span className="text-amber-300">📋 Setup</span>
+                <span className="text-teal-300">🎯 Enter</span>
+                <span className="text-cyan-300">💎 Hold</span>
+                <span className="text-orange-300">🛡 Defend</span>
+                <span className="text-yellow-300">✂️ Trim</span>
+                <span className="text-rose-300">🚪 Exit</span>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] text-[#6b7280]">
+                <span className="text-[11px] font-semibold text-white/70">Badges</span>
+                <span title="Top-quality setup: Rank≥70, RR≥1.5, early phase + confirmation signal">⭐ Prime</span>
+                <span title="In scoring entry zone — actionable timing window">🎯 Entry Zone</span>
+                <span title="Momentum Elite: strong fundamentals + price momentum">🔥 MoElite</span>
+                <span title="In squeeze (coiling, building pressure)">🧨 Squeeze</span>
+                <span title="Squeeze just released — breakout">⚡ Release</span>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <div className="flex gap-1.5 pb-1.5">
                 {/* DISCOVERY MODE - No position yet */}
-                <KanbanColumn
-                  laneKey="watch"
-                  title="Watch"
-                  subtitle="Monitoring pool - valid tickers"
-                  count={watch.length}
-                  icon="👀"
-                  color="border-violet-500"
-                  items={watch}
-                />
                 <KanbanColumn
                   laneKey="setup"
                   title="Setup"
@@ -12505,22 +12301,34 @@
                 <KanbanColumn
                   laneKey="enter"
                   title="Enter"
-                  subtitle="Gold Standard met - actionable NOW"
+                  subtitle="Entry signal - opening position"
                   count={enter.length}
-                  icon="🚀"
-                  color="border-green-500"
+                  icon="🎯"
+                  color="border-teal-500"
                   items={enter}
                   showDetails={true}
                 />
                 {/* MANAGEMENT MODE - Has open position */}
                 <KanbanColumn
-                  laneKey="active"
-                  title="Active"
-                  subtitle="Open position - hold & monitor"
-                  count={active.length}
+                  laneKey="hold"
+                  title="Hold"
+                  subtitle="Position healthy - let it run"
+                  count={hold.length}
                   icon="💎"
                   color="border-cyan-500"
-                  items={active}
+                  items={hold}
+                  showProgress={true}
+                  showOpen={true}
+                  showDetails={true}
+                />
+                <KanbanColumn
+                  laneKey="defend"
+                  title="Defend"
+                  subtitle="Warning signals - tighten stops"
+                  count={defend.length}
+                  icon="🛡"
+                  color="border-orange-500"
+                  items={defend}
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
@@ -12528,9 +12336,9 @@
                 <KanbanColumn
                   laneKey="trim"
                   title="Trim"
-                  subtitle="Approaching TP - take partial profits"
+                  subtitle="Near TP - take partial profits"
                   count={trim.length}
-                  icon="📊"
+                  icon="✂️"
                   color="border-yellow-500"
                   items={trim}
                   showProgress={true}
@@ -12543,7 +12351,7 @@
                   subtitle="Stop hit or invalidated - close"
                   count={exit.length}
                   icon="🚪"
-                  color="border-red-500"
+                  color="border-rose-500"
                   items={exit}
                   showProgress={true}
                   showOpen={true}
@@ -12937,9 +12745,9 @@
           const flags = t?.flags || {};
           const isInSqueeze = !!flags.sq30_on && !flags.sq30_release;
           const badgeEmojis = [
-            flags.thesis_match === true ? "🧠" : null,
-            flags.momentum_elite ? "🚀" : null,
-            winnerSig ? "🏆" : null,
+            isPrimeBubble(t) ? "⭐" : null,
+            flags.flip_watch ? "🎯" : null,
+            flags.momentum_elite ? "🔥" : null,
             flags.sq30_release ? "⚡" : null,
             isInSqueeze ? "🧨" : null,
             item?.isNew ? "🆕" : null,
@@ -12978,7 +12786,7 @@
               : item.status === "eligible"
                 ? {
                     label: "Eligible",
-                    cls: "bg-green-500/15 text-green-400 border-green-500/40",
+                    cls: "bg-teal-500/15 text-teal-400 border-teal-500/40",
                   }
                 : {
                     label: "Watch",
@@ -12994,13 +12802,13 @@
               : c.dir === "SHORT"
                 ? {
                     label: "S",
-                    cls: "bg-red-500/20 text-red-200 border-red-400/50",
+                    cls: "bg-rose-500/20 text-rose-200 border-rose-400/50",
                   }
                 : {
                     label: c.dir === "LONG" ? "L" : c.dir === "SHORT" ? "S" : c.dir,
                     cls: "bg-white/[0.04] text-[#6b7280] border-white/[0.06]",
                   };
-          const dirAccentCls = c.dir === "LONG" ? "border-l-4 border-l-cyan-400" : c.dir === "SHORT" ? "border-l-4 border-l-red-500" : "";
+          const dirAccentCls = c.dir === "LONG" ? "border-l-4 border-l-cyan-400" : c.dir === "SHORT" ? "border-l-4 border-l-rose-500" : "";
 
           const moveStatus = String(c?.moveStatus || "ACTIVE").toUpperCase();
           const moveEmoji =
@@ -13025,7 +12833,7 @@
             return r ? `Move: ${moveStatus} — ${r}` : `Move: ${moveStatus}`;
           })();
 
-          const dirOutlineCls = c.dir === "LONG" ? "border border-cyan-400/40" : c.dir === "SHORT" ? "border border-red-500/40" : "border border-white/[0.06]";
+          const dirOutlineCls = c.dir === "LONG" ? "border border-cyan-400/40" : c.dir === "SHORT" ? "border border-rose-500/40" : "border border-white/[0.06]";
           const stage = String(t?.kanban_stage || "").toLowerCase();
           const isActionLane = ["enter_now", "trim", "exit"].includes(stage);
           const pulseCls = isActionLane ? (c.dir === "LONG" ? "card-pulse" : c.dir === "SHORT" ? "card-pulse-short" : "") : "";
@@ -13044,7 +12852,7 @@
               }}
               title="Open in right rail"
             >
-              {c.dir && <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-lg ${c.dir === "LONG" ? "bg-cyan-400/60" : "bg-red-500/60"}`} />}
+              {c.dir && <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-lg ${c.dir === "LONG" ? "bg-cyan-400/60" : "bg-rose-500/60"}`} />}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -13148,13 +12956,13 @@
                 </div>
                 <div>
                   <span className="text-[#4b5563]">SL</span>{" "}
-                  <span className="text-red-400 font-semibold">
+                  <span className="text-rose-400 font-semibold">
                     {Number.isFinite(sl) ? `$${sl.toFixed(2)}` : "—"}
                   </span>
                 </div>
                 <div>
                   <span className="text-[#4b5563]">TP</span>{" "}
-                  <span className="text-green-400 font-semibold">
+                  <span className="text-teal-400 font-semibold">
                     {Number.isFinite(tpDisplay)
                       ? `$${tpDisplay.toFixed(2)}`
                       : "—"}
@@ -13538,7 +13346,7 @@
                           </div>
                           <div className="min-w-0">
                             <span className="text-[#5b6890]">TP</span>{" "}
-                            <span className="text-green-400">
+                            <span className="text-teal-400">
                               {Number.isFinite(tpDisplay)
                                 ? `$${tpDisplay.toFixed(2)}`
                                 : "—"}
@@ -13546,7 +13354,7 @@
                           </div>
                           <div className="min-w-0">
                             <span className="text-[#5b6890]">SL</span>{" "}
-                            <span className="text-red-400">
+                            <span className="text-rose-400">
                               {Number.isFinite(sl) ? `$${sl.toFixed(2)}` : "—"}
                             </span>
                           </div>
@@ -13753,7 +13561,7 @@
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-white/[0.02] border border-white/[0.06] rounded p-2">
                   <div className="text-white font-semibold">Fresh (≤10m)</div>
-                  <div className="text-[#22c55e] font-bold">{stats.fresh}</div>
+                  <div className="text-[#14b8a6] font-bold">{stats.fresh}</div>
                 </div>
                 <div className="bg-white/[0.02] border border-white/[0.06] rounded p-2">
                   <div className="text-white font-semibold">Warn (10–20m)</div>
@@ -13767,7 +13575,7 @@
                   <div className="text-white font-semibold">
                     &gt;60m / Missing
                   </div>
-                  <div className="text-[#ef4444] font-bold">
+                  <div className="text-[#e11d48] font-bold">
                     {stats.veryStale + stats.missing}
                   </div>
                 </div>
@@ -13935,7 +13743,7 @@
                 const timeoutId2 = setTimeout(() => controller.abort(), 3000); // 3s timeout (reduced from 5s)
 
                 const response = await fetch(
-                  `https://timed-trading-ingest.shashant.workers.dev/timed/trail?ticker=${encodeURIComponent(
+                  `/timed/trail?ticker=${encodeURIComponent(
                     ticker.ticker,
                   )}`,
                   { signal: controller.signal },
@@ -14009,13 +13817,13 @@
               <div
                 className={`p-3 rounded-lg border-2 ${
                   currentQuad?.q === 2
-                    ? "border-green-400 bg-green-500/20"
+                    ? "border-teal-400 bg-teal-500/20"
                     : quadHistory.some((q) => q && q.q === 2)
-                      ? "border-green-500/50 bg-green-500/10"
+                      ? "border-teal-500/50 bg-teal-500/10"
                       : "border-white/[0.06] bg-[#0a0f1f]"
                 }`}
               >
-                <div className="text-xs font-bold text-green-400">
+                <div className="text-xs font-bold text-teal-400">
                   Q2: Bull Momentum
                 </div>
                 <div className="text-[10px] text-[#6b7280] mt-1">
@@ -14045,13 +13853,13 @@
               <div
                 className={`p-3 rounded-lg border-2 ${
                   currentQuad?.q === 3
-                    ? "border-red-400 bg-red-500/20"
+                    ? "border-rose-400 bg-rose-500/20"
                     : quadHistory.some((q) => q && q.q === 3)
-                      ? "border-red-500/50 bg-red-500/10"
+                      ? "border-rose-500/50 bg-rose-500/10"
                       : "border-white/[0.06] bg-[#0a0f1f]"
                 }`}
               >
-                <div className="text-xs font-bold text-red-400">
+                <div className="text-xs font-bold text-rose-400">
                   Q3: Bear Momentum
                 </div>
                 <div className="text-[10px] text-[#6b7280] mt-1">
@@ -14075,11 +13883,11 @@
                         ? "bg-blue-500/30 border-2 border-blue-400 text-blue-300"
                         : "bg-blue-500/10 border border-blue-500/50 text-blue-400",
                       green: isLast
-                        ? "bg-green-500/30 border-2 border-green-400 text-green-300"
-                        : "bg-green-500/10 border border-green-500/50 text-green-400",
+                        ? "bg-teal-500/30 border-2 border-teal-400 text-teal-300"
+                        : "bg-teal-500/10 border border-teal-500/50 text-teal-400",
                       red: isLast
-                        ? "bg-red-500/30 border-2 border-red-400 text-red-300"
-                        : "bg-red-500/10 border border-red-500/50 text-red-400",
+                        ? "bg-rose-500/30 border-2 border-rose-400 text-rose-300"
+                        : "bg-rose-500/10 border border-rose-500/50 text-rose-400",
                       orange: isLast
                         ? "bg-orange-500/30 border-2 border-orange-400 text-orange-300"
                         : "bg-orange-500/10 border border-orange-500/50 text-orange-400",
@@ -14256,7 +14064,7 @@
                 {flags.momentum_elite && (
                   <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/30 via-pink-500/30 to-purple-500/30 border-2 border-purple-400 rounded-lg momentum-elite-glow">
                     <div className="text-center font-bold text-purple-300 mb-2">
-                      🚀 MOMENTUM ELITE 🚀
+                      🔥 MOMENTUM ELITE 🔥
                     </div>
                     <div className="text-xs text-purple-200/80 font-normal mb-2">
                       High-quality momentum stock with strong fundamentals
@@ -14273,7 +14081,7 @@
                               <span
                                 className={`font-bold ${
                                   Number(ticker.momentum_pct.week) >= 10
-                                    ? "text-green-400"
+                                    ? "text-teal-400"
                                     : "text-purple-300"
                                 }`}
                               >
@@ -14287,7 +14095,7 @@
                               <span
                                 className={`font-bold ${
                                   Number(ticker.momentum_pct.month) >= 25
-                                    ? "text-green-400"
+                                    ? "text-teal-400"
                                     : "text-purple-300"
                                 }`}
                               >
@@ -14301,7 +14109,7 @@
                               <span
                                 className={`font-bold ${
                                   Number(ticker.momentum_pct.three_months) >= 50
-                                    ? "text-green-400"
+                                    ? "text-teal-400"
                                     : "text-purple-300"
                                 }`}
                               >
@@ -14318,7 +14126,7 @@
                               <span
                                 className={`font-bold ${
                                   Number(ticker.momentum_pct.six_months) >= 100
-                                    ? "text-green-400"
+                                    ? "text-teal-400"
                                     : "text-purple-300"
                                 }`}
                               >
@@ -14335,11 +14143,14 @@
                   </div>
                 )}
 
-                {prime && (
-                  <div className="mb-4 p-3 bg-green-500/20 border-2 border-green-500 rounded-lg text-center font-bold text-green-500 prime-glow">
-                    ⭐ PRIME SETUP ⭐
-                  </div>
-                )}
+                {prime && (() => {
+                  const labels = { aligned: "Aligned", thesis: "Thesis Confirmed", winner: "Early Pattern", squeeze_release: "Squeeze Release", momentum: "Momentum", phase_change: "Phase Shift" };
+                  return (
+                    <div className="mb-4 p-3 bg-teal-500/20 border-2 border-teal-500 rounded-lg text-center font-bold text-teal-500 prime-glow">
+                      ⭐ PRIME — {labels[prime.reason] || "Quality Setup"} ⭐
+                    </div>
+                  );
+                })()}
 
                 {/* Bias/Direction - Prominent */}
                 {(() => {
@@ -14451,14 +14262,14 @@
                         ? {
                             label: "Aligned State",
                             value: `+${breakdown.aligned}`,
-                            color: "text-green-400",
+                            color: "text-teal-400",
                           }
                         : null,
                       breakdown.setup > 0
                         ? {
                             label: "Setup State",
                             value: `+${breakdown.setup}`,
-                            color: "text-green-400",
+                            color: "text-teal-400",
                           }
                         : null,
                       breakdown.htf > 0
@@ -14491,8 +14302,8 @@
                                 : breakdown.phase.toFixed(2),
                             color:
                               breakdown.phase > 0
-                                ? "text-green-400"
-                                : "text-red-400",
+                                ? "text-teal-400"
+                                : "text-rose-400",
                           }
                         : null,
                       breakdown.squeezeRelease > 0
@@ -14520,7 +14331,7 @@
                         ? {
                             label: "Risk/Reward",
                             value: `+${breakdown.rr}`,
-                            color: "text-green-400",
+                            color: "text-teal-400",
                           }
                         : null,
                       breakdown.momentumElite > 0
@@ -14585,7 +14396,7 @@
                   {ent.corridor && (
                     <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
                       <span className="text-[#6b7280]">Corridor</span>
-                      <span className="px-2 py-1 rounded bg-green-500/20 text-green-400 text-xs font-semibold">
+                      <span className="px-2 py-1 rounded bg-teal-500/20 text-teal-400 text-xs font-semibold">
                         {ent.side}
                       </span>
                     </div>
@@ -14661,7 +14472,7 @@
                           return (
                             <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
                               <span className="text-[#6b7280]">TP (Max)</span>
-                              <span className="font-semibold text-green-400">
+                              <span className="font-semibold text-teal-400">
                                 ${maxTP.toFixed(2)}
                               </span>
                             </div>
@@ -14717,7 +14528,7 @@
                               >
                                 <div className="flex-1">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs font-semibold text-green-400">
+                                    <span className="text-xs font-semibold text-teal-400">
                                       {label}
                                     </span>
                                     <span className="text-xs font-mono text-white font-bold">
@@ -14727,7 +14538,7 @@
                                       <span
                                         className={`text-[10px] px-1 py-0.5 rounded ${
                                           confidence >= 0.8
-                                            ? "bg-green-500/20 text-green-400"
+                                            ? "bg-teal-500/20 text-teal-400"
                                             : confidence >= 0.6
                                               ? "bg-yellow-500/20 text-yellow-400"
                                               : "bg-orange-500/20 text-orange-400"
@@ -15083,7 +14894,7 @@
                   >
                     📅 Updates
                     {periodicUpdates.length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] flex items-center justify-center text-white">
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full text-[8px] flex items-center justify-center text-white">
                         {periodicUpdates.length}
                       </span>
                     )}
@@ -15092,7 +14903,7 @@
                 <button
                   onClick={handleMonitor}
                   disabled={loading}
-                  className="px-3 py-1.5 text-xs bg-green-500/20 hover:bg-green-500/30 disabled:bg-white/[0.04] disabled:text-[#4b5563] border border-green-500/30 rounded-lg text-green-400 font-semibold transition-colors disabled:cursor-not-allowed"
+                  className="px-3 py-1.5 text-xs bg-teal-500/20 hover:bg-teal-500/30 disabled:bg-white/[0.04] disabled:text-[#4b5563] border border-teal-500/30 rounded-lg text-teal-400 font-semibold transition-colors disabled:cursor-not-allowed"
                   title="Run market monitoring analysis"
                 >
                   🔍 Monitor
@@ -15160,7 +14971,7 @@
                       msg.role === "user"
                         ? "bg-blue-500/20 border border-blue-500/30 text-white"
                         : msg.error
-                          ? "bg-red-500/20 border border-red-500/30 text-red-300"
+                          ? "bg-rose-500/20 border border-rose-500/30 text-rose-300"
                           : "bg-white/[0.02] border border-white/[0.06] text-[#d1d5db]"
                     }`}
                   >
@@ -15331,9 +15142,9 @@
 
         if (error || !tickerData) {
           return (
-            <div className="w-[450px] bg-white/[0.03] border border-red-500 rounded-xl p-6">
+            <div className="w-[450px] bg-white/[0.03] border border-rose-500 rounded-xl p-6">
               <div className="text-center">
-                <div className="text-red-400 mb-2">
+                <div className="text-rose-400 mb-2">
                   Failed to load {tickerSymbol}
                 </div>
                 <div className="text-[#6b7280] text-sm mb-4">
@@ -15499,7 +15310,10 @@
           versionInfo,
           tickersWithoutScores,
           refetch,
+          setData: setTickerData,
         } = useTickerData();
+        // Real-time price feed: polls /timed/prices every 30s for live price + daily change
+        const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
         const { sectors } = useSectors();
         const [filters, setFilters] = useState(() => {
@@ -15928,6 +15742,8 @@
                     <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Dashboard</a>
                     <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
                     <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+                    <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+                    <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -15941,6 +15757,7 @@
                   {lastUpdate && <span className="text-[11px] text-[#4b5563]">{lastUpdate.toLocaleTimeString()}</span>}
                   {loading && <div className="loading-spinner"></div>}
                   {error && <span className="text-[11px] text-rose-400">{error}</span>}
+                  {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
                 </div>
               </nav>
 
@@ -15996,7 +15813,7 @@
                   <div className="mt-2 mb-3 flex flex-wrap items-center gap-3">
                     {/* Search */}
                     <div className="w-[320px] relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6b7280] text-sm pointer-events-none">🔍</span>
+                      <svg className="absolute left-3 top-1/2 pointer-events-none" style={{transform:"translateY(-50%)"}} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                       <input
                         type="text"
                         placeholder="Search tickers or filters..."
@@ -16016,7 +15833,6 @@
                           }
                         }}
                         className="w-full pl-9 pr-3 py-1.5 bg-white/[0.03] border border-white/[0.08] rounded-2xl text-white text-sm placeholder-[#6b7280] focus:border-white/[0.15] focus:outline-none transition-colors"
-                        style={{backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)"}}
                       />
                     </div>
                     
@@ -16064,17 +15880,17 @@
 
                 {/* Error Display */}
                 {error && (
-                  <div className="mb-4 p-4 bg-red-500/20 border-2 border-red-500 rounded-xl">
+                  <div className="mb-4 p-4 bg-rose-500/20 border-2 border-rose-500 rounded-xl">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-lg font-bold text-red-400 mb-2">
+                        <h3 className="text-lg font-bold text-rose-400 mb-2">
                           Error Loading Data
                         </h3>
-                        <p className="text-red-300">{error}</p>
+                        <p className="text-rose-300">{error}</p>
                       </div>
                       <button
                         onClick={refetch}
-                        className="px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-white font-semibold"
+                        className="px-4 py-2 bg-rose-500 hover:bg-rose-600 rounded-lg text-white font-semibold"
                       >
                         Retry
                       </button>
@@ -16114,7 +15930,38 @@
                           selectedTicker ? "lg:mr-[470px]" : ""
                         }`}
                       >
-                        <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
+                        {/* Bubble Chart Legend */}
+                        <div className="flex items-center justify-between px-3 py-1.5 mb-1 rounded-lg border border-white/[0.06] bg-white/[0.02]">
+                          <div className="flex items-center gap-3.5 text-[10px] text-[#9ca3af] flex-wrap">
+                            <span className="font-semibold text-white text-[11px]">Bubble Chart</span>
+                            <span className="flex items-center gap-1.5">
+                              <svg width="14" height="14" viewBox="0 0 14 14"><defs><radialGradient id="lgLong" cx="35%" cy="35%"><stop offset="0%" stopColor="#fff" stopOpacity="0.18"/><stop offset="50%" stopColor="#22d3ee" stopOpacity="0.7"/><stop offset="100%" stopColor="#0891b2" stopOpacity="0.5"/></radialGradient></defs><circle cx="7" cy="7" r="6" fill="url(#lgLong)" stroke="#22d3ee" strokeWidth="1"/></svg>
+                              LONG
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <svg width="14" height="14" viewBox="0 0 14 14"><defs><radialGradient id="lgShort" cx="35%" cy="35%"><stop offset="0%" stopColor="#fff" stopOpacity="0.18"/><stop offset="50%" stopColor="#e11d48" stopOpacity="0.7"/><stop offset="100%" stopColor="#be123c" stopOpacity="0.5"/></radialGradient></defs><circle cx="7" cy="7" r="6" fill="url(#lgShort)" stroke="#e11d48" strokeWidth="1"/></svg>
+                              SHORT
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <svg width="14" height="14" viewBox="0 0 14 14"><defs><radialGradient id="lgNeutral" cx="35%" cy="35%"><stop offset="0%" stopColor="#fff" stopOpacity="0.18"/><stop offset="50%" stopColor="#eab308" stopOpacity="0.6"/><stop offset="100%" stopColor="#ca8a04" stopOpacity="0.4"/></radialGradient></defs><circle cx="7" cy="7" r="6" fill="url(#lgNeutral)" stroke="#eab308" strokeWidth="1"/></svg>
+                              Neutral
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <svg width="14" height="14" viewBox="0 0 14 14"><defs><radialGradient id="lgElite" cx="35%" cy="35%"><stop offset="0%" stopColor="#fff" stopOpacity="0.18"/><stop offset="50%" stopColor="#a855f7" stopOpacity="0.6"/><stop offset="100%" stopColor="#7c3aed" stopOpacity="0.4"/></radialGradient></defs><circle cx="7" cy="7" r="6" fill="url(#lgElite)" stroke="#a855f7" strokeWidth="2"/></svg>
+                              Momentum Elite
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.3)" strokeWidth="1" strokeDasharray="2 2"/></svg>
+                              Awaiting Data
+                            </span>
+                            <span className="text-[#4b5563]">|</span>
+                            <span>X: LTF</span>
+                            <span>Y: HTF</span>
+                            <span>Size: RR</span>
+                            <span>🎯 Flip Watch</span>
+                          </div>
+                        </div>
+                        <div className="h-[600px] sm:h-[700px] md:h-[800px] lg:h-[870px]">
                           {loading && tickers.length === 0 ? (
                             <div className="w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] flex items-center justify-center">
                               <div className="text-center">
@@ -16215,12 +16062,17 @@
           }
 
           // Check if React 18 createRoot is available
+          const AuthGate = window.TimedAuthGate;
+          const wrappedApp = AuthGate
+            ? React.createElement(AuthGate, { apiBase: "" },
+                (user) => React.createElement(window.App, { user }))
+            : React.createElement(window.App);
           if (ReactDOM.createRoot) {
             const root = ReactDOM.createRoot(rootElement);
-            root.render(React.createElement(window.App));
+            root.render(wrappedApp);
           } else {
             // Fallback for React 17
-            ReactDOM.render(React.createElement(window.App), rootElement);
+            ReactDOM.render(wrappedApp, rootElement);
           }
 
           console.log("[App] Dashboard initialized successfully");
@@ -16230,7 +16082,7 @@
           if (rootElement) {
             rootElement.innerHTML = `
               <div style="padding: 40px; text-align: center; color: #f0f2f5; max-width: 800px; margin: 0 auto;">
-                <h2 style="color: #ef4444; margin-bottom: 20px;">Error Loading Dashboard</h2>
+                <h2 style="color: #e11d48; margin-bottom: 20px;">Error Loading Dashboard</h2>
                 <p style="margin-bottom: 20px; color: #ff6b6b;">${error.message}</p>
                 <div style="background: #1a2440; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left; color: #8b92a0;">
                   <h3 style="color: #f0f2f5; margin-bottom: 10px;">Troubleshooting:</h3>
@@ -16239,7 +16091,7 @@
                     <li>Check your internet connection - CDN resources need to load</li>
                     <li>Try refreshing the page (Cmd+R or Ctrl+R)</li>
                     <li>Check if React is loaded: <code style="background: #252b36; padding: 2px 6px; border-radius: 4px;">typeof React !== 'undefined'</code></li>
-                    <li>Check if API is reachable: <a href="https://timed-trading-ingest.shashant.workers.dev/timed/health" target="_blank" style="color: #4a9eff;">API Health Check</a></li>
+                    <li>Check if API is reachable: <a href="/timed/health" target="_blank" style="color: #4a9eff;">API Health Check</a></li>
                   </ul>
                 </div>
                 <button 
@@ -16254,15 +16106,29 @@
         }
       }
 
-      // Wait for DOM and scripts to be ready
+      // Poll for window.App (Babel may take a while on large scripts >500KB)
+      function waitForAppAndInit() {
+        var attempts = 0;
+        var maxAttempts = 100; // 10 seconds max (100 * 100ms)
+        function poll() {
+          attempts++;
+          if (typeof window.App !== "undefined") {
+            console.log("[App] Babel ready after " + (attempts * 100) + "ms");
+            initializeApp();
+          } else if (attempts < maxAttempts) {
+            setTimeout(poll, 100);
+          } else {
+            console.error("[App] Timed out waiting for Babel after 10s");
+            initializeApp(); // will show error UI
+          }
+        }
+        poll();
+      }
+
       if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", function () {
-          // Wait a bit for Babel to process
-          setTimeout(initializeApp, 100);
-        });
+        document.addEventListener("DOMContentLoaded", waitForAppAndInit);
       } else {
-        // DOM already loaded
-        setTimeout(initializeApp, 100);
+        waitForAppAndInit();
       }
 
       // Fallback: If React still isn't loaded after 5 seconds, show error
@@ -16275,7 +16141,7 @@
           ) {
             rootElement.innerHTML = `
           <div style="padding: 40px; text-align: center; color: #f0f2f5;">
-                <h2 style="color: #ef4444;">CDN Resources Not Loading</h2>
+                <h2 style="color: #e11d48;">CDN Resources Not Loading</h2>
                 <p style="margin: 20px 0; color: #8b92a0;">
                   React or other CDN resources failed to load. This may be due to:
                 </p>

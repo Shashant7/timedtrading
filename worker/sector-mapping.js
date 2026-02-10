@@ -272,9 +272,10 @@ const SECTOR_MAP = {
   'XLV': 'ETF',
   'XLY': 'ETF',
   'AAPU': 'ETF',
-  'ADD': 'ETF',
 
   // Crypto-Related
+  'BTCUSD': 'Crypto',
+  'ETHUSD': 'Crypto',
   'GLXY': 'Crypto',
   'BTBT': 'Crypto',
   'RIOT': 'Crypto',
@@ -282,6 +283,9 @@ const SECTOR_MAP = {
   'ETHT': 'Crypto',
 
   // Precious Metals
+  'GOLD': 'Precious Metals',
+  // 'SILVER': 'Precious Metals',  // removed — non-Alpaca
+  'GLD': 'Precious Metals',
   'GDX': 'Precious Metals',
   'GDXJ': 'Precious Metals',
   'IAU': 'Precious Metals',
@@ -292,7 +296,7 @@ const SECTOR_MAP = {
 
   // Small/Micro Cap
   'BMNR': 'Healthcare',
-  'CRCL': 'Healthcare',
+  // 'CRCL': 'Healthcare',  // removed — non-Alpaca
   'CRVS': 'Healthcare',
   'CRWV': 'Healthcare',
   'FIG': 'Financials',
@@ -345,11 +349,103 @@ function getAllSectors() {
   return Object.keys(SECTOR_RATINGS);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TICKER TYPE CLASSIFICATION (Phase 3a)
+//
+// Classifies tickers into investment type categories for swing trading:
+//   sector_etf:     Sector-tracking ETFs (XLK, XLF, etc.)
+//   broad_etf:      Broad market ETFs (SPY, QQQ, IWM)
+//   large_cap:      Blue-chip, well-established companies
+//   growth:         High-growth, high-beta names
+//   value:          Value-oriented, defensive names
+//   crypto_adj:     Crypto-adjacent equities (MSTR, COIN, HOOD)
+//   crypto:         Direct crypto exposure
+//   precious_metal: Gold/silver miners and ETFs
+//   small_cap:      Small/micro cap names
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const TICKER_TYPE_MAP = {
+  // Sector ETFs
+  'XLB': 'sector_etf', 'XLC': 'sector_etf', 'XLE': 'sector_etf',
+  'XLF': 'sector_etf', 'XLI': 'sector_etf', 'XLK': 'sector_etf',
+  'XLP': 'sector_etf', 'XLRE': 'sector_etf', 'XLU': 'sector_etf',
+  'XLV': 'sector_etf', 'XLY': 'sector_etf', 'SOXL': 'sector_etf',
+
+  // Broad ETFs
+  'SPY': 'broad_etf', 'QQQ': 'broad_etf', 'IWM': 'broad_etf',
+  'AAPU': 'broad_etf', 'TNA': 'broad_etf',
+
+  // Crypto-adjacent equities
+  'MSTR': 'crypto_adj', 'COIN': 'crypto_adj', 'HOOD': 'crypto_adj',
+  'RIOT': 'crypto_adj', 'GLXY': 'crypto_adj',
+
+  // Direct crypto
+  'BTCUSD': 'crypto', 'ETHUSD': 'crypto', 'ETHA': 'crypto', 'ETHT': 'crypto',
+
+  // Precious metals
+  'GOLD': 'precious_metal', 'GLD': 'precious_metal', 'GDX': 'precious_metal',
+  'GDXJ': 'precious_metal', 'IAU': 'precious_metal', 'SLV': 'precious_metal',
+  'AGQ': 'precious_metal', 'HL': 'precious_metal', 'AU': 'precious_metal',
+  'RGLD': 'precious_metal', 'CCJ': 'precious_metal',
+
+  // Growth / High-beta
+  'TSLA': 'growth', 'NVDA': 'growth', 'AMD': 'growth', 'PLTR': 'growth',
+  'RBLX': 'growth', 'IONQ': 'growth', 'APP': 'growth', 'HIMS': 'growth',
+  'SOFI': 'growth', 'RDDT': 'growth', 'CVNA': 'growth', 'JOBY': 'growth',
+  'RKLB': 'growth', 'NBIS': 'growth', 'IREN': 'growth', 'APLD': 'growth',
+  'CRWD': 'growth', 'PANW': 'growth', 'MDB': 'growth', 'PATH': 'growth',
+  'NFLX': 'growth', 'AVGO': 'growth', 'ANET': 'growth', 'META': 'growth',
+  'W': 'growth', 'TWLO': 'growth', 'FSLR': 'growth', 'BE': 'growth',
+
+  // Value / Defensive
+  'WMT': 'value', 'COST': 'value', 'KO': 'value', 'BRK-B': 'value',
+  'JPM': 'value', 'GS': 'value', 'PNC': 'value', 'BK': 'value',
+  'MSFT': 'value', 'AAPL': 'value', 'GOOGL': 'value', 'GOOG': 'value',
+  'JNJ': 'value', 'UNH': 'value', 'AMGN': 'value', 'GILD': 'value',
+  'UTHR': 'value', 'CAT': 'value', 'DE': 'value', 'GE': 'value',
+  'TJX': 'value', 'INTU': 'value', 'CSCO': 'value', 'SPGI': 'value',
+  'WM': 'value', 'TT': 'value', 'ETN': 'value', 'PH': 'value',
+  'EMR': 'value', 'ULTA': 'value', 'MNST': 'value', 'NKE': 'value',
+
+  // Large cap (not in growth or value above)
+  'AMZN': 'large_cap', 'ORCL': 'large_cap', 'BA': 'large_cap',
+  'LRCX': 'large_cap', 'KLAC': 'large_cap', 'CDNS': 'large_cap',
+  'MU': 'large_cap', 'EXPE': 'large_cap', 'STX': 'large_cap',
+  'WDC': 'large_cap', 'BABA': 'large_cap', 'TSM': 'large_cap',
+  'CRM': 'large_cap', 'ON': 'large_cap',
+
+  // Small/Micro cap
+  'BMNR': 'small_cap', 'CRVS': 'small_cap', 'CRWV': 'small_cap',
+  'FIG': 'small_cap', 'GRNY': 'small_cap', 'IBRX': 'small_cap',
+  'ONDS': 'small_cap', 'SBET': 'small_cap', 'XYZ': 'small_cap',
+};
+
+/**
+ * Get ticker investment type.
+ * Falls back to sector-based heuristic if not explicitly mapped.
+ * @param {string} ticker
+ * @returns {string} type label
+ */
+function getTickerType(ticker) {
+  const t = ticker?.toUpperCase();
+  if (!t) return 'unknown';
+  if (TICKER_TYPE_MAP[t]) return TICKER_TYPE_MAP[t];
+  // Heuristic fallback based on sector
+  const sector = SECTOR_MAP[t];
+  if (!sector) return 'unknown';
+  if (sector === 'ETF') return 'broad_etf';
+  if (sector === 'Crypto') return 'crypto';
+  if (sector === 'Precious Metals') return 'precious_metal';
+  return 'large_cap'; // default for known stocks not explicitly typed
+}
+
 module.exports = {
   SECTOR_MAP,
   SECTOR_RATINGS,
+  TICKER_TYPE_MAP,
   getSector,
   getSectorRating,
   getTickersInSector,
   getAllSectors,
+  getTickerType,
 };
