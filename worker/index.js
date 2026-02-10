@@ -23576,9 +23576,10 @@ export default {
           const allTickers = Object.keys(SECTOR_MAP);
           const snapResult = await alpacaFetchSnapshots(env, allTickers);
           const snapshots = snapResult.snapshots || {};
+          const rthNow = isNyRegularMarketOpen();
           const prices = {};
           for (const [sym, snap] of Object.entries(snapshots)) {
-            const price = snap.price;
+            const price = rthNow ? snap.price : (snap.dailyClose > 0 ? snap.dailyClose : snap.price);
             const prevClose = snap.prevDailyClose;
             const dc = (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
             const dp = (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
@@ -30780,10 +30781,18 @@ Provide 3-5 actionable next steps:
         const snapResult = await alpacaFetchSnapshots(env, allTickers);
         const snapshots = snapResult.snapshots || {};
 
+        // After market close, prefer dailyBar.c (official close) over latestTrade.p
+        // (which can be a thin after-hours trade at a misleading price, e.g. ULTA $675 vs close $679.28).
+        // During RTH, latestTrade.p is the most current price so we keep it.
+        const rthOpen = isNyRegularMarketOpen();
+
         // Build compact price payload for KV
         const prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
-          const price = snap.price;
+          // During RTH: use latestTrade (snap.price). After hours: prefer official close (dailyClose).
+          const price = rthOpen
+            ? snap.price
+            : (snap.dailyClose > 0 ? snap.dailyClose : snap.price);
           const prevClose = snap.prevDailyClose;
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
@@ -30810,7 +30819,9 @@ Provide 3-5 actionable next steps:
           const retryResult = await alpacaFetchSnapshots(env, missingAfterFirst);
           const retrySnap = retryResult.snapshots || {};
           for (const [sym, snap] of Object.entries(retrySnap)) {
-            const price = snap.price;
+            const price = rthOpen
+              ? snap.price
+              : (snap.dailyClose > 0 ? snap.dailyClose : snap.price);
             const prevClose = snap.prevDailyClose;
             const dailyChange = (price && prevClose && prevClose > 0)
               ? Math.round((price - prevClose) * 100) / 100

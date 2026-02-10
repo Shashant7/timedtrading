@@ -7228,6 +7228,20 @@
                                   <span className="text-[11px] text-[#4b5563]">{openPositionCards.length} open</span>
                                 </div>
                                 <div className="space-y-0">
+                                  {/* Column headers */}
+                                  <div className="flex items-center gap-2 px-2 py-1 border-b border-white/[0.06] text-[8px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                                    <span className="w-[44px] shrink-0">Ticker</span>
+                                    <span className="w-[10px] shrink-0"></span>
+                                    <span className="w-[56px] shrink-0 text-right">Entry</span>
+                                    <span className="w-[40px] shrink-0 text-right">Qty</span>
+                                    <span className="w-[72px] shrink-0">Opened</span>
+                                    <span className="w-[56px] shrink-0 text-right">Price</span>
+                                    <span className="w-[70px] shrink-0 text-right">Day Chg</span>
+                                    <span className="flex-1 min-w-0 max-w-[100px] text-center">SL/TP</span>
+                                    <span className="w-[56px] shrink-0 text-right">P&L</span>
+                                    <span className="w-[40px] shrink-0 text-right">%</span>
+                                    <span className="shrink-0 text-center" style={{ width: "42px" }}>Status</span>
+                                  </div>
                                   {/* All positions sorted alphabetically */}
                                   {[...openPositionCards].sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || ""))).map(pos => renderCompactCard(pos))}
                                 </div>
