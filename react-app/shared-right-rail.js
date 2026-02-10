@@ -716,12 +716,32 @@
                         }
                       })()}
                     </div>
-                    <button
-                      onClick={onClose}
-                      className="text-[#6b7280] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04]"
-                    >
-                      ✕
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          try {
+                            const sym = String(ticker?.ticker || "").toUpperCase();
+                            const url = `${window.location.origin}${window.location.pathname}#ticker=${encodeURIComponent(sym)}`;
+                            navigator.clipboard.writeText(url).then(() => {
+                              const btn = document.getElementById("share-toast-btn");
+                              if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Share"; }, 1500); }
+                            });
+                          } catch {}
+                        }}
+                        id="share-toast-btn"
+                        className="text-[10px] text-[#6b7280] hover:text-teal-300 transition-colors px-2 py-1 rounded hover:bg-white/[0.04] flex items-center gap-1"
+                        title="Copy share link to clipboard"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                        Share
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="text-[#6b7280] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04]"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
 
                   {/* Last Ingest Date/Time */}

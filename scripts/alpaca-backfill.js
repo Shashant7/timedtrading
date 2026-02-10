@@ -19,70 +19,142 @@ const ALPACA_SECRET = process.env.ALPACA_API_SECRET_KEY || "AKgqwLSCKDkst1Zgcigs
 const TIMED_KEY = process.env.TIMED_API_KEY || "AwesomeSauce";
 const WORKER_BASE = process.env.WORKER_BASE || "https://timed-trading-ingest.shashant.workers.dev";
 
-const ALPACA_BASE = "https://data.alpaca.markets/v2";
+const ALPACA_STOCKS_BASE = "https://data.alpaca.markets/v2";
+const ALPACA_CRYPTO_BASE = "https://data.alpaca.markets/v1beta3/crypto/us";
 
 // Dynamically import all tickers from SECTOR_MAP (single source of truth)
 const { SECTOR_MAP } = require("../worker/sector-mapping.js");
 const ALL_TICKERS = [...new Set(Object.keys(SECTOR_MAP))];
 
-// Timeframe configs: our TF key -> Alpaca format -> how far back to go
+// Crypto symbol mapping: our internal ticker → Alpaca crypto format
+const CRYPTO_MAP = {
+  "BTCUSD": "BTC/USD",
+  "ETHUSD": "ETH/USD",
+};
+const CRYPTO_TICKERS = new Set(Object.keys(CRYPTO_MAP));
+
+// Stock symbol mapping: our internal ticker → Alpaca stock format
+const STOCK_SYM_MAP = { "BRK-B": "BRK.B" };
+const REVERSE_STOCK_MAP = Object.fromEntries(Object.entries(STOCK_SYM_MAP).map(([k, v]) => [v, k]));
+
+// Canonical 9 timeframes: 1m, 5m, 10m, 30m, 1H, 4H, D, W, M
+// (3m dropped — too noisy, causes whiplash)
 const TF_CONFIGS = {
-  "M":   { alpaca: "1Month", daysBack: 365 * 10, limit: 10000 },   // ~10 years of monthly bars (~120/ticker)
-  "W":   { alpaca: "1Week",  daysBack: 365 * 6, limit: 10000 },    // ~6 years for 300 weekly bars
+  "M":   { alpaca: "1Month", daysBack: 365 * 10, limit: 10000 },   // ~10 years of monthly bars (~200/ticker)
+  "W":   { alpaca: "1Week",  daysBack: 365 * 6, limit: 10000 },    // ~6 years for ~200 weekly bars
   "D":   { alpaca: "1Day",   daysBack: 450, limit: 10000 },        // ~300 trading days
   "240": { alpaca: "4Hour",  daysBack: 200, limit: 10000 },        // ~300 4H bars
   "60":  { alpaca: "1Hour",  daysBack: 50, limit: 10000 },         // ~300 hourly bars
   "30":  { alpaca: "30Min",  daysBack: 25, limit: 10000 },         // ~300 30m bars
-  "10":  { alpaca: "10Min",  daysBack: 180, limit: 10000 },        // ~180 days of 10m bars (~7,020/ticker) back to ~Aug 2025
-  "5":   { alpaca: "5Min",   daysBack: 60, limit: 10000 },         // ~60 trading days of 5m bars (~4,680/ticker)
-  "3":   { alpaca: "3Min",   daysBack: 60, limit: 10000 },         // ~60 days of 3m bars (~15,600/ticker) back to ~Dec 2025
+  "10":  { alpaca: "10Min",  daysBack: 40, limit: 10000 },         // ~40 days of 10m bars (~500/ticker)
+  "5":   { alpaca: "5Min",   daysBack: 20, limit: 10000 },         // ~20 trading days of 5m bars (~500/ticker)
+  "1":   { alpaca: "1Min",   daysBack: 5, limit: 10000 },          // ~5 trading days of 1m bars (~390/day)
 };
+
+// Explicit order: highest TFs first (most important for indicators), 1m last (already flowing via cron)
+const TF_ORDER = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
 
 async function fetchAlpacaBars(symbols, tfKey, startISO) {
   const cfg = TF_CONFIGS[tfKey];
   if (!cfg) throw new Error(`Unknown TF: ${tfKey}`);
 
+  // Split symbols into stocks and crypto
+  const stockSymbols = symbols.filter(s => !CRYPTO_TICKERS.has(s));
+  const cryptoSymbols = symbols.filter(s => CRYPTO_TICKERS.has(s));
+
   const allBars = {};
-  let pageToken = null;
-  let pages = 0;
 
-  do {
-    const params = new URLSearchParams();
-    params.set("symbols", symbols.join(","));
-    params.set("timeframe", cfg.alpaca);
-    params.set("start", startISO);
-    params.set("limit", String(cfg.limit));
-    params.set("adjustment", "split");
-    params.set("feed", "sip");
-    params.set("sort", "asc");
-    if (pageToken) params.set("page_token", pageToken);
+  // Fetch stock bars
+  if (stockSymbols.length > 0) {
+    // Map internal symbols to Alpaca format (e.g. BRK-B → BRK.B)
+    const alpacaStockSyms = stockSymbols.map(s => STOCK_SYM_MAP[s] || s);
+    let pageToken = null;
+    let pages = 0;
+    do {
+      const params = new URLSearchParams();
+      params.set("symbols", alpacaStockSyms.join(","));
+      params.set("timeframe", cfg.alpaca);
+      params.set("start", startISO);
+      params.set("limit", String(cfg.limit));
+      params.set("adjustment", "split");
+      params.set("feed", "sip");
+      params.set("sort", "asc");
+      if (pageToken) params.set("page_token", pageToken);
 
-    const url = `${ALPACA_BASE}/stocks/bars?${params.toString()}`;
-    const resp = await fetch(url, {
-      headers: {
-        "APCA-API-KEY-ID": ALPACA_KEY,
-        "APCA-API-SECRET-KEY": ALPACA_SECRET,
-        "Accept": "application/json",
-      },
-    });
+      const url = `${ALPACA_STOCKS_BASE}/stocks/bars?${params.toString()}`;
+      const resp = await fetch(url, {
+        headers: {
+          "APCA-API-KEY-ID": ALPACA_KEY,
+          "APCA-API-SECRET-KEY": ALPACA_SECRET,
+          "Accept": "application/json",
+        },
+      });
 
-    if (!resp.ok) {
-      const text = await resp.text();
-      console.error(`  Alpaca HTTP ${resp.status}: ${text.slice(0, 200)}`);
-      break;
-    }
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.error(`  Alpaca Stocks HTTP ${resp.status}: ${text.slice(0, 200)}`);
+        break;
+      }
 
-    const data = await resp.json();
-    const bars = data.bars || {};
-    for (const [sym, barArr] of Object.entries(bars)) {
-      if (!allBars[sym]) allBars[sym] = [];
-      allBars[sym].push(...barArr);
-    }
-    pageToken = data.next_page_token || null;
-    pages++;
+      const data = await resp.json();
+      const bars = data.bars || {};
+      for (const [sym, barArr] of Object.entries(bars)) {
+        // Map Alpaca symbol back to internal format (e.g. BRK.B → BRK-B)
+        const ourSym = REVERSE_STOCK_MAP[sym] || sym;
+        if (!allBars[ourSym]) allBars[ourSym] = [];
+        allBars[ourSym].push(...barArr);
+      }
+      pageToken = data.next_page_token || null;
+      pages++;
 
-    if (pages % 5 === 0) process.stdout.write(`    (page ${pages}...)`);
-  } while (pageToken && pages < 100);
+      if (pages % 5 === 0) process.stdout.write(`    (page ${pages}...)`);
+    } while (pageToken && pages < 100);
+  }
+
+  // Fetch crypto bars (different API endpoint, different symbol format)
+  if (cryptoSymbols.length > 0) {
+    const alpacaCryptoSyms = cryptoSymbols.map(s => CRYPTO_MAP[s]);
+    let pageToken = null;
+    let pages = 0;
+    do {
+      const params = new URLSearchParams();
+      params.set("symbols", alpacaCryptoSyms.join(","));
+      params.set("timeframe", cfg.alpaca);
+      params.set("start", startISO);
+      params.set("limit", String(cfg.limit));
+      params.set("sort", "asc");
+      if (pageToken) params.set("page_token", pageToken);
+
+      const url = `${ALPACA_CRYPTO_BASE}/bars?${params.toString()}`;
+      const resp = await fetch(url, {
+        headers: {
+          "APCA-API-KEY-ID": ALPACA_KEY,
+          "APCA-API-SECRET-KEY": ALPACA_SECRET,
+          "Accept": "application/json",
+        },
+      });
+
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.error(`  Alpaca Crypto HTTP ${resp.status}: ${text.slice(0, 200)}`);
+        break;
+      }
+
+      const data = await resp.json();
+      const bars = data.bars || {};
+      // Reverse-map crypto symbols: "BTC/USD" → "BTCUSD"
+      const reverseMap = Object.fromEntries(Object.entries(CRYPTO_MAP).map(([k, v]) => [v, k]));
+      for (const [alpacaSym, barArr] of Object.entries(bars)) {
+        const ourSym = reverseMap[alpacaSym] || alpacaSym.replace("/", "");
+        if (!allBars[ourSym]) allBars[ourSym] = [];
+        allBars[ourSym].push(...barArr);
+      }
+      pageToken = data.next_page_token || null;
+      pages++;
+
+      if (pages % 5 === 0) process.stdout.write(`    (page ${pages}...)`);
+    } while (pageToken && pages < 100);
+  }
 
   return allBars;
 }
@@ -126,7 +198,7 @@ async function main() {
     if (args[i] === "--tickers" && args[i + 1]) tickerFilter = args[++i].split(",").map(t => t.trim().toUpperCase());
   }
 
-  const tfsToProcess = tfFilter ? [tfFilter] : Object.keys(TF_CONFIGS);
+  const tfsToProcess = tfFilter ? [tfFilter] : TF_ORDER;
   const tickers = tickerFilter || [...new Set(ALL_TICKERS)];
 
   console.log(`Alpaca Backfill: ${tickers.length} tickers × ${tfsToProcess.length} timeframes`);

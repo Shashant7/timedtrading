@@ -27,7 +27,7 @@
       const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
       const API_BASE = "";  // same-origin — proxied by Pages Function
-      const API_KEY = "AwesomeSauce";
+      // Auth via CF Access JWT cookie (sent automatically with credentials: "include")
       const TFS = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
       const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "10": "10m", "5": "5m", "1": "1m" };
       const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VIX", "GC1!", "SI1!"]);
@@ -175,7 +175,7 @@
           setError(null);
           try {
             const [statusRes, priceRes] = await Promise.all([
-              fetch(`${API_BASE}/timed/admin/ingestion-status?key=${API_KEY}&_t=${Date.now()}`),
+              fetch(`${API_BASE}/timed/admin/ingestion-status?_t=${Date.now()}`, { credentials: "include" }),
               fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`),
             ]);
             const json = await statusRes.json();
@@ -282,9 +282,10 @@
           const tickers = raw.split(/[,\s]+/).filter(Boolean);
           setActionStatus({ type: "info", msg: `Adding ${tickers.join(", ")}...` });
           try {
-            const res = await fetch(`${API_BASE}/timed/watchlist/add?key=${API_KEY}`, {
+            const res = await fetch(`${API_BASE}/timed/watchlist/add`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              credentials: "include",
               body: JSON.stringify({ tickers }),
             });
             const json = await res.json();
@@ -314,9 +315,10 @@
 
           setActionStatus({ type: "info", msg: `Removing ${tickerList.join(", ")}...` });
           try {
-            const res = await fetch(`${API_BASE}/timed/watchlist/remove?key=${API_KEY}`, {
+            const res = await fetch(`${API_BASE}/timed/watchlist/remove`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              credentials: "include",
               body: JSON.stringify({ tickers: tickerList }),
             });
             const json = await res.json();
@@ -347,8 +349,8 @@
 
           setBackfillStatus(prev => ({ ...prev, [ticker]: "running" }));
           try {
-            const endpoint = `${API_BASE}/timed/admin/alpaca-backfill?key=${API_KEY}&tf=all&ticker=${ticker}`;
-            const res = await fetch(endpoint, { method: "POST" });
+            const endpoint = `${API_BASE}/timed/admin/alpaca-backfill?tf=all&ticker=${ticker}`;
+            const res = await fetch(endpoint, { method: "POST", credentials: "include" });
             const json = await res.json();
             if (json.ok) {
               setBackfillStatus(prev => ({ ...prev, [ticker]: "started" }));
@@ -357,7 +359,7 @@
                 for (let attempt = 0; attempt < 60; attempt++) {
                   await new Promise(r => setTimeout(r, 3000));
                   try {
-                    const s = await fetch(`${API_BASE}/timed/admin/backfill-status?key=${API_KEY}`).then(r => r.json());
+                    const s = await fetch(`${API_BASE}/timed/admin/backfill-status`, { credentials: "include" }).then(r => r.json());
                     const phase = s?.status?.phase;
                     if (phase === "done" || !phase) break;
                     setBackfillStatus(prev => ({
@@ -410,7 +412,7 @@
 
             try {
               // Trigger backfill for this ticker
-              const res = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?key=${API_KEY}&tf=all&ticker=${ticker}`, { method: "POST" });
+              const res = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?tf=all&ticker=${ticker}`, { method: "POST", credentials: "include" });
               const json = await res.json();
               if (!json.ok) {
                 log.push(`${ticker}: error — ${json.error || "unknown"}`);
@@ -424,7 +426,7 @@
                 await new Promise(r => setTimeout(r, 2000));
                 if (seqCancelRef.current) break;
                 try {
-                  const s = await fetch(`${API_BASE}/timed/admin/backfill-status?key=${API_KEY}`).then(r => r.json());
+                  const s = await fetch(`${API_BASE}/timed/admin/backfill-status`, { credentials: "include" }).then(r => r.json());
                   const phase = s?.status?.phase;
                   const upserted = s?.status?.upserted || 0;
                   const tf = s?.status?.tf || "";

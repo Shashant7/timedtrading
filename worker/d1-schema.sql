@@ -149,3 +149,43 @@ CREATE INDEX IF NOT EXISTS idx_ticker_latest_ts ON ticker_latest (ts);
 CREATE INDEX IF NOT EXISTS idx_ticker_latest_kanban_stage ON ticker_latest (kanban_stage);
 CREATE INDEX IF NOT EXISTS idx_ticker_latest_prev_kanban_stage ON ticker_latest (prev_kanban_stage);
 
+-- -----------------------------------------------------------------------------
+-- Position tracking (execution adapter + replay sync)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS positions (
+  position_id TEXT PRIMARY KEY,
+  ticker TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  status TEXT DEFAULT 'OPEN',
+  total_qty REAL DEFAULT 0,
+  cost_basis REAL DEFAULT 0,
+  stop_loss REAL,
+  take_profit REAL,
+  script_version TEXT,
+  created_at INTEGER,
+  updated_at INTEGER,
+  closed_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_positions_ticker_status ON positions (ticker, status);
+
+-- -----------------------------------------------------------------------------
+-- Users: authenticated users via Cloudflare Access (Google SSO)
+-- Auto-provisioned on first login. Tier gates premium features.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS users (
+  email TEXT PRIMARY KEY,
+  display_name TEXT,
+  role TEXT NOT NULL DEFAULT 'member',   -- admin, member
+  tier TEXT NOT NULL DEFAULT 'free',     -- free, pro, admin
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_login_at INTEGER,
+  expires_at INTEGER                     -- subscription expiry (ms epoch), null = no expiry
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_role ON users (role);
+CREATE INDEX IF NOT EXISTS idx_users_tier ON users (tier);
+

@@ -47,7 +47,7 @@
     <script type="text/babel">
 const { useState, useEffect, useCallback } = React;
 const API_BASE = "";  // same-origin — proxied by Pages Function
-const API_KEY = "AwesomeSauce";
+// Auth via CF Access JWT cookie (sent automatically with credentials: "include")
 
 // ─── Data Hooks ──────────────────────────────────────────────────────────────
 
@@ -291,7 +291,7 @@ function ProposalsPanel({ proposals, onRefresh }) {
   async function handleAction(changeId, action) {
     setProcessing(prev => ({ ...prev, [changeId]: action }));
     try {
-      const res = await fetch(`${API_BASE}/timed/admin/model-approve?key=${API_KEY}&change_id=${encodeURIComponent(changeId)}&action=${action}`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/timed/admin/model-approve?change_id=${encodeURIComponent(changeId)}&action=${action}`, { method: "POST", credentials: "include" });
       const data = await res.json();
       if (data.ok) {
         onRefresh();
@@ -487,7 +487,7 @@ function App() {
 
 const AuthGate = window.TimedAuthGate;
 const modelApp = AuthGate
-  ? <AuthGate apiBase={API} requiredTier="admin">{(user) => <App user={user} />}</AuthGate>
+  ? <AuthGate apiBase={API_BASE} requiredTier="admin">{(user) => <App user={user} />}</AuthGate>
   : <App />;
 ReactDOM.createRoot(document.getElementById("root")).render(modelApp);
     </script>

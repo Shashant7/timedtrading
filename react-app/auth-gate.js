@@ -61,247 +61,121 @@
 
   // ── Login Screen ─────────────────────────────────────────────────────────
   function LoginScreen({ onRetry, error, loading }) {
-    return React.createElement(
-      "div",
-      {
-        style: {
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#0b0e11",
-          fontFamily:
-            '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        },
-      },
-      React.createElement(
-        "div",
-        {
-          style: {
-            width: "100%",
-            maxWidth: "400px",
-            padding: "40px",
-            textAlign: "center",
+    // Detect logout redirect (via sessionStorage flag set by handleLogout)
+    const [showLogoutMsg, setShowLogoutMsg] = React.useState(() => {
+      try {
+        const flag = sessionStorage.getItem("tt_logout");
+        if (flag) { sessionStorage.removeItem("tt_logout"); return true; }
+        return new URLSearchParams(window.location.search).has("logout");
+      } catch { return false; }
+    });
+    React.useEffect(() => {
+      if (showLogoutMsg) {
+        const t = setTimeout(() => setShowLogoutMsg(false), 5000);
+        // Clean URL if ?logout param present
+        try { window.history.replaceState(null, "", window.location.pathname + window.location.hash); } catch {}
+        return () => clearTimeout(t);
+      }
+    }, [showLogoutMsg]);
+
+    const h = React.createElement;
+    const font = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+    // Keyframes for subtle glow animation
+    const styleTag = h("style", null, `
+      @keyframes tt-glow { 0%,100%{box-shadow:0 0 40px rgba(0,200,83,0.15),0 0 80px rgba(0,200,83,0.05)} 50%{box-shadow:0 0 60px rgba(0,200,83,0.25),0 0 120px rgba(0,200,83,0.08)} }
+      @keyframes tt-fade-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+      @keyframes spin { to{transform:rotate(360deg)} }
+      @keyframes tt-pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }
+    `);
+
+    // Google icon SVG
+    const googleIcon = h("svg", { width: "18", height: "18", viewBox: "0 0 24 24" },
+      h("path", { d: "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z", fill: "#4285F4" }),
+      h("path", { d: "M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z", fill: "#34A853" }),
+      h("path", { d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z", fill: "#FBBC05" }),
+      h("path", { d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z", fill: "#EA4335" }),
+    );
+
+    // Chart icon SVG for logo
+    const chartIcon = h("svg", { width: "36", height: "36", viewBox: "0 0 24 24", fill: "none", stroke: "white", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+      h("polyline", { points: "22 7 13.5 15.5 8.5 10.5 2 17" }),
+      h("polyline", { points: "16 7 22 7 22 13" }),
+    );
+
+    return h("div", { style: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "radial-gradient(ellipse at 50% 0%, #111820 0%, #0b0e11 60%)", fontFamily: font, position: "relative", overflow: "hidden" } },
+      styleTag,
+      // Subtle background grid
+      h("div", { style: { position: "absolute", inset: 0, backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.015) 1px, transparent 0)", backgroundSize: "40px 40px", pointerEvents: "none" } }),
+
+      // Main card
+      h("div", { style: { position: "relative", zIndex: 1, width: "100%", maxWidth: "420px", padding: "24px", animation: "tt-fade-in 0.5s ease-out" } },
+
+        // Logout confirmation banner
+        showLogoutMsg && h("div", { style: { marginBottom: "16px", padding: "12px 16px", borderRadius: "12px", background: "rgba(0,200,83,0.08)", border: "1px solid rgba(0,200,83,0.2)", textAlign: "center", fontSize: "13px", color: "#4ade80", animation: "tt-fade-in 0.3s ease-out" } },
+          "You have been signed out successfully."
+        ),
+
+        // Logo + branding
+        h("div", { style: { textAlign: "center", marginBottom: "32px" } },
+          h("div", { style: { width: "72px", height: "72px", borderRadius: "20px", background: "linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", animation: "tt-glow 4s ease-in-out infinite" } }, chartIcon),
+          h("h1", { style: { fontSize: "28px", fontWeight: "700", color: "#f0f2f5", margin: "0 0 8px", letterSpacing: "-0.03em" } }, "Timed Trading"),
+          h("p", { style: { fontSize: "14px", color: "#6b7280", margin: "0", lineHeight: "1.5" } }, "Swing and position trading intelligence"),
+        ),
+
+        // Card
+        h("div", { style: { background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "20px", padding: "32px", backdropFilter: "blur(12px)" } },
+          // Error
+          error && h("div", { style: { background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: "10px", padding: "12px 16px", marginBottom: "20px", fontSize: "13px", color: "#f87171", lineHeight: "1.4" } }, error),
+
+          // Google SSO button
+          h("button", {
+            onClick: onRetry, disabled: loading,
+            style: { width: "100%", padding: "14px 20px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.1)", background: loading ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)", color: loading ? "#6b7280" : "#e5e7eb", fontSize: "14px", fontWeight: "600", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", transition: "all 0.2s", fontFamily: "inherit", letterSpacing: "-0.01em" },
+            onMouseEnter: (e) => { if (!loading) { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; e.currentTarget.style.transform = "translateY(-1px)"; } },
+            onMouseLeave: (e) => { e.currentTarget.style.background = loading ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.transform = "none"; },
           },
-        },
-        // Logo / Title
-        React.createElement(
-          "div",
-          { style: { marginBottom: "40px" } },
-          React.createElement(
-            "div",
-            {
-              style: {
-                width: "64px",
-                height: "64px",
-                borderRadius: "16px",
-                background: "linear-gradient(135deg, #00c853 0%, #00e676 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 20px",
-                boxShadow: "0 8px 32px rgba(0, 200, 83, 0.3)",
-              },
-            },
-            React.createElement(
-              "svg",
-              {
-                width: "32",
-                height: "32",
-                viewBox: "0 0 24 24",
-                fill: "none",
-                stroke: "white",
-                strokeWidth: "2",
-                strokeLinecap: "round",
-                strokeLinejoin: "round",
-              },
-              React.createElement("polyline", {
-                points: "22 7 13.5 15.5 8.5 10.5 2 17",
-              }),
-              React.createElement("polyline", {
-                points: "16 7 22 7 22 13",
-              }),
+            loading
+              ? h("span", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+                  h("span", { style: { width: "16px", height: "16px", border: "2px solid rgba(255,255,255,0.1)", borderTopColor: "#00c853", borderRadius: "50%", animation: "spin 0.8s linear infinite" } }),
+                  "Authenticating...")
+              : h(React.Fragment, null, googleIcon, "Continue with Google"),
+          ),
+
+          // Separator
+          h("div", { style: { display: "flex", alignItems: "center", gap: "12px", margin: "20px 0" } },
+            h("div", { style: { flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" } }),
+            h("span", { style: { fontSize: "11px", color: "#374151", textTransform: "uppercase", letterSpacing: "0.05em" } }, "or"),
+            h("div", { style: { flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" } }),
+          ),
+
+          // One-time login code button
+          h("button", {
+            onClick: onRetry, disabled: loading,
+            style: { width: "100%", padding: "12px 20px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.06)", background: "transparent", color: "#9ca3af", fontSize: "13px", fontWeight: "500", cursor: loading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", transition: "all 0.2s", fontFamily: "inherit" },
+            onMouseEnter: (e) => { if (!loading) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.color = "#d1d5db"; } },
+            onMouseLeave: (e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#9ca3af"; },
+          },
+            h("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+              h("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }),
+              h("polyline", { points: "3 7 12 13 21 7" }),
             ),
+            "Sign in with email code",
           ),
-          React.createElement(
-            "h1",
-            {
-              style: {
-                fontSize: "24px",
-                fontWeight: "700",
-                color: "#e5e7eb",
-                margin: "0 0 8px",
-                letterSpacing: "-0.02em",
-              },
-            },
-            "Timed Trading",
-          ),
-          React.createElement(
-            "p",
-            {
-              style: {
-                fontSize: "14px",
-                color: "#6b7280",
-                margin: "0",
-              },
-            },
-            "Sign in to access your trading dashboard",
+
+          // Session note
+          h("p", { style: { fontSize: "11px", color: "#374151", margin: "20px 0 0", lineHeight: "1.5", textAlign: "center" } },
+            "Your session will be remembered on this device for 7 days."
           ),
         ),
-        // Login card
-        React.createElement(
-          "div",
-          {
-            style: {
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "16px",
-              padding: "32px",
-            },
-          },
-          error &&
-            React.createElement(
-              "div",
-              {
-                style: {
-                  background: "rgba(255, 82, 82, 0.1)",
-                  border: "1px solid rgba(255, 82, 82, 0.2)",
-                  borderRadius: "8px",
-                  padding: "12px",
-                  marginBottom: "20px",
-                  fontSize: "13px",
-                  color: "#ff5252",
-                },
-              },
-              error,
-            ),
-          // Google SSO button (triggers Cloudflare Access)
-          React.createElement(
-            "button",
-            {
-              onClick: onRetry,
-              disabled: loading,
-              style: {
-                width: "100%",
-                padding: "12px 20px",
-                borderRadius: "10px",
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: loading
-                  ? "rgba(255,255,255,0.03)"
-                  : "rgba(255,255,255,0.05)",
-                color: loading ? "#6b7280" : "#e5e7eb",
-                fontSize: "14px",
-                fontWeight: "500",
-                cursor: loading ? "not-allowed" : "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "10px",
-                transition: "all 0.15s",
-                fontFamily: "inherit",
-              },
-              onMouseEnter: (e) => {
-                if (!loading) {
-                  e.target.style.background = "rgba(255,255,255,0.08)";
-                  e.target.style.borderColor = "rgba(255,255,255,0.15)";
-                }
-              },
-              onMouseLeave: (e) => {
-                e.target.style.background = loading
-                  ? "rgba(255,255,255,0.03)"
-                  : "rgba(255,255,255,0.05)";
-                e.target.style.borderColor = "rgba(255,255,255,0.1)";
-              },
-            },
-            // Google icon
-            !loading &&
-              React.createElement(
-                "svg",
-                { width: "18", height: "18", viewBox: "0 0 24 24" },
-                React.createElement("path", {
-                  d: "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z",
-                  fill: "#4285F4",
-                }),
-                React.createElement("path", {
-                  d: "M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z",
-                  fill: "#34A853",
-                }),
-                React.createElement("path", {
-                  d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z",
-                  fill: "#FBBC05",
-                }),
-                React.createElement("path", {
-                  d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z",
-                  fill: "#EA4335",
-                }),
-              ),
-            loading
-              ? React.createElement(
-                  "span",
-                  {
-                    style: {
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    },
-                  },
-                  React.createElement("span", {
-                    style: {
-                      width: "16px",
-                      height: "16px",
-                      border: "2px solid rgba(255,255,255,0.1)",
-                      borderTopColor: "#00c853",
-                      borderRadius: "50%",
-                      animation: "spin 0.8s linear infinite",
-                    },
-                  }),
-                  "Authenticating...",
-                )
-              : "Sign in with Google",
+
+        // Footer
+        h("div", { style: { textAlign: "center", marginTop: "24px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" } },
+          h("svg", { width: "14", height: "14", viewBox: "0 0 24 24", fill: "none", stroke: "#374151", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+            h("rect", { x: "3", y: "11", width: "18", height: "11", rx: "2", ry: "2" }),
+            h("path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }),
           ),
-          // Divider
-          React.createElement(
-            "div",
-            {
-              style: {
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                margin: "20px 0",
-              },
-            },
-            React.createElement("div", {
-              style: {
-                flex: 1,
-                height: "1px",
-                background: "rgba(255,255,255,0.06)",
-              },
-            }),
-            React.createElement(
-              "span",
-              { style: { fontSize: "11px", color: "#4b5563" } },
-              "Secured by Cloudflare Access",
-            ),
-            React.createElement("div", {
-              style: {
-                flex: 1,
-                height: "1px",
-                background: "rgba(255,255,255,0.06)",
-              },
-            }),
-          ),
-          React.createElement(
-            "p",
-            {
-              style: {
-                fontSize: "12px",
-                color: "#4b5563",
-                margin: "0",
-                lineHeight: "1.5",
-              },
-            },
-            "Your session will be remembered on this device for 7 days.",
-          ),
+          h("span", { style: { fontSize: "11px", color: "#374151" } }, "Secured by Cloudflare Access"),
         ),
       ),
     );
@@ -309,7 +183,7 @@
 
   // ── Access Denied Screen ──────────────────────────────────────────────────
   function AccessDeniedScreen({ user, requiredTier }) {
-    const tierLabels = { free: "Free", pro: "Pro", admin: "Admin" };
+    const tierLabels = { free: "Member", pro: "Pro", admin: "Admin" };
     return React.createElement(
       "div",
       {
@@ -623,7 +497,17 @@
 
     const handleLogout = () => {
       clearSession();
-      window.location.reload();
+      // Clear the CF Access JWT cookie via a hidden iframe, then redirect
+      // back to the main site (which triggers the CF Access login page).
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
+      document.body.appendChild(iframe);
+      // Give the iframe time to clear the cookie, then redirect to home
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); } catch {}
+        window.location.href = window.location.origin;
+      }, 1500);
     };
 
     if (compact) {
@@ -729,7 +613,7 @@
                       letterSpacing: "0.04em",
                     },
                   },
-                  user.tier,
+                  user.tier === "free" ? "MEMBER" : user.tier,
                 ),
             ),
             React.createElement(

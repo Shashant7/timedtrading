@@ -19,7 +19,7 @@ export default function ChatInterface({ isOpen, onClose, tickerData, activityDat
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+  const API_BASE = "";  // same-origin — proxied by Pages Function
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

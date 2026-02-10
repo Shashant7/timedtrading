@@ -7060,7 +7060,7 @@
                             const longPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "LONG");
                             const shortPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "SHORT");
                             
-                            // ── Redesigned Position Card (Robinhood-style with SL/EP/TP progress bar) ──
+                            // ── Compact Position Row — reduced size, sorted alphabetically ──
                             const renderCompactCard = (pos) => {
                               const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                               const isLong = dir === "LONG";
@@ -7070,41 +7070,16 @@
                               const pnlOpen = pos.pnlOpen;
                               const retOpenPct = pos.retOpenPct;
                               const stageInfo = getPositionStage(pos);
-                              const qty = pos.qty != null ? Number(pos.qty) : null;
-                              
-                              // Entry date
-                              const entryTs = Number(pos.trade?.entry_ts || pos.trade?.entryTime || 0);
-                              const entryMs = entryTs < 1e12 ? entryTs * 1000 : entryTs;
-                              const entryDate = entryMs > 0 ? new Date(entryMs) : null;
-                              const fmtShortDate = (d) => d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
-                              
-                              // Daily change from ticker data
-                              const prevClose = Number(tickerData?.prev_close || tickerData?.previous_close);
-                              let dayChg = Number(tickerData?.day_change || tickerData?.change);
-                              let dayPct = Number(tickerData?.day_change_pct || tickerData?.change_pct);
-                              if ((!Number.isFinite(dayChg) || !Number.isFinite(dayPct)) && Number.isFinite(currentPrice) && Number.isFinite(prevClose) && prevClose > 0) {
-                                dayChg = currentPrice - prevClose;
-                                dayPct = (dayChg / prevClose) * 100;
-                              }
-                              const dayPositive = Number.isFinite(dayPct) ? dayPct >= 0 : null;
+                              const isPositive = (retOpenPct ?? 0) >= 0;
                               
                               // SL / TP from ticker data or trade
                               const sl = Number(pos.trade?.stop_loss || tickerData?.sl || tickerData?.sl_price || tickerData?.stop_loss) || null;
                               const tp = Number(pos.trade?.take_profit || tickerData?.tp || tickerData?.tp_max_price || tickerData?.tp_target_price) || null;
                               
-                              // Trims from events
-                              const events = pos.events || pos.trade?.history || [];
-                              const trims = events.filter(e => String(e.type || e.action || "").toUpperCase().includes("TRIM"));
-                              
-                              // P&L
-                              const isPositive = (retOpenPct ?? 0) >= 0;
-                              const pnlColor = isPositive ? "#00c853" : "#ff5252";
-                              
-                              // ── SL / EP / TP Progress Bar Calculation ──
-                              // Shows where current price sits between SL and TP, with EP as anchor
+                              // SL/EP/TP progress
                               const hasSLTP = Number.isFinite(sl) && sl > 0 && Number.isFinite(tp) && tp > 0 && Number.isFinite(entryPrice);
-                              let progressPct = null; // 0=SL, 100=TP
-                              let epPct = null;       // where EP sits on the bar
+                              let progressPct = null;
+                              let epPct = null;
                               if (hasSLTP && Number.isFinite(currentPrice)) {
                                 const range = Math.abs(tp - sl);
                                 if (range > 0) {
@@ -7112,7 +7087,6 @@
                                     progressPct = Math.max(-10, Math.min(110, ((currentPrice - sl) / range) * 100));
                                     epPct = ((entryPrice - sl) / range) * 100;
                                   } else {
-                                    // SHORT: SL is above entry, TP is below
                                     progressPct = Math.max(-10, Math.min(110, ((sl - currentPrice) / range) * 100));
                                     epPct = ((sl - entryPrice) / range) * 100;
                                   }
@@ -7126,111 +7100,50 @@
                                   onClick={() => {
                                     setSelectedTicker(pos.ticker);
                                     setSelectedTrade(pos.trade);
+                                    const events = pos.events || pos.trade?.history || [];
                                     const match = trades.find(t => (t.id || t.trade_id) === pos.trade?.id);
                                     const evts = (match?.history?.length ? match.history : events);
                                     setSelectedPositionEvents(Array.isArray(evts) ? evts : []);
                                   }}
-                                  className="w-full text-left py-3 px-1 border-b border-white/[0.03] hover:bg-white/[0.02] transition-all"
+                                  className="w-full text-left py-1.5 px-2 border-b border-white/[0.03] hover:bg-white/[0.02] transition-all flex items-center gap-3"
                                   title="Open in right rail"
                                 >
-                                  {/* Row 1: Ticker + Price + Daily Change | P&L | Stage */}
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[13px] font-semibold text-white">{pos.ticker}</span>
-                                      <span className={`text-[10px] font-medium ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{dir}</span>
-                                      {Number.isFinite(currentPrice) && (
-                                        <span className="text-[12px] text-[#9ca3af] tabular-nums">${currentPrice.toFixed(2)}</span>
-                                      )}
-                                      {dayPositive !== null && Number.isFinite(dayPct) && (
-                                        <span className={`text-[10px] tabular-nums ${dayPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
-                                          {dayPositive ? "+" : ""}{dayPct.toFixed(1)}%
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className={`text-[13px] font-semibold tabular-nums ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
-                                        {pnlOpen != null ? `${isPositive ? "+" : ""}${fmtUsd(pnlOpen)}` : "—"}
-                                      </span>
-                                      <span className={`text-[10px] tabular-nums ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
-                                        {retOpenPct != null ? `${isPositive ? "+" : ""}${retOpenPct.toFixed(2)}%` : ""}
-                                      </span>
-                                      <span className={`text-[9px] px-1.5 py-0.5 rounded ${stageInfo.bg} ${stageInfo.color} font-medium`}>
-                                        {stageInfo.label}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  
-                                  {/* Row 2: SL / EP / TP Progress Bar */}
-                                  {hasSLTP && progressPct !== null ? (
-                                    <div className="mb-2">
-                                      {/* Labels above bar */}
-                                      <div className="flex items-center justify-between text-[9px] mb-1">
-                                        <span className="text-[#ff5252]/70 tabular-nums">SL ${sl.toFixed(2)}</span>
-                                        {Number.isFinite(epPct) && (
-                                          <span className="text-white/50 tabular-nums" style={{ position: "relative", left: `${Math.max(-30, Math.min(30, epPct - 50))}%` }}>
-                                            EP ${entryPrice.toFixed(2)}
-                                          </span>
-                                        )}
-                                        <span className="text-[#00c853]/70 tabular-nums">TP ${tp.toFixed(2)}</span>
-                                      </div>
-                                      {/* Progress bar */}
-                                      <div className="relative h-[8px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
-                                        {/* Gradient fill: red (SL) -> yellow (EP) -> green (TP) */}
-                                        <div 
-                                          className="absolute top-0 left-0 h-full rounded-full transition-all duration-300"
-                                          style={{ 
-                                            width: `${Math.max(0, Math.min(100, progressPct))}%`,
-                                            background: progressPct < (epPct || 50)
-                                              ? `linear-gradient(90deg, #ff5252 0%, #ff9800 100%)`
-                                              : `linear-gradient(90deg, #ff5252 0%, #ffeb3b ${Math.min(100, (epPct / progressPct) * 100)}%, #00c853 100%)`,
-                                          }}
-                                        />
-                                        {/* EP marker (white tick) */}
+                                  {/* Ticker + Dir */}
+                                  <span className="text-[11px] font-bold text-white w-[48px] shrink-0">{pos.ticker}</span>
+                                  <span className={`text-[9px] font-bold w-[10px] shrink-0 ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{isLong ? "L" : "S"}</span>
+                                  {/* Price */}
+                                  <span className="text-[10px] text-[#9ca3af] tabular-nums w-[56px] shrink-0 text-right">
+                                    {Number.isFinite(currentPrice) ? `$${currentPrice.toFixed(2)}` : "—"}
+                                  </span>
+                                  {/* Mini progress bar (SL→TP) */}
+                                  <span className="flex-1 max-w-[120px]">
+                                    {hasSLTP && progressPct !== null ? (
+                                      <span className="block relative h-[4px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                                        <span className="absolute top-0 left-0 h-full rounded-full" style={{
+                                          width: `${Math.max(0, Math.min(100, progressPct))}%`,
+                                          background: progressPct >= (epPct || 50)
+                                            ? "linear-gradient(90deg, #ff9800 0%, #00c853 100%)"
+                                            : "linear-gradient(90deg, #ff5252 0%, #ff9800 100%)",
+                                        }} />
                                         {Number.isFinite(epPct) && epPct > 0 && epPct < 100 && (
-                                          <div 
-                                            className="absolute top-0 h-full"
-                                            style={{ left: `${epPct}%`, width: "2px", background: "white", opacity: 0.6 }}
-                                          />
+                                          <span className="absolute top-0 h-full" style={{ left: `${epPct}%`, width: "1px", background: "white", opacity: 0.5 }} />
                                         )}
-                                        {/* Current price marker (bright dot) */}
-                                        <div 
-                                          className="absolute top-1/2 -translate-y-1/2 rounded-full border-2 border-white"
-                                          style={{ 
-                                            left: `${Math.max(0, Math.min(100, progressPct))}%`,
-                                            width: "10px",
-                                            height: "10px",
-                                            marginLeft: "-5px",
-                                            background: progressPct >= (epPct || 50) ? "#00c853" : "#ff5252",
-                                            boxShadow: `0 0 6px ${progressPct >= (epPct || 50) ? "#00c853" : "#ff5252"}`,
-                                          }}
-                                        />
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    /* Fallback: simple P&L bar if no SL/TP data */
-                                    <div className="relative h-[6px] rounded-full bg-white/[0.04] mb-2 overflow-hidden">
-                                      {(() => {
-                                        const pnlPctCapped = Math.min(10, Math.max(-10, retOpenPct || 0));
-                                        const barWidth = Math.abs(pnlPctCapped) * 10;
-                                        return isPositive ? (
-                                          <div className="absolute left-1/2 top-0 h-full rounded-r-full" style={{ width: `${barWidth / 2}%`, background: `linear-gradient(90deg, ${pnlColor}40, ${pnlColor})` }} />
-                                        ) : (
-                                          <div className="absolute top-0 h-full rounded-l-full" style={{ right: "50%", width: `${barWidth / 2}%`, background: `linear-gradient(270deg, ${pnlColor}40, ${pnlColor})` }} />
-                                        );
-                                      })()}
-                                      <div className="absolute left-1/2 top-0 w-px h-full bg-white/10" />
-                                    </div>
-                                  )}
-                                  
-                                  {/* Row 3: Entry details */}
-                                  <div className="flex items-center gap-3 text-[10px] text-[#6b7280]">
-                                    <span>{fmtShortDate(entryDate)}</span>
-                                    <span className="text-[#9ca3af]">{qty != null ? `${qty} sh` : ""}</span>
-                                    <span>@ ${entryPrice != null ? entryPrice.toFixed(2) : "—"}</span>
-                                    {trims.length > 0 && (
-                                      <span className="text-amber-400/60">{trims.length} trim{trims.length > 1 ? "s" : ""}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="block h-[4px] rounded-full bg-white/[0.04]" />
                                     )}
-                                  </div>
+                                  </span>
+                                  {/* P&L */}
+                                  <span className={`text-[11px] font-semibold tabular-nums w-[64px] text-right shrink-0 ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                                    {pnlOpen != null ? `${isPositive ? "+" : ""}${fmtUsd(pnlOpen)}` : "—"}
+                                  </span>
+                                  <span className={`text-[9px] tabular-nums w-[44px] text-right shrink-0 ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
+                                    {retOpenPct != null ? `${isPositive ? "+" : ""}${retOpenPct.toFixed(1)}%` : ""}
+                                  </span>
+                                  {/* Stage pill */}
+                                  <span className={`text-[8px] px-1 py-px rounded ${stageInfo.bg} ${stageInfo.color} font-medium shrink-0`}>
+                                    {stageInfo.label}
+                                  </span>
                                 </button>
                               );
                             };
@@ -7242,8 +7155,8 @@
                                   <span className="text-[11px] text-[#4b5563]">{openPositionCards.length} open</span>
                                 </div>
                                 <div className="space-y-0">
-                                  {/* All positions sorted by P&L */}
-                                  {[...openPositionCards].sort((a, b) => (b.pnlOpen || 0) - (a.pnlOpen || 0)).map(pos => renderCompactCard(pos))}
+                                  {/* All positions sorted alphabetically */}
+                                  {[...openPositionCards].sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || ""))).map(pos => renderCompactCard(pos))}
                                 </div>
                                 {false && <div>
                                   {/* OLD LONG positions */}
@@ -7744,7 +7657,16 @@
 
                             // Format inline markdown (bold, code, links, etc.)
                             const formatInlineMarkdown = (text) => {
-                              let formatted = text;
+                              // Sanitize: strip dangerous HTML tags and event handlers
+                              let formatted = text
+                                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+                                .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, "")
+                                .replace(/<object\b[^>]*>.*?<\/object>/gi, "")
+                                .replace(/<embed\b[^>]*>/gi, "")
+                                .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "")
+                                .replace(/\bon\w+\s*=\s*[^\s>]*/gi, "")
+                                .replace(/javascript\s*:/gi, "")
+                                .replace(/data\s*:\s*text\/html/gi, "");
 
                               // Bold (**text**)
                               formatted = formatted.replace(

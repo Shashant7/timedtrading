@@ -2232,9 +2232,9 @@
         const phasePct = Number.isFinite(phaseP)
           ? Math.round(Math.max(0, Math.min(1, Math.abs(phaseP))) * 100)
           : null;
-        // Use a warm amber tint for the phase fill so it contrasts against both blue and red backgrounds
+        // Phase fill: teal to match card background green (#14b8a6)
         const phaseFill = phasePct != null
-          ? `linear-gradient(90deg, rgba(245,190,80,0.32) 0%, rgba(245,190,80,0.32) ${phasePct}%, rgba(0,0,0,0) ${phasePct}%, rgba(0,0,0,0) 100%)`
+          ? `linear-gradient(90deg, rgba(20,184,166,0.28) 0%, rgba(20,184,166,0.28) ${phasePct}%, rgba(0,0,0,0) ${phasePct}%, rgba(0,0,0,0) 100%)`
           : null;
         const bgTint = `linear-gradient(0deg, ${tint}, ${tint})`;
         const bgImage = phaseFill ? `${phaseFill}, ${bgTint}` : bgTint;
@@ -10685,9 +10685,9 @@
         };
 
         return (
-          <div className="space-y-2 mb-2">
-            {/* Row 1: Kanban Stages + S&P Sectors (side by side) */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-y-2 lg:gap-x-4">
+          <div className="mb-2">
+            {/* Kanban Stages + Groups + S&P Sectors — compact flow */}
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
               <div className="space-y-1">
                 <div className="text-[10px] text-[#4b5563] font-semibold">
                   Kanban Stages
@@ -10739,6 +10739,60 @@
                     pillLabelWithCount("🚪 Exit", pillCounts?.kanban?.EXIT),
                     filters.kanbanStage === "exit",
                     () => onChange({ kanbanStage: "exit" }),
+                  )}
+                </div>
+              </div>
+
+              {/* Groups — immediately next to Kanban Stages */}
+              <div className="space-y-1">
+                <div className="text-[10px] text-[#4b5563] font-semibold">
+                  Groups
+                </div>
+                <div className="flex gap-2 flex-wrap items-center">
+                  {pill(
+                    pillLabelWithCount("All", pillCounts?.groups?.ALL),
+                    group === "ALL",
+                    () => onChange({ group: "ALL" }),
+                  )}
+                  {pill(
+                    "⭐ Saved",
+                    group === "SAVED",
+                    () => onChange({ group: "SAVED" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("Upticks", pillCounts?.groups?.UPTICKS),
+                    group === "UPTICKS",
+                    () => onChange({ group: "UPTICKS" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("Super Granny", pillCounts?.groups?.SuperGranny),
+                    group === "SuperGranny",
+                    () => onChange({ group: "SuperGranny" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("GRNY", pillCounts?.groups?.GRNY),
+                    group === "GRNY",
+                    () => onChange({ group: "GRNY" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("GRNJ", pillCounts?.groups?.GRNJ),
+                    group === "GRNJ",
+                    () => onChange({ group: "GRNJ" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("GRNI", pillCounts?.groups?.GRNI),
+                    group === "GRNI",
+                    () => onChange({ group: "GRNI" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("Social", pillCounts?.groups?.Social),
+                    group === "Social",
+                    () => onChange({ group: "Social" }),
+                  )}
+                  {pill(
+                    pillLabelWithCount("Other", pillCounts?.groups?.UNGROUPED),
+                    group === "UNGROUPED",
+                    () => onChange({ group: "UNGROUPED" }),
                   )}
                 </div>
               </div>
@@ -10850,66 +10904,6 @@
                     () => onChange({ sector: "Utilities" }),
                   )}
                 </div>
-              </div>
-            </div>
-
-            {/* Row 2: Groups */}
-            <div className="space-y-1">
-              <div className="text-[10px] text-[#4b5563] font-semibold">
-                Groups
-              </div>
-              <div className="flex gap-2 flex-wrap items-center">
-                {pill(
-                  pillLabelWithCount("All", pillCounts?.groups?.ALL),
-                  group === "ALL",
-                  () => onChange({ group: "ALL" }),
-                )}
-                {pill(
-                  "⭐ Saved",
-                  group === "SAVED",
-                  () => onChange({ group: "SAVED" }),
-                )}
-                {pill(
-                  pillLabelWithCount("Upticks", pillCounts?.groups?.UPTICKS),
-                  group === "UPTICKS",
-                  () => onChange({ group: "UPTICKS" }),
-                )}
-                {pill(
-                  pillLabelWithCount(
-                    "Super Granny",
-                    pillCounts?.groups?.SuperGranny,
-                  ),
-                  group === "SuperGranny",
-                  () => onChange({ group: "SuperGranny" }),
-                )}
-                {pill(
-                  pillLabelWithCount("GRNY", pillCounts?.groups?.GRNY),
-                  group === "GRNY",
-                  () => onChange({ group: "GRNY" }),
-                )}
-                {pill(
-                  pillLabelWithCount("GRNJ", pillCounts?.groups?.GRNJ),
-                  group === "GRNJ",
-                  () => onChange({ group: "GRNJ" }),
-                )}
-                {pill(
-                  pillLabelWithCount("GRNI", pillCounts?.groups?.GRNI),
-                  group === "GRNI",
-                  () => onChange({ group: "GRNI" }),
-                )}
-                {pill(
-                  pillLabelWithCount("Social", pillCounts?.groups?.Social),
-                  group === "Social",
-                  () => onChange({ group: "Social" }),
-                )}
-                {pill(
-                  pillLabelWithCount(
-                    "Other",
-                    pillCounts?.groups?.UNGROUPED,
-                  ),
-                  group === "UNGROUPED",
-                  () => onChange({ group: "UNGROUPED" }),
-                )}
               </div>
             </div>
           </div>
@@ -11112,6 +11106,10 @@
             if (ib !== -1) return 1;
             return a.localeCompare(b);
           });
+          // Sort items within each group alphabetically by ticker
+          for (const k of keys) {
+            groups[k].sort((a, b) => String(a?.sym || "").localeCompare(String(b?.sym || "")));
+          }
           return keys.map((k) => ({ group: k, items: groups[k] }));
         }, [rows]);
 
@@ -11148,255 +11146,43 @@
 
         return (
           <>
-            <div className="space-y-4">
+            <div className="space-y-2">
               {grouped.map((g) => (
                 <div key={`active-group-${g.group}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-[12px] font-bold text-[#d1d5db]">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[10px] font-semibold text-[#8b95a5]">
                       {g.group}
                     </div>
-                    <div className="text-[11px] text-[#4b5563]">
+                    <div className="text-[10px] text-[#4b5563]">
                       {g.items.length}
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
+                  {/* ── Compact position rows: ticker | dir | price | SL/TP | progress ── */}
+                  <div className="flex flex-wrap gap-1">
                     {g.items.map((r) => {
                     const mv = getMoveStatusInfo(r.t);
                     const dir = mv.side || getDirection(r.t)?.text || "";
-                    const latest =
-                      allData && typeof allData === "object"
-                        ? allData[r.sym] ||
-                          allData[String(r.sym).toUpperCase()] ||
-                          null
-                        : null;
-                    const curMv = latest ? getMoveStatusInfo(latest) : null;
-                    const statusChanged =
-                      curMv &&
-                      curMv.hasMoveStatus &&
-                      curMv.status &&
-                      curMv.status !== mv.status;
-                    const rrText = r.rr != null ? r.rr.toFixed(2) : "—";
-                    const rpText = r.rp != null ? `#${r.rp}` : "—";
-                    const p =
-                      r.progress != null
-                        ? Math.max(0, Math.min(1, r.progress))
-                        : null;
+                    const isShort = dir === "SHORT";
+                    const p = r.progress != null ? Math.max(0, Math.min(1, r.progress)) : null;
                     const pPct = p != null ? Math.round(p * 100) : null;
-                    const phasePct = Number.isFinite(r.phase)
-                      ? Math.round(r.phase * 100)
-                      : null;
-                    const corridor = r.inCorridor
-                      ? "In corridor"
-                      : "Out of corridor";
-                    const corridorCls = r.inCorridor
-                      ? "text-teal-300"
-                      : "text-yellow-300";
-                    const badges = [
-                      r.prime ? "⭐" : null,
-                      r.flipWatch ? "🎯" : null,
-                      r.momentumElite ? "🔥" : null,
-                      r.sqRelease ? "⚡" : null,
-                      r.inSqueeze ? "🧨" : null,
-                    ].filter(Boolean);
-                    const emojiText = badges.join("");
-                    const pxText =
-                      r.price != null ? `$${r.price.toFixed(2)}` : "—";
-                    const slText = r.sl != null ? `$${r.sl.toFixed(2)}` : "—";
-                    const tpText = r.tp != null ? `$${r.tp.toFixed(2)}` : "—";
-                    const etaText =
-                      r.eta != null ? `${r.eta.toFixed(1)}d` : "—";
-                    const act = actionPill(r?.intent?.action);
-                    const conf = Number(r?.intent?.confidence);
-                    const confPct = Number.isFinite(conf)
-                      ? Math.round(conf * 100)
-                      : null;
-                    const why = Array.isArray(r?.intent?.why)
-                      ? r.intent.why.slice(0, 3)
-                      : [];
-                    const meTip = (() => {
-                      const crit = r.t?.momentum_elite_criteria;
-                      if (!r.momentumElite) return null;
-                      if (!crit || typeof crit !== "object")
-                        return "Momentum Elite";
-                      const c = crit;
-                      const parts = [];
-                      if (c.priceOver4 != null)
-                        parts.push(`Price>=4: ${c.priceOver4 ? "Y" : "N"}`);
-                      if (c.adrOver2 != null)
-                        parts.push(`ADR>=2: ${c.adrOver2 ? "Y" : "N"}`);
-                      if (c.volumeOver2M != null)
-                        parts.push(`Vol>=2M: ${c.volumeOver2M ? "Y" : "N"}`);
-                      if (c.anyMomentumCriteria != null)
-                        parts.push(
-                          `1M>=25%: ${c.anyMomentumCriteria ? "Y" : "N"}`,
-                        );
-                      return parts.length
-                        ? `Momentum Elite • ${parts.join(" • ")}`
-                        : "Momentum Elite";
-                    })();
+                    const pxText = r.price != null ? `$${r.price.toFixed(2)}` : "";
+                    const slText = r.sl != null ? `$${r.sl.toFixed(2)}` : "";
+                    const tpText = r.tp != null ? `$${r.tp.toFixed(2)}` : "";
                     return (
                       <button
                         key={`active-move-${r.sym}`}
-                        className={`w-full text-left rounded-lg border bg-white/[0.02] hover:bg-[#16224a] transition-all px-3 py-2 ${
-                          r.momentumElite
-                            ? "border-purple-500/50 hover:border-purple-400 shadow-[0_0_0_1px_rgba(168,85,247,0.18)]"
-                            : "border-white/[0.06] hover:border-[#3a4aa0]"
-                        }`}
-                        onClick={() => {
-                          if (typeof onSelectTicker === "function")
-                            onSelectTicker(r.sym);
-                        }}
-                        aria-label={`Open ${r.sym} in right rail`}
-                        onMouseLeave={hideHoverTip}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded border border-white/[0.06] hover:border-white/[0.15] bg-white/[0.02] hover:bg-white/[0.05] transition-all text-left"
+                        onClick={() => { if (typeof onSelectTicker === "function") onSelectTicker(r.sym); }}
+                        title={`${r.sym} ${dir} | ${pxText} | SL ${slText} TP ${tpText} | ${pPct != null ? pPct + "%" : "—"}`}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <div className="font-bold text-white">
-                                {r.sym}
-                              </div>
-                              <span className="px-2 py-0.5 rounded bg-teal-500/25 text-teal-300 text-[10px] font-bold border border-teal-500/60 shadow-sm">
-                                OPEN
-                              </span>
-                              <span
-                                className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${act.cls}`}
-                              >
-                                {act.label}
-                                {confPct != null ? (
-                                  <span className="ml-1 opacity-80">
-                                    {confPct}%
-                                  </span>
-                                ) : null}
-                              </span>
-                              <span
-                                className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${mv.pillCls}`}
-                              >
-                                {mv.icon} {mv.status}
-                              </span>
-                              {statusChanged ? (
-                                <span
-                                  className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${curMv.pillCls}`}
-                                  onMouseEnter={(e) =>
-                                    showHoverTip(
-                                      "Live status differs from snapshot",
-                                      e,
-                                    )
-                                  }
-                                  onMouseMove={updateHoverTipPos}
-                                  onMouseLeave={hideHoverTip}
-                                >
-                                  Now: {curMv.icon} {curMv.status}
-                                </span>
-                              ) : null}
-                              {emojiText ? (
-                                <span
-                                  className="px-2 py-0.5 rounded border border-white/[0.06] bg-white/[0.03] text-[10px] font-semibold text-[#d1d5db]"
-                                  onMouseEnter={(e) =>
-                                    meTip ? showHoverTip(meTip, e) : undefined
-                                  }
-                                  onMouseMove={updateHoverTipPos}
-                                  onMouseLeave={hideHoverTip}
-                                >
-                                  {emojiText}
-                                </span>
-                              ) : null}
-                              {dir ? (
-                                <span className="px-2 py-0.5 rounded border border-white/[0.06] bg-white/[0.03] text-[10px] text-[#c8d2ff]">
-                                  {dir}
-                                </span>
-                              ) : null}
-                              <span className="px-2 py-0.5 rounded border border-white/[0.06] bg-white/[0.03] text-[10px] text-[#6b7280]">
-                                Rank {rpText}
-                              </span>
-                              <span className="px-2 py-0.5 rounded border border-white/[0.06] bg-white/[0.03] text-[10px] text-[#6b7280]">
-                                RR {rrText}
-                              </span>
-                              {r.age ? (
-                                <span className="px-2 py-0.5 rounded border border-white/[0.06] bg-white/[0.03] text-[10px] text-[#4b5563]">
-                                  Trigger {r.age} ago
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-1 text-[11px]">
-                              <span className={`font-semibold ${corridorCls}`}>
-                                {corridor}
-                              </span>
-                              {mv.headlineReason ? (
-                                <span className="text-[#4b5563]">
-                                  {" "}
-                                  • {mv.headlineReason}
-                                </span>
-                              ) : null}
-                            </div>
-                            {why.length > 0 ? (
-                              <div className="mt-1 text-[10px] text-[#4b5563]">
-                                {why.join(" • ")}
-                              </div>
-                            ) : null}
-                            <div className="mt-1 text-[10px] text-[#4b5563] flex items-center gap-3 flex-wrap">
-                              <span>
-                                <span className="text-[#6b7280]">Px</span>{" "}
-                                <span className="text-white font-semibold">
-                                  {pxText}
-                                </span>
-                              </span>
-                              <span>
-                                <span className="text-[#6b7280]">SL</span>{" "}
-                                <span className="text-rose-300 font-semibold">
-                                  {slText}
-                                </span>
-                              </span>
-                              <span>
-                                <span className="text-[#6b7280]">TP</span>{" "}
-                                <span className="text-teal-300 font-semibold">
-                                  {tpText}
-                                </span>
-                              </span>
-                              <span>
-                                <span className="text-[#6b7280]">ETA</span>{" "}
-                                <span className="text-[#d1d5db] font-semibold">
-                                  {etaText}
-                                </span>
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex-shrink-0 text-right">
-                            <div className="text-[11px] text-[#6b7280]">
-                              Progress
-                            </div>
-                            <div className="text-[12px] font-bold text-white">
-                              {pPct != null ? `${pPct}%` : "—"}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-2">
-                          {(() => {
-                            const isShort = dir === "SHORT";
-                            const barPct = pPct != null ? pPct : 0;
-                            return (
-                              <>
-                                <div className="h-2 rounded bg-white/[0.03] border border-white/[0.06] overflow-hidden relative">
-                                  <div
-                                    className={`h-full absolute top-0 ${isShort ? "right-0" : "left-0"}`}
-                                    style={{
-                                      width: `${barPct}%`,
-                                      background: pPct != null ? (isShort ? "#e11d48" : "#14b8a6") : "#252b36",
-                                    }}
-                                  />
-                                </div>
-                                <div className="mt-1 flex items-center justify-between text-[10px] text-[#4b5563]">
-                                  <span>
-                                    {phasePct != null ? `Phase ${phasePct}%` : "Phase —"}
-                                  </span>
-                                  <span>
-                                    {r.price != null ? `$${r.price.toFixed(2)}` : "—"}
-                                  </span>
-                                </div>
-                              </>
-                            );
-                          })()}
-                        </div>
+                        <span className="text-[11px] font-bold text-white">{r.sym}</span>
+                        <span className={`text-[9px] font-bold ${isShort ? "text-rose-400" : "text-cyan-400"}`}>{isShort ? "S" : "L"}</span>
+                        {pxText && <span className="text-[10px] text-[#8b95a5] tabular-nums">{pxText}</span>}
+                        {pPct != null && (
+                          <span className="inline-block w-[24px] h-[4px] rounded-full bg-white/[0.06] overflow-hidden">
+                            <span className={`block h-full rounded-full ${pPct >= 80 ? "bg-teal-400" : pPct >= 40 ? "bg-cyan-400/60" : "bg-amber-400/50"}`} style={{ width: `${pPct}%` }} />
+                          </span>
+                        )}
                       </button>
                     );
                     })}
@@ -11421,7 +11207,7 @@
       // ─────────────────────────────────────────────────────────────
       // Shared compact card renderer (used by both Kanban + Viewport)
       // ─────────────────────────────────────────────────────────────
-      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker } = {}) {
+      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker } = {}) {
           const state = String(t?.state || "");
           const htfBull = state.startsWith("HTF_BULL");
           const htfBear = state.startsWith("HTF_BEAR");
@@ -11430,6 +11216,7 @@
           const ltfBear = state.includes("LTF_BEAR");
           const isBullish = htfBull;
           const dir = isBullish ? "LONG" : "SHORT";
+          const sym = String(t?.ticker || "").toUpperCase();
           const biasLabel = (() => {
             if (htfBull && ltfBull) return "LONG";
             if (htfBull && ltfPullback) return "PULLBACK";
@@ -11448,7 +11235,6 @@
             return "bg-slate-500/20 text-slate-200 border-slate-400/50";
           })();
           const stage = String(t?.kanban_stage || "");
-          const sym = String(t?.ticker || "").toUpperCase();
           const flags = t?.flags || {};
           const score = Number(t?.score ?? t?.flip_watch_score ?? t?.weighted_score);
           const price = Number(t?.price ?? t?.close);
@@ -11487,9 +11273,15 @@
             stage === "trim" || stage === "exit";
 
           const entryPriceRaw = numFromAny(t?.entry_price);
-          const entryPrice = isActiveTrade && Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
+          let entryPrice = isActiveTrade && Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
             ? entryPriceRaw
             : null;
+          // Fallback: use open trade's entry price when ticker payload doesn't have it (e.g. ULTA, TT)
+          if (isActiveTrade && (!entryPrice || entryPrice <= 0) && tradeByTicker?.get) {
+            const openTrade = tradeByTicker.get(sym);
+            const ep = openTrade != null ? (Number(openTrade.entryPrice ?? openTrade.entry_price) || 0) : 0;
+            if (ep > 0) entryPrice = ep;
+          }
           const entryChangePct =
             Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(price) && price > 0
               ? dir === "LONG"
@@ -11554,14 +11346,14 @@
                 }
               }}
               className={
-                "w-full text-left rounded-lg cursor-pointer transition-all hover:brightness-110 relative overflow-hidden border " +
+                "w-full text-left rounded-lg cursor-pointer transition-all hover:brightness-110 relative overflow-hidden border flex flex-col " +
                 (dir === "LONG" ? "border-cyan-400/25 " : "border-rose-400/25 ") +
                 pulseCls + " " + (skin?.dayEdgeClass || "")
               }
               style={{
                 backgroundImage: cardBgImage,
                 boxShadow: "0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)",
-                minHeight: "110px",
+                height: "148px",
               }}
             >
               {/* ── Section 1: Header — Ticker + Direction + Price ──────── */}
@@ -11569,13 +11361,14 @@
                 <div className="flex items-center gap-1.5 min-w-0">
                   {toggleSavedTicker && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); toggleSavedTicker(sym); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSavedTicker(sym); }}
+                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                       className={`shrink-0 text-[13px] hover:scale-110 transition-transform ${savedTickers?.has?.(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`}
                       title={savedTickers?.has?.(sym) ? "Remove from Saved" : "Add to Saved"}
                     >&#9733;</button>
                   )}
                   <span className="text-[13px] font-bold text-white shrink-0">{sym}</span>
-                  <span className={`inline-flex items-center justify-center w-[16px] h-[16px] rounded text-[9px] font-black shrink-0 ${dir === "LONG" ? "bg-cyan-400/30 text-cyan-300 ring-1 ring-cyan-400/50" : "bg-rose-500/30 text-rose-300 ring-1 ring-rose-400/50"}`}>{dir === "LONG" ? "L" : "S"}</span>
+                  <span className={`inline-flex items-center justify-center w-[20px] h-[20px] rounded-md text-[10px] font-black shrink-0 ring-2 ${dir === "LONG" ? "bg-cyan-400 text-white ring-cyan-400/80" : "bg-rose-500 text-white ring-rose-400/80"}`} style={dir === "LONG" ? { boxShadow: "0 0 8px rgba(34,211,238,0.4)" } : { boxShadow: "0 0 8px rgba(244,63,94,0.4)" }} title={dir === "LONG" ? "Long" : "Short"}>{dir === "LONG" ? "L" : "S"}</span>
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                   <span className={`px-1 py-px rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
                     {biasLabel}
@@ -11664,7 +11457,27 @@
                 )}
               </div>
 
-              {/* ── Section 4: Progress Bar ─────────────────────────────── */}
+              {/* ── Entry block reason (setup lane due to execution gates) ── */}
+              {stage === "setup" && (t?.__entry_block_reason || t?.__execution_block_reason) && (() => {
+                const raw = String(t.__entry_block_reason || t.__execution_block_reason);
+                // Format smart gate reasons for readability
+                const formatted = raw.split("+").map(r => {
+                  if (r.startsWith("sector_full:")) return r.replace("sector_full:", "Sector full: ");
+                  if (r.startsWith("direction_full:")) return r.replace("direction_full:", "Direction full: ");
+                  if (r.startsWith("correlated:")) return r.replace("correlated:", "Correlated: ");
+                  if (r.startsWith("daily_limit:")) return r.replace("daily_limit:", "Daily limit: ");
+                  return r.replace(/_/g, " ");
+                }).join(", ");
+                return (
+                  <div className="px-2.5 py-0.5 text-[9px] text-amber-300/80 border-b border-white/[0.06]">
+                    <span className="text-[#6b7280]">Blocked:</span>{" "}
+                    <span className="font-semibold">{formatted}</span>
+                  </div>
+                );
+              })()}
+
+              {/* ── Section 4: Progress Bar — pushed to bottom ────────── */}
+              <div className="mt-auto" />
               {(sl != null || tp != null) && (() => {
                 const ep = isActiveTrade ? entryPrice : null;
                 const cp = Number.isFinite(price) && price > 0 ? price : null;
@@ -11996,44 +11809,80 @@
           return null;
         }
 
-        // Daily trade summary (today's closed trades)
+        // Daily activity summary (entries + exits today)
         const todayKey = new Date().toISOString().slice(0, 10);
-        const todayTrades = (trades || []).filter((tr) => {
-          const exitTs = tr.exit_ts ?? tr.exitTs ?? tr.exitTime;
-          if (!Number.isFinite(exitTs)) return false;
-          const ms = exitTs < 1e12 ? exitTs * 1000 : exitTs;
-          return new Date(ms).toISOString().slice(0, 10) === todayKey;
+        const tsToDate = (ts) => {
+          if (!Number.isFinite(ts)) return null;
+          const ms = ts < 1e12 ? ts * 1000 : ts;
+          return new Date(ms).toISOString().slice(0, 10);
+        };
+        // Entries today (opened today)
+        const todayEntries = (trades || []).filter((tr) => {
+          const entryTs = Number(tr.entry_ts ?? tr.entryTime ?? tr.created_at) || 0;
+          return tsToDate(entryTs) === todayKey;
         });
-        const todayWins = todayTrades.filter((t) => String(t?.status || "").toUpperCase() === "WIN").length;
-        const todayLosses = todayTrades.filter((t) => {
+        // Exits today (closed today)
+        const todayExits = (trades || []).filter((tr) => {
+          const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? tr.exitTime) || 0;
+          return tsToDate(exitTs) === todayKey;
+        });
+        const todayWins = todayExits.filter((t) => String(t?.status || "").toUpperCase() === "WIN").length;
+        const todayLosses = todayExits.filter((t) => {
           const s = String(t?.status || "").toUpperCase();
           return s === "LOSS" || s === "FLAT";
         }).length;
-        const todayPnl = todayTrades.reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
+        const todayRealizedPnl = todayExits.reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
+        const todayActivityCount = todayEntries.length + todayExits.length;
+
+        // Open positions stats
+        const openTrades = (trades || []).filter((tr) => {
+          const s = String(tr?.status || "").toUpperCase();
+          return s === "OPEN" || s === "TP_HIT_TRIM";
+        });
+        const openPositionCount = openTrades.length;
+        const openPnl = openTrades.reduce((sum, tr) => {
+          const ep = Number(tr?.entryPrice || tr?.entry_price);
+          const sym = String(tr?.ticker || "").toUpperCase();
+          const tickerObj = tickers.find(t => String(t?.ticker || "").toUpperCase() === sym);
+          const cp = Number(tickerObj?.price ?? tickerObj?.close);
+          if (!Number.isFinite(ep) || !Number.isFinite(cp) || ep <= 0) return sum;
+          const shares = Number(tr?.shares || tr?.total_qty || 0);
+          const dirSign = String(tr?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+          return sum + (cp - ep) * shares * dirSign;
+        }, 0);
+        // Account value: starting capital + realized P&L + open P&L
+        const STARTING_CAPITAL = 100000;
+        const allRealizedPnl = (trades || []).reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
+        const accountValue = STARTING_CAPITAL + allRealizedPnl + openPnl;
 
         return (
-          <div className="mb-4 rounded-xl border-2 border-[var(--tt-border)] p-4" style={{ background: "#13171e" }}>
-            <div className="mb-4">
-              {todayTrades.length > 0 && (
-                <div className="mb-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center gap-4 flex-wrap">
-                  <span className="text-xs font-semibold text-[#6b7280]">Today</span>
-                  <span className="text-sm text-white">{todayTrades.length} trades</span>
-                  <span className="text-sm text-teal-300">{todayWins}W</span>
-                  <span className="text-sm text-rose-300">{todayLosses}L</span>
-                  <span className={`text-sm font-bold ${todayPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                    {todayPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayPnl) : `$${todayPnl.toFixed(2)}`}
-                  </span>
-                </div>
-              )}
-              <div className="flex items-baseline gap-3">
-                <span className="text-[13px] font-medium text-[#d1d5db] tracking-tight">Action Center</span>
-                {kanbanActiveCount > 0 && (
-                  <span className="text-[10px] text-[#6b7280]">{kanbanActiveCount} in pipeline</span>
+          <div className="mb-2">
+            <div className="px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
+              {/* Left: Today Summary — matches right-side font style */}
+              <div className="flex items-center gap-5 text-[11px]">
+                {todayActivityCount > 0 ? (
+                  <>
+                    <span className="text-[#6b7280]">Entries <span className="text-white font-bold tabular-nums">{todayEntries.length}</span></span>
+                    <span className="text-[#6b7280]">Exits <span className="text-white font-bold tabular-nums">{todayExits.length}</span></span>
+                    {todayExits.length > 0 && (
+                      <>
+                        <span className="text-[#6b7280]">W/L <span className="text-teal-400 font-bold tabular-nums">{todayWins}</span><span className="text-[#4b5563]">/</span><span className="text-rose-400 font-bold tabular-nums">{todayLosses}</span></span>
+                        <span className="text-[#6b7280]">Realized <span className={`font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{todayRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`}</span></span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-[#4b5563]">No activity today</span>
                 )}
               </div>
+              {/* Right: Account + Open Positions */}
+              <div className="flex items-center gap-5 text-[11px]">
+                <span className="text-[#6b7280]">Account <span className="text-white font-bold tabular-nums">{typeof fmtUsd === "function" ? fmtUsd(accountValue) : `$${accountValue.toFixed(0)}`}</span></span>
+                <span className="text-[#6b7280]">Realized <span className={`font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{todayRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`}</span></span>
+                <span className="text-[#6b7280]">Open <span className="text-white font-bold tabular-nums">{openPositionCount}</span></span>
+                <span className="text-[#6b7280]">Open P&L <span className={`font-bold tabular-nums ${openPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{openPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(openPnl) : `$${openPnl.toFixed(2)}`}</span></span>
+              </div>
             </div>
-
-            {/* Trading Pipeline removed — redundant with kanban lanes */}
           </div>
         );
       }
@@ -12165,21 +12014,25 @@
             }
           });
 
-          // Sort each lane: best score first (descending), then alphabetical tie-break
-          const sortLane = (arr) => arr.sort((a, b) => {
+          // Sort discovery lanes (setup/enter): best score first, then alpha tie-break
+          const sortByScore = (arr) => arr.sort((a, b) => {
             const sa = Number(a?.score ?? a?.flip_watch_score ?? 0) || 0;
             const sb = Number(b?.score ?? b?.flip_watch_score ?? 0) || 0;
             if (sb !== sa) return sb - sa;
             return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
           });
+          // Sort management lanes (hold/defend/trim/exit): alphabetical ASC
+          const sortAlpha = (arr) => arr.sort((a, b) =>
+            String(a?.ticker || "").localeCompare(String(b?.ticker || ""))
+          );
 
           return {
-            setup: sortLane(setup),
-            enter: sortLane(enter),
-            hold: sortLane(hold),
-            defend: sortLane(defend),
-            trim: sortLane(trim),
-            exit: sortLane(exit),
+            setup: sortByScore(setup),
+            enter: sortByScore(enter),
+            hold: sortAlpha(hold),
+            defend: sortAlpha(defend),
+            trim: sortAlpha(trim),
+            exit: sortAlpha(exit),
           };
         }, [tickers, tradeByTicker]);
 
@@ -12192,8 +12045,8 @@
           exit,
         } = categories;
 
-        // Compact card renderer — delegates to shared top-level function
-        const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker });
+        // Compact card renderer — delegates to shared top-level function (pass tradeByTicker for EP fallback)
+        const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker });
 
         if (
           setup.length === 0 &&
@@ -12220,19 +12073,17 @@
           showDetails,
         }) => {
           const listRef = React.useRef(null);
-          const didRestoreRef = React.useRef(false);
 
-          // Restore scroll position ONCE on mount (prevents auto-jump when Right Rail opens)
+          // Restore horizontal scroll position after every render
+          // (savedTickers toggle causes re-render — don't lose scroll)
           React.useLayoutEffect(() => {
-            if (didRestoreRef.current) return;
             try {
               const el = listRef.current;
               if (!el) return;
               const saved = laneScrollTopRef.current[laneKey];
-              if (Number.isFinite(saved)) el.scrollTop = saved;
-              didRestoreRef.current = true;
+              if (Number.isFinite(saved) && saved > 0) el.scrollLeft = saved;
             } catch {}
-          }, []);
+          });
 
           return (
             <div className="flex items-stretch gap-0 mb-1">
@@ -12264,7 +12115,7 @@
                 {Array.isArray(items) && items.length > 0 ? (
                   <div className="flex gap-1.5">
                     {items
-                      .slice(0, 50)
+                      .slice(0, 80)
                       .map((t) => (
                         <div key={t.ticker || t.symbol || Math.random()} className="w-[280px] shrink-0">
                           {renderCompactCard(t)}
@@ -12286,10 +12137,12 @@
             {/* Legend Bar: Lanes | Badges | Indicators — descriptions inline */}
             <div className="mb-2 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex flex-wrap gap-y-1.5 gap-x-5 text-[10px] text-[#6b7280]">
               {/* ── Lanes ─────────────────────────────── */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[11px] font-semibold text-white/70">Lanes</span>
-                <span className="text-amber-300">📋 Setup</span>
-                <span className="text-teal-300">🎯 Enter</span>
+                <span className="inline-flex items-center gap-1"><span className="text-amber-300">📋 Setup</span><span className="text-[#8b95a5]">Signal valid, awaiting execution window</span></span>
+                <span className="text-white/10">|</span>
+                <span className="inline-flex items-center gap-1"><span className="text-teal-300">🎯 Enter</span><span className="text-[#8b95a5]">All gates clear, system will execute</span></span>
+                <span className="text-white/10">|</span>
                 <span className="text-cyan-300">💎 Hold</span>
                 <span className="text-orange-300">🛡 Defend</span>
                 <span className="text-yellow-300">✂️ Trim</span>
@@ -12339,7 +12192,7 @@
                 <KanbanColumn
                   laneKey="setup"
                   title="Setup"
-                  subtitle="In corridor + pullback - preparing"
+                  subtitle="Entry qualified — awaiting execution window"
                   count={setup.length}
                   icon="📋"
                   color="border-amber-500"
@@ -12349,7 +12202,7 @@
                 <KanbanColumn
                   laneKey="enter"
                   title="Enter"
-                  subtitle="Entry signal - opening position"
+                  subtitle="All gates clear — system will execute"
                   count={enter.length}
                   icon="🎯"
                   color="border-teal-500"
@@ -15386,7 +15239,15 @@
           };
         });
         const thesisAppliedRef = useRef(false);
-        const [selectedTicker, setSelectedTicker] = useState(null);
+        const [selectedTicker, setSelectedTicker] = useState(() => {
+          // Deep link: read ticker from URL hash on initial load
+          try {
+            const hash = window.location.hash;
+            const match = hash.match(/ticker=([^&]+)/);
+            if (match) return decodeURIComponent(match[1]).toUpperCase();
+          } catch {}
+          return null;
+        });
         const [selectedTrail, setSelectedTrail] = useState(null);
         const [hoveredTicker, setHoveredTicker] = useState(null);
         const [journeyHoverPoint, setJourneyHoverPoint] = useState(null);
@@ -15621,11 +15482,13 @@
         // Safe setter for selectedTicker to prevent infinite loops
         const handleTickerSelect = useCallback((ticker) => {
           try {
-            console.log(`[CLICK HANDLER] Setting selectedTicker to:`, ticker);
             setSelectedTicker(ticker);
-            console.log(
-              `[CLICK HANDLER] selectedTicker set, should trigger re-render`,
-            );
+            // Sync URL hash for deep linking / sharing
+            if (ticker) {
+              window.history.replaceState(null, "", `#ticker=${encodeURIComponent(ticker)}`);
+            } else {
+              window.history.replaceState(null, "", window.location.pathname + window.location.search);
+            }
           } catch (error) {
             console.error("Error setting selected ticker:", error);
           }

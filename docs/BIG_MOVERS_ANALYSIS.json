@@ -1,773 +1,865 @@
 {
-  "generated": "2026-02-06T18:58:15.096Z",
+  "generated": "2026-02-10T02:23:05.615Z",
   "config": {
-    "minMovePct": 2,
+    "minMovePct": 3,
     "windowHours": 4,
     "lookbackHours": 4,
-    "since": "2026-02-01T18:56:31",
-    "until": "2026-02-06T18:56:31"
+    "since": "2026-02-08T02:21:37",
+    "until": "2026-02-10T02:21:37"
   },
   "summary": {
-    "totalMoves": 512,
-    "upMoves": 18,
-    "downMoves": 57,
-    "avgMovePct": 4.793998065195254
+    "totalMoves": 466,
+    "upMoves": 41,
+    "downMoves": 9,
+    "avgMovePct": 6.38440393789733
   },
   "upAnalysis": {
     "label": "UP Moves (Bulls)",
-    "count": 18,
-    "avgMovePct": 10.569238065476883,
-    "avgDuration": 170.5,
+    "count": 41,
+    "avgMovePct": 16.586025621930954,
+    "avgDuration": 100.48473333333334,
     "atStart": {
-      "avgHtf": 7.02,
-      "medianHtf": 3.3,
-      "avgLtf": -2.882222222222223,
-      "medianLtf": -6.105,
-      "avgRank": 60.888888888888886,
-      "avgCompletion": 0.2816666666666667,
-      "avgPhase": 0.29611111111111116,
+      "avgHtf": -9.478048780487805,
+      "medianHtf": -22.4,
+      "avgLtf": -5.385365853658539,
+      "medianLtf": -9.3,
+      "avgRank": 0,
+      "avgCompletion": 0.3191463414634147,
+      "avgPhase": 0.6115365853658539,
       "avgRR": null
     },
     "stateDistribution": {
-      "HTF_BULL_LTF_PULLBACK": 9,
-      "HTF_BEAR_LTF_PULLBACK": 1,
-      "HTF_BULL_LTF_BULL": 1,
-      "HTF_BEAR_LTF_BEAR": 7
+      "HTF_BEAR_LTF_BEAR": 17,
+      "HTF_BEAR_LTF_PULLBACK": 12,
+      "HTF_BULL_LTF_PULLBACK": 12
     },
     "flagAnalysis": {
-      "htf_improving_1d": {
-        "count": 12,
-        "pct": 0.6666666666666666
+      "momentum_elite": {
+        "count": 22,
+        "pct": 0.5365853658536586
       },
-      "htf_improving_4h": {
-        "count": 11,
-        "pct": 0.6111111111111112
+      "st_flip_1h": {
+        "count": 5,
+        "pct": 0.12195121951219512
       },
-      "htf_move_4h_ge_5": {
-        "count": 10,
-        "pct": 0.5555555555555556
-      },
-      "flip_watch": {
-        "count": 10,
-        "pct": 0.5555555555555556
-      },
-      "buyable_dip_1h_13_48": {
-        "count": 2,
-        "pct": 0.1111111111111111
+      "st_flip_30m": {
+        "count": 5,
+        "pct": 0.12195121951219512
       }
     },
     "triggerDistribution": {
-      "EMA_CROSS_1H_13_48": 12,
-      "SQUEEZE_RELEASE": 5,
-      "EMA_CROSS_30M_13_48": 1
+      "EMA_CROSS_30M_13_48": 12,
+      "SQUEEZE_RELEASE": 21,
+      "EMA_CROSS_1H_13_48": 5,
+      "NONE": 3
     },
     "preSignalPatterns": {
       "htfImproving": {
-        "count": 7,
-        "pct": 0.3888888888888889
+        "count": 22,
+        "pct": 0.5365853658536586
       },
       "ltfSetup": {
-        "count": 12,
-        "pct": 0.6666666666666666
+        "count": 9,
+        "pct": 0.21951219512195122
       },
       "corridorEntry": {
-        "count": 10,
-        "pct": 0.5555555555555556
+        "count": 14,
+        "pct": 0.34146341463414637
       },
       "squeezeRelease": {
-        "count": 0,
-        "pct": 0
+        "count": 14,
+        "pct": 0.34146341463414637
       },
       "stateTransition": {
-        "count": 12,
-        "pct": 0.6666666666666666
+        "count": 19,
+        "pct": 0.4634146341463415
       }
     }
   },
   "downAnalysis": {
     "label": "DOWN Moves (Bears)",
-    "count": 57,
-    "avgMovePct": 10.53743186748769,
-    "avgDuration": 207,
+    "count": 9,
+    "avgMovePct": 11.993714947639623,
+    "avgDuration": 70.4786,
     "atStart": {
-      "avgHtf": 20.56245614035088,
-      "medianHtf": 27.82,
-      "avgLtf": 3.52719298245614,
-      "medianLtf": 3.54,
-      "avgRank": 72.80701754385964,
-      "avgCompletion": 0.2043859649122807,
-      "avgPhase": 0.3687719298245615,
+      "avgHtf": 16.155555555555555,
+      "medianHtf": -2.9,
+      "avgLtf": 21.144444444444446,
+      "medianLtf": 22.3,
+      "avgRank": 0,
+      "avgCompletion": 0.35177777777777774,
+      "avgPhase": 0.40322222222222226,
       "avgRR": null
     },
     "stateDistribution": {
-      "HTF_BULL_LTF_PULLBACK": 16,
-      "HTF_BULL_LTF_BULL": 30,
-      "HTF_BEAR_LTF_BEAR": 9,
-      "HTF_BEAR_LTF_PULLBACK": 2
+      "HTF_BEAR_LTF_PULLBACK": 5,
+      "HTF_BULL_LTF_BULL": 4
     },
     "flagAnalysis": {
-      "htf_move_4h_ge_5": {
-        "count": 39,
-        "pct": 0.6842105263157895
+      "momentum_elite": {
+        "count": 9,
+        "pct": 1
       },
-      "htf_improving_4h": {
-        "count": 33,
-        "pct": 0.5789473684210527
+      "phase_zone_change": {
+        "count": 5,
+        "pct": 0.5555555555555556
       },
-      "htf_improving_1d": {
-        "count": 28,
-        "pct": 0.49122807017543857
+      "sq30_release": {
+        "count": 1,
+        "pct": 0.1111111111111111
       },
-      "flip_watch": {
-        "count": 17,
-        "pct": 0.2982456140350877
-      },
-      "sq30_on": {
-        "count": 8,
-        "pct": 0.14035087719298245
+      "ema_cross_1h_13_48": {
+        "count": 1,
+        "pct": 0.1111111111111111
       }
     },
     "triggerDistribution": {
-      "SQUEEZE_RELEASE": 28,
-      "EMA_CROSS_1H_13_48": 13,
-      "EMA_CROSS_30M_13_48": 16
+      "SQUEEZE_RELEASE": 9
     },
     "preSignalPatterns": {
       "htfImproving": {
-        "count": 12,
-        "pct": 0.21052631578947367
+        "count": 0,
+        "pct": 0
       },
       "ltfSetup": {
-        "count": 22,
-        "pct": 0.38596491228070173
+        "count": 9,
+        "pct": 1
       },
       "corridorEntry": {
-        "count": 10,
-        "pct": 0.17543859649122806
+        "count": 0,
+        "pct": 0
       },
       "squeezeRelease": {
         "count": 3,
-        "pct": 0.05263157894736842
+        "pct": 0.3333333333333333
       },
       "stateTransition": {
-        "count": 15,
-        "pct": 0.2631578947368421
+        "count": 1,
+        "pct": 0.1111111111111111
       }
     }
   },
   "journeys": [
     {
-      "ticker": "VIX",
+      "ticker": "HIMS",
       "direction": "UP",
-      "movePct": "+19.29%",
-      "duration": "207 min",
-      "startTime": "2026-02-04T14:48:00",
+      "movePct": "+37.61%",
+      "duration": "100 min",
+      "startTime": "2026-02-09T14:30:00",
       "atStart": {
-        "price": "$17.78",
-        "htf": "1.2",
-        "ltf": "8.9",
-        "state": "HTF_BULL_LTF_PULLBACK",
-        "rank": 74,
-        "completion": "7.0%",
-        "phase": "20.0%"
+        "price": "$16.48",
+        "htf": "-33.1",
+        "ltf": "-20.5",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.2%",
+        "phase": "85.1%"
       },
-      "preSignals": [
-        {
-          "ts": "2026-02-04T14:43:00",
-          "htf": "-4.6",
-          "ltf": "13.2",
-          "state": "BEAR_PULLBACK",
-          "flags": "st_flip_3m, htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:44:00",
-          "htf": "5.4",
-          "ltf": "18.0",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:45:00",
-          "htf": "-4.6",
-          "ltf": "6.9",
-          "state": "BEAR_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, flip_watch, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:46:00",
-          "htf": "5.4",
-          "ltf": "18.0",
-          "state": "BULL_BULL",
-          "flags": "position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:47:00",
-          "htf": "-4.6",
-          "ltf": "15.0",
-          "state": "BEAR_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, position_closed_cleared, forced_watch_no_position"
-        }
-      ]
+      "preSignals": []
     },
     {
-      "ticker": "VIX",
+      "ticker": "HIMS",
       "direction": "UP",
-      "movePct": "+18.18%",
-      "duration": "240 min",
-      "startTime": "2026-02-04T13:45:00",
+      "movePct": "+35.31%",
+      "duration": "35 min",
+      "startTime": "2026-02-09T15:35:00",
       "atStart": {
-        "price": "$17.82",
-        "htf": "5.4",
-        "ltf": "3.8",
-        "state": "HTF_BULL_LTF_PULLBACK",
-        "rank": 74,
-        "completion": "7.0%",
-        "phase": "20.0%"
+        "price": "$16.76",
+        "htf": "-33.0",
+        "ltf": "-16.6",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.2%",
+        "phase": "85.1%"
       },
       "preSignals": [
         {
-          "ts": "2026-02-04T13:40:00",
-          "htf": "5.4",
-          "ltf": "7.8",
-          "state": "BULL_PULLBACK",
-          "flags": "buyable_dip, htf_improving_1d, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T13:41:00",
-          "htf": "-4.6",
-          "ltf": "-1.3",
+          "ts": "2026-02-09T15:10:00",
+          "htf": "-33.0",
+          "ltf": "-12.8",
           "state": "BEAR_BEAR",
-          "flags": "ema_cross_3m_13_48, htf_improving_4h, htf_improving_1d, position_closed_cleared, forced_watch_no_position"
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T13:42:00",
-          "htf": "5.4",
-          "ltf": "7.8",
-          "state": "BULL_PULLBACK",
-          "flags": "buyable_dip, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T13:43:00",
-          "htf": "-4.6",
-          "ltf": "-1.3",
+          "ts": "2026-02-09T15:15:00",
+          "htf": "-33.0",
+          "ltf": "-12.8",
           "state": "BEAR_BEAR",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T13:44:00",
-          "htf": "5.4",
-          "ltf": "7.0",
-          "state": "BULL_PULLBACK",
-          "flags": "buyable_dip, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
+          "ts": "2026-02-09T15:20:00",
+          "htf": "-33.0",
+          "ltf": "-11.6",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T15:25:00",
+          "htf": "-33.0",
+          "ltf": "-11.6",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T15:30:00",
+          "htf": "-33.0",
+          "ltf": "-14.9",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         }
       ]
     },
     {
-      "ticker": "SOXL",
-      "direction": "DOWN",
-      "movePct": "-18.05%",
-      "duration": "207 min",
-      "startTime": "2026-02-04T14:48:00",
-      "atStart": {
-        "price": "$60.82",
-        "htf": "32.9",
-        "ltf": "-12.0",
-        "state": "HTF_BULL_LTF_PULLBACK",
-        "rank": 71,
-        "completion": "19.0%",
-        "phase": "23.0%"
-      },
-      "preSignals": [
-        {
-          "ts": "2026-02-04T14:43:00",
-          "htf": "32.9",
-          "ltf": "-12.0",
-          "state": "BULL_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:44:00",
-          "htf": "22.9",
-          "ltf": "-12.0",
-          "state": "BULL_PULLBACK",
-          "flags": "flip_watch, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:45:00",
-          "htf": "22.9",
-          "ltf": "-6.0",
-          "state": "BULL_PULLBACK",
-          "flags": "flip_watch, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:46:00",
-          "htf": "32.9",
-          "ltf": "-12.0",
-          "state": "BULL_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T14:47:00",
-          "htf": "32.9",
-          "ltf": "-12.0",
-          "state": "BULL_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, position_closed_cleared, forced_watch_no_position"
-        }
-      ]
-    },
-    {
-      "ticker": "VIX",
+      "ticker": "HIMS",
       "direction": "UP",
-      "movePct": "+17.57%",
-      "duration": "240 min",
-      "startTime": "2026-02-04T14:15:00",
+      "movePct": "+34.50%",
+      "duration": "70 min",
+      "startTime": "2026-02-09T15:00:00",
       "atStart": {
-        "price": "$18.04",
-        "htf": "-4.6",
-        "ltf": "14.6",
-        "state": "HTF_BEAR_LTF_PULLBACK",
-        "rank": 51,
-        "completion": "4.0%",
-        "phase": "21.0%"
+        "price": "$16.86",
+        "htf": "-33.0",
+        "ltf": "-11.6",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.2%",
+        "phase": "85.1%"
       },
       "preSignals": [
         {
-          "ts": "2026-02-04T14:10:00",
-          "htf": "-4.6",
-          "ltf": "12.1",
-          "state": "BEAR_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, position_closed_cleared, forced_watch_no_position"
+          "ts": "2026-02-09T14:35:00",
+          "htf": "-33.1",
+          "ltf": "-21.3",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T14:11:00",
-          "htf": "-2.0",
-          "ltf": "12.1",
-          "state": "BEAR_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, position_closed_cleared, forced_watch_no_position"
+          "ts": "2026-02-09T14:40:00",
+          "htf": "-33.1",
+          "ltf": "-17.2",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T14:12:00",
-          "htf": "-4.6",
-          "ltf": "12.1",
-          "state": "BEAR_PULLBACK",
-          "flags": "htf_improving_4h, htf_improving_1d, flip_watch, position_closed_cleared, forced_watch_no_position"
+          "ts": "2026-02-09T14:45:00",
+          "htf": "-33.1",
+          "ltf": "-17.2",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T14:13:00",
-          "htf": "5.4",
-          "ltf": "15.1",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
+          "ts": "2026-02-09T14:50:00",
+          "htf": "-33.1",
+          "ltf": "-16.0",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T14:14:00",
-          "htf": "5.4",
-          "ltf": "15.1",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
+          "ts": "2026-02-09T14:55:00",
+          "htf": "-33.1",
+          "ltf": "-16.0",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         }
       ]
     },
     {
-      "ticker": "APLD",
-      "direction": "DOWN",
-      "movePct": "-16.91%",
-      "duration": "195 min",
-      "startTime": "2026-02-04T14:30:00",
-      "atStart": {
-        "price": "$35.90",
-        "htf": "23.0",
-        "ltf": "3.5",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 82,
-        "completion": "18.0%",
-        "phase": "8.0%"
-      },
-      "preSignals": []
-    },
-    {
-      "ticker": "ONDS",
-      "direction": "DOWN",
-      "movePct": "-16.62%",
-      "duration": "225 min",
-      "startTime": "2026-02-04T14:30:00",
-      "atStart": {
-        "price": "$11.19",
-        "htf": "21.2",
-        "ltf": "13.5",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 84,
-        "completion": "2.0%",
-        "phase": "13.0%"
-      },
-      "preSignals": []
-    },
-    {
-      "ticker": "VIX",
+      "ticker": "HIMS",
       "direction": "UP",
-      "movePct": "+15.40%",
-      "duration": "184 min",
-      "startTime": "2026-02-04T15:11:00",
+      "movePct": "+32.19%",
+      "duration": "1 min",
+      "startTime": "2026-02-09T16:35:00",
       "atStart": {
-        "price": "$18.38",
-        "htf": "24.3",
-        "ltf": "24.0",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 82,
-        "completion": "2.0%",
-        "phase": "23.0%"
+        "price": "$17.16",
+        "htf": "-33.0",
+        "ltf": "-15.9",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.2%",
+        "phase": "85.1%"
       },
       "preSignals": [
         {
-          "ts": "2026-02-04T15:06:00",
-          "htf": "22.8",
-          "ltf": "25.1",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T15:07:00",
-          "htf": "15.9",
-          "ltf": "25.1",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T15:08:00",
-          "htf": "14.3",
-          "ltf": "24.0",
-          "state": "BULL_BULL",
-          "flags": "st_flip_30m, htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T15:09:00",
-          "htf": "14.3",
-          "ltf": "18.0",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
-        },
-        {
-          "ts": "2026-02-04T15:10:00",
-          "htf": "14.3",
-          "ltf": "18.0",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_move_4h_ge_5, position_closed_cleared, forced_watch_no_position"
-        }
-      ]
-    },
-    {
-      "ticker": "BE",
-      "direction": "DOWN",
-      "movePct": "-15.24%",
-      "duration": "215 min",
-      "startTime": "2026-02-04T14:30:00",
-      "atStart": {
-        "price": "$162.44",
-        "htf": "34.1",
-        "ltf": "15.7",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 96,
-        "completion": "10.0%",
-        "phase": "44.0%"
-      },
-      "preSignals": []
-    },
-    {
-      "ticker": "SOXL",
-      "direction": "DOWN",
-      "movePct": "-14.89%",
-      "duration": "186 min",
-      "startTime": "2026-02-04T15:09:00",
-      "atStart": {
-        "price": "$58.56",
-        "htf": "32.9",
-        "ltf": "-9.5",
-        "state": "HTF_BULL_LTF_PULLBACK",
-        "rank": 76,
-        "completion": "30.0%",
-        "phase": "19.0%"
-      },
-      "preSignals": [
-        {
-          "ts": "2026-02-04T15:04:00",
-          "htf": "32.9",
-          "ltf": "-9.5",
-          "state": "BULL_PULLBACK",
-          "flags": "move_invalidated, htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch"
-        },
-        {
-          "ts": "2026-02-04T15:05:00",
-          "htf": "22.9",
-          "ltf": "-9.5",
-          "state": "BULL_PULLBACK",
-          "flags": "move_invalidated, flip_watch"
-        },
-        {
-          "ts": "2026-02-04T15:06:00",
-          "htf": "32.9",
-          "ltf": "-9.5",
-          "state": "BULL_PULLBACK",
-          "flags": "move_invalidated, htf_improving_4h, htf_move_4h_ge_5, flip_watch"
-        },
-        {
-          "ts": "2026-02-04T15:07:00",
-          "htf": "22.9",
-          "ltf": "-5.8",
-          "state": "BULL_PULLBACK",
-          "flags": "move_invalidated, flip_watch"
-        },
-        {
-          "ts": "2026-02-04T15:08:00",
-          "htf": "32.9",
-          "ltf": "-9.5",
-          "state": "BULL_PULLBACK",
-          "flags": "st_flip_10m, move_invalidated, htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch"
-        }
-      ]
-    },
-    {
-      "ticker": "LITE",
-      "direction": "DOWN",
-      "movePct": "-14.61%",
-      "duration": "235 min",
-      "startTime": "2026-02-04T14:50:00",
-      "atStart": {
-        "price": "$501.85",
-        "htf": "40.3",
-        "ltf": "20.4",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 67,
-        "completion": "75.0%",
-        "phase": "55.0%"
-      },
-      "preSignals": [
-        {
-          "ts": "2026-02-04T14:45:00",
-          "htf": "39.1",
-          "ltf": "20.4",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h"
-        },
-        {
-          "ts": "2026-02-04T14:46:00",
-          "htf": "39.1",
-          "ltf": "17.0",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h"
-        },
-        {
-          "ts": "2026-02-04T14:47:00",
-          "htf": "39.1",
-          "ltf": "20.4",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h"
-        },
-        {
-          "ts": "2026-02-04T14:48:00",
-          "htf": "40.0",
-          "ltf": "20.1",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h"
-        },
-        {
-          "ts": "2026-02-04T14:49:00",
-          "htf": "40.0",
-          "ltf": "20.2",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_improving_1d"
-        }
-      ]
-    },
-    {
-      "ticker": "AEHR",
-      "direction": "DOWN",
-      "movePct": "-14.37%",
-      "duration": "206 min",
-      "startTime": "2026-02-04T14:39:00",
-      "atStart": {
-        "price": "$27.14",
-        "htf": "37.8",
-        "ltf": "10.6",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 82,
-        "completion": "2.0%",
-        "phase": "5.0%"
-      },
-      "preSignals": [
-        {
-          "ts": "2026-02-04T14:34:00",
-          "htf": "37.8",
-          "ltf": "8.5",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_move_4h_ge_5, forced_enter_now_gate, stage_monotonicity_enforced"
-        },
-        {
-          "ts": "2026-02-04T14:35:00",
-          "htf": "27.8",
-          "ltf": "-9.8",
-          "state": "BULL_PULLBACK",
-          "flags": "flip_watch"
-        },
-        {
-          "ts": "2026-02-04T14:36:00",
-          "htf": "37.8",
-          "ltf": "10.6",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_move_4h_ge_5, forced_enter_now_gate, stage_monotonicity_enforced"
-        },
-        {
-          "ts": "2026-02-04T14:37:00",
-          "htf": "27.8",
-          "ltf": "8.5",
-          "state": "BULL_BULL",
+          "ts": "2026-02-09T16:10:29",
+          "htf": "-21.6",
+          "ltf": "-12.8",
+          "state": "BEAR_BEAR",
           "flags": "—"
         },
         {
-          "ts": "2026-02-04T14:38:00",
-          "htf": "37.8",
-          "ltf": "8.5",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h, htf_move_4h_ge_5"
+          "ts": "2026-02-09T16:15:00",
+          "htf": "-33.0",
+          "ltf": "-11.5",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T16:20:00",
+          "htf": "-33.0",
+          "ltf": "-11.5",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T16:25:00",
+          "htf": "-33.0",
+          "ltf": "-11.5",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T16:30:00",
+          "htf": "-33.0",
+          "ltf": "-15.4",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         }
       ]
     },
     {
-      "ticker": "IREN",
-      "direction": "DOWN",
-      "movePct": "-13.73%",
-      "duration": "215 min",
-      "startTime": "2026-02-04T14:30:00",
+      "ticker": "HIMS",
+      "direction": "UP",
+      "movePct": "+30.25%",
+      "duration": "11 min",
+      "startTime": "2026-02-09T16:25:00",
       "atStart": {
-        "price": "$51.06",
-        "htf": "21.5",
-        "ltf": "-12.1",
-        "state": "HTF_BULL_LTF_PULLBACK",
-        "rank": 81,
-        "completion": "2.0%",
-        "phase": "10.0%"
-      },
-      "preSignals": []
-    },
-    {
-      "ticker": "RKLB",
-      "direction": "DOWN",
-      "movePct": "-13.63%",
-      "duration": "215 min",
-      "startTime": "2026-02-04T14:30:00",
-      "atStart": {
-        "price": "$80.22",
-        "htf": "22.0",
-        "ltf": "14.9",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 76,
-        "completion": "34.0%",
-        "phase": "12.0%"
-      },
-      "preSignals": []
-    },
-    {
-      "ticker": "LITE",
-      "direction": "DOWN",
-      "movePct": "-12.29%",
-      "duration": "225 min",
-      "startTime": "2026-02-04T15:00:00",
-      "atStart": {
-        "price": "$488.55",
-        "htf": "41.1",
-        "ltf": "19.9",
-        "state": "HTF_BULL_LTF_BULL",
-        "rank": 66,
-        "completion": "68.0%",
-        "phase": "53.0%"
+        "price": "$17.41",
+        "htf": "-33.0",
+        "ltf": "-11.5",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.2%",
+        "phase": "85.1%"
       },
       "preSignals": [
         {
-          "ts": "2026-02-04T14:55:00",
-          "htf": "30.5",
-          "ltf": "15.8",
-          "state": "BULL_BULL",
-          "flags": "htf_move_4h_ge_5"
+          "ts": "2026-02-09T16:05:00",
+          "htf": "-33.0",
+          "ltf": "-11.5",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T14:56:00",
-          "htf": "30.5",
-          "ltf": "16.8",
-          "state": "BULL_BULL",
-          "flags": "htf_move_4h_ge_5"
+          "ts": "2026-02-09T16:10:00",
+          "htf": "-33.0",
+          "ltf": "-11.5",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T14:57:00",
-          "htf": "40.5",
-          "ltf": "15.8",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h"
+          "ts": "2026-02-09T16:10:29",
+          "htf": "-21.6",
+          "ltf": "-12.8",
+          "state": "BEAR_BEAR",
+          "flags": "—"
         },
         {
-          "ts": "2026-02-04T14:58:00",
-          "htf": "40.5",
-          "ltf": "17.0",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_4h"
+          "ts": "2026-02-09T16:15:00",
+          "htf": "-33.0",
+          "ltf": "-11.5",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T14:59:00",
-          "htf": "37.1",
-          "ltf": "17.0",
-          "state": "BULL_BULL",
-          "flags": "htf_improving_1d"
+          "ts": "2026-02-09T16:20:00",
+          "htf": "-33.0",
+          "ltf": "-11.5",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         }
       ]
     },
     {
-      "ticker": "BE",
-      "direction": "DOWN",
-      "movePct": "-12.19%",
-      "duration": "175 min",
-      "startTime": "2026-02-04T15:10:00",
+      "ticker": "HIMS",
+      "direction": "UP",
+      "movePct": "+29.73%",
+      "duration": "16 min",
+      "startTime": "2026-02-09T17:05:00",
       "atStart": {
-        "price": "$156.79",
-        "htf": "40.0",
-        "ltf": "-4.0",
-        "state": "HTF_BULL_LTF_PULLBACK",
-        "rank": 87,
-        "completion": "0.0%",
-        "phase": "38.0%"
+        "price": "$17.48",
+        "htf": "-33.0",
+        "ltf": "-12.7",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.2%",
+        "phase": "85.1%"
       },
       "preSignals": [
         {
-          "ts": "2026-02-04T15:05:00",
-          "htf": "40.0",
-          "ltf": "-1.7",
-          "state": "BULL_PULLBACK",
-          "flags": "momentum_elite, htf_improving_4h, htf_move_4h_ge_5, flip_watch, stage_monotonicity_enforced"
+          "ts": "2026-02-09T16:40:00",
+          "htf": "-33.0",
+          "ltf": "-13.6",
+          "state": "BEAR_BEAR",
+          "flags": "—"
         },
         {
-          "ts": "2026-02-04T15:06:00",
-          "htf": "30.0",
-          "ltf": "-6.0",
-          "state": "BULL_PULLBACK",
-          "flags": "momentum_elite, flip_watch, stage_monotonicity_enforced"
+          "ts": "2026-02-09T16:45:00",
+          "htf": "-33.0",
+          "ltf": "-13.6",
+          "state": "BEAR_BEAR",
+          "flags": "—"
         },
         {
-          "ts": "2026-02-04T15:07:00",
-          "htf": "30.0",
-          "ltf": "-5.9",
-          "state": "BULL_PULLBACK",
-          "flags": "momentum_elite, flip_watch, stage_monotonicity_enforced"
+          "ts": "2026-02-09T16:50:00",
+          "htf": "-33.0",
+          "ltf": "-9.1",
+          "state": "BEAR_BEAR",
+          "flags": "—"
         },
         {
-          "ts": "2026-02-04T15:08:00",
-          "htf": "40.0",
-          "ltf": "-5.5",
-          "state": "BULL_PULLBACK",
-          "flags": "momentum_elite, htf_improving_4h, htf_move_4h_ge_5, flip_watch, stage_monotonicity_enforced"
+          "ts": "2026-02-09T16:55:00",
+          "htf": "-33.0",
+          "ltf": "-7.3",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
         },
         {
-          "ts": "2026-02-04T15:09:00",
-          "htf": "40.0",
-          "ltf": "-3.8",
-          "state": "BULL_PULLBACK",
-          "flags": "momentum_elite, st_flip_30m, htf_improving_4h, htf_improving_1d, htf_move_4h_ge_5, flip_watch, stage_monotonicity_enforced"
+          "ts": "2026-02-09T17:00:00",
+          "htf": "-33.0",
+          "ltf": "-12.7",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        }
+      ]
+    },
+    {
+      "ticker": "APP",
+      "direction": "UP",
+      "movePct": "+18.47%",
+      "duration": "240 min",
+      "startTime": "2026-02-09T18:45:25",
+      "atStart": {
+        "price": "$408.55",
+        "htf": "-5.2",
+        "ltf": "14.3",
+        "state": "HTF_BEAR_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "33.5%",
+        "phase": "94.8%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T18:30:26",
+          "htf": "-5.2",
+          "ltf": "14.3",
+          "state": "BEAR_PULLBACK",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T18:30:26",
+          "htf": "-5.2",
+          "ltf": "14.3",
+          "state": "BEAR_PULLBACK",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T18:35:00",
+          "htf": "-3.3",
+          "ltf": "9.8",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T18:40:00",
+          "htf": "-3.3",
+          "ltf": "11.0",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T18:45:00",
+          "htf": "-3.3",
+          "ltf": "8.0",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        }
+      ]
+    },
+    {
+      "ticker": "RDDT",
+      "direction": "UP",
+      "movePct": "+18.45%",
+      "duration": "80 min",
+      "startTime": "2026-02-09T14:30:00",
+      "atStart": {
+        "price": "$138.45",
+        "htf": "-25.7",
+        "ltf": "-15.2",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.4%",
+        "phase": "77.9%"
+      },
+      "preSignals": []
+    },
+    {
+      "ticker": "RDDT",
+      "direction": "UP",
+      "movePct": "+17.30%",
+      "duration": "30 min",
+      "startTime": "2026-02-09T15:20:00",
+      "atStart": {
+        "price": "$139.81",
+        "htf": "-25.8",
+        "ltf": "-18.2",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.4%",
+        "phase": "77.9%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T14:55:00",
+          "htf": "-25.7",
+          "ltf": "-17.7",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:00:00",
+          "htf": "-25.8",
+          "ltf": "-18.2",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:05:00",
+          "htf": "-25.8",
+          "ltf": "-18.2",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:10:00",
+          "htf": "-25.8",
+          "ltf": "-7.4",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:15:00",
+          "htf": "-25.8",
+          "ltf": "-7.4",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        }
+      ]
+    },
+    {
+      "ticker": "RDDT",
+      "direction": "UP",
+      "movePct": "+16.99%",
+      "duration": "10 min",
+      "startTime": "2026-02-09T15:40:00",
+      "atStart": {
+        "price": "$140.18",
+        "htf": "-25.8",
+        "ltf": "-6.8",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.4%",
+        "phase": "77.9%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T15:15:00",
+          "htf": "-25.8",
+          "ltf": "-7.4",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:20:00",
+          "htf": "-25.8",
+          "ltf": "-18.2",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:25:00",
+          "htf": "-25.8",
+          "ltf": "-18.2",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:30:00",
+          "htf": "-25.8",
+          "ltf": "-10.4",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:35:00",
+          "htf": "-25.8",
+          "ltf": "-10.4",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        }
+      ]
+    },
+    {
+      "ticker": "RDDT",
+      "direction": "UP",
+      "movePct": "+16.59%",
+      "duration": "31 min",
+      "startTime": "2026-02-09T17:25:00",
+      "atStart": {
+        "price": "$140.66",
+        "htf": "-26.1",
+        "ltf": "-17.2",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.4%",
+        "phase": "77.9%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T17:00:38",
+          "htf": "-20.5",
+          "ltf": "-13.6",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T17:05:00",
+          "htf": "-26.1",
+          "ltf": "-5.8",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T17:10:00",
+          "htf": "-26.1",
+          "ltf": "-9.4",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T17:15:00",
+          "htf": "-26.1",
+          "ltf": "-11.1",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T17:20:00",
+          "htf": "-26.1",
+          "ltf": "-16.1",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        }
+      ]
+    },
+    {
+      "ticker": "RDDT",
+      "direction": "UP",
+      "movePct": "+16.52%",
+      "duration": "26 min",
+      "startTime": "2026-02-09T17:30:00",
+      "atStart": {
+        "price": "$140.75",
+        "htf": "-26.1",
+        "ltf": "-15.6",
+        "state": "HTF_BEAR_LTF_BEAR",
+        "rank": 0,
+        "completion": "27.4%",
+        "phase": "77.9%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T17:05:00",
+          "htf": "-26.1",
+          "ltf": "-5.8",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T17:10:00",
+          "htf": "-26.1",
+          "ltf": "-9.4",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T17:15:00",
+          "htf": "-26.1",
+          "ltf": "-11.1",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T17:20:00",
+          "htf": "-26.1",
+          "ltf": "-16.1",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T17:25:00",
+          "htf": "-26.1",
+          "ltf": "-17.2",
+          "state": "BEAR_BEAR",
+          "flags": "momentum_elite"
+        }
+      ]
+    },
+    {
+      "ticker": "APP",
+      "direction": "UP",
+      "movePct": "+15.40%",
+      "duration": "236 min",
+      "startTime": "2026-02-09T18:19:23",
+      "atStart": {
+        "price": "$408.55",
+        "htf": "-5.2",
+        "ltf": "14.3",
+        "state": "HTF_BEAR_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "33.5%",
+        "phase": "94.8%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T18:00:00",
+          "htf": "-3.3",
+          "ltf": "16.4",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T18:05:00",
+          "htf": "-3.3",
+          "ltf": "15.1",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T18:08:24",
+          "htf": "-5.2",
+          "ltf": "14.3",
+          "state": "BEAR_PULLBACK",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T18:10:00",
+          "htf": "-3.3",
+          "ltf": "12.8",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T18:15:00",
+          "htf": "-3.3",
+          "ltf": "11.0",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        }
+      ]
+    },
+    {
+      "ticker": "RDDT",
+      "direction": "UP",
+      "movePct": "+15.33%",
+      "duration": "6 min",
+      "startTime": "2026-02-09T16:55:00",
+      "atStart": {
+        "price": "$142.20",
+        "htf": "-25.8",
+        "ltf": "1.6",
+        "state": "HTF_BEAR_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "27.4%",
+        "phase": "77.9%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T16:30:00",
+          "htf": "-25.8",
+          "ltf": "3.4",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T16:35:00",
+          "htf": "-25.8",
+          "ltf": "3.4",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T16:40:00",
+          "htf": "-25.8",
+          "ltf": "3.4",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T16:45:00",
+          "htf": "-25.8",
+          "ltf": "3.4",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        },
+        {
+          "ts": "2026-02-09T16:50:00",
+          "htf": "-25.8",
+          "ltf": "3.4",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
+        }
+      ]
+    },
+    {
+      "ticker": "RDDT",
+      "direction": "UP",
+      "movePct": "+15.07%",
+      "duration": "11 min",
+      "startTime": "2026-02-09T16:15:00",
+      "atStart": {
+        "price": "$142.53",
+        "htf": "-25.8",
+        "ltf": "1.3",
+        "state": "HTF_BEAR_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "27.4%",
+        "phase": "77.9%"
+      },
+      "preSignals": [
+        {
+          "ts": "2026-02-09T15:50:28",
+          "htf": "-20.5",
+          "ltf": "-13.6",
+          "state": "BEAR_BEAR",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T15:55:00",
+          "htf": "-25.8",
+          "ltf": "1.3",
+          "state": "BEAR_PULLBACK",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T16:00:00",
+          "htf": "-25.8",
+          "ltf": "1.6",
+          "state": "BEAR_PULLBACK",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T16:05:00",
+          "htf": "-25.8",
+          "ltf": "1.6",
+          "state": "BEAR_PULLBACK",
+          "flags": "—"
+        },
+        {
+          "ts": "2026-02-09T16:10:00",
+          "htf": "-25.8",
+          "ltf": "1.3",
+          "state": "BEAR_PULLBACK",
+          "flags": "momentum_elite"
         }
       ]
     }

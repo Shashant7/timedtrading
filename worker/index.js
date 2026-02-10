@@ -2228,8 +2228,21 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       ? (phase_10m >= 75 || phase_30m >= 75)
       : (phase_10m <= -75 || phase_30m <= -75));
     
-    const completionToTrimTp = computeCompletionToTier(tickerData, "TRIM");
-    const isNearTp = completionToTrimTp >= 0.85 || completion >= 0.85;
+    // POSITION-AWARE COMPLETION: Use actual entry-to-TP progress, not indicator
+    // completion (which measures trigger-to-TP and can be misleadingly high for
+    // positions that just entered near the current indicator level).
+    const positionTP = Number(openPosition.tp);
+    let positionCompletion = 0;
+    if (Number.isFinite(entryPrice) && Number.isFinite(positionTP) && Number.isFinite(currentPrice) && entryPrice > 0) {
+      const range = Math.abs(positionTP - entryPrice);
+      if (range > 0) {
+        positionCompletion = direction === "LONG"
+          ? (currentPrice - entryPrice) / range
+          : (entryPrice - currentPrice) / range;
+        positionCompletion = Math.max(0, Math.min(1, positionCompletion));
+      }
+    }
+    const isNearTp = positionCompletion >= 0.85;
     const isPnlExtreme = pnlPct >= 5;
     
     // SuperTrend flip against direction: preceded 21% of pullbacks in journey data
@@ -2243,7 +2256,15 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // This is a natural trim point — the probabilistic edge has been captured
     const gateCompleted = (tickerData?.active_gates || []).some(g => g.completed);
     
-    if (isRsiExtreme || isFuelCritical || isPhaseExtreme || isNearTp || isPnlExtreme || stFlipAgainst || gateCompleted) {
+    // POSITION AGE GUARD: Don't trim brand-new positions.
+    // Indicator-level signals (RSI extreme, fuel critical, phase extreme) can fire
+    // immediately after entry because they reflect the broader move, not the position.
+    // Give the position at least 30 min to develop before trimming — unless P&L is
+    // already extreme (>=5%) or actual position completion is near TP.
+    const trimGuardActive = positionAgeMin < 30 && pnlPct < 3.0;
+    const trimSignal = isRsiExtreme || isFuelCritical || isPhaseExtreme || isNearTp || isPnlExtreme || stFlipAgainst || gateCompleted;
+    
+    if (trimSignal && !trimGuardActive) {
       tickerData.__trim_reason = isRsiExtreme ? "rsi_extreme" : 
                                   isFuelCritical ? "fuel_critical" :
                                   isPhaseExtreme ? "phase_extreme" :
@@ -2334,7 +2355,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
   
   // ═══════════════════════════════════════════════════════════════════════════
   // DISCOVERY MODE: No position, evaluate entry opportunity
-  // 7-Lane Flow: watch → setup → enter
+  // Lane semantics:
+  //   SETUP  = qualifiesForEnter passes (good signal, confirmation, room to run)
+  //            BUT execution gates may block (position limits, RTH, cooldowns).
+  //   ENTER  = qualifiesForEnter passes AND execution gates are clear.
+  //            The system WILL enter on the next scoring cycle.
   // ═══════════════════════════════════════════════════════════════════════════
   
   // Check entry qualification using consolidated criteria
@@ -2351,6 +2376,18 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     if (pm && pm.direction === "BULLISH" && pm.bestBull?.conf > 0.6) {
       tickerData.__entry_confidence = "high";
       tickerData.__entry_reason = (tickerData.__entry_reason || "") + ` +pattern:${pm.bestBull.name}`;
+    }
+    // ── Execution readiness check ──
+    // If execution gates would block, show as "setup" (qualified but blocked).
+    // executionReady is injected by processTradeSimulation / scoring cron when
+    // it confirms RTH, position limits, cooldowns, and cash are all clear.
+    // When called from read-time recompute (no execution context), we trust the
+    // stored __execution_ready flag if present, otherwise default to "enter".
+    const execReady = tickerData.__execution_ready;
+    if (execReady === false) {
+      // Signal is valid but execution blocked — show WHY in the UI
+      tickerData.__setup_reason = `entry_qualified_but_blocked:${tickerData.__execution_block_reason || "limits"}`;
+      return "setup";
     }
     return "enter";
   }
@@ -6150,12 +6187,33 @@ async function processTradeSimulation(
       lastEnterSide === direction;
 
     const pxNow = Number(tickerData?.price);
-    const entryPxCandidate =
-      Number(tickerData?.entry_price) ||
-      Number(tickerData?.entry_ref) ||
-      Number(tickerData?.trigger_price) ||
-      pxNow ||
-      null;
+    // CRITICAL: For LIVE entries, always use the current market price.
+    // tickerData.entry_price can be hours/days stale (set when signal first fired).
+    // For REPLAY, use the stored entry_price since pxNow is the replay candle close.
+    let entryPxCandidate;
+    if (isReplay) {
+      entryPxCandidate =
+        Number(tickerData?.entry_price) ||
+        Number(tickerData?.entry_ref) ||
+        Number(tickerData?.trigger_price) ||
+        pxNow ||
+        null;
+    } else {
+      // Live mode: prefer current market price, with staleness guard
+      const storedEntryPx = Number(tickerData?.entry_price);
+      if (Number.isFinite(pxNow) && pxNow > 0) {
+        entryPxCandidate = pxNow;
+        // Log warning if stored entry_price diverges significantly from market
+        if (Number.isFinite(storedEntryPx) && storedEntryPx > 0) {
+          const divergePct = Math.abs(storedEntryPx - pxNow) / pxNow * 100;
+          if (divergePct > 1) {
+            console.warn(`[ENTRY_PRICE_STALE] ${sym}: stored entry_price=$${storedEntryPx.toFixed(2)} vs market=$${pxNow.toFixed(2)} (${divergePct.toFixed(1)}% divergence, using market)`);
+          }
+        }
+      } else {
+        entryPxCandidate = storedEntryPx || Number(tickerData?.trigger_price) || null;
+      }
+    }
 
     const move =
       tickerData?.move_status && typeof tickerData.move_status === "object"
@@ -6928,43 +6986,87 @@ async function processTradeSimulation(
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // GLOBAL POSITION LIMITS: Prevent over-trading
+    // SMART ENTRY GATES: Concentration, correlation, and daily safety net
     // ─────────────────────────────────────────────────────────────────────────
-    // DATA: 375 trades on Feb 5 was wildly overtrading. Quality over quantity.
-    const MAX_OPEN_POSITIONS = 8;   // Max concurrent positions (was 15)
-    const MAX_DAILY_ENTRIES = 5;    // Max new entries per day (was 8)
+    // Instead of a hard MAX_OPEN_POSITIONS cap, we use intelligent gates:
+    //   Gate 1: Sector concentration — max 3 positions per sector
+    //   Gate 2: Directional concentration — max 5 same-direction positions
+    //   Gate 3: Correlation guard — block if highly correlated with existing
+    //   Safety net: MAX_DAILY_ENTRIES to prevent runaway crons
+    const MAX_PER_SECTOR = 3;           // max open positions in one sector
+    const MAX_SAME_DIRECTION = 5;       // max positions in same direction (long/short)
+    const CORRELATION_SECTOR_THRESHOLD = 2; // if 2+ positions already in same sector, treat as correlated
+    const MAX_DAILY_ENTRIES = 10;       // safety net (up from 5)
     
-    let positionLimitBlocked = false;
+    let smartGateBlocked = false;
+    let smartGateReason = null;
     const db = env?.DB;
-    // IMPORTANT: Skip position limits entirely during replay (we're processing historical data)
+    // Skip smart gates during replay (processing historical data)
     if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && db && !isReplay) {
       try {
-        // Check current open position count
-        const countResult = await db.prepare(
-          `SELECT COUNT(*) as cnt FROM positions WHERE status = 'OPEN'`
-        ).first();
-        const openCount = Number(countResult?.cnt) || 0;
+        // Query all open positions with their direction and ticker for sector lookup
+        const openPosResult = await db.prepare(
+          `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
+        ).all();
+        const openPositions = openPosResult?.results || [];
         
-        if (openCount >= MAX_OPEN_POSITIONS) {
-          console.log(`[POSITION_LIMIT] Blocked entry for ${sym}: ${openCount} open positions >= ${MAX_OPEN_POSITIONS} max`);
-          positionLimitBlocked = true;
+        // Determine candidate's direction and sector
+        const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
+        const candidateDir = entryPath.includes("short") ? "SHORT" : "LONG";
+        const candidateSector = getSector(sym) || "UNKNOWN";
+        
+        // Gate 1: Sector concentration
+        let sectorCount = 0;
+        for (const pos of openPositions) {
+          const posSector = getSector(String(pos.ticker).toUpperCase()) || "UNKNOWN";
+          if (posSector === candidateSector && candidateSector !== "UNKNOWN") sectorCount++;
+        }
+        if (sectorCount >= MAX_PER_SECTOR) {
+          smartGateBlocked = true;
+          smartGateReason = `sector_full:${sectorCount}/${MAX_PER_SECTOR} ${candidateSector}`;
+          console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
         }
         
-        // Check daily entry count
-        if (!positionLimitBlocked) {
+        // Gate 2: Directional concentration
+        if (!smartGateBlocked) {
+          let dirCount = 0;
+          for (const pos of openPositions) {
+            if (String(pos.direction).toUpperCase() === candidateDir) dirCount++;
+          }
+          if (dirCount >= MAX_SAME_DIRECTION) {
+            smartGateBlocked = true;
+            smartGateReason = `direction_full:${dirCount}/${MAX_SAME_DIRECTION} ${candidateDir}`;
+            console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
+          }
+        }
+        
+        // Gate 3: Correlation guard (sector proxy)
+        // If 2+ positions already in same sector, require higher entry quality
+        if (!smartGateBlocked && sectorCount >= CORRELATION_SECTOR_THRESHOLD) {
+          const eqScore = Number(tickerData?.entry_quality?.score || tickerData?.__entry_quality) || 0;
+          const requiredQuality = 75; // higher bar when sector is already represented
+          if (eqScore > 0 && eqScore < requiredQuality) {
+            smartGateBlocked = true;
+            smartGateReason = `correlated:${sectorCount} in ${candidateSector}, need quality>=${requiredQuality} (got ${eqScore})`;
+            console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
+          }
+        }
+        
+        // Safety net: daily entry count
+        if (!smartGateBlocked) {
           const today = new Date().toISOString().slice(0, 10);
           const dailyResult = await db.prepare(
             `SELECT COUNT(*) as cnt FROM execution_actions WHERE type = 'ENTRY' AND day = ?`
           ).bind(today).first();
           const dailyCount = Number(dailyResult?.cnt) || 0;
-          
           if (dailyCount >= MAX_DAILY_ENTRIES) {
-            console.log(`[DAILY_LIMIT] Blocked entry for ${sym}: ${dailyCount} entries today >= ${MAX_DAILY_ENTRIES} max`);
-            positionLimitBlocked = true;
+            smartGateBlocked = true;
+            smartGateReason = `daily_limit:${dailyCount}/${MAX_DAILY_ENTRIES}`;
+            console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
           }
         }
       } catch (e) {
-        console.error(`[POSITION_LIMIT] Error checking limits: ${e.message}`);
+        console.error(`[SMART_GATE] Error checking gates: ${e.message}`);
       }
     }
 
@@ -7001,10 +7103,40 @@ async function processTradeSimulation(
       console.log(`[RECENT_TRADE_BLOCKED] ${sym}: Found recent trade ${recentTrade?.id} (status=${recentTrade?.status}), blocking new entry`);
     }
     
-    if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || positionLimitBlocked)) {
-      console.log(`[ENTRY_BLOCKED_EARLY] ${sym} weekendNow=${weekendNow} outsideRTH=${outsideRTH} enterCooldownOk=${enterCooldownOk} sameEnterCycle=${sameEnterCycle} openTrade=${!!openTrade} recentTradeBlocked=${recentTradeBlocked} positionLimitBlocked=${positionLimitBlocked}`);
+    if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || smartGateBlocked)) {
+      // ── KANBAN STAGE CORRECTION ──
+      // Entry signal is valid but execution gates blocked. Downgrade the stored
+      // kanban_stage from "enter" → "setup" so the UI accurately reflects that
+      // the system cannot act yet.  Include the reason so the card can show why.
+      const blockReasons = [];
+      if (weekendNow) blockReasons.push("weekend");
+      if (outsideRTH) blockReasons.push("outside_RTH");
+      if (!enterCooldownOk) blockReasons.push("cooldown");
+      if (sameEnterCycle) blockReasons.push("same_cycle");
+      if (openTrade) blockReasons.push("existing_position");
+      if (recentTradeBlocked) blockReasons.push("recent_trade");
+      if (smartGateBlocked) blockReasons.push(smartGateReason || "smart_gate");
+      const blockReason = blockReasons.join("+");
+      console.log(`[ENTRY_BLOCKED→SETUP] ${sym} downgrading enter→setup: ${blockReason}`);
+      
+      // Update the live KV payload so UI sees "setup" instead of stale "enter"
+      if (!isReplay && KV) {
+        try {
+          const latestKey = `timed:latest:${sym}`;
+          const currentPayload = await kvGetJSON(KV, latestKey);
+          if (currentPayload && String(currentPayload.kanban_stage).toLowerCase() === "enter") {
+            currentPayload.kanban_stage = "setup";
+            currentPayload.__setup_reason = `entry_qualified_but_blocked:${blockReason}`;
+            currentPayload.__entry_block_reason = blockReason;
+            currentPayload.kanban_meta = deriveKanbanMeta(currentPayload, "setup");
+            await kvPutJSON(KV, latestKey, currentPayload);
+          }
+        } catch (e) {
+          console.error(`[ENTRY_BLOCKED→SETUP] ${sym} KV update failed: ${e.message}`);
+        }
+      }
     }
-    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !positionLimitBlocked) {
+    if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !smartGateBlocked) {
       console.log(`[ENTRY_CREATE_START] ${sym} passed all gates, attempting trade creation`);
       const entryPx = Number(entryPxCandidate);
       let slCandidate = Number(tickerData?.sl ?? tickerData?.sl_price ?? tickerData?.stop_loss);
@@ -17971,6 +18103,54 @@ export default {
             try {
               if (env?.DB) readTimePosition = await getPositionContext(env, ticker);
             } catch { /* non-critical */ }
+            // ── Execution readiness pre-check (smart gates) ──
+            // If there's no open position, check concentration + RTH gates
+            // so classifyKanbanStage can distinguish "setup" (blocked) from "enter" (ready).
+            if (!readTimePosition && env?.DB) {
+              try {
+                const blockReasons = [];
+                // Check RTH
+                const nyNowReadTime = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+                const hh = nyNowReadTime.getHours();
+                const mm = nyNowReadTime.getMinutes();
+                const dayOfWeek = nyNowReadTime.getDay();
+                if (dayOfWeek === 0 || dayOfWeek === 6) blockReasons.push("weekend");
+                else if (hh < 9 || (hh === 9 && mm < 30) || hh >= 16) blockReasons.push("outside_RTH");
+                // Smart concentration gates
+                if (!blockReasons.length) {
+                  const openPosResult = await env.DB.prepare(
+                    `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
+                  ).all();
+                  const openPositions = openPosResult?.results || [];
+                  const tkSym = String(ticker).toUpperCase();
+                  const tkSector = getSector(tkSym) || "UNKNOWN";
+                  const entryPathCheck = String(data?.__entry_path || data?.entry_path || data?.state || "").toLowerCase();
+                  const tkDir = entryPathCheck.includes("short") ? "SHORT" : "LONG";
+                  // Sector concentration
+                  let sectorCnt = 0;
+                  for (const p of openPositions) {
+                    const pSector = getSector(String(p.ticker).toUpperCase()) || "UNKNOWN";
+                    if (pSector === tkSector && tkSector !== "UNKNOWN") sectorCnt++;
+                  }
+                  if (sectorCnt >= 3) blockReasons.push(`sector_full:${sectorCnt}/3 ${tkSector}`);
+                  // Directional concentration
+                  let dirCnt = 0;
+                  for (const p of openPositions) {
+                    if (String(p.direction).toUpperCase() === tkDir) dirCnt++;
+                  }
+                  if (dirCnt >= 5) blockReasons.push(`direction_full:${dirCnt}/5 ${tkDir}`);
+                  // Correlation guard
+                  if (sectorCnt >= 2 && !blockReasons.some(r => r.startsWith("sector_full"))) {
+                    const eq = Number(data?.entry_quality?.score || data?.__entry_quality) || 0;
+                    if (eq > 0 && eq < 75) blockReasons.push(`correlated:${sectorCnt} in ${tkSector}`);
+                  }
+                }
+                if (blockReasons.length > 0) {
+                  data.__execution_ready = false;
+                  data.__execution_block_reason = blockReasons.join("+");
+                }
+              } catch { /* non-critical */ }
+            }
             const stage = classifyKanbanStage(data, readTimePosition);
             data.kanban_stage = stage;
             data.kanban_meta = deriveKanbanMeta(data, stage);
@@ -18162,6 +18342,31 @@ export default {
             // Sector alignment is a boost, never a gate
           }
 
+          // ── Execution readiness pre-check (shared across all tickers) ──
+          // Compute once: RTH + load open positions for per-ticker concentration checks.
+          let execRthBlock = null; // shared RTH/weekend block (applies to all)
+          let execOpenPositions = []; // open positions for per-ticker sector/direction checks
+          try {
+            const nyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+            const hh = nyNow.getHours(), mm = nyNow.getMinutes(), dow = nyNow.getDay();
+            if (dow === 0 || dow === 6) execRthBlock = "weekend";
+            else if (hh < 9 || (hh === 9 && mm < 30) || hh >= 16) execRthBlock = "outside_RTH";
+            const openPosResult = await env.DB.prepare(
+              `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
+            ).all();
+            execOpenPositions = openPosResult?.results || [];
+          } catch { /* non-critical */ }
+          // Daily entry count (shared across all tickers)
+          let execDailyLimitBlock = null;
+          try {
+            const today = new Date().toISOString().slice(0, 10);
+            const dailyResult = await env.DB.prepare(
+              `SELECT COUNT(*) as cnt FROM execution_actions WHERE type = 'ENTRY' AND day = ?`
+            ).bind(today).first();
+            const dailyCount = Number(dailyResult?.cnt) || 0;
+            if (dailyCount >= 10) execDailyLimitBlock = `daily_limit:${dailyCount}/10`;
+          } catch { /* non-critical */ }
+
           for (const r of results) {
             const sym = String(r?.ticker || "").toUpperCase();
             if (!sym) continue;
@@ -18262,9 +18467,47 @@ export default {
                 // from showing tickers in hold/defend/trim/exit without a real trade.
                 const openPosition = openPositionsMap.get(sym) || null;
                 const mgmtStages = new Set(["active", "hold", "just_entered", "defend", "trim", "exit"]);
+                // Inject execution readiness for discovery tickers (per-ticker smart gates)
+                if (!openPosition) {
+                  const tickerBlockReasons = [];
+                  if (execRthBlock) tickerBlockReasons.push(execRthBlock);
+                  if (execDailyLimitBlock) tickerBlockReasons.push(execDailyLimitBlock);
+                  // Per-ticker concentration checks
+                  if (!execRthBlock && execOpenPositions.length > 0) {
+                    const tkSector = getSector(sym) || "UNKNOWN";
+                    const entryPathCheck = String(obj?.__entry_path || obj?.entry_path || obj?.state || "").toLowerCase();
+                    const tkDir = entryPathCheck.includes("short") ? "SHORT" : "LONG";
+                    // Sector concentration
+                    let sectorCnt = 0;
+                    for (const p of execOpenPositions) {
+                      const pSector = getSector(String(p.ticker).toUpperCase()) || "UNKNOWN";
+                      if (pSector === tkSector && tkSector !== "UNKNOWN") sectorCnt++;
+                    }
+                    if (sectorCnt >= 3) tickerBlockReasons.push(`sector_full:${sectorCnt}/3 ${tkSector}`);
+                    // Directional concentration
+                    let dirCnt = 0;
+                    for (const p of execOpenPositions) {
+                      if (String(p.direction).toUpperCase() === tkDir) dirCnt++;
+                    }
+                    if (dirCnt >= 5) tickerBlockReasons.push(`direction_full:${dirCnt}/5 ${tkDir}`);
+                    // Correlation guard: 2+ in same sector → need higher quality
+                    if (sectorCnt >= 2 && !tickerBlockReasons.some(r => r.startsWith("sector_full"))) {
+                      const eq = Number(obj?.entry_quality?.score || obj?.__entry_quality) || 0;
+                      if (eq > 0 && eq < 75) tickerBlockReasons.push(`correlated:${sectorCnt} in ${tkSector}`);
+                    }
+                  }
+                  if (tickerBlockReasons.length > 0) {
+                    obj.__execution_ready = false;
+                    obj.__execution_block_reason = tickerBlockReasons.join("+");
+                  }
+                }
+                // CRITICAL: Always re-classify "enter" stage tickers through
+                // classifyKanbanStage so the __execution_ready check can
+                // downgrade them to "setup" when execution gates are blocking.
+                const prevIsEnter = prevStage === "enter" || prevStage === "enter_now";
                 const stage = openPosition
                   ? classifyKanbanStage(obj, openPosition)
-                  : (prevStage && !mgmtStages.has(prevStage))
+                  : (prevStage && !mgmtStages.has(prevStage) && !prevIsEnter)
                     ? prevStage
                     : classifyKanbanStage(obj);
                 obj.kanban_stage = stage;
@@ -19859,7 +20102,7 @@ export default {
 
       // POST /timed/watchlist/remove?key=... - Remove tickers from watchlist
       if (routeKey === "POST /timed/watchlist/remove") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
         try {
@@ -23078,7 +23321,7 @@ export default {
       // POST /timed/admin/alpaca-backfill?key=...&tf=all|D|W|...
       // One-time backfill of historical bars from Alpaca for EMA200 warm-up.
       if (routeKey === "POST /timed/admin/alpaca-backfill") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
 
         if (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY) {
@@ -23253,10 +23496,10 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
-      // GET /timed/admin/ingestion-status?key=...&ticker=NVDA (candle coverage report)
+      // GET /timed/admin/ingestion-status (candle coverage report)
       // Returns candle count per ticker per TF, compared to expected minimums.
       if (routeKey === "GET /timed/admin/ingestion-status") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "no_db_binding" }, 500, corsHeaders(env, req));
@@ -23404,10 +23647,10 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════════
-      // GET /timed/admin/backfill-status?key=...
+      // GET /timed/admin/backfill-status
       // Returns current backfill progress from KV (written by alpacaBackfill).
       if (routeKey === "GET /timed/admin/backfill-status") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const status = await kvGetJSON(KV, "timed:backfill:status");
         return sendJSON({ ok: true, status: status || null }, 200, corsHeaders(env, req));
@@ -23871,10 +24114,10 @@ export default {
         }
       }
 
-      // POST /timed/admin/model-approve?key=...&change_id=...&action=approve|reject
+      // POST /timed/admin/model-approve?change_id=...&action=approve|reject
       // Approve or reject a model_changelog proposal. Approved changes are applied.
       if (routeKey === "POST /timed/admin/model-approve") {
-        const authFail = requireKeyOr401(req, env);
+        const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
           const DB = env?.DB;

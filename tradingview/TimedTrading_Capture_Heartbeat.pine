@@ -1,11 +1,17 @@
 //@version=6
-indicator("TimedTrading Capture Heartbeat", overlay=false, max_labels_count=500)
+indicator("TimedTrading Capture Heartbeat 2", overlay=false, max_labels_count=500)
 
 // Focused capture-only script for watchlist alerts.
 // Sends a minimal payload on every bar close.
+//
+// Covers ALL 10 timeframes the system uses: 1m, 3m, 5m, 10m, 30m, 1H, 4H, D, W, M.
+// For futures/indices (ES1!, NQ1!, US500, GOLD, SILVER): run on 1-min chart,
+//   alert set to "Once Per Bar Close". These trade Sun 6pm ET → Fri 5pm ET (nearly 24/7).
+// For VIX: same setup, but only generates data during CBOE hours (9:30am-4:15pm ET).
+// For US stocks: run on 1-min chart during RTH/ETH.
 
 groupCapture = "Capture Settings"
-scriptVersion = input.string("capture_1.2.0", "Script Version", group=groupCapture)
+scriptVersion = input.string("capture_1.3.0", "Script Version", group=groupCapture)
 includeOHLC = input.bool(false, "Include OHLC", group=groupCapture)
 includeVolume = input.bool(false, "Include Volume", group=groupCapture)
 volLookbackD = input.int(30, "Avg Volume Lookback (D)", minval=5, maxval=200, group=groupCapture)
@@ -34,9 +40,12 @@ chgStr = not na(dayChange) ? (",\"day_change\":" + str.tostring(dayChange) + ",\
 pctStr = not na(dayChangePct) ? (",\"day_change_pct\":" + str.tostring(dayChangePct) + ",\"change_pct\":" + str.tostring(dayChangePct)) : ""
 
 // Session flag (exchange time). Useful so the UI can explicitly label after-hours.
+// For futures/indices, "RTH" is the equity overlap window (9:30am-4pm ET).
+// They trade nearly 24/7 Sun 6pm → Fri 5pm ET, so they're always "in session" when alerts fire.
+isFutures = syminfo.type == "futures" or syminfo.type == "index" or syminfo.type == "cfd"
 isRth = not na(time(timeframe.period, "0930-1600"))
-sessionStr = isRth ? "RTH" : "EXT"
-sessionJson = ",\"session\":\"" + sessionStr + "\",\"is_rth\":" + str.tostring(isRth)
+sessionStr = isFutures ? (isRth ? "RTH" : "ETH") : (isRth ? "RTH" : "EXT")
+sessionJson = ",\"session\":\"" + sessionStr + "\",\"is_rth\":" + str.tostring(isRth) + ",\"asset_type\":\"" + str.tostring(syminfo.type) + "\""
 
 // Momentum Elite helpers (computed on Daily timeframe).
 // These are *inputs* to Momentum Elite, not hard filters in this capture script.
@@ -123,7 +132,8 @@ if includeCandles
     [o240, h240, l240, c240, v240, t240] = f_candle("240")
     [oD, hD, lD, cD, vD, tD] = f_candle("D")
     [oW, hW, lW, cW, vW, tW] = f_candle("W")
-    candlesStr := ",\"tf_candles\":{\"1\":{\"ts\":" + f_num(t1) + ",\"o\":" + f_num(o1) + ",\"h\":" + f_num(h1) + ",\"l\":" + f_num(l1) + ",\"c\":" + f_num(c1) + ",\"v\":" + f_num(v1) + "},\"3\":{\"ts\":" + f_num(t3) + ",\"o\":" + f_num(o3) + ",\"h\":" + f_num(h3) + ",\"l\":" + f_num(l3) + ",\"c\":" + f_num(c3) + ",\"v\":" + f_num(v3) + "},\"5\":{\"ts\":" + f_num(t5) + ",\"o\":" + f_num(o5) + ",\"h\":" + f_num(h5) + ",\"l\":" + f_num(l5) + ",\"c\":" + f_num(c5) + ",\"v\":" + f_num(v5) + "},\"10\":{\"ts\":" + f_num(t10) + ",\"o\":" + f_num(o10) + ",\"h\":" + f_num(h10) + ",\"l\":" + f_num(l10) + ",\"c\":" + f_num(c10) + ",\"v\":" + f_num(v10) + "},\"30\":{\"ts\":" + f_num(t30) + ",\"o\":" + f_num(o30) + ",\"h\":" + f_num(h30) + ",\"l\":" + f_num(l30) + ",\"c\":" + f_num(c30) + ",\"v\":" + f_num(v30) + "},\"60\":{\"ts\":" + f_num(t60) + ",\"o\":" + f_num(o60) + ",\"h\":" + f_num(h60) + ",\"l\":" + f_num(l60) + ",\"c\":" + f_num(c60) + ",\"v\":" + f_num(v60) + "},\"240\":{\"ts\":" + f_num(t240) + ",\"o\":" + f_num(o240) + ",\"h\":" + f_num(h240) + ",\"l\":" + f_num(l240) + ",\"c\":" + f_num(c240) + ",\"v\":" + f_num(v240) + "},\"D\":{\"ts\":" + f_num(tD) + ",\"o\":" + f_num(oD) + ",\"h\":" + f_num(hD) + ",\"l\":" + f_num(lD) + ",\"c\":" + f_num(cD) + ",\"v\":" + f_num(vD) + "},\"W\":{\"ts\":" + f_num(tW) + ",\"o\":" + f_num(oW) + ",\"h\":" + f_num(hW) + ",\"l\":" + f_num(lW) + ",\"c\":" + f_num(cW) + ",\"v\":" + f_num(vW) + "}}"
+    [oM, hM, lM, cM, vM, tM] = f_candle("M")
+    candlesStr := ",\"tf_candles\":{" + "\"1\":{\"ts\":" + f_num(t1) + ",\"o\":" + f_num(o1) + ",\"h\":" + f_num(h1) + ",\"l\":" + f_num(l1) + ",\"c\":" + f_num(c1) + ",\"v\":" + f_num(v1) + "}," + "\"3\":{\"ts\":" + f_num(t3) + ",\"o\":" + f_num(o3) + ",\"h\":" + f_num(h3) + ",\"l\":" + f_num(l3) + ",\"c\":" + f_num(c3) + ",\"v\":" + f_num(v3) + "}," + "\"5\":{\"ts\":" + f_num(t5) + ",\"o\":" + f_num(o5) + ",\"h\":" + f_num(h5) + ",\"l\":" + f_num(l5) + ",\"c\":" + f_num(c5) + ",\"v\":" + f_num(v5) + "}," + "\"10\":{\"ts\":" + f_num(t10) + ",\"o\":" + f_num(o10) + ",\"h\":" + f_num(h10) + ",\"l\":" + f_num(l10) + ",\"c\":" + f_num(c10) + ",\"v\":" + f_num(v10) + "}," + "\"30\":{\"ts\":" + f_num(t30) + ",\"o\":" + f_num(o30) + ",\"h\":" + f_num(h30) + ",\"l\":" + f_num(l30) + ",\"c\":" + f_num(c30) + ",\"v\":" + f_num(v30) + "}," + "\"60\":{\"ts\":" + f_num(t60) + ",\"o\":" + f_num(o60) + ",\"h\":" + f_num(h60) + ",\"l\":" + f_num(l60) + ",\"c\":" + f_num(c60) + ",\"v\":" + f_num(v60) + "}," + "\"240\":{\"ts\":" + f_num(t240) + ",\"o\":" + f_num(o240) + ",\"h\":" + f_num(h240) + ",\"l\":" + f_num(l240) + ",\"c\":" + f_num(c240) + ",\"v\":" + f_num(v240) + "}," + "\"D\":{\"ts\":" + f_num(tD) + ",\"o\":" + f_num(oD) + ",\"h\":" + f_num(hD) + ",\"l\":" + f_num(lD) + ",\"c\":" + f_num(cD) + ",\"v\":" + f_num(vD) + "}," + "\"W\":{\"ts\":" + f_num(tW) + ",\"o\":" + f_num(oW) + ",\"h\":" + f_num(hW) + ",\"l\":" + f_num(lW) + ",\"c\":" + f_num(cW) + ",\"v\":" + f_num(vW) + "}," + "\"M\":{\"ts\":" + f_num(tM) + ",\"o\":" + f_num(oM) + ",\"h\":" + f_num(hM) + ",\"l\":" + f_num(lM) + ",\"c\":" + f_num(cM) + ",\"v\":" + f_num(vM) + "}}"
 
 payload = "{" + "\"script_version\":\"" + scriptVersion + "\"," + "\"ts\":" + str.tostring(time) + "," + "\"time_close\":" + str.tostring(time_close) + "," + "\"bar_index\":" + str.tostring(bar_index) + "," + "\"ticker\":\"" + syminfo.ticker + "\"," + "\"tf_hint\":\"" + timeframe.period + "\"," + "\"price\":" + str.tostring(close) + sessionJson + prevCloseStr + chgStr + pctStr + avgVolStr + adrStr + momStr + (includeOHLC ? ",\"o\":" + str.tostring(open) + ",\"h\":" + str.tostring(high) + ",\"l\":" + str.tostring(low) : "") + (includeVolume ? ",\"volume\":" + str.tostring(volume) : "") + contextStr + candlesStr + ",\"ingest_kind\":\"capture\"" + "}"
 
