@@ -10591,8 +10591,13 @@
           const isBullish = htfBull;
           const sym = String(t?.ticker || "").toUpperCase();
           const openTrade = tradeByTicker?.get?.(sym) || null;
+          const statusUp = String(openTrade?.status || "").toUpperCase();
+          const hasOpenTrade = openTrade && (
+            ["OPEN", "TP_HIT_TRIM"].includes(statusUp) ||
+            (!(openTrade.exit_ts ?? openTrade.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS")
+          );
           let dir = isBullish ? "LONG" : "SHORT";
-          if (openTrade && ["OPEN", "TP_HIT_TRIM"].includes(String(openTrade.status || "").toUpperCase())) {
+          if (hasOpenTrade) {
             const d = String(openTrade.direction || "").toUpperCase();
             if (d === "LONG" || d === "SHORT") dir = d;
           }
@@ -10650,6 +10655,7 @@
           })();
 
           const isActiveTrade =
+            hasOpenTrade ||
             stage === "just_entered" || stage === "hold" || stage === "defend" ||
             stage === "trim" || stage === "exit";
 

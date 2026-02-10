@@ -508,6 +508,49 @@
           return () => clearInterval(interval);
         }, [fetchData]);
 
+        // Merge /timed/prices into data so Open Positions and metrics use actual current price + daily change
+        const dataRef = React.useRef(data);
+        dataRef.current = data;
+        const hasData = data && Object.keys(data).length > 0;
+        useEffect(() => {
+          if (!hasData) return;
+          const mergePrices = async () => {
+            try {
+              const res = await fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`, { cache: "no-store" });
+              if (!res.ok) return;
+              const json = await res.json();
+              if (!json.ok || !json.prices) return;
+              const current = dataRef.current;
+              if (!current || typeof current !== "object") return;
+              const updated = { ...current };
+              let changed = false;
+              for (const [sym, priceInfo] of Object.entries(json.prices)) {
+                const key = String(sym).toUpperCase();
+                const existing = updated[key];
+                if (!existing || !(priceInfo.p > 0)) continue;
+                if (existing._live_price === priceInfo.p && existing._live_daily_change_pct === priceInfo.dp) continue;
+                updated[key] = {
+                  ...existing,
+                  price: priceInfo.p,
+                  prev_close: priceInfo.pc > 0 ? priceInfo.pc : (existing.prev_close || undefined),
+                  day_change: priceInfo.dc,
+                  day_change_pct: priceInfo.dp,
+                  _live_price: priceInfo.p,
+                  _live_prev_close: priceInfo.pc,
+                  _live_daily_change: priceInfo.dc,
+                  _live_daily_change_pct: priceInfo.dp,
+                  _price_updated_at: json.updated_at || Date.now(),
+                };
+                changed = true;
+              }
+              if (changed) setData(updated);
+            } catch (e) { console.warn("[PRICE FEED]", e); }
+          };
+          mergePrices();
+          const interval = setInterval(mergePrices, 30000);
+          return () => clearInterval(interval);
+        }, [hasData]);
+
         return {
           data,
           loading,
@@ -6181,33 +6224,32 @@
           const shares =
             trade.shares ?? trade.quantity ??
             (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
-          const livePrice = Number(live?.price);
+          // Prefer live price feed (_live_price) so Open Positions matches Right Rail and actual current price
+          const livePriceRaw = Number(live?._live_price ?? live?.price);
+          const livePrice = Number.isFinite(livePriceRaw) && livePriceRaw > 0 ? livePriceRaw : null;
           const direction = String(trade.direction || "").toUpperCase();
           const signed = direction === "SHORT" ? -1 : 1;
 
-          // Prefer D1 pre-computed P&L (accurate from replay) over live price calculation.
-          // Live KV price can be stale (e.g. from old TradingView captures) causing wildly wrong P&L.
+          // Prefer D1 pre-computed P&L (accurate from replay) over live price calculation when no live feed.
+          // When we have live price from /timed/prices, use it so UI matches Right Rail.
           const tradePnl = Number(trade.pnl ?? trade.pnl_amount);
           const tradePnlPct = Number(trade.pnlPct ?? trade.pnl_pct);
           const hasStoredPnl = Number.isFinite(tradePnl);
           const hasStoredPnlPct = Number.isFinite(tradePnlPct);
 
-          // Determine current price: live > infer from stored P&L > entry
+          // Determine current price: live feed (_live_price) > stored P&L back-compute > live?.price
           let current = null;
           let pnlOpen = null;
           let retOpenPct = null;
 
-          if (hasStoredPnl) {
-            // Use stored P&L directly — most reliable after replay
-            pnlOpen = tradePnl;
-            retOpenPct = hasStoredPnlPct ? tradePnlPct : (entryPrice > 0 ? (tradePnl / (entryPrice * shares * pointValue)) * 100 : null);
-            // Back-compute current price from stored P&L for display
-            current = entryPrice > 0 ? entryPrice + (tradePnl / (shares * pointValue)) * signed : livePrice;
-          } else if (Number.isFinite(livePrice) && entryPrice > 0) {
-            // Fallback to live price computation
+          if (Number.isFinite(livePrice) && entryPrice > 0) {
             current = livePrice;
             pnlOpen = (current - entryPrice) * shares * pointValue * signed;
             retOpenPct = ((current - entryPrice) / entryPrice) * 100 * signed;
+          } else if (hasStoredPnl) {
+            pnlOpen = tradePnl;
+            retOpenPct = hasStoredPnlPct ? tradePnlPct : (entryPrice > 0 ? (tradePnl / (entryPrice * shares * pointValue)) * 100 : null);
+            current = entryPrice > 0 ? entryPrice + (tradePnl / (shares * pointValue)) * signed : null;
           }
 
           return {
@@ -6228,7 +6270,8 @@
           const sym = String(trades[0].ticker || "").toUpperCase();
           const isFutures = FUTURES_SPECS[sym] || sym.endsWith("1!");
           const pointValue = isFutures && FUTURES_SPECS[sym] ? FUTURES_SPECS[sym].pointValue : 1;
-          const livePrice = Number(live?.price);
+          const livePriceRaw = Number(live?._live_price ?? live?.price);
+          const livePrice = Number.isFinite(livePriceRaw) && livePriceRaw > 0 ? livePriceRaw : null;
           let totalShares = 0;
           let costBasis = 0;
           let pnlOpen = 0;
@@ -6255,9 +6298,11 @@
           const direction = String(trades[0].direction || "").toUpperCase();
           const signed = direction === "SHORT" ? -1 : 1;
           // Back-compute current price from aggregate P&L for display
-          const current = hasAllStoredPnl && totalShares > 0 && entryPrice > 0
-            ? entryPrice + (pnlOpen / (totalShares * pointValue)) * signed
-            : (Number.isFinite(livePrice) ? livePrice : null);
+          const current = Number.isFinite(livePrice)
+            ? livePrice
+            : (hasAllStoredPnl && totalShares > 0 && entryPrice > 0
+              ? entryPrice + (pnlOpen / (totalShares * pointValue)) * signed
+              : null);
           const retOpenPct = entryPrice > 0 && current != null
             ? ((current - entryPrice) / entryPrice) * 100 * signed
             : null;
@@ -7065,18 +7110,27 @@
                               const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                               const isLong = dir === "LONG";
                               const tickerData = data && (data[pos.ticker] || data[pos.ticker?.toUpperCase?.()]);
-                              const currentPrice = pos.current || Number(tickerData?.price) || null;
-                              const entryPrice = pos.entryPrice || Number(pos.trade?.entryPrice) || null;
+                              const currentPrice = pos.current || Number(tickerData?._live_price ?? tickerData?.price) || null;
+                              const entryPrice = pos.entryPrice ?? Number(pos.trade?.entry_price ?? pos.trade?.entryPrice) ?? null;
+                              const qty = pos.qty ?? pos.trade?.shares ?? pos.trade?.total_qty ?? null;
+                              const entryTs = pos.trade?.entry_ts ?? pos.trade?.entryTime ?? pos.trade?.created_at;
+                              const entryDateLabel = entryTs != null
+                                ? (() => {
+                                    const d = typeof entryTs === "string" ? new Date(entryTs) : new Date(Number(entryTs) < 1e12 ? Number(entryTs) * 1000 : Number(entryTs));
+                                    return isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                                  })()
+                                : "";
+                              const dayChg = Number(tickerData?._live_daily_change ?? tickerData?.day_change);
+                              const dayChgPct = Number(tickerData?._live_daily_change_pct ?? tickerData?.day_change_pct);
+                              const hasDayChg = Number.isFinite(dayChg);
+                              const hasDayChgPct = Number.isFinite(dayChgPct);
                               const pnlOpen = pos.pnlOpen;
                               const retOpenPct = pos.retOpenPct;
                               const stageInfo = getPositionStage(pos);
                               const isPositive = (retOpenPct ?? 0) >= 0;
                               
-                              // SL / TP from ticker data or trade
                               const sl = Number(pos.trade?.stop_loss || tickerData?.sl || tickerData?.sl_price || tickerData?.stop_loss) || null;
                               const tp = Number(pos.trade?.take_profit || tickerData?.tp || tickerData?.tp_max_price || tickerData?.tp_target_price) || null;
-                              
-                              // SL/EP/TP progress
                               const hasSLTP = Number.isFinite(sl) && sl > 0 && Number.isFinite(tp) && tp > 0 && Number.isFinite(entryPrice);
                               let progressPct = null;
                               let epPct = null;
@@ -7105,18 +7159,37 @@
                                     const evts = (match?.history?.length ? match.history : events);
                                     setSelectedPositionEvents(Array.isArray(evts) ? evts : []);
                                   }}
-                                  className="w-full text-left py-1.5 px-2 border-b border-white/[0.03] hover:bg-white/[0.02] transition-all flex items-center gap-3"
+                                  className="w-full text-left py-1.5 px-2 border-b border-white/[0.03] hover:bg-white/[0.02] transition-all flex items-center gap-2 flex-wrap"
                                   title="Open in right rail"
                                 >
                                   {/* Ticker + Dir */}
-                                  <span className="text-[11px] font-bold text-white w-[48px] shrink-0">{pos.ticker}</span>
+                                  <span className="text-[11px] font-bold text-white w-[44px] shrink-0">{pos.ticker}</span>
                                   <span className={`text-[9px] font-bold w-[10px] shrink-0 ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{isLong ? "L" : "S"}</span>
-                                  {/* Price */}
-                                  <span className="text-[10px] text-[#9ca3af] tabular-nums w-[56px] shrink-0 text-right">
+                                  {/* Entry Price */}
+                                  <span className="text-[10px] text-amber-300/90 tabular-nums w-[56px] shrink-0 text-right" title="Entry">
+                                    {Number.isFinite(entryPrice) ? `$${entryPrice.toFixed(2)}` : "—"}
+                                  </span>
+                                  {/* Qty */}
+                                  <span className="text-[10px] text-[#9ca3af] tabular-nums w-[40px] shrink-0 text-right" title="Quantity">
+                                    {qty != null && Number.isFinite(Number(qty)) ? Number(qty).toFixed(2) : "—"}
+                                  </span>
+                                  {/* Date/Time */}
+                                  <span className="text-[9px] text-[#6b7280] w-[72px] shrink-0 truncate" title="Entry time">
+                                    {entryDateLabel || "—"}
+                                  </span>
+                                  {/* Current Price (actual current, aligned with daily change) */}
+                                  <span className="text-[10px] text-white tabular-nums w-[56px] shrink-0 text-right font-medium">
                                     {Number.isFinite(currentPrice) ? `$${currentPrice.toFixed(2)}` : "—"}
                                   </span>
-                                  {/* Mini progress bar (SL→TP) */}
-                                  <span className="flex-1 max-w-[120px]">
+                                  {/* Daily change $ and % (from same source as current price) */}
+                                  <span className={`text-[10px] tabular-nums w-[70px] shrink-0 text-right ${(hasDayChgPct && dayChgPct >= 0) || (hasDayChg && dayChg >= 0) ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                                    {hasDayChg ? `${dayChg >= 0 ? "+" : ""}$${dayChg.toFixed(2)}` : ""}
+                                    {hasDayChg && hasDayChgPct ? " " : ""}
+                                    {hasDayChgPct ? `(${dayChgPct >= 0 ? "+" : ""}${dayChgPct.toFixed(2)}%)` : ""}
+                                    {!hasDayChg && !hasDayChgPct ? "—" : ""}
+                                  </span>
+                                  {/* Mini progress bar */}
+                                  <span className="flex-1 min-w-0 max-w-[100px]">
                                     {hasSLTP && progressPct !== null ? (
                                       <span className="block relative h-[4px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
                                         <span className="absolute top-0 left-0 h-full rounded-full" style={{
@@ -7134,10 +7207,10 @@
                                     )}
                                   </span>
                                   {/* P&L */}
-                                  <span className={`text-[11px] font-semibold tabular-nums w-[64px] text-right shrink-0 ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                                  <span className={`text-[11px] font-semibold tabular-nums w-[56px] text-right shrink-0 ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
                                     {pnlOpen != null ? `${isPositive ? "+" : ""}${fmtUsd(pnlOpen)}` : "—"}
                                   </span>
-                                  <span className={`text-[9px] tabular-nums w-[44px] text-right shrink-0 ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
+                                  <span className={`text-[9px] tabular-nums w-[40px] text-right shrink-0 ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
                                     {retOpenPct != null ? `${isPositive ? "+" : ""}${retOpenPct.toFixed(1)}%` : ""}
                                   </span>
                                   {/* Stage pill */}
