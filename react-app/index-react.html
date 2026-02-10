@@ -4274,8 +4274,8 @@
           return sorted.length > 0 ? sorted[0].ticker : null;
         }, [rankedTickers, allData]);
         const [dimensions, setDimensions] = React.useState({
-          width: 1600,
-          height: 1000,
+          width: 900,
+          height: 800,
         });
 
         // Update dimensions on mount and resize to use full container space
@@ -4283,18 +4283,23 @@
           const updateDimensions = () => {
             if (containerRef.current) {
               const rect = containerRef.current.getBoundingClientRect();
-              // Use actual container size, with minimums
+              // Use actual container size (padding already handled by CSS p-2 = 8px each side)
               setDimensions({
-                width: Math.max(rect.width - 16, 1200), // Account for padding
-                height: Math.max(rect.height - 16, 800),
+                width: Math.max(rect.width - 16, 400),
+                height: Math.max(rect.height - 16, 400),
               });
             }
           };
-          // Initial update
-          const timeoutId = setTimeout(updateDimensions, 100);
+          // Use ResizeObserver for responsive tracking of actual container size
+          updateDimensions(); // immediate first measurement
+          let ro;
+          if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+            ro = new ResizeObserver(() => updateDimensions());
+            ro.observe(containerRef.current);
+          }
           window.addEventListener("resize", updateDimensions);
           return () => {
-            clearTimeout(timeoutId);
+            if (ro) ro.disconnect();
             window.removeEventListener("resize", updateDimensions);
           };
         }, []);
