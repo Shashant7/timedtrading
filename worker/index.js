@@ -229,6 +229,8 @@ const ROUTES = [
   ["POST", "/timed/admin/fix-zero-ts-events", "POST /timed/admin/fix-zero-ts-events"],
   ["POST", "/timed/admin/reset", "POST /timed/admin/reset"],
   ["GET", "/timed/watchlist/coverage", "GET /timed/watchlist/coverage"],
+  ["GET", "/timed/saved", "GET /timed/saved"],
+  ["POST", "/timed/saved/toggle", "POST /timed/saved/toggle"],
   ["POST", "/timed/cleanup-no-scores", "POST /timed/cleanup-no-scores"],
   ["POST", "/timed/purge-trades-by-version", "POST /timed/purge-trades-by-version"],
   ["POST", "/timed/debug/migrate-brk", "POST /timed/debug/migrate-brk"],
@@ -24150,6 +24152,16 @@ export default {
             }
           }
 
+          // Load saved tickers for this user
+          let savedTickers = [];
+          try {
+            const KV = env?.KV_TIMED;
+            if (KV && user.email) {
+              const raw = await KV.get(`timed:saved:${user.email.toLowerCase()}`);
+              if (raw) savedTickers = JSON.parse(raw);
+            }
+          } catch (_) { /* ignore */ }
+
           return sendJSON({
             ok: true,
             authenticated: true,
@@ -24160,7 +24172,57 @@ export default {
               tier: user.tier,
               last_login_at: user.last_login_at,
             },
+            saved_tickers: savedTickers,
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SAVED TICKERS (per-user favorites)
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/saved - Return current user's saved tickers
+      if (routeKey === "GET /timed/saved") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const KV = env?.KV_TIMED;
+          const raw = KV ? await KV.get(`timed:saved:${user.email.toLowerCase()}`) : null;
+          const saved = raw ? JSON.parse(raw) : [];
+          return sendJSON({ ok: true, saved_tickers: saved }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/saved/toggle - Toggle a ticker in/out of saved list
+      if (routeKey === "POST /timed/saved/toggle") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          const body = await req.json().catch(() => ({}));
+          const ticker = String(body.ticker || "").toUpperCase().trim();
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+
+          const key = `timed:saved:${user.email.toLowerCase()}`;
+          const raw = await KV.get(key);
+          const saved = raw ? JSON.parse(raw) : [];
+          const idx = saved.indexOf(ticker);
+          let action;
+          if (idx >= 0) {
+            saved.splice(idx, 1);
+            action = "removed";
+          } else {
+            saved.push(ticker);
+            action = "added";
+          }
+          await KV.put(key, JSON.stringify(saved));
+          return sendJSON({ ok: true, action, ticker, saved_tickers: saved }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }

@@ -104,6 +104,7 @@
   <body>
     <div id="root"></div>
 
+    <script src="auth-gate.js"></script>
     <script src="shared-right-rail.compiled.js?v=3" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
@@ -111,7 +112,7 @@
       // ─────────────────────────────────────────────────────────────
       // Constants
       // ─────────────────────────────────────────────────────────────
-      const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+      const API_BASE = "";  // same-origin — proxied by Pages Function
       // API_KEY removed for security - write operations disabled for public access
       // To enable trade management, implement proper authentication
       const TRADE_SIZE = 1000; // $1000 per trade
@@ -1390,11 +1391,11 @@
           };
 
           // Closed: WIN/LOSS or 100% trimmed (safety net)
+          const isClosedStatus = (s) => s === "WIN" || s === "LOSS" || s === "FLAT";
           const closed = trades.filter((t) => {
             const trimmedPct = Number(t.trimmedPct ?? t.trimmed_pct ?? 0);
             return (
-              t.status === "WIN" ||
-              t.status === "LOSS" ||
+              isClosedStatus(t.status) ||
               trimmedPct >= 0.9999
             );
           });
@@ -1411,8 +1412,7 @@
             const trimmedPct = Number(t.trimmedPct ?? t.trimmed_pct ?? 0);
             const isTrimmed = trimmedPct > 0 || t.status === "TP_HIT_TRIM";
             const isClosed =
-              t.status === "WIN" ||
-              t.status === "LOSS" ||
+              isClosedStatus(t.status) ||
               trimmedPct >= 0.9999;
             return (
               (t.status === "OPEN" || !t.status) && !isTrimmed && !isClosed
@@ -1426,7 +1426,9 @@
 
           const wins = closed.filter((t) => t.status === "WIN").length;
           const losses = closed.filter((t) => t.status === "LOSS").length;
-          const winRate = closedTrades > 0 ? (wins / closedTrades) * 100 : 0;
+          const flats = closed.filter((t) => t.status === "FLAT").length;
+          const decisiveTrades = wins + losses; // Exclude flats from win rate calculation
+          const winRate = decisiveTrades > 0 ? (wins / decisiveTrades) * 100 : 0;
 
           // Calculate Closed P&L: includes fully closed trades + realized P&L from trimmed positions
           const closedPnl = closed.reduce((sum, t) => sum + (t.pnl || 0), 0);
@@ -1467,11 +1469,16 @@
           // Total Closed P&L = fully closed + trimmed realized
           const totalPnl = closedPnl + trimmedRealizedPnl;
 
-          // Open P&L: unrealized P&L from open positions (including remaining shares in trimmed positions)
+          // Open P&L: prefer D1 pre-computed pnl (accurate from replay) over client-side calculation
           const openPnl = [...open, ...trimmed].reduce((sum, t) => {
-            const shares = t.shares || TRADE_SIZE / (t.entryPrice || 1); // Allow fractional shares
+            // Use stored P&L if available (from replay/trade engine)
+            const storedPnl = Number(t.pnl ?? t.pnl_amount);
+            if (Number.isFinite(storedPnl)) return sum + storedPnl;
+
+            // Fallback: compute from currentPrice
+            const shares = t.shares || TRADE_SIZE / (t.entryPrice || 1);
             const trimmedPct = t.trimmedPct || 0;
-            const remainingShares = shares - shares * trimmedPct; // Allow fractional shares
+            const remainingShares = shares - shares * trimmedPct;
             const entryPrice = t.entryPrice || 0;
             const currentPrice = t.currentPrice || entryPrice;
 
@@ -5978,13 +5985,14 @@
           [ledgerFilteredTrades],
         );
 
-        // Closed: WIN/LOSS or 100% trimmed
+        // Closed: WIN/LOSS/FLAT or 100% trimmed
         const ledgerClosedTrades = useMemo(
           () =>
             ledgerFilteredTrades.filter(
               (t) =>
                 t.status === "WIN" ||
                 t.status === "LOSS" ||
+                t.status === "FLAT" ||
                 Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999,
             ),
           [ledgerFilteredTrades],
@@ -6173,21 +6181,35 @@
           const shares =
             trade.shares ?? trade.quantity ??
             (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
-          const current = Number(live?.price);
+          const livePrice = Number(live?.price);
           const direction = String(trade.direction || "").toUpperCase();
           const signed = direction === "SHORT" ? -1 : 1;
-          const pnlOpen =
-            Number.isFinite(current) &&
-            Number.isFinite(entryPrice) &&
-            entryPrice
-              ? (current - entryPrice) * shares * pointValue * signed
-              : null;
-          const retOpenPct =
-            Number.isFinite(current) &&
-            Number.isFinite(entryPrice) &&
-            entryPrice
-              ? ((current - entryPrice) / entryPrice) * 100 * signed
-              : null;
+
+          // Prefer D1 pre-computed P&L (accurate from replay) over live price calculation.
+          // Live KV price can be stale (e.g. from old TradingView captures) causing wildly wrong P&L.
+          const tradePnl = Number(trade.pnl ?? trade.pnl_amount);
+          const tradePnlPct = Number(trade.pnlPct ?? trade.pnl_pct);
+          const hasStoredPnl = Number.isFinite(tradePnl);
+          const hasStoredPnlPct = Number.isFinite(tradePnlPct);
+
+          // Determine current price: live > infer from stored P&L > entry
+          let current = null;
+          let pnlOpen = null;
+          let retOpenPct = null;
+
+          if (hasStoredPnl) {
+            // Use stored P&L directly — most reliable after replay
+            pnlOpen = tradePnl;
+            retOpenPct = hasStoredPnlPct ? tradePnlPct : (entryPrice > 0 ? (tradePnl / (entryPrice * shares * pointValue)) * 100 : null);
+            // Back-compute current price from stored P&L for display
+            current = entryPrice > 0 ? entryPrice + (tradePnl / (shares * pointValue)) * signed : livePrice;
+          } else if (Number.isFinite(livePrice) && entryPrice > 0) {
+            // Fallback to live price computation
+            current = livePrice;
+            pnlOpen = (current - entryPrice) * shares * pointValue * signed;
+            retOpenPct = ((current - entryPrice) / entryPrice) * 100 * signed;
+          }
+
           return {
             isFutures,
             pointValue,
@@ -6206,10 +6228,11 @@
           const sym = String(trades[0].ticker || "").toUpperCase();
           const isFutures = FUTURES_SPECS[sym] || sym.endsWith("1!");
           const pointValue = isFutures && FUTURES_SPECS[sym] ? FUTURES_SPECS[sym].pointValue : 1;
-          const current = Number(live?.price);
+          const livePrice = Number(live?.price);
           let totalShares = 0;
           let costBasis = 0;
           let pnlOpen = 0;
+          let hasAllStoredPnl = true;
           for (const t of trades) {
             const entryPrice = Number(t.entry_price ?? t.entryPrice ?? 0);
             const shares = t.shares ?? t.quantity ?? (isFutures ? 1 : entryPrice > 0 ? TRADE_SIZE / entryPrice : 0);
@@ -6217,14 +6240,25 @@
             const signed = direction === "SHORT" ? -1 : 1;
             totalShares += shares;
             costBasis += entryPrice * shares;
-            if (Number.isFinite(current) && entryPrice > 0) {
-              pnlOpen += (current - entryPrice) * shares * pointValue * signed;
+            // Prefer stored P&L from D1 (accurate from replay)
+            const tradePnl = Number(t.pnl ?? t.pnl_amount);
+            if (Number.isFinite(tradePnl)) {
+              pnlOpen += tradePnl;
+            } else if (Number.isFinite(livePrice) && entryPrice > 0) {
+              pnlOpen += (livePrice - entryPrice) * shares * pointValue * signed;
+              hasAllStoredPnl = false;
+            } else {
+              hasAllStoredPnl = false;
             }
           }
           const entryPrice = totalShares > 0 ? costBasis / totalShares : 0;
           const direction = String(trades[0].direction || "").toUpperCase();
           const signed = direction === "SHORT" ? -1 : 1;
-          const retOpenPct = costBasis > 0 && Number.isFinite(current)
+          // Back-compute current price from aggregate P&L for display
+          const current = hasAllStoredPnl && totalShares > 0 && entryPrice > 0
+            ? entryPrice + (pnlOpen / (totalShares * pointValue)) * signed
+            : (Number.isFinite(livePrice) ? livePrice : null);
+          const retOpenPct = entryPrice > 0 && current != null
             ? ((current - entryPrice) / entryPrice) * 100 * signed
             : null;
           return {
@@ -6233,10 +6267,58 @@
             entryPrice,
             shares: totalShares,
             current,
-            pnlOpen: Number.isFinite(current) ? pnlOpen : null,
+            pnlOpen: Number.isFinite(pnlOpen) ? pnlOpen : null,
             retOpenPct,
           };
         };
+
+        // All positions grouped by ticker — unified view (open + closed combined)
+        const ledgerAllByTicker = useMemo(() => {
+          const groups = new Map();
+          for (const t of ledgerFilteredTrades) {
+            const key = String(t.ticker || "").toUpperCase();
+            if (!groups.has(key)) groups.set(key, { open: [], closed: [] });
+            const isClosed = t.status === "WIN" || t.status === "LOSS" || Number(t.trimmed_pct ?? t.trimmedPct ?? 0) >= 0.9999;
+            if (isClosed) groups.get(key).closed.push(t);
+            else groups.get(key).open.push(t);
+          }
+          return Array.from(groups.keys()).sort((a, b) => a.localeCompare(b)).map((ticker) => {
+            const { open, closed } = groups.get(ticker);
+            const allTrades = [...open, ...closed].sort((a, b) => Number(b.entry_ts || 0) - Number(a.entry_ts || 0));
+            const live = data && (data[ticker] || data[allTrades[0]?.ticker]);
+            const unrealizedPnl = open.reduce((sum, t) => {
+              const m = getPositionMetrics(t, live);
+              return sum + (Number(m.pnlOpen) || 0);
+            }, 0);
+            const closedPnl = closed.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+            const totalPnl = unrealizedPnl + closedPnl;
+            const wins = closed.filter(t => Number(t.pnl || 0) > 0).length;
+            const losses = closed.filter(t => Number(t.pnl || 0) < 0).length;
+            const direction = allTrades[0]?.direction || "LONG";
+            return { ticker, trades: allTrades, open, closed, unrealizedPnl, closedPnl, totalPnl, wins, losses, direction, hasOpen: open.length > 0 };
+          });
+        }, [ledgerFilteredTrades, data]);
+
+        // Open positions grouped by ticker (for By Ticker column)
+        const ledgerOpenByTicker = useMemo(() => {
+          const groups = new Map();
+          for (const t of ledgerOpenTrades) {
+            const key = String(t.ticker || "").toUpperCase();
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(t);
+          }
+          return Array.from(groups.keys()).sort((a, b) => a.localeCompare(b)).map((ticker) => {
+            const trades = groups.get(ticker) || [];
+            const live = data && (data[ticker] || data[trades[0]?.ticker]);
+            const unrealizedPnl = trades.reduce((sum, t) => {
+              const m = getPositionMetrics(t, live);
+              return sum + (Number(m.pnlOpen) || 0);
+            }, 0);
+            const totalQty = trades.reduce((sum, t) => sum + (Number(t.qty ?? t.total_qty) || 0), 0);
+            const direction = trades[0]?.direction || "LONG";
+            return { ticker, trades, unrealizedPnl, totalQty, direction, isOpen: true };
+          });
+        }, [ledgerOpenTrades, data]);
 
         // Range in ms for account chart (1D, 5D, 10D, 30D, 1Y)
         const accountChartRangeMs = useMemo(() => {
@@ -6483,6 +6565,8 @@
 
         // Keep Current Price fresh by overriding open/trimmed trades with latest ticker prices.
         // Trades returned by the Worker can lag between runs; this makes the UI reflect latest ingested prices.
+        // GUARD: Only override P&L if live price is reasonably fresh (< 60 min old).
+        // Stale KV prices (e.g. from old TradingView captures) cause wildly wrong P&L display.
         const filteredTradesWithLivePrices = useMemo(() => {
           if (!Array.isArray(filteredTrades)) return [];
           return filteredTrades.map((t) => {
@@ -6495,10 +6579,21 @@
             const isOpenLike =
               t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM";
             if (!isOpenLike || !Number.isFinite(livePrice)) return t;
+
+            // Staleness check: don't override D1 P&L with stale price data
+            const livePriceTs = Number(live.data_source_ts || live.ts || live.ingest_ts || 0);
+            const tradeUpdatedAt = Number(t.updated_at || t.entry_ts || 0);
+            const priceAgeMs = Date.now() - livePriceTs;
+            const isStale = priceAgeMs > 60 * 60 * 1000; // > 1 hour old
+            const tradeHasStoredPnl = Number.isFinite(Number(t.pnl));
+
+            // If live price is stale but trade has D1 pnl, keep the stored values
+            if (isStale && tradeHasStoredPnl) return t;
+
             const next = {
               ...t,
               currentPrice: livePrice,
-              _uiPriceTs: live.ts || live.ingest_ts || null,
+              _uiPriceTs: livePriceTs || null,
             };
 
             // Recompute P&L using latest price so the UI always reflects the latest move.
@@ -6640,10 +6735,13 @@
                     <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Dashboard</a>
                     <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Trades</a>
                     <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+                    <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+                    <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <span className="text-[11px] text-[#4b5563]">Paper · $1k/trade</span>
+                  {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
                 </div>
               </nav>
 
@@ -6744,7 +6842,7 @@
                               ))}
                             </div>
                           </div>
-                          <div className="h-[120px] w-full flex items-center" aria-hidden="true">
+                          <div className="h-[120px] w-full flex items-center relative" aria-hidden="true">
                             {portfolioChartPointsInRange.length >= 2 ? (() => {
                               const pts = portfolioChartPointsInRange;
                               const vals = pts.map((p) => BASELINE_ACCOUNT + p.value);
@@ -6758,6 +6856,7 @@
                               const y = (v) => h - pad - ((v - minV) / rangeV) * (h - 2 * pad);
                               const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(BASELINE_ACCOUNT + p.value)}`).join(" ");
                               return (
+                                <>
                                 <svg
                                   width="100%" height="100%"
                                   viewBox={`0 0 ${w} ${h}`}
@@ -6767,7 +6866,6 @@
                                     const svg = e.currentTarget;
                                     const rect = svg.getBoundingClientRect();
                                     const mouseX = ((e.clientX - rect.left) / rect.width) * w;
-                                    // Find closest point
                                     let closest = 0;
                                     let closestDist = Infinity;
                                     for (let i = 0; i < pts.length; i++) {
@@ -6792,13 +6890,28 @@
                                     <>
                                       <line x1={chartHover.x} y1={0} x2={chartHover.x} y2={h} stroke="var(--tt-text-faint)" strokeWidth="1" strokeDasharray="3,3" />
                                       <circle cx={chartHover.x} cy={chartHover.y} r="4" fill="var(--tt-accent)" stroke="var(--tt-bg)" strokeWidth="2" />
-                                      <rect x={Math.min(chartHover.x + 8, w - 130)} y={Math.max(2, chartHover.y - 28)} width="120" height="24" rx="4" fill="var(--tt-bg-card)" stroke="var(--tt-border)" strokeWidth="1" />
-                                      <text x={Math.min(chartHover.x + 14, w - 124)} y={Math.max(18, chartHover.y - 10)} fill="var(--tt-text)" fontSize="10" fontWeight="600">
-                                        {fmtUsd(chartHover.val)} {chartHover.ts > 0 ? new Date(chartHover.ts).toLocaleDateString() : ""}
-                                      </text>
                                     </>
                                   )}
                                 </svg>
+                                {chartHover && (
+                                  <div
+                                    className="absolute pointer-events-none z-10"
+                                    style={{
+                                      left: `${Math.min((chartHover.x / w) * 100, 80)}%`,
+                                      top: `${Math.max(2, (chartHover.y / h) * 100 - 15)}%`,
+                                    }}
+                                  >
+                                    <div className="px-2.5 py-1 rounded text-[10px] font-semibold whitespace-nowrap"
+                                      style={{
+                                        background: "var(--tt-bg-elevated)",
+                                        border: "1px solid var(--tt-border)",
+                                        color: "var(--tt-text)",
+                                      }}>
+                                      {fmtUsd(chartHover.val)} {chartHover.ts > 0 ? new Date(chartHover.ts).toLocaleDateString() : ""}
+                                    </div>
+                                  </div>
+                                )}
+                                </>
                               );
                             })() : (
                               <div className="flex-1 flex items-center justify-center text-[var(--tt-text-faint)] text-sm">
@@ -6947,7 +7060,7 @@
                             const longPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "LONG");
                             const shortPositions = openPositionCards.filter(p => String(p.trade?.direction || "").toUpperCase() === "SHORT");
                             
-                            // ── Redesigned Position Card (Robinhood-style with P&L bar) ──
+                            // ── Redesigned Position Card (Robinhood-style with SL/EP/TP progress bar) ──
                             const renderCompactCard = (pos) => {
                               const dir = String(pos.trade?.direction || "LONG").toUpperCase();
                               const isLong = dir === "LONG";
@@ -6956,7 +7069,6 @@
                               const entryPrice = pos.entryPrice || Number(pos.trade?.entryPrice) || null;
                               const pnlOpen = pos.pnlOpen;
                               const retOpenPct = pos.retOpenPct;
-                              const trimmedPct = Number(pos.trade?.trimmedPct || 0);
                               const stageInfo = getPositionStage(pos);
                               const qty = pos.qty != null ? Number(pos.qty) : null;
                               
@@ -6966,15 +7078,46 @@
                               const entryDate = entryMs > 0 ? new Date(entryMs) : null;
                               const fmtShortDate = (d) => d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
                               
+                              // Daily change from ticker data
+                              const prevClose = Number(tickerData?.prev_close || tickerData?.previous_close);
+                              let dayChg = Number(tickerData?.day_change || tickerData?.change);
+                              let dayPct = Number(tickerData?.day_change_pct || tickerData?.change_pct);
+                              if ((!Number.isFinite(dayChg) || !Number.isFinite(dayPct)) && Number.isFinite(currentPrice) && Number.isFinite(prevClose) && prevClose > 0) {
+                                dayChg = currentPrice - prevClose;
+                                dayPct = (dayChg / prevClose) * 100;
+                              }
+                              const dayPositive = Number.isFinite(dayPct) ? dayPct >= 0 : null;
+                              
+                              // SL / TP from ticker data or trade
+                              const sl = Number(pos.trade?.stop_loss || tickerData?.sl || tickerData?.sl_price || tickerData?.stop_loss) || null;
+                              const tp = Number(pos.trade?.take_profit || tickerData?.tp || tickerData?.tp_max_price || tickerData?.tp_target_price) || null;
+                              
                               // Trims from events
                               const events = pos.events || pos.trade?.history || [];
                               const trims = events.filter(e => String(e.type || e.action || "").toUpperCase().includes("TRIM"));
                               
-                              // P&L bar calculation: bar width = |retOpenPct| capped at 10% range = 100% width
-                              const pnlPctCapped = Math.min(10, Math.max(-10, retOpenPct || 0));
-                              const barWidth = Math.abs(pnlPctCapped) * 10; // 10% => 100% width
+                              // P&L
                               const isPositive = (retOpenPct ?? 0) >= 0;
                               const pnlColor = isPositive ? "#00c853" : "#ff5252";
+                              
+                              // ── SL / EP / TP Progress Bar Calculation ──
+                              // Shows where current price sits between SL and TP, with EP as anchor
+                              const hasSLTP = Number.isFinite(sl) && sl > 0 && Number.isFinite(tp) && tp > 0 && Number.isFinite(entryPrice);
+                              let progressPct = null; // 0=SL, 100=TP
+                              let epPct = null;       // where EP sits on the bar
+                              if (hasSLTP && Number.isFinite(currentPrice)) {
+                                const range = Math.abs(tp - sl);
+                                if (range > 0) {
+                                  if (isLong) {
+                                    progressPct = Math.max(-10, Math.min(110, ((currentPrice - sl) / range) * 100));
+                                    epPct = ((entryPrice - sl) / range) * 100;
+                                  } else {
+                                    // SHORT: SL is above entry, TP is below
+                                    progressPct = Math.max(-10, Math.min(110, ((sl - currentPrice) / range) * 100));
+                                    epPct = ((sl - entryPrice) / range) * 100;
+                                  }
+                                }
+                              }
                               
                               return (
                                 <button
@@ -6987,76 +7130,106 @@
                                     const evts = (match?.history?.length ? match.history : events);
                                     setSelectedPositionEvents(Array.isArray(evts) ? evts : []);
                                   }}
-                                  className="w-full text-left py-3 border-b border-white/[0.03] hover:bg-white/[0.02] transition-all"
+                                  className="w-full text-left py-3 px-1 border-b border-white/[0.03] hover:bg-white/[0.02] transition-all"
                                   title="Open in right rail"
                                 >
-                                  <div className="flex items-start gap-3">
-                                    {/* Left: Ticker + Direction */}
-                                    <div className="w-[60px] shrink-0">
-                                      <div className="text-[13px] font-semibold text-white">{pos.ticker}</div>
-                                      <div className={`text-[10px] ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{dir}</div>
-                                    </div>
-                                    
-                                    {/* Center: P&L bar chart + details */}
-                                    <div className="flex-1 min-w-0">
-                                      {/* P&L value + percentage */}
-                                      <div className="flex items-baseline gap-2 mb-1.5">
-                                        <span className={`text-[14px] font-semibold tabular-nums ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
-                                          {pnlOpen != null ? `${isPositive ? "+" : ""}${fmtUsd(pnlOpen)}` : "—"}
+                                  {/* Row 1: Ticker + Price + Daily Change | P&L | Stage */}
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[13px] font-semibold text-white">{pos.ticker}</span>
+                                      <span className={`text-[10px] font-medium ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{dir}</span>
+                                      {Number.isFinite(currentPrice) && (
+                                        <span className="text-[12px] text-[#9ca3af] tabular-nums">${currentPrice.toFixed(2)}</span>
+                                      )}
+                                      {dayPositive !== null && Number.isFinite(dayPct) && (
+                                        <span className={`text-[10px] tabular-nums ${dayPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                                          {dayPositive ? "+" : ""}{dayPct.toFixed(1)}%
                                         </span>
-                                        <span className={`text-[11px] tabular-nums ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
-                                          {retOpenPct != null ? `${isPositive ? "+" : ""}${retOpenPct.toFixed(2)}%` : ""}
-                                        </span>
-                                      </div>
-                                      
-                                      {/* Horizontal P&L bar (center-anchored, negative goes left, positive goes right) */}
-                                      <div className="relative h-[6px] rounded-full bg-white/[0.04] mb-2 overflow-hidden">
-                                        {isPositive ? (
-                                          <div className="absolute left-1/2 top-0 h-full rounded-r-full" style={{ width: `${barWidth / 2}%`, background: `linear-gradient(90deg, ${pnlColor}40, ${pnlColor})` }} />
-                                        ) : (
-                                          <div className="absolute top-0 h-full rounded-l-full" style={{ right: "50%", width: `${barWidth / 2}%`, background: `linear-gradient(270deg, ${pnlColor}40, ${pnlColor})` }} />
-                                        )}
-                                        {/* Center tick */}
-                                        <div className="absolute left-1/2 top-0 w-px h-full bg-white/10" />
-                                      </div>
-                                      
-                                      {/* Entry details row */}
-                                      <div className="flex items-center gap-3 text-[10px] text-[#6b7280]">
-                                        <span>{fmtShortDate(entryDate)}</span>
-                                        <span className="text-[#9ca3af]">{qty != null ? `${qty} sh` : ""}</span>
-                                        <span>@ ${entryPrice != null ? entryPrice.toFixed(2) : "—"}</span>
-                                        <span className="text-white/40">→</span>
-                                        <span className="text-[#9ca3af]">${currentPrice != null ? currentPrice.toFixed(2) : "—"}</span>
-                                      </div>
-                                      
-                                      {/* Trims (if any) */}
-                                      {trims.length > 0 && (
-                                        <div className="mt-1.5 space-y-0.5">
-                                          {trims.slice(0, 3).map((trim, ti) => {
-                                            const tTs = Number(trim.ts || trim.time || 0);
-                                            const tMs = tTs < 1e12 ? tTs * 1000 : tTs;
-                                            const tDate = tMs > 0 ? new Date(tMs) : null;
-                                            const tPrice = Number(trim.price || trim.trimPrice || 0);
-                                            const tQty = Number(trim.qty || trim.shares || 0);
-                                            return (
-                                              <div key={`trim-${ti}`} className="flex items-center gap-2 text-[9px] text-amber-400/60">
-                                                <span className="text-amber-400/40">TRIM</span>
-                                                <span>{tDate ? tDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
-                                                {tQty > 0 && <span>{tQty} sh</span>}
-                                                {tPrice > 0 && <span>@ ${tPrice.toFixed(2)}</span>}
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
                                       )}
                                     </div>
-                                    
-                                    {/* Right: Stage badge */}
-                                    <div className="shrink-0 flex flex-col items-end gap-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`text-[13px] font-semibold tabular-nums ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                                        {pnlOpen != null ? `${isPositive ? "+" : ""}${fmtUsd(pnlOpen)}` : "—"}
+                                      </span>
+                                      <span className={`text-[10px] tabular-nums ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
+                                        {retOpenPct != null ? `${isPositive ? "+" : ""}${retOpenPct.toFixed(2)}%` : ""}
+                                      </span>
                                       <span className={`text-[9px] px-1.5 py-0.5 rounded ${stageInfo.bg} ${stageInfo.color} font-medium`}>
                                         {stageInfo.label}
                                       </span>
                                     </div>
+                                  </div>
+                                  
+                                  {/* Row 2: SL / EP / TP Progress Bar */}
+                                  {hasSLTP && progressPct !== null ? (
+                                    <div className="mb-2">
+                                      {/* Labels above bar */}
+                                      <div className="flex items-center justify-between text-[9px] mb-1">
+                                        <span className="text-[#ff5252]/70 tabular-nums">SL ${sl.toFixed(2)}</span>
+                                        {Number.isFinite(epPct) && (
+                                          <span className="text-white/50 tabular-nums" style={{ position: "relative", left: `${Math.max(-30, Math.min(30, epPct - 50))}%` }}>
+                                            EP ${entryPrice.toFixed(2)}
+                                          </span>
+                                        )}
+                                        <span className="text-[#00c853]/70 tabular-nums">TP ${tp.toFixed(2)}</span>
+                                      </div>
+                                      {/* Progress bar */}
+                                      <div className="relative h-[8px] rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                                        {/* Gradient fill: red (SL) -> yellow (EP) -> green (TP) */}
+                                        <div 
+                                          className="absolute top-0 left-0 h-full rounded-full transition-all duration-300"
+                                          style={{ 
+                                            width: `${Math.max(0, Math.min(100, progressPct))}%`,
+                                            background: progressPct < (epPct || 50)
+                                              ? `linear-gradient(90deg, #ff5252 0%, #ff9800 100%)`
+                                              : `linear-gradient(90deg, #ff5252 0%, #ffeb3b ${Math.min(100, (epPct / progressPct) * 100)}%, #00c853 100%)`,
+                                          }}
+                                        />
+                                        {/* EP marker (white tick) */}
+                                        {Number.isFinite(epPct) && epPct > 0 && epPct < 100 && (
+                                          <div 
+                                            className="absolute top-0 h-full"
+                                            style={{ left: `${epPct}%`, width: "2px", background: "white", opacity: 0.6 }}
+                                          />
+                                        )}
+                                        {/* Current price marker (bright dot) */}
+                                        <div 
+                                          className="absolute top-1/2 -translate-y-1/2 rounded-full border-2 border-white"
+                                          style={{ 
+                                            left: `${Math.max(0, Math.min(100, progressPct))}%`,
+                                            width: "10px",
+                                            height: "10px",
+                                            marginLeft: "-5px",
+                                            background: progressPct >= (epPct || 50) ? "#00c853" : "#ff5252",
+                                            boxShadow: `0 0 6px ${progressPct >= (epPct || 50) ? "#00c853" : "#ff5252"}`,
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    /* Fallback: simple P&L bar if no SL/TP data */
+                                    <div className="relative h-[6px] rounded-full bg-white/[0.04] mb-2 overflow-hidden">
+                                      {(() => {
+                                        const pnlPctCapped = Math.min(10, Math.max(-10, retOpenPct || 0));
+                                        const barWidth = Math.abs(pnlPctCapped) * 10;
+                                        return isPositive ? (
+                                          <div className="absolute left-1/2 top-0 h-full rounded-r-full" style={{ width: `${barWidth / 2}%`, background: `linear-gradient(90deg, ${pnlColor}40, ${pnlColor})` }} />
+                                        ) : (
+                                          <div className="absolute top-0 h-full rounded-l-full" style={{ right: "50%", width: `${barWidth / 2}%`, background: `linear-gradient(270deg, ${pnlColor}40, ${pnlColor})` }} />
+                                        );
+                                      })()}
+                                      <div className="absolute left-1/2 top-0 w-px h-full bg-white/10" />
+                                    </div>
+                                  )}
+                                  
+                                  {/* Row 3: Entry details */}
+                                  <div className="flex items-center gap-3 text-[10px] text-[#6b7280]">
+                                    <span>{fmtShortDate(entryDate)}</span>
+                                    <span className="text-[#9ca3af]">{qty != null ? `${qty} sh` : ""}</span>
+                                    <span>@ ${entryPrice != null ? entryPrice.toFixed(2) : "—"}</span>
+                                    {trims.length > 0 && (
+                                      <span className="text-amber-400/60">{trims.length} trim{trims.length > 1 ? "s" : ""}</span>
+                                    )}
                                   </div>
                                 </button>
                               );
@@ -7230,31 +7403,51 @@
                                   })}
                                 </div>
                               </div>
-                              {/* Col 3: By ticker */}
+                              {/* Col 3: By ticker — Unified P&L view */}
                               <div>
-                                <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">By ticker</h3>
-                                <div className="space-y-0.5 max-h-[1120px] overflow-y-auto">
-                                  {ledgerClosedByTicker.length === 0 ? (
-                                    <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No closed trades by ticker</div>
-                                  ) : ledgerClosedByTicker.slice(0, 160).map((row) => (
-                                    <div
-                                      key={row.ticker}
-                                      className="flex items-center justify-between py-1 px-2 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
-                                      onClick={() => {
-                                        if (row.trades?.[0]) {
-                                          setSelectedTrade(row.trades[0]);
-                                          setSelectedTicker(row.ticker);
-                                          setSelectedPositionEvents(row.trades[0]?.history || []);
-                                        }
-                                      }}
-                                    >
-                                      <span className="text-[11px] font-medium text-[var(--tt-text)]">{row.ticker}</span>
-                                      <div className="flex items-center gap-2 text-[10px]">
-                                        <span className="text-[var(--tt-text-muted)]">{row.trades.length}T</span>
-                                        <span className={`font-semibold ${row.totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(row.totalPnl)}</span>
-                                      </div>
-                                    </div>
-                                  ))}
+                                <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">P&L by Ticker</h3>
+                                <div className="space-y-0.5 max-h-[800px] overflow-y-auto">
+                                  {ledgerAllByTicker.length === 0 ? (
+                                    <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No trades</div>
+                                  ) : (() => {
+                                    const maxAbs = Math.max(...ledgerAllByTicker.map((r) => Math.abs(r.totalPnl)), 1);
+                                    return ledgerAllByTicker.slice(0, 200).map((row) => {
+                                      const pct = Math.min(Math.abs(row.totalPnl) / maxAbs, 1) * 100;
+                                      const isGain = row.totalPnl >= 0;
+                                      return (
+                                        <div
+                                          key={`all-${row.ticker}`}
+                                          className="relative flex items-center justify-between py-1.5 px-2 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors overflow-hidden"
+                                          onClick={() => {
+                                            if (row.trades?.[0]) {
+                                              setSelectedTrade(row.trades[0]);
+                                              setSelectedTicker(row.ticker);
+                                              setSelectedPositionEvents(row.trades[0]?.history || []);
+                                            }
+                                          }}
+                                        >
+                                          <div className="absolute top-0 bottom-0 left-0" style={{
+                                            width: `${pct}%`,
+                                            background: isGain ? "rgba(0,200,83,0.10)" : "rgba(255,82,82,0.10)",
+                                          }} />
+                                          <div className="relative flex items-center gap-1.5">
+                                            <span className="text-[11px] font-medium text-[var(--tt-text)]">{row.ticker}</span>
+                                            {row.hasOpen && (
+                                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Has open position" />
+                                            )}
+                                          </div>
+                                          <div className="relative flex items-center gap-2 text-[10px]">
+                                            <span className="text-[var(--tt-text-muted)]">{row.trades.length}T</span>
+                                            {row.wins > 0 && <span className="text-[var(--tt-accent)]">{row.wins}W</span>}
+                                            {row.losses > 0 && <span className="text-[var(--tt-negative)]">{row.losses}L</span>}
+                                            <span className={`font-semibold ${isGain ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                              {isGain ? "+" : ""}{fmtUsd(row.totalPnl)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    });
+                                  })()}
                                 </div>
                               </div>
                             </div>
@@ -7692,11 +7885,16 @@
         if (!rootElement) {
           throw new Error("Root element not found");
         }
+        const AuthGate = window.TimedAuthGate;
         const root = ReactDOM.createRoot ? ReactDOM.createRoot(rootElement) : null;
         const app = (
-          <TrackerErrorBoundary>
-            <App />
-          </TrackerErrorBoundary>
+          <AuthGate apiBase={API_BASE}>
+            {(user) => (
+              <TrackerErrorBoundary>
+                <App user={user} />
+              </TrackerErrorBoundary>
+            )}
+          </AuthGate>
         );
         if (root) {
           root.render(app);

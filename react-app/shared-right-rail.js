@@ -4872,6 +4872,59 @@
                                     )}
                                   </div>
                                   
+                                  {/* Current Price + Daily Change for open trades */}
+                                  {!isClosed && (() => {
+                                    const src = latestTicker || ticker;
+                                    const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
+                                    const dayPct = Number(src?.dayPct ?? src?.dailyChangePct ?? 0);
+                                    const dayChg = Number(src?.dayChg ?? src?.dailyChange ?? 0);
+                                    const slVal = Number(src?.sl ?? t?.sl ?? 0);
+                                    const tpVal = Number(src?.tp ?? t?.tp ?? 0);
+                                    const isLong = String(t.direction || "").toUpperCase() === "LONG";
+                                    const dayUp = dayPct >= 0;
+                                    return (
+                                      <div className="mb-1.5">
+                                        {/* Current price + daily change */}
+                                        <div className="flex items-center justify-between mb-1">
+                                          <span className="text-[10px] text-[#6b7280]">Current</span>
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-xs text-white font-bold">{cp > 0 ? `$${cp.toFixed(2)}` : "—"}</span>
+                                            <span className={`text-[10px] font-semibold ${dayUp ? "text-teal-400" : "text-rose-400"}`}>
+                                              {dayUp ? "+" : ""}{dayPct.toFixed(2)}%
+                                              {Number.isFinite(dayChg) && dayChg !== 0 ? ` ($${Math.abs(dayChg).toFixed(2)})` : ""}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        {/* SL / TP / Entry row */}
+                                        <div className="flex items-center justify-between text-[10px] mb-1">
+                                          <span><span className="text-rose-400">SL</span> <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "—"}</span></span>
+                                          <span><span className="text-[#6b7280]">EP</span> <span className="text-white font-medium">${entryPrice > 0 ? entryPrice.toFixed(2) : "—"}</span></span>
+                                          <span><span className="text-teal-400">TP</span> <span className="text-white font-medium">{tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—"}</span></span>
+                                        </div>
+                                        {/* Mini progress bar SL → EP → TP */}
+                                        {slVal > 0 && tpVal > 0 && cp > 0 && entryPrice > 0 && (() => {
+                                          const lo = Math.min(slVal, tpVal);
+                                          const hi = Math.max(slVal, tpVal);
+                                          const range = hi - lo;
+                                          if (range <= 0) return null;
+                                          const cpPct = Math.max(0, Math.min(100, ((cp - lo) / range) * 100));
+                                          const epPct = Math.max(0, Math.min(100, ((entryPrice - lo) / range) * 100));
+                                          const isProfit = isLong ? cp >= entryPrice : cp <= entryPrice;
+                                          return (
+                                            <div className="relative h-2 rounded-full bg-white/[0.06] border border-white/[0.08] overflow-visible">
+                                              {/* SL-to-TP fill */}
+                                              <div className={`absolute top-0 bottom-0 left-0 rounded-full ${isProfit ? "bg-teal-500/50" : "bg-rose-500/40"}`} style={{width: `${cpPct}%`}} />
+                                              {/* EP marker */}
+                                              <div className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-white/60 rounded" style={{left: `${epPct}%`}} title={`Entry $${entryPrice.toFixed(2)}`} />
+                                              {/* CP marker */}
+                                              <div className={`absolute top-[-3px] w-[6px] h-[6px] rounded-full border ${isProfit ? "bg-teal-400 border-teal-300" : "bg-rose-400 border-rose-300"}`} style={{left: `calc(${cpPct}% - 3px)`, top: "-1px"}} title={`Current $${cp.toFixed(2)}`} />
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
+                                    );
+                                  })()}
+
                                   {/* Compact details grid */}
                                   <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
                                     <div className="flex justify-between">

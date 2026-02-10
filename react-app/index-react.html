@@ -2888,7 +2888,7 @@
         return null;
       }
 
-      function applyFilters(dataObj, filters, trades = [], socialAdditions = []) {
+      function applyFilters(dataObj, filters, trades = [], socialAdditions = [], savedTickerSet = null) {
         const out = [];
 
         const deriveHorizonBucket = (t) => {
@@ -3052,15 +3052,19 @@
 
           // Group filter
           if (effectiveFilters.group && effectiveFilters.group !== "ALL") {
-            const T = normTicker(ticker);
-            const gs = groupsForTicker(T, socialAdditions);
-            if (effectiveFilters.group === "ANY") {
-              if (gs.length === 0) continue;
-            } else if (effectiveFilters.group === "UNGROUPED") {
-              const actualGroups = gs.filter((g) => g !== "Other");
-              if (actualGroups.length > 0) continue;
+            if (effectiveFilters.group === "SAVED") {
+              if (!savedTickerSet || !savedTickerSet.has(normTicker(ticker))) continue;
             } else {
-              if (!gs.includes(effectiveFilters.group)) continue;
+              const T = normTicker(ticker);
+              const gs = groupsForTicker(T, socialAdditions);
+              if (effectiveFilters.group === "ANY") {
+                if (gs.length === 0) continue;
+              } else if (effectiveFilters.group === "UNGROUPED") {
+                const actualGroups = gs.filter((g) => g !== "Other");
+                if (actualGroups.length > 0) continue;
+              } else {
+                if (!gs.includes(effectiveFilters.group)) continue;
+              }
             }
           }
 
@@ -10850,6 +10854,11 @@
                   () => onChange({ group: "ALL" }),
                 )}
                 {pill(
+                  "⭐ Saved",
+                  group === "SAVED",
+                  () => onChange({ group: "SAVED" }),
+                )}
+                {pill(
                   pillLabelWithCount("Upticks", pillCounts?.groups?.UPTICKS),
                   group === "UPTICKS",
                   () => onChange({ group: "UPTICKS" }),
@@ -11401,7 +11410,7 @@
       // ─────────────────────────────────────────────────────────────
       // Shared compact card renderer (used by both Kanban + Viewport)
       // ─────────────────────────────────────────────────────────────
-      function renderCompactCardFn(t, { onSelectTicker } = {}) {
+      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker } = {}) {
           const state = String(t?.state || "");
           const htfBull = state.startsWith("HTF_BULL");
           const htfBear = state.startsWith("HTF_BEAR");
@@ -11540,7 +11549,7 @@
                 }
               }}
               className={
-                "w-full text-left px-3 py-2.5 rounded-2xl cursor-pointer transition-all hover:bg-white/[0.06] relative overflow-hidden border " +
+                "w-full text-left px-2 py-1.5 rounded-xl cursor-pointer transition-all hover:bg-white/[0.06] relative overflow-hidden border " +
                 (dir === "LONG" ? "border-cyan-400/20 " : "border-rose-400/20 ") +
                 pulseCls + " " + (skin?.dayEdgeClass || "")
               }
@@ -11551,8 +11560,15 @@
               }}
             >
               {/* ROW 1: Ticker, Direction, Emojis, Bias, Price, Daily Change */}
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <div className="flex items-center gap-1.5 min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-0.5">
+                <div className="flex items-center gap-1 min-w-0">
+                  {toggleSavedTicker && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleSavedTicker(sym); }}
+                      className={`shrink-0 text-[12px] hover:scale-110 transition-transform ${savedTickers?.has?.(sym) ? "text-amber-400" : "text-[#4b5563] hover:text-amber-300"}`}
+                      title={savedTickers?.has?.(sym) ? "Remove from Saved" : "Add to Saved"}
+                    >&#9733;</button>
+                  )}
                   <span className="text-sm font-bold text-white truncate shrink-0">{sym}</span>
                   <span className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-md text-[11px] font-black shrink-0 ${dir === "LONG" ? "bg-cyan-400/25 text-cyan-300 ring-1 ring-cyan-400/40" : "bg-rose-500/25 text-rose-300 ring-1 ring-rose-400/40"}`}>{dir === "LONG" ? "L" : "S"}</span>
                   {badgesText && <span className="text-[11px] shrink-0">{badgesText}</span>}
@@ -11580,7 +11596,7 @@
 
               {/* ROW 2: Entry stats (only for active trades) */}
               {isActiveTrade && Number.isFinite(entryPrice) && (
-                <div className="flex items-center justify-between gap-2 mb-1.5 text-[10px] font-medium">
+                <div className="flex items-center justify-between gap-2 mb-0.5 text-[10px] font-medium">
                   <span className="text-[#6b7280]">
                     Entry <span className="text-white font-semibold">${entryPrice.toFixed(2)}</span>
                   </span>
@@ -11593,7 +11609,7 @@
               )}
 
               {/* ROW 3: Score, R:R, SL, TP */}
-              <div className="flex items-center justify-between gap-1.5 text-[10px] text-[#6b7280] font-medium mb-1.5">
+              <div className="flex items-center justify-between gap-1.5 text-[10px] text-[#6b7280] font-medium mb-0.5">
                 <span>Score <span className="text-white font-semibold">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
                 <span>R:R <span className="text-white font-semibold">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
                 <span className="text-rose-300">SL <span className="font-semibold">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
@@ -11601,7 +11617,7 @@
               </div>
 
               {/* ROW 3.5: Phoenix Badges — Quality, Consensus, Volatility */}
-              <div className="flex items-center gap-1 text-[9px] font-medium mb-1 flex-wrap">
+              <div className="flex items-center gap-1 text-[9px] font-medium mb-0.5 flex-wrap">
                 {eqScore > 0 && (
                   <span className={`px-1 py-0.5 rounded-sm border ${eqScore >= 70 ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40" : eqScore >= 50 ? "bg-amber-500/20 text-amber-300 border-amber-400/40" : "bg-rose-500/20 text-rose-300 border-rose-400/40"}`}
                     title={`Entry Quality: Structure=${t?.entry_quality?.structure || 0} Momentum=${t?.entry_quality?.momentum || 0} Confirm=${t?.entry_quality?.confirmation || 0}`}>
@@ -11692,11 +11708,11 @@
                     const isShort = dir === "SHORT";
 
                     const fillColor = fillPct >= 50
-                      ? (fillPct >= 80 ? "bg-emerald-500/40" : "bg-emerald-500/25")
-                      : (fillPct <= 20 ? "bg-rose-500/30" : "bg-white/[0.18]");
+                      ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50")
+                      : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.35]");
 
                     return (
-                      <div className="relative h-3 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-5 mb-5">
+                      <div className="relative h-3 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-3 mb-3">
                         {cp && (
                           <div
                             className={`absolute top-0 bottom-0 ${isShort ? "right-0" : "left-0"} ${fillColor} overflow-visible`}
@@ -11735,6 +11751,8 @@
         defaultLimit = 12,
         storageKey = "timedTrading_activeMovesSnapshot_v1",
         trades = [],
+        savedTickers = new Set(),
+        toggleSavedTicker = null,
       }) {
         const [expandedSections, setExpandedSections] = React.useState({
           earlyMovers: true,
@@ -11980,53 +11998,7 @@
               </div>
             </div>
 
-            {/* Kanban Trading Flow */}
-            {(kanbanCount > 0 || hasKanbanData) && (
-              <div className="mb-4">
-                <button
-                  onClick={() => toggleSection("earlyMovers")}
-                  className="w-full flex items-center justify-between p-3 rounded-2xl border border-white/[0.08] hover:border-white/[0.12] transition-all mb-3"
-                  style={{background:"rgba(255,255,255,0.03)",boxShadow:"0 1px 4px rgba(0,0,0,0.15), inset 0 0.5px 0 rgba(255,255,255,0.05)"}}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-sm font-bold text-white">
-                      📊 Trading Pipeline
-                    </span>
-                    {kanbanActiveCount > 0 && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold border" style={{
-                        background: "rgba(168,85,247,0.15)",
-                        borderColor: "rgba(168,85,247,0.4)",
-                        color: "#d8b4fe"
-                      }}>
-                        {[
-                          kanbanStageCounts.setup > 0 && `${kanbanStageCounts.setup} setup`,
-                          kanbanStageCounts.enter > 0 && `${kanbanStageCounts.enter} enter`,
-                          kanbanStageCounts.hold > 0 && `${kanbanStageCounts.hold} hold`,
-                          kanbanStageCounts.defend > 0 && `${kanbanStageCounts.defend} defend`,
-                          kanbanStageCounts.trim > 0 && `${kanbanStageCounts.trim} trim`,
-                          kanbanStageCounts.exit > 0 && `${kanbanStageCounts.exit} exit`,
-                        ].filter(Boolean).join(" \u2022 ") || "0 active"}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[var(--tt-text-muted)]">
-                    {expandedSections.earlyMovers ? "▼" : "▶"}
-                  </span>
-                </button>
-
-                {expandedSections.earlyMovers && (
-                  <div className="bg-[var(--tt-bg-elevated)] rounded-lg p-3 border border-[var(--tt-border)]">
-                    <EarlyMoversPanel
-                      tickers={tickers}
-                      trades={trades}
-                      onSelectTicker={onSelectTicker}
-                      rankPositions={rankPositions}
-                      rankTotal={rankTotal}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Trading Pipeline removed — redundant with kanban lanes */}
           </div>
         );
       }
@@ -12170,7 +12142,7 @@
         } = categories;
 
         // Compact card renderer — delegates to shared top-level function
-        const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker });
+        const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker });
 
         if (
           setup.length === 0 &&
@@ -12212,50 +12184,45 @@
           }, []);
 
           return (
-            <div className="flex-1 min-w-[230px] max-w-[310px]">
+            <div className="flex items-stretch gap-0 mb-1">
+              {/* Lane label */}
               <div
-                className={`px-3 py-2.5 rounded-t-xl border-t-2 border-l border-r border-white/[0.04] ${color}`}
-                style={{
-                  background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)",
-                }}
+                className={`flex flex-col justify-center items-center w-[80px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-white/[0.04] ${color} px-2 py-2`}
+                style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" }}
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-white/90 tracking-wide">
-                    {icon} {title}
-                  </span>
-                  <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md border ${count > 0 ? "text-white/80 bg-white/[0.06] border-white/[0.1]" : "text-[#4b5563] bg-transparent border-transparent"}`}>
-                    {count}
-                  </span>
-                </div>
-                {subtitle && (
-                  <div className="text-[9px] text-[#6b7280] mt-0.5">{subtitle}</div>
-                )}
+                <span className="text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight">
+                  {icon}<br/>{title}
+                </span>
+                <span className={`text-[10px] font-bold tabular-nums mt-1 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`}>
+                  {count}
+                </span>
               </div>
+              {/* Horizontal scrollable card area */}
               <div
                 ref={listRef}
-                className="rounded-b-xl border-l border-r border-b border-white/[0.04] p-1.5 max-h-[560px] overflow-y-auto scrollbar-hide"
+                className="flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide"
                 style={{ overflowAnchor: "none", scrollBehavior: "smooth", WebkitOverflowScrolling: "touch", background: "rgba(255,255,255,0.01)" }}
                 onScroll={() => {
                   try {
                     const el = listRef.current;
                     if (!el) return;
-                    laneScrollTopRef.current[laneKey] = el.scrollTop;
+                    laneScrollTopRef.current[laneKey] = el.scrollLeft;
                   } catch {}
                 }}
               >
                 {Array.isArray(items) && items.length > 0 ? (
-                  <div className="space-y-2">
+                  <div className="flex gap-1.5">
                     {items
                       .slice(0, 50)
                       .map((t) => (
-                        <React.Fragment key={t.ticker || t.symbol || Math.random()}>
+                        <div key={t.ticker || t.symbol || Math.random()} className="w-[210px] shrink-0">
                           {renderCompactCard(t)}
-                        </React.Fragment>
+                        </div>
                       ))}
                   </div>
                 ) : (
-                  <div className="text-[10px] text-[#4b5563] italic">
-                    No tickers right now
+                  <div className="text-[10px] text-[#4b5563] italic flex items-center h-full px-2">
+                    No tickers
                   </div>
                 )}
               </div>
@@ -12285,8 +12252,8 @@
                 <span title="Squeeze just released — breakout">⚡ Release</span>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <div className="flex gap-1.5 pb-1.5">
+            <div>
+              <div className="flex flex-col">
                 {/* DISCOVERY MODE - No position yet */}
                 <KanbanColumn
                   laneKey="setup"
@@ -15360,6 +15327,42 @@
         const [ingestAuditError, setIngestAuditError] = useState(null);
         const [ingestAuditOpen, setIngestAuditOpen] = useState(false);
 
+        // ── Saved Tickers (per-user) ──────────────────────────────────
+        const [savedTickers, setSavedTickers] = useState(new Set());
+        const savedTickersLoadedRef = useRef(false);
+
+        // Load saved tickers on mount (from /timed/me which includes saved_tickers)
+        useEffect(() => {
+          if (savedTickersLoadedRef.current) return;
+          savedTickersLoadedRef.current = true;
+          (async () => {
+            try {
+              const res = await fetch(`${API_BASE}/timed/saved`, { cache: "no-store", credentials: "include" });
+              const json = await res.json();
+              if (json.ok && Array.isArray(json.saved_tickers)) {
+                setSavedTickers(new Set(json.saved_tickers));
+              }
+            } catch (_) { /* silent */ }
+          })();
+        }, []);
+
+        const toggleSavedTicker = useCallback(async (ticker) => {
+          const t = ticker.toUpperCase();
+          setSavedTickers(prev => {
+            const next = new Set(prev);
+            if (next.has(t)) next.delete(t); else next.add(t);
+            return next;
+          });
+          try {
+            await fetch(`${API_BASE}/timed/saved/toggle`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ ticker: t }),
+            });
+          } catch (_) { /* optimistic, ignore failures */ }
+        }, []);
+
         const fetchMissingIngest = useCallback(async () => {
           try {
             setMissingIngestLoading(true);
@@ -15565,7 +15568,7 @@
             isObject: data && typeof data === 'object'
           });
           
-          const filtered = applyFilters(data, effectiveFilters, trades, socialAdditions);
+          const filtered = applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
           console.log('[TICKERS MEMO] Filtered tickers:', {
             inputDataKeys: dataKeys.length,
             filteredCount: filtered.length,
@@ -15573,13 +15576,13 @@
             tradesCount: (trades || []).length
           });
           return filtered;
-        }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers]);
+        }, [data, effectiveFilters, trades, socialAdditions, timeTravelTickers, savedTickers]);
 
         // Base filtered tickers for Time Travel slider controls.
         // IMPORTANT: Hooks must never be called conditionally inside JSX.
         const timeTravelBaseTickers = useMemo(() => {
-          return applyFilters(data, effectiveFilters, trades, socialAdditions);
-        }, [data, effectiveFilters, trades, socialAdditions]);
+          return applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers);
+        }, [data, effectiveFilters, trades, socialAdditions, savedTickers]);
 
         // Compute dynamic ranks once for all tickers to ensure consistency
         // IMPORTANT: Use ALL tickers from data, not filtered tickers, for ranking
@@ -15796,20 +15799,7 @@
                     </div>
                   </div>
 
-                  {/* Time Travel row (above Action Center) */}
-                  <div className="mt-3 mb-2">
-                    <TimeTravelSlider
-                      tickers={timeTravelBaseTickers}
-                      allTickers={data}
-                      data={data}
-                      onTimeChange={setTimeTravelTickers}
-                      tickerFilter={filters.tickerFilter}
-                      selectedTicker={selectedTicker}
-                      compact={true}
-                    />
-                  </div>
-
-                  {/* Compact Controls Bar: Search + Filters Toggle */}
+                  {/* Compact Controls Bar: Search + Filters Toggle + Time Travel */}
                   <div className="mt-2 mb-3 flex flex-wrap items-center gap-3">
                     {/* Search */}
                     <div className="w-[320px] relative">
@@ -15848,6 +15838,19 @@
                     >
                       Filters {showAdvancedFilters ? "▼" : "▶"}
                     </button>
+
+                    {/* Time Travel (inline with pills) */}
+                    <div className="flex-1 min-w-[200px]">
+                      <TimeTravelSlider
+                        tickers={timeTravelBaseTickers}
+                        allTickers={data}
+                        data={data}
+                        onTimeChange={setTimeTravelTickers}
+                        tickerFilter={filters.tickerFilter}
+                        selectedTicker={selectedTicker}
+                        compact={true}
+                      />
+                    </div>
                   </div>
                   
                   {/* Filter Groups (collapsible) */}
@@ -15864,6 +15867,43 @@
                     </div>
                   )}
 
+                  {/* ── Top Movers Strip ────────────────────────────────────── */}
+                  {(() => {
+                    const allArr = data && typeof data === 'object' ? Object.values(data) : [];
+                    const withPct = allArr.filter(t => Number.isFinite(t?.dayPct) && Number.isFinite(t?.currentPrice));
+                    const sorted = [...withPct].sort((a, b) => b.dayPct - a.dayPct);
+                    const gainers = sorted.slice(0, 5);
+                    const losers = sorted.slice(-5).reverse();
+                    if (gainers.length === 0 && losers.length === 0) return null;
+                    const chip = (t, isGain) => {
+                      const sym = t?.ticker || t?.symbol || "?";
+                      const pct = t.dayPct;
+                      const price = t.currentPrice ?? t.cp;
+                      const cls = isGain ? "text-teal-400 border-teal-500/30 bg-teal-500/10" : "text-rose-400 border-rose-500/30 bg-rose-500/10";
+                      return (
+                        <button key={sym} onClick={() => handleTickerSelect(sym)}
+                          className={`px-2 py-0.5 rounded-lg border text-[10px] font-semibold flex items-center gap-1 hover:opacity-80 transition-opacity ${cls}`}>
+                          <span className="text-white font-bold">{sym}</span>
+                          <span>${Number(price).toFixed(2)}</span>
+                          <span>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</span>
+                        </button>
+                      );
+                    };
+                    return (
+                      <div className="mb-3 flex items-center gap-3 flex-wrap text-[10px]">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[#6b7280] font-semibold whitespace-nowrap">Top Gainers</span>
+                          {gainers.map(t => chip(t, true))}
+                        </div>
+                        <div className="w-px h-4 bg-white/10" />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[#6b7280] font-semibold whitespace-nowrap">Top Losers</span>
+                          {losers.map(t => chip(t, false))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Action Center */}
                   <div className="mb-4">
                     <ActionCenterPanel
@@ -15874,6 +15914,8 @@
                       onSelectTicker={handleTickerSelect}
                       allData={data}
                       defaultLimit={12}
+                      savedTickers={savedTickers}
+                      toggleSavedTicker={toggleSavedTicker}
                     />
                   </div>
                 </header>
@@ -15901,7 +15943,7 @@
                 {/* Ingestion Status Panel (minimizable, always accessible) */}
                 <IngestionStatusPanel
                   allData={data}
-                  filteredTickers={applyFilters(data, effectiveFilters, trades, socialAdditions)}
+                  filteredTickers={applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers)}
                   onRefresh={refetch}
                 />
 

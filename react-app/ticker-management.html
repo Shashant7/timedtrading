@@ -1,0 +1,867 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticker Management — Timed Trading</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js"></script>
+    <style>
+      body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+      const API_BASE = "";  // same-origin — proxied by Pages Function
+      const API_KEY = "AwesomeSauce";
+      const TFS = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
+      const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "10": "10m", "5": "5m", "1": "1m" };
+      const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VIX", "GC1!", "SI1!"]);
+
+      // ── Company Names ──
+      const COMPANY_NAMES = {
+        AAPL:"Apple",AAPU:"Apple 2x ETF",ADBE:"Adobe",AEE:"Ameren",AEP:"American Electric",AEHR:"Aehr Test",AGQ:"Silver 2x ETF",
+        ALLY:"Ally Financial",ALB:"Albemarle",AMD:"AMD",AMGN:"Amgen",AMZN:"Amazon",ANET:"Arista Networks",APD:"Air Products",
+        APLD:"Applied Digital",APP:"AppLovin",ASTS:"AST SpaceMobile",AVAV:"AeroVironment",AVGO:"Broadcom",AWI:"Armstrong World",
+        AXP:"American Express",AXON:"Axon Enterprise",AYI:"Acuity Brands",B:"Barnes Group",BA:"Boeing",BABA:"Alibaba",
+        BE:"Bloom Energy",BK:"BNY Mellon",BMNR:"Bitmine Immersion",BTBT:"Bit Digital",BTCUSD:"Bitcoin",BWXT:"BWX Technologies",
+        CAT:"Caterpillar",CCJ:"Cameco",CDNS:"Cadence Design",CLS:"Celestica",CMCSA:"Comcast",COIN:"Coinbase",COST:"Costco",
+        CRM:"Salesforce",CRS:"Carpenter Tech",CRCL:"Circle",CRWV:"CrowdWave",CRVS:"Corvus Pharma",CRWD:"CrowdStrike",
+        CSCO:"Cisco",CSX:"CSX Corp",D:"Dominion Energy",DCI:"Donaldson",DE:"Deere & Co",DUK:"Duke Energy",DY:"Dycom",
+        ECL:"Ecolab",EME:"EMCOR",EMR:"Emerson Electric",ENS:"EnerSys",ES:"Eversource",ETHA:"iShares Ethereum",
+        ETHT:"ProShares Ether",ETHUSD:"Ethereum",ETN:"Eaton Corp",ETR:"Entergy",EXC:"Exceleron",EXPE:"Expedia",
+        EWBC:"East West Bancorp",FDX:"FedEx",FE:"FirstEnergy",FIG:"Simplify MBS",FIX:"Comfort Systems",GDX:"Gold Miners ETF",
+        GDXJ:"Jr Gold Miners ETF",GE:"GE Aerospace",GEV:"GE Vernova",GILD:"Gilead",GLD:"Gold ETF",GLXY:"Galaxy Digital",
+        GOOGL:"Alphabet",GRNY:"Greenery",GS:"Goldman Sachs",HD:"Home Depot",HIMS:"Hims & Hers",HII:"HII Inc",
+        HL:"Hecla Mining",HOOD:"Robinhood",IAU:"iShares Gold",IBP:"Installed Building",IBRX:"ImmunityBio",
+        IESC:"IES Holdings",INTC:"Intel",INTU:"Intuit",IONQ:"IonQ",IOT:"Samsara",IREN:"IREN",ITT:"ITT Inc",
+        IWM:"Russell 2000 ETF",JCI:"Johnson Controls",JOBY:"Joby Aviation",JPM:"JPMorgan",KLAC:"KLA Corp",
+        KO:"Coca-Cola",KTOS:"Kratos Defense",LIN:"Linde",LITE:"Lumentum",LRCX:"Lam Research",LOW:"Lowe's",
+        MA:"Mastercard",MCD:"McDonald's",MDB:"MongoDB",META:"Meta",MLI:"Mueller Industries",MNST:"Monster Beverage",
+        MP:"MP Materials",MSFT:"Microsoft",MSTR:"MicroStrategy",MTB:"M&T Bank",MTZ:"MasTec",MU:"Micron",
+        NBIS:"Nebius Group",NEE:"NextEra Energy",NEU:"NewMarket",NFLX:"Netflix",NKE:"Nike",NXT:"Nextracker",
+        NVDA:"Nvidia",ON:"ON Semi",ONDS:"Ondas Holdings",PANW:"Palo Alto Networks",PATH:"UiPath",PEG:"PSEG",
+        PEGA:"Pegasystems",PH:"Parker-Hannifin",PI:"Impinj",PLTR:"Palantir",PNC:"PNC Financial",
+        PSTG:"Pure Storage",PWR:"Quanta Services",QLYS:"Qualys",QQQ:"Nasdaq 100 ETF",RBLX:"Roblox",
+        RDDT:"Reddit",RGLD:"Royal Gold",RIOT:"Riot Platforms",RKLB:"Rocket Lab",SANM:"Sanmina",
+        SBET:"SharpLink Gaming",SBUX:"Starbucks",SCHW:"Charles Schwab",SGI:"Surgalign",SHOP:"Shopify",
+        SHW:"Sherwin-Williams",SLB:"SLB",SLV:"Silver ETF",SN:"SharkNinja",SO:"Southern Company",
+        SOFI:"SoFi",SOXL:"Semis 3x ETF",SPGI:"S&P Global",SPG:"Simon Property",SPY:"S&P 500 ETF",
+        SRE:"Sempra",STRL:"Sterling Infra",STX:"Seagate",STZ:"Constellation Brands",SWK:"Stanley Black&Decker",
+        T:"AT&T",TFC:"Truist Financial",TGT:"Target",TJX:"TJX Companies",TLN:"Talen Energy",TMO:"Thermo Fisher",
+        TNA:"Small Cap 3x ETF",TSLA:"Tesla",TSM:"TSMC",TT:"Trane Technologies",TWLO:"Twilio",TXN:"Texas Instruments",
+        ULTA:"Ulta Beauty",UNH:"UnitedHealth",UNP:"Union Pacific",UPS:"UPS",USB:"U.S. Bancorp",UTHR:"United Therapeutics",
+        UUUU:"Energy Fuels",VICI:"VICI Properties",VRTX:"Vertex Pharma",VST:"Vistra Energy",VZ:"Verizon",
+        WAL:"Western Alliance",WEC:"WEC Energy",WELL:"Welltower",WFC:"Wells Fargo",WMT:"Walmart",WTS:"Watts Water",
+        XEL:"Xcel Energy",XLB:"Materials ETF",XLC:"Comms ETF",XLE:"Energy ETF",XLF:"Financials ETF",
+        XLI:"Industrials ETF",XLK:"Tech ETF",XLP:"Staples ETF",XLRE:"Real Estate ETF",XLU:"Utilities ETF",
+        XLV:"Healthcare ETF",XLY:"Disc ETF",XOM:"Exxon Mobil",XYZ:"Block Inc",
+        "ES1!":"E-mini S&P","NQ1!":"E-mini Nasdaq","GC1!":"Gold Futures","SI1!":"Silver Futures",GOLD:"Gold Futures",SILVER:"Silver Futures",
+        VIX:"VIX Index","US500":"US 500",GLD:"Gold ETF",
+        ADBE:"Adobe",LIN:"Linde",APD:"Air Products",FDX:"FedEx",CMCSA:"Comcast",
+        CRM:"Salesforce",ECL:"Ecolab",SHW:"Sherwin-Williams",
+      };
+
+      // ── Groups ──
+      const GROUPS = {
+        UPTICKS: new Set([
+          "TSLA","STX","AU","CLS","CRS","VST","FSLR","JCI","ORCL","AMZN",
+          "BRK-B","BABA","WMT","PH","GEV","HII","CSX","PWR","SPGI","APP",
+          "PANW","RDDT","TT","GLXY","ETHA","KO","GILD","MTB","AMGN",
+        ]),
+        SuperGranny: new Set(["META","NVDA","AMD","ANET","GS"]),
+        GRNI: new Set([
+          "VST","TSLA","TJX","SPGI","SOFI","PWR","PNC","PLTR","PANW","NVDA","NFLX",
+          "MSTR","MSFT","MNST","META","LRCX","KLAC","JPM","HOOD","GS","GOOGL","GEV",
+          "GE","EXPE","ETN","EMR","DE","CRWD","COST","CDNS","CAT","BK","AXP","AXON",
+          "AVGO","ANET","AMZN","AMD","AAPL",
+        ]),
+        GRNJ: new Set([
+          "RKLB","LITE","SN","ALB","RDDT","RGLD","MTZ","ON","ALLY","DY","CCJ","EWBC",
+          "PATH","WFRD","WAL","IESC","ENS","TWLO","MLI","KTOS","MDB","TLN","EME","AWI",
+          "IBP","DCI","WTS","FIX","UTHR","NBIS","SGI","AYI","RIOT","NXT","SANM","BWXT",
+          "PEGA","JOBY","IONQ","SOFI","ITT","STRL","QLYS","MP","GLXY","HIMS","IOT","BE",
+          "NEU","AVAV","PSTG","RBLX",
+        ]),
+        GRNY: new Set([
+          "GEV","LRCX","PNC","GOOGL","GS","META","MNST","KLAC","TJX","GE","EXPE","CAT",
+          "BK","SPGI","TSLA","EMR","JPM","AXP","ANET","AXON","AAPL","NVDA","AVGO","PWR",
+          "CDNS","DE","MSFT","COST","VST","PLTR","AMZN","HOOD","ETN","SOFI","AMD","PANW",
+          "CRWD","NFLX","MSTR",
+        ]),
+        Social: new Set([
+          "CSCO","BA","NKE","AAPL","PI","APLD","MU","HOOD","CCJ","ULTA","STX",
+        ]),
+        SP_Sectors: new Set([
+          "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
+        ]),
+        Futures: new Set(["ES1!","NQ1!","BTCUSD","ETHUSD","ETHA","VIX"]),
+      };
+      const GROUP_ORDER = ["SP_Sectors","Futures","UPTICKS","SuperGranny","GRNI","GRNJ","GRNY","Social"];
+      function groupsForTicker(t) {
+        const T = String(t || "").toUpperCase();
+        const out = [];
+        for (const [g, set] of Object.entries(GROUPS)) {
+          if (set.has(T)) out.push(g);
+        }
+        return out;
+      }
+
+      // ── Helpers ──
+      function pctColor(pct) {
+        if (pct >= 80) return "#22c55e";
+        if (pct >= 40) return "#f59e0b";
+        return "#ef4444";
+      }
+
+      function pctBg(pct) {
+        if (pct >= 80) return "rgba(34,197,94,0.12)";
+        if (pct >= 40) return "rgba(245,158,11,0.12)";
+        return "rgba(239,68,68,0.12)";
+      }
+
+      function formatAge(ts) {
+        if (!ts) return "—";
+        const now = Date.now();
+        const ageMs = now - ts;
+        if (ageMs < 0) return "now";
+        const mins = Math.floor(ageMs / 60000);
+        if (mins < 60) return `${mins}m ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs}h ago`;
+        const days = Math.floor(hrs / 24);
+        if (days < 7) return `${days}d ago`;
+        return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
+
+      function formatDate(ts) {
+        if (!ts) return "—";
+        return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" });
+      }
+
+      // ── Main App ──
+      function App() {
+        const [data, setData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [search, setSearch] = useState("");
+        const [sectorFilter, setSectorFilter] = useState("all");
+        const [sortCol, setSortCol] = useState("ticker");
+        const [sortDir, setSortDir] = useState("asc");
+        const [selected, setSelected] = useState(new Set());
+        const [addInput, setAddInput] = useState("");
+        const [actionStatus, setActionStatus] = useState(null);
+        const [backfillStatus, setBackfillStatus] = useState({});
+        const [priceData, setPriceData] = useState({});
+        const addRef = useRef(null);
+
+        // ── Fetch data ──
+        const fetchData = useCallback(async () => {
+          setLoading(true);
+          setError(null);
+          try {
+            const [statusRes, priceRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/admin/ingestion-status?key=${API_KEY}&_t=${Date.now()}`),
+              fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`),
+            ]);
+            const json = await statusRes.json();
+            if (!json.ok) throw new Error(json.error || "Failed to fetch");
+            setData(json);
+            try {
+              const pJson = await priceRes.json();
+              if (pJson.ok && pJson.prices) {
+                setPriceData({ prices: pJson.prices, updated_at: pJson.updated_at });
+              }
+            } catch (_) {}
+          } catch (e) {
+            setError(e.message);
+          } finally {
+            setLoading(false);
+          }
+        }, []);
+
+        useEffect(() => { fetchData(); }, [fetchData]);
+
+        // ── Derived data ──
+        const tickers = useMemo(() => {
+          if (!data?.tickers) return [];
+          return data.tickers;
+        }, [data]);
+
+        const sectors = useMemo(() => {
+          const s = new Set(tickers.map(t => t.sector).filter(Boolean));
+          return ["all", ...Array.from(s).sort()];
+        }, [tickers]);
+
+        const filtered = useMemo(() => {
+          let items = tickers;
+          if (search) {
+            const q = search.toUpperCase();
+            items = items.filter(t => t.ticker.includes(q));
+          }
+          if (sectorFilter !== "all") {
+            items = items.filter(t => t.sector === sectorFilter);
+          }
+          // Sort
+          items = [...items].sort((a, b) => {
+            let va, vb;
+            if (sortCol === "ticker") { va = a.ticker; vb = b.ticker; }
+            else if (sortCol === "sector") { va = a.sector || ""; vb = b.sector || ""; }
+            else if (sortCol === "pct") { va = a.pct; vb = b.pct; }
+            else if (sortCol === "price") {
+              va = priceData?.prices?.[a.ticker]?.p ?? -1;
+              vb = priceData?.prices?.[b.ticker]?.p ?? -1;
+            }
+            else if (sortCol === "change") {
+              va = priceData?.prices?.[a.ticker]?.dp ?? -999;
+              vb = priceData?.prices?.[b.ticker]?.dp ?? -999;
+            }
+            else if (TFS.includes(sortCol)) {
+              va = a.tfs?.[sortCol]?.pct ?? -1;
+              vb = b.tfs?.[sortCol]?.pct ?? -1;
+            } else { va = a.ticker; vb = b.ticker; }
+            if (typeof va === "string") {
+              return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+            }
+            return sortDir === "asc" ? va - vb : vb - va;
+          });
+          return items;
+        }, [tickers, search, sectorFilter, sortCol, sortDir]);
+
+        // ── Sort handler ──
+        function handleSort(col) {
+          if (sortCol === col) {
+            setSortDir(d => d === "asc" ? "desc" : "asc");
+          } else {
+            setSortCol(col);
+            setSortDir(col === "ticker" || col === "sector" ? "asc" : "desc");
+          }
+        }
+
+        function sortArrow(col) {
+          if (sortCol !== col) return "";
+          return sortDir === "asc" ? " \u25B2" : " \u25BC";
+        }
+
+        // ── Selection ──
+        function toggleSelect(ticker) {
+          setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(ticker)) next.delete(ticker);
+            else next.add(ticker);
+            return next;
+          });
+        }
+
+        function toggleSelectAll() {
+          if (selected.size === filtered.length) {
+            setSelected(new Set());
+          } else {
+            setSelected(new Set(filtered.map(t => t.ticker)));
+          }
+        }
+
+        // ── Add ticker ──
+        async function handleAdd() {
+          const raw = addInput.trim().toUpperCase();
+          if (!raw) return;
+          const tickers = raw.split(/[,\s]+/).filter(Boolean);
+          setActionStatus({ type: "info", msg: `Adding ${tickers.join(", ")}...` });
+          try {
+            const res = await fetch(`${API_BASE}/timed/watchlist/add?key=${API_KEY}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tickers }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+              const parts = [];
+              if (json.added > 0) parts.push(`${json.added} ticker(s) added`);
+              if (json.reactivated > 0) parts.push(`${json.reactivated} reactivated`);
+              const bfTickers = Array.isArray(json.backfillTriggered) ? json.backfillTriggered : [];
+              if (bfTickers.length > 0) parts.push(`Candle backfill started for ${bfTickers.join(", ")}`);
+              const msg = parts.length > 0 ? parts.join(". ") + "." : "No changes needed.";
+              setActionStatus({ type: "success", msg });
+              setAddInput("");
+              fetchData();
+            } else {
+              setActionStatus({ type: "error", msg: json.error });
+            }
+          } catch (e) {
+            setActionStatus({ type: "error", msg: e.message });
+          }
+        }
+
+        // ── Remove tickers ──
+        async function handleRemove(tickerList) {
+          if (!tickerList || tickerList.length === 0) return;
+          const confirmed = window.confirm(`Remove ${tickerList.length} ticker(s)?\n${tickerList.join(", ")}\n\nThis removes from the index (candle data in D1 is preserved).`);
+          if (!confirmed) return;
+
+          setActionStatus({ type: "info", msg: `Removing ${tickerList.join(", ")}...` });
+          try {
+            const res = await fetch(`${API_BASE}/timed/watchlist/remove?key=${API_KEY}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tickers: tickerList }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+              setActionStatus({ type: "success", msg: `Removed ${json.removed} ticker(s).` });
+              setSelected(new Set());
+              fetchData();
+            } else {
+              setActionStatus({ type: "error", msg: json.error });
+            }
+          } catch (e) {
+            setActionStatus({ type: "error", msg: e.message });
+          }
+        }
+
+        // ── Sequential backfill state ──
+        const [seqBackfill, setSeqBackfill] = useState(null); // { running, current, index, total, log, cancelled }
+        const seqCancelRef = useRef(false);
+
+        // ── Fill gaps (backfill) — single ticker ──
+        async function handleFillGaps(ticker) {
+          const isTV = TV_TICKERS.has(ticker);
+          if (isTV) return;
+
+          if (ticker === "__SEQ_ALL__") {
+            return handleFillAllSequential();
+          }
+
+          setBackfillStatus(prev => ({ ...prev, [ticker]: "running" }));
+          try {
+            const endpoint = `${API_BASE}/timed/admin/alpaca-backfill?key=${API_KEY}&tf=all&ticker=${ticker}`;
+            const res = await fetch(endpoint, { method: "POST" });
+            const json = await res.json();
+            if (json.ok) {
+              setBackfillStatus(prev => ({ ...prev, [ticker]: "started" }));
+              // Poll for completion, then refresh
+              const pollDone = async () => {
+                for (let attempt = 0; attempt < 60; attempt++) {
+                  await new Promise(r => setTimeout(r, 3000));
+                  try {
+                    const s = await fetch(`${API_BASE}/timed/admin/backfill-status?key=${API_KEY}`).then(r => r.json());
+                    const phase = s?.status?.phase;
+                    if (phase === "done" || !phase) break;
+                    setBackfillStatus(prev => ({
+                      ...prev,
+                      [ticker]: `${s.status.tf || ""} ${s.status.upserted || 0} bars`,
+                    }));
+                  } catch { break; }
+                }
+                setBackfillStatus(prev => { const n = { ...prev }; delete n[ticker]; return n; });
+                fetchData();
+              };
+              pollDone();
+            } else {
+              setBackfillStatus(prev => ({ ...prev, [ticker]: `error: ${json.error || "unknown"}` }));
+            }
+          } catch (e) {
+            setBackfillStatus(prev => ({ ...prev, [ticker]: `error: ${e.message}` }));
+          }
+        }
+
+        // ── Fill ALL tickers sequentially, one at a time ──
+        async function handleFillAllSequential() {
+          if (seqBackfill?.running) return;
+          seqCancelRef.current = false;
+
+          // Get non-TV tickers that need filling (quality < 100)
+          const tickersToFill = (data?.tickers || [])
+            .filter(t => !TV_TICKERS.has(t.ticker) && (t.quality ?? t.pct) < 100)
+            .map(t => t.ticker);
+
+          if (tickersToFill.length === 0) {
+            setActionStatus({ type: "success", msg: "All tickers already at 100% quality." });
+            return;
+          }
+
+          const log = [];
+          setSeqBackfill({ running: true, current: tickersToFill[0], index: 0, total: tickersToFill.length, log, cancelled: false });
+
+          for (let i = 0; i < tickersToFill.length; i++) {
+            if (seqCancelRef.current) {
+              log.push(`Cancelled at ${i}/${tickersToFill.length}`);
+              setSeqBackfill(prev => ({ ...prev, running: false, cancelled: true, log: [...log] }));
+              fetchData();
+              return;
+            }
+
+            const ticker = tickersToFill[i];
+            setSeqBackfill(prev => ({ ...prev, current: ticker, index: i, log: [...log] }));
+            setBackfillStatus(prev => ({ ...prev, [ticker]: "running" }));
+
+            try {
+              // Trigger backfill for this ticker
+              const res = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?key=${API_KEY}&tf=all&ticker=${ticker}`, { method: "POST" });
+              const json = await res.json();
+              if (!json.ok) {
+                log.push(`${ticker}: error — ${json.error || "unknown"}`);
+                setBackfillStatus(prev => ({ ...prev, [ticker]: "error" }));
+                continue;
+              }
+
+              // Poll for this ticker's backfill to complete
+              let finalBars = 0;
+              for (let attempt = 0; attempt < 120; attempt++) {
+                await new Promise(r => setTimeout(r, 2000));
+                if (seqCancelRef.current) break;
+                try {
+                  const s = await fetch(`${API_BASE}/timed/admin/backfill-status?key=${API_KEY}`).then(r => r.json());
+                  const phase = s?.status?.phase;
+                  const upserted = s?.status?.upserted || 0;
+                  const tf = s?.status?.tf || "";
+                  const tfIdx = s?.status?.tfIndex || 0;
+                  const tfTotal = s?.status?.tfTotal || 9;
+                  finalBars = upserted;
+
+                  setBackfillStatus(prev => ({
+                    ...prev,
+                    [ticker]: `TF ${tf} (${tfIdx}/${tfTotal}) — ${upserted} bars`,
+                  }));
+                  setSeqBackfill(prev => ({
+                    ...prev,
+                    progress: `TF ${tf} (${tfIdx}/${tfTotal}) — ${upserted} bars`,
+                    log: [...log],
+                  }));
+
+                  if (phase === "done" || !phase) break;
+                } catch { break; }
+              }
+
+              log.push(`${ticker}: ${finalBars} bars`);
+              setBackfillStatus(prev => { const n = { ...prev }; delete n[ticker]; return n; });
+            } catch (e) {
+              log.push(`${ticker}: error — ${e.message}`);
+              setBackfillStatus(prev => ({ ...prev, [ticker]: "error" }));
+            }
+          }
+
+          setSeqBackfill(prev => ({ ...prev, running: false, current: null, log: [...log] }));
+          fetchData();
+        }
+
+        // ── TF cell (shows quality, not just count-based pct) ──
+        function TFCell({ tfData }) {
+          if (!tfData || tfData.count === 0) {
+            return (
+              <td className="px-1 py-1 text-center" style={{ minWidth: 52 }}>
+                <div className="text-[9px] text-gray-600">—</div>
+              </td>
+            );
+          }
+          // Use quality score if available, fall back to pct
+          const q = tfData.quality != null ? tfData.quality : tfData.pct;
+          const gapDays = tfData.gap_days;
+          const hasGaps = gapDays != null && gapDays > 3;
+          const freshHrs = tfData.freshness_hours;
+          const isStale = freshHrs != null && freshHrs > 72;
+
+          // Tooltip with detailed info
+          const tip = [
+            `Count: ${tfData.count}/${tfData.expected}`,
+            freshHrs != null ? `Freshness: ${freshHrs < 1 ? '<1h' : freshHrs < 24 ? Math.round(freshHrs) + 'h' : Math.round(freshHrs/24) + 'd'} ago` : null,
+            gapDays != null ? `Gap days (30d): ${gapDays}` : null,
+            tfData.recent_dates != null ? `Trading dates (30d): ${tfData.recent_dates}` : null,
+            `Quality: ${q}%`,
+          ].filter(Boolean).join('\n');
+
+          return (
+            <td className="px-1 py-1 text-center" style={{ background: pctBg(q), minWidth: 52 }} title={tip}>
+              <div className="text-[11px] font-semibold leading-tight" style={{ color: pctColor(q) }}>
+                {q}%
+                {hasGaps && <span className="text-[8px] text-amber-400 ml-0.5" title={`${gapDays} gap days`}>⚠</span>}
+              </div>
+              <div className="text-[8px] leading-tight" style={{ color: isStale ? '#ef4444' : '#6b7280' }} title={formatDate(tfData.max_ts)}>
+                {formatAge(tfData.max_ts)}
+              </div>
+            </td>
+          );
+        }
+
+        // ── Render ──
+        return (
+          <div className="min-h-screen bg-[#0a0a0f]">
+            {/* Unified Nav Bar */}
+            <nav className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.04]" style={{background:"#0d0d14"}}>
+              <div className="flex items-center gap-5">
+                <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+                <div className="flex items-center gap-0.5">
+                  <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Dashboard</a>
+                  <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+                  <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+                  <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+                  <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Tickers</a>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {data?.summary && (
+                  <span className="text-[11px] text-[#6b7280]">
+                    {data.summary.tickers_with_candle_data} with data / {data.summary.total_tickers_in_system} total
+                  </span>
+                )}
+                <button
+                  onClick={fetchData}
+                  disabled={loading}
+                  className="px-3 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-gray-300 hover:bg-white/10 disabled:opacity-50"
+                >
+                  {loading ? "Loading..." : "Refresh"}
+                </button>
+                {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
+              </div>
+            </nav>
+
+            <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-4">
+              {/* Action bar */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Add ticker */}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    ref={addRef}
+                    type="text"
+                    value={addInput}
+                    onChange={e => setAddInput(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleAdd()}
+                    placeholder="Add ticker(s): AAPL, MSFT..."
+                    className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-64 focus:outline-none focus:border-blue-500/50"
+                  />
+                  <button
+                    onClick={handleAdd}
+                    disabled={!addInput.trim()}
+                    className="px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 rounded text-xs font-medium text-white disabled:opacity-40"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {/* Search */}
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search tickers..."
+                  className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-48 focus:outline-none focus:border-blue-500/50"
+                />
+
+                {/* Sector filter */}
+                <select
+                  value={sectorFilter}
+                  onChange={e => setSectorFilter(e.target.value)}
+                  className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-gray-300 focus:outline-none"
+                >
+                  {sectors.map(s => (
+                    <option key={s} value={s} style={{ background: "#1a1a24" }}>
+                      {s === "all" ? "All Sectors" : s}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Bulk actions */}
+                {selected.size > 0 && (
+                  <div className="flex items-center gap-2 ml-2">
+                    <span className="text-xs text-gray-400">{selected.size} selected</span>
+                    <button
+                      onClick={() => handleRemove([...selected])}
+                      className="px-3 py-1.5 bg-red-600/60 hover:bg-red-600 rounded text-xs font-medium text-white"
+                    >
+                      Remove Selected
+                    </button>
+                    <button
+                      onClick={() => setSelected(new Set())}
+                      className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+
+                {/* Fill all gaps — sequential */}
+                <div className="ml-auto flex items-center gap-2">
+                  {seqBackfill?.running && (
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs text-amber-400 max-w-[300px] truncate">
+                        {seqBackfill.current} ({seqBackfill.index + 1}/{seqBackfill.total})
+                        {seqBackfill.progress && <span className="text-gray-500 ml-1">{seqBackfill.progress}</span>}
+                      </div>
+                      <button
+                        onClick={() => { seqCancelRef.current = true; }}
+                        className="px-2 py-1 text-[10px] bg-red-900/40 hover:bg-red-800/60 text-red-400 rounded"
+                      >
+                        Stop
+                      </button>
+                    </div>
+                  )}
+                  {!seqBackfill?.running && seqBackfill?.log?.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      Last run: {seqBackfill.log.length} tickers {seqBackfill.cancelled ? "(cancelled)" : "done"}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleFillGaps("__SEQ_ALL__")}
+                    disabled={seqBackfill?.running}
+                    className="px-3 py-1.5 bg-emerald-600/60 hover:bg-emerald-600 rounded text-xs font-medium text-white disabled:opacity-40"
+                  >
+                    {seqBackfill?.running ? `Filling ${seqBackfill.index + 1}/${seqBackfill.total}...` : "Fill All Gaps"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Status message */}
+              {actionStatus && (
+                <div className={`px-3 py-2 rounded text-sm ${
+                  actionStatus.type === "success" ? "bg-green-900/30 text-green-400 border border-green-800/40" :
+                  actionStatus.type === "error" ? "bg-red-900/30 text-red-400 border border-red-800/40" :
+                  "bg-blue-900/30 text-blue-400 border border-blue-800/40"
+                }`}>
+                  {actionStatus.msg}
+                  <button onClick={() => setActionStatus(null)} className="ml-3 text-xs opacity-60 hover:opacity-100">Dismiss</button>
+                </div>
+              )}
+
+              {/* Summary stats */}
+              {data?.summary && (
+                <div className="flex gap-4 text-xs">
+                  <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">
+                    <div className="text-gray-500">In System</div>
+                    <div className="text-white font-semibold text-lg">{data.summary.total_tickers_in_system}</div>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">
+                    <div className="text-gray-500">With Data</div>
+                    <div className="text-white font-semibold text-lg">{data.summary.tickers_with_candle_data}</div>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">
+                    <div className="text-gray-500">No Data</div>
+                    <div className={`font-semibold text-lg ${data.summary.tickers_no_data > 0 ? "text-red-400" : "text-green-400"}`}>
+                      {data.summary.tickers_no_data}
+                    </div>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/5 rounded px-4 py-2">
+                    <div className="text-gray-500">Showing</div>
+                    <div className="text-white font-semibold text-lg">{filtered.length}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Error */}
+              {error && (
+                <div className="bg-red-900/20 border border-red-800/40 rounded px-4 py-3 text-red-400 text-sm">
+                  Error: {error}
+                  <button onClick={fetchData} className="ml-3 underline text-xs">Retry</button>
+                </div>
+              )}
+
+              {/* Table */}
+              {!loading && filtered.length > 0 && (
+                <div className="overflow-x-auto border border-white/5 rounded-lg">
+                  <table className="text-sm" style={{ minWidth: 1500 }}>
+                    <thead>
+                      <tr className="bg-white/[0.03] border-b border-white/5">
+                        <th className="px-2 py-2 text-left w-8">
+                          <input
+                            type="checkbox"
+                            checked={selected.size === filtered.length && filtered.length > 0}
+                            onChange={toggleSelectAll}
+                            className="accent-blue-500"
+                          />
+                        </th>
+                        <th
+                          className="px-3 py-2 text-left text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                          onClick={() => handleSort("ticker")}
+                        >
+                          Ticker{sortArrow("ticker")}
+                        </th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-400">Name</th>
+                        <th
+                          className="px-2 py-2 text-left text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                          onClick={() => handleSort("sector")}
+                        >
+                          Sector{sortArrow("sector")}
+                        </th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-400">Groups</th>
+                        <th
+                          className="px-2 py-2 text-center text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                          onClick={() => handleSort("pct")}
+                        >
+                          Avg{sortArrow("pct")}
+                        </th>
+                        <th
+                          className="px-2 py-2 text-right text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                          onClick={() => handleSort("price")}
+                        >
+                          Price{sortArrow("price")}
+                        </th>
+                        <th
+                          className="px-2 py-2 text-right text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                          onClick={() => handleSort("change")}
+                        >
+                          Chg% / As Of{sortArrow("change")}
+                        </th>
+                        {TFS.map(tf => (
+                          <th
+                            key={tf}
+                            className="px-2 py-2 text-center text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                            onClick={() => handleSort(tf)}
+                          >
+                            {TF_LABELS[tf]}{sortArrow(tf)}
+                          </th>
+                        ))}
+                        <th className="px-3 py-2 text-center text-xs font-medium text-gray-400">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((t, idx) => {
+                        const isTV = TV_TICKERS.has(t.ticker);
+                        const bfStatus = backfillStatus[t.ticker];
+                        return (
+                          <tr
+                            key={t.ticker}
+                            className={`border-b border-white/[0.03] hover:bg-white/[0.02] ${
+                              selected.has(t.ticker) ? "bg-blue-900/10" : ""
+                            } ${idx % 2 === 0 ? "" : "bg-white/[0.01]"}`}
+                          >
+                            <td className="px-2 py-1.5">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(t.ticker)}
+                                onChange={() => toggleSelect(t.ticker)}
+                                className="accent-blue-500"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <span className="font-semibold text-white text-xs">{t.ticker}</span>
+                              {isTV && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-purple-900/40 text-purple-400">TV</span>}
+                            </td>
+                            <td className="px-2 py-1 text-[11px] text-gray-500 max-w-[100px] truncate" title={COMPANY_NAMES[t.ticker] || ""}>{COMPANY_NAMES[t.ticker] || "—"}</td>
+                            <td className="px-2 py-1 text-[11px] text-gray-400 max-w-[100px] truncate" title={t.sector}>{t.sector || "—"}</td>
+                            <td className="px-2 py-1">
+                              {(() => {
+                                const grps = groupsForTicker(t.ticker);
+                                if (grps.length === 0) return <span className="text-[10px] text-gray-600">—</span>;
+                                return (
+                                  <div className="flex flex-wrap gap-0.5">
+                                    {grps.map(g => (
+                                      <span key={g} className="text-[9px] px-1 py-0 rounded bg-gray-800 text-gray-400" title={g}>{g}</span>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td className="px-2 py-1.5 text-center" title={`Count-based: ${t.pct}% | Quality: ${t.quality ?? t.pct}%`}>
+                              <span
+                                className="text-xs font-bold px-2 py-0.5 rounded"
+                                style={{ color: pctColor(t.quality ?? t.pct), background: pctBg(t.quality ?? t.pct) }}
+                              >
+                                {t.quality ?? t.pct}%
+                              </span>
+                            </td>
+                            {(() => {
+                              const pd = priceData?.prices?.[t.ticker];
+                              const price = pd?.p;
+                              const chgPct = pd?.dp;
+                              const chg = pd?.dc;
+                              const isUp = chgPct > 0;
+                              const isDown = chgPct < 0;
+                              return (
+                                <>
+                                  <td className="px-2 py-1 text-right text-[11px] text-white font-medium tabular-nums">
+                                    {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
+                                  </td>
+                                  <td className="px-2 py-1 text-right text-[11px] tabular-nums">
+                                    {Number.isFinite(chgPct) && chgPct !== 0 ? (
+                                      <div>
+                                        <span style={{ color: isUp ? "#22c55e" : isDown ? "#ef4444" : "#9ca3af" }}>
+                                          {isUp ? "+" : ""}{chgPct.toFixed(2)}%
+                                          <span className="text-[9px] text-gray-500 ml-0.5">
+                                            ({isUp ? "+" : ""}{chg?.toFixed(2)})
+                                          </span>
+                                        </span>
+                                        {(pd?.t > 0 || priceData?.updated_at > 0) && (
+                                          <div className="text-[9px] text-gray-600">{formatAge(pd?.t || priceData?.updated_at)}</div>
+                                        )}
+                                      </div>
+                                    ) : <span className="text-gray-600">—</span>}
+                                  </td>
+                                </>
+                              );
+                            })()}
+                            {TFS.map(tf => (
+                              <TFCell key={tf} tfData={t.tfs?.[tf]} />
+                            ))}
+                            <td className="px-2 py-1.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                {(t.quality ?? t.pct) < 100 && (
+                                  isTV ? (
+                                    <span className="text-[9px] text-gray-600" title="TV-sourced: re-export from TradingView">TV</span>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleFillGaps(t.ticker)}
+                                      disabled={bfStatus === "running"}
+                                      className="px-2 py-0.5 text-[10px] bg-emerald-800/40 hover:bg-emerald-700/60 text-emerald-400 rounded disabled:opacity-40"
+                                      title="Fill data gaps via Alpaca"
+                                    >
+                                      {bfStatus === "running" ? "..." : bfStatus === "started" ? "OK" : "Fill"}
+                                    </button>
+                                  )
+                                )}
+                                <button
+                                  onClick={() => handleRemove([t.ticker])}
+                                  className="px-2 py-0.5 text-[10px] bg-red-900/30 hover:bg-red-800/50 text-red-400 rounded"
+                                  title="Remove from index"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Loading state */}
+              {loading && (
+                <div className="flex items-center justify-center py-20">
+                  <div className="text-gray-500 text-sm">Loading coverage data...</div>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {!loading && filtered.length === 0 && !error && (
+                <div className="flex items-center justify-center py-20">
+                  <div className="text-gray-500 text-sm">
+                    {search || sectorFilter !== "all" ? "No tickers match your filters." : "No ticker data found."}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      const _AuthGate = window.TimedAuthGate;
+      const _tickerApp = _AuthGate
+        ? <_AuthGate apiBase={API_BASE} requiredTier="admin">{(user) => <App user={user} />}</_AuthGate>
+        : <App />;
+      ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
+    </script>
+  </body>
+</html>

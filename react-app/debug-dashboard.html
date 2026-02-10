@@ -21,9 +21,22 @@
         pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; }
     </style>
 </head>
-<body class="p-8">
-    <div class="max-w-7xl mx-auto">
-        <h1 class="text-3xl font-bold mb-6">🔍 Timed Trading - Debug Dashboard</h1>
+<body>
+    <!-- Unified Nav Bar -->
+    <nav class="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.04]" style="background:#0b0e11">
+      <div class="flex items-center gap-5">
+        <span class="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+        <div class="flex items-center gap-0.5">
+          <a href="index-react.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Dashboard</a>
+          <a href="simulation-dashboard.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+          <a href="model-dashboard.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+          <a href="screener.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+          <a href="ticker-management.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+        </div>
+      </div>
+    </nav>
+    <div class="max-w-7xl mx-auto p-8">
+        <h1 class="text-3xl font-bold mb-6">🔍 Debug Dashboard</h1>
         
         <div class="mb-6">
             <label class="block mb-2">API Key:</label>
@@ -54,7 +67,7 @@
     </div>
 
     <script>
-        const API_BASE = 'https://timed-trading-ingest.shashant.workers.dev';
+        const API_BASE = '';  // same-origin — proxied by Pages Function
         
         function getApiKey() {
             return document.getElementById('apiKey').value || prompt('Enter API Key:');

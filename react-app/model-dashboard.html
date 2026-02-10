@@ -11,6 +11,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -22,6 +23,7 @@
     </script>
     <style>
       body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
+      @keyframes spin { to { transform: rotate(360deg); } }
       .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 12px; }
       .badge-bull { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
       .badge-bear { background: rgba(244, 63, 94, 0.15); color: #fca5a5; }
@@ -44,7 +46,7 @@
     <div id="root"></div>
     <script type="text/babel">
 const { useState, useEffect, useCallback } = React;
-const API_BASE = "https://timed-trading-ingest.shashant.workers.dev";
+const API_BASE = "";  // same-origin — proxied by Pages Function
 const API_KEY = "AwesomeSauce";
 
 // ─── Data Hooks ──────────────────────────────────────────────────────────────
@@ -88,6 +90,8 @@ function useModelData() {
 // ─── Components ──────────────────────────────────────────────────────────────
 
 function NavHeader() {
+  const UserBadge = window.TimedUserBadge;
+  const storedUser = window.TimedAuthHelpers?.getStoredSession();
   return (
     <nav className="flex items-center justify-between px-4 py-2.5 mb-4 border-b border-white/[0.04]">
       <div className="flex items-center gap-5">
@@ -96,9 +100,14 @@ function NavHeader() {
           <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Dashboard</a>
           <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
           <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Model</a>
+          <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+          <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
         </div>
       </div>
-      <div className="text-[11px] text-[#4b5563]">Self-Learning v1</div>
+      <div className="flex items-center gap-3">
+        <span className="text-[11px] text-[#4b5563]">Self-Learning v1</span>
+        {UserBadge && <UserBadge user={storedUser} compact />}
+      </div>
     </nav>
   );
 }
@@ -476,7 +485,11 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+const AuthGate = window.TimedAuthGate;
+const modelApp = AuthGate
+  ? <AuthGate apiBase={API} requiredTier="admin">{(user) => <App user={user} />}</AuthGate>
+  : <App />;
+ReactDOM.createRoot(document.getElementById("root")).render(modelApp);
     </script>
   </body>
 </html>
