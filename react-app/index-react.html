@@ -11796,6 +11796,24 @@
         const earlyMoversCount =
           flipWatch.length + justFlipped.length + highProb.length;
 
+        // Build local trade-by-ticker map from trades prop (mirrors EarlyMoversPanel logic)
+        const localTradeByTicker = React.useMemo(() => {
+          const map = new Map();
+          if (!Array.isArray(trades)) return map;
+          trades.forEach((tr) => {
+            const sym = String(tr?.ticker || "").toUpperCase();
+            if (!sym) return;
+            const existing = map.get(sym);
+            if (!existing) { map.set(sym, tr); return; }
+            const exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+            const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
+            const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
+            const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
+            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) map.set(sym, tr);
+          });
+          return map;
+        }, [trades]);
+
         // Kanban stage counts (for pipeline summary badge)
         // Applies the same trade-lifecycle override as the lane categoriser
         const kanbanStageCounts = React.useMemo(() => {
@@ -11803,7 +11821,7 @@
           tickers.forEach((t) => {
             let stage = String(t?.kanban_stage || "").toLowerCase();
             const sym = String(t?.ticker || "").toUpperCase();
-            const trade = tradeByTicker.get(sym);
+            const trade = localTradeByTicker.get(sym);
             if (trade) {
               const st = String(trade.status || "").toUpperCase();
               const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
@@ -11824,7 +11842,7 @@
             else if (stage === "exit") counts.exit++;
           });
           return counts;
-        }, [tickers, tradeByTicker]);
+        }, [tickers, localTradeByTicker]);
 
         // Total tickers in actionable kanban stages (excluding watch and null)
         const kanbanActiveCount = 
