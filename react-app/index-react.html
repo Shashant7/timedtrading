@@ -831,6 +831,12 @@
                 updatedData[normalizedSym] = {
                   ...existing,
                   price: priceInfo.p,
+                  // Canonical field names so ALL consumers (Top Movers, cards,
+                  // getCardSkin, getDailyChange) see Alpaca-sourced values:
+                  prev_close: priceInfo.pc > 0 ? priceInfo.pc : (existing.prev_close || undefined),
+                  day_change: priceInfo.dc,
+                  day_change_pct: priceInfo.dp,
+                  // Prefixed copies for getDailyChange priority path:
                   _live_price: priceInfo.p,
                   _live_prev_close: priceInfo.pc,
                   _live_daily_change: priceInfo.dc,
@@ -11508,23 +11514,11 @@
           if (flags.sq30_release) badges.push("⚡");
           if (flags.sq30_on && !flags.sq30_release) badges.push("🧨");
 
-          // Daily change
-          const pickNum = (obj, keys) => {
-            for (const k of keys) { const v = Number(obj?.[k]); if (Number.isFinite(v)) return v; }
-            return null;
-          };
-          const priceNum = Number(t?.price ?? t?.close);
-          const prevCloseNum = pickNum(t, ["prev_close", "previous_close", "prior_close", "yclose", "close_prev"]);
-          const baseDaily = getDailyChange(t) || {};
-          let dayPct = Number(baseDaily?.dayPct);
-          let dayChg = Number(baseDaily?.dayChg);
-          if (!Number.isFinite(dayPct)) dayPct = pickNum(t, ["day_change_pct", "daily_change_pct", "session_change_pct", "change_pct", "pct_change", "chp"]);
-          if (!Number.isFinite(dayChg)) dayChg = pickNum(t, ["day_change", "daily_change", "session_change", "change", "chg", "ch"]);
-          if ((!Number.isFinite(dayChg) || !Number.isFinite(dayPct)) && Number.isFinite(priceNum) && priceNum > 0 && Number.isFinite(prevCloseNum) && prevCloseNum > 0) {
-            const chg = priceNum - prevCloseNum;
-            if (!Number.isFinite(dayChg)) dayChg = chg;
-            if (!Number.isFinite(dayPct)) dayPct = (chg / prevCloseNum) * 100;
-          }
+          // Daily change — single source: getDailyChange() which prioritises
+          // Alpaca live feed (_live_daily_change_pct) > scoring snapshot > raw fields.
+          const dailyResult = getDailyChange(t) || {};
+          const dayPct = Number.isFinite(dailyResult.dayPct) ? dailyResult.dayPct : null;
+          const dayChg = Number.isFinite(dailyResult.dayChg) ? dailyResult.dayChg : null;
 
           const skin = getCardSkin(t);
           const badgesText = badges.length > 0 ? badges.join("") : "";
@@ -15949,24 +15943,12 @@
                   {/* ── Top Movers Strip ────────────────────────────────────── */}
                   {(() => {
                     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
-                    // Compute daily change robustly for each ticker (same logic as cards)
-                    const pickNum = (obj, keys) => {
-                      for (const k of keys) { const v = Number(obj?.[k]); if (Number.isFinite(v)) return v; }
-                      return null;
-                    };
+                    // Use getDailyChange() which prioritises Alpaca live price feed
                     const withPct = allArr.map(t => {
-                      const px = Number(t?.price ?? t?.close ?? t?.cp);
+                      const px = Number(t?.price ?? t?.close);
                       if (!Number.isFinite(px) || px <= 0) return null;
-                      const prevClose = pickNum(t, ["prev_close", "previous_close", "prior_close", "yclose", "close_prev"]);
-                      // Primary: compute from price vs prev_close (most reliable)
-                      let pct = null;
-                      if (Number.isFinite(prevClose) && prevClose > 0) {
-                        pct = ((px - prevClose) / prevClose) * 100;
-                      }
-                      // Fallback: use server-provided daily change fields
-                      if (!Number.isFinite(pct)) {
-                        pct = pickNum(t, ["dp", "day_change_pct", "daily_change_pct", "session_change_pct", "change_pct", "chp"]);
-                      }
+                      const dc = getDailyChange(t);
+                      const pct = dc?.dayPct;
                       if (!Number.isFinite(pct)) return null;
                       return { ...t, _pct: pct, _price: px };
                     }).filter(Boolean);
