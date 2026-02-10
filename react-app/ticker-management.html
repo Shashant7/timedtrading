@@ -849,12 +849,19 @@
                               const price = pd?.p;
                               const chgPct = pd?.dp;
                               const chg = pd?.dc;
+                              const pc = pd?.pc;
+                              // When current price is missing but daily change is present, derive price from prev_close + dc
+                              const displayPrice = (Number(price) > 0)
+                                ? price
+                                : (Number.isFinite(pc) && Number.isFinite(chg))
+                                  ? pc + chg
+                                  : null;
                               const isUp = chgPct > 0;
                               const isDown = chgPct < 0;
                               return (
                                 <>
                                   <td className="px-2 py-1 text-right text-[11px] text-white font-medium tabular-nums">
-                                    {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
+                                    {displayPrice != null && displayPrice > 0 ? `$${Number(displayPrice).toFixed(2)}` : <span className="text-gray-600">—</span>}
                                   </td>
                                   <td className="px-2 py-1 text-right text-[11px] tabular-nums">
                                     {Number.isFinite(chgPct) && chgPct !== 0 ? (
