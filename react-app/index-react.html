@@ -11559,9 +11559,9 @@
                 boxShadow: "0 1px 4px rgba(0,0,0,0.15), inset 0 0.5px 0 rgba(255,255,255,0.05)",
               }}
             >
-              {/* ROW 1: Ticker, Direction, Emojis, Bias, Price, Daily Change */}
-              <div className="flex items-center justify-between gap-2 mb-0.5">
-                <div className="flex items-center gap-1 min-w-0">
+              {/* ROW 1: Ticker + Price/Change */}
+              <div className="flex items-center justify-between gap-1.5 mb-0.5">
+                <div className="flex items-center gap-1 min-w-0 overflow-hidden">
                   {toggleSavedTicker && (
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleSavedTicker(sym); }}
@@ -11569,15 +11569,15 @@
                       title={savedTickers?.has?.(sym) ? "Remove from Saved" : "Add to Saved"}
                     >&#9733;</button>
                   )}
-                  <span className="text-sm font-bold text-white truncate shrink-0">{sym}</span>
-                  <span className={`inline-flex items-center justify-center w-[18px] h-[18px] rounded-md text-[11px] font-black shrink-0 ${dir === "LONG" ? "bg-cyan-400/25 text-cyan-300 ring-1 ring-cyan-400/40" : "bg-rose-500/25 text-rose-300 ring-1 ring-rose-400/40"}`}>{dir === "LONG" ? "L" : "S"}</span>
-                  {badgesText && <span className="text-[11px] shrink-0">{badgesText}</span>}
-                  <span className={`px-1.5 py-0.5 rounded border text-[10px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
+                  <span className="text-sm font-bold text-white shrink-0">{sym}</span>
+                  <span className={`inline-flex items-center justify-center w-[16px] h-[16px] rounded text-[9px] font-black shrink-0 ${dir === "LONG" ? "bg-cyan-400/25 text-cyan-300 ring-1 ring-cyan-400/40" : "bg-rose-500/25 text-rose-300 ring-1 ring-rose-400/40"}`}>{dir === "LONG" ? "L" : "S"}</span>
+                  {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
+                  <span className={`px-1 py-px rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
                     {biasLabel}
                   </span>
                 </div>
-                <div className="flex flex-col items-end shrink-0">
-                  <span className="text-white font-bold text-xs">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-white font-bold text-xs tabular-nums">
                     {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
                   </span>
                   {(() => {
@@ -11585,9 +11585,8 @@
                     const cls = up ? "text-teal-400" : "text-rose-400";
                     const sign = up ? "+" : "";
                     return (
-                      <span className={`text-[10px] font-semibold ${cls}`}>
+                      <span className={`text-[10px] font-semibold tabular-nums ${cls}`}>
                         {Number.isFinite(dayPct) ? `${sign}${dayPct.toFixed(2)}%` : ""}
-                        {Number.isFinite(dayChg) ? ` (${sign}$${Math.abs(dayChg).toFixed(2)})` : ""}
                       </span>
                     );
                   })()}
@@ -11609,11 +11608,11 @@
               )}
 
               {/* ROW 3: Score, R:R, SL, TP */}
-              <div className="flex items-center justify-between gap-1.5 text-[10px] text-[#6b7280] font-medium mb-0.5">
-                <span>Score <span className="text-white font-semibold">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
-                <span>R:R <span className="text-white font-semibold">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
-                <span className="text-rose-300">SL <span className="font-semibold">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
-                <span className="text-teal-300">TP <span className="font-semibold">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
+              <div className="flex items-center gap-2 text-[10px] text-[#6b7280] font-medium mb-0.5">
+                <span className="shrink-0">Score <span className="text-white font-semibold tabular-nums">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
+                <span className="shrink-0">R:R <span className="text-white font-semibold tabular-nums">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
+                <span className="shrink-0 text-rose-300">SL <span className="font-semibold tabular-nums">{sl != null ? `$${sl.toFixed(2)}` : "—"}</span></span>
+                <span className="shrink-0 text-teal-300">TP <span className="font-semibold tabular-nums">{tp != null ? `$${tp.toFixed(2)}` : "—"}</span></span>
               </div>
 
               {/* ROW 3.5: Phoenix Badges — Quality, Consensus, Volatility */}
@@ -12217,7 +12216,7 @@
                     {items
                       .slice(0, 50)
                       .map((t) => (
-                        <div key={t.ticker || t.symbol || Math.random()} className="w-[210px] shrink-0">
+                        <div key={t.ticker || t.symbol || Math.random()} className="w-[280px] shrink-0">
                           {renderCompactCard(t)}
                         </div>
                       ))}
@@ -15887,15 +15886,27 @@
                   {/* ── Top Movers Strip ────────────────────────────────────── */}
                   {(() => {
                     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
-                    const withPct = allArr.filter(t => {
-                      const pct = Number(t?.dp ?? t?.day_change_pct ?? t?.dayPct);
-                      const px = Number(t?.cp ?? t?.price);
-                      return Number.isFinite(pct) && Number.isFinite(px) && px > 0;
-                    }).map(t => ({
-                      ...t,
-                      _pct: Number(t?.dp ?? t?.day_change_pct ?? t?.dayPct ?? 0),
-                      _price: Number(t?.cp ?? t?.price ?? 0),
-                    }));
+                    // Compute daily change robustly for each ticker (same logic as cards)
+                    const pickNum = (obj, keys) => {
+                      for (const k of keys) { const v = Number(obj?.[k]); if (Number.isFinite(v)) return v; }
+                      return null;
+                    };
+                    const withPct = allArr.map(t => {
+                      const px = Number(t?.price ?? t?.close ?? t?.cp);
+                      if (!Number.isFinite(px) || px <= 0) return null;
+                      const prevClose = pickNum(t, ["prev_close", "previous_close", "prior_close", "yclose", "close_prev"]);
+                      // Primary: compute from price vs prev_close (most reliable)
+                      let pct = null;
+                      if (Number.isFinite(prevClose) && prevClose > 0) {
+                        pct = ((px - prevClose) / prevClose) * 100;
+                      }
+                      // Fallback: use server-provided daily change fields
+                      if (!Number.isFinite(pct)) {
+                        pct = pickNum(t, ["dp", "day_change_pct", "daily_change_pct", "session_change_pct", "change_pct", "chp"]);
+                      }
+                      if (!Number.isFinite(pct)) return null;
+                      return { ...t, _pct: pct, _price: px };
+                    }).filter(Boolean);
                     const sorted = [...withPct].sort((a, b) => b._pct - a._pct);
                     const gainers = sorted.slice(0, 5);
                     const losers = sorted.slice(-5).reverse();
