@@ -20187,15 +20187,22 @@ export default {
           // /timed/all include the new ticker immediately (dashboard and Tickers Page show it).
           const db = env?.DB;
           if (db && added.length > 0) {
-            try {
-              const now = Date.now();
-              for (const tickerUpper of added) {
+            const now = Date.now();
+            for (const tickerUpper of added) {
+              try {
                 await d1UpsertTickerIndex(env, tickerUpper, now);
-                const placeholder = { ticker: tickerUpper, ts: now };
-                await d1UpsertTickerLatest(env, tickerUpper, placeholder);
+              } catch (e) {
+                console.warn("[WATCHLIST ADD] D1 ticker_index failed for", tickerUpper, String(e?.message || e).slice(0, 150));
               }
-            } catch (e) {
-              console.warn("[WATCHLIST ADD] D1 ticker_index/ticker_latest insert failed:", String(e?.message || e).slice(0, 200));
+              try {
+                const placeholder = { ticker: tickerUpper, ts: now, price: null };
+                const latestResult = await d1UpsertTickerLatest(env, tickerUpper, placeholder);
+                if (!latestResult?.ok) {
+                  console.warn("[WATCHLIST ADD] D1 ticker_latest failed for", tickerUpper, latestResult?.reason || latestResult?.error || "unknown");
+                }
+              } catch (e) {
+                console.warn("[WATCHLIST ADD] D1 ticker_latest exception for", tickerUpper, String(e?.message || e).slice(0, 150));
+              }
             }
           }
 

@@ -171,14 +171,20 @@
         const pollUntilRef = useRef(null); // When to stop polling after add
         const addRef = useRef(null);
 
+        // Watchlist ticker list (GET /timed/tickers) — merged with ingestion-status so tickers
+        // that are in the watchlist but missing from ingestion-status (e.g. eventual consistency)
+        // still show until the next refresh.
+        const [watchlistTickers, setWatchlistTickers] = useState([]);
+
         // ── Fetch data ──
         const fetchData = useCallback(async (clearPendingFromResponse = true, skipLoading = false) => {
           if (!skipLoading) setLoading(true);
           setError(null);
           try {
-            const [statusRes, priceRes] = await Promise.all([
+            const [statusRes, priceRes, tickersRes] = await Promise.all([
               fetch(`${API_BASE}/timed/admin/ingestion-status?_t=${Date.now()}`, { credentials: "include" }),
               fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`),
+              fetch(`${API_BASE}/timed/tickers?_t=${Date.now()}`),
             ]);
             const json = await statusRes.json();
             if (!json.ok) throw new Error(json.error || "Failed to fetch");
@@ -190,6 +196,10 @@
                 return next;
               });
             }
+            try {
+              const tJson = await tickersRes.json();
+              if (tJson.ok && Array.isArray(tJson.tickers)) setWatchlistTickers(tJson.tickers);
+            } catch (_) {}
             try {
               const pJson = await priceRes.json();
               if (pJson.ok && pJson.prices) {
@@ -218,14 +228,20 @@
           return () => clearInterval(interval);
         }, [pendingTickers.size, fetchData]);
 
-        // ── Derived data: merge API tickers with optimistic placeholders for just-added tickers ──
+        // ── Derived data: merge ingestion-status with watchlist + optimistic placeholders ──
+        // So tickers in GET /timed/tickers but missing from ingestion-status (e.g. W, eventual consistency)
+        // still show and persist when navigating away and back.
         const tickers = useMemo(() => {
           const fromApi = data?.tickers || [];
           const fromApiSet = new Set(fromApi.map(t => t.ticker));
-          const placeholders = [...pendingTickers]
-            .filter(t => !fromApiSet.has(t))
+          const missingFromApi = new Set([
+            ...pendingTickers,
+            ...(watchlistTickers || []).filter(t => !fromApiSet.has(t)),
+          ]);
+          const placeholders = [...missingFromApi]
+            .filter(t => t && !fromApiSet.has(t))
             .map(t => ({
-              ticker: t,
+              ticker: String(t).toUpperCase(),
               sector: "Unknown",
               pct: 0,
               quality: 0,
@@ -233,8 +249,16 @@
               tfs: {},
               backfilling: true,
             }));
-          return [...fromApi, ...placeholders].sort((a, b) => (a.ticker || "").localeCompare(b.ticker || ""));
-        }, [data, pendingTickers]);
+          const combined = [...fromApi, ...placeholders];
+          const seen = new Set();
+          const deduped = combined.filter(r => {
+            const k = (r.ticker || "").toUpperCase();
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+          return deduped.sort((a, b) => (a.ticker || "").localeCompare(b.ticker || ""));
+        }, [data, pendingTickers, watchlistTickers]);
 
         const sectors = useMemo(() => {
           const s = new Set(tickers.map(t => t.sector).filter(Boolean));
