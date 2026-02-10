@@ -12012,6 +12012,8 @@
         onSelectTicker = null,
         rankPositions = {},
         rankTotal = null,
+        savedTickers = new Set(),
+        toggleSavedTicker = null,
       }) {
         const now = Date.now();
         const laneScrollTopRef = React.useRef({});
@@ -12345,6 +12347,8 @@
         onFilteredTickersChange = null,
         showControls = true,
         thesisMode = false,
+        savedTickers = new Set(),
+        toggleSavedTicker = null,
       }) {
         const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all | today
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
@@ -13119,7 +13123,7 @@
               {filtered.length === 0 ? (
                 <div className="text-xs text-[#4b5563] p-3">No matches.</div>
               ) : (
-                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker }))
+                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker, savedTickers, toggleSavedTicker }))
               )}
             </div>
           </div>
@@ -15826,6 +15830,19 @@
                       />
                     </div>
                     
+                    {/* Saved Filter Pill (always visible) */}
+                    <button
+                      onClick={() => handleFilterChange({ group: effectiveFilters.group === "SAVED" ? "ALL" : "SAVED" })}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                        effectiveFilters.group === "SAVED"
+                          ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                          : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-300 hover:bg-amber-500/10"
+                      }`}
+                      title={`Show only saved tickers (${savedTickers.size} saved)`}
+                    >
+                      ⭐ Saved{savedTickers.size > 0 ? ` (${savedTickers.size})` : ""}
+                    </button>
+
                     {/* Filters Toggle */}
                     <button
                       onClick={toggleAdvancedFilters}
@@ -15870,15 +15887,23 @@
                   {/* ── Top Movers Strip ────────────────────────────────────── */}
                   {(() => {
                     const allArr = data && typeof data === 'object' ? Object.values(data) : [];
-                    const withPct = allArr.filter(t => Number.isFinite(t?.dayPct) && Number.isFinite(t?.currentPrice));
-                    const sorted = [...withPct].sort((a, b) => b.dayPct - a.dayPct);
+                    const withPct = allArr.filter(t => {
+                      const pct = Number(t?.dp ?? t?.day_change_pct ?? t?.dayPct);
+                      const px = Number(t?.cp ?? t?.price);
+                      return Number.isFinite(pct) && Number.isFinite(px) && px > 0;
+                    }).map(t => ({
+                      ...t,
+                      _pct: Number(t?.dp ?? t?.day_change_pct ?? t?.dayPct ?? 0),
+                      _price: Number(t?.cp ?? t?.price ?? 0),
+                    }));
+                    const sorted = [...withPct].sort((a, b) => b._pct - a._pct);
                     const gainers = sorted.slice(0, 5);
                     const losers = sorted.slice(-5).reverse();
                     if (gainers.length === 0 && losers.length === 0) return null;
                     const chip = (t, isGain) => {
                       const sym = t?.ticker || t?.symbol || "?";
-                      const pct = t.dayPct;
-                      const price = t.currentPrice ?? t.cp;
+                      const pct = t._pct;
+                      const price = t._price;
                       const cls = isGain ? "text-teal-400 border-teal-500/30 bg-teal-500/10" : "text-rose-400 border-rose-500/30 bg-rose-500/10";
                       return (
                         <button key={sym} onClick={() => handleTickerSelect(sym)}
@@ -15918,6 +15943,17 @@
                       toggleSavedTicker={toggleSavedTicker}
                     />
                   </div>
+
+                  {/* Kanban Lanes (horizontal swim-lanes) */}
+                  <EarlyMoversPanel
+                    tickers={tickers}
+                    trades={trades}
+                    onSelectTicker={handleTickerSelect}
+                    rankPositions={rankedTickerPositions}
+                    rankTotal={allTickersWithRanks.length}
+                    savedTickers={savedTickers}
+                    toggleSavedTicker={toggleSavedTicker}
+                  />
                 </header>
 
                 {/* Error Display */}
@@ -15963,6 +15999,8 @@
                           fillHeight={true}
                           showControls={false}
                           thesisMode={isThesisModeActive(filters)}
+                          savedTickers={savedTickers}
+                          toggleSavedTicker={toggleSavedTicker}
                         />
                       </div>
 
