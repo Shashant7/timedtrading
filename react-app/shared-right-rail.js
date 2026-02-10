@@ -72,6 +72,7 @@
         onJourneySelect = null,
         selectedJourneyTs = null,
         initialRailTab = null,
+        effectiveStage = null,
       }) {
         const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
 
@@ -814,15 +815,21 @@
                       typeof ticker.move_status === "object"
                         ? ticker.move_status
                         : null;
-                    if (!ms || !ms.status) return null;
+                    const rawStatus = (ms && ms.status) ? String(ms.status).trim() : "";
+                    const hasOpenInLedger = Array.isArray(ledgerTrades) && ledgerTrades.some(
+                      (t) => String(t?.ticker || "").toUpperCase() === tickerSymbol && t.status !== "WIN" && t.status !== "LOSS"
+                    );
+                    const useEffectiveStage = effectiveStage != null && String(effectiveStage).trim() !== "";
+                    if (!ms && !rawStatus && !useEffectiveStage && !hasOpenInLedger) return null;
 
-                    const status = String(ms.status || "").toUpperCase();
+                    let status = rawStatus ? String(rawStatus).toUpperCase() : "";
+                    if ((status === "NONE" || status === "") && hasOpenInLedger) status = "ACTIVE";
 
                     // Suppress misleading "Move: ACTIVE" when kanban_stage is a discovery/entry stage.
                     // move_status can show ACTIVE from a stale entry_ts even when no position
                     // is open, creating a confusing contradiction with "Action: ENTER".
                     const discoveryStages = new Set(["watch", "setup_watch", "setup", "flip_watch", "enter", "enter_now", "just_flipped", ""]);
-                    const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
+                    const rawStage = useEffectiveStage ? String(effectiveStage).trim().toLowerCase() : String(ticker?.kanban_stage || "").trim().toLowerCase();
                     const suppressMove = status === "ACTIVE" && discoveryStages.has(rawStage);
                     const severity = String(ms.severity || "").toUpperCase();
                     const reasonsRaw = Array.isArray(ms.reasons)
@@ -879,9 +886,9 @@
                       : "text-green-300";
                     const headlineReason =
                       reasons.length > 0 ? pretty(reasons[0]) : null;
-                    const kanbanStageRaw = String(
-                      ticker?.kanban_stage || "",
-                    ).trim();
+                    const kanbanStageRaw = useEffectiveStage
+                      ? String(effectiveStage || "").trim()
+                      : String(ticker?.kanban_stage || "").trim();
                     const kanbanStage = kanbanStageRaw
                       ? kanbanStageRaw.toUpperCase()
                       : "";
@@ -910,7 +917,7 @@
                     return (
                       <div className="mt-2">
                         <div className="flex items-center gap-2 flex-wrap text-[11px]">
-                          {!suppressMove ? (
+                          {!suppressMove && status ? (
                             <>
                               <span className="text-[#6b7280]">Move:</span>
                               <span

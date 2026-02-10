@@ -24728,6 +24728,28 @@ export default {
             d1Trades = await d1GetAllPositionsAsTrades(env);
           } else {
             d1Trades = await d1GetAllTradesWithEvents(env);
+            // Merge open positions so cards get entry_price for tickers in Hold (e.g. TT, ULTA)
+            const positions = await d1GetAllPositionsAsTrades(env);
+            if (Array.isArray(positions) && positions.length > 0) {
+              const openByKey = new Map();
+              for (const t of d1Trades) {
+                const s = String(t?.ticker || "").toUpperCase();
+                const status = String(t?.status || "").toUpperCase();
+                if (status === "OPEN" || status === "TP_HIT_TRIM") {
+                  const key = `${s}:${String(t?.direction || "").toUpperCase()}`;
+                  openByKey.set(key, t);
+                }
+              }
+              for (const p of positions) {
+                const s = String(p?.ticker || "").toUpperCase();
+                const status = String(p?.status || "").toUpperCase();
+                if (status !== "OPEN" && status !== "TP_HIT_TRIM") continue;
+                const key = `${s}:${String(p?.direction || "").toUpperCase()}`;
+                if (openByKey.has(key)) continue;
+                openByKey.set(key, p);
+                d1Trades.push(p);
+              }
+            }
           }
         }
         if (d1Trades) {

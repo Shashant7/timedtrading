@@ -11613,6 +11613,7 @@
         tickers = [],
         rankPositions = null,
         onSelectTicker,
+        trades = [],
         defaultView = "prime",
         title = "✨ Opportunities",
         maxHeightClass = "max-h-[520px]",
@@ -11639,6 +11640,28 @@
           const day = String(d.getDate()).padStart(2, "0");
           return `timedTrading_todayBest_${y}-${m}-${day}`;
         }, []);
+
+        const tradeByTicker = React.useMemo(() => {
+          const map = new Map();
+          if (!Array.isArray(trades)) return map;
+          trades.forEach((tr) => {
+            const sym = String(tr?.ticker || "").toUpperCase();
+            if (!sym) return;
+            const existing = map.get(sym);
+            const exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+            const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
+            if (!existing) {
+              map.set(sym, tr);
+              return;
+            }
+            const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
+            const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
+            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) {
+              map.set(sym, tr);
+            }
+          });
+          return map;
+        }, [trades]);
 
         const getNum = (x) => {
           const n = Number(x);
@@ -12396,7 +12419,7 @@
               {filtered.length === 0 ? (
                 <div className="text-xs text-[#4b5563] p-3">No matches.</div>
               ) : (
-                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker, savedTickers, toggleSavedTicker }))
+                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker }))
               )}
             </div>
           </div>
@@ -14429,6 +14452,7 @@
         selectedTicker,
         tickers,
         data,
+        trades = [],
         onClose,
         rankedTickers = null,
         rankedTickerPositions = null,
@@ -14496,6 +14520,32 @@
             );
           }
 
+          // Effective stage for right rail when card is in Hold (open trade overrides server stage)
+          const effectiveStage = (() => {
+            const map = new Map();
+            if (!Array.isArray(trades)) return null;
+            trades.forEach((tr) => {
+              const sym = String(tr?.ticker || "").toUpperCase();
+              if (!sym) return;
+              const existing = map.get(sym);
+              const exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+              const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
+              if (!existing || exitTs > (existing.exit_ts ?? existing.exitTs ?? 0) || (exitTs === 0 && entryTs > (existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0))) {
+                map.set(sym, tr);
+              }
+            });
+            const trade = map.get(tickerUpper);
+            if (!trade) return null;
+            const status = String(trade.status || "").toUpperCase();
+            const isClosed = status === "WIN" || status === "LOSS" || !!(trade.exit_ts ?? trade.exitTs) || Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0) >= 0.9999;
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+            if (!isOpen) return null;
+            const stage = String(foundTicker?.kanban_stage ?? "").trim().toLowerCase();
+            if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) return "trim";
+            if (stage === "defend" || stage === "trim" || stage === "exit") return stage;
+            return "hold";
+          })();
+
           // TEMPORARILY DISABLE PORTAL - render inline to avoid freeze issues
           // TODO: Re-enable portal once freeze is resolved
           return (
@@ -14511,6 +14561,7 @@
               onJourneyHover={onJourneyHover}
               onJourneySelect={onJourneySelect}
               selectedJourneyTs={selectedJourneyTs}
+              effectiveStage={effectiveStage}
             />
           );
 
@@ -15282,6 +15333,7 @@
                           tickers={tickersWithRanks}
                           rankPositions={rankedTickerPositions}
                           onSelectTicker={handleTickerSelect}
+                          trades={trades}
                           title="🔭 Viewport"
                           maxHeightClass="max-h-[900px]"
                           fillHeight={true}
@@ -15377,6 +15429,7 @@
                             selectedTicker={selectedTicker}
                             tickers={tickers}
                             data={data}
+                            trades={trades}
                             onClose={() => handleTickerSelect(null)}
                             rankedTickers={rankedTickers}
                             rankedTickerPositions={rankedTickerPositions}
