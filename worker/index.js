@@ -23732,7 +23732,7 @@ export default {
           const allTickersSorted = [...new Set([
             ...kvTickers.filter(t => !removedSet.has(String(t).toUpperCase())),
             ...Object.keys(SECTOR_MAP).filter(t => !removedSet.has(t)),
-          })].map(t => String(t).toUpperCase()).filter(Boolean).sort();
+          ])].map(t => String(t).toUpperCase()).filter(Boolean).sort();
           const report = [];
           let totalComplete = 0, totalExpected = 0;
           const nowMs = Date.now();
