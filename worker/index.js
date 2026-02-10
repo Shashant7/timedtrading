@@ -23576,10 +23576,9 @@ export default {
           const allTickers = Object.keys(SECTOR_MAP);
           const snapResult = await alpacaFetchSnapshots(env, allTickers);
           const snapshots = snapResult.snapshots || {};
-          const rthNow = isNyRegularMarketOpen();
           const prices = {};
           for (const [sym, snap] of Object.entries(snapshots)) {
-            const price = rthNow ? snap.price : (snap.dailyClose > 0 ? snap.dailyClose : snap.price);
+            const price = snap.price;
             const prevClose = snap.prevDailyClose;
             const dc = (price && prevClose && prevClose > 0) ? Math.round((price - prevClose) * 100) / 100 : 0;
             const dp = (price && prevClose && prevClose > 0) ? Math.round(((price - prevClose) / prevClose) * 10000) / 100 : 0;
@@ -30781,18 +30780,10 @@ Provide 3-5 actionable next steps:
         const snapResult = await alpacaFetchSnapshots(env, allTickers);
         const snapshots = snapResult.snapshots || {};
 
-        // After market close, prefer dailyBar.c (official close) over latestTrade.p
-        // (which can be a thin after-hours trade at a misleading price, e.g. ULTA $675 vs close $679.28).
-        // During RTH, latestTrade.p is the most current price so we keep it.
-        const rthOpen = isNyRegularMarketOpen();
-
         // Build compact price payload for KV
         const prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
-          // During RTH: use latestTrade (snap.price). After hours: prefer official close (dailyClose).
-          const price = rthOpen
-            ? snap.price
-            : (snap.dailyClose > 0 ? snap.dailyClose : snap.price);
+          const price = snap.price;
           const prevClose = snap.prevDailyClose;
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
@@ -30819,9 +30810,7 @@ Provide 3-5 actionable next steps:
           const retryResult = await alpacaFetchSnapshots(env, missingAfterFirst);
           const retrySnap = retryResult.snapshots || {};
           for (const [sym, snap] of Object.entries(retrySnap)) {
-            const price = rthOpen
-              ? snap.price
-              : (snap.dailyClose > 0 ? snap.dailyClose : snap.price);
+            const price = snap.price;
             const prevClose = snap.prevDailyClose;
             const dailyChange = (price && prevClose && prevClose > 0)
               ? Math.round((price - prevClose) * 100) / 100
@@ -30903,6 +30892,47 @@ Provide 3-5 actionable next steps:
               }
             } catch (_) { /* best-effort */ }
           }
+        }
+
+        // ── Sanity-check Alpaca prices against our own 1m candle history ──
+        // Alpaca latestTrade can return stale/bad prices (e.g. ULTA $675 when actual close was $679.28).
+        // If our latest 1m candle disagrees by >2%, trust our candle data.
+        try {
+          const db = env?.DB;
+          if (db) {
+            // Compare against candles from BEFORE the current minute (not the one we're about to write)
+            const currentMinuteTs = Math.floor(Date.now() / 60000) * 60000;
+            const lookbackStart = currentMinuteTs - 10 * 60 * 1000; // last 10 minutes
+            const tickersToCheck = Object.keys(prices).filter(s => prices[s]?.p > 0);
+            // Batch-read latest candle for each ticker (max 500 per batch)
+            for (let i = 0; i < tickersToCheck.length; i += 200) {
+              const batch = tickersToCheck.slice(i, i + 200);
+              const stmts = batch.map(sym =>
+                db.prepare(
+                  `SELECT c, ts FROM ticker_candles WHERE ticker = ?1 AND tf = '1' AND ts >= ?2 AND ts < ?3 ORDER BY ts DESC LIMIT 1`
+                ).bind(sym.toUpperCase(), lookbackStart, currentMinuteTs)
+              );
+              const results = await db.batch(stmts);
+              for (let j = 0; j < batch.length; j++) {
+                const sym = batch[j];
+                const row = results[j]?.results?.[0];
+                if (!row || !Number.isFinite(Number(row.c)) || Number(row.c) <= 0) continue;
+                const candlePrice = Number(row.c);
+                const alpacaPrice = prices[sym].p;
+                const divergePct = Math.abs(alpacaPrice - candlePrice) / candlePrice * 100;
+                if (divergePct > 2) {
+                  // Our candle data is more trustworthy — override Alpaca's bad price
+                  const prevClose = prices[sym].pc;
+                  const dc = prevClose > 0 ? Math.round((candlePrice - prevClose) * 100) / 100 : 0;
+                  const dp = prevClose > 0 ? Math.round(((candlePrice - prevClose) / prevClose) * 10000) / 100 : 0;
+                  console.log(`[PRICE SANITY] ${sym}: Alpaca $${alpacaPrice} diverges ${divergePct.toFixed(1)}% from candle $${candlePrice} — using candle`);
+                  prices[sym] = { ...prices[sym], p: Math.round(candlePrice * 100) / 100, dc, dp };
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[PRICE SANITY] error:", String(e).slice(0, 200));
         }
 
         // ── Build 1m candles from snapshot prices ──
