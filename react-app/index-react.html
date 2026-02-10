@@ -7708,7 +7708,7 @@
             content: (
               <div className="space-y-4">
                 <p className="text-[#d1d5db]">
-                  The <strong className="text-white">Dashboard</strong> shows tickers in lanes (Setup to Enter to Hold to Defend to Trim to Exit). Follow <strong className="text-white">left to right</strong>: each lane tells you what to do now.
+                  The <strong className="text-white">Dashboard</strong> shows tickers in lanes (Setup to Enter to Hold to Defend to Trim to Exit). Follow <strong className="text-white">top to bottom</strong>: each lane tells you what to do now.
                 </p>
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
                   <h3 className="text-teal-400 font-semibold mb-2">Dashboard</h3>
@@ -10589,8 +10589,13 @@
           const ltfBull = state.includes("LTF_BULL");
           const ltfBear = state.includes("LTF_BEAR");
           const isBullish = htfBull;
-          const dir = isBullish ? "LONG" : "SHORT";
           const sym = String(t?.ticker || "").toUpperCase();
+          const openTrade = tradeByTicker?.get?.(sym) || null;
+          let dir = isBullish ? "LONG" : "SHORT";
+          if (openTrade && ["OPEN", "TP_HIT_TRIM"].includes(String(openTrade.status || "").toUpperCase())) {
+            const d = String(openTrade.direction || "").toUpperCase();
+            if (d === "LONG" || d === "SHORT") dir = d;
+          }
           const biasLabel = (() => {
             if (htfBull && ltfBull) return "LONG";
             if (htfBull && ltfPullback) return "PULLBACK";
@@ -10653,9 +10658,8 @@
             ? entryPriceRaw
             : null;
           // Fallback: use open trade's entry price when ticker payload doesn't have it (e.g. ULTA, TT)
-          if (isActiveTrade && (!entryPrice || entryPrice <= 0) && tradeByTicker?.get) {
-            const openTrade = tradeByTicker.get(sym);
-            const ep = openTrade != null ? (Number(openTrade.entryPrice ?? openTrade.entry_price) || 0) : 0;
+          if (isActiveTrade && (!entryPrice || entryPrice <= 0) && openTrade) {
+            const ep = Number(openTrade.entryPrice ?? openTrade.entry_price) || 0;
             if (ep > 0) entryPrice = ep;
           }
           const entryChangePct =
@@ -10855,7 +10859,11 @@
               {/* ── Section 4: Progress Bar — pushed to bottom ────────── */}
               <div className="mt-auto" />
               {(sl != null || tp != null) && (() => {
-                const ep = isActiveTrade ? entryPrice : null;
+                let ep = isActiveTrade ? entryPrice : null;
+                if (isActiveTrade && (!ep || ep <= 0) && openTrade) {
+                  const epFromTrade = Number(openTrade.entryPrice ?? openTrade.entry_price) || 0;
+                  if (epFromTrade > 0) ep = epFromTrade;
+                }
                 const cp = Number.isFinite(price) && price > 0 ? price : null;
                 const slP = sl;
                 const tpArr = Array.isArray(t?.tpArray) ? t.tpArray : [];
