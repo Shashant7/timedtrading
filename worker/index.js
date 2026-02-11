@@ -18831,28 +18831,14 @@ export default {
                 if (!pf || !(Number(pf.p) > 0)) continue;
                 const obj = data[sym];
                 if (!obj) continue;
+                // ONLY update live price from timed:prices.
+                // NEVER overwrite prev_close or day_change fields — D1 scoring data is the
+                // authoritative source for these. Alpaca's previousDailyBar is unreliable
+                // (often returns current price, making daily change = 0%).
                 obj.price = pf.p;
-                // Only overwrite daily-change fields when timed:prices has a VALID prevClose
-                // that meaningfully differs from the current price. Alpaca's previousDailyBar
-                // often returns today's current price (making dc=0, dp=0), which would destroy
-                // the D1 scoring snapshot's correct values.
-                const pfPc = Number(pf.pc);
-                const pfP = Number(pf.p);
-                const divergePct = (pfPc > 0 && pfP > 0) ? Math.abs(pfPc - pfP) / pfP * 100 : 0;
-                const hasTrustworthyPc = pfPc > 0 && divergePct > 0.05;
-                if (hasTrustworthyPc) {
-                  obj.prev_close = pf.pc;
-                  obj.day_change = pf.dc;
-                  obj.day_change_pct = pf.dp;
-                  obj.change = pf.dc;
-                  obj.change_pct = pf.dp;
-                }
-                // Set _live_* fields so getDailyChange() can compute from price + prevClose
                 obj._live_price = pf.p;
-                // Use timed:prices pc if trustworthy, otherwise preserve D1's prev_close
-                obj._live_prev_close = hasTrustworthyPc ? pf.pc : (obj.prev_close || 0);
-                obj._live_daily_change = hasTrustworthyPc ? pf.dc : undefined;
-                obj._live_daily_change_pct = hasTrustworthyPc ? pf.dp : undefined;
+                // Preserve D1's prev_close as _live_prev_close for getDailyChange() computation
+                obj._live_prev_close = obj.prev_close || 0;
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;

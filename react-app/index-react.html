@@ -371,8 +371,8 @@
     </div>
 
     <script src="auth-gate.js"></script>
-    <script src="shared-price-utils.js?v=20260210b"></script>
-    <script src="shared-right-rail.compiled.js?v=20260210b" type="text/babel"></script>
+    <script src="shared-price-utils.js?v=20260211a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260211a" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -832,30 +832,20 @@
                 if (!existing || !(priceInfo.p > 0)) continue;
                 // Skip update if price hasn't changed (avoid re-render churn)
                 if (existing._live_price === priceInfo.p) continue;
-                // Only overwrite daily-change fields when prevClose is TRUSTWORTHY:
-                // must be > 0 AND meaningfully differ from current price (>0.05%).
-                // Alpaca often returns previousDailyBar.close ≈ current price, making dp=0.
-                const pfPc = Number(priceInfo.pc);
-                const pfP = Number(priceInfo.p);
-                const divPct = (pfPc > 0 && pfP > 0) ? Math.abs(pfPc - pfP) / pfP * 100 : 0;
-                const trustPc = pfPc > 0 && divPct > 0.05;
+                // ONLY update live price from the price feed.
+                // NEVER overwrite prev_close or day_change — the initial /timed/all
+                // response has authoritative values from D1 scoring data.
+                // getDailyChange() computes daily change from _live_price + prev_close.
                 const merged = {
                   ...existing,
                   price: priceInfo.p,
                   _live_price: priceInfo.p,
-                  _live_prev_close: trustPc ? priceInfo.pc : (existing.prev_close || existing._live_prev_close || 0),
+                  _live_prev_close: existing.prev_close || existing._live_prev_close || 0,
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
                   _price_updated_at: json.updated_at || Date.now(),
                 };
-                if (trustPc) {
-                  merged.prev_close = priceInfo.pc;
-                  merged.day_change = priceInfo.dc;
-                  merged.day_change_pct = priceInfo.dp;
-                  merged._live_daily_change = priceInfo.dc;
-                  merged._live_daily_change_pct = priceInfo.dp;
-                }
                 updatedData[normalizedSym] = merged;
                 changed = true;
               }
