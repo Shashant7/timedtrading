@@ -90,7 +90,7 @@
       // Candle-based performance data (5D/15D/30D/90D from daily candles)
       const [candlePerf, setCandlePerf] = useState(null);
       const [candlePerfLoading, setCandlePerfLoading] = useState(false);
-      const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | CHART | TECHNICALS | JOURNEY | TRADE_HISTORY
+      const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY
 
       // Right Rail: multi-timeframe candles chart (fetched on-demand)
       const [chartTf, setChartTf] = useState("10"); // Default to 10m
@@ -99,6 +99,81 @@
       const [chartError, setChartError] = useState(null);
       const [crosshair, setCrosshair] = useState(null);
       const chartScrollRef = useRef(null);
+      // TradingView-style zoom & pan state
+      const [chartVisibleCount, setChartVisibleCount] = useState(80); // candles visible
+      const [chartEndOffset, setChartEndOffset] = useState(0); // 0 = pinned to latest
+      const chartContainerRef = useRef(null);
+      const chartDragRef = useRef(null); // { startX, startOffset }
+      const chartStateRef = useRef({
+        totalCandles: 0,
+        visCount: 80,
+        startIdx: 0,
+        vn: 0,
+        candleStep: 0,
+        leftMargin: 10,
+        plotW: 0
+      });
+
+      // Native (non-passive) wheel listener for zoom — React onWheel is passive and ignores preventDefault
+      useEffect(() => {
+        const el = chartContainerRef.current;
+        if (!el) return;
+        const onWheel = e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const {
+            totalCandles,
+            visCount,
+            startIdx,
+            vn,
+            candleStep,
+            leftMargin,
+            plotW
+          } = chartStateRef.current;
+          if (totalCandles < 2 || plotW <= 0) return;
+          const delta = e.deltaY;
+          const zoomSpeed = Math.max(1, Math.round(visCount * 0.1));
+          const newCount = delta > 0 ? Math.min(totalCandles, visCount + zoomSpeed) : Math.max(10, visCount - zoomSpeed);
+          const svgRect = el.getBoundingClientRect();
+          const mouseXFrac = Math.max(0, Math.min(1, (e.clientX - svgRect.left - leftMargin) / plotW));
+          const candleUnderMouse = startIdx + Math.round(mouseXFrac * vn);
+          const newLeft = Math.max(0, Math.min(totalCandles - newCount, candleUnderMouse - Math.round(mouseXFrac * newCount)));
+          const newEnd = newLeft + newCount;
+          const newEndOff = Math.max(0, totalCandles - newEnd);
+          setChartVisibleCount(newCount);
+          setChartEndOffset(newEndOff);
+        };
+        el.addEventListener("wheel", onWheel, {
+          passive: false
+        });
+        return () => el.removeEventListener("wheel", onWheel);
+      });
+
+      // Window-level mousemove/mouseup for robust drag-to-pan
+      useEffect(() => {
+        const onMove = e => {
+          if (!chartDragRef.current) return;
+          const {
+            totalCandles,
+            visCount,
+            candleStep
+          } = chartStateRef.current;
+          if (candleStep <= 0) return;
+          const dx = e.clientX - chartDragRef.current.startX;
+          const candlesPanned = Math.round(dx / candleStep);
+          const newOffset = Math.max(0, Math.min(totalCandles - visCount, chartDragRef.current.startOffset + candlesPanned));
+          setChartEndOffset(newOffset);
+        };
+        const onUp = () => {
+          chartDragRef.current = null;
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+        };
+      }, []);
 
       // Model signal data (ticker + sector + market level)
       const [modelSignal, setModelSignal] = useState(null);
@@ -129,12 +204,20 @@
         setChartCandles([]);
         setChartError(null);
         setChartLoading(false);
+        setChartVisibleCount(80);
+        setChartEndOffset(0);
       }, [tickerSymbol]);
+
+      // Reset zoom/pan on timeframe change
+      useEffect(() => {
+        setChartVisibleCount(80);
+        setChartEndOffset(0);
+      }, [chartTf]);
 
       // Auto-scroll chart to most recent candle when data loads
       // Use multiple attempts with cleanup to handle rendering timing
       useEffect(() => {
-        if (chartCandles.length > 0 && (railTab === "ANALYSIS" || railTab === "CHART")) {
+        if (chartCandles.length > 0 && railTab === "ANALYSIS") {
           const scrollToEnd = () => {
             if (chartScrollRef.current) {
               chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
@@ -726,7 +809,10 @@
           className: `px-1.5 py-0.5 rounded border font-semibold ${pill}`
         }, icon, " ", status);
       })()), /*#__PURE__*/React.createElement("div", {
-        className: "mt-3 flex items-center gap-2 flex-wrap"
+        className: "mt-3 flex items-center gap-1.5 overflow-x-auto",
+        style: {
+          scrollbarWidth: "none"
+        }
       }, [{
         k: "ANALYSIS",
         label: "Analysis"
@@ -741,13 +827,13 @@
         label: "Journey"
       }, {
         k: "TRADE_HISTORY",
-        label: `Trade History (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`
+        label: `Trades (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`
       }].map(t => {
         const active = railTab === t.k;
         return /*#__PURE__*/React.createElement("button", {
           key: `rail-tab-${t.k}`,
           onClick: () => setRailTab(t.k),
-          className: `px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"}`
+          className: `px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"}`
         }, t.label);
       }))), /*#__PURE__*/React.createElement("div", {
         className: "p-6 pt-4"
@@ -1172,94 +1258,161 @@
             for (const c of candles) byTs.set(Number(c.__ts_ms), c);
             candles = Array.from(byTs.values()).sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
           }
-          const n = candles.length;
-          if (n < 2) {
+          const totalCandles = candles.length;
+          if (totalCandles < 2) {
             return /*#__PURE__*/React.createElement("div", {
               className: "text-xs text-[#6b7280]"
             }, "Candle data loaded, but not in expected format.");
           }
-          const lows = candles.map(c => Number(c.l));
-          const highs = candles.map(c => Number(c.h));
-          let minL = Math.min(...lows);
-          let maxH = Math.max(...highs);
-          if (!Number.isFinite(minL) || !Number.isFinite(maxH)) throw new Error("invalid_minmax");
-          if (maxH <= minL) {
-            maxH = minL + 1;
-          }
-          const pad = (maxH - minL) * 0.05;
-          minL -= pad;
-          maxH += pad;
-          const H = 320;
-          const leftMargin = 10;
-          const rightMargin = 70;
-          const candleW = 8;
-          const candleGap = 2;
-          const candleStep = candleW + candleGap;
-          const plotW = n * candleStep;
-          const W = plotW + leftMargin + rightMargin;
-          const plotH = H;
-          const y = p => plotH - (p - minL) / (maxH - minL) * plotH;
-          const bodyW = candleW * 0.9;
 
-          // ── Compute Indicator Overlays ───────────────────
+          // ═══════════════════════════════════════════════════════════════
+          // TradingView-style viewport rendering with zoom & pan
+          // ═══════════════════════════════════════════════════════════════
+          const visCount = Math.max(10, Math.min(totalCandles, chartVisibleCount));
+          const endIdx = Math.max(visCount, totalCandles - chartEndOffset);
+          const startIdx = Math.max(0, endIdx - visCount);
+          const visibleCandles = candles.slice(startIdx, endIdx);
+          const vn = visibleCandles.length;
+          if (vn < 1) return null;
+
+          // Compute overlays on ALL candles first (need full history for EMA accuracy)
           const computeEMA = (arr, period) => {
             if (arr.length < 2) return [];
             const k = 2 / (period + 1);
             const out = new Array(arr.length).fill(null);
             if (arr.length >= period) {
-              // Standard: SMA seed over first `period` values
               let s = 0;
               for (let j = 0; j < period; j++) s += arr[j];
               out[period - 1] = s / period;
               for (let j = period; j < arr.length; j++) out[j] = arr[j] * k + out[j - 1] * (1 - k);
             } else {
-              // Not enough data for full SMA seed: seed with first value, apply EMA from start
               out[0] = arr[0];
               for (let j = 1; j < arr.length; j++) out[j] = arr[j] * k + out[j - 1] * (1 - k);
             }
             return out;
           };
-          const closesForEma = candles.map(c => Number(c.c));
-          const highsForST = candles.map(c => Number(c.h));
-          const lowsForST = candles.map(c => Number(c.l));
-          const ema21Data = chartOverlays.ema21 ? computeEMA(closesForEma, 21) : [];
-          const ema48Data = chartOverlays.ema48 ? computeEMA(closesForEma, 48) : [];
-          const ema200Data = chartOverlays.ema200 ? computeEMA(closesForEma, 200) : [];
+          const allCloses = candles.map(c => Number(c.c));
+          const allHighs = candles.map(c => Number(c.h));
+          const allLows = candles.map(c => Number(c.l));
+          const ema21Full = chartOverlays.ema21 ? computeEMA(allCloses, 21) : [];
+          const ema48Full = chartOverlays.ema48 ? computeEMA(allCloses, 48) : [];
+          const ema200Full = chartOverlays.ema200 ? computeEMA(allCloses, 200) : [];
 
-          // SuperTrend (period=10, mult=3)
-          let superTrendData = [];
-          if (chartOverlays.supertrend && n >= 11) {
+          // SuperTrend on full data
+          let superTrendFull = [];
+          if (chartOverlays.supertrend && totalCandles >= 11) {
             const stP = 10,
               stM = 3;
-            const tr = new Array(n).fill(0);
-            for (let i = 1; i < n; i++) tr[i] = Math.max(highsForST[i] - lowsForST[i], Math.abs(highsForST[i] - closesForEma[i - 1]), Math.abs(lowsForST[i] - closesForEma[i - 1]));
-            const atrArr = new Array(n).fill(null);
+            const tr = new Array(totalCandles).fill(0);
+            for (let i = 1; i < totalCandles; i++) tr[i] = Math.max(allHighs[i] - allLows[i], Math.abs(allHighs[i] - allCloses[i - 1]), Math.abs(allLows[i] - allCloses[i - 1]));
+            const atrArr = new Array(totalCandles).fill(null);
             let aSum = 0;
             for (let i = 1; i <= stP; i++) aSum += tr[i];
             atrArr[stP] = aSum / stP;
-            for (let i = stP + 1; i < n; i++) atrArr[i] = tr[i] * (2 / (stP + 1)) + atrArr[i - 1] * (1 - 2 / (stP + 1));
-            const stUpArr = new Array(n).fill(null),
-              stDnArr = new Array(n).fill(null),
-              stDirArr = new Array(n).fill(1);
-            superTrendData = new Array(n).fill(null);
-            for (let i = stP; i < n; i++) {
+            for (let i = stP + 1; i < totalCandles; i++) atrArr[i] = tr[i] * (2 / (stP + 1)) + atrArr[i - 1] * (1 - 2 / (stP + 1));
+            const stUpArr = new Array(totalCandles).fill(null),
+              stDnArr = new Array(totalCandles).fill(null),
+              stDirArr = new Array(totalCandles).fill(1);
+            superTrendFull = new Array(totalCandles).fill(null);
+            for (let i = stP; i < totalCandles; i++) {
               if (!atrArr[i]) continue;
-              const hl2 = (highsForST[i] + lowsForST[i]) / 2;
+              const hl2 = (allHighs[i] + allLows[i]) / 2;
               let up = hl2 - stM * atrArr[i],
                 dn = hl2 + stM * atrArr[i];
-              if (stUpArr[i - 1] != null) up = closesForEma[i - 1] > stUpArr[i - 1] ? Math.max(up, stUpArr[i - 1]) : up;
-              if (stDnArr[i - 1] != null) dn = closesForEma[i - 1] < stDnArr[i - 1] ? Math.min(dn, stDnArr[i - 1]) : dn;
+              if (stUpArr[i - 1] != null) up = allCloses[i - 1] > stUpArr[i - 1] ? Math.max(up, stUpArr[i - 1]) : up;
+              if (stDnArr[i - 1] != null) dn = allCloses[i - 1] < stDnArr[i - 1] ? Math.min(dn, stDnArr[i - 1]) : dn;
               stUpArr[i] = up;
               stDnArr[i] = dn;
-              if (i === stP) stDirArr[i] = closesForEma[i] > dn ? 1 : -1;else {
-                stDirArr[i] = stDirArr[i - 1] === 1 && closesForEma[i] < stUpArr[i] ? -1 : stDirArr[i - 1] === -1 && closesForEma[i] > stDnArr[i] ? 1 : stDirArr[i - 1];
+              if (i === stP) stDirArr[i] = allCloses[i] > dn ? 1 : -1;else {
+                stDirArr[i] = stDirArr[i - 1] === 1 && allCloses[i] < stUpArr[i] ? -1 : stDirArr[i - 1] === -1 && allCloses[i] > stDnArr[i] ? 1 : stDirArr[i - 1];
               }
-              superTrendData[i] = {
+              superTrendFull[i] = {
                 val: stDirArr[i] === 1 ? stUpArr[i] : stDnArr[i],
                 dir: stDirArr[i]
               };
             }
           }
+
+          // TD Sequential on full data
+          let tdLabelsFull = [];
+          if (chartOverlays.tdSequential && totalCandles >= 14) {
+            const PREP_COMP = 4;
+            let bullPrep = 0,
+              bearPrep = 0;
+            for (let i = PREP_COMP; i < totalCandles; i++) {
+              const cc = allCloses[i];
+              const cComp = allCloses[i - PREP_COMP];
+              bullPrep = cc < cComp ? bullPrep + 1 : 0;
+              bearPrep = cc > cComp ? bearPrep + 1 : 0;
+              if (bullPrep >= 7 || bearPrep >= 7) {
+                const count = bullPrep >= 7 ? bullPrep : bearPrep;
+                const isBull = bullPrep >= 7;
+                tdLabelsFull.push({
+                  idx: i,
+                  count,
+                  isBull,
+                  isComplete: count === 9
+                });
+              }
+            }
+          }
+
+          // Slice overlays to visible window
+          const ema21Data = ema21Full.slice(startIdx, endIdx);
+          const ema48Data = ema48Full.slice(startIdx, endIdx);
+          const ema200Data = ema200Full.slice(startIdx, endIdx);
+          const superTrendData = superTrendFull.slice(startIdx, endIdx);
+          const tdLabelsVisible = tdLabelsFull.filter(t => t.idx >= startIdx && t.idx < endIdx);
+
+          // Price range from visible candles + visible overlays
+          const visLows = visibleCandles.map(c => Number(c.l));
+          const visHighs = visibleCandles.map(c => Number(c.h));
+          let minL = Math.min(...visLows);
+          let maxH = Math.max(...visHighs);
+          // Include EMA values in range
+          for (const ema of [ema21Data, ema48Data, ema200Data]) {
+            for (const v of ema) {
+              if (v != null) {
+                minL = Math.min(minL, v);
+                maxH = Math.max(maxH, v);
+              }
+            }
+          }
+          for (const st of superTrendData) {
+            if (st) {
+              minL = Math.min(minL, st.val);
+              maxH = Math.max(maxH, st.val);
+            }
+          }
+          if (!Number.isFinite(minL) || !Number.isFinite(maxH)) throw new Error("invalid_minmax");
+          if (maxH <= minL) maxH = minL + 1;
+          const pad = (maxH - minL) * 0.06;
+          minL -= pad;
+          maxH += pad;
+          const H = 320;
+          const leftMargin = 10;
+          const rightMargin = 70;
+          // Container width — fill available space
+          const containerEl = chartContainerRef.current;
+          const containerW = containerEl ? containerEl.clientWidth : 400;
+          const W = containerW;
+          const plotW = W - leftMargin - rightMargin;
+          const plotH = H;
+          const candleStep = plotW / vn;
+          const candleW = candleStep * 0.7;
+          const bodyW = candleW * 0.9;
+          const y = p => plotH - (p - minL) / (maxH - minL) * plotH;
+
+          // Sync state for native wheel & window-level drag handlers
+          chartStateRef.current = {
+            totalCandles,
+            visCount,
+            startIdx,
+            vn,
+            candleStep,
+            leftMargin,
+            plotW
+          };
           const buildEmaPath = emaArr => {
             let d = "";
             for (let i = 0; i < emaArr.length; i++) {
@@ -1272,33 +1425,72 @@
           };
           const priceStep = (maxH - minL) / 5;
           const priceTicks = [];
-          for (let i = 0; i <= 5; i++) {
-            priceTicks.push(minL + priceStep * i);
-          }
+          for (let i = 0; i <= 5; i++) priceTicks.push(minL + priceStep * i);
+
+          // ── Mouse interaction handlers ────────────────────
+          // Crosshair only — drag-to-pan is handled by window-level listeners
+          // Wheel zoom is handled by native non-passive listener on the container
           const handleMouseMove = e => {
+            if (chartDragRef.current) return; // dragging — crosshair suppressed
             const svg = e.currentTarget;
             const rect = svg.getBoundingClientRect();
             if (!rect || rect.width <= 0 || rect.height <= 0) return;
-            const pt = svg.createSVGPoint();
-            pt.x = e.clientX;
-            pt.y = e.clientY;
-            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-            const svgX = svgP.x;
-            const svgY = svgP.y;
+            const svgX = e.clientX - rect.left;
+            const svgY = e.clientY - rect.top;
             if (svgX < leftMargin || svgX > W - rightMargin) return;
-            const idx = Math.floor((svgX - leftMargin) / plotW * n);
-            if (idx >= 0 && idx < n) {
-              const c = candles[idx];
+            const idx = Math.floor((svgX - leftMargin) / plotW * vn);
+            if (idx >= 0 && idx < vn) {
+              const c = visibleCandles[idx];
               if (!c) return;
               const price = minL + (H - svgY) / plotH * (maxH - minL);
               setCrosshair({
                 x: svgX,
                 y: svgY,
                 candle: c,
-                price
+                price,
+                visIdx: idx
               });
             }
           };
+          const handleMouseDown = e => {
+            if (e.button !== 0) return; // left click only
+            e.preventDefault();
+            chartDragRef.current = {
+              startX: e.clientX,
+              startOffset: chartEndOffset
+            };
+            setCrosshair(null);
+          };
+
+          // OHLC header bar (TradingView-style — always visible, never blocks candles)
+          const headerCandle = crosshair?.candle || visibleCandles[vn - 1];
+          const hdrO = Number(headerCandle?.o);
+          const hdrH = Number(headerCandle?.h);
+          const hdrL = Number(headerCandle?.l);
+          const hdrC = Number(headerCandle?.c);
+          const hdrChg = hdrC - hdrO;
+          const hdrPct = hdrO > 0 ? hdrChg / hdrO * 100 : 0;
+          const hdrUp = hdrChg >= 0;
+          const hdrTs = Number(headerCandle?.__ts_ms ?? headerCandle?.ts);
+          let hdrTimeStr = "";
+          try {
+            if (Number.isFinite(hdrTs)) {
+              const d = new Date(hdrTs);
+              const isDWM = ["D", "W", "M"].includes(String(chartTf));
+              hdrTimeStr = isDWM ? d.toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                timeZone: "America/New_York"
+              }) : d.toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                timeZone: "America/New_York"
+              }) + " ET";
+            }
+          } catch {}
           return /*#__PURE__*/React.createElement("div", {
             className: "w-full relative -mx-3 px-3"
           }, /*#__PURE__*/React.createElement("div", {
@@ -1336,23 +1528,46 @@
               background: ov.color + "15"
             } : {}
           }, ov.label))), /*#__PURE__*/React.createElement("div", {
-            ref: chartScrollRef,
-            className: "overflow-x-auto overflow-y-hidden bg-[#0b0e11] rounded-lg",
+            className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, hdrTimeStr), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "O"), /*#__PURE__*/React.createElement("span", {
+            className: "text-white"
+          }, hdrO.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "H"), /*#__PURE__*/React.createElement("span", {
+            className: "text-sky-300"
+          }, hdrH.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "L"), /*#__PURE__*/React.createElement("span", {
+            className: "text-orange-300"
+          }, hdrL.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "C"), /*#__PURE__*/React.createElement("span", {
+            className: hdrUp ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold"
+          }, hdrC.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: hdrUp ? "text-teal-400" : "text-rose-400"
+          }, hdrUp ? "+" : "", hdrChg.toFixed(2), " (", hdrUp ? "+" : "", hdrPct.toFixed(2), "%)")), /*#__PURE__*/React.createElement("div", {
+            ref: chartContainerRef,
+            className: "bg-[#0b0e11] rounded-lg overflow-hidden",
             style: {
-              scrollbarWidth: "thin",
-              scrollbarColor: "#252b36 #0c0f14",
-              WebkitOverflowScrolling: "touch"
+              userSelect: "none"
             }
           }, /*#__PURE__*/React.createElement("svg", {
             width: W,
             height: H,
             viewBox: `0 0 ${W} ${H}`,
             style: {
-              display: "block"
+              display: "block",
+              cursor: chartDragRef.current ? "grabbing" : "crosshair"
             },
-            className: "cursor-crosshair",
             onMouseMove: handleMouseMove,
-            onMouseLeave: () => setCrosshair(null)
+            onMouseDown: handleMouseDown,
+            onMouseLeave: () => {
+              setCrosshair(null);
+            }
           }, priceTicks.map((p, i) => {
             const yPos = y(p);
             return /*#__PURE__*/React.createElement("g", {
@@ -1371,19 +1586,19 @@
               fill: "#8b92a0",
               fontFamily: "monospace"
             }, "$", p.toFixed(2)));
-          }), candles.map((c, i) => {
-            const o = Number(c.o);
-            const h = Number(c.h);
-            const l = Number(c.l);
-            const cl = Number(c.c);
+          }), visibleCandles.map((c, i) => {
+            const o = Number(c.o),
+              h = Number(c.h),
+              l = Number(c.l),
+              cl = Number(c.c);
             const up = cl >= o;
             const stroke = up ? "rgba(56,189,248,0.95)" : "rgba(251,146,60,0.95)";
             const fill = up ? "rgba(56,189,248,0.90)" : "rgba(251,146,60,0.90)";
             const cx = leftMargin + i * candleStep + candleStep / 2;
-            const yH = y(h);
-            const yL = y(l);
-            const yO = y(o);
-            const yC = y(cl);
+            const yH = y(h),
+              yL = y(l),
+              yO = y(o),
+              yC = y(cl);
             const top = Math.min(yO, yC);
             const bot = Math.max(yO, yC);
             const bodyH = Math.max(1.5, bot - top);
@@ -1424,7 +1639,6 @@
             strokeWidth: "1.3",
             strokeOpacity: "0.7"
           }), superTrendData.length > 0 && (() => {
-            // Build segments of same direction for coloring
             const segments = [];
             let curSeg = null;
             for (let i = 0; i < superTrendData.length; i++) {
@@ -1451,41 +1665,23 @@
               strokeWidth: "1.5",
               strokeOpacity: "0.7"
             }));
-          })(), chartOverlays.tdSequential && n >= 14 && (() => {
-            // Compute TD Sequential inline (lightweight version)
-            const PREP_COMP = 4;
-            const tdLabels = [];
-            let bullPrep = 0,
-              bearPrep = 0;
-            for (let i = PREP_COMP; i < n; i++) {
-              const cc = Number(candles[i].c);
-              const cComp = Number(candles[i - PREP_COMP].c);
-              bullPrep = cc < cComp ? bullPrep + 1 : 0;
-              bearPrep = cc > cComp ? bearPrep + 1 : 0;
-
-              // Show counts >= 7 for setup (approaching 9), and always show 9
-              if (bullPrep >= 7 || bearPrep >= 7) {
-                const count = bullPrep >= 7 ? bullPrep : bearPrep;
-                const isBull = bullPrep >= 7;
-                const cx = leftMargin + i * candleStep + candleStep / 2;
-                const yPos = isBull ? y(Number(candles[i].l)) + 12 : y(Number(candles[i].h)) - 6;
-                const color = isBull ? "#22c55e" : "#ef4444";
-                const isComplete = count === 9;
-                tdLabels.push(/*#__PURE__*/React.createElement("text", {
-                  key: `td-${i}`,
-                  x: cx,
-                  y: yPos,
-                  textAnchor: "middle",
-                  fontSize: isComplete ? "10" : "8",
-                  fontWeight: isComplete ? "bold" : "normal",
-                  fill: color,
-                  opacity: isComplete ? 1 : 0.7
-                }, count));
-              }
-            }
-            return tdLabels;
-          })(), (() => {
-            const lastC = candles[candles.length - 1];
+          })(), tdLabelsVisible.map(t => {
+            const vi = t.idx - startIdx;
+            const cx = leftMargin + vi * candleStep + candleStep / 2;
+            const yPos = t.isBull ? y(Number(visibleCandles[vi].l)) + 12 : y(Number(visibleCandles[vi].h)) - 6;
+            const color = t.isBull ? "#22c55e" : "#ef4444";
+            return /*#__PURE__*/React.createElement("text", {
+              key: `td-${t.idx}`,
+              x: cx,
+              y: yPos,
+              textAnchor: "middle",
+              fontSize: t.isComplete ? "10" : "8",
+              fontWeight: t.isComplete ? "bold" : "normal",
+              fill: color,
+              opacity: t.isComplete ? 1 : 0.7
+            }, t.count);
+          }), (() => {
+            const lastC = visibleCandles[vn - 1];
             if (!lastC) return null;
             const cp = Number(lastC.c);
             if (!Number.isFinite(cp)) return null;
@@ -1517,7 +1713,7 @@
               fontWeight: "700",
               textAnchor: "middle"
             }, "$", cp.toFixed(2)));
-          })(), crosshair ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
+          })(), crosshair && !chartDragRef.current ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("line", {
             x1: leftMargin,
             y1: crosshair.y,
             x2: W - rightMargin,
@@ -1555,72 +1751,11 @@
               fontWeight: "700",
               textAnchor: "middle"
             }, priceText));
-          })()) : null)), crosshair && crosshair.candle ? /*#__PURE__*/React.createElement("div", {
-            className: "absolute top-2 left-2 px-3 py-2 border border-white/[0.10] rounded-2xl text-[11px] pointer-events-none z-10",
-            style: {
-              background: "rgba(255,255,255,0.06)",
-              backdropFilter: "blur(24px) saturate(1.4)",
-              WebkitBackdropFilter: "blur(24px) saturate(1.4)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.45), inset 0 0.5px 0 rgba(255,255,255,0.08)"
-            }
-          }, /*#__PURE__*/React.createElement("div", {
-            className: "font-semibold text-white mb-1"
-          }, (() => {
-            try {
-              const ts = Number(crosshair?.candle?.__ts_ms ?? crosshair?.candle?.ts);
-              if (!Number.isFinite(ts)) return "—";
-              const d = new Date(ts);
-              const isDWM = ["D", "W", "M"].includes(String(chartTf));
-              if (isDWM) {
-                return d.toLocaleString("en-US", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                  timeZone: "America/New_York"
-                });
-              }
-              return d.toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-                timeZone: "America/New_York"
-              }) + " ET";
-            } catch {
-              return "—";
-            }
-          })()), (() => {
-            const cc = crosshair.candle;
-            const chg = Number(cc.c) - Number(cc.o);
-            const chgPct = Number(cc.o) > 0 ? chg / Number(cc.o) * 100 : 0;
-            const isUp = chg >= 0;
-            return /*#__PURE__*/React.createElement("div", {
-              className: "grid grid-cols-4 gap-x-2 gap-y-0.5 text-[10px]"
-            }, /*#__PURE__*/React.createElement("div", {
-              className: "text-[#6b7280]"
-            }, "O"), /*#__PURE__*/React.createElement("div", {
-              className: "text-white font-mono"
-            }, "$", Number(cc.o).toFixed(2)), /*#__PURE__*/React.createElement("div", {
-              className: "text-[#6b7280]"
-            }, "H"), /*#__PURE__*/React.createElement("div", {
-              className: "text-sky-300 font-mono"
-            }, "$", Number(cc.h).toFixed(2)), /*#__PURE__*/React.createElement("div", {
-              className: "text-[#6b7280]"
-            }, "L"), /*#__PURE__*/React.createElement("div", {
-              className: "text-orange-300 font-mono"
-            }, "$", Number(cc.l).toFixed(2)), /*#__PURE__*/React.createElement("div", {
-              className: "text-[#6b7280]"
-            }, "C"), /*#__PURE__*/React.createElement("div", {
-              className: `font-mono font-semibold ${isUp ? "text-teal-400" : "text-rose-400"}`
-            }, "$", Number(cc.c).toFixed(2)), /*#__PURE__*/React.createElement("div", {
-              className: "col-span-4 mt-0.5 text-[9px]"
-            }, /*#__PURE__*/React.createElement("span", {
-              className: `font-semibold ${isUp ? "text-teal-400" : "text-rose-400"}`
-            }, isUp ? "+" : "", chg.toFixed(2), " (", isUp ? "+" : "", chgPct.toFixed(2), "%)")));
-          })()) : null, /*#__PURE__*/React.createElement("div", {
-            className: "mt-2 text-[10px] text-[#6b7280] flex items-center justify-between"
-          }, /*#__PURE__*/React.createElement("span", null, String(chartTf) === "D" ? "Daily" : String(chartTf) === "W" ? "Weekly" : String(chartTf) === "M" ? "Monthly" : Number(chartTf) >= 60 ? `${Number(chartTf) / 60}H` : `${chartTf}m`, " ", "\u2022 ", candles.length, " bars"), /*#__PURE__*/React.createElement("span", {
+          })()) : null)), /*#__PURE__*/React.createElement("div", {
+            className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between"
+          }, /*#__PURE__*/React.createElement("span", null, String(chartTf) === "D" ? "Daily" : String(chartTf) === "W" ? "Weekly" : String(chartTf) === "M" ? "Monthly" : Number(chartTf) >= 60 ? `${Number(chartTf) / 60}H` : `${chartTf}m`, " ", "\u2022 ", vn, "/", totalCandles, " bars"), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#555] text-[9px]"
+          }, "\u229E scroll to zoom \u2022 drag to pan"), /*#__PURE__*/React.createElement("span", {
             className: "font-mono"
           }, "$", minL.toFixed(2), " \u2013 $", maxH.toFixed(2))));
         } catch (e) {
@@ -2807,13 +2942,13 @@
         }, "Final Rank"), /*#__PURE__*/React.createElement("span", {
           className: "font-bold text-blue-400"
         }, baseScore))));
-      })()) : null, railTab === "CHART" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      })()) : null, false ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
         className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
       }, /*#__PURE__*/React.createElement("div", {
         className: "flex items-center justify-between gap-2 mb-3"
       }, /*#__PURE__*/React.createElement("div", {
         className: "text-sm text-[#6b7280]"
-      }, "Chart"), /*#__PURE__*/React.createElement("div", {
+      }, "Chart (REMOVED)"), /*#__PURE__*/React.createElement("div", {
         className: "flex items-center gap-1 flex-wrap"
       }, [{
         tf: "1",
@@ -2959,14 +3094,22 @@
             for (const c of candles) byTs.set(Number(c.__ts_ms), c);
             candles = Array.from(byTs.values()).sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
           }
-          const n = candles.length;
-          if (n < 2) {
+          const totalCandles2 = candles.length;
+          if (totalCandles2 < 2) {
             return /*#__PURE__*/React.createElement("div", {
               className: "text-xs text-[#6b7280]"
-            }, "Candle data loaded, but it\u2019s not in the expected OHLC format yet. (Waiting for valid captures.)");
+            }, "Candle data loaded, but not in expected OHLC format.");
           }
-          const lows = candles.map(c => Number(c.l));
-          const highs = candles.map(c => Number(c.h));
+
+          // TradingView-style viewport (shared zoom/pan state)
+          const visCount2 = Math.max(10, Math.min(totalCandles2, chartVisibleCount));
+          const endIdx2 = Math.max(visCount2, totalCandles2 - chartEndOffset);
+          const startIdx2 = Math.max(0, endIdx2 - visCount2);
+          const visibleCandles2 = candles.slice(startIdx2, endIdx2);
+          const vn2 = visibleCandles2.length;
+          if (vn2 < 1) return null;
+          const lows = visibleCandles2.map(c => Number(c.l));
+          const highs = visibleCandles2.map(c => Number(c.h));
           let minL = Math.min(...lows);
           let maxH = Math.max(...highs);
           if (!Number.isFinite(minL) || !Number.isFinite(maxH)) throw new Error("invalid_minmax");
@@ -2979,71 +3122,143 @@
           const H = 320;
           const leftMargin = 5;
           const rightMargin = 65;
-          const candleW = 8; // Fixed candle width
-          const candleGap = 2; // Gap between candles
-          const candleStep = candleW + candleGap;
-          const plotW = n * candleStep;
-          const W = plotW + leftMargin + rightMargin;
+          const ctrEl2 = chartContainerRef.current;
+          const ctrW2 = ctrEl2 ? ctrEl2.clientWidth : 500;
+          const W = ctrW2;
+          const plotW = W - leftMargin - rightMargin;
           const plotH = H;
-          const y = p => plotH - (p - minL) / (maxH - minL) * plotH;
+          const candleStep = plotW / vn2;
+          const candleW = candleStep * 0.7;
           const bodyW = candleW * 0.9;
+          const y = p => plotH - (p - minL) / (maxH - minL) * plotH;
           const priceStep = (maxH - minL) / 5;
           const priceTicks = [];
           for (let i = 0; i <= 5; i++) {
             priceTicks.push(minL + priceStep * i);
           }
           const handleMouseMove = e => {
-            const svg = e.currentTarget;
-            const rect = svg.getBoundingClientRect();
-            if (!rect || rect.width <= 0 || rect.height <= 0) return;
-
-            // Get mouse position relative to SVG element
-            const mx = e.clientX - rect.left;
-            const my = e.clientY - rect.top;
-
-            // Use SVG's getScreenCTM() for accurate coordinate mapping
-            const pt = svg.createSVGPoint();
-            pt.x = e.clientX;
-            pt.y = e.clientY;
-            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
-            const svgX = svgP.x;
-            const svgY = svgP.y;
+            if (chartDragRef.current) {
+              const dx = e.clientX - chartDragRef.current.startX;
+              const cp = Math.round(dx / candleStep);
+              setChartEndOffset(Math.max(0, Math.min(totalCandles2 - visCount2, chartDragRef.current.startOffset + cp)));
+              return;
+            }
+            const rect = e.currentTarget.getBoundingClientRect();
+            if (!rect || rect.width <= 0) return;
+            const svgX = e.clientX - rect.left,
+              svgY = e.clientY - rect.top;
             if (svgX < leftMargin || svgX > W - rightMargin) return;
-            const idx = Math.floor((svgX - leftMargin) / plotW * n);
-            if (idx >= 0 && idx < n) {
-              const c = candles[idx];
+            const idx = Math.floor((svgX - leftMargin) / plotW * vn2);
+            if (idx >= 0 && idx < vn2) {
+              const c = visibleCandles2[idx];
               if (!c) return;
-              const price = minL + (H - svgY) / plotH * (maxH - minL);
               setCrosshair({
                 x: svgX,
                 y: svgY,
                 candle: c,
-                price
+                price: minL + (H - svgY) / plotH * (maxH - minL)
               });
             }
           };
+          const handleMouseDown = e => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            chartDragRef.current = {
+              startX: e.clientX,
+              startOffset: chartEndOffset
+            };
+            setCrosshair(null);
+          };
+          const handleMouseUp = () => {
+            chartDragRef.current = null;
+          };
+          const handleWheel = e => {
+            e.preventDefault();
+            e.stopPropagation();
+            const zs = Math.max(1, Math.round(visCount2 * 0.1));
+            const nc = e.deltaY > 0 ? Math.min(totalCandles2, visCount2 + zs) : Math.max(10, visCount2 - zs);
+            const sr = e.currentTarget.getBoundingClientRect();
+            const mxf = (e.clientX - sr.left - leftMargin) / plotW;
+            const cum = startIdx2 + Math.round(mxf * vn2);
+            const nl = Math.max(0, Math.min(totalCandles2 - nc, cum - Math.round(mxf * nc)));
+            setChartVisibleCount(nc);
+            setChartEndOffset(Math.max(0, totalCandles2 - nl - nc));
+          };
+          // OHLC header
+          const hc2 = crosshair?.candle || visibleCandles2[vn2 - 1];
+          const hO2 = Number(hc2?.o),
+            hH2 = Number(hc2?.h),
+            hL2 = Number(hc2?.l),
+            hC2 = Number(hc2?.c);
+          const hChg2 = hC2 - hO2,
+            hPct2 = hO2 > 0 ? hChg2 / hO2 * 100 : 0,
+            hUp2 = hChg2 >= 0;
+          let hTime2 = "";
+          try {
+            const hTs = Number(hc2?.__ts_ms ?? hc2?.ts);
+            if (Number.isFinite(hTs)) {
+              const d = new Date(hTs);
+              const isDWM = ["D", "W", "M"].includes(String(chartTf));
+              hTime2 = isDWM ? d.toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                timeZone: "America/New_York"
+              }) : d.toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                timeZone: "America/New_York"
+              }) + " ET";
+            }
+          } catch {}
           return /*#__PURE__*/React.createElement("div", {
             className: "w-full relative"
           }, /*#__PURE__*/React.createElement("div", {
-            ref: chartScrollRef,
-            className: "overflow-x-auto overflow-y-hidden rounded border border-white/[0.06] bg-[#0b0e11] scrollbar-hide",
+            className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none"
+          }, /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, hTime2), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "O"), /*#__PURE__*/React.createElement("span", {
+            className: "text-white"
+          }, hO2.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "H"), /*#__PURE__*/React.createElement("span", {
+            className: "text-sky-300"
+          }, hH2.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "L"), /*#__PURE__*/React.createElement("span", {
+            className: "text-orange-300"
+          }, hL2.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#6b7280]"
+          }, "C"), /*#__PURE__*/React.createElement("span", {
+            className: hUp2 ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold"
+          }, hC2.toFixed(2)), /*#__PURE__*/React.createElement("span", {
+            className: hUp2 ? "text-teal-400" : "text-rose-400"
+          }, hUp2 ? "+" : "", hChg2.toFixed(2), " (", hUp2 ? "+" : "", hPct2.toFixed(2), "%)")), /*#__PURE__*/React.createElement("div", {
+            ref: chartContainerRef,
+            className: "rounded border border-white/[0.06] bg-[#0b0e11] overflow-hidden",
             style: {
-              scrollbarWidth: "thin",
-              scrollbarColor: "#252b36 #0c0f14"
+              userSelect: "none"
             }
           }, /*#__PURE__*/React.createElement("svg", {
+            width: W,
+            height: H,
             viewBox: `0 0 ${W} ${H}`,
-            preserveAspectRatio: "none",
             style: {
-              minWidth: `${Math.max(760, W)}px`,
-              width: `${W}px`,
-              height: "320px"
+              display: "block",
+              cursor: chartDragRef.current ? "grabbing" : "crosshair"
             },
-            className: "cursor-crosshair",
-            role: "img",
-            "aria-label": "Candlestick chart",
             onMouseMove: handleMouseMove,
-            onMouseLeave: () => setCrosshair(null)
+            onMouseDown: handleMouseDown,
+            onMouseUp: handleMouseUp,
+            onMouseLeave: () => {
+              setCrosshair(null);
+              chartDragRef.current = null;
+            },
+            onWheel: handleWheel
           }, priceTicks.map((p, i) => {
             const yPos = y(p);
             return /*#__PURE__*/React.createElement("g", {
@@ -3062,7 +3277,7 @@
               fill: "#8b92a0",
               fontFamily: "monospace"
             }, "$", p.toFixed(2)));
-          }), candles.map((c, i) => {
+          }), visibleCandles2.map((c, i) => {
             const o = Number(c.o);
             const h = Number(c.h);
             const l = Number(c.l);
@@ -3134,7 +3349,7 @@
               fontWeight: "700",
               textAnchor: "middle"
             }, priceText));
-          })()) : null)), crosshair && crosshair.candle ? /*#__PURE__*/React.createElement("div", {
+          })()) : null)), false && crosshair && crosshair.candle ? /*#__PURE__*/React.createElement("div", {
             className: "absolute top-2 left-2 px-3 py-2 border border-white/[0.10] rounded-2xl text-[11px] pointer-events-none z-10",
             style: {
               background: "rgba(255,255,255,0.06)",
@@ -3195,7 +3410,9 @@
             className: `font-mono font-semibold ${Number(crosshair.candle.c) >= Number(crosshair.candle.o) ? "text-sky-300" : "text-orange-300"}`
           }, "$", Number(crosshair.candle.c).toFixed(2)))) : null, /*#__PURE__*/React.createElement("div", {
             className: "mt-2 text-[10px] text-[#6b7280] flex items-center justify-between"
-          }, /*#__PURE__*/React.createElement("span", null, String(chartTf) === "D" ? "Daily" : String(chartTf) === "W" ? "Weekly" : `${chartTf}m`, " ", "\u2022 ", candles.length, " bars"), /*#__PURE__*/React.createElement("span", {
+          }, /*#__PURE__*/React.createElement("span", null, String(chartTf) === "D" ? "Daily" : String(chartTf) === "W" ? "Weekly" : `${chartTf}m`, " ", "\u2022 ", vn2, "/", totalCandles2, " bars"), /*#__PURE__*/React.createElement("span", {
+            className: "text-[#555] text-[9px]"
+          }, "scroll to zoom \u2022 drag to pan"), /*#__PURE__*/React.createElement("span", {
             className: "font-mono"
           }, "$", minL.toFixed(2), " \u2013 $", maxH.toFixed(2))));
         } catch (e) {

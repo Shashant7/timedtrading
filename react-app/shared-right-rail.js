@@ -93,7 +93,7 @@
         const [candlePerf, setCandlePerf] = useState(null);
         const [candlePerfLoading, setCandlePerfLoading] = useState(false);
 
-        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | CHART | TECHNICALS | JOURNEY | TRADE_HISTORY
+        const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
         const [chartTf, setChartTf] = useState("10"); // Default to 10m
@@ -107,7 +107,55 @@
         const [chartEndOffset, setChartEndOffset] = useState(0); // 0 = pinned to latest
         const chartContainerRef = useRef(null);
         const chartDragRef = useRef(null); // { startX, startOffset }
-        
+        const chartStateRef = useRef({ totalCandles: 0, visCount: 80, startIdx: 0, vn: 0, candleStep: 0, leftMargin: 10, plotW: 0 });
+
+        // Native (non-passive) wheel listener for zoom — React onWheel is passive and ignores preventDefault
+        useEffect(() => {
+          const el = chartContainerRef.current;
+          if (!el) return;
+          const onWheel = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const { totalCandles, visCount, startIdx, vn, candleStep, leftMargin, plotW } = chartStateRef.current;
+            if (totalCandles < 2 || plotW <= 0) return;
+            const delta = e.deltaY;
+            const zoomSpeed = Math.max(1, Math.round(visCount * 0.1));
+            const newCount = delta > 0
+              ? Math.min(totalCandles, visCount + zoomSpeed)
+              : Math.max(10, visCount - zoomSpeed);
+            const svgRect = el.getBoundingClientRect();
+            const mouseXFrac = Math.max(0, Math.min(1, (e.clientX - svgRect.left - leftMargin) / plotW));
+            const candleUnderMouse = startIdx + Math.round(mouseXFrac * vn);
+            const newLeft = Math.max(0, Math.min(totalCandles - newCount, candleUnderMouse - Math.round(mouseXFrac * newCount)));
+            const newEnd = newLeft + newCount;
+            const newEndOff = Math.max(0, totalCandles - newEnd);
+            setChartVisibleCount(newCount);
+            setChartEndOffset(newEndOff);
+          };
+          el.addEventListener("wheel", onWheel, { passive: false });
+          return () => el.removeEventListener("wheel", onWheel);
+        });
+
+        // Window-level mousemove/mouseup for robust drag-to-pan
+        useEffect(() => {
+          const onMove = (e) => {
+            if (!chartDragRef.current) return;
+            const { totalCandles, visCount, candleStep } = chartStateRef.current;
+            if (candleStep <= 0) return;
+            const dx = e.clientX - chartDragRef.current.startX;
+            const candlesPanned = Math.round(dx / candleStep);
+            const newOffset = Math.max(0, Math.min(totalCandles - visCount, chartDragRef.current.startOffset + candlesPanned));
+            setChartEndOffset(newOffset);
+          };
+          const onUp = () => { chartDragRef.current = null; };
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+          return () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+          };
+        }, []);
+
         // Model signal data (ticker + sector + market level)
         const [modelSignal, setModelSignal] = useState(null);
         const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
@@ -145,7 +193,7 @@
         // Auto-scroll chart to most recent candle when data loads
         // Use multiple attempts with cleanup to handle rendering timing
         useEffect(() => {
-          if (chartCandles.length > 0 && (railTab === "ANALYSIS" || railTab === "CHART")) {
+          if (chartCandles.length > 0 && railTab === "ANALYSIS") {
             const scrollToEnd = () => {
               if (chartScrollRef.current) {
                 chartScrollRef.current.scrollLeft = chartScrollRef.current.scrollWidth;
@@ -775,8 +823,8 @@
                     })()}
                   </div>
 
-                  {/* Right Rail Tabs */}
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  {/* Right Rail Tabs — single row, no wrapping */}
+                  <div className="mt-3 flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
                     {[
                       { k: "ANALYSIS", label: "Analysis" },
                       { k: "TECHNICALS", label: "Technicals" },
@@ -784,7 +832,7 @@
                       { k: "JOURNEY", label: "Journey" },
                       {
                         k: "TRADE_HISTORY",
-                        label: `Trade History (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
+                        label: `Trades (${Array.isArray(ledgerTrades) ? ledgerTrades.length : 0})`,
                       },
                     ].map((t) => {
                       const active = railTab === t.k;
@@ -792,7 +840,7 @@
                         <button
                           key={`rail-tab-${t.k}`}
                           onClick={() => setRailTab(t.k)}
-                          className={`px-3 py-1 rounded-lg border text-[11px] font-semibold transition-all ${
+                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
                             active
                               ? "border-blue-400 bg-blue-500/20 text-blue-200"
                               : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"
@@ -1468,6 +1516,9 @@
                             const bodyW = candleW * 0.9;
                             const y = (p) => plotH - ((p - minL) / (maxH - minL)) * plotH;
 
+                            // Sync state for native wheel & window-level drag handlers
+                            chartStateRef.current = { totalCandles, visCount, startIdx, vn, candleStep, leftMargin, plotW };
+
                             const buildEmaPath = (emaArr) => {
                               let d = "";
                               for (let i = 0; i < emaArr.length; i++) {
@@ -1484,15 +1535,10 @@
                             for (let i = 0; i <= 5; i++) priceTicks.push(minL + priceStep * i);
 
                             // ── Mouse interaction handlers ────────────────────
+                            // Crosshair only — drag-to-pan is handled by window-level listeners
+                            // Wheel zoom is handled by native non-passive listener on the container
                             const handleMouseMove = (e) => {
-                              // If dragging, pan instead of crosshair
-                              if (chartDragRef.current) {
-                                const dx = e.clientX - chartDragRef.current.startX;
-                                const candlesPanned = Math.round(dx / candleStep);
-                                const newOffset = Math.max(0, Math.min(totalCandles - visCount, chartDragRef.current.startOffset + candlesPanned));
-                                setChartEndOffset(newOffset);
-                                return;
-                              }
+                              if (chartDragRef.current) return; // dragging — crosshair suppressed
                               const svg = e.currentTarget;
                               const rect = svg.getBoundingClientRect();
                               if (!rect || rect.width <= 0 || rect.height <= 0) return;
@@ -1513,31 +1559,6 @@
                               e.preventDefault();
                               chartDragRef.current = { startX: e.clientX, startOffset: chartEndOffset };
                               setCrosshair(null);
-                            };
-
-                            const handleMouseUp = () => {
-                              chartDragRef.current = null;
-                            };
-
-                            const handleWheel = (e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              const delta = e.deltaY;
-                              // Zoom: scroll up = zoom in (fewer candles), scroll down = zoom out (more)
-                              const zoomSpeed = Math.max(1, Math.round(visCount * 0.1));
-                              const newCount = delta > 0
-                                ? Math.min(totalCandles, visCount + zoomSpeed) // zoom out
-                                : Math.max(10, visCount - zoomSpeed); // zoom in
-                              // Keep the zoom centered on the mouse position
-                              const svgRect = e.currentTarget.getBoundingClientRect();
-                              const mouseXFrac = (e.clientX - svgRect.left - leftMargin) / plotW;
-                              const candleUnderMouse = startIdx + Math.round(mouseXFrac * vn);
-                              const oldLeft = startIdx;
-                              const newLeft = Math.max(0, Math.min(totalCandles - newCount, candleUnderMouse - Math.round(mouseXFrac * newCount)));
-                              const newEnd = newLeft + newCount;
-                              const newEndOff = Math.max(0, totalCandles - newEnd);
-                              setChartVisibleCount(newCount);
-                              setChartEndOffset(newEndOff);
                             };
 
                             // OHLC header bar (TradingView-style — always visible, never blocks candles)
@@ -1612,9 +1633,7 @@
                                     style={{ display: "block", cursor: chartDragRef.current ? "grabbing" : "crosshair" }}
                                     onMouseMove={handleMouseMove}
                                     onMouseDown={handleMouseDown}
-                                    onMouseUp={handleMouseUp}
-                                    onMouseLeave={() => { setCrosshair(null); chartDragRef.current = null; }}
-                                    onWheel={handleWheel}
+                                    onMouseLeave={() => { setCrosshair(null); }}
                                   >
                                   {/* Grid lines & price labels */}
                                   {priceTicks.map((p, i) => {
@@ -3627,11 +3646,12 @@
                     </>
                   ) : null}
 
-                  {railTab === "CHART" ? (
+                  {/* CHART tab removed — chart consolidated into ANALYSIS tab */}
+                  {false ? (
                     <>
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="text-sm text-[#6b7280]">Chart</div>
+                          <div className="text-sm text-[#6b7280]">Chart (REMOVED)</div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
                               { tf: "1", label: "1m" },
