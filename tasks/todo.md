@@ -1,63 +1,32 @@
-# Auth + Open Positions + Screener
+# UI Polish – Session Complete
 
-## Status: COMPLETE
+## Summary of Changes
 
----
+### Right Rail
+1. **Chart moved up** – Chart component is now directly under System Guidance
+2. **Risk Reward Levels restyled** – TP1/TP2/TP3 now use 3-Tier TP tier cards (icons, progress bars, colored borders)
+3. **3-Tier TP component removed** – Redundant with restyled Risk Reward Levels
+4. **Trend Alignment & Score Breakdown** – Both expanded by default (`emaExpanded=true`, `scoreExpanded=true`)
+5. **Momentum Elite** – Styling updated (extrabold, tracking-wide, stronger ACTIVE badge)
 
-## Workstream 1: Auth Gate ✅
+### Viewport
+- **Viewport width** – Increased from 300px to 320px to align with Kanban card width
 
-### Files Created
-- `react-app/auth-gate.js` — Shared auth gate component (AuthGate + UserBadge + helpers)
+### Cards & Table
+- **Direction S progress bar** – For SHORT, progress bar now fills left-to-right like LONG (no flip)
 
-### Behavior
-1. On page load, checks `localStorage` for cached session (7-day TTL)
-2. If cached and valid, proceeds immediately (device remembering)
-3. If no cache, calls `GET /timed/me` to verify Cloudflare Access JWT
-4. If not authenticated, shows login screen (triggers CF Access SSO on click)
-5. On successful auth, caches user info + access timestamp in localStorage
-6. Backend automatically records email + access time via `authenticateUser()` in D1 users table
+### Sparklines
+1. **Tooltip** – Price and time on mouse hover (Table sparklines)
+2. **Kanban sparklines** – Negative space from now to close (shaded region), stronger open marker, dot at current price
+3. **Missing sparklines** – Batch size increased (3→6), more candles (250 5m / 600 1m fallback)
+4. **Webull-style** – Tighter layout (64×22 vs 80×28), thinner stroke, less padding
 
-### Integration
-- Added to all pages: index-react.html, simulation-dashboard.html, model-dashboard.html, ticker-management.html, screener.html
-- UserBadge component shows user avatar in nav bar with dropdown (name, email, tier, sign out)
+## Files Modified
+- `react-app/index-react.html` – Progress bar, Viewport width, Sparklines, gradient ids
+- `react-app/shared-right-rail.js` – Chart position, Risk Reward styling, 3-Tier TP removal, Momentum Elite, accordion defaults
+- `react-app/shared-right-rail.compiled.js` – Recompiled from source
 
----
-
-## Workstream 2: Open Positions Enhancement ✅
-
-### Files Modified
-- `react-app/simulation-dashboard.html` — Redesigned position cards
-- `worker/index.js` — Added `stop_loss`, `take_profit`, `day_change_pct` to portfolio endpoint
-
-### Changes
-- **Current price + daily change**: Shown next to ticker name in position card header
-- **SL / EP / TP Progress Bar**: Visual bar showing where current price sits between SL and TP
-  - Red zone (SL side) → Yellow (EP) → Green (TP side)
-  - White tick mark at Entry Price (EP)
-  - Bright dot marker at current price with glow effect
-  - Labels show exact SL, EP, TP dollar values
-  - Falls back to center-anchored P&L bar if SL/TP data unavailable
-- **Portfolio endpoint**: Now includes `sl`, `tp`, `day_change`, `day_change_pct`, `prev_close` for each open position
-
----
-
-## Workstream 3: Screener Page ✅
-
-### Files Created
-- `react-app/screener.html` — Full screener page
-
-### Features
-- **Scan Type Toggles**: All, Daily Momentum, Top Gainers, Top Losers, Weekly
-- **Filters**: Sector dropdown, sort options (change %, market cap, volume, ticker, recency), search
-- **Results Table**: Ticker, name, price, change %, volume, RSI, market cap, sector
-- **Add to Universe**: Per-ticker "Add" button + bulk select with checkboxes
-  - Uses `POST /timed/watchlist/add` (now supports CF Access JWT auth)
-  - Shows "In Universe" badge for already-tracked tickers
-  - Shows "Added ✓" confirmation after successful add
-- **Summary Stats**: Total candidates, already tracked, new discoveries
-
-### Nav Bar Updates
-- Added "Screener" link to nav bar on all pages
-
-### Worker Changes
-- `POST /timed/watchlist/add` now accepts both API key AND CF Access JWT (admin) via `requireKeyOrAdmin()`
+## Right Rail Reorder (Completed)
+- Chart, Trend Alignment, Swing Analysis (whole), Score, Rank, Momentum Elite, Score Breakdown
+- Swing Analysis kept as single block (Regime, Volatility, Entry Quality, TF Consensus inside it)
+- Duplicate Momentum Elite blocks consolidated to one

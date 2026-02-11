@@ -108,8 +108,8 @@
         const [chartOverlays, setChartOverlays] = useState({ ema21: true, ema48: true, ema200: false, supertrend: false, tdSequential: false });
         
         // Accordion states (MUST be at component level, not inside IIFE blocks)
-        const [scoreExpanded, setScoreExpanded] = useState(false);
-        const [emaExpanded, setEmaExpanded] = useState(false);
+        const [scoreExpanded, setScoreExpanded] = useState(true);
+        const [emaExpanded, setEmaExpanded] = useState(true);
         const [tpExpanded, setTpExpanded] = useState(true);
 
         // Prevent stale crosshair data from crashing renders when switching
@@ -1150,973 +1150,6 @@
                         })()}
                       </div>
 
-                      {/* Unified Risk / Reward Levels — single source of truth */}
-                      {(() => {
-                        const sl = ticker.sl ? Number(ticker.sl) : null;
-                        const price = Number(ticker?.price);
-                        const rr = ticker.rr ? Number(ticker.rr) : null;
-                        const hasSl = Number.isFinite(sl) && sl > 0;
-
-                        // Prefer 3-Tier TP values; fall back to legacy single-target TPs
-                        const tpTrim = Number(ticker?.tp_trim);
-                        const tpExit = Number(ticker?.tp_exit);
-                        const tpRunner = Number(ticker?.tp_runner);
-                        const has3Tier = (Number.isFinite(tpTrim) && tpTrim > 0) || (Number.isFinite(tpExit) && tpExit > 0);
-
-                        const legacyTarget = computeTpTargetPrice(ticker);
-                        const legacyMax = computeTpMaxPrice(ticker);
-                        const hasLegacy = !has3Tier && (Number.isFinite(legacyTarget) || Number.isFinite(legacyMax));
-
-                        if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
-
-                        const stateStr = String(ticker?.state || "");
-                        const dir = stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null;
-                        // SL% = absolute risk distance from current price
-                        const slDistPct = hasSl && Number.isFinite(price) && price > 0
-                          ? Math.abs((sl - price) / price) * 100
-                          : null;
-
-                        // Compute per-target R:R from current price (requires known direction)
-                        const computeTargetRR = (tpVal) => {
-                          if (!dir || !hasSl || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
-                          const risk = dir === "LONG" ? price - sl : sl - price;
-                          const gain = dir === "LONG" ? tpVal - price : price - tpVal;
-                          if (risk <= 0 || gain <= 0) return null;
-                          return gain / risk;
-                        };
-
-                        // Per-target % distance from current price
-                        const tpPct = (tpVal) => {
-                          if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
-                          return Math.abs((tpVal - price) / price) * 100;
-                        };
-
-                        const rrTrim = has3Tier ? computeTargetRR(tpTrim) : null;
-                        const rrExit = has3Tier ? computeTargetRR(tpExit) : null;
-                        const rrRunner = has3Tier ? computeTargetRR(tpRunner) : null;
-
-                        return (
-                          <div className="mb-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02]">
-                            <div className="text-[10px] text-[#6b7280] font-semibold mb-2 uppercase tracking-wider">Risk / Reward Levels</div>
-                            {/* SL row */}
-                            {hasSl && (
-                              <div className="flex items-center gap-2 mb-2 text-xs">
-                                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-red-500/10 border border-red-500/25">
-                                  <span className="text-[10px] text-red-300">SL</span>
-                                  <span className="font-bold text-red-400">${sl.toFixed(2)}</span>
-                                  {Number.isFinite(slDistPct) && (
-                                    <span className="text-[9px] text-red-300/70">
-                                      {slDistPct.toFixed(1)}% risk
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                            {/* TP rows with per-target R:R */}
-                            <div className="space-y-1.5">
-                              {has3Tier ? (
-                                <>
-                                  {Number.isFinite(tpTrim) && tpTrim > 0 && (
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-yellow-500/10 border border-yellow-500/25">
-                                        <span className="text-[10px] text-yellow-300">TP1</span>
-                                        <span className="font-bold text-yellow-400">${tpTrim.toFixed(2)}</span>
-                                        <span className="text-[9px] text-yellow-300/70">Trim 60%</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        {Number.isFinite(tpPct(tpTrim)) && <span className="text-[9px] text-[#6b7280]">{tpPct(tpTrim).toFixed(1)}%</span>}
-                                        {Number.isFinite(rrTrim) && <span className="text-[10px] font-semibold text-blue-400">{rrTrim.toFixed(2)}:1</span>}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {Number.isFinite(tpExit) && tpExit > 0 && (
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-orange-500/10 border border-orange-500/25">
-                                        <span className="text-[10px] text-orange-300">TP2</span>
-                                        <span className="font-bold text-orange-400">${tpExit.toFixed(2)}</span>
-                                        <span className="text-[9px] text-orange-300/70">Exit 85%</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        {Number.isFinite(tpPct(tpExit)) && <span className="text-[9px] text-[#6b7280]">{tpPct(tpExit).toFixed(1)}%</span>}
-                                        {Number.isFinite(rrExit) && <span className="text-[10px] font-semibold text-blue-400">{rrExit.toFixed(2)}:1</span>}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {Number.isFinite(tpRunner) && tpRunner > 0 && (
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
-                                        <span className="text-[10px] text-teal-300">TP3</span>
-                                        <span className="font-bold text-teal-400">${tpRunner.toFixed(2)}</span>
-                                        <span className="text-[9px] text-teal-300/70">Runner</span>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        {Number.isFinite(tpPct(tpRunner)) && <span className="text-[9px] text-[#6b7280]">{tpPct(tpRunner).toFixed(1)}%</span>}
-                                        {Number.isFinite(rrRunner) && <span className="text-[10px] font-semibold text-blue-400">{rrRunner.toFixed(2)}:1</span>}
-                                      </div>
-                                    </div>
-                                  )}
-                                </>
-                              ) : hasLegacy ? (
-                                <>
-                                  {Number.isFinite(legacyTarget) && (
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
-                                        <span className="text-[10px] text-teal-300">Target</span>
-                                        <span className="font-bold text-teal-400">${legacyTarget.toFixed(2)}</span>
-                                      </div>
-                                      {Number.isFinite(tpPct(legacyTarget)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyTarget).toFixed(1)}%</span>}
-                                    </div>
-                                  )}
-                                  {Number.isFinite(legacyMax) && Math.abs(legacyMax - (legacyTarget || 0)) > 0.01 && (
-                                    <div className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
-                                        <span className="text-[10px] text-teal-300">Stretch</span>
-                                        <span className="font-bold text-teal-400">${legacyMax.toFixed(2)}</span>
-                                      </div>
-                                      {Number.isFinite(tpPct(legacyMax)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyMax).toFixed(1)}%</span>}
-                                    </div>
-                                  )}
-                                </>
-                              ) : null}
-                            </div>
-                            {/* Summary R:R (to TP2/Exit target — the main RR from backend) */}
-                            {Number.isFinite(rr) && (
-                              <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center justify-between text-xs">
-                                <span className="text-[10px] text-[#6b7280]">R:R (to TP2)</span>
-                                <span className={`font-bold ${rr >= 2 ? 'text-teal-400' : rr >= 1 ? 'text-blue-400' : 'text-orange-400'}`}>{rr.toFixed(2)}:1</span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Score and Ranking */}
-                      <div className="space-y-2.5 text-sm">
-                        <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                          <span className="text-[#6b7280]">Score</span>
-                          <span className="font-semibold text-blue-400 text-lg">
-                            {Number.isFinite(displayScore)
-                              ? displayScore.toFixed(1)
-                              : "—"}
-                          </span>
-                        </div>
-                        {rankTotal > 0 && (
-                          <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                            <span className="text-[#6b7280]">Rank</span>
-                            <span className="font-semibold">
-                              {rankPosition > 0
-                                ? `#${rankPosition} of ${rankTotal}`
-                                : "—"}
-                              {rankAsOfText && (
-                                <span className="ml-2 text-[10px] text-[#6b7280] font-normal">
-                                  (as of {rankAsOfText})
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                        )}
-                        {/* Model Score (Worker-provided) — REMOVED: replaced by Model Intelligence card */}
-                        {false && (() => {
-                          const ml =
-                            ticker?.ml ||
-                            ticker?.model ||
-                            ticker?.model_v1 ||
-                            ticker?.ml_v1 ||
-                            null;
-                          if (!ml || typeof ml !== "object") return null;
-                          const p4h = Number(
-                            ml?.p_win_4h ?? ml?.p4h ?? ml?.pWin4h,
-                          );
-                          const ev4h = Number(ml?.ev_4h ?? ml?.ev4h);
-                          const p1d = Number(
-                            ml?.p_win_1d ?? ml?.p1d ?? ml?.pWin1d,
-                          );
-                          const ev1d = Number(ml?.ev_1d ?? ml?.ev1d);
-                          const has4h =
-                            Number.isFinite(p4h) || Number.isFinite(ev4h);
-                          const has1d =
-                            Number.isFinite(p1d) || Number.isFinite(ev1d);
-                          if (!has4h && !has1d) return null;
-                          const fmtPct = (x) =>
-                            Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—";
-                          const fmtEv = (x) =>
-                            Number.isFinite(x) ? `${x.toFixed(2)}%` : "—";
-                          
-                          // Plain English interpretation
-                          const interpretML = (pWin, ev) => {
-                            const p = Number(pWin) * 100;
-                            const e = Number(ev);
-                            if (!Number.isFinite(p) || !Number.isFinite(e)) return null;
-                            
-                            // Strong signals
-                            if (p >= 70 && e >= 15) return { text: "🎯 Strong buy - high win%, great reward", color: "text-green-400", bg: "bg-green-500/10" };
-                            if (p >= 60 && e >= 10) return { text: "✅ Good setup - favorable odds", color: "text-green-400", bg: "bg-green-500/10" };
-                            
-                            // Positive but cautious
-                            if (e >= 5 && p >= 55) return { text: "🟢 Decent - small edge, manage risk", color: "text-blue-400", bg: "bg-blue-500/10" };
-                            if (e >= 0 && p >= 60) return { text: "⚖️ Neutral - breakeven odds", color: "text-yellow-400", bg: "bg-yellow-500/10" };
-                            
-                            // Warning signals
-                            if (p >= 70 && e < 0) return { text: "⚠️ Too late - missed the entry", color: "text-orange-400", bg: "bg-orange-500/10" };
-                            if (e < -5 && p >= 50) return { text: "🛑 Skip - poor risk/reward", color: "text-red-400", bg: "bg-red-500/10" };
-                            if (p < 45) return { text: "❌ Avoid - low probability", color: "text-red-400", bg: "bg-red-500/10" };
-                            
-                            // Default
-                            return { text: "🤔 Unclear signal - use caution", color: "text-gray-400", bg: "bg-gray-500/10" };
-                          };
-                          
-                          const interp4h = has4h ? interpretML(p4h, ev4h) : null;
-                          const interp1d = has1d ? interpretML(p1d, ev1d) : null;
-                          
-                          return (
-                            <>
-                              {has4h && (
-                                <>
-                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
-                                      Model (4h)
-                                    </span>
-                                    <span className="font-semibold text-purple-300">
-                                      pWin {fmtPct(p4h)} • EV {fmtEv(ev4h)}
-                                    </span>
-                                  </div>
-                                  {interp4h && (
-                                    <div className={`text-xs py-2 px-3 rounded ${interp4h.bg} border border-${interp4h.color.replace('text-', '')}/30 mb-2`}>
-                                      <span className={interp4h.color}>{interp4h.text}</span>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                              {has1d && (
-                                <>
-                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
-                                      Model (1d)
-                                    </span>
-                                    <span className="font-semibold text-purple-300">
-                                      pWin {fmtPct(p1d)} • EV {fmtEv(ev1d)}
-                                    </span>
-                                  </div>
-                                  {interp1d && (
-                                    <div className={`text-xs py-2 px-3 rounded ${interp1d.bg} border border-${interp1d.color.replace('text-', '')}/30 mb-2`}>
-                                      <span className={interp1d.color}>{interp1d.text}</span>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </>
-                          );
-                        })()}
-                        
-                        {/* Momentum Elite (near scores) */}
-                        {(() => {
-                          const mp = ticker?.momentum_pct || {};
-                          const hasMomentumData =
-                            mp.week != null ||
-                            mp.month != null ||
-                            mp.three_months != null ||
-                            mp.six_months != null;
-                          const adr14 = Number(ticker?.adr_14);
-                          const avgVol30 = Number(ticker?.avg_vol_30);
-                          
-                          if (!hasMomentumData && !flags.momentum_elite) return null;
-
-                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
-                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
-
-                          const w = mp.week != null ? Number(mp.week) : null;
-                          const m = mp.month != null ? Number(mp.month) : null;
-                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
-                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
-                          const okW = Number.isFinite(w) && w >= 10;
-                          const okM = Number.isFinite(m) && m >= 25;
-                          const ok3 = Number.isFinite(m3) && m3 >= 50;
-                          const ok6 = Number.isFinite(m6) && m6 >= 100;
-                          const okAnyMomentum = okW || okM || ok3 || ok6;
-
-                          const okBase = okAdr && okVol;
-                          const computedElite = okBase && okAnyMomentum;
-                          const elite = !!flags.momentum_elite || computedElite;
-
-                          const fmtVol = (v) => {
-                            const n = Number(v);
-                            if (!Number.isFinite(n) || n <= 0) return "—";
-                            if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-                            if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-                            return String(Math.round(n));
-                          };
-                          
-                          if (!elite) return null;
-
-                          return (
-                            <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="text-xs text-purple-300 font-bold">🚀 Momentum Elite</span>
-                                <span className="text-[9px] px-1.5 py-0.5 rounded border bg-purple-500/20 border-purple-500/40 text-purple-200">
-                                  ACTIVE
-                                </span>
-                              </div>
-                              <div className="grid grid-cols-2 gap-1.5 text-[9px]">
-                                {Number.isFinite(w) && (
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">1W:</span>
-                                    <span className={`font-semibold ${okW ? 'text-green-400' : 'text-[#6b7280]'}`}>
-                                      {w.toFixed(1)}%
-                                    </span>
-                                  </div>
-                                )}
-                                {Number.isFinite(m) && (
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">1M:</span>
-                                    <span className={`font-semibold ${okM ? 'text-green-400' : 'text-[#6b7280]'}`}>
-                                      {m.toFixed(1)}%
-                                    </span>
-                                  </div>
-                                )}
-                                {Number.isFinite(m3) && (
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">3M:</span>
-                                    <span className={`font-semibold ${ok3 ? 'text-green-400' : 'text-[#6b7280]'}`}>
-                                      {m3.toFixed(1)}%
-                                    </span>
-                                  </div>
-                                )}
-                                {Number.isFinite(m6) && (
-                                  <div className="flex justify-between">
-                                    <span className="text-[#6b7280]">6M:</span>
-                                    <span className={`font-semibold ${ok6 ? 'text-green-400' : 'text-[#6b7280]'}`}>
-                                      {m6.toFixed(1)}%
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Score Breakdown (Accordion) */}
-                        {(() => {
-                          const breakdown = calculateScoreBreakdown(ticker);
-                          const breakdownComponents = [
-                            {
-                              label: "Base Score",
-                              value: breakdown.base,
-                              color: "text-blue-400",
-                            },
-                            breakdown.corridor > 0
-                              ? {
-                                  label: "In Corridor",
-                                  value: `+${breakdown.corridor}`,
-                                  color: "text-cyan-400",
-                                }
-                              : null,
-                            breakdown.corridorAligned > 0
-                              ? {
-                                  label: "Aligned + Corridor",
-                                  value: `+${breakdown.corridorAligned}`,
-                                  color: "text-green-400",
-                                }
-                              : null,
-                            breakdown.htfStrength > 0
-                              ? {
-                                  label: "HTF Strength",
-                                  value: `+${breakdown.htfStrength.toFixed(2)}`,
-                                  color: "text-cyan-400",
-                                }
-                              : null,
-                            breakdown.ltfStrength > 0
-                              ? {
-                                  label: "LTF Strength",
-                                  value: `+${breakdown.ltfStrength.toFixed(2)}`,
-                                  color: "text-cyan-400",
-                                }
-                              : null,
-                            breakdown.completion !== 0
-                              ? {
-                                  label: "Completion",
-                                  value:
-                                    breakdown.completion > 0
-                                      ? `+${breakdown.completion}`
-                                      : `${breakdown.completion}`,
-                                  color:
-                                    breakdown.completion > 0
-                                      ? "text-yellow-400"
-                                      : "text-red-400",
-                                }
-                              : null,
-                            breakdown.phase !== 0
-                              ? {
-                                  label: "Phase",
-                                  value:
-                                    breakdown.phase > 0
-                                      ? `+${breakdown.phase}`
-                                      : `${breakdown.phase}`,
-                                  color:
-                                    breakdown.phase > 0
-                                      ? "text-green-400"
-                                      : "text-red-400",
-                                }
-                              : null,
-                            breakdown.squeezeRelease > 0
-                              ? {
-                                  label: "Squeeze Release (Corridor)",
-                                  value: `+${breakdown.squeezeRelease}`,
-                                  color: "text-purple-400",
-                                }
-                              : null,
-                            breakdown.squeezeOn > 0
-                              ? {
-                                  label: "Squeeze On (Corridor)",
-                                  value: `+${breakdown.squeezeOn}`,
-                                  color: "text-yellow-400",
-                                }
-                              : null,
-                            breakdown.phaseZoneChange > 0
-                              ? {
-                                  label: "Phase Zone Change",
-                                  value: `+${breakdown.phaseZoneChange}`,
-                                  color: "text-blue-400",
-                                }
-                              : null,
-                            breakdown.rr !== 0
-                              ? {
-                                  label: "Risk/Reward",
-                                  value: `+${breakdown.rr}`,
-                                  color: "text-green-400",
-                                }
-                              : null,
-                          ].filter(Boolean);
-
-                          return breakdownComponents.length > 0 ? (
-                            <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <button
-                                onClick={() => setScoreExpanded(!scoreExpanded)}
-                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
-                              >
-                                <span>Score Breakdown</span>
-                                <span className="text-base">{scoreExpanded ? "▼" : "▶"}</span>
-                              </button>
-                              {scoreExpanded && (
-                                <div className="space-y-1.5">
-                                  {breakdownComponents.map((comp, idx) => (
-                                    <div
-                                      key={idx}
-                                      className="flex justify-between items-center text-xs"
-                                    >
-                                      <span className="text-[#6b7280]">
-                                        {comp.label}
-                                      </span>
-                                      <span
-                                        className={`font-semibold ${comp.color}`}
-                                      >
-                                        {comp.value}
-                                      </span>
-                                    </div>
-                                  ))}
-                                  <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
-                                    <span className="text-[#6b7280] font-semibold">
-                                      Total Score
-                                    </span>
-                                    <span className="text-blue-400 font-bold text-base">
-                                      {Number.isFinite(breakdown.total)
-                                        ? breakdown.total.toFixed(1)
-                                        : "—"}
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ) : null;
-                        })()}
-
-                        {/* Swing Analysis Panel (Phoenix-inspired) */}
-                        {(() => {
-                          const eq = ticker?.entry_quality;
-                          const sc = ticker?.swing_consensus;
-                          const volTier = ticker?.volatility_tier;
-                          const volPct = ticker?.volatility_atr_pct;
-                          const reg = ticker?.regime;
-                          if (!eq && !sc && !volTier && !reg) return null;
-
-                          const eqScore = Number(eq?.score) || 0;
-                          const eqCls = eqScore >= 70 ? "text-green-400" : eqScore >= 50 ? "text-amber-300" : "text-rose-400";
-                          const eqBg = eqScore >= 70 ? "bg-green-500/15" : eqScore >= 50 ? "bg-amber-500/10" : "bg-rose-500/10";
-                          const volCls = volTier === "LOW" ? "text-blue-300 bg-blue-500/15" : volTier === "MEDIUM" ? "text-slate-300 bg-slate-500/15" : volTier === "HIGH" ? "text-orange-300 bg-orange-500/15" : "text-red-300 bg-red-500/15";
-                          const scDir = sc?.direction;
-                          const bullCt = Number(sc?.bullish_count) || 0;
-                          const bearCt = Number(sc?.bearish_count) || 0;
-                          const freshTf = sc?.freshest_cross_tf;
-                          const freshAge = sc?.freshest_cross_age;
-                          const tfStack = sc?.tf_stack || [];
-
-                          return (
-                            <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <div className="text-xs text-[#6b7280] font-semibold mb-2">Swing Analysis</div>
-                              <div className="space-y-2">
-                                {/* Entry Quality Score */}
-                                {eq && (
-                                  <div className={`rounded-md p-2 ${eqBg}`}>
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-[10px] text-slate-400 font-medium">Entry Quality</span>
-                                      <span className={`text-sm font-bold ${eqCls}`}>{eqScore}/100</span>
-                                    </div>
-                                    <div className="flex gap-1.5 text-[9px]">
-                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Struct: {eq.structure || 0}/35</span>
-                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Mom: {eq.momentum || 0}/35</span>
-                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Conf: {eq.confirmation || 0}/30</span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Swing Regime (Phase 2a) */}
-                                {reg && reg.combined && (
-                                  <div className="flex items-center justify-between text-[10px]">
-                                    <span className="text-slate-400">Regime</span>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className={`px-1.5 py-0.5 rounded font-semibold ${
-                                        reg.combined.includes("BULL") ? "text-emerald-300 bg-emerald-500/15"
-                                        : reg.combined.includes("BEAR") ? "text-rose-300 bg-rose-500/15"
-                                        : "text-slate-300 bg-slate-500/15"
-                                      }`}>{
-                                        ({STRONG_BULL:"Strong Bull",EARLY_BULL:"Early Bull",LATE_BULL:"Late Bull",COUNTER_TREND_BULL:"CT Bull",NEUTRAL:"Neutral",COUNTER_TREND_BEAR:"CT Bear",EARLY_BEAR:"Early Bear",LATE_BEAR:"Late Bear",STRONG_BEAR:"Strong Bear"})[reg.combined] || reg.combined
-                                      }</span>
-                                      <span className="text-[#6b7280]">D:{reg.daily?.charAt(0).toUpperCase() || "?"} W:{reg.weekly?.charAt(0).toUpperCase() || "?"}</span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Swing Consensus (TF Stack) */}
-                                {sc && (
-                                  <div className="rounded-md p-2 bg-white/[0.03]">
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-[10px] text-slate-400 font-medium">TF Consensus</span>
-                                      <span className={`text-[11px] font-bold ${scDir === "LONG" ? "text-cyan-300" : scDir === "SHORT" ? "text-rose-300" : "text-slate-400"}`}>
-                                        {scDir || "NEUTRAL"} ({bullCt}/{5})
-                                      </span>
-                                    </div>
-                                    <div className="flex gap-0.5">
-                                      {tfStack.map((tf, i) => (
-                                        <div key={i} className={`flex-1 h-1.5 rounded-full ${tf.bias === "bullish" ? "bg-cyan-400" : tf.bias === "bearish" ? "bg-rose-400" : "bg-slate-600"}`}
-                                          title={`${tf.tf}: ${tf.bias}${tf.crossDir ? ` (cross ${tf.crossDir})` : ""}`} />
-                                      ))}
-                                    </div>
-                                    <div className="flex justify-between text-[8px] text-[#4b5563] mt-0.5">
-                                      {tfStack.map((tf, i) => (
-                                        <span key={i}>{tf.tf}</span>
-                                      ))}
-                                    </div>
-                                    {freshTf && (
-                                      <div className="text-[9px] text-purple-300 mt-1">
-                                        Fresh {freshTf} cross{freshAge != null ? ` (${freshAge}m ago)` : ""}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Volatility Tier */}
-                                {volTier && (
-                                  <div className="flex items-center justify-between text-[10px]">
-                                    <span className="text-slate-400">Volatility</span>
-                                    <div className="flex items-center gap-1.5">
-                                      <span className={`px-1.5 py-0.5 rounded font-semibold ${volCls}`}>{volTier}</span>
-                                      {Number.isFinite(volPct) && <span className="text-[#6b7280]">{volPct}% ATR/px</span>}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* EMA Structure Analysis (from new ema_map triplet) */}
-                        {(() => {
-                          const emaMap = ticker?.ema_map;
-                          if (!emaMap || typeof emaMap !== 'object') return null;
-                          const tfDisplayOrder = ['D', '240', '60', '30', '10', '3'];
-                          const tfLabels = { 'W': 'Weekly', 'D': 'Daily', '240': '4H', '60': '1H', '30': '30m', '10': '10m', '3': '3m' };
-                          const entries = tfDisplayOrder.map(tf => emaMap[tf] ? { tf, ...emaMap[tf] } : null).filter(Boolean);
-                          if (entries.length === 0) return null;
-
-                          const depthLabel = (d) => d >= 9 ? 'Strong Uptrend' : d >= 7 ? 'Uptrend' : d >= 5 ? 'Leaning Up' : d >= 4 ? 'Leaning Down' : d >= 2 ? 'Downtrend' : 'Strong Downtrend';
-                          const depthColor = (d) => d >= 8 ? 'text-green-400' : d >= 6 ? 'text-green-300/70' : d >= 4 ? 'text-yellow-300' : d >= 2 ? 'text-orange-400' : 'text-red-400';
-                          const depthBg = (d) => d >= 8 ? 'bg-green-500/20' : d >= 6 ? 'bg-green-500/10' : d >= 4 ? 'bg-yellow-500/10' : d >= 2 ? 'bg-orange-500/10' : 'bg-red-500/15';
-                          // Simple trend word for structure + momentum combined
-                          const trendWord = (s, m) => {
-                            const avg = (s + m) / 2;
-                            if (avg > 0.5) return { text: 'Accelerating', cls: 'text-green-400' };
-                            if (avg > 0.15) return { text: 'Trending Up', cls: 'text-green-300/80' };
-                            if (avg > -0.15) return { text: 'Flat', cls: 'text-slate-400' };
-                            if (avg > -0.5) return { text: 'Fading', cls: 'text-orange-400' };
-                            return { text: 'Reversing Down', cls: 'text-red-400' };
-                          };
-
-                          return (
-                            <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <button
-                                onClick={() => setEmaExpanded?.(!emaExpanded)}
-                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
-                              >
-                                <span>Trend Alignment</span>
-                                <span className="text-base">{emaExpanded ? "▼" : "▶"}</span>
-                              </button>
-                              {emaExpanded && (
-                                <div className="space-y-1.5">
-                                  {entries.map(e => {
-                                    const trend = trendWord(e.structure, e.momentum);
-                                    const pct = Math.round(e.depth * 10);
-                                    return (
-                                      <div key={e.tf} className={`flex items-center justify-between text-[11px] py-1.5 px-2 rounded-md ${depthBg(e.depth)}`}>
-                                        <span className="text-slate-300 font-medium w-12">{tfLabels[e.tf] || e.tf}</span>
-                                        <div className="flex-1 mx-2">
-                                          <div className="w-full bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
-                                            <div
-                                              className={`h-full rounded-full transition-all ${e.depth >= 6 ? 'bg-green-500' : e.depth >= 4 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                                              style={{ width: `${pct}%` }}
-                                            />
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-2 min-w-[110px] justify-end">
-                                          <span className={`font-bold ${depthColor(e.depth)}`} title={depthLabel(e.depth)}>
-                                            {depthLabel(e.depth)}
-                                          </span>
-                                          <span className={`text-[9px] font-medium ${trend.cls}`}>
-                                            {trend.text}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                  <div className="text-[9px] text-[#4b5563] mt-1.5 px-1">
-                                    Bar shows how many EMAs price is above (trend strength). Labels show if trend is accelerating or fading.
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {/* Momentum Elite (Compact) */}
-                        {(() => {
-                          const mp = ticker?.momentum_pct || {};
-                          const adr14 = Number(ticker?.adr_14);
-                          const avgVol30 = Number(ticker?.avg_vol_30);
-                          const w = mp.week != null ? Number(mp.week) : null;
-                          const m = mp.month != null ? Number(mp.month) : null;
-                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
-                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
-                          
-                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
-                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
-                          const okW = Number.isFinite(w) && w >= 10;
-                          const okM = Number.isFinite(m) && m >= 25;
-                          const ok3 = Number.isFinite(m3) && m3 >= 50;
-                          const ok6 = Number.isFinite(m6) && m6 >= 100;
-                          const okAnyMomentum = okW || okM || ok3 || ok6;
-                          const okBase = okAdr && okVol;
-                          const computedElite = okBase && okAnyMomentum;
-                          const elite = !!flags.momentum_elite || computedElite;
-                          
-                          if (!elite) return null;
-                          
-                          return (
-                            <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs text-[#6b7280] font-semibold">🚀 Momentum Elite</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded border bg-purple-500/20 border-purple-500/40 text-purple-200">
-                                  ACTIVE
-                                </span>
-                              </div>
-                              <div className="text-[10px] text-purple-200/70 space-y-0.5">
-                                {okAdr && <div>✅ ADR(14D) ≥ $2 • ${adr14.toFixed(2)}</div>}
-                                {okVol && <div>✅ Vol(30D) ≥ 2M • {(avgVol30 / 1_000_000).toFixed(2)}M</div>}
-                                {okW && <div>✅ 1W momentum {w.toFixed(1)}%</div>}
-                                {okM && <div>✅ 1M momentum {m.toFixed(1)}%</div>}
-                                {ok3 && <div>✅ 3M momentum {m3.toFixed(1)}%</div>}
-                                {ok6 && <div>✅ 6M momentum {m6.toFixed(1)}%</div>}
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* 3-Tier TP System Display */}
-                        {(() => {
-                          // Check for 3-tier tpArray from trade object first, then ATR Fibonacci levels, then legacy tp_levels
-                          let tpArray = trade?.tpArray || ticker?.tpArray || [];
-                          const trimTiers = trade?.trimTiers || [];
-                          const trimmedPct = Number(trade?.trimmedPct || 0);
-                          
-                          // If no trade tpArray, build from ATR Fibonacci TP levels
-                          if (tpArray.length === 0) {
-                            const tpTrim = Number(ticker?.tp_trim);
-                            const tpExit = Number(ticker?.tp_exit);
-                            const tpRunner = Number(ticker?.tp_runner);
-                            if (Number.isFinite(tpTrim) && tpTrim > 0) {
-                              tpArray = [
-                                { price: tpTrim, trimPct: 0.60, tier: "TRIM", label: "TRIM (60%) @ 61.8% ATR" },
-                                ...(Number.isFinite(tpExit) && tpExit > 0 ? [{ price: tpExit, trimPct: 0.85, tier: "EXIT", label: "EXIT (85%) @ 100% ATR" }] : []),
-                                ...(Number.isFinite(tpRunner) && tpRunner > 0 ? [{ price: tpRunner, trimPct: 0.95, tier: "RUNNER", label: "RUNNER (95%) @ 161.8% ATR" }] : []),
-                              ];
-                            }
-                          }
-                          
-                          const has3TierSystem = tpArray.length > 0 && tpArray.some(tp => tp.tier);
-                          
-                          // Get trade SL protection info
-                          const slProtectReason = trade?.sl_protect_reason || null;
-                          const tradeSl = trade?.sl ? Number(trade.sl) : null;
-                          const entryPrice = trade?.entryPrice ? Number(trade.entryPrice) : null;
-                          
-                          // Fallback to legacy tp_levels if no 3-tier array
-                          const tpLevels = ticker.tp_levels || [];
-                          
-                          // If we have a 3-tier system from trade, display it with progress
-                          if (has3TierSystem && tpArray.length > 0) {
-                            const direction = ticker.state?.includes("BULL")
-                              ? "LONG"
-                              : ticker.state?.includes("BEAR")
-                                ? "SHORT"
-                                : trade?.direction || null;
-                            const isLong = direction === "LONG";
-                            const currentPrice = Number(ticker.price) || 0;
-                            
-                            // Tier configuration
-                            const tierConfig = {
-                              TRIM: { label: "TRIM TP", pct: 0.6, color: "yellow", icon: "🎯", slAction: "SL → BE" },
-                              EXIT: { label: "EXIT TP", pct: 0.8, color: "orange", icon: "💰", slAction: "SL → TRIM TP" },
-                              RUNNER: { label: "RUNNER TP", pct: 1.0, color: "green", icon: "🚀", slAction: "ATR Trail" },
-                            };
-                            
-                            // Check which tiers have been hit
-                            const getTierStatus = (tier) => {
-                              const tierInfo = trimTiers.find(t => t.tier === tier);
-                              if (tierInfo?.hit) return "hit";
-                              if (trimmedPct >= tierConfig[tier]?.pct) return "hit";
-                              return "pending";
-                            };
-                            
-                            // Calculate progress to next tier
-                            const getProgressToTier = (tpPrice) => {
-                              if (!entryPrice || !currentPrice || !Number.isFinite(tpPrice)) return 0;
-                              const totalMove = Math.abs(tpPrice - entryPrice);
-                              if (totalMove <= 0) return 0;
-                              const currentMove = isLong
-                                ? Math.max(0, currentPrice - entryPrice)
-                                : Math.max(0, entryPrice - currentPrice);
-                              return Math.min(1, currentMove / totalMove);
-                            };
-                            
-                            return (
-                              <div className="border-t border-white/[0.06] my-3 pt-3">
-                                <button
-                                  onClick={() => setTpExpanded(!tpExpanded)}
-                                  className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
-                                >
-                                  <span className="flex items-center gap-1.5">
-                                    <span>3-Tier TP System</span>
-                                    {trimmedPct > 0 && (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">
-                                        {Math.round(trimmedPct * 100)}% trimmed
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="text-base">{tpExpanded ? "▼" : "▶"}</span>
-                                </button>
-                                {tpExpanded && (
-                                  <div className="space-y-2">
-                                    {tpArray.map((tp, idx) => {
-                                      const tier = tp.tier || (idx === 0 ? "TRIM" : idx === 1 ? "EXIT" : "RUNNER");
-                                      const config = tierConfig[tier] || tierConfig.TRIM;
-                                      const status = getTierStatus(tier);
-                                      const progress = getProgressToTier(tp.price);
-                                      const isHit = status === "hit";
-                                      
-                                      const colorClasses = {
-                                        yellow: { bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400", bar: "bg-yellow-500" },
-                                        orange: { bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400", bar: "bg-orange-500" },
-                                        green: { bg: "bg-green-500/10", border: "border-green-500/30", text: "text-green-400", bar: "bg-green-500" },
-                                      };
-                                      const colors = colorClasses[config.color] || colorClasses.yellow;
-                                      
-                                      return (
-                                        <div
-                                          key={`tier-${tier}-${idx}`}
-                                          className={`p-2.5 rounded border ${colors.bg} ${colors.border} ${isHit ? "opacity-60" : ""}`}
-                                        >
-                                          <div className="flex justify-between items-center mb-1.5">
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-sm">{config.icon}</span>
-                                              <span className={`text-xs font-semibold ${colors.text}`}>
-                                                {config.label}
-                                              </span>
-                                              <span className="text-[10px] text-[#6b7280]">
-                                                ({Math.round(config.pct * 100)}% off)
-                                              </span>
-                                              {isHit && (
-                                                <span className="text-[10px] px-1 py-0.5 rounded bg-green-500/30 text-green-300">✓ HIT</span>
-                                              )}
-                                            </div>
-                                            <span className={`text-xs font-bold ${colors.text}`}>
-                                              ${Number(tp.price).toFixed(2)}
-                                            </span>
-                                          </div>
-                                          
-                                          {/* Progress bar */}
-                                          {!isHit && (
-                                            <div className="mb-1.5">
-                                              <div className="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-                                                <div
-                                                  className={`h-full ${colors.bar} transition-all duration-300`}
-                                                  style={{ width: `${Math.round(progress * 100)}%` }}
-                                                />
-                                              </div>
-                                              <div className="flex justify-between text-[10px] text-[#6b7280] mt-0.5">
-                                                <span>{Math.round(progress * 100)}% to target</span>
-                                                <span>{config.slAction}</span>
-                                              </div>
-                                            </div>
-                                          )}
-                                          
-                                          {/* Show SL action when tier is hit */}
-                                          {isHit && (
-                                            <div className="text-[10px] text-[#6b7280]">
-                                              {config.slAction} applied
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                    
-                                    {/* SL Protection Status */}
-                                    {(slProtectReason || tradeSl) && (
-                                      <div className="mt-2 p-2 bg-red-500/10 border border-red-500/30 rounded">
-                                        <div className="flex justify-between items-center">
-                                          <div className="text-[10px] text-red-300">Current Stop Loss</div>
-                                          {tradeSl && <div className="text-xs font-semibold text-red-400">${tradeSl.toFixed(2)}</div>}
-                                        </div>
-                                        {slProtectReason && (
-                                          <div className="text-[10px] text-[#6b7280] mt-1">
-                                            {slProtectReason === "TRIM_TP_HIT_SL_TO_BE" ? "Moved to breakeven after TRIM TP" :
-                                             slProtectReason === "EXIT_TP_HIT_SL_TO_TRIM_TP" ? "Moved to TRIM TP after EXIT TP" :
-                                             slProtectReason === "ATR_TRAILING_RUNNER" ? "ATR trailing (1.5x ATR)" :
-                                             slProtectReason === "PROTECT_GAINS" ? "Protecting gains" :
-                                             slProtectReason.replace(/_/g, " ")}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-                          
-                          // Legacy display for tickers without 3-tier system
-                          if (!Array.isArray(tpLevels) || tpLevels.length === 0) return null;
-                          
-                          // Extract prices from tp_levels (handle both object and number formats)
-                          const tpPrices = tpLevels
-                            .map((tpItem) => {
-                              if (
-                                typeof tpItem === "object" &&
-                                tpItem !== null &&
-                                tpItem.price != null
-                              ) {
-                                return {
-                                  price: Number(tpItem.price),
-                                  source: tpItem.source || "ATR Level",
-                                  type: tpItem.type || "ATR_FIB",
-                                  timeframe: tpItem.timeframe || "D",
-                                  label: tpItem.label || "TP",
-                                  tier: tpItem.tier || null,
-                                  trimPct: tpItem.trimPct || null,
-                                };
-                              }
-                              return {
-                                price:
-                                  typeof tpItem === "number"
-                                    ? Number(tpItem)
-                                    : Number(tpItem),
-                                source: "ATR Level",
-                                type: "ATR_FIB",
-                                timeframe: "D",
-                                label: "TP",
-                                tier: null,
-                                trimPct: null,
-                              };
-                            })
-                            .filter(
-                              (p) => Number.isFinite(p.price) && p.price > 0,
-                            );
-
-                          if (tpPrices.length === 0) return null;
-                          
-                          // Sort by price (ascending for LONG, descending for SHORT)
-                          const direction = ticker.state?.includes("BULL")
-                            ? "LONG"
-                            : ticker.state?.includes("BEAR")
-                              ? "SHORT"
-                              : null;
-                          const isLong = direction === "LONG";
-                          tpPrices.sort((a, b) =>
-                            isLong ? a.price - b.price : b.price - a.price,
-                          );
-
-                          return (
-                            <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <button
-                                onClick={() => setTpExpanded(!tpExpanded)}
-                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
-                              >
-                                <span>TP Levels ({tpPrices.length})</span>
-                                <span className="text-base">{tpExpanded ? "▼" : "▶"}</span>
-                              </button>
-                              {tpExpanded && (
-                                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                                  {tpPrices.map((tpItem, idx) => {
-                                    const tf = tpItem.timeframe || "D";
-                                    const tfLabel =
-                                      tf === "W"
-                                        ? "W"
-                                        : tf === "D"
-                                          ? "D"
-                                          : tf === "240" || tf === "4H"
-                                            ? "4H"
-                                            : tf;
-                                    // Show tier info if available
-                                    const tierLabel = tpItem.tier ? ` • ${tpItem.tier}` : "";
-                                    const trimLabel = tpItem.trimPct ? ` (${Math.round(tpItem.trimPct * 100)}%)` : "";
-                                    return (
-                                      <div
-                                        key={idx}
-                                        className="flex justify-between items-center text-xs bg-white/[0.03] rounded px-2 py-1.5 border border-white/[0.06]/30"
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-green-400 font-semibold">
-                                            ${tpItem.price.toFixed(2)}
-                                          </span>
-                                          <span className="text-[#6b7280] text-[10px]">
-                                            {tpItem.tier && <span className="text-yellow-400">{tpItem.tier}</span>}
-                                            {trimLabel && <span className="text-[#6b7280]">{trimLabel}</span>}
-                                            {tpItem.timeframe && !tpItem.tier
-                                              ? ` (${tfLabel})`
-                                              : ""}
-                                          </span>
-                                        </div>
-                                        <span className="text-[#6b7280] text-[10px]">
-                                          {tpItem.type !== "ATR_FIB"
-                                            ? tpItem.type
-                                            : ""}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </div>
-
                       {/* Chart */}
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between gap-2 mb-3">
@@ -2809,6 +1842,580 @@
                           })()
                         )}
                       </div>
+
+                      {/* Unified Risk / Reward Levels — single source of truth */}
+                      {(() => {
+                        const sl = ticker.sl ? Number(ticker.sl) : null;
+                        const price = Number(ticker?.price);
+                        const rr = ticker.rr ? Number(ticker.rr) : null;
+                        const hasSl = Number.isFinite(sl) && sl > 0;
+
+                        // Prefer 3-Tier TP values; fall back to legacy single-target TPs
+                        const tpTrim = Number(ticker?.tp_trim);
+                        const tpExit = Number(ticker?.tp_exit);
+                        const tpRunner = Number(ticker?.tp_runner);
+                        const has3Tier = (Number.isFinite(tpTrim) && tpTrim > 0) || (Number.isFinite(tpExit) && tpExit > 0);
+
+                        const legacyTarget = computeTpTargetPrice(ticker);
+                        const legacyMax = computeTpMaxPrice(ticker);
+                        const hasLegacy = !has3Tier && (Number.isFinite(legacyTarget) || Number.isFinite(legacyMax));
+
+                        if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
+
+                        const stateStr = String(ticker?.state || "");
+                        const dir = stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null;
+                        // SL% = absolute risk distance from current price
+                        const slDistPct = hasSl && Number.isFinite(price) && price > 0
+                          ? Math.abs((sl - price) / price) * 100
+                          : null;
+
+                        // Compute per-target R:R from current price (requires known direction)
+                        const computeTargetRR = (tpVal) => {
+                          if (!dir || !hasSl || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
+                          const risk = dir === "LONG" ? price - sl : sl - price;
+                          const gain = dir === "LONG" ? tpVal - price : price - tpVal;
+                          if (risk <= 0 || gain <= 0) return null;
+                          return gain / risk;
+                        };
+
+                        // Per-target % distance from current price
+                        const tpPct = (tpVal) => {
+                          if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal) || tpVal <= 0) return null;
+                          return Math.abs((tpVal - price) / price) * 100;
+                        };
+
+                        const rrTrim = has3Tier ? computeTargetRR(tpTrim) : null;
+                        const rrExit = has3Tier ? computeTargetRR(tpExit) : null;
+                        const rrRunner = has3Tier ? computeTargetRR(tpRunner) : null;
+
+                        const getProgressToTp = (tpVal) => {
+                          if (!dir || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tpVal)) return 0;
+                          const slVal = hasSl ? sl : price;
+                          const totalMove = Math.abs(tpVal - slVal);
+                          if (totalMove <= 0) return 0;
+                          const currentMove = dir === "LONG" ? price - slVal : slVal - price;
+                          return Math.max(0, Math.min(1, currentMove / totalMove));
+                        };
+                        const tierCards = [
+                          { tp: tpTrim, rr: rrTrim, label: "TP1", sub: "Trim 60%", icon: "🎯", bg: "bg-yellow-500/10", border: "border-yellow-500/30", text: "text-yellow-400" },
+                          { tp: tpExit, rr: rrExit, label: "TP2", sub: "Exit 85%", icon: "💰", bg: "bg-orange-500/10", border: "border-orange-500/30", text: "text-orange-400" },
+                          { tp: tpRunner, rr: rrRunner, label: "TP3", sub: "Runner", icon: "🚀", bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400" },
+                        ];
+                        return (
+                          <div className="mb-4 space-y-2">
+                            <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider">Risk / Reward Levels</div>
+                            {hasSl && (
+                              <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
+                                <span className="text-xs font-semibold text-red-400">SL</span>
+                                <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
+                                {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              {has3Tier ? (
+                                tierCards.filter(t => Number.isFinite(t.tp) && t.tp > 0).map((tier, idx) => {
+                                  const progress = getProgressToTp(tier.tp);
+                                  return (
+                                    <div key={idx} className={`p-2.5 rounded border ${tier.bg} ${tier.border}`}>
+                                      <div className="flex justify-between items-center mb-1.5">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm">{tier.icon}</span>
+                                          <span className={`text-xs font-semibold ${tier.text}`}>{tier.label}</span>
+                                          <span className="text-[10px] text-[#6b7280]">({tier.sub})</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
+                                          {Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
+                                        </div>
+                                      </div>
+                                      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                        <div className={`h-full ${tier.label === "TP1" ? "bg-yellow-500" : tier.label === "TP2" ? "bg-orange-500" : "bg-teal-500"} transition-all`} style={{ width: `${Math.round(progress * 100)}%` }} />
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              ) : hasLegacy ? (
+                                <>
+                                  {Number.isFinite(legacyTarget) && (
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
+                                        <span className="text-[10px] text-teal-300">Target</span>
+                                        <span className="font-bold text-teal-400">${legacyTarget.toFixed(2)}</span>
+                                      </div>
+                                      {Number.isFinite(tpPct(legacyTarget)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyTarget).toFixed(1)}%</span>}
+                                    </div>
+                                  )}
+                                  {Number.isFinite(legacyMax) && Math.abs(legacyMax - (legacyTarget || 0)) > 0.01 && (
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-500/10 border border-teal-500/25">
+                                        <span className="text-[10px] text-teal-300">Stretch</span>
+                                        <span className="font-bold text-teal-400">${legacyMax.toFixed(2)}</span>
+                                      </div>
+                                      {Number.isFinite(tpPct(legacyMax)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyMax).toFixed(1)}%</span>}
+                                    </div>
+                                  )}
+                                </>
+                              ) : null}
+                            </div>
+                            {/* Summary R:R (to TP2/Exit target — the main RR from backend) */}
+                            {Number.isFinite(rr) && (
+                              <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center justify-between text-xs">
+                                <span className="text-[10px] text-[#6b7280]">R:R (to TP2)</span>
+                                <span className={`font-bold ${rr >= 2 ? 'text-teal-400' : rr >= 1 ? 'text-blue-400' : 'text-orange-400'}`}>{rr.toFixed(2)}:1</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Chart, Trend Alignment, Swing Analysis, Score, Rank, Momentum Elite, Score Breakdown */}
+                      <div className="space-y-2.5 text-sm">
+                        {/* Trend Alignment — moved up under Chart */}
+                        {(() => {
+                          const emaMap = ticker?.ema_map;
+                          if (!emaMap || typeof emaMap !== 'object') return null;
+                          const tfDisplayOrder = ['D', '240', '60', '30', '10', '3'];
+                          const tfLabels = { 'W': 'Weekly', 'D': 'Daily', '240': '4H', '60': '1H', '30': '30m', '10': '10m', '3': '3m' };
+                          const entries = tfDisplayOrder.map(tf => emaMap[tf] ? { tf, ...emaMap[tf] } : null).filter(Boolean);
+                          if (entries.length === 0) return null;
+                          const depthLabel = (d) => d >= 9 ? 'Strong Uptrend' : d >= 7 ? 'Uptrend' : d >= 5 ? 'Leaning Up' : d >= 4 ? 'Leaning Down' : d >= 2 ? 'Downtrend' : 'Strong Downtrend';
+                          const depthColor = (d) => d >= 8 ? 'text-green-400' : d >= 6 ? 'text-green-300/70' : d >= 4 ? 'text-yellow-300' : d >= 2 ? 'text-orange-400' : 'text-red-400';
+                          const depthBg = (d) => d >= 8 ? 'bg-green-500/20' : d >= 6 ? 'bg-green-500/10' : d >= 4 ? 'bg-yellow-500/10' : d >= 2 ? 'bg-orange-500/10' : 'bg-red-500/15';
+                          const trendWord = (s, m) => {
+                            const avg = (s + m) / 2;
+                            if (avg > 0.5) return { text: 'Accelerating', cls: 'text-green-400' };
+                            if (avg > 0.15) return { text: 'Trending Up', cls: 'text-green-300/80' };
+                            if (avg > -0.15) return { text: 'Flat', cls: 'text-slate-400' };
+                            if (avg > -0.5) return { text: 'Fading', cls: 'text-orange-400' };
+                            return { text: 'Reversing Down', cls: 'text-red-400' };
+                          };
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <button
+                                onClick={() => setEmaExpanded?.(!emaExpanded)}
+                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+                              >
+                                <span>Trend Alignment</span>
+                                <span className="text-base">{emaExpanded ? "▼" : "▶"}</span>
+                              </button>
+                              {emaExpanded && (
+                                <div className="space-y-1.5">
+                                  {entries.map(e => {
+                                    const trend = trendWord(e.structure, e.momentum);
+                                    const pct = Math.round(e.depth * 10);
+                                    return (
+                                      <div key={e.tf} className={`flex items-center justify-between text-[11px] py-1.5 px-2 rounded-md ${depthBg(e.depth)}`}>
+                                        <span className="text-slate-300 font-medium w-12">{tfLabels[e.tf] || e.tf}</span>
+                                        <div className="flex-1 mx-2">
+                                          <div className="w-full bg-white/[0.06] rounded-full h-1.5 overflow-hidden">
+                                            <div
+                                              className={`h-full rounded-full transition-all ${e.depth >= 6 ? 'bg-green-500' : e.depth >= 4 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                              style={{ width: `${pct}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 min-w-[110px] justify-end">
+                                          <span className={`font-bold ${depthColor(e.depth)}`} title={depthLabel(e.depth)}>
+                                            {depthLabel(e.depth)}
+                                          </span>
+                                          <span className={`text-[9px] font-medium ${trend.cls}`}>
+                                            {trend.text}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  <div className="text-[9px] text-[#4b5563] mt-1.5 px-1">
+                                    Bar shows how many EMAs price is above (trend strength). Labels show if trend is accelerating or fading.
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Swing Analysis Panel — moved up under Trend Alignment */}
+                        {(() => {
+                          const eq = ticker?.entry_quality;
+                          const sc = ticker?.swing_consensus;
+                          const volTier = ticker?.volatility_tier;
+                          const volPct = ticker?.volatility_atr_pct;
+                          const reg = ticker?.regime;
+                          if (!eq && !sc && !volTier && !reg) return null;
+                          const eqScore = Number(eq?.score) || 0;
+                          const eqCls = eqScore >= 70 ? "text-green-400" : eqScore >= 50 ? "text-amber-300" : "text-rose-400";
+                          const eqBg = eqScore >= 70 ? "bg-green-500/15" : eqScore >= 50 ? "bg-amber-500/10" : "bg-rose-500/10";
+                          const volCls = volTier === "LOW" ? "text-blue-300 bg-blue-500/15" : volTier === "MEDIUM" ? "text-slate-300 bg-slate-500/15" : volTier === "HIGH" ? "text-orange-300 bg-orange-500/15" : "text-red-300 bg-red-500/15";
+                          const scDir = sc?.direction;
+                          const bullCt = Number(sc?.bullish_count) || 0;
+                          const bearCt = Number(sc?.bearish_count) || 0;
+                          const freshTf = sc?.freshest_cross_tf;
+                          const freshAge = sc?.freshest_cross_age;
+                          const tfStack = sc?.tf_stack || [];
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <div className="text-xs text-[#6b7280] font-semibold mb-2">Swing Analysis</div>
+                              <div className="space-y-2">
+                                {eq && (
+                                  <div className={`rounded-md p-2 ${eqBg}`}>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-[10px] text-slate-400 font-medium">Entry Quality</span>
+                                      <span className={`text-sm font-bold ${eqCls}`}>{eqScore}/100</span>
+                                    </div>
+                                    <div className="flex gap-1.5 text-[9px]">
+                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Struct: {eq.structure || 0}/35</span>
+                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Mom: {eq.momentum || 0}/35</span>
+                                      <span className="px-1 py-0.5 rounded bg-white/[0.06] text-slate-300">Conf: {eq.confirmation || 0}/30</span>
+                                    </div>
+                                  </div>
+                                )}
+                                {reg && reg.combined && (
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-slate-400">Regime</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`px-1.5 py-0.5 rounded font-semibold ${
+                                        reg.combined.includes("BULL") ? "text-emerald-300 bg-emerald-500/15"
+                                        : reg.combined.includes("BEAR") ? "text-rose-300 bg-rose-500/15"
+                                        : "text-slate-300 bg-slate-500/15"
+                                      }`}>{
+                                        ({STRONG_BULL:"Strong Bull",EARLY_BULL:"Early Bull",LATE_BULL:"Late Bull",COUNTER_TREND_BULL:"CT Bull",NEUTRAL:"Neutral",COUNTER_TREND_BEAR:"CT Bear",EARLY_BEAR:"Early Bear",LATE_BEAR:"Late Bear",STRONG_BEAR:"Strong Bear"})[reg.combined] || reg.combined
+                                      }</span>
+                                      <span className="text-[#6b7280]">D:{reg.daily?.charAt(0).toUpperCase() || "?"} W:{reg.weekly?.charAt(0).toUpperCase() || "?"}</span>
+                                    </div>
+                                  </div>
+                                )}
+                                {sc && (
+                                  <div className="rounded-md p-2 bg-white/[0.03]">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-[10px] text-slate-400 font-medium">TF Consensus</span>
+                                      <span className={`text-[11px] font-bold ${scDir === "LONG" ? "text-cyan-300" : scDir === "SHORT" ? "text-rose-300" : "text-slate-400"}`}>
+                                        {scDir || "NEUTRAL"} ({bullCt}/{5})
+                                      </span>
+                                    </div>
+                                    <div className="flex gap-0.5">
+                                      {tfStack.map((tf, i) => (
+                                        <div key={i} className={`flex-1 h-1.5 rounded-full ${tf.bias === "bullish" ? "bg-cyan-400" : tf.bias === "bearish" ? "bg-rose-400" : "bg-slate-600"}`}
+                                          title={`${tf.tf}: ${tf.bias}${tf.crossDir ? ` (cross ${tf.crossDir})` : ""}`} />
+                                      ))}
+                                    </div>
+                                    <div className="flex justify-between text-[8px] text-[#4b5563] mt-0.5">
+                                      {tfStack.map((tf, i) => (
+                                        <span key={i}>{tf.tf}</span>
+                                      ))}
+                                    </div>
+                                    {freshTf && (
+                                      <div className="text-[9px] text-purple-300 mt-1">
+                                        Fresh {freshTf} cross{freshAge != null ? ` (${freshAge}m ago)` : ""}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {volTier && (
+                                  <div className="flex items-center justify-between text-[10px]">
+                                    <span className="text-slate-400">Volatility</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`px-1.5 py-0.5 rounded font-semibold ${volCls}`}>{volTier}</span>
+                                      {Number.isFinite(volPct) && <span className="text-[#6b7280]">{volPct}% ATR/px</span>}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Score */}
+                        <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                          <span className="text-[#6b7280]">Score</span>
+                          <span className="font-semibold text-blue-400 text-lg">
+                            {Number.isFinite(displayScore)
+                              ? displayScore.toFixed(1)
+                              : "—"}
+                          </span>
+                        </div>
+                        {rankTotal > 0 && (
+                          <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                            <span className="text-[#6b7280]">Rank</span>
+                            <span className="font-semibold">
+                              {rankPosition > 0
+                                ? `#${rankPosition} of ${rankTotal}`
+                                : "—"}
+                              {rankAsOfText && (
+                                <span className="ml-2 text-[10px] text-[#6b7280] font-normal">
+                                  (as of {rankAsOfText})
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {/* Model Score (Worker-provided) — REMOVED: replaced by Model Intelligence card */}
+                        {false && (() => {
+                          const ml =
+                            ticker?.ml ||
+                            ticker?.model ||
+                            ticker?.model_v1 ||
+                            ticker?.ml_v1 ||
+                            null;
+                          if (!ml || typeof ml !== "object") return null;
+                          const p4h = Number(
+                            ml?.p_win_4h ?? ml?.p4h ?? ml?.pWin4h,
+                          );
+                          const ev4h = Number(ml?.ev_4h ?? ml?.ev4h);
+                          const p1d = Number(
+                            ml?.p_win_1d ?? ml?.p1d ?? ml?.pWin1d,
+                          );
+                          const ev1d = Number(ml?.ev_1d ?? ml?.ev1d);
+                          const has4h =
+                            Number.isFinite(p4h) || Number.isFinite(ev4h);
+                          const has1d =
+                            Number.isFinite(p1d) || Number.isFinite(ev1d);
+                          if (!has4h && !has1d) return null;
+                          const fmtPct = (x) =>
+                            Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—";
+                          const fmtEv = (x) =>
+                            Number.isFinite(x) ? `${x.toFixed(2)}%` : "—";
+                          
+                          // Plain English interpretation
+                          const interpretML = (pWin, ev) => {
+                            const p = Number(pWin) * 100;
+                            const e = Number(ev);
+                            if (!Number.isFinite(p) || !Number.isFinite(e)) return null;
+                            
+                            // Strong signals
+                            if (p >= 70 && e >= 15) return { text: "🎯 Strong buy - high win%, great reward", color: "text-green-400", bg: "bg-green-500/10" };
+                            if (p >= 60 && e >= 10) return { text: "✅ Good setup - favorable odds", color: "text-green-400", bg: "bg-green-500/10" };
+                            
+                            // Positive but cautious
+                            if (e >= 5 && p >= 55) return { text: "🟢 Decent - small edge, manage risk", color: "text-blue-400", bg: "bg-blue-500/10" };
+                            if (e >= 0 && p >= 60) return { text: "⚖️ Neutral - breakeven odds", color: "text-yellow-400", bg: "bg-yellow-500/10" };
+                            
+                            // Warning signals
+                            if (p >= 70 && e < 0) return { text: "⚠️ Too late - missed the entry", color: "text-orange-400", bg: "bg-orange-500/10" };
+                            if (e < -5 && p >= 50) return { text: "🛑 Skip - poor risk/reward", color: "text-red-400", bg: "bg-red-500/10" };
+                            if (p < 45) return { text: "❌ Avoid - low probability", color: "text-red-400", bg: "bg-red-500/10" };
+                            
+                            // Default
+                            return { text: "🤔 Unclear signal - use caution", color: "text-gray-400", bg: "bg-gray-500/10" };
+                          };
+                          
+                          const interp4h = has4h ? interpretML(p4h, ev4h) : null;
+                          const interp1d = has1d ? interpretML(p1d, ev1d) : null;
+                          
+                          return (
+                            <>
+                              {has4h && (
+                                <>
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
+                                      Model (4h)
+                                    </span>
+                                    <span className="font-semibold text-purple-300">
+                                      pWin {fmtPct(p4h)} • EV {fmtEv(ev4h)}
+                                    </span>
+                                  </div>
+                                  {interp4h && (
+                                    <div className={`text-xs py-2 px-3 rounded ${interp4h.bg} border border-${interp4h.color.replace('text-', '')}/30 mb-2`}>
+                                      <span className={interp4h.color}>{interp4h.text}</span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {has1d && (
+                                <>
+                                  <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
+                                    <span className="text-[#6b7280]">
+                                      Model (1d)
+                                    </span>
+                                    <span className="font-semibold text-purple-300">
+                                      pWin {fmtPct(p1d)} • EV {fmtEv(ev1d)}
+                                    </span>
+                                  </div>
+                                  {interp1d && (
+                                    <div className={`text-xs py-2 px-3 rounded ${interp1d.bg} border border-${interp1d.color.replace('text-', '')}/30 mb-2`}>
+                                      <span className={interp1d.color}>{interp1d.text}</span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </>
+                          );
+                        })()}
+
+                        {/* Momentum Elite — before Score Breakdown */}
+                        {(() => {
+                          const mp = ticker?.momentum_pct || {};
+                          const adr14 = Number(ticker?.adr_14);
+                          const avgVol30 = Number(ticker?.avg_vol_30);
+                          const w = mp.week != null ? Number(mp.week) : null;
+                          const m = mp.month != null ? Number(mp.month) : null;
+                          const m3 = mp.three_months != null ? Number(mp.three_months) : null;
+                          const m6 = mp.six_months != null ? Number(mp.six_months) : null;
+                          const okAdr = Number.isFinite(adr14) && adr14 >= 2;
+                          const okVol = Number.isFinite(avgVol30) && avgVol30 >= 2_000_000;
+                          const okW = Number.isFinite(w) && w >= 10;
+                          const okM = Number.isFinite(m) && m >= 25;
+                          const ok3 = Number.isFinite(m3) && m3 >= 50;
+                          const ok6 = Number.isFinite(m6) && m6 >= 100;
+                          const okAnyMomentum = okW || okM || ok3 || ok6;
+                          const okBase = okAdr && okVol;
+                          const computedElite = okBase && okAnyMomentum;
+                          const elite = !!flags.momentum_elite || computedElite;
+                          if (!elite) return null;
+                          return (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-extrabold text-purple-300 tracking-wide">🚀 MOMENTUM ELITE</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded border bg-purple-500/25 border-purple-400/50 text-purple-200 font-bold">ACTIVE</span>
+                              </div>
+                              <div className="text-[10px] text-purple-200/70 space-y-0.5">
+                                {okAdr && <div>✅ ADR(14D) ≥ $2 • ${adr14.toFixed(2)}</div>}
+                                {okVol && <div>✅ Vol(30D) ≥ 2M • {(avgVol30 / 1_000_000).toFixed(2)}M</div>}
+                                {okW && <div>✅ 1W momentum {w.toFixed(1)}%</div>}
+                                {okM && <div>✅ 1M momentum {m.toFixed(1)}%</div>}
+                                {ok3 && <div>✅ 3M momentum {m3.toFixed(1)}%</div>}
+                                {ok6 && <div>✅ 6M momentum {m6.toFixed(1)}%</div>}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Score Breakdown (Accordion) */}
+                        {(() => {
+                          const breakdown = calculateScoreBreakdown(ticker);
+                          const breakdownComponents = [
+                            {
+                              label: "Base Score",
+                              value: breakdown.base,
+                              color: "text-blue-400",
+                            },
+                            breakdown.corridor > 0
+                              ? {
+                                  label: "In Corridor",
+                                  value: `+${breakdown.corridor}`,
+                                  color: "text-cyan-400",
+                                }
+                              : null,
+                            breakdown.corridorAligned > 0
+                              ? {
+                                  label: "Aligned + Corridor",
+                                  value: `+${breakdown.corridorAligned}`,
+                                  color: "text-green-400",
+                                }
+                              : null,
+                            breakdown.htfStrength > 0
+                              ? {
+                                  label: "HTF Strength",
+                                  value: `+${breakdown.htfStrength.toFixed(2)}`,
+                                  color: "text-cyan-400",
+                                }
+                              : null,
+                            breakdown.ltfStrength > 0
+                              ? {
+                                  label: "LTF Strength",
+                                  value: `+${breakdown.ltfStrength.toFixed(2)}`,
+                                  color: "text-cyan-400",
+                                }
+                              : null,
+                            breakdown.completion !== 0
+                              ? {
+                                  label: "Completion",
+                                  value:
+                                    breakdown.completion > 0
+                                      ? `+${breakdown.completion}`
+                                      : `${breakdown.completion}`,
+                                  color:
+                                    breakdown.completion > 0
+                                      ? "text-yellow-400"
+                                      : "text-red-400",
+                                }
+                              : null,
+                            breakdown.phase !== 0
+                              ? {
+                                  label: "Phase",
+                                  value:
+                                    breakdown.phase > 0
+                                      ? `+${breakdown.phase}`
+                                      : `${breakdown.phase}`,
+                                  color:
+                                    breakdown.phase > 0
+                                      ? "text-green-400"
+                                      : "text-red-400",
+                                }
+                              : null,
+                            breakdown.squeezeRelease > 0
+                              ? {
+                                  label: "Squeeze Release (Corridor)",
+                                  value: `+${breakdown.squeezeRelease}`,
+                                  color: "text-purple-400",
+                                }
+                              : null,
+                            breakdown.squeezeOn > 0
+                              ? {
+                                  label: "Squeeze On (Corridor)",
+                                  value: `+${breakdown.squeezeOn}`,
+                                  color: "text-yellow-400",
+                                }
+                              : null,
+                            breakdown.phaseZoneChange > 0
+                              ? {
+                                  label: "Phase Zone Change",
+                                  value: `+${breakdown.phaseZoneChange}`,
+                                  color: "text-blue-400",
+                                }
+                              : null,
+                            breakdown.rr !== 0
+                              ? {
+                                  label: "Risk/Reward",
+                                  value: `+${breakdown.rr}`,
+                                  color: "text-green-400",
+                                }
+                              : null,
+                          ].filter(Boolean);
+
+                          return breakdownComponents.length > 0 ? (
+                            <div className="border-t border-white/[0.06] my-3 pt-3">
+                              <button
+                                onClick={() => setScoreExpanded(!scoreExpanded)}
+                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+                              >
+                                <span>Score Breakdown</span>
+                                <span className="text-base">{scoreExpanded ? "▼" : "▶"}</span>
+                              </button>
+                              {scoreExpanded && (
+                                <div className="space-y-1.5">
+                                  {breakdownComponents.map((comp, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex justify-between items-center text-xs"
+                                    >
+                                      <span className="text-[#6b7280]">
+                                        {comp.label}
+                                      </span>
+                                      <span
+                                        className={`font-semibold ${comp.color}`}
+                                      >
+                                        {comp.value}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
+                                    <span className="text-[#6b7280] font-semibold">
+                                      Total Score
+                                    </span>
+                                    <span className="text-blue-400 font-bold text-base">
+                                      {Number.isFinite(breakdown.total)
+                                        ? breakdown.total.toFixed(1)
+                                        : "—"}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : null;
+                        })()}
+
+                      </div>
+
                     </>
                   ) : null}
 

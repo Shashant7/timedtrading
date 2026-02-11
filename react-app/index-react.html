@@ -1989,6 +1989,20 @@
         return -1;
       }
 
+      // Session fraction: 0 = 9:30 AM, 1 = 4:00 PM ET (390 min session)
+      function _sessionFraction(tsSec) {
+        if (!tsSec) return 1;
+        const d = new Date(tsSec * 1000);
+        const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
+        const parts = etStr.split(", ");
+        if (parts.length < 2) return 1;
+        const [hr, mn] = parts[1].split(":").map(Number);
+        const mins = hr * 60 + mn;
+        if (mins < 570) return 0;
+        if (mins >= 960) return 1;
+        return (mins - 570) / 390;
+      }
+
       // Shared card skin (used by Kanban + Viewport cards)
       // - background tint by daily % change (blue/orange)
       // - completion fill overlay (left->right)
@@ -10815,7 +10829,7 @@
                 )}
               </div>
 
-              {/* ── Sparkline strip (today's session: 4 AM ET → now) ── */}
+              {/* ── Sparkline strip (O=open, dot=now, shaded=now→close) ── */}
               {(() => {
                 const rawCandles = cardSparkData?.[sym];
                 if (!rawCandles || rawCandles.length < 2) return null;
@@ -10826,22 +10840,28 @@
                 const lo = Math.min(...closes);
                 const hi = Math.max(...closes);
                 const range = hi - lo || 1;
-                const w = 264, h = 18, pad = 1;
+                const w = 264, h = 16, pad = 1;
                 const iw = w - pad * 2, ih = h - pad * 2;
-                const pts = closes.map((v, i) => `${(pad + (i / (closes.length - 1)) * iw).toFixed(1)},${(pad + ih - ((v - lo) / range) * ih).toFixed(1)}`).join(" ");
+                const lastTs = Number(candles[candles.length - 1]?.t ?? candles[candles.length - 1]?.ts ?? 0);
+                const dataFrac = Math.max(0.1, Math.min(1, _sessionFraction(lastTs)));
+                const dataW = iw * dataFrac;
+                const pts = closes.map((v, i) => `${(pad + (i / (closes.length - 1)) * dataW).toFixed(1)},${(pad + ih - ((v - lo) / range) * ih).toFixed(1)}`).join(" ");
                 const up = closes[closes.length - 1] >= closes[0];
                 const color = up ? "#22c55e" : "#ef4444";
-                // Find the market open candle (first at/after 9:30 AM ET)
                 const openIdx = _findOpenIdx(candles);
-                const openX = openIdx >= 0 ? pad + (openIdx / (closes.length - 1)) * iw : -1;
+                const openX = openIdx >= 0 ? pad + (openIdx / (closes.length - 1)) * dataW : -1;
+                const nowX = pad + dataW;
+                const nowY = pad + ih - ((closes[closes.length - 1] - lo) / range) * ih;
                 return (
-                  <div className="px-1 overflow-hidden" style={{ height: "20px" }}>
+                  <div className="px-1 overflow-hidden" style={{ height: "18px" }}>
                     <svg width={w} height={h} className="block w-full">
+                      <rect x={nowX} y={pad} width={iw - dataW} height={ih} fill="rgba(255,255,255,0.05)" strokeDasharray="2,2" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
                       {openX >= 0 && (
-                        <line x1={openX} y1={0} x2={openX} y2={h} stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.4" />
+                        <line x1={openX} y1={0} x2={openX} y2={h} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,2" opacity="0.7" />
                       )}
-                      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.8" />
-                      <polygon points={`${pad},${pad + ih} ${pts} ${pad + iw},${pad + ih}`} fill={color} fillOpacity="0.08" />
+                      <polyline points={pts} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />
+                      <polygon points={`${pad},${pad + ih} ${pts} ${nowX},${pad + ih}`} fill={color} fillOpacity="0.1" />
+                      <circle cx={nowX} cy={nowY} r="2" fill={color} opacity="0.95" />
                     </svg>
                   </div>
                 );
@@ -10927,12 +10947,12 @@
                     <div className="relative h-2.5 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2.5 mb-2.5">
                       {cp && (
                         <div
-                          className={`absolute top-0 bottom-0 rounded ${isShort ? "right-0" : "left-0"} ${fillColor} overflow-visible`}
-                          style={{ width: isShort ? `${100 - fillPct}%` : `${fillPct}%` }}
+                          className={`absolute top-0 bottom-0 rounded left-0 ${fillColor} overflow-visible`}
+                          style={{ width: `${fillPct}%` }}
                           title={`CP: $${cp.toFixed(2)}`}
                         >
                           <span className="absolute -translate-x-1/2 text-[7px] font-extrabold text-white whitespace-nowrap"
-                            style={{ left: isShort ? "0%" : "100%", bottom: "-14px" }}>CP</span>
+                            style={{ left: "100%", bottom: "-14px" }}>CP</span>
                         </div>
                       )}
                       <Marker val={slP} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} bold={slMovedPastEntry} />
@@ -11502,11 +11522,11 @@
               <div className="relative h-[6px] rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-3 mb-3">
                 {cp && (
                   <div
-                    className={`absolute top-0 bottom-0 rounded ${isShort ? "right-0" : "left-0"} ${fillColor}`}
-                    style={{ width: isShort ? `${100 - fillPct}%` : `${fillPct}%` }}
+                    className={`absolute top-0 bottom-0 rounded left-0 ${fillColor}`}
+                    style={{ width: `${fillPct}%` }}
                   >
                     <span className="absolute -translate-x-1/2 text-[7px] font-extrabold text-white whitespace-nowrap"
-                      style={{ left: isShort ? "0%" : "100%", bottom: "-14px" }}>CP</span>
+                      style={{ left: "100%", bottom: "-14px" }}>CP</span>
                   </div>
                 )}
                 <Mk val={sl} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
@@ -11537,8 +11557,11 @@
           fetchSparklines(syms);
         }, [_filteredTickerKey, fetchSparklines]);
 
-        // ─── Sparkline SVG component (today's session, Webull-style) ───
-        const Sparkline = React.memo(({ candles: rawCandles, width = 80, height = 28 }) => {
+        // ─── Sparkline SVG component (today's session, Webull-style, with tooltip) ───
+        const sparklineIdRef = React.useRef(0);
+        const Sparkline = React.memo(({ candles: rawCandles, width = 64, height = 22 }) => {
+          const [tooltip, setTooltip] = React.useState(null);
+          const gradId = React.useMemo(() => `spk-tbl-${++sparklineIdRef.current}`, []);
           if (!rawCandles || rawCandles.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
           const candles = React.useMemo(() => _filterTodaySession(rawCandles), [rawCandles]);
           const closes = candles.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
@@ -11546,7 +11569,7 @@
           const lo = Math.min(...closes);
           const hi = Math.max(...closes);
           const range = hi - lo || 1;
-          const pad = 2;
+          const pad = 1;
           const w = width - pad * 2;
           const h = height - pad * 2;
           const pts = closes.map((v, i) => {
@@ -11556,21 +11579,49 @@
           }).join(" ");
           const up = closes[closes.length - 1] >= closes[0];
           const color = up ? "#22c55e" : "#ef4444";
-          // Subtle open marker (dashed vertical line at 9:30 AM)
           const openIdx = _findOpenIdx(candles);
           const openX = openIdx >= 0 ? pad + (openIdx / (closes.length - 1)) * w : -1;
+          const pointsWithTs = candles.map((c, i) => ({
+            x: pad + (i / (closes.length - 1)) * w,
+            price: closes[i],
+            ts: Number(c.t ?? c.ts ?? c.timestamp ?? 0),
+          }));
+          const handleMouseMove = (e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const svgX = e.clientX - rect.left;
+            let closest = pointsWithTs[0];
+            let minD = 999;
+            for (const p of pointsWithTs) {
+              const d = Math.abs(p.x - svgX);
+              if (d < minD) { minD = d; closest = p; }
+            }
+            const timeStr = closest.ts
+              ? new Date(closest.ts * 1000).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })
+              : "—";
+            setTooltip({ price: closest.price, time: timeStr, x: e.clientX, y: e.clientY });
+          };
+          const handleMouseLeave = () => setTooltip(null);
           return (
-            <svg width={width} height={height} className="block" style={{ minWidth: width }}>
-              {openX >= 0 && <line x1={openX} y1={0} x2={openX} y2={height} stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.35" />}
-              <polyline points={pts} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />
+            <>
+              <svg width={width} height={height} className="block" style={{ minWidth: width }}
+                onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
+              {openX >= 0 && <line x1={openX} y1={0} x2={openX} y2={height} stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.5" />}
+              <polyline points={pts} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />
               <defs>
-                <linearGradient id={`spk-${up ? "g" : "r"}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity="0.12" />
+                <linearGradient id={`${gradId}-${up ? "g" : "r"}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity="0.15" />
                   <stop offset="100%" stopColor={color} stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <polygon points={`${pad},${pad + h} ${pts} ${pad + w},${pad + h}`} fill={`url(#spk-${up ? "g" : "r"})`} />
+              <polygon points={`${pad},${pad + h} ${pts} ${pad + w},${pad + h}`} fill={`url(#${gradId}-${up ? "g" : "r"})`} />
             </svg>
+            {tooltip && (
+              <div className="fixed z-[9999] pointer-events-none px-2 py-1 rounded text-[10px] bg-black/90 text-white border border-white/20 shadow-lg"
+                style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}>
+                ${tooltip.price.toFixed(2)} • {tooltip.time} ET
+              </div>
+            )}
+            </>
           );
         });
 
@@ -11723,7 +11774,7 @@
                         <td className="px-2 py-1 text-[11px] text-gray-400 truncate max-w-[120px]" title={name}>{name || "—"}</td>
                         {/* Sparkline */}
                         <td className="px-1 py-0.5 text-center">
-                          <Sparkline candles={sparkData[sym]} width={80} height={28} />
+                          <Sparkline candles={sparkData[sym]} width={64} height={22} />
                         </td>
                         {/* Current Price */}
                         <td className="px-2 py-1 text-right text-[11px] text-white font-medium tabular-nums">
@@ -15302,7 +15353,7 @@
           if (toFetch.length === 0) return;
           toFetch.forEach(s => sparkInFlightRef.current.add(s));
           const SPARK_WIDTH = 80;
-          const batchSize = 3; // Reduced from 8 to avoid overwhelming the worker
+          const batchSize = 6;
           const fetchCandles = async (sym, tf, limit) => {
             const res = await fetch(`${API_BASE}/timed/candles?ticker=${sym}&tf=${tf}&limit=${limit}`, { cache: "no-store" });
             if (!res.ok) return null;
@@ -15312,9 +15363,9 @@
           };
           const fetchSmart = async (sym) => {
             try {
-              let candles = await fetchCandles(sym, 5, 200); // 5-min first (fewer rows, faster)
+              let candles = await fetchCandles(sym, 5, 250);
               if (!candles || candles.length < 5) {
-                candles = await fetchCandles(sym, 1, 500); // fallback to 1-min
+                candles = await fetchCandles(sym, 1, 600);
               }
               if (candles && candles.length >= 2) {
                 sparkCacheGlobalRef.current[sym] = { data: candles, ts: Date.now() };
@@ -16076,7 +16127,7 @@
                     {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
                     <div className="flex flex-col lg:flex-row gap-4 items-stretch">
                       {/* Viewport - Left side */}
-                      <div className="w-full lg:w-[300px] lg:flex-shrink-0 h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
+                      <div className="w-full lg:w-[320px] lg:flex-shrink-0 h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
                         <OpportunitiesPanel
                           tickers={tickersWithRanks}
                           rankPositions={rankedTickerPositions}
