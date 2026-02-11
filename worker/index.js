@@ -18834,9 +18834,13 @@ export default {
                 // ONLY update live price from timed:prices.
                 obj.price = pf.p;
                 obj._live_price = pf.p;
-                // Use price feed's prev_close when available (cron uses D1 then Alpaca); else fall back to D1
+                // Use price feed's prev_close when available; else fall back to D1.
+                // NEVER set _live_prev_close to 0 — preserve existing value.
                 const pfPc = Number(pf.pc);
-                obj._live_prev_close = (Number.isFinite(pfPc) && pfPc > 0) ? pfPc : (obj.prev_close || 0);
+                const bestPc = (Number.isFinite(pfPc) && pfPc > 0)
+                  ? pfPc
+                  : (obj._live_prev_close || obj.prev_close || undefined);
+                if (bestPc > 0) obj._live_prev_close = bestPc;
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;
@@ -31106,24 +31110,38 @@ Provide 3-5 actionable next steps:
           console.error("[PRICE CRON] D1 prevClose load failed:", String(e));
         }
 
+        // Helper: pick best prev_close from D1 and Alpaca with cross-check.
+        // D1 scoring data can become stale (e.g. prev_close from weeks ago).
+        // Alpaca's previousDailyBar.close is usually correct for the prior trading day
+        // but sometimes returns current price (making daily change ≈ 0%).
+        // Strategy: trust D1 unless it gives an extreme daily change AND Alpaca is saner.
+        function pickPrevClose(d1Pc, alpacaPc, currentPrice) {
+          const d1 = Number(d1Pc) || 0;
+          const alp = Number(alpacaPc) || 0;
+          const px = Number(currentPrice) || 0;
+          if (!(px > 0)) return d1 > 0 ? d1 : alp;
+
+          // Is Alpaca's value usable? (must meaningfully differ from current price)
+          const alpDivPct = alp > 0 ? Math.abs(alp - px) / px * 100 : 0;
+          const alpUsable = alp > 0 && alpDivPct > 0.05; // reject if ≈ current price
+
+          if (d1 > 0 && alpUsable) {
+            // Both available — cross-check
+            const d1Pct = Math.abs((px - d1) / d1 * 100);
+            const alpPct = Math.abs((px - alp) / alp * 100);
+            // If D1 gives extreme daily change (>10%) and Alpaca is more moderate, prefer Alpaca
+            if (d1Pct > 10 && alpPct < d1Pct) return alp;
+            return d1; // D1 is reasonable
+          }
+          if (d1 > 0) return d1;
+          if (alpUsable) return alp;
+          return 0;
+        }
+
         const prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
           const price = snap.price;
-          // Priority: D1 scoring data → Alpaca previousDailyBar (only if it differs from current price)
-          let prevClose = 0;
-          // Source 1: D1 scoring data (most reliable)
-          if (d1PrevCloseMap[sym] > 0) {
-            prevClose = d1PrevCloseMap[sym];
-          }
-          // Source 2: Alpaca previousDailyBar — but ONLY if it meaningfully differs from current price
-          // (Alpaca often returns prevDailyClose ≈ current price, which is wrong)
-          if (!(prevClose > 0) && snap.prevDailyClose > 0) {
-            const alpPc = snap.prevDailyClose;
-            const divergePct = price > 0 ? Math.abs(alpPc - price) / price * 100 : 0;
-            if (divergePct > 0.05) { // Only trust if >0.05% different from current price
-              prevClose = alpPc;
-            }
-          }
+          const prevClose = pickPrevClose(d1PrevCloseMap[sym], snap.prevDailyClose, price);
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
             : 0;
@@ -31150,16 +31168,7 @@ Provide 3-5 actionable next steps:
           const retrySnap = retryResult.snapshots || {};
           for (const [sym, snap] of Object.entries(retrySnap)) {
             const price = snap.price;
-            let prevClose = 0;
-            // Same priority as above: D1 → Alpaca (only if meaningfully different)
-            if (d1PrevCloseMap[sym] > 0) {
-              prevClose = d1PrevCloseMap[sym];
-            }
-            if (!(prevClose > 0) && snap.prevDailyClose > 0) {
-              const alpPc = snap.prevDailyClose;
-              const divergePct = price > 0 ? Math.abs(alpPc - price) / price * 100 : 0;
-              if (divergePct > 0.05) prevClose = alpPc;
-            }
+            const prevClose = pickPrevClose(d1PrevCloseMap[sym], snap.prevDailyClose, price);
             const dailyChange = (price && prevClose && prevClose > 0)
               ? Math.round((price - prevClose) * 100) / 100
               : 0;

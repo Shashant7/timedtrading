@@ -833,12 +833,16 @@
                 // Skip update if price hasn't changed (avoid re-render churn)
                 if (existing._live_price === priceInfo.p) continue;
                 // Use price feed's prev_close when available so daily change matches (CP, $, %)
+                // NEVER set _live_prev_close to 0 — preserve existing value if feed lacks valid pc
                 const feedPc = Number(priceInfo.pc);
+                const bestPc = (Number.isFinite(feedPc) && feedPc > 0)
+                  ? feedPc
+                  : (existing._live_prev_close || existing.prev_close || undefined);
                 const merged = {
                   ...existing,
                   price: priceInfo.p,
                   _live_price: priceInfo.p,
-                  _live_prev_close: (Number.isFinite(feedPc) && feedPc > 0) ? feedPc : (existing.prev_close || existing._live_prev_close || 0),
+                  ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
