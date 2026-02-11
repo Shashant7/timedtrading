@@ -1982,14 +1982,19 @@
         return { openMin: 570, closeMin: 960, sessionDur: 390, label: "9:30–4PM" };
       }
 
-      // Convert a Unix timestamp (seconds) to ET minutes-from-midnight
+      // Convert a Unix timestamp to ET minutes-from-midnight
+      // Auto-detects seconds vs milliseconds (> 1e12 = ms)
       const _etFmt = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/New_York", hour12: false,
         hour: "2-digit", minute: "2-digit"
       });
-      function _tsToEtMin(tsSec) {
-        if (!tsSec) return NaN;
-        const d = new Date(tsSec * 1000);
+      function _toMs(ts) {
+        if (!ts) return 0;
+        return ts > 1e12 ? ts : ts * 1000;
+      }
+      function _tsToEtMin(ts) {
+        if (!ts) return NaN;
+        const d = new Date(_toMs(ts));
         const parts = _etFmt.formatToParts(d);
         let hr = 0, mn = 0;
         for (const p of parts) {
@@ -2003,8 +2008,9 @@
 
       // Session fraction: maps a candle timestamp to 0–1 within the session window
       // 0 = session open, 1 = session close
-      function _sessionFraction(tsSec, sym) {
-        const min = _tsToEtMin(tsSec);
+      // Accepts seconds OR milliseconds (auto-detected)
+      function _sessionFraction(ts, sym) {
+        const min = _tsToEtMin(ts);
         if (isNaN(min)) return 1;
         const cfg = _getSessionConfig(sym);
         if (cfg.sessionDur === 390) {
@@ -2027,10 +2033,10 @@
         return Math.max(0, Math.min(1, elapsed / cfg.sessionDur));
       }
 
-      // Compute session open time as epoch seconds for "today's" session
-      // Equity: today 9:30 AM ET → epoch sec
-      // Continuous: today (or yesterday if before 6 PM) 6:00 PM ET → epoch sec
-      function _getSessionOpenEpoch(sym) {
+      // Compute session open time as epoch MILLISECONDS for "today's" session
+      // Equity: today 9:30 AM ET → epoch ms
+      // Continuous: today (or yesterday if before 6 PM) 6:00 PM ET → epoch ms
+      function _getSessionOpenMs(sym) {
         const cfg = _getSessionConfig(sym);
         const now = new Date();
         // Get today's date in ET
@@ -2042,26 +2048,28 @@
         const etOffset = etHour - 12; // negative number
         const openHr = Math.floor(cfg.openMin / 60);
         const openMn = cfg.openMin % 60;
-        // UTC time of session open today
-        let openUtc = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0) / 1000;
+        // UTC time of session open today (milliseconds)
+        let openMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
         if (cfg.sessionDur > 500) {
           // Continuous: if current ET time is before session open (before 6 PM),
           // the active session started YESTERDAY at 6 PM
-          const nowEtMin = _tsToEtMin(Math.floor(Date.now() / 1000));
+          const nowEtMin = _tsToEtMin(Date.now());
           if (nowEtMin < cfg.openMin) {
-            openUtc -= 86400; // subtract 1 day
+            openMs -= 86400000; // subtract 1 day
           }
         }
-        return openUtc;
+        return openMs;
       }
 
       // Filter candles to today's session (ticker-aware)
+      // Handles both seconds and millisecond timestamps in candle data
       function _filterTodaySession(rawCandles, sym) {
         if (!rawCandles || rawCandles.length < 2) return rawCandles;
-        const openEpoch = _getSessionOpenEpoch(sym);
+        const openMs = _getSessionOpenMs(sym);
         const filtered = rawCandles.filter(c => {
           const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-          return ts >= openEpoch;
+          const tsMs = _toMs(ts);
+          return tsMs >= openMs;
         });
         return filtered.length >= 2 ? filtered : rawCandles;
       }
@@ -10927,8 +10935,8 @@
                 const lo = Math.min(...closes);
                 const hi = Math.max(...closes);
                 const range = hi - lo || 1;
-                const w = 264, h = 20, pad = 1;
-                const iw = w - pad * 2, ih = h - pad * 2;
+                const W = 280, H = 32, pad = 2;
+                const iw = W - pad * 2, ih = H - pad * 2;
 
                 // Map each point to its true session position
                 const svgPts = points.map(p => ({
@@ -10938,39 +10946,47 @@
                 const polyStr = svgPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
                 const up = closes[closes.length - 1] >= closes[0];
-                const lineColor = up ? "#22c55e" : "#ef4444";
+                const lineColor = up ? "#34d399" : "#f87171";
+                const gradColor = up ? "#22c55e" : "#ef4444";
                 const lastPt = svgPts[svgPts.length - 1];
-                const nowFrac = _sessionFraction(Math.floor(Date.now() / 1000), sym);
-                const nowX = pad + nowFrac * iw;
-                // Shaded region = from now to session close (right edge)
-                const futureX = Math.max(lastPt.x, nowX);
+                const nowFrac = _sessionFraction(Date.now(), sym);
+                const nowX = pad + Math.min(1, Math.max(0, nowFrac)) * iw;
+                // Shaded region = from data end to session close (right edge)
+                const futureX = Math.max(lastPt.x + 1, nowX);
 
                 const gradId = `csg-${sym}`;
                 return (
-                  <div className="px-1 overflow-hidden" style={{ height: `${h}px` }}>
-                    <svg width={w} height={h} className="block w-full" style={{ shapeRendering: "geometricPrecision" }}>
+                  <div className="overflow-hidden border-t border-white/[0.04]" style={{ height: `${H}px` }}>
+                    <svg width={W} height={H} className="block w-full" preserveAspectRatio="none"
+                      style={{ shapeRendering: "geometricPrecision" }}>
                       <defs>
                         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
-                          <stop offset="100%" stopColor={lineColor} stopOpacity="0.02" />
+                          <stop offset="0%" stopColor={gradColor} stopOpacity="0.28" />
+                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.03" />
                         </linearGradient>
                       </defs>
-                      {/* Future session (unfilled time) */}
-                      {futureX < pad + iw && (
+                      {/* Subtle background for full session width */}
+                      <rect x={pad} y={pad} width={iw} height={ih} fill="rgba(255,255,255,0.015)" rx="1" />
+                      {/* Future session zone */}
+                      {futureX < pad + iw - 1 && (
                         <rect x={futureX} y={pad} width={pad + iw - futureX} height={ih}
-                          fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" strokeDasharray="2,2" />
+                          fill="rgba(255,255,255,0.025)" rx="1" />
                       )}
                       {/* Gradient fill under line */}
                       <polygon points={`${svgPts[0].x.toFixed(1)},${pad + ih} ${polyStr} ${lastPt.x.toFixed(1)},${pad + ih}`}
                         fill={`url(#${gradId})`} />
-                      {/* Price line */}
-                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.2"
-                        strokeLinejoin="round" strokeLinecap="round" opacity="0.92" />
-                      {/* Session open marker (thin amber line at x=0) */}
-                      <line x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke="#f59e0b" strokeWidth="0.7" opacity="0.5" />
-                      {/* Now dot — pulsing current price */}
-                      <circle cx={lastPt.x} cy={lastPt.y} r="2.5" fill={lineColor} opacity="0.95" />
-                      <circle cx={lastPt.x} cy={lastPt.y} r="4" fill="none" stroke={lineColor} strokeWidth="0.5" opacity="0.4" />
+                      {/* Price line — thicker, vivid */}
+                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.5"
+                        strokeLinejoin="round" strokeLinecap="round" />
+                      {/* Opening price horizontal reference line */}
+                      {(() => {
+                        const openY = svgPts[0].y;
+                        return <line x1={pad} y1={openY} x2={pad + iw} y2={openY}
+                          stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" strokeDasharray="3,3" />;
+                      })()}
+                      {/* Now dot — current price */}
+                      <circle cx={lastPt.x} cy={lastPt.y} r="2.5" fill={lineColor} />
+                      <circle cx={lastPt.x} cy={lastPt.y} r="5" fill={lineColor} fillOpacity="0.15" />
                     </svg>
                   </div>
                 );
