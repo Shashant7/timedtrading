@@ -18832,16 +18832,22 @@ export default {
                 const obj = data[sym];
                 if (!obj) continue;
                 obj.price = pf.p;
-                if (Number(pf.pc) > 0) obj.prev_close = pf.pc;
-                obj.day_change = pf.dc;
-                obj.day_change_pct = pf.dp;
-                obj.change = pf.dc;
-                obj.change_pct = pf.dp;
-                // Set _live_* fields so getDailyChange() live-feed priority path works immediately
+                // Only overwrite daily-change fields when Alpaca had a valid prevClose.
+                // When pc=0 (no previousDailyBar), dp/dc are 0 — do NOT poison the
+                // scoring snapshot's correct values with these zeros.
+                const hasPrevClose = Number(pf.pc) > 0;
+                if (hasPrevClose) {
+                  obj.prev_close = pf.pc;
+                  obj.day_change = pf.dc;
+                  obj.day_change_pct = pf.dp;
+                  obj.change = pf.dc;
+                  obj.change_pct = pf.dp;
+                }
+                // Set _live_* fields so getDailyChange() can compute from price + prevClose
                 obj._live_price = pf.p;
-                obj._live_prev_close = pf.pc;
-                obj._live_daily_change = pf.dc;
-                obj._live_daily_change_pct = pf.dp;
+                obj._live_prev_close = hasPrevClose ? pf.pc : (obj.prev_close || 0);
+                obj._live_daily_change = hasPrevClose ? pf.dc : undefined;
+                obj._live_daily_change_pct = hasPrevClose ? pf.dp : undefined;
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;
@@ -31088,10 +31094,26 @@ Provide 3-5 actionable next steps:
         const snapshots = snapResult.snapshots || {};
 
         // Build compact price payload for KV
+        // Fallback prevClose: load scoring data to fill in when Alpaca has no previousDailyBar
+        let scoredPrevCloseMap = {};
+        try {
+          const allData = await kvGetJSON(KV, "timed:latest:all");
+          if (allData && typeof allData === "object") {
+            for (const [s, obj] of Object.entries(allData)) {
+              const pc = Number(obj?.prev_close);
+              if (Number.isFinite(pc) && pc > 0) scoredPrevCloseMap[s] = pc;
+            }
+          }
+        } catch (_) {}
+
         const prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
           const price = snap.price;
-          const prevClose = snap.prevDailyClose;
+          // Use Alpaca prevClose, fall back to scoring snapshot's prev_close
+          let prevClose = snap.prevDailyClose;
+          if (!(prevClose > 0) && scoredPrevCloseMap[sym] > 0) {
+            prevClose = scoredPrevCloseMap[sym];
+          }
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
             : 0;

@@ -830,27 +830,29 @@
                 const normalizedSym = normTicker(sym);
                 const existing = updatedData[normalizedSym];
                 if (!existing || !(priceInfo.p > 0)) continue;
-                // Skip update if price hasn't meaningfully changed (avoid re-render churn)
-                if (existing._live_price === priceInfo.p &&
-                    existing._live_daily_change_pct === priceInfo.dp) continue;
-                updatedData[normalizedSym] = {
+                // Skip update if price hasn't changed (avoid re-render churn)
+                if (existing._live_price === priceInfo.p) continue;
+                // Only overwrite daily-change fields when Alpaca had a valid prevClose.
+                // When pc=0, dp/dc are 0 — preserve the scoring snapshot's correct values.
+                const hasPc = priceInfo.pc > 0;
+                const merged = {
                   ...existing,
                   price: priceInfo.p,
-                  // Canonical field names so ALL consumers (Top Movers, cards,
-                  // getCardSkin, getDailyChange) see Alpaca-sourced values:
-                  prev_close: priceInfo.pc > 0 ? priceInfo.pc : (existing.prev_close || undefined),
-                  day_change: priceInfo.dc,
-                  day_change_pct: priceInfo.dp,
-                  // Prefixed copies for getDailyChange priority path:
                   _live_price: priceInfo.p,
-                  _live_prev_close: priceInfo.pc,
-                  _live_daily_change: priceInfo.dc,
-                  _live_daily_change_pct: priceInfo.dp,
+                  _live_prev_close: hasPc ? priceInfo.pc : (existing.prev_close || existing._live_prev_close || 0),
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
                   _price_updated_at: json.updated_at || Date.now(),
                 };
+                if (hasPc) {
+                  merged.prev_close = priceInfo.pc;
+                  merged.day_change = priceInfo.dc;
+                  merged.day_change_pct = priceInfo.dp;
+                  merged._live_daily_change = priceInfo.dc;
+                  merged._live_daily_change_pct = priceInfo.dp;
+                }
+                updatedData[normalizedSym] = merged;
                 changed = true;
               }
               if (changed && setter) {
@@ -1955,6 +1957,43 @@
       const ageLabelFromMinutes = window.TimedPriceUtils.ageLabelFromMinutes;
       const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
       const getDailyChange = window.TimedPriceUtils.getDailyChange;
+
+      // ── Sparkline helpers: filter to today's session & find market open ──
+      // Compute once per page load: 4:00 AM ET today as epoch seconds
+      const _todayCutoffSec = (() => {
+        const etDateStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+        const [mo, dy, yr] = etDateStr.split("/").map(Number);
+        // Noon UTC → check what hour ET reports to get offset
+        const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
+        const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
+        const etOffset = etHour - 12; // EST=-5, EDT=-4
+        return Date.UTC(yr, mo - 1, dy, 4 - etOffset, 0, 0) / 1000;
+      })();
+
+      function _filterTodaySession(rawCandles) {
+        if (!rawCandles || rawCandles.length < 2) return rawCandles;
+        const filtered = rawCandles.filter(c => {
+          const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
+          return ts >= _todayCutoffSec;
+        });
+        return filtered.length >= 2 ? filtered : rawCandles; // fallback to all if today < 2
+      }
+
+      // Find index of first candle at or after 9:30 AM ET (market open)
+      function _findOpenIdx(candles) {
+        if (!candles || candles.length === 0) return -1;
+        for (let i = 0; i < candles.length; i++) {
+          const ts = Number(candles[i].t ?? candles[i].ts ?? candles[i].timestamp ?? 0);
+          if (!ts) continue;
+          const d = new Date(ts * 1000);
+          const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
+          const parts = etStr.split(", ");
+          if (parts.length < 2) continue;
+          const [hr, mn] = parts[1].split(":").map(Number);
+          if (hr * 60 + mn >= 570) return i; // 9:30 AM = 570 min
+        }
+        return -1;
+      }
 
       // Shared card skin (used by Kanban + Viewport cards)
       // - background tint by daily % change (blue/orange)
@@ -10782,25 +10821,12 @@
                 )}
               </div>
 
-              {/* ── Sparkline strip (today's session only: 4 AM ET → now) ── */}
+              {/* ── Sparkline strip (today's session: 4 AM ET → now) ── */}
               {(() => {
                 const rawCandles = cardSparkData?.[sym];
                 if (!rawCandles || rawCandles.length < 2) return null;
-                // Compute cutoff: 4:00 AM ET today in epoch seconds
-                const cutoffSec = (() => {
-                  const etDateStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
-                  const [mo, dy, yr] = etDateStr.split("/").map(Number);
-                  // Determine ET→UTC offset: test noon UTC and see what hour ET reports
-                  const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
-                  const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
-                  const etOffset = etHour - 12; // EST=-5, EDT=-4
-                  return Date.UTC(yr, mo - 1, dy, 4 - etOffset, 0, 0) / 1000;
-                })();
-                const candles = rawCandles.filter(c => {
-                  const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-                  return ts >= cutoffSec;
-                });
-                if (candles.length < 2) return null;
+                const candles = _filterTodaySession(rawCandles);
+                if (!candles || candles.length < 2) return null;
                 const closes = candles.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
                 if (closes.length < 2) return null;
                 const lo = Math.min(...closes);
@@ -10811,40 +10837,17 @@
                 const pts = closes.map((v, i) => `${(pad + (i / (closes.length - 1)) * iw).toFixed(1)},${(pad + ih - ((v - lo) / range) * ih).toFixed(1)}`).join(" ");
                 const up = closes[closes.length - 1] >= closes[0];
                 const color = up ? "#22c55e" : "#ef4444";
-                // Detect Open (first candle at/after 9:30 AM ET) and Close (first candle at/after 4:00 PM ET)
-                const timestamps = candles.map(c => Number(c.t ?? c.ts ?? c.timestamp ?? 0));
-                const sparkMarkers = [];
-                let hasOpen = false, hasClose = false;
-                timestamps.forEach((ts, i) => {
-                  if (!ts) return;
-                  const d = new Date(ts * 1000);
-                  const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
-                  const tParts = etStr.split(", ");
-                  if (tParts.length < 2) return;
-                  const [hr, mn] = tParts[1].split(":").map(Number);
-                  const etMin = hr * 60 + mn;
-                  // Open: first candle at or after 9:30 (570 min)
-                  if (!hasOpen && etMin >= 570) {
-                    hasOpen = true;
-                    sparkMarkers.push({ x: pad + (i / (closes.length - 1)) * iw, label: "O", color: "#f59e0b" });
-                  }
-                  // Close: first candle at or after 16:00 (960 min)
-                  if (!hasClose && etMin >= 960) {
-                    hasClose = true;
-                    sparkMarkers.push({ x: pad + (i / (closes.length - 1)) * iw, label: "C", color: "#8b5cf6" });
-                  }
-                });
+                // Find the market open candle (first at/after 9:30 AM ET)
+                const openIdx = _findOpenIdx(candles);
+                const openX = openIdx >= 0 ? pad + (openIdx / (closes.length - 1)) * iw : -1;
                 return (
                   <div className="px-1 overflow-hidden" style={{ height: "20px" }}>
                     <svg width={w} height={h} className="block w-full">
-                      {sparkMarkers.map((m, mi) => (
-                        <React.Fragment key={mi}>
-                          <line x1={m.x} y1={pad} x2={m.x} y2={h - pad} stroke={m.color} strokeWidth="0.5" strokeDasharray="1.5,1.5" opacity="0.5" />
-                          <text x={m.x} y={pad + 5} textAnchor="middle" fill={m.color} fontSize="6" fontWeight="700" opacity="0.85">{m.label}</text>
-                        </React.Fragment>
-                      ))}
-                      <polyline points={pts} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="round" opacity="0.7" />
-                      <polygon points={`${pad},${pad + ih} ${pts} ${pad + iw},${pad + ih}`} fill={color} fillOpacity="0.06" />
+                      {openX >= 0 && (
+                        <line x1={openX} y1={0} x2={openX} y2={h} stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.4" />
+                      )}
+                      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.8" />
+                      <polygon points={`${pad},${pad + ih} ${pts} ${pad + iw},${pad + ih}`} fill={color} fillOpacity="0.08" />
                     </svg>
                   </div>
                 );
@@ -11309,8 +11312,12 @@
         sparkData: parentSparkData = {},
         fetchSparklines = null,
       }) {
-        const [sortCol, setSortCol] = React.useState("stage");
-        const [sortDir, setSortDir] = React.useState("asc");
+        const [sortCol, setSortCol] = React.useState(() => {
+          try { return localStorage.getItem("tt_tableSort_col") || "ticker"; } catch { return "ticker"; }
+        });
+        const [sortDir, setSortDir] = React.useState(() => {
+          try { return localStorage.getItem("tt_tableSort_dir") || "asc"; } catch { return "asc"; }
+        });
         const [stageFilter, setStageFilter] = React.useState("all");
 
         // Build trade-by-ticker map
@@ -11407,10 +11414,18 @@
           return items;
         }, [tickersWithStage, stageFilter, sortCol, sortDir, contextData]);
 
-        // Sort handler
+        // Sort handler — persist to localStorage so it survives view switches
         const handleSort = (col) => {
-          if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
-          else { setSortCol(col); setSortDir(col === "ticker" || col === "sector" || col === "industry" ? "asc" : "desc"); }
+          let newDir;
+          if (sortCol === col) {
+            newDir = sortDir === "asc" ? "desc" : "asc";
+            setSortDir(newDir);
+          } else {
+            newDir = (col === "ticker" || col === "sector" || col === "industry") ? "asc" : "desc";
+            setSortCol(col);
+            setSortDir(newDir);
+          }
+          try { localStorage.setItem("tt_tableSort_col", col); localStorage.setItem("tt_tableSort_dir", newDir); } catch {}
         };
         const sortArrow = (col) => sortCol !== col ? "" : sortDir === "asc" ? " ▲" : " ▼";
 
@@ -11528,25 +11543,10 @@
           fetchSparklines(syms);
         }, [_filteredTickerKey, fetchSparklines]);
 
-        // ─── Sparkline SVG component (today's session only: 4 AM ET → now) ───
+        // ─── Sparkline SVG component (today's session, Webull-style) ───
         const Sparkline = React.memo(({ candles: rawCandles, width = 80, height = 28 }) => {
           if (!rawCandles || rawCandles.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
-          // Filter candles to today's session (4 AM ET → now)
-          const candles = React.useMemo(() => {
-            const etDateStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
-            const [mo, dy, yr] = etDateStr.split("/").map(Number);
-            // Determine ET→UTC offset: test noon UTC and see what hour ET reports
-            const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
-            const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
-            const etOffset = etHour - 12; // EST=-5, EDT=-4
-            const cutoffSec = Date.UTC(yr, mo - 1, dy, 4 - etOffset, 0, 0) / 1000;
-            const filtered = rawCandles.filter(c => {
-              const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-              return ts >= cutoffSec;
-            });
-            return filtered.length >= 2 ? filtered : rawCandles; // fallback to all if today has < 2
-          }, [rawCandles]);
-          // Use close prices
+          const candles = React.useMemo(() => _filterTodaySession(rawCandles), [rawCandles]);
           const closes = candles.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
           if (closes.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
           const lo = Math.min(...closes);
@@ -11555,59 +11555,27 @@
           const pad = 2;
           const w = width - pad * 2;
           const h = height - pad * 2;
-          // Build polyline points
           const pts = closes.map((v, i) => {
             const x = pad + (i / (closes.length - 1)) * w;
             const y = pad + h - ((v - lo) / range) * h;
             return `${x.toFixed(1)},${y.toFixed(1)}`;
           }).join(" ");
-          // Color: green if last > first, red if down
           const up = closes[closes.length - 1] >= closes[0];
           const color = up ? "#22c55e" : "#ef4444";
-          // O/C markers — only one of each (today's session)
-          // O = first candle at/after 9:30 AM ET, C = first candle at/after 4:00 PM ET
-          const timestamps = candles.map(c => Number(c.t ?? c.ts ?? c.timestamp ?? 0));
-          const markers = [];
-          let hasOpen = false, hasClose = false;
-          timestamps.forEach((ts, i) => {
-            if (!ts) return;
-            const d = new Date(ts * 1000);
-            const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
-            const parts = etStr.split(", ");
-            if (parts.length < 2) return;
-            const [hr, mn] = parts[1].split(":").map(Number);
-            const etMin = hr * 60 + mn;
-            if (!hasOpen && etMin >= 570) { // 9:30 AM = 570 min
-              hasOpen = true;
-              markers.push({ x: pad + (i / (closes.length - 1)) * w, label: "O", color: "#f59e0b" });
-            }
-            if (!hasClose && etMin >= 960) { // 4:00 PM = 960 min
-              hasClose = true;
-              markers.push({ x: pad + (i / (closes.length - 1)) * w, label: "C", color: "#8b5cf6" });
-            }
-          });
+          // Subtle open marker (dashed vertical line at 9:30 AM)
+          const openIdx = _findOpenIdx(candles);
+          const openX = openIdx >= 0 ? pad + (openIdx / (closes.length - 1)) * w : -1;
           return (
             <svg width={width} height={height} className="block" style={{ minWidth: width }}>
-              {/* Market time markers */}
-              {markers.map((m, i) => (
-                <React.Fragment key={i}>
-                  <line x1={m.x} y1={pad} x2={m.x} y2={height - pad} stroke={m.color} strokeWidth="0.5" strokeDasharray="2,2" opacity="0.5" />
-                  <text x={m.x} y={pad + 6} textAnchor="middle" fill={m.color} fontSize="7" fontWeight="700" opacity="0.8">{m.label}</text>
-                </React.Fragment>
-              ))}
-              {/* Price line */}
+              {openX >= 0 && <line x1={openX} y1={0} x2={openX} y2={height} stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.35" />}
               <polyline points={pts} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />
-              {/* Gradient fill */}
               <defs>
                 <linearGradient id={`spk-${up ? "g" : "r"}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity="0.15" />
+                  <stop offset="0%" stopColor={color} stopOpacity="0.12" />
                   <stop offset="100%" stopColor={color} stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <polygon
-                points={`${pad.toFixed(1)},${(pad + h).toFixed(1)} ${pts} ${(pad + w).toFixed(1)},${(pad + h).toFixed(1)}`}
-                fill={`url(#spk-${up ? "g" : "r"})`}
-              />
+              <polygon points={`${pad},${pad + h} ${pts} ${pad + w},${pad + h}`} fill={`url(#spk-${up ? "g" : "r"})`} />
             </svg>
           );
         });
