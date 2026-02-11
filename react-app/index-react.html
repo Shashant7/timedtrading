@@ -15326,6 +15326,7 @@
             for (let i = 0; i < toFetch.length; i += batchSize) {
               await Promise.allSettled(toFetch.slice(i, i + batchSize).map(fetchSmart));
               if (i + batchSize < toFetch.length) await new Promise(r => setTimeout(r, 500));
+            }
             // Update React state from cache
             const next = {};
             for (const [s, v] of Object.entries(sparkCacheGlobalRef.current)) {
