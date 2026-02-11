@@ -5854,17 +5854,21 @@
           return map;
         }, [rankedTickers]);
 
-        const ledgerFilteredTrades = useMemo(() => {
+        // All trades (unfiltered) — used for account value so it's always consistent
+        const allLedgerItems = useMemo(() => {
           const lt = ledgerTrades ?? {};
-          const items = Array.isArray(lt.items) ? lt.items : [];
-          if (horizonFilter === "ALL") return items;
-          return items.filter((t) => {
+          return Array.isArray(lt.items) ? lt.items : [];
+        }, [ledgerTrades?.items]);
+
+        const ledgerFilteredTrades = useMemo(() => {
+          if (horizonFilter === "ALL") return allLedgerItems;
+          return allLedgerItems.filter((t) => {
             const sym = String(t.ticker || "").toUpperCase();
             const live = data && (data[sym] || data[t.ticker]);
             const key = computeHorizonKey(live || t);
             return key === horizonFilter;
           });
-        }, [ledgerTrades?.items, horizonFilter, data]);
+        }, [allLedgerItems, horizonFilter, data]);
 
         // Open: not WIN/LOSS, no exit_ts, trimmed_pct < 100% (safety net)
         const ledgerOpenTrades = useMemo(
@@ -6225,10 +6229,18 @@
           return map[accountChartRange] ?? 1 * day;
         }, [accountChartRange]);
 
-        // Overall account value over time (Robinhood-style line chart data), filtered by accountChartRange
+        // Overall account value over time — ALWAYS uses ALL trades (unfiltered) to stay
+        // in lockstep with the Dashboard's Account Value calculation.
+        const allOpenTrades = useMemo(
+          () => allLedgerItems.filter((t) => {
+            const trimmedPct = Number(t.trimmed_pct ?? t.trimmedPct ?? 0);
+            return t.status !== "WIN" && t.status !== "LOSS" && !t.exit_ts && trimmedPct < 0.9999;
+          }),
+          [allLedgerItems],
+        );
         const portfolioChartPoints = useMemo(() => {
           const points = [{ ts: 0, value: 0 }];
-          const closed = ledgerFilteredTrades.filter(
+          const closed = allLedgerItems.filter(
             (t) =>
               t.status === "WIN" ||
               t.status === "LOSS" ||
@@ -6244,7 +6256,7 @@
             running += Number(t.pnl) || 0;
             points.push({ ts: exitTs, value: running });
           }
-          const openPnl = ledgerOpenTrades.reduce((sum, t) => {
+          const openPnl = allOpenTrades.reduce((sum, t) => {
             const m = getPositionMetrics(
               t,
               data && (data[t.ticker] || data[String(t.ticker).toUpperCase()]),
@@ -6257,8 +6269,8 @@
           });
           return points;
         }, [
-          ledgerFilteredTrades,
-          ledgerOpenTrades,
+          allLedgerItems,
+          allOpenTrades,
           data,
         ]);
 

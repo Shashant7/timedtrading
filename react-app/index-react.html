@@ -224,6 +224,10 @@
         0%, 100% { opacity: 1; box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.2); }
         50% { opacity: 1; box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.5); }
       }
+      @keyframes stage-dot-pulse {
+        0%, 100% { transform: scale(1); opacity: 0.85; }
+        50% { transform: scale(1.35); opacity: 1; }
+      }
       .card-pulse-short {
         animation: card-pulse-short 2s ease-in-out infinite;
       }
@@ -6614,7 +6618,8 @@
       }
 
       // Generate plain English action description
-      function getActionDescription(ticker) {
+      // trade (optional) — the most recent trade object for this ticker
+      function getActionDescription(ticker, trade) {
         const stage = String(ticker?.kanban_stage || "").trim().toLowerCase();
         const state = String(ticker.state || "");
         const phase = Number(ticker.phase_pct) || 0;
@@ -6635,6 +6640,120 @@
         const inCorridor = ent.corridor;
         const sqRelease = !!flags.sq30_release;
         const sqOn = !!flags.sq30_on;
+
+        // ─── Open-trade-aware guidance ───
+        // If there is an open trade, guidance must be about managing that trade.
+        const tradeStatus = trade ? String(trade.status || "").toUpperCase() : "";
+        const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs);
+        const tradeIsOpen = trade && !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
+
+        if (tradeIsOpen) {
+          const ep = Number(trade?.entryPrice ?? trade?.entry_price) || 0;
+          const cp = Number(ticker?.price ?? ticker?.close) || 0;
+          const tradeDir = String(trade?.direction || "").toUpperCase();
+          const isLong = tradeDir === "LONG";
+          const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+          const sl = Number(ticker?.sl ?? ticker?.sl_price ?? trade?.sl ?? 0);
+          const tp = numFromAny(ticker?.tp ?? ticker?.tp_trim ?? trade?.tp);
+          const dirSign = isLong ? 1 : -1;
+          const unrealizedPct = ep > 0 && cp > 0 ? ((cp - ep) / ep) * 100 * dirSign : 0;
+          const isProfit = unrealizedPct > 0;
+          const slBreached = sl > 0 && cp > 0 && ((isLong && cp <= sl) || (!isLong && cp >= sl));
+          const tpReached = tp > 0 && cp > 0 && ((isLong && cp >= tp) || (!isLong && cp <= tp));
+          const nearSl = sl > 0 && cp > 0 && !slBreached && (Math.abs(cp - sl) / cp) < 0.015;
+          const nearTp = tp > 0 && cp > 0 && !tpReached && (Math.abs(cp - tp) / cp) < 0.015;
+
+          // Already partially trimmed
+          if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) {
+            return {
+              action: "✂️ Position Trimmed — Manage Runner",
+              description: `${(trimmedPct * 100).toFixed(0)}% of position trimmed. ${isProfit ? `Unrealized ${isLong ? "long" : "short"} gain of ${unrealizedPct.toFixed(1)}% on the runner.` : `Position currently at ${unrealizedPct.toFixed(1)}%.`} Trail your stop-loss to protect remaining gains. ${!isAligned ? "Timeframes no longer aligned — consider closing the runner." : "Trend alignment still intact — let it ride with a trailing stop."}`,
+              color: "text-yellow-300",
+              bg: "bg-yellow-500/15",
+            };
+          }
+
+          // SL breached — exit signal
+          if (slBreached) {
+            return {
+              action: "🚨 Stop-Loss Breached — Exit Now",
+              description: `Current price ($${cp.toFixed(2)}) has breached your stop-loss at $${sl.toFixed(2)}. This is an exit signal. Close the position to limit losses. Do not average down.`,
+              color: "text-rose-400",
+              bg: "bg-rose-500/20",
+            };
+          }
+
+          // TP reached — take profit
+          if (tpReached) {
+            return {
+              action: "🎯 Target Reached — Take Profit",
+              description: `Price has reached the first take-profit target ($${tp.toFixed(2)}). Consider trimming 50–75% to lock in ${unrealizedPct.toFixed(1)}% gains. ${isAligned ? "Trend still aligned — trail the stop on the remaining runner." : "Alignment weakening — consider full exit."}`,
+              color: "text-emerald-400",
+              bg: "bg-emerald-500/20",
+            };
+          }
+
+          // Near SL — defend
+          if (nearSl) {
+            return {
+              action: "🛡 Near Stop-Loss — Defend",
+              description: `Price ($${cp.toFixed(2)}) is approaching your stop-loss at $${sl.toFixed(2)}. ${!isAligned ? "Timeframes have lost alignment, increasing risk." : "Trend still aligned — SL may hold."} Prepare to exit if SL is breached. Do not widen your stop.`,
+              color: "text-orange-400",
+              bg: "bg-orange-500/15",
+            };
+          }
+
+          // Near TP — trim zone
+          if (nearTp) {
+            return {
+              action: "📈 Approaching Target — Prepare to Trim",
+              description: `Price ($${cp.toFixed(2)}) is nearing your take-profit at $${tp.toFixed(2)}. Unrealized ${isLong ? "long" : "short"} gain of ${unrealizedPct.toFixed(1)}%. Set a limit order at TP or prepare a manual trim when target is touched.`,
+              color: "text-teal-300",
+              bg: "bg-teal-500/15",
+            };
+          }
+
+          // Alignment lost — warning
+          if (!isAligned && !isPullback) {
+            return {
+              action: "⚠️ Alignment Lost — Monitor Closely",
+              description: `Timeframes no longer aligned (${state.replace(/_/g, " ")}). Position is ${isLong ? "long" : "short"} from $${ep.toFixed(2)}, currently ${isProfit ? "in profit" : "at a loss"} (${unrealizedPct.toFixed(1)}%). Consider tightening stop-loss or trimming to reduce exposure until alignment returns.`,
+              color: "text-amber-300",
+              bg: "bg-amber-500/15",
+            };
+          }
+
+          // Pullback while in trade
+          if (isPullback) {
+            return {
+              action: "↩️ Pullback in Progress — Hold",
+              description: `Higher timeframe still supports the ${isLong ? "bullish" : "bearish"} case, but lower timeframe is pulling back. Position is ${isProfit ? "profitable" : "underwater"} at ${unrealizedPct.toFixed(1)}%. Hold as long as price stays above SL ($${sl > 0 ? sl.toFixed(2) : "N/A"}). Pullbacks in aligned trends can offer add-on opportunities.`,
+              color: "text-cyan-300",
+              bg: "bg-cyan-500/15",
+            };
+          }
+
+          // Default open-trade guidance: trend aligned, in profit or building
+          return {
+            action: isProfit ? "💎 Hold Position — Trend Intact" : "🔄 Position Active — Building",
+            description: `${isLong ? "Long" : "Short"} position from $${ep.toFixed(2)}, currently ${isProfit ? "in profit" : "building"} at ${unrealizedPct.toFixed(1)}%. ${isAligned ? "All timeframes aligned — conditions favor holding." : ""} SL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — consider partial trim if momentum fades.` : "Let the trade develop."}`,
+            color: isProfit ? "text-teal-300" : "text-sky-300",
+            bg: isProfit ? "bg-teal-500/15" : "bg-sky-500/15",
+          };
+        }
+
+        // ─── Closed-trade guidance: recently exited ───
+        if (trade && tradeIsClosed) {
+          const pnl = Number(trade?.pnl ?? trade?.realizedPnl) || 0;
+          return {
+            action: pnl >= 0 ? "✅ Trade Closed — Win" : "❌ Trade Closed — Loss",
+            description: `Most recent trade closed with ${pnl >= 0 ? "a profit" : "a loss"} of $${Math.abs(pnl).toFixed(2)}. ${pnl >= 0 ? "Well managed." : "Review the setup and signals for lessons."} The ticker is now back in the scoring pipeline and will progress through stages if a new setup forms.`,
+            color: pnl >= 0 ? "text-emerald-300" : "text-rose-300",
+            bg: pnl >= 0 ? "bg-emerald-500/15" : "bg-rose-500/15",
+          };
+        }
+
+        // ─── No-trade guidance (pre-trade / discovery mode) ───
 
         // Lane-aware guidance: when the Kanban lane is explicit, keep the headline aligned
         // with the lane so the UI doesn't contradict itself. Add phase/completion as caution.
@@ -7551,12 +7670,12 @@
                   ) : (
                     universeList.map((t) => {
                       const sym = t && (t.ticker != null) ? t.ticker : String(t);
-                      const name = t && typeof t === "object" ? (t.name || t.description || "") : "";
+                      const name = t && typeof t === "object" ? (t?.context?.name || t.name || t.description || "") : "";
                       const saved = savedTickers && savedTickers.has ? savedTickers.has(sym) : false;
                       return (
                         <div key={sym} className="flex items-center justify-between py-2 px-2 rounded hover:bg-white/[0.06]">
-                          <span className="text-sm text-white font-mono shrink-0">{sym}</span>
-                          {name ? <span className="text-xs text-[#6b7280] truncate flex-1 mx-2">{name}</span> : null}
+                          <span className="text-sm text-white font-mono shrink-0" style={{ minWidth: "48px" }}>{sym}</span>
+                          <span className="text-xs text-[#6b7280] truncate flex-1 mx-2">{name || "—"}</span>
                           {toggleSavedTicker ? (
                             <button
                               type="button"
@@ -10381,7 +10500,7 @@
       // ─────────────────────────────────────────────────────────────
       // Shared compact card renderer (used by both Kanban + Viewport)
       // ─────────────────────────────────────────────────────────────
-      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker } = {}) {
+      function renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: cardSparkData } = {}) {
           const state = String(t?.state || "");
           const htfBull = state.startsWith("HTF_BULL");
           const htfBear = state.startsWith("HTF_BEAR");
@@ -10545,7 +10664,7 @@
               style={{
                 backgroundImage: cardBgImage,
                 boxShadow: "0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)",
-                height: "148px",
+                height: "166px",
               }}
             >
               {/* ── Section 1: Header — Ticker + Direction + Price ──────── */}
@@ -10662,6 +10781,74 @@
                   <span className="text-[#3b4252] select-none">—</span>
                 )}
               </div>
+
+              {/* ── Sparkline strip (today's session only: 4 AM ET → now) ── */}
+              {(() => {
+                const rawCandles = cardSparkData?.[sym];
+                if (!rawCandles || rawCandles.length < 2) return null;
+                // Compute cutoff: 4:00 AM ET today in epoch seconds
+                const cutoffSec = (() => {
+                  const etDateStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+                  const [mo, dy, yr] = etDateStr.split("/").map(Number);
+                  // Determine ET→UTC offset: test noon UTC and see what hour ET reports
+                  const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
+                  const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
+                  const etOffset = etHour - 12; // EST=-5, EDT=-4
+                  return Date.UTC(yr, mo - 1, dy, 4 - etOffset, 0, 0) / 1000;
+                })();
+                const candles = rawCandles.filter(c => {
+                  const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
+                  return ts >= cutoffSec;
+                });
+                if (candles.length < 2) return null;
+                const closes = candles.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
+                if (closes.length < 2) return null;
+                const lo = Math.min(...closes);
+                const hi = Math.max(...closes);
+                const range = hi - lo || 1;
+                const w = 264, h = 18, pad = 1;
+                const iw = w - pad * 2, ih = h - pad * 2;
+                const pts = closes.map((v, i) => `${(pad + (i / (closes.length - 1)) * iw).toFixed(1)},${(pad + ih - ((v - lo) / range) * ih).toFixed(1)}`).join(" ");
+                const up = closes[closes.length - 1] >= closes[0];
+                const color = up ? "#22c55e" : "#ef4444";
+                // Detect Open (first candle at/after 9:30 AM ET) and Close (first candle at/after 4:00 PM ET)
+                const timestamps = candles.map(c => Number(c.t ?? c.ts ?? c.timestamp ?? 0));
+                const sparkMarkers = [];
+                let hasOpen = false, hasClose = false;
+                timestamps.forEach((ts, i) => {
+                  if (!ts) return;
+                  const d = new Date(ts * 1000);
+                  const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
+                  const tParts = etStr.split(", ");
+                  if (tParts.length < 2) return;
+                  const [hr, mn] = tParts[1].split(":").map(Number);
+                  const etMin = hr * 60 + mn;
+                  // Open: first candle at or after 9:30 (570 min)
+                  if (!hasOpen && etMin >= 570) {
+                    hasOpen = true;
+                    sparkMarkers.push({ x: pad + (i / (closes.length - 1)) * iw, label: "O", color: "#f59e0b" });
+                  }
+                  // Close: first candle at or after 16:00 (960 min)
+                  if (!hasClose && etMin >= 960) {
+                    hasClose = true;
+                    sparkMarkers.push({ x: pad + (i / (closes.length - 1)) * iw, label: "C", color: "#8b5cf6" });
+                  }
+                });
+                return (
+                  <div className="px-1 overflow-hidden" style={{ height: "20px" }}>
+                    <svg width={w} height={h} className="block w-full">
+                      {sparkMarkers.map((m, mi) => (
+                        <React.Fragment key={mi}>
+                          <line x1={m.x} y1={pad} x2={m.x} y2={h - pad} stroke={m.color} strokeWidth="0.5" strokeDasharray="1.5,1.5" opacity="0.5" />
+                          <text x={m.x} y={pad + 5} textAnchor="middle" fill={m.color} fontSize="6" fontWeight="700" opacity="0.85">{m.label}</text>
+                        </React.Fragment>
+                      ))}
+                      <polyline points={pts} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="round" opacity="0.7" />
+                      <polygon points={`${pad},${pad + ih} ${pts} ${pad + iw},${pad + ih}`} fill={color} fillOpacity="0.06" />
+                    </svg>
+                  </div>
+                );
+              })()}
 
               {/* ── Entry block reason (setup lane due to execution gates) ── */}
               {stage === "setup" && (t?.__entry_block_reason || t?.__execution_block_reason) && (() => {
@@ -11119,6 +11306,8 @@
         savedTickers = new Set(),
         toggleSavedTicker = null,
         contextData = null,
+        sparkData: parentSparkData = {},
+        fetchSparklines = null,
       }) {
         const [sortCol, setSortCol] = React.useState("stage");
         const [sortDir, setSortDir] = React.useState("asc");
@@ -11289,29 +11478,32 @@
           const isShort = dir === "SHORT";
           const slMovedPastEntry = ep && sl && ((dir === "LONG" && sl > ep) || (dir === "SHORT" && sl < ep));
           const fillColor = fillPct >= 50 ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50") : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
-          const Mk = ({ val, label, color, tc }) => {
+          const Mk = ({ val, label, color, tc, bottom }) => {
             if (!val) return null;
             return (
-              <div className="absolute" style={{ left: `${pct(val)}%`, width: "16px", marginLeft: "-8px", top: "-10px", bottom: "-10px" }}
+              <div className="absolute" style={{ left: `${pct(val)}%`, width: "20px", marginLeft: "-10px", top: "-14px", bottom: "-14px" }}
                 title={`${label}: $${val.toFixed(2)}`}>
-                <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "10px", bottom: "10px" }} />
-                <span className={`absolute left-1/2 top-0 -translate-x-1/2 text-[6px] font-extrabold ${tc} whitespace-nowrap`}>{label}</span>
+                <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "14px", bottom: "14px" }} />
+                <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${tc} whitespace-nowrap`}>{label}</span>
               </div>
             );
           };
           return (
-            <div className="w-full min-w-[160px] max-w-[260px]">
-              <div className="relative h-2 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2 mb-2">
+            <div className="w-full min-w-[140px]">
+              <div className="relative h-[6px] rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-3 mb-3">
                 {cp && (
                   <div
                     className={`absolute top-0 bottom-0 rounded ${isShort ? "right-0" : "left-0"} ${fillColor}`}
                     style={{ width: isShort ? `${100 - fillPct}%` : `${fillPct}%` }}
-                  />
+                  >
+                    <span className="absolute -translate-x-1/2 text-[7px] font-extrabold text-white whitespace-nowrap"
+                      style={{ left: isShort ? "0%" : "100%", bottom: "-14px" }}>CP</span>
+                  </div>
                 )}
                 <Mk val={sl} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
                 <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
                 <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
-                <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" />
+                <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />
                 <Mk val={xp} label="XP" color="bg-emerald-400" tc="text-emerald-300" />
               </div>
             </div>
@@ -11325,6 +11517,101 @@
 
         const STAGE_KEYS = ["watch", "setup", "enter", "hold", "defend", "trim", "exit"];
 
+        // ─── Sparkline: use parent's shared sparkline data ───
+        const sparkData = parentSparkData;
+
+        // Trigger fetch for visible tickers when they change — memoized key avoids re-computation
+        const _filteredTickerKey = React.useMemo(() => filtered.map(t => t?.ticker).filter(Boolean).join(","), [filtered]);
+        React.useEffect(() => {
+          if (!filtered.length || !fetchSparklines) return;
+          const syms = filtered.map(t => String(t?.ticker || "").toUpperCase()).filter(Boolean);
+          fetchSparklines(syms);
+        }, [_filteredTickerKey, fetchSparklines]);
+
+        // ─── Sparkline SVG component (today's session only: 4 AM ET → now) ───
+        const Sparkline = React.memo(({ candles: rawCandles, width = 80, height = 28 }) => {
+          if (!rawCandles || rawCandles.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
+          // Filter candles to today's session (4 AM ET → now)
+          const candles = React.useMemo(() => {
+            const etDateStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+            const [mo, dy, yr] = etDateStr.split("/").map(Number);
+            // Determine ET→UTC offset: test noon UTC and see what hour ET reports
+            const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
+            const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
+            const etOffset = etHour - 12; // EST=-5, EDT=-4
+            const cutoffSec = Date.UTC(yr, mo - 1, dy, 4 - etOffset, 0, 0) / 1000;
+            const filtered = rawCandles.filter(c => {
+              const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
+              return ts >= cutoffSec;
+            });
+            return filtered.length >= 2 ? filtered : rawCandles; // fallback to all if today has < 2
+          }, [rawCandles]);
+          // Use close prices
+          const closes = candles.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
+          if (closes.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
+          const lo = Math.min(...closes);
+          const hi = Math.max(...closes);
+          const range = hi - lo || 1;
+          const pad = 2;
+          const w = width - pad * 2;
+          const h = height - pad * 2;
+          // Build polyline points
+          const pts = closes.map((v, i) => {
+            const x = pad + (i / (closes.length - 1)) * w;
+            const y = pad + h - ((v - lo) / range) * h;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+          }).join(" ");
+          // Color: green if last > first, red if down
+          const up = closes[closes.length - 1] >= closes[0];
+          const color = up ? "#22c55e" : "#ef4444";
+          // O/C markers — only one of each (today's session)
+          // O = first candle at/after 9:30 AM ET, C = first candle at/after 4:00 PM ET
+          const timestamps = candles.map(c => Number(c.t ?? c.ts ?? c.timestamp ?? 0));
+          const markers = [];
+          let hasOpen = false, hasClose = false;
+          timestamps.forEach((ts, i) => {
+            if (!ts) return;
+            const d = new Date(ts * 1000);
+            const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
+            const parts = etStr.split(", ");
+            if (parts.length < 2) return;
+            const [hr, mn] = parts[1].split(":").map(Number);
+            const etMin = hr * 60 + mn;
+            if (!hasOpen && etMin >= 570) { // 9:30 AM = 570 min
+              hasOpen = true;
+              markers.push({ x: pad + (i / (closes.length - 1)) * w, label: "O", color: "#f59e0b" });
+            }
+            if (!hasClose && etMin >= 960) { // 4:00 PM = 960 min
+              hasClose = true;
+              markers.push({ x: pad + (i / (closes.length - 1)) * w, label: "C", color: "#8b5cf6" });
+            }
+          });
+          return (
+            <svg width={width} height={height} className="block" style={{ minWidth: width }}>
+              {/* Market time markers */}
+              {markers.map((m, i) => (
+                <React.Fragment key={i}>
+                  <line x1={m.x} y1={pad} x2={m.x} y2={height - pad} stroke={m.color} strokeWidth="0.5" strokeDasharray="2,2" opacity="0.5" />
+                  <text x={m.x} y={pad + 6} textAnchor="middle" fill={m.color} fontSize="7" fontWeight="700" opacity="0.8">{m.label}</text>
+                </React.Fragment>
+              ))}
+              {/* Price line */}
+              <polyline points={pts} fill="none" stroke={color} strokeWidth="1.2" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />
+              {/* Gradient fill */}
+              <defs>
+                <linearGradient id={`spk-${up ? "g" : "r"}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity="0.15" />
+                  <stop offset="100%" stopColor={color} stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <polygon
+                points={`${pad.toFixed(1)},${(pad + h).toFixed(1)} ${pts} ${(pad + w).toFixed(1)},${(pad + h).toFixed(1)}`}
+                fill={`url(#spk-${up ? "g" : "r"})`}
+              />
+            </svg>
+          );
+        });
+
         return (
           <div className="mb-4">
             {/* Stage filter pills */}
@@ -11336,7 +11623,7 @@
               ].map(({ key, label, count, icon }) => (
                 <button
                   key={key}
-                  onClick={() => setStageFilter(key)}
+                  onClick={() => setStageFilter(prev => prev === key ? "all" : key)}
                   className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors border ${
                     stageFilter === key
                       ? "bg-white/[0.10] text-white border-white/[0.15]"
@@ -11348,15 +11635,38 @@
               ))}
             </div>
 
+            {/* Emoji Legend */}
+            <div className="mb-3 px-2 py-1.5 rounded-lg border border-white/[0.04] bg-white/[0.015] flex items-center flex-nowrap gap-x-4 text-[10px] text-[#6b7280] overflow-x-auto">
+              <span className="text-[11px] font-semibold text-white/70 shrink-0">Badges</span>
+              <span className="shrink-0">⭐ Prime</span>
+              <span className="shrink-0">🎯 Entry Zone</span>
+              <span className="shrink-0">🔥 MoElite</span>
+              <span className="shrink-0">🧨 Squeeze</span>
+              <span className="shrink-0">⚡ Release</span>
+              <span className="text-white/10 shrink-0">|</span>
+              <span className="text-[11px] font-semibold text-white/70 shrink-0">Stages</span>
+              {Object.entries(STAGE_META).map(([k, v]) => (
+                <span key={k} className="shrink-0">{v.icon} {v.label}</span>
+              ))}
+              <span className="text-white/10 shrink-0">|</span>
+              <span className="text-[11px] font-semibold text-white/70 shrink-0">Sparkline</span>
+              <span className="shrink-0"><span style={{ color: "#f59e0b" }}>O</span> = 9:30 AM ET</span>
+              <span className="shrink-0"><span style={{ color: "#8b5cf6" }}>C</span> = 4:00 PM ET</span>
+            </div>
+
             {/* Table */}
             <div className="overflow-x-auto border border-white/[0.05] rounded-lg">
-              <table className="text-sm w-full" style={{ minWidth: 1400 }}>
+              <table className="text-sm w-full" style={{ minWidth: 1600 }}>
                 <thead>
                   <tr className="bg-white/[0.03] border-b border-white/[0.05]">
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("stage")}>
+                      Stage{sortArrow("stage")}
+                    </th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("ticker")}>
                       Ticker{sortArrow("ticker")}
                     </th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
+                    <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400" title="Intraday sparkline (1m or 5m)">Spark</th>
                     <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
                       CP{sortArrow("price")}
                     </th>
@@ -11364,6 +11674,8 @@
                       Day %{sortArrow("change")}
                     </th>
                     <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>
+                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Bias</th>
+                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400" title="SL/EP/TP Progress">Trade</th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("score")}>
                       Score{sortArrow("score")}
                     </th>
@@ -11371,15 +11683,14 @@
                       Rank{sortArrow("rank")}
                     </th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">R:R</th>
-                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Bias</th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Flags</th>
-                    {/* Stage lane columns */}
+                    {/* Stage lane columns with spelled-out labels */}
                     {STAGE_KEYS.map(sk => {
                       const m = STAGE_META[sk];
                       return (
-                        <th key={sk} className="px-1 py-2 text-center text-[10px] font-medium text-gray-500 cursor-pointer hover:text-white select-none" onClick={() => handleSort("stage")}
+                        <th key={sk} className="px-1 py-2 text-center text-[10px] font-medium text-gray-500 cursor-pointer hover:text-white select-none whitespace-nowrap" onClick={() => handleSort("stage")}
                           title={`${m.label} (${stageCounts[sk] || 0})`}>
-                          {m.icon}
+                          {m.icon} {m.label}
                         </th>
                       );
                     })}
@@ -11426,6 +11737,8 @@
                     if (flg.sq30_release) badges.push("⚡");
                     if (flg.sq30_on && !flg.sq30_release) badges.push("🧨");
                     const showProgress = ["enter", "hold", "defend", "trim", "exit"].includes(stg);
+                    // Stage display
+                    const stageMeta = STAGE_META[stg] || STAGE_META.watch;
 
                     return (
                       <tr
@@ -11433,12 +11746,23 @@
                         className={`border-b border-white/[0.03] hover:bg-white/[0.03] cursor-pointer transition-colors ${idx % 2 === 0 ? "" : "bg-white/[0.01]"}`}
                         onClick={() => onSelectTicker && onSelectTicker(sym)}
                       >
+                        {/* Stage (first column) */}
+                        <td className="px-2 py-1.5">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${stageMeta.cls}`}>
+                            <span>{stageMeta.icon}</span>
+                            <span>{stageMeta.label}</span>
+                          </span>
+                        </td>
                         {/* Ticker */}
                         <td className="px-2 py-1.5">
                           <span className="font-semibold text-blue-400 text-[12px]">{sym}</span>
                         </td>
                         {/* Name */}
                         <td className="px-2 py-1 text-[11px] text-gray-400 truncate max-w-[120px]" title={name}>{name || "—"}</td>
+                        {/* Sparkline */}
+                        <td className="px-1 py-0.5 text-center">
+                          <Sparkline candles={sparkData[sym]} width={80} height={28} />
+                        </td>
                         {/* Current Price */}
                         <td className="px-2 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
@@ -11458,6 +11782,16 @@
                               {dayChg > 0 ? "+" : ""}{dayChg.toFixed(2)}
                             </span>
                           ) : <span className="text-gray-600">—</span>}
+                        </td>
+                        {/* Directional Bias (after Day $) */}
+                        <td className="px-2 py-1.5 text-center">
+                          <span className={`text-[11px] font-bold ${dirColor}`}>{dir}</span>
+                        </td>
+                        {/* Progress Bar / Trade */}
+                        <td className="px-1 py-1" style={{ minWidth: showProgress ? 160 : 40 }}>
+                          {showProgress ? (
+                            <MiniProgressBar t={t} trade={trade} />
+                          ) : <span className="text-[9px] text-gray-600 block text-center">—</span>}
                         </td>
                         {/* Score */}
                         <td className="px-2 py-1.5 text-center">
@@ -11487,49 +11821,30 @@
                             </span>
                           ) : <span className="text-gray-600">—</span>}
                         </td>
-                        {/* Directional Bias */}
-                        <td className="px-2 py-1.5 text-center">
-                          <span className={`text-[11px] font-bold ${dirColor}`}>{dir}</span>
-                        </td>
                         {/* Flags */}
                         <td className="px-2 py-1.5 text-center text-[11px]">
                           {badges.length > 0 ? badges.join("") : <span className="text-gray-600">—</span>}
                         </td>
-                        {/* Stage lane columns: pill in active stage, progress bar spans Enter+ */}
-                        {(() => {
-                          const stageIdx = STAGE_KEYS.indexOf(stg);
-                          const enterIdx = STAGE_KEYS.indexOf("enter");
-                          if (showProgress && stageIdx >= enterIdx) {
-                            // For Enter and beyond: show empty cells before Enter, then progress bar spanning from Enter to Exit
-                            const preEnterCells = STAGE_KEYS.slice(0, enterIdx).map(sk => (
-                              <td key={sk} className="px-1 py-1 text-center">
-                                {sk === stg ? (
-                                  <span className={`inline-block w-2.5 h-2.5 rounded-full border ${STAGE_META[sk].cls}`} title={STAGE_META[sk].label} />
-                                ) : null}
-                              </td>
-                            ));
-                            const spanCount = STAGE_KEYS.length - enterIdx; // enter through exit = 5
-                            return (
-                              <>
-                                {preEnterCells}
-                                <td colSpan={spanCount} className="px-1 py-1">
-                                  <div className="flex items-center gap-1">
-                                    <span className={`inline-block w-2.5 h-2.5 rounded-full border shrink-0 ${STAGE_META[stg].cls}`} title={STAGE_META[stg].label} />
-                                    <MiniProgressBar t={t} trade={trade} />
-                                  </div>
-                                </td>
-                              </>
-                            );
-                          }
-                          // Watch/Setup: show a pill dot in the active column, empty otherwise
-                          return STAGE_KEYS.map(sk => (
+                        {/* Stage lane columns: colored dot in active stage, pulse for critical */}
+                        {STAGE_KEYS.map(sk => {
+                          const isActive = sk === stg;
+                          const isCritical = isActive && ["enter", "defend", "trim"].includes(sk);
+                          const pulseStyle = isCritical ? {
+                            animation: "stage-dot-pulse 1.8s ease-in-out infinite",
+                            boxShadow: sk === "enter" ? "0 0 6px rgba(45,212,191,0.5)" : sk === "defend" ? "0 0 6px rgba(251,146,60,0.5)" : "0 0 6px rgba(250,204,21,0.5)",
+                          } : {};
+                          return (
                             <td key={sk} className="px-1 py-1 text-center">
-                              {sk === stg ? (
-                                <span className={`inline-block w-2.5 h-2.5 rounded-full border ${STAGE_META[sk].cls}`} title={STAGE_META[sk].label} />
+                              {isActive ? (
+                                <span
+                                  className={`inline-block w-3 h-3 rounded-full border ${STAGE_META[sk].cls}`}
+                                  style={pulseStyle}
+                                  title={STAGE_META[sk].label}
+                                />
                               ) : null}
                             </td>
-                          ));
-                        })()}
+                          );
+                        })}
                       </tr>
                     );
                   })}
@@ -11562,10 +11877,20 @@
         rankTotal = null,
         savedTickers = new Set(),
         toggleSavedTicker = null,
+        sparkData: sparkDataProp = {},
+        fetchSparklines = null,
       }) {
         const now = Date.now();
         const laneScrollTopRef = React.useRef({});
         const [expandedTicker, setExpandedTicker] = React.useState(null);
+
+        // Trigger sparkline fetch for all visible tickers — use stable key, not just length
+        const _kanbanTickerKey = React.useMemo(() => tickers.map(t => t?.ticker).filter(Boolean).join(","), [tickers]);
+        React.useEffect(() => {
+          if (!fetchSparklines || !tickers.length) return;
+          const syms = tickers.map(t => String(t?.ticker || "").toUpperCase()).filter(Boolean);
+          fetchSparklines(syms);
+        }, [_kanbanTickerKey, fetchSparklines]);
         const toggleExpanded = (sym) => {
           const t = String(sym || "").toUpperCase();
           if (!t) return;
@@ -11710,7 +12035,7 @@
         } = categories;
 
         // Compact card renderer — delegates to shared top-level function (pass tradeByTicker for EP fallback)
-        const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker });
+        const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: sparkDataProp });
 
         if (
           setup.length === 0 &&
@@ -11911,6 +12236,7 @@
         thesisMode = false,
         savedTickers = new Set(),
         toggleSavedTicker = null,
+        sparkData: sparkDataProp = {},
       }) {
         const [view, setView] = React.useState(defaultView); // prime | eligible | watch | all | today
         const [dir, setDir] = React.useState("ALL"); // ALL | LONG | SHORT
@@ -12707,7 +13033,7 @@
               {filtered.length === 0 ? (
                 <div className="text-xs text-[#4b5563] p-3">No matches.</div>
               ) : (
-                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker }))
+                filtered.map((item) => renderCompactCardFn(item.t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: sparkDataProp }))
               )}
             </div>
           </div>
@@ -14936,10 +15262,120 @@
         const [dashboardViewMode, setDashboardViewMode] = useState(() => {
           try { return localStorage.getItem("timedTrading_viewMode") || "advanced"; } catch { return "advanced"; }
         });
+        const [viewSwitching, setViewSwitching] = useState(false);
         const toggleViewMode = useCallback((mode) => {
-          setDashboardViewMode(mode);
+          if (mode === dashboardViewMode) return;
+          setViewSwitching(true);
           try { localStorage.setItem("timedTrading_viewMode", mode); } catch {}
+          // Defer the heavy re-render to the next frame so the loading overlay paints first
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              setDashboardViewMode(mode);
+              setViewSwitching(false);
+            });
+          });
+        }, [dashboardViewMode]);
+        // ── Shared sparkline data (used by Table view and Kanban cards) ──
+        // Persistent cache: survives re-renders, and reloads from sessionStorage on page refresh.
+        const SPARK_CACHE_KEY = "tt_sparkCache";
+        const SPARK_TTL = 5 * 60 * 1000; // 5 min TTL per ticker before re-fetch
+        const sparkCacheGlobalRef = useRef(() => {
+          // Hydrate from sessionStorage on first render
+          try {
+            const raw = sessionStorage.getItem(SPARK_CACHE_KEY);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              // Filter out entries older than 30 min (stale from previous session)
+              const now = Date.now();
+              const valid = {};
+              for (const [k, v] of Object.entries(parsed)) {
+                if (v && v.ts && (now - v.ts) < 30 * 60 * 1000) valid[k] = v;
+              }
+              return valid;
+            }
+          } catch (_) {}
+          return {};
+        });
+        // Evaluate lazy initializer once
+        if (typeof sparkCacheGlobalRef.current === "function") {
+          sparkCacheGlobalRef.current = sparkCacheGlobalRef.current();
+        }
+        const [globalSparkData, setGlobalSparkData] = useState(() => {
+          const cache = sparkCacheGlobalRef.current;
+          const out = {};
+          for (const [k, v] of Object.entries(cache)) {
+            if (v && v.data) out[k] = v.data;
+          }
+          return out;
+        });
+        const sparkInFlightRef = useRef(new Set());
+
+        // Persist cache to sessionStorage (debounced)
+        const persistSparkCacheTimer = useRef(null);
+        const persistSparkCache = useCallback(() => {
+          clearTimeout(persistSparkCacheTimer.current);
+          persistSparkCacheTimer.current = setTimeout(() => {
+            try {
+              // Only persist closes (not full OHLCV) to keep storage small
+              const compact = {};
+              for (const [k, v] of Object.entries(sparkCacheGlobalRef.current)) {
+                if (v && v.data && v.data.length >= 2) {
+                  compact[k] = { data: v.data.map(c => ({ c: c.c ?? c.close, t: c.t ?? c.ts })), ts: v.ts };
+                }
+              }
+              sessionStorage.setItem(SPARK_CACHE_KEY, JSON.stringify(compact));
+            } catch (_) {} // quota exceeded — ignore
+          }, 1000);
         }, []);
+
+        // Fetch sparkline data for a batch of tickers (called from both views)
+        const fetchSparklines = useCallback((syms) => {
+          if (!syms || syms.length === 0) return;
+          const now = Date.now();
+          const toFetch = syms.filter(s => {
+            if (sparkInFlightRef.current.has(s)) return false;
+            const c = sparkCacheGlobalRef.current[s];
+            return !c || (now - c.ts > SPARK_TTL);
+          });
+          if (toFetch.length === 0) return;
+          toFetch.forEach(s => sparkInFlightRef.current.add(s));
+          const SPARK_WIDTH = 80;
+          const batchSize = 8;
+          const fetchCandles = async (sym, tf, limit) => {
+            const res = await fetch(`${API_BASE}/timed/candles?ticker=${sym}&tf=${tf}&limit=${limit}`, { cache: "no-store" });
+            if (!res.ok) return null;
+            const json = await res.json();
+            if (!json.ok || !Array.isArray(json.candles)) return null;
+            return json.candles;
+          };
+          const fetchSmart = async (sym) => {
+            try {
+              let candles = await fetchCandles(sym, 1, 500);
+              if (candles && candles.length > SPARK_WIDTH * 2) {
+                const c5 = await fetchCandles(sym, 5, 200);
+                if (c5 && c5.length >= 5) candles = c5;
+              }
+              if (candles && candles.length >= 2) {
+                sparkCacheGlobalRef.current[sym] = { data: candles, ts: Date.now() };
+              }
+            } catch (_) {}
+            sparkInFlightRef.current.delete(sym);
+          };
+          (async () => {
+            for (let i = 0; i < toFetch.length; i += batchSize) {
+              await Promise.allSettled(toFetch.slice(i, i + batchSize).map(fetchSmart));
+              if (i + batchSize < toFetch.length) await new Promise(r => setTimeout(r, 200));
+            }
+            // Update React state from cache
+            const next = {};
+            for (const [s, v] of Object.entries(sparkCacheGlobalRef.current)) {
+              if (v && v.data) next[s] = v.data;
+            }
+            setGlobalSparkData({ ...next });
+            persistSparkCache();
+          })();
+        }, [persistSparkCache]);
+
         // AI Assistant removed (unused)
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(() => {
           // Check if user has seen dashboard welcome page before
@@ -15606,27 +16042,44 @@
                   </div>
 
                   {/* Kanban Lanes (horizontal swim-lanes) or Simple Table */}
-                  {dashboardViewMode === "simple" ? (
-                    <SimpleKanbanTable
-                      tickers={tickers}
-                      trades={trades}
-                      onSelectTicker={handleTickerSelect}
-                      rankPositions={rankedTickerPositions}
-                      savedTickers={savedTickers}
-                      toggleSavedTicker={toggleSavedTicker}
-                      contextData={data}
-                    />
-                  ) : (
-                    <EarlyMoversPanel
-                      tickers={tickers}
-                      trades={trades}
-                      onSelectTicker={handleTickerSelect}
-                      rankPositions={rankedTickerPositions}
-                      rankTotal={allTickersWithRanks.length}
-                      savedTickers={savedTickers}
-                      toggleSavedTicker={toggleSavedTicker}
-                    />
-                  )}
+                  <div className="relative">
+                    {viewSwitching && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0d1117]/80 backdrop-blur-sm rounded-xl" style={{ minHeight: 200 }}>
+                        <div className="flex flex-col items-center gap-2">
+                          <svg className="animate-spin h-7 w-7 text-cyan-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          <span className="text-[11px] text-gray-400 font-medium">Switching view…</span>
+                        </div>
+                      </div>
+                    )}
+                    {dashboardViewMode === "simple" ? (
+                      <SimpleKanbanTable
+                        tickers={tickers}
+                        trades={trades}
+                        onSelectTicker={handleTickerSelect}
+                        rankPositions={rankedTickerPositions}
+                        savedTickers={savedTickers}
+                        toggleSavedTicker={toggleSavedTicker}
+                        contextData={data}
+                        sparkData={globalSparkData}
+                        fetchSparklines={fetchSparklines}
+                      />
+                    ) : (
+                      <EarlyMoversPanel
+                        tickers={tickers}
+                        trades={trades}
+                        onSelectTicker={handleTickerSelect}
+                        rankPositions={rankedTickerPositions}
+                        rankTotal={allTickersWithRanks.length}
+                        savedTickers={savedTickers}
+                        toggleSavedTicker={toggleSavedTicker}
+                        sparkData={globalSparkData}
+                        fetchSparklines={fetchSparklines}
+                      />
+                    )}
+                  </div>
                 </header>
 
                 {/* Error Display */}
@@ -15675,6 +16128,7 @@
                           thesisMode={isThesisModeActive(filters)}
                           savedTickers={savedTickers}
                           toggleSavedTicker={toggleSavedTicker}
+                          sparkData={globalSparkData}
                         />
                       </div>
 

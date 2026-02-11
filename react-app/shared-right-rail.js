@@ -96,7 +96,7 @@
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | CHART | TECHNICALS | JOURNEY | TRADE_HISTORY
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
-        const [chartTf, setChartTf] = useState("60"); // Default to 1H
+        const [chartTf, setChartTf] = useState("10"); // Default to 10m
         const [chartCandles, setChartCandles] = useState([]);
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
@@ -446,7 +446,7 @@
         const flags = patternFlags;
         const phase = Number(ticker.phase_pct) || 0;
         const phaseColor = phaseToColor(phase);
-        const actionInfo = getActionDescription(ticker);
+        const actionInfo = getActionDescription(ticker, trade);
         const decisionSummary = summarizeEntryDecision(ticker);
 
         const triggerItems = (() => {
@@ -558,113 +558,14 @@
             >
               {/* Scrollable Content Area */}
               <div className="flex-1 overflow-y-auto">
-                <div className="sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-6 py-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xl font-bold">{tickerSymbol}</h3>
-                      {ticker.price && (
-                        <div className="text-sm text-white mt-1 flex items-center gap-1.5">
-                          <span>${Number(ticker.price).toFixed(2)}</span>
-                          {/* Staleness indicator dot: green = fresh (<2m), amber = aging (2-10m), red = stale (>10m) */}
-                          {(() => {
-                            const priceAge = ticker._price_updated_at ? (Date.now() - ticker._price_updated_at) / 60000 : Infinity;
-                            const scoreAge = ticker.data_source_ts ? (Date.now() - ticker.data_source_ts) / 60000 : Infinity;
-                            const freshestAge = Math.min(priceAge, scoreAge);
-                            if (freshestAge <= 2) return <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" title={`Price updated ${Math.round(freshestAge)}m ago`} />;
-                            if (freshestAge <= 10) return <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" title={`Price updated ${Math.round(freshestAge)}m ago`} />;
-                            return <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" title={`Price updated ${Math.round(freshestAge)}m ago`} />;
-                          })()}
-                        </div>
-                      )}
-                      {(() => {
-                        const { dayChg, dayPct, stale, marketOpen } =
-                          getDailyChange(ticker);
-                        if (
-                          !Number.isFinite(dayChg) &&
-                          !Number.isFinite(dayPct)
-                        )
-                          return null;
-                        const sign =
-                          Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
-                        const cls =
-                          Number(dayChg || dayPct || 0) >= 0
-                            ? "text-green-400"
-                            : "text-red-400";
-                        return (
-                          <div className={`text-xs mt-0.5 ${cls}`}>
-                            {Number.isFinite(dayChg)
-                              ? `${sign}${fmtUsdAbs(dayChg)}`
-                              : "—"}{" "}
-                            {Number.isFinite(dayPct)
-                              ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)`
-                              : ""}
-                            {!marketOpen && (
-                              <span className="ml-2 text-[10px] text-[#6b7280]">
-                                AH
-                                {stale?.ageLabel
-                                  ? ` • as of ${stale.ageLabel}`
-                                  : ""}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      {(() => {
-                        const stage = String(ticker?.kanban_stage || "");
-                        const showEntryStats =
-                          stage === "enter_now" ||
-                          stage === "hold" ||
-                          stage === "just_entered" ||
-                          stage === "trim" ||
-                          stage === "exit";
-                        if (!showEntryStats) return null;
-                        const price = numFromAny(ticker?.price);
-                        const entryPriceRaw = numFromAny(ticker?.entry_price);
-                        const entryRefRaw = numFromAny(ticker?.entry_ref);
-                        const triggerRaw = numFromAny(ticker?.trigger_price);
-                        const entryPx =
-                          Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
-                            ? entryPriceRaw
-                            : Number.isFinite(entryRefRaw) && entryRefRaw > 0
-                              ? entryRefRaw
-                              : Number.isFinite(triggerRaw) && triggerRaw > 0
-                                ? triggerRaw
-                                : null;
-                        const dir = getDirectionFromState(ticker);
-                        const entryPctRaw = numFromAny(
-                          ticker?.entry_change_pct,
-                        );
-                        const entryPct = Number.isFinite(entryPctRaw)
-                          ? entryPctRaw
-                          : Number.isFinite(entryPx) &&
-                              entryPx > 0 &&
-                              Number.isFinite(price) &&
-                              price > 0
-                            ? dir === "SHORT"
-                              ? ((entryPx - price) / entryPx) * 100
-                              : ((price - entryPx) / entryPx) * 100
-                            : null;
-                        if (
-                          !Number.isFinite(entryPx) &&
-                          !Number.isFinite(entryPct)
-                        )
-                          return null;
-                        return (
-                          <div className="text-[11px] mt-1 text-cyan-300/90">
-                            {Number.isFinite(entryPx)
-                              ? `Entry $${Number(entryPx).toFixed(2)}`
-                              : "Entry —"}
-                            {Number.isFinite(entryPct)
-                              ? ` • Since entry ${entryPct >= 0 ? "+" : ""}${entryPct.toFixed(2)}%`
-                              : ""}
-                          </div>
-                        );
-                      })()}
-                      
-                      {/* Bias - Inline: show trade direction when open position, otherwise ticker bias */}
+                <div className="sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-5 py-3">
+                  {/* ── Row 1: Share + Close at very top right ── */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      {/* Ticker + Bias pill */}
+                      <h3 className="text-xl font-bold leading-none">{tickerSymbol}</h3>
                       {(() => {
                         const tickerDir = getDirection(ticker);
-                        // Check if there's an open trade with a direction
                         const tradeStatus = String(trade?.status || "").toUpperCase();
                         const tradeIsOpen = trade && (
                           tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
@@ -676,347 +577,190 @@
                           ? { text: tradeDirStr, color: tradeDirStr === "LONG" ? "text-teal-400" : "text-rose-400", bg: tradeDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20" }
                           : tickerDir;
                         return (
-                          <div className="mt-2">
-                            <span
-                              className={`inline-block px-3 py-1 rounded-lg font-bold text-sm ${dir.bg} ${dir.color} border border-current/30`}
-                            >
-                              {dir.text === "LONG"
-                                ? "📈 L"
-                                : dir.text === "SHORT"
-                                  ? "📉 S"
-                                  : dir.text}
-                            </span>
-                          </div>
+                          <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs ${dir.bg} ${dir.color} border border-current/30`}>
+                            {dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text}
+                          </span>
                         );
                       })()}
-                      
-                      {/* Groups - Inline */}
+                      {/* CP + daily change inline */}
+                      {ticker.price && (
+                        <span className="text-sm text-white font-semibold flex items-center gap-1">
+                          ${Number(ticker.price).toFixed(2)}
+                          {(() => {
+                            const priceAge = ticker._price_updated_at ? (Date.now() - ticker._price_updated_at) / 60000 : Infinity;
+                            const scoreAge = ticker.data_source_ts ? (Date.now() - ticker.data_source_ts) / 60000 : Infinity;
+                            const freshestAge = Math.min(priceAge, scoreAge);
+                            if (freshestAge <= 2) return <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" title={`Updated ${Math.round(freshestAge)}m ago`} />;
+                            if (freshestAge <= 10) return <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" title={`Updated ${Math.round(freshestAge)}m ago`} />;
+                            return <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" title={`Updated ${Math.round(freshestAge)}m ago`} />;
+                          })()}
+                        </span>
+                      )}
                       {(() => {
-                        try {
-                          const gs = groupsForTicker(ticker.ticker);
-                          if (!Array.isArray(gs) || gs.length === 0)
-                            return null;
-                          const ordered = Array.isArray(GROUP_ORDER)
-                            ? [...gs].sort(
-                                (a, b) =>
-                                  GROUP_ORDER.indexOf(a) -
-                                  GROUP_ORDER.indexOf(b),
-                              )
-                            : gs;
-                          return (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {ordered.map((g) => {
-                                const label = GROUP_LABELS[g] || g;
-                                const isSocial = g === "Social";
-                                return (
-                                  <span
-                                    key={`group-${g}`}
-                                    className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                                      isSocial
-                                        ? "bg-purple-500/15 border-purple-500/40 text-purple-200"
-                                        : "bg-white/[0.02] border-white/[0.06] text-[#f0f2f5]"
-                                    }`}
-                                  >
-                                    {label}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          );
-                        } catch {
-                          return null;
-                        }
+                        const { dayChg, dayPct, stale, marketOpen } = getDailyChange(ticker);
+                        if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
+                        const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
+                        const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
+                        return (
+                          <span className={`text-xs font-semibold ${cls}`}>
+                            {Number.isFinite(dayChg) ? `${sign}${fmtUsdAbs(dayChg)}` : ""}{" "}
+                            {Number.isFinite(dayPct) ? `(${sign}${Math.abs(dayPct).toFixed(2)}%)` : ""}
+                            {!marketOpen && <span className="ml-1 text-[10px] text-[#6b7280]">AH</span>}
+                          </span>
+                        );
                       })()}
                     </div>
-                    <div className="flex items-center gap-1">
+                    {/* Share + Close buttons — top right */}
+                    <div className="flex items-center gap-0.5 shrink-0 ml-2">
                       <button
                         onClick={() => {
                           try {
                             const sym = String(ticker?.ticker || "").toUpperCase();
                             const url = `${window.location.origin}${window.location.pathname}#ticker=${encodeURIComponent(sym)}`;
-                            navigator.clipboard.writeText(url).then(() => {
-                              const btn = document.getElementById("share-toast-btn");
-                              if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Share"; }, 1500); }
-                            });
+                            if (navigator.share) {
+                              navigator.share({ title: `${sym} — Timed Trading`, url }).catch(() => {
+                                navigator.clipboard.writeText(url);
+                              });
+                            } else {
+                              navigator.clipboard.writeText(url).then(() => {
+                                const btn = document.getElementById("share-toast-btn");
+                                if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = ""; }, 1500); }
+                              });
+                            }
                           } catch {}
                         }}
                         id="share-toast-btn"
-                        className="text-[10px] text-[#6b7280] hover:text-teal-300 transition-colors px-2 py-1 rounded hover:bg-white/[0.04] flex items-center gap-1"
-                        title="Copy share link to clipboard"
+                        className="text-[#6b7280] hover:text-teal-300 transition-colors p-1.5 rounded hover:bg-white/[0.04]"
+                        title="Share this ticker"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                        Share
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                       </button>
                       <button
                         onClick={onClose}
-                        className="text-[#6b7280] hover:text-white transition-colors text-xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-white/[0.04]"
+                        className="text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
                       >
                         ✕
                       </button>
                     </div>
                   </div>
 
-                  {/* Last Ingest Date/Time */}
+                  {/* ── Row 2: Entry stats (if open position) ── */}
                   {(() => {
-                    const ingestTime =
-                      ticker.ingest_ts || ticker.ingest_time || ticker.ts;
-                    if (!ingestTime) return null;
-                    try {
-                      const timeValue =
-                        typeof ingestTime === "string"
-                          ? new Date(ingestTime)
-                          : new Date(Number(ingestTime));
-                      if (isNaN(timeValue.getTime())) return null;
-                      const displayDate = timeValue.toLocaleDateString(
-                        "en-US",
-                        {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        },
-                      );
-                      const displayTime = timeValue.toLocaleTimeString(
-                        "en-US",
-                        {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          hour12: true,
-                        },
-                      );
-                      const ageMs = Date.now() - timeValue.getTime();
-                      const ageMinutes = Math.floor(ageMs / 60000);
-                      const ageHours = Math.floor(ageMinutes / 60);
-                      const ageDays = Math.floor(ageHours / 24);
-                      let ageText;
-                      let ageColor = "text-green-400";
-                      if (ageMinutes < 5) {
-                        ageText = `${ageMinutes}m ago`;
-                        ageColor = "text-green-400";
-                      } else if (ageMinutes < 60) {
-                        ageText = `${ageMinutes}m ago`;
-                        ageColor = "text-yellow-400";
-                      } else if (ageHours < 24) {
-                        ageText = `${ageHours}h ago`;
-                        ageColor =
-                          ageHours < 2 ? "text-yellow-400" : "text-orange-400";
-                      } else {
-                        ageText = `${ageDays}d ago`;
-                        ageColor = "text-red-400";
-                      }
-                      return (
-                        <div className="mt-2 text-xs flex items-center gap-2">
-                          <span className="text-[#6b7280]">Last Ingest:</span>
-                          <span className="text-white font-semibold">
-                            {displayDate} {displayTime}
-                          </span>
-                          <span className={`font-semibold ${ageColor}`}>
-                            ({ageText})
-                          </span>
-                        </div>
-                      );
-                    } catch {
-                      return null;
-                    }
-                  })()}
-
-                  {/* Move status (Active / Invalidated / Completed) */}
-                  {(() => {
-                    const ms =
-                      ticker?.move_status &&
-                      typeof ticker.move_status === "object"
-                        ? ticker.move_status
-                        : null;
-                    const rawStatus = (ms && ms.status) ? String(ms.status).trim() : "";
-                    const hasOpenInLedger = Array.isArray(ledgerTrades) && ledgerTrades.some(
-                      (t) => String(t?.ticker || "").toUpperCase() === tickerSymbol && t.status !== "WIN" && t.status !== "LOSS"
-                    );
-                    const useEffectiveStage = effectiveStage != null && String(effectiveStage).trim() !== "";
-                    if (!ms && !rawStatus && !useEffectiveStage && !hasOpenInLedger) return null;
-
-                    let status = rawStatus ? String(rawStatus).toUpperCase() : "";
-                    if ((status === "NONE" || status === "") && hasOpenInLedger) status = "ACTIVE";
-
-                    // Suppress misleading "Move: ACTIVE" when kanban_stage is a discovery/entry stage.
-                    // move_status can show ACTIVE from a stale entry_ts even when no position
-                    // is open, creating a confusing contradiction with "Action: ENTER".
-                    const discoveryStages = new Set(["watch", "setup_watch", "setup", "flip_watch", "enter", "enter_now", "just_flipped", ""]);
-                    const rawStage = useEffectiveStage ? String(effectiveStage).trim().toLowerCase() : String(ticker?.kanban_stage || "").trim().toLowerCase();
-                    const suppressMove = status === "ACTIVE" && discoveryStages.has(rawStage);
-                    const severity = String(ms.severity || "").toUpperCase();
-                    const reasonsRaw = Array.isArray(ms.reasons)
-                      ? ms.reasons
-                      : [];
-                    const marketOpen = isNyRegularMarketOpen();
-                    const staleInfo = getStaleInfo(ticker, {
-                      maxAgeMin: marketOpen ? 90 : 72 * 60,
-                    });
-
-                    const pretty = (r) => {
-                      const key = String(r || "").trim();
-                      const map = {
-                        sl_breached: "SL breached",
-                        tp_reached: "TP reached",
-                        daily_ema_regime_break: "Daily EMA regime break",
-                        ichimoku_regime_break: "Ichimoku regime break",
-                        late_cycle: "Late-cycle",
-                        overextended: "Overextended",
-                        left_entry_corridor: "Left entry corridor",
-                      };
-                      return map[key] || key.replace(/_/g, " ");
-                    };
-
-                    const pill =
-                      status === "INVALIDATED"
-                        ? "bg-red-500/15 text-red-300 border-red-500/40"
-                        : status === "COMPLETED"
-                          ? "bg-purple-500/15 text-purple-300 border-purple-500/40"
-                          : "bg-green-500/10 text-green-300 border-green-500/30";
-
-                    const icon =
-                      status === "INVALIDATED"
-                        ? "⛔"
-                        : status === "COMPLETED"
-                          ? "✅"
-                          : "🟢";
-
-                    const reasons = reasonsRaw
-                      .filter((x) => x != null)
-                      .map((x) => String(x))
-                      .filter((x) => x.trim())
-                      .slice(0, 8);
-
-                    const freshnessLabel = (() => {
-                      const isStale = !!staleInfo?.isStale;
-                      const age = staleInfo?.ageLabel
-                        ? ` (${staleInfo.ageLabel})`
-                        : "";
-                      return `${isStale ? "Stale" : "Fresh"}${age}`;
-                    })();
-                    const freshnessCls = staleInfo?.isStale
-                      ? "text-yellow-300"
-                      : "text-green-300";
-                    const headlineReason =
-                      reasons.length > 0 ? pretty(reasons[0]) : null;
-                    const kanbanStageRaw = useEffectiveStage
-                      ? String(effectiveStage || "").trim()
-                      : String(ticker?.kanban_stage || "").trim();
-                    const kanbanStage = kanbanStageRaw
-                      ? kanbanStageRaw.toUpperCase()
-                      : "";
-                    const kanbanPill =
-                      kanbanStage === "EXIT"
-                        ? "bg-red-500/15 text-red-300 border-red-500/40"
-                        : kanbanStage === "TRIM"
-                          ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/40"
-                          : kanbanStage === "DEFEND"
-                            ? "bg-orange-500/15 text-orange-300 border-orange-500/40"
-                            : kanbanStage === "HOLD"
-                              ? "bg-blue-500/15 text-blue-300 border-blue-500/40"
-                              : kanbanStage === "ENTER_NOW"
-                                ? "bg-green-500/15 text-green-300 border-green-500/40"
-                                : "bg-white/5 text-[#6b7280] border-white/10";
-
-                    // Human-friendly stage label
-                    const stageLabel = {
-                      "WATCH": "Watch", "SETUP_WATCH": "Setup Watch", "SETUP": "Setup",
-                      "FLIP_WATCH": "Flip Watch", "JUST_FLIPPED": "Just Flipped",
-                      "ENTER": "Enter", "ENTER_NOW": "Enter Now",
-                      "JUST_ENTERED": "Just Entered", "HOLD": "Hold",
-                      "DEFEND": "Defend", "TRIM": "Trim", "EXIT": "Exit",
-                    }[kanbanStage] || kanbanStage;
-
+                    const stage = String(ticker?.kanban_stage || "");
+                    const showEntryStats = ["enter_now", "hold", "just_entered", "trim", "exit"].includes(stage);
+                    if (!showEntryStats) return null;
+                    const price = numFromAny(ticker?.price);
+                    const entryPriceRaw = numFromAny(ticker?.entry_price);
+                    const entryRefRaw = numFromAny(ticker?.entry_ref);
+                    const triggerRaw = numFromAny(ticker?.trigger_price);
+                    const entryPx = [entryPriceRaw, entryRefRaw, triggerRaw].find(v => Number.isFinite(v) && v > 0) || null;
+                    const dir = getDirectionFromState(ticker);
+                    const entryPctRaw = numFromAny(ticker?.entry_change_pct);
+                    const entryPct = Number.isFinite(entryPctRaw) ? entryPctRaw
+                      : (entryPx > 0 && price > 0 ? (dir === "SHORT" ? ((entryPx - price) / entryPx) * 100 : ((price - entryPx) / entryPx) * 100) : null);
+                    if (!Number.isFinite(entryPx) && !Number.isFinite(entryPct)) return null;
                     return (
-                      <div className="mt-2">
-                        <div className="flex items-center gap-2 flex-wrap text-[11px]">
-                          {!suppressMove && status ? (
-                            <>
-                              <span className="text-[#6b7280]">Move:</span>
-                              <span
-                                className={`px-2 py-0.5 rounded border font-semibold ${pill}`}
-                              >
-                                {icon} {status}
-                                {severity && severity !== "NONE" ? (
-                                  <span className="ml-1 text-[10px] opacity-80">
-                                    ({severity})
-                                  </span>
-                                ) : null}
-                              </span>
-                            </>
-                          ) : null}
-                          {kanbanStage ? (
-                            <>
-                              <span className="text-[#6b7280]">{suppressMove ? "Stage:" : "Action:"}</span>
-                              <span
-                                className={`px-2 py-0.5 rounded border font-semibold ${kanbanPill}`}
-                              >
-                                {stageLabel}
-                              </span>
-                            </>
-                          ) : null}
-                        </div>
-                        <div className="mt-1 text-[10px] text-[#4b5563]">
-                          <span className={`font-semibold ${freshnessCls}`}>
-                            {freshnessLabel}
-                          </span>
-                          {(status === "INVALIDATED" ||
-                            status === "COMPLETED") &&
-                          headlineReason ? (
-                            <span>
-                              {" "}
-                              •{" "}
-                              <span className="text-[#6b7280]">
-                                {status === "INVALIDATED"
-                                  ? "Invalidated"
-                                  : "Completed"}
-                                :
-                              </span>{" "}
-                              <span className="text-[#f0f2f5]">
-                                {headlineReason}
-                              </span>
-                            </span>
-                          ) : null}
-                          {status === "ACTIVE" &&
-                          headlineReason &&
-                          severity &&
-                          severity !== "NONE" ? (
-                            <span>
-                              {" "}
-                              • <span className="text-[#6b7280]">
-                                Reason:
-                              </span>{" "}
-                              <span className="text-[#f0f2f5]">
-                                {headlineReason}
-                              </span>
-                            </span>
-                          ) : null}
-                        </div>
-                        {status === "INVALIDATED" && reasons.length > 0 ? (
-                          <div className="mt-1 flex flex-wrap gap-1.5">
-                            {reasons.map((r, idx) => (
-                              <span
-                                key={`inv-reason-${idx}`}
-                                className="px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-[10px] text-red-200"
-                              >
-                                {pretty(r)}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {status === "COMPLETED" && reasons.length > 0 ? (
-                          <div className="mt-1 flex flex-wrap gap-1.5">
-                            {reasons.map((r, idx) => (
-                              <span
-                                key={`comp-reason-${idx}`}
-                                className="px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/10 text-[10px] text-purple-200"
-                              >
-                                {pretty(r)}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
+                      <div className="text-[11px] mt-1 text-cyan-300/90">
+                        {Number.isFinite(entryPx) ? `Entry $${Number(entryPx).toFixed(2)}` : "Entry —"}
+                        {Number.isFinite(entryPct) ? ` • Since entry ${entryPct >= 0 ? "+" : ""}${entryPct.toFixed(2)}%` : ""}
                       </div>
                     );
                   })()}
+
+                  {/* ── Row 3: Context (name, sector, mcap) — compact, no heading ── */}
+                  {(() => {
+                    const ctx = ticker.context || {};
+                    const name = ctx.name || "";
+                    const sector = ctx.sector || ctx.industry || "";
+                    const mcapRaw = Number(ctx.market_cap);
+                    const mcap = Number.isFinite(mcapRaw) && mcapRaw > 0
+                      ? (mcapRaw >= 1e12 ? `$${(mcapRaw / 1e12).toFixed(1)}T` : mcapRaw >= 1e9 ? `$${(mcapRaw / 1e9).toFixed(1)}B` : mcapRaw >= 1e6 ? `$${(mcapRaw / 1e6).toFixed(0)}M` : "")
+                      : "";
+                    if (!name && !sector && !mcap) return null;
+                    return (
+                      <div className="mt-1 text-[11px] text-[#9ca3af] flex items-center gap-2 flex-wrap">
+                        {name && <span className="text-[#d1d5db]">{name}</span>}
+                        {sector && <span>{sector}</span>}
+                        {mcap && <span className="text-[#6b7280]">{mcap}</span>}
+                      </div>
+                    );
+                  })()}
+
+                  {/* ── Row 4: Groups + Stage/Ingest — 2-col grid ── */}
+                  <div className="mt-2 flex items-center gap-3 flex-wrap text-[10px]">
+                    {/* Groups */}
+                    {(() => {
+                      try {
+                        const gs = groupsForTicker(ticker.ticker);
+                        if (!Array.isArray(gs) || gs.length === 0) return null;
+                        const ordered = Array.isArray(GROUP_ORDER)
+                          ? [...gs].sort((a, b) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b))
+                          : gs;
+                        return ordered.map((g) => (
+                          <span key={`group-${g}`} className={`px-1.5 py-0.5 rounded border ${g === "Social" ? "bg-purple-500/15 border-purple-500/40 text-purple-200" : "bg-white/[0.02] border-white/[0.06] text-[#f0f2f5]"}`}>
+                            {GROUP_LABELS[g] || g}
+                          </span>
+                        ));
+                      } catch { return null; }
+                    })()}
+
+                    {/* Ingest age pill */}
+                    {(() => {
+                      const ingestTime = ticker.ingest_ts || ticker.ingest_time || ticker.ts;
+                      if (!ingestTime) return null;
+                      try {
+                        const tv = typeof ingestTime === "string" ? new Date(ingestTime) : new Date(Number(ingestTime));
+                        if (isNaN(tv.getTime())) return null;
+                        const ageMs = Date.now() - tv.getTime();
+                        const ageMin = Math.floor(ageMs / 60000);
+                        const ageH = Math.floor(ageMin / 60);
+                        const ageD = Math.floor(ageH / 24);
+                        const txt = ageMin < 60 ? `${ageMin}m` : ageH < 24 ? `${ageH}h` : `${ageD}d`;
+                        const cls = ageMin < 5 ? "text-green-400 border-green-400/30" : ageMin < 60 ? "text-yellow-400 border-yellow-400/30" : "text-orange-400 border-orange-400/30";
+                        return <span className={`px-1.5 py-0.5 rounded border font-semibold ${cls}`} title={`Last ingest: ${tv.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}`}>{txt}</span>;
+                      } catch { return null; }
+                    })()}
+
+                    {/* Stage pill */}
+                    {(() => {
+                      const useEffectiveStage = effectiveStage != null && String(effectiveStage).trim() !== "";
+                      const kanbanStageRaw = useEffectiveStage ? String(effectiveStage).trim() : String(ticker?.kanban_stage || "").trim();
+                      const kanbanStage = kanbanStageRaw.toUpperCase();
+                      if (!kanbanStage) return null;
+                      const kanbanPill = kanbanStage === "EXIT" ? "bg-red-500/15 text-red-300 border-red-500/40"
+                        : kanbanStage === "TRIM" ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/40"
+                        : kanbanStage === "DEFEND" ? "bg-orange-500/15 text-orange-300 border-orange-500/40"
+                        : kanbanStage === "HOLD" ? "bg-blue-500/15 text-blue-300 border-blue-500/40"
+                        : kanbanStage === "ENTER_NOW" ? "bg-green-500/15 text-green-300 border-green-500/40"
+                        : "bg-white/5 text-[#6b7280] border-white/10";
+                      const stageLabel = {
+                        "WATCH": "Watch", "SETUP_WATCH": "Setup Watch", "SETUP": "Setup",
+                        "FLIP_WATCH": "Flip Watch", "JUST_FLIPPED": "Just Flipped",
+                        "ENTER": "Enter", "ENTER_NOW": "Enter Now",
+                        "JUST_ENTERED": "Just Entered", "HOLD": "Hold",
+                        "DEFEND": "Defend", "TRIM": "Trim", "EXIT": "Exit",
+                      }[kanbanStage] || kanbanStage;
+                      return <span className={`px-1.5 py-0.5 rounded border font-semibold ${kanbanPill}`}>{stageLabel}</span>;
+                    })()}
+
+                    {/* Move status pill (if not suppressed) */}
+                    {(() => {
+                      const ms = ticker?.move_status && typeof ticker.move_status === "object" ? ticker.move_status : null;
+                      const rawStatus = (ms && ms.status) ? String(ms.status).trim() : "";
+                      const hasOpenInLedger = Array.isArray(ledgerTrades) && ledgerTrades.some(
+                        (t) => String(t?.ticker || "").toUpperCase() === tickerSymbol && t.status !== "WIN" && t.status !== "LOSS"
+                      );
+                      let status = rawStatus ? String(rawStatus).toUpperCase() : "";
+                      if ((status === "NONE" || status === "") && hasOpenInLedger) status = "ACTIVE";
+                      const discoveryStages = new Set(["watch", "setup_watch", "setup", "flip_watch", "enter", "enter_now", "just_flipped", ""]);
+                      const rawStage = effectiveStage ? String(effectiveStage).trim().toLowerCase() : String(ticker?.kanban_stage || "").trim().toLowerCase();
+                      const suppressMove = status === "ACTIVE" && discoveryStages.has(rawStage);
+                      if (!status || suppressMove) return null;
+                      const pill = status === "INVALIDATED" ? "bg-red-500/15 text-red-300 border-red-500/40" : status === "COMPLETED" ? "bg-purple-500/15 text-purple-300 border-purple-500/40" : "bg-green-500/10 text-green-300 border-green-500/30";
+                      const icon = status === "INVALIDATED" ? "⛔" : status === "COMPLETED" ? "✅" : "🟢";
+                      return <span className={`px-1.5 py-0.5 rounded border font-semibold ${pill}`}>{icon} {status}</span>;
+                    })()}
+                  </div>
 
                   {/* Right Rail Tabs */}
                   <div className="mt-3 flex items-center gap-2 flex-wrap">

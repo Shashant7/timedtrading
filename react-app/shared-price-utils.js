@@ -109,19 +109,82 @@
       ? (Date.now() - t._price_updated_at) / 60000
       : Infinity;
 
+    // Use live price data when available.  The live fields come from the Alpaca
+    // snapshot feed (via /timed/prices) and are the most accurate source for
+    // daily change.  Accept them with a generous window:
+    //   RTH:  up to 15 min (price feed cron runs every minute, but initial /timed/all
+    //          load may already be a few minutes stale by the time the page renders)
+    //   AH:   up to 120 min (prices update less frequently outside regular hours)
+    const liveMaxAge = marketOpen ? 15 : 120;
+
+    // Guard: only trust Alpaca's daily-change values when prevClose is valid.
+    // When Alpaca has no previousDailyBar, it returns pc=0 / dp=0 / dc=0 which
+    // would wrongly show "+0.00%" on cards.  In that case, if we have a live
+    // price we can still compute daily change from any prev_close on the ticker.
+    const livePrevCloseValid = Number.isFinite(livePrevClose) && livePrevClose > 0;
+
+    // Helper: compute daily change from livePrice and best-available prevClose
+    function computeFromPrevClose(staleInfo) {
+      // Try livePrevClose first, then fall back to any prev_close on the ticker
+      var pc = livePrevCloseValid ? livePrevClose : 0;
+      if (!(pc > 0)) {
+        var pcKeys = ["prev_close", "previous_close", "prior_close", "yclose", "close_prev"];
+        for (var k = 0; k < pcKeys.length; k++) {
+          var v = Number(t?.[pcKeys[k]]);
+          if (Number.isFinite(v) && v > 0) { pc = v; break; }
+        }
+      }
+      if (pc > 0 && Number.isFinite(livePrice) && livePrice > 0) {
+        var chg = Math.round((livePrice - pc) * 100) / 100;
+        var pct = Math.round(((livePrice - pc) / pc) * 10000) / 100;
+        return { dayChg: chg, dayPct: pct, stale: staleInfo, marketOpen, livePrice: true };
+      }
+      return null;
+    }
+
     if (
       Number.isFinite(livePrice) &&
       livePrice > 0 &&
-      Number.isFinite(liveDailyChangePct) &&
-      priceAge < 5
+      priceAge < liveMaxAge
+    ) {
+      // If Alpaca returned valid prevClose, use its dp/dc directly
+      if (livePrevCloseValid && Number.isFinite(liveDailyChangePct)) {
+        return {
+          dayChg: liveDailyChange,
+          dayPct: liveDailyChangePct,
+          stale: { isStale: priceAge > 5, ageMin: priceAge },
+          marketOpen,
+          livePrice: true,
+        };
+      }
+      // Otherwise compute from best-available prevClose
+      var computed = computeFromPrevClose({ isStale: priceAge > 5, ageMin: priceAge });
+      if (computed) return computed;
+    }
+
+    // Even if priceAge is beyond the max window, still prefer live data over
+    // scoring-snapshot data if the live fields look reasonable (non-zero prevClose).
+    // This prevents the fallback from showing a wrong/stale daily change when the
+    // live feed has the correct one just slightly beyond the freshness window.
+    if (
+      Number.isFinite(livePrice) && livePrice > 0 &&
+      livePrevCloseValid &&
+      Number.isFinite(liveDailyChangePct)
     ) {
       return {
         dayChg: liveDailyChange,
         dayPct: liveDailyChangePct,
-        stale: { isStale: false, ageMin: priceAge },
+        stale: { isStale: true, ageMin: priceAge },
         marketOpen,
         livePrice: true,
       };
+    }
+
+    // Last live attempt: livePrice is fresh-ish but Alpaca had no prevClose —
+    // compute from scoring-snapshot prev_close if available.
+    if (Number.isFinite(livePrice) && livePrice > 0 && priceAge < liveMaxAge) {
+      var lastTry = computeFromPrevClose({ isStale: priceAge > 5, ageMin: priceAge });
+      if (lastTry) return lastTry;
     }
 
     // ── Fallback to scoring snapshot data ──
