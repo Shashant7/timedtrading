@@ -16122,10 +16122,15 @@
               <nav className="flex items-center justify-between px-4 py-2.5 mb-4 border-b border-white/[0.04]">
                 <div className="flex items-center gap-5">
                   <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
-                  {wsConnected && (
+                  {wsConnected ? (
                     <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20" title="WebSocket connected — real-time push active">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       <span className="text-[9px] text-emerald-400 font-medium">LIVE</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20" title="WebSocket disconnected — using polling fallback (30s)">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span className="text-[9px] text-amber-400 font-medium">POLL</span>
                     </span>
                   )}
                   <div className="flex items-center gap-0.5">
