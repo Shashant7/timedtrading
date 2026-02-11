@@ -265,11 +265,14 @@ const ROUTES = [
   ["GET", "/timed/model/patterns", "GET /timed/model/patterns"],
   ["GET", "/timed/model/changelog", "GET /timed/model/changelog"],
   ["GET", "/timed/model/signals", "GET /timed/model/signals"],
-  // Screener / Discovery
+  // Screener / Discovery / Enrichment
   ["GET", "/timed/screener/candidates", "GET /timed/screener/candidates"],
   ["POST", "/timed/screener/candidates", "POST /timed/screener/candidates"],
+  ["POST", "/timed/enrich-metadata", "POST /timed/enrich-metadata"],
+  ["GET", "/timed/enrich-metadata", "GET /timed/enrich-metadata"],
   // User / Auth
   ["GET", "/timed/me", "GET /timed/me"],
+  ["POST", "/timed/accept-terms", "POST /timed/accept-terms"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
 ];
@@ -13754,6 +13757,83 @@ const SECTOR_MAP = {
   US500: "Futures",
   // Additional tracked tickers
   "BRK-B": "Financials",
+  // ── Added tickers (previously watchlist-only, now in SECTOR_MAP for scoring + pricing) ──
+  // Health Care
+  ABT: "Health Care",
+  LLY: "Health Care",
+  UNH: "Health Care",
+  CRVS: "Health Care",
+  IBRX: "Health Care",
+  LMND: "Financials",
+  // Information Technology
+  ARM: "Information Technology",
+  CRM: "Information Technology",
+  GOOG: "Communication Services",
+  INTC: "Information Technology",
+  INTU: "Information Technology",
+  QCOM: "Information Technology",
+  SHOP: "Information Technology",
+  SMCI: "Information Technology",
+  SNDK: "Information Technology",
+  TSM: "Information Technology",
+  WDAY: "Information Technology",
+  WDC: "Information Technology",
+  HUBS: "Information Technology",
+  IREN: "Information Technology",
+  CRWV: "Information Technology",
+  U: "Information Technology",
+  ONDS: "Information Technology",
+  TEM: "Information Technology",
+  FIG: "Information Technology",
+  // Consumer Discretionary
+  CVNA: "Consumer Discretionary",
+  DKNG: "Consumer Discretionary",
+  JD: "Consumer Discretionary",
+  LULU: "Consumer Discretionary",
+  GRAB: "Consumer Discretionary",
+  OPEN: "Consumer Discretionary",
+  MCD: "Consumer Staples",
+  CELH: "Consumer Staples",
+  SPOT: "Communication Services",
+  // Industrials
+  FDX: "Industrials",
+  RTX: "Industrials",
+  UNP: "Industrials",
+  UPS: "Industrials",
+  WM: "Industrials",
+  SWK: "Industrials",
+  // Aerospace & Defense
+  ASTS: "Aerospace & Defense",
+  // Financials
+  IBKR: "Financials",
+  PYPL: "Financials",
+  XYZ: "Financials",
+  SBET: "Financials",
+  // Energy
+  CVX: "Energy",
+  XOM: "Energy",
+  UUUU: "Energy",
+  // Basic Materials / Mining
+  B: "Basic Materials",
+  HL: "Basic Materials",
+  AGYS: "Information Technology",
+  AEHR: "Information Technology",
+  // Crypto-Related
+  BTBT: "Crypto",
+  BMNR: "Crypto",
+  // ETFs
+  AGQ: "ETF",
+  GDX: "ETF",
+  GDXJ: "ETF",
+  IAU: "ETF",
+  SLV: "ETF",
+  SOXL: "ETF",
+  TNA: "ETF",
+  GRNY: "ETF",
+  KWEB: "ETF",
+  ETHT: "ETF",
+  XHB: "ETF",
+  GOLD: "Basic Materials",
 };
 
 const SECTOR_RATINGS = {
@@ -13795,15 +13875,29 @@ async function loadSectorMappingsFromKV(KV) {
     const removedSet = new Set(Array.isArray(removedList) ? removedList : []);
 
     let loadedCount = 0;
-    for (const ticker of tickersList) {
+    // Only read KV for tickers NOT already in the hardcoded SECTOR_MAP (much faster)
+    const tickersToLoad = tickersList.filter(ticker => {
       const tickerUpper = String(ticker).toUpperCase();
-      if (removedSet.has(tickerUpper)) continue; // Skip removed tickers
-      const sectorKey = `timed:sector_map:${tickerUpper}`;
-      const sector = await KV.get(sectorKey, "text");
-
-      if (sector && sector.trim() !== "") {
-        SECTOR_MAP[tickerUpper] = sector.trim();
-        loadedCount++;
+      return !removedSet.has(tickerUpper) && !SECTOR_MAP[tickerUpper];
+    });
+    // Parallel batch reads (up to 20 at a time) for speed
+    const BATCH = 20;
+    for (let i = 0; i < tickersToLoad.length; i += BATCH) {
+      const batch = tickersToLoad.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map(async (ticker) => {
+        const tickerUpper = String(ticker).toUpperCase();
+        const sector = await KV.get(`timed:sector_map:${tickerUpper}`, "text");
+        return { tickerUpper, sector };
+      }));
+      for (const { tickerUpper, sector } of results) {
+        if (sector && sector.trim() !== "") {
+          SECTOR_MAP[tickerUpper] = sector.trim();
+          loadedCount++;
+        } else {
+          // Ticker is in watchlist but has no sector mapping — add as Unknown
+          SECTOR_MAP[tickerUpper] = "Unknown";
+          loadedCount++;
+        }
       }
     }
 
@@ -18605,6 +18699,13 @@ export default {
                     obj.context = cleaned || derived;
                   }
                 }
+                // Final fallback: load from KV enrichment if still no context (or missing name/sector)
+                if (!obj.context || !(obj.context.name || obj.context.sector)) {
+                  const kvCtx = await kvGetJSON(KV, `timed:context:${sym}`);
+                  if (kvCtx && typeof kvCtx === "object") {
+                    obj.context = { ...(obj.context || {}), ...kvCtx };
+                  }
+                }
               } catch {
                 // ignore
               }
@@ -18712,6 +18813,43 @@ export default {
             }
           } catch (e) {
             console.warn("[HEARTBEAT] Merge failed:", String(e?.message || e));
+          }
+
+          // ── Overlay canonical timed:prices (Alpaca + TradingView merged by price feed cron) ──
+          // This is the SAME data the frontend polls via /timed/prices, applied here so the
+          // very first page load matches what usePriceFeed would deliver 30s later.
+          // Applied AFTER the heartbeat overlay: for stocks, timed:prices has Alpaca data with
+          // the sanity check (more trustworthy); for futures, it contains the same TV heartbeat
+          // data merged by the cron. The heartbeat overlay above remains as a first-pass fallback
+          // when timed:prices is unavailable (e.g. cron hasn't run yet).
+          try {
+            const livePrices = await kvGetJSON(KV, "timed:prices");
+            if (livePrices && livePrices.prices && typeof livePrices.prices === "object") {
+              const pricesUpdatedAt = livePrices.updated_at || 0;
+              for (const sym of Object.keys(data)) {
+                const pf = livePrices.prices[sym];
+                if (!pf || !(Number(pf.p) > 0)) continue;
+                const obj = data[sym];
+                if (!obj) continue;
+                obj.price = pf.p;
+                if (Number(pf.pc) > 0) obj.prev_close = pf.pc;
+                obj.day_change = pf.dc;
+                obj.day_change_pct = pf.dp;
+                obj.change = pf.dc;
+                obj.change_pct = pf.dp;
+                // Set _live_* fields so getDailyChange() live-feed priority path works immediately
+                obj._live_price = pf.p;
+                obj._live_prev_close = pf.pc;
+                obj._live_daily_change = pf.dc;
+                obj._live_daily_change_pct = pf.dp;
+                obj._live_daily_high = pf.dh;
+                obj._live_daily_low = pf.dl;
+                obj._live_daily_volume = pf.dv;
+                obj._price_updated_at = pricesUpdatedAt;
+              }
+            }
+          } catch (e) {
+            console.warn("[PRICE ENRICH] timed:prices merge failed:", String(e?.message || e));
           }
 
           // If D1 is warming up, report total index from KV for transparency
@@ -20207,13 +20345,34 @@ export default {
           }
 
           // Trigger Alpaca candle backfill for added tickers (background via ctx.waitUntil)
+          // After backfill completes, auto-score each ticker so CP + dashboard data appear immediately
           const backfillTriggered = [];
           if (added.length > 0 && env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
             const tickersToBackfill = added.filter((t) => !t.endsWith("1!")).slice(0, 10);
             if (tickersToBackfill.length > 0) {
               ctx.waitUntil(
                 alpacaBackfill(env, tickersToBackfill, d1UpsertCandle, "all", 30)
-                  .then((res) => console.log(`[WATCHLIST ADD] Backfill done:`, JSON.stringify(res)))
+                  .then(async (res) => {
+                    console.log(`[WATCHLIST ADD] Backfill done:`, JSON.stringify(res));
+                    // Auto-score each backfilled ticker so price/scores appear immediately
+                    for (const tk of tickersToBackfill) {
+                      try {
+                        const existing = await kvGetJSON(KV, `timed:latest:${tk}`);
+                        const scored = await computeServerSideScores(tk, d1GetCandles, env, existing);
+                        if (scored) {
+                          scored.data_source = "alpaca";
+                          scored.trigger_ts = Date.now();
+                          await kvPutJSON(KV, `timed:latest:${tk}`, scored);
+                          await d1UpsertTickerLatest(env, tk, scored);
+                          console.log(`[WATCHLIST ADD] Auto-scored ${tk}: price=${scored.price}, state=${scored.state}`);
+                        } else {
+                          console.warn(`[WATCHLIST ADD] Auto-score ${tk}: insufficient candle data`);
+                        }
+                      } catch (scoreErr) {
+                        console.error(`[WATCHLIST ADD] Auto-score ${tk} error:`, String(scoreErr));
+                      }
+                    }
+                  })
                   .catch((err) => console.error(`[WATCHLIST ADD] Backfill error:`, err))
               );
               backfillTriggered.push(...tickersToBackfill);
@@ -23572,6 +23731,7 @@ export default {
       if (routeKey === "POST /timed/admin/refresh-prices") {
         const authFail = requireKeyOr401(req, env);
         if (authFail) return authFail;
+
         try {
           const allTickers = Object.keys(SECTOR_MAP);
           const snapResult = await alpacaFetchSnapshots(env, allTickers);
@@ -24521,6 +24681,100 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // METADATA ENRICHMENT ENDPOINTS
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/enrich-metadata — Receive bulk ticker metadata (name, sector, industry, market_cap)
+      // Merges into existing context for each ticker in KV.
+      if (routeKey === "POST /timed/enrich-metadata") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        try {
+          const { obj: body } = await readBodyAsJSON(req);
+          if (!body || !Array.isArray(body.tickers)) {
+            return sendJSON({ ok: false, error: "tickers array required" }, 400, corsHeaders(env, req));
+          }
+          let updated = 0, skipped = 0;
+          for (const item of body.tickers) {
+            const sym = String(item.ticker || "").toUpperCase();
+            if (!sym) { skipped++; continue; }
+            try {
+              // Build enrichment context from incoming data
+              const enrichment = {};
+              if (item.name) enrichment.name = String(item.name);
+              if (item.sector) enrichment.sector = String(item.sector);
+              if (item.industry) enrichment.industry = String(item.industry);
+              if (item.description) enrichment.description = String(item.description);
+              if (item.market_cap != null && Number.isFinite(Number(item.market_cap)) && Number(item.market_cap) > 0) {
+                enrichment.market_cap = Number(item.market_cap);
+              }
+              if (item.country) enrichment.country = String(item.country);
+              if (Object.keys(enrichment).length === 0) { skipped++; continue; }
+              enrichment._enriched_at = Date.now();
+              enrichment._source = "tvscreener";
+              // Merge with existing context (preserve richer fields)
+              const existing = await kvGetJSON(KV, `timed:context:${sym}`);
+              const merged = { ...(existing || {}), ...enrichment };
+              await kvPutJSON(KV, `timed:context:${sym}`, merged, 90 * 24 * 60 * 60); // 90-day TTL
+              // Also update SECTOR_MAP in memory if sector provided and ticker is in universe with "Unknown" sector
+              if (enrichment.sector && SECTOR_MAP[sym] && SECTOR_MAP[sym] === "Unknown") {
+                SECTOR_MAP[sym] = enrichment.sector;
+                await KV.put(`timed:sector_map:${sym}`, enrichment.sector);
+              }
+              // Patch D1 ticker_latest payload_json so context appears in /timed/all without extra KV reads
+              try {
+                if (env?.DB) {
+                  const row = await env.DB.prepare(`SELECT payload_json FROM ticker_latest WHERE ticker = ?`).bind(sym).first();
+                  if (row?.payload_json) {
+                    const payload = JSON.parse(row.payload_json);
+                    payload.context = { ...(payload.context || {}), ...enrichment };
+                    await env.DB.prepare(`UPDATE ticker_latest SET payload_json = ? WHERE ticker = ?`).bind(JSON.stringify(payload), sym).run();
+                  }
+                }
+              } catch (patchErr) {
+                console.warn(`[ENRICH] D1 patch failed for ${sym}:`, String(patchErr));
+              }
+              updated++;
+            } catch (e) {
+              console.error(`[ENRICH] Failed for ${sym}:`, String(e));
+              skipped++;
+            }
+          }
+          return sendJSON({ ok: true, updated, skipped, total: body.tickers.length }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/enrich-metadata — Return current enrichment status for all tickers
+      if (routeKey === "GET /timed/enrich-metadata") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const allTickers = Object.keys(SECTOR_MAP);
+          const missing = [];
+          const enriched = [];
+          for (const sym of allTickers.slice(0, 300)) {
+            const ctx = await kvGetJSON(KV, `timed:context:${sym}`);
+            if (ctx && ctx.name && (ctx.sector || ctx.industry)) {
+              enriched.push(sym);
+            } else {
+              missing.push(sym);
+            }
+          }
+          return sendJSON({
+            ok: true,
+            total: allTickers.length,
+            enriched: enriched.length,
+            missing: missing.length,
+            missingTickers: missing,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // USER / AUTH ENDPOINTS
       // ═══════════════════════════════════════════════════════════════════════
 
@@ -24594,10 +24848,46 @@ export default {
               role: user.role,
               tier: user.tier,
               last_login_at: user.last_login_at,
+              terms_accepted_at: user.terms_accepted_at || null,
             },
             saved_tickers: savedTickers,
           }, 200, corsHeaders(env, req));
         } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // TERMS ACCEPTANCE
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/accept-terms - Record user's acceptance of Terms of Use
+      if (routeKey === "POST /timed/accept-terms") {
+        try {
+          const user = await authenticateUser(req, env);
+          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+
+          const now = Date.now();
+          const DB = env?.DB;
+          if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+          // Update the quick-lookup column on the users table
+          await DB.prepare(
+            `UPDATE users SET terms_accepted_at = ?, updated_at = ? WHERE email = ?`
+          ).bind(now, now, user.email).run();
+
+          // Insert audit trail row for legal proof
+          const ipAddress = req.headers.get("CF-Connecting-IP") || req.headers.get("X-Forwarded-For") || "unknown";
+          const userAgent = req.headers.get("User-Agent") || "unknown";
+          await DB.prepare(
+            `INSERT INTO terms_acceptance (email, terms_version, accepted_at, ip_address, user_agent) VALUES (?, ?, ?, ?, ?)`
+          ).bind(user.email, "1.0", now, ipAddress, userAgent).run();
+
+          console.log(`[TERMS] ${user.email} accepted Terms v1.0 at ${new Date(now).toISOString()}`);
+
+          return sendJSON({ ok: true, terms_accepted_at: now }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[TERMS] Error recording acceptance:", e);
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
       }
@@ -24740,6 +25030,7 @@ export default {
                   openByKey.set(key, t);
                 }
               }
+              const newlyAdded = [];
               for (const p of positions) {
                 const s = String(p?.ticker || "").toUpperCase();
                 const status = String(p?.status || "").toUpperCase();
@@ -24748,6 +25039,22 @@ export default {
                 if (openByKey.has(key)) continue;
                 openByKey.set(key, p);
                 d1Trades.push(p);
+                newlyAdded.push(p);
+              }
+              // Apply trail correction to position-sourced trades (same as d1LoadTradesForSimulation)
+              // so entry price is consistent regardless of trade source (trail-corrected, not VWAP)
+              if (newlyAdded.length > 0 && env?.DB) {
+                for (const t of newlyAdded) {
+                  const entryTs = Number(t.entry_ts || t.created_at || 0);
+                  if (!entryTs) continue;
+                  try {
+                    const fromTrail = await getPriceFromTrailAtTimestamp(env.DB, t.ticker, entryTs);
+                    if (fromTrail != null) {
+                      t.entryPrice = fromTrail;
+                      t.entry_price = fromTrail;
+                    }
+                  } catch { /* best-effort */ }
+                }
               }
             }
           }

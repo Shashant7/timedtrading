@@ -367,6 +367,7 @@
     </div>
 
     <script src="auth-gate.js"></script>
+    <script src="shared-price-utils.js"></script>
     <script src="shared-right-rail.compiled.js?v=3" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -1942,215 +1943,14 @@
         return null;
       }
 
-      function getIngestMs(src) {
-        const raw = src?.ingest_ts ?? src?.ingest_time ?? src?.ts;
-        if (raw == null) return null;
-        const msRaw =
-          typeof raw === "number" ? raw : new Date(String(raw)).getTime();
-        // Heuristic: if seconds, convert to ms
-        const ms =
-          typeof msRaw === "number" && msRaw > 0 && msRaw < 1e12
-            ? msRaw * 1000
-            : msRaw;
-        return Number.isFinite(ms) ? ms : null;
-      }
-
-      function getNyClock(now = new Date()) {
-        try {
-          const parts = new Intl.DateTimeFormat("en-US", {
-            timeZone: "America/New_York",
-            weekday: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          }).formatToParts(now);
-          const get = (type) => parts.find((p) => p.type === type)?.value;
-          const weekday = get("weekday") || "";
-          const hour = Number(get("hour"));
-          const minute = Number(get("minute"));
-          return {
-            weekday,
-            hour: Number.isFinite(hour) ? hour : null,
-            minute: Number.isFinite(minute) ? minute : null,
-          };
-        } catch {
-          return { weekday: "", hour: null, minute: null };
-        }
-      }
-
-      function isNyRegularMarketOpen(now = new Date()) {
-        const { weekday, hour, minute } = getNyClock(now);
-        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return true; // fail open (don't hide data)
-        const wd = String(weekday || "").toLowerCase();
-        const isWeekday =
-          wd.startsWith("mon") ||
-          wd.startsWith("tue") ||
-          wd.startsWith("wed") ||
-          wd.startsWith("thu") ||
-          wd.startsWith("fri");
-        if (!isWeekday) return false;
-        const mins = hour * 60 + minute;
-        const open = 9 * 60 + 30; // 9:30 ET
-        const close = 16 * 60; // 16:00 ET
-        return mins >= open && mins <= close;
-      }
-
-      function ageLabelFromMinutes(ageMin) {
-        const m = Number(ageMin);
-        if (!Number.isFinite(m) || m < 0) return null;
-        if (m >= 60 * 24) return `${Math.round(m / (60 * 24))}d`;
-        if (m >= 120) return `${Math.round(m / 60)}h`;
-        return `${Math.round(m)}m`;
-      }
-
-      function getStaleInfo(src, { maxAgeMin = 90 } = {}) {
-        const staleness = String(src?.staleness || "").toUpperCase();
-        const ingestMs = getIngestMs(src);
-        const ageMin = Number.isFinite(ingestMs)
-          ? (Date.now() - ingestMs) / 60000
-          : null;
-        const staleByFlag = staleness && staleness !== "FRESH";
-        const staleByAge = Number.isFinite(ageMin) && ageMin > maxAgeMin;
-        const isStale = !!(staleByFlag || staleByAge);
-        return {
-          staleness: staleness || null,
-          ingestMs,
-          ageMin: Number.isFinite(ageMin) ? ageMin : null,
-          ageLabel: ageLabelFromMinutes(ageMin),
-          staleByFlag: !!staleByFlag,
-          staleByAge: !!staleByAge,
-          isStale,
-        };
-      }
-
-      function getDailyChange(t) {
-        const marketOpen = isNyRegularMarketOpen();
-
-        // ── Live price feed data (from /timed/prices) ──
-        // If we have fresh live price data, use it directly — it's more reliable than
-        // derived values from scoring snapshots.
-        const livePrice = Number(t?._live_price);
-        const livePrevClose = Number(t?._live_prev_close);
-        const liveDailyChange = Number(t?._live_daily_change);
-        const liveDailyChangePct = Number(t?._live_daily_change_pct);
-        const priceAge = t?._price_updated_at ? (Date.now() - t._price_updated_at) / 60000 : Infinity;
-
-        if (Number.isFinite(livePrice) && livePrice > 0 && Number.isFinite(liveDailyChangePct) && priceAge < 5) {
-          return {
-            dayChg: liveDailyChange,
-            dayPct: liveDailyChangePct,
-            stale: { isStale: false, ageMin: priceAge },
-            marketOpen,
-            livePrice: true,
-          };
-        }
-
-        // ── Fallback to scoring snapshot data ──
-        // In after-hours/weekends, allow a wider "fresh" window so we can still show daily change for analysis.
-        // We still treat explicit STALE flags as stale (trust > convenience).
-        const maxAgeMin = marketOpen ? 90 : 72 * 60;
-        const stale = getStaleInfo(t, { maxAgeMin });
-        // During market hours: do not show daily change if stale.
-        // Outside market hours: allow stale-by-age (but not stale-by-flag) so the UI isn't blank.
-        if (stale.isStale && (marketOpen || stale.staleByFlag)) {
-          return { dayChg: null, dayPct: null, stale, marketOpen };
-        }
-        const price = Number(t?.price);
-        const pickNum = (obj, keys) => {
-          for (const k of keys) {
-            const v = Number(obj?.[k]);
-            if (Number.isFinite(v)) return v;
-          }
-          return null;
-        };
-        const prevClose = pickNum(t, [
-          "prev_close",
-          "previous_close",
-          "prior_close",
-          "yclose",
-          "close_prev",
-        ]);
-        // Prefer explicit daily-change fields from ingest (Heartbeat Pine emits these).
-        // However, some stored "latest" snapshots can carry a stale/incorrect prev_close-derived day_change_pct.
-        // So we treat "change/change_pct" as a safe fallback *only when* the day_* values look absurd.
-        let dayChg = pickNum(t, [
-          "day_change",
-          "daily_change",
-          "session_change",
-          "change",
-          "chg",
-          "ch",
-        ]);
-        let dayPct = pickNum(t, [
-          "day_change_pct",
-          "daily_change_pct",
-          "session_change_pct",
-          "change_pct",
-          "pct_change",
-          "chp",
-        ]);
-
-        const altChg = pickNum(t, ["change", "session_change"]);
-        const altPct = pickNum(t, [
-          "change_pct",
-          "pct_change",
-          "session_change_pct",
-        ]);
-        const looksAbsurd = (pct) => Number.isFinite(pct) && Math.abs(pct) > 5; // >5% is rare for large caps; usually indicates a bad anchor
-        const looksSane = (pct) => Number.isFinite(pct) && Math.abs(pct) <= 5;
-
-        // If day_* is present but looks wrong, fall back to change/change_pct when it looks sane.
-        // Also handle the more common failure mode: day_* and change_* disagree (often due to a bad prev_close anchor).
-        const pctDisagrees =
-          Number.isFinite(dayPct) &&
-          Number.isFinite(altPct) &&
-          (dayPct >= 0 !== altPct >= 0 || Math.abs(dayPct - altPct) >= 1.5);
-        if ((looksAbsurd(dayPct) && looksSane(altPct)) || pctDisagrees) {
-          if (Number.isFinite(altPct)) dayPct = altPct;
-          // Also switch $ change to avoid mismatched "$ + %".
-          if (Number.isFinite(altChg)) dayChg = altChg;
-        }
-
-        // If missing, compute like a watchlist using prev close.
-        if (
-          !Number.isFinite(dayChg) &&
-          !Number.isFinite(dayPct) &&
-          Number.isFinite(price) &&
-          price > 0 &&
-          Number.isFinite(prevClose) &&
-          prevClose > 0
-        ) {
-          dayChg = price - prevClose;
-          dayPct = (dayChg / prevClose) * 100;
-        }
-
-        // If only one of (abs, pct) is present, compute the other using current price
-        if (
-          !Number.isFinite(dayChg) &&
-          Number.isFinite(dayPct) &&
-          Number.isFinite(price) &&
-          price > 0
-        ) {
-          const p = dayPct / 100;
-          if (Number.isFinite(p) && Math.abs(p) < 5) {
-            const prev = price / (1 + p);
-            const abs = price - prev;
-            dayChg = Number.isFinite(abs) ? abs : null;
-          }
-        }
-        if (
-          !Number.isFinite(dayPct) &&
-          Number.isFinite(dayChg) &&
-          Number.isFinite(price) &&
-          price > 0
-        ) {
-          const prev = price - dayChg;
-          if (Number.isFinite(prev) && Math.abs(prev) > 1e-9) {
-            dayPct = (dayChg / prev) * 100;
-          }
-        }
-        return { dayChg, dayPct, stale, marketOpen };
-      }
+      // ── Shared price utilities (from shared-price-utils.js) ──
+      // Single source of truth for daily change, staleness, and market-hours logic.
+      const getIngestMs = window.TimedPriceUtils.getIngestMs;
+      const getNyClock = window.TimedPriceUtils.getNyClock;
+      const isNyRegularMarketOpen = window.TimedPriceUtils.isNyRegularMarketOpen;
+      const ageLabelFromMinutes = window.TimedPriceUtils.ageLabelFromMinutes;
+      const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
+      const getDailyChange = window.TimedPriceUtils.getDailyChange;
 
       // Shared card skin (used by Kanban + Viewport cards)
       // - background tint by daily % change (blue/orange)
@@ -10629,16 +10429,19 @@
           const slRaw = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
           const tpRaw = numFromAny(t?.tp ?? t?.tp_trim);
 
+          // SL/TP from ticker data are always relative to the TICKER's technical bias,
+          // not the trade direction. Use ticker bias for sanity checks (matches right-rail).
+          const tickerBiasDir = isBullish ? "LONG" : "SHORT";
           const slSane = (() => {
             if (!Number.isFinite(slRaw) || slRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
-            if (dir === "LONG" && slRaw >= price) return null;
-            if (dir === "SHORT" && slRaw <= price) return null;
+            if (tickerBiasDir === "LONG" && slRaw >= price) return null;
+            if (tickerBiasDir === "SHORT" && slRaw <= price) return null;
             return slRaw;
           })();
           const tpSane = (() => {
             if (!Number.isFinite(tpRaw) || tpRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
-            if (dir === "LONG" && tpRaw <= price) return null;
-            if (dir === "SHORT" && tpRaw >= price) return null;
+            if (tickerBiasDir === "LONG" && tpRaw <= price) return null;
+            if (tickerBiasDir === "SHORT" && tpRaw >= price) return null;
             return tpRaw;
           })();
           const sl = slSane;
@@ -10659,14 +10462,17 @@
             stage === "just_entered" || stage === "hold" || stage === "defend" ||
             stage === "trim" || stage === "exit";
 
-          const entryPriceRaw = numFromAny(t?.entry_price);
-          let entryPrice = isActiveTrade && Number.isFinite(entryPriceRaw) && entryPriceRaw > 0
-            ? entryPriceRaw
-            : null;
-          // Fallback: use open trade's entry price when ticker payload doesn't have it (e.g. ULTA, TT)
-          if (isActiveTrade && (!entryPrice || entryPrice <= 0) && openTrade) {
+          // Entry price: prefer the open trade's trail-corrected entry price (from /timed/trades)
+          // over the ticker payload's entry_price (from scoring snapshot, can be stale).
+          let entryPrice = null;
+          if (isActiveTrade && openTrade) {
             const ep = Number(openTrade.entryPrice ?? openTrade.entry_price) || 0;
             if (ep > 0) entryPrice = ep;
+          }
+          // Fallback: use ticker payload's entry_price if trade object doesn't have one
+          if (!entryPrice && isActiveTrade) {
+            const entryPriceRaw = numFromAny(t?.entry_price);
+            if (Number.isFinite(entryPriceRaw) && entryPriceRaw > 0) entryPrice = entryPriceRaw;
           }
           const entryChangePct =
             Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(price) && price > 0
@@ -10753,7 +10559,21 @@
                       title={savedTickers?.has?.(sym) ? "Remove from Saved" : "Add to Saved"}
                     >&#9733;</button>
                   )}
-                  <span className="text-[13px] font-bold text-white shrink-0">{sym}</span>
+                  {(() => {
+                    const ctx = t?.context && typeof t.context === "object" ? t.context : null;
+                    const ctxName = ctx?.name || "";
+                    const ctxSector = ctx?.sector || "";
+                    const ctxIndustry = ctx?.industry || "";
+                    const ctxMCap = ctx?.market_cap && Number.isFinite(Number(ctx.market_cap)) && Number(ctx.market_cap) > 0
+                      ? (Number(ctx.market_cap) >= 1e12 ? `$${(Number(ctx.market_cap) / 1e12).toFixed(1)}T`
+                        : Number(ctx.market_cap) >= 1e9 ? `$${(Number(ctx.market_cap) / 1e9).toFixed(1)}B`
+                        : Number(ctx.market_cap) >= 1e6 ? `$${(Number(ctx.market_cap) / 1e6).toFixed(0)}M`
+                        : `$${Number(ctx.market_cap).toLocaleString()}`)
+                      : "";
+                    const tipParts = [ctxName, ctxSector && ctxIndustry ? `${ctxSector} / ${ctxIndustry}` : ctxSector || ctxIndustry, ctxMCap ? `MCap: ${ctxMCap}` : ""].filter(Boolean);
+                    const tip = tipParts.length > 0 ? tipParts.join("\n") : sym;
+                    return <span className="text-[13px] font-bold text-white shrink-0" title={tip}>{sym}</span>;
+                  })()}
                   <span className={`inline-flex items-center justify-center w-4 h-4 rounded text-[9px] font-black shrink-0 text-white ${dir === "LONG" ? "bg-cyan-500 ring-1 ring-cyan-400" : "bg-rose-600 ring-1 ring-rose-400"}`} title={dir === "LONG" ? "Long" : "Short"}>{dir === "LONG" ? "L" : "S"}</span>
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                   <span className={`px-1 py-px rounded border text-[9px] font-extrabold tracking-wide shrink-0 ${dirPillCls}`} title={state}>
@@ -10864,7 +10684,7 @@
 
               {/* ── Section 4: Progress Bar — pushed to bottom ────────── */}
               <div className="mt-auto" />
-              {(sl != null || tp != null) && (() => {
+              {(sl != null || tp != null || isActiveTrade) && (() => {
                 let ep = isActiveTrade ? entryPrice : null;
                 if (isActiveTrade && (!ep || ep <= 0) && openTrade) {
                   const epFromTrade = Number(openTrade.entryPrice ?? openTrade.entry_price) || 0;
@@ -10878,8 +10698,8 @@
                 const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
                 const tpSanity = (v) => {
                   if (!Number.isFinite(v) || v <= 0 || !cp) return null;
-                  if (dir === "LONG" && v <= cp) return null;
-                  if (dir === "SHORT" && v >= cp) return null;
+                  if (tickerBiasDir === "LONG" && v <= cp) return null;
+                  if (tickerBiasDir === "SHORT" && v >= cp) return null;
                   return v;
                 };
                 const tp1 = tpSanity(tp1Raw);
@@ -11278,6 +11098,460 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // Simple Kanban Table: flat table view of all tickers with stages
+      // ─────────────────────────────────────────────────────────────
+      const STAGE_ORDER = { watch: 0, setup: 1, enter: 2, hold: 3, defend: 4, trim: 5, exit: 6 };
+      const STAGE_META = {
+        watch:  { label: "Watch",  icon: "👁", cls: "bg-gray-700/60 text-gray-300 border-gray-500/40" },
+        setup:  { label: "Setup",  icon: "📋", cls: "bg-amber-900/40 text-amber-400 border-amber-500/40" },
+        enter:  { label: "Enter",  icon: "🎯", cls: "bg-teal-900/40 text-teal-400 border-teal-500/40" },
+        hold:   { label: "Hold",   icon: "💎", cls: "bg-cyan-900/40 text-cyan-400 border-cyan-500/40" },
+        defend: { label: "Defend", icon: "🛡", cls: "bg-orange-900/40 text-orange-400 border-orange-500/40" },
+        trim:   { label: "Trim",   icon: "✂️", cls: "bg-yellow-900/40 text-yellow-400 border-yellow-500/40" },
+        exit:   { label: "Exit",   icon: "🚪", cls: "bg-rose-900/40 text-rose-400 border-rose-500/40" },
+      };
+
+      function SimpleKanbanTable({
+        tickers = [],
+        trades = [],
+        onSelectTicker = null,
+        rankPositions = {},
+        savedTickers = new Set(),
+        toggleSavedTicker = null,
+        contextData = null,
+      }) {
+        const [sortCol, setSortCol] = React.useState("stage");
+        const [sortDir, setSortDir] = React.useState("asc");
+        const [stageFilter, setStageFilter] = React.useState("all");
+
+        // Build trade-by-ticker map
+        const tradeByTicker = React.useMemo(() => {
+          const map = new Map();
+          if (!Array.isArray(trades)) return map;
+          trades.forEach((tr) => {
+            const sym = String(tr?.ticker || "").toUpperCase();
+            if (!sym) return;
+            const existing = map.get(sym);
+            const exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+            const entryTs = tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0;
+            if (!existing) { map.set(sym, tr); return; }
+            const exExit = existing.exit_ts ?? existing.exitTs ?? 0;
+            const exEntry = existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0;
+            if (exitTs > exExit || (exitTs === 0 && exExit === 0 && entryTs > exEntry)) map.set(sym, tr);
+          });
+          return map;
+        }, [trades]);
+
+        // Assign stage to each ticker (reuses EarlyMoversPanel logic + adds "watch")
+        const tickersWithStage = React.useMemo(() => {
+          return tickers.map((t) => {
+            if (t?.kanban_stage === null) return { ...t, _stage: "watch" };
+            let stage = String(t?.kanban_stage || "");
+            const sym = String(t?.ticker || "").toUpperCase();
+            const trade = tradeByTicker.get(sym);
+            const status = trade ? String(trade.status || "").toUpperCase() : "";
+            const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+            const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+            if (trade && isClosed) { stage = "exit"; }
+            else if (trade && isOpen) {
+              if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
+              else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
+            }
+            // Map server stages to UI stages
+            let uiStage;
+            switch (stage) {
+              case "setup": case "setup_watch": case "flip_watch": uiStage = "setup"; break;
+              case "enter": case "enter_now": case "just_flipped": uiStage = "enter"; break;
+              case "active": case "just_entered": case "hold": uiStage = "hold"; break;
+              case "defend": uiStage = "defend"; break;
+              case "trim": uiStage = "trim"; break;
+              case "exit": uiStage = "exit"; break;
+              default: uiStage = "watch"; break;
+            }
+            return { ...t, _stage: uiStage };
+          });
+        }, [tickers, tradeByTicker]);
+
+        // Stage counts
+        const stageCounts = React.useMemo(() => {
+          const c = { watch: 0, setup: 0, enter: 0, hold: 0, defend: 0, trim: 0, exit: 0 };
+          tickersWithStage.forEach(t => { if (c[t._stage] !== undefined) c[t._stage]++; });
+          return c;
+        }, [tickersWithStage]);
+
+        // Filter + Sort
+        const filtered = React.useMemo(() => {
+          let items = tickersWithStage;
+          if (stageFilter !== "all") items = items.filter(t => t._stage === stageFilter);
+          items = [...items].sort((a, b) => {
+            let va, vb;
+            const sym = (x) => String(x?.ticker || "").toUpperCase();
+            const ctx = (x) => {
+              const s = sym(x);
+              return contextData?.[s]?.context || x?.context || {};
+            };
+            if (sortCol === "ticker") { va = sym(a); vb = sym(b); }
+            else if (sortCol === "stage") { va = (STAGE_ORDER[a._stage] ?? 99); vb = (STAGE_ORDER[b._stage] ?? 99); }
+            else if (sortCol === "score") { va = Number(a?.score ?? 0); vb = Number(b?.score ?? 0); }
+            else if (sortCol === "price") { va = Number(a?.price ?? 0); vb = Number(b?.price ?? 0); }
+            else if (sortCol === "change") {
+              const da = getDailyChange(a) || {}; const db = getDailyChange(b) || {};
+              va = Number.isFinite(da.dayPct) ? da.dayPct : -999;
+              vb = Number.isFinite(db.dayPct) ? db.dayPct : -999;
+            }
+            else if (sortCol === "sector") { va = String(a?.sector || ctx(a).sector || ""); vb = String(b?.sector || ctx(b).sector || ""); }
+            else if (sortCol === "industry") { va = String(ctx(a).industry || ""); vb = String(ctx(b).industry || ""); }
+            else if (sortCol === "mcap") { va = Number(ctx(a).market_cap || 0); vb = Number(ctx(b).market_cap || 0); }
+            else if (sortCol === "rank") { va = Number(rankPositions?.[sym(a)] || 9999); vb = Number(rankPositions?.[sym(b)] || 9999); }
+            else { va = sym(a); vb = sym(b); }
+            // Secondary sort by score desc for stage sort, or by ticker alpha for other sorts
+            let cmp;
+            if (typeof va === "string") cmp = sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+            else cmp = sortDir === "asc" ? va - vb : vb - va;
+            if (cmp !== 0) return cmp;
+            // Tie-break: score desc, then ticker alpha
+            const sa = Number(a?.score ?? 0), sb = Number(b?.score ?? 0);
+            if (sa !== sb) return sb - sa;
+            return sym(a).localeCompare(sym(b));
+          });
+          return items;
+        }, [tickersWithStage, stageFilter, sortCol, sortDir, contextData]);
+
+        // Sort handler
+        const handleSort = (col) => {
+          if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+          else { setSortCol(col); setSortDir(col === "ticker" || col === "sector" || col === "industry" ? "asc" : "desc"); }
+        };
+        const sortArrow = (col) => sortCol !== col ? "" : sortDir === "asc" ? " ▲" : " ▼";
+
+        // Helpers
+        const fmtMCap = (v) => {
+          if (!v || !Number.isFinite(v) || v <= 0) return null;
+          if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
+          if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+          if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
+          return `$${v.toLocaleString()}`;
+        };
+
+        // Mini progress bar for a ticker row
+        const MiniProgressBar = ({ t, trade }) => {
+          const state = String(t?.state || "");
+          const isBullish = state.startsWith("HTF_BULL");
+          const tickerBiasDir = isBullish ? "LONG" : "SHORT";
+          const statusUp = String(trade?.status || "").toUpperCase();
+          const hasOpen = trade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || (!(trade?.exit_ts ?? trade?.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS"));
+          let dir = isBullish ? "LONG" : "SHORT";
+          if (hasOpen) { const d = String(trade?.direction || "").toUpperCase(); if (d === "LONG" || d === "SHORT") dir = d; }
+          const price = Number(t?.price ?? t?.close);
+          const slRaw = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
+          const tpRaw = numFromAny(t?.tp ?? t?.tp_trim);
+          const slSane = (() => {
+            if (!Number.isFinite(slRaw) || slRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
+            if (tickerBiasDir === "LONG" && slRaw >= price) return null;
+            if (tickerBiasDir === "SHORT" && slRaw <= price) return null;
+            return slRaw;
+          })();
+          let ep = null;
+          if (hasOpen && trade) {
+            const epv = Number(trade.entryPrice ?? trade.entry_price) || 0;
+            if (epv > 0) ep = epv;
+          }
+          if (!ep) {
+            const epv = numFromAny(t?.entry_price);
+            if (Number.isFinite(epv) && epv > 0) ep = epv;
+          }
+          const cp = Number.isFinite(price) && price > 0 ? price : null;
+          const tpArr = Array.isArray(t?.tpArray) ? t.tpArray : [];
+          const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
+          const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
+          const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tpRaw);
+          const tpSanity = (v) => {
+            if (!Number.isFinite(v) || v <= 0 || !cp) return null;
+            if (tickerBiasDir === "LONG" && v <= cp) return null;
+            if (tickerBiasDir === "SHORT" && v >= cp) return null;
+            return v;
+          };
+          const sl = slSane;
+          const tp1 = tpSanity(tp1Raw);
+          const tp2 = tpSanity(tp2Raw);
+          const xp = tpSanity(xpRaw);
+          const vals = [sl, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
+          if (vals.length < 2) return <span className="text-[9px] text-gray-600">—</span>;
+          const rawLo = Math.min(...vals);
+          const rawHi = Math.max(...vals);
+          const pad = (rawHi - rawLo) * 0.08;
+          const lo = rawLo - pad;
+          const hi = rawHi + pad;
+          const range = hi - lo;
+          const pct = (v) => range > 0 ? Math.max(0, Math.min(100, ((v - lo) / range) * 100)) : 50;
+          const fillPct = cp ? pct(cp) : 0;
+          const isShort = dir === "SHORT";
+          const slMovedPastEntry = ep && sl && ((dir === "LONG" && sl > ep) || (dir === "SHORT" && sl < ep));
+          const fillColor = fillPct >= 50 ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50") : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
+          const Mk = ({ val, label, color, tc }) => {
+            if (!val) return null;
+            return (
+              <div className="absolute" style={{ left: `${pct(val)}%`, width: "16px", marginLeft: "-8px", top: "-10px", bottom: "-10px" }}
+                title={`${label}: $${val.toFixed(2)}`}>
+                <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "10px", bottom: "10px" }} />
+                <span className={`absolute left-1/2 top-0 -translate-x-1/2 text-[6px] font-extrabold ${tc} whitespace-nowrap`}>{label}</span>
+              </div>
+            );
+          };
+          return (
+            <div className="w-full min-w-[160px] max-w-[260px]">
+              <div className="relative h-2 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2 mb-2">
+                {cp && (
+                  <div
+                    className={`absolute top-0 bottom-0 rounded ${isShort ? "right-0" : "left-0"} ${fillColor}`}
+                    style={{ width: isShort ? `${100 - fillPct}%` : `${fillPct}%` }}
+                  />
+                )}
+                <Mk val={sl} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
+                <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
+                <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
+                <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" />
+                <Mk val={xp} label="XP" color="bg-emerald-400" tc="text-emerald-300" />
+              </div>
+            </div>
+          );
+        };
+
+        // Rank total for display
+        const rankTotal = React.useMemo(() => {
+          return rankPositions ? Object.keys(rankPositions).length : 0;
+        }, [rankPositions]);
+
+        const STAGE_KEYS = ["watch", "setup", "enter", "hold", "defend", "trim", "exit"];
+
+        return (
+          <div className="mb-4">
+            {/* Stage filter pills */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              <span className="text-[11px] text-[#6b7280] mr-1">Stage:</span>
+              {[
+                { key: "all", label: "All", count: tickersWithStage.length },
+                ...Object.entries(STAGE_META).map(([k, v]) => ({ key: k, label: v.label, count: stageCounts[k] || 0, icon: v.icon })),
+              ].map(({ key, label, count, icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setStageFilter(key)}
+                  className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors border ${
+                    stageFilter === key
+                      ? "bg-white/[0.10] text-white border-white/[0.15]"
+                      : "bg-white/[0.02] text-[#6b7280] border-white/[0.05] hover:text-white hover:bg-white/[0.05]"
+                  }`}
+                >
+                  {icon ? `${icon} ` : ""}{label} <span className="text-[10px] opacity-60">{count}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto border border-white/[0.05] rounded-lg">
+              <table className="text-sm w-full" style={{ minWidth: 1400 }}>
+                <thead>
+                  <tr className="bg-white/[0.03] border-b border-white/[0.05]">
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("ticker")}>
+                      Ticker{sortArrow("ticker")}
+                    </th>
+                    <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
+                    <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
+                      CP{sortArrow("price")}
+                    </th>
+                    <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
+                      Day %{sortArrow("change")}
+                    </th>
+                    <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>
+                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("score")}>
+                      Score{sortArrow("score")}
+                    </th>
+                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("rank")}>
+                      Rank{sortArrow("rank")}
+                    </th>
+                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">R:R</th>
+                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Bias</th>
+                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Flags</th>
+                    {/* Stage lane columns */}
+                    {STAGE_KEYS.map(sk => {
+                      const m = STAGE_META[sk];
+                      return (
+                        <th key={sk} className="px-1 py-2 text-center text-[10px] font-medium text-gray-500 cursor-pointer hover:text-white select-none" onClick={() => handleSort("stage")}
+                          title={`${m.label} (${stageCounts[sk] || 0})`}>
+                          {m.icon}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((t, idx) => {
+                    const sym = String(t?.ticker || "").toUpperCase();
+                    const trade = tradeByTicker.get(sym);
+                    const stg = t._stage;
+                    const ctxObj = contextData?.[sym] || {};
+                    const ctx = ctxObj?.context || t?.context || {};
+                    const name = ctx.name || "";
+                    const score = Number(t?.score ?? t?.flip_watch_score ?? 0);
+                    const price = Number(t?.price ?? t?.close ?? 0);
+                    const dailyResult = getDailyChange(t) || {};
+                    const dayPct = Number.isFinite(dailyResult.dayPct) ? dailyResult.dayPct : null;
+                    const dayChg = Number.isFinite(dailyResult.dayChg) ? dailyResult.dayChg : null;
+                    // Rank
+                    const rank = rankPositions?.[sym] || null;
+                    // R:R
+                    const state = String(t?.state || "");
+                    const isBullish = state.startsWith("HTF_BULL");
+                    const tickerBiasDir = isBullish ? "LONG" : "SHORT";
+                    const slRaw = Number(t?.sl ?? t?.sl_price ?? 0);
+                    const tpRaw = numFromAny(t?.tp ?? t?.tp_trim);
+                    const slOk = Number.isFinite(slRaw) && slRaw > 0 && Number.isFinite(price) && price > 0 &&
+                      !(tickerBiasDir === "LONG" && slRaw >= price) && !(tickerBiasDir === "SHORT" && slRaw <= price);
+                    const tpOk = Number.isFinite(tpRaw) && tpRaw > 0 && Number.isFinite(price) && price > 0 &&
+                      !(tickerBiasDir === "LONG" && tpRaw <= price) && !(tickerBiasDir === "SHORT" && tpRaw >= price);
+                    const rr = slOk && tpOk ? (Math.abs(tpRaw - price) / Math.abs(price - slRaw)) : null;
+                    // Direction / Bias
+                    const statusUp = String(trade?.status || "").toUpperCase();
+                    const hasOpen = trade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || (!(trade?.exit_ts ?? trade?.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS"));
+                    let dir = isBullish ? "L" : "S";
+                    if (hasOpen) { const d = String(trade?.direction || "").toUpperCase(); if (d === "LONG") dir = "L"; else if (d === "SHORT") dir = "S"; }
+                    const dirColor = dir === "L" ? "text-teal-400" : "text-rose-400";
+                    // Badges
+                    const flg = t?.flags || {};
+                    const badges = [];
+                    if (isPrimeBubble(t)) badges.push("⭐");
+                    if (flg.flip_watch) badges.push("🎯");
+                    if (flg.momentum_elite) badges.push("🔥");
+                    if (flg.sq30_release) badges.push("⚡");
+                    if (flg.sq30_on && !flg.sq30_release) badges.push("🧨");
+                    const showProgress = ["enter", "hold", "defend", "trim", "exit"].includes(stg);
+
+                    return (
+                      <tr
+                        key={sym}
+                        className={`border-b border-white/[0.03] hover:bg-white/[0.03] cursor-pointer transition-colors ${idx % 2 === 0 ? "" : "bg-white/[0.01]"}`}
+                        onClick={() => onSelectTicker && onSelectTicker(sym)}
+                      >
+                        {/* Ticker */}
+                        <td className="px-2 py-1.5">
+                          <span className="font-semibold text-blue-400 text-[12px]">{sym}</span>
+                        </td>
+                        {/* Name */}
+                        <td className="px-2 py-1 text-[11px] text-gray-400 truncate max-w-[120px]" title={name}>{name || "—"}</td>
+                        {/* Current Price */}
+                        <td className="px-2 py-1 text-right text-[11px] text-white font-medium tabular-nums">
+                          {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
+                        </td>
+                        {/* Daily % Change */}
+                        <td className="px-2 py-1 text-right text-[11px] tabular-nums">
+                          {dayPct !== null ? (
+                            <span style={{ color: dayPct > 0 ? "#22c55e" : dayPct < 0 ? "#ef4444" : "#9ca3af" }}>
+                              {dayPct > 0 ? "+" : ""}{dayPct.toFixed(2)}%
+                            </span>
+                          ) : <span className="text-gray-600">—</span>}
+                        </td>
+                        {/* Daily $ Change */}
+                        <td className="px-2 py-1 text-right text-[11px] tabular-nums">
+                          {dayChg !== null ? (
+                            <span style={{ color: dayChg > 0 ? "#22c55e" : dayChg < 0 ? "#ef4444" : "#9ca3af" }}>
+                              {dayChg > 0 ? "+" : ""}{dayChg.toFixed(2)}
+                            </span>
+                          ) : <span className="text-gray-600">—</span>}
+                        </td>
+                        {/* Score */}
+                        <td className="px-2 py-1.5 text-center">
+                          {score > 0 ? (
+                            <span
+                              className="text-[11px] font-bold px-1.5 py-0.5 rounded"
+                              style={{
+                                color: score >= 80 ? "#22c55e" : score >= 50 ? "#f59e0b" : "#ef4444",
+                                background: score >= 80 ? "rgba(34,197,94,0.12)" : score >= 50 ? "rgba(245,158,11,0.12)" : "rgba(239,68,68,0.12)",
+                              }}
+                            >
+                              {Math.round(score)}
+                            </span>
+                          ) : <span className="text-[11px] text-gray-600">—</span>}
+                        </td>
+                        {/* Rank */}
+                        <td className="px-2 py-1.5 text-center text-[11px] tabular-nums">
+                          {rank ? (
+                            <span className="text-gray-300">{rank}<span className="text-gray-600 text-[9px]">/{rankTotal}</span></span>
+                          ) : <span className="text-gray-600">—</span>}
+                        </td>
+                        {/* R:R */}
+                        <td className="px-2 py-1.5 text-center text-[11px] tabular-nums">
+                          {rr !== null && Number.isFinite(rr) ? (
+                            <span className={rr >= 2 ? "text-teal-400 font-semibold" : rr >= 1 ? "text-gray-300" : "text-rose-400"}>
+                              {rr.toFixed(1)}
+                            </span>
+                          ) : <span className="text-gray-600">—</span>}
+                        </td>
+                        {/* Directional Bias */}
+                        <td className="px-2 py-1.5 text-center">
+                          <span className={`text-[11px] font-bold ${dirColor}`}>{dir}</span>
+                        </td>
+                        {/* Flags */}
+                        <td className="px-2 py-1.5 text-center text-[11px]">
+                          {badges.length > 0 ? badges.join("") : <span className="text-gray-600">—</span>}
+                        </td>
+                        {/* Stage lane columns: pill in active stage, progress bar spans Enter+ */}
+                        {(() => {
+                          const stageIdx = STAGE_KEYS.indexOf(stg);
+                          const enterIdx = STAGE_KEYS.indexOf("enter");
+                          if (showProgress && stageIdx >= enterIdx) {
+                            // For Enter and beyond: show empty cells before Enter, then progress bar spanning from Enter to Exit
+                            const preEnterCells = STAGE_KEYS.slice(0, enterIdx).map(sk => (
+                              <td key={sk} className="px-1 py-1 text-center">
+                                {sk === stg ? (
+                                  <span className={`inline-block w-2.5 h-2.5 rounded-full border ${STAGE_META[sk].cls}`} title={STAGE_META[sk].label} />
+                                ) : null}
+                              </td>
+                            ));
+                            const spanCount = STAGE_KEYS.length - enterIdx; // enter through exit = 5
+                            return (
+                              <>
+                                {preEnterCells}
+                                <td colSpan={spanCount} className="px-1 py-1">
+                                  <div className="flex items-center gap-1">
+                                    <span className={`inline-block w-2.5 h-2.5 rounded-full border shrink-0 ${STAGE_META[stg].cls}`} title={STAGE_META[stg].label} />
+                                    <MiniProgressBar t={t} trade={trade} />
+                                  </div>
+                                </td>
+                              </>
+                            );
+                          }
+                          // Watch/Setup: show a pill dot in the active column, empty otherwise
+                          return STAGE_KEYS.map(sk => (
+                            <td key={sk} className="px-1 py-1 text-center">
+                              {sk === stg ? (
+                                <span className={`inline-block w-2.5 h-2.5 rounded-full border ${STAGE_META[sk].cls}`} title={STAGE_META[sk].label} />
+                              ) : null}
+                            </td>
+                          ));
+                        })()}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-2 text-[10px] text-[#6b7280] flex items-center justify-between">
+              <span>Showing {filtered.length} of {tickersWithStage.length} tickers</span>
+              <span className="flex items-center gap-3">
+                {Object.entries(STAGE_META).map(([k, v]) => (
+                  <span key={k} className="flex items-center gap-1">
+                    <span>{v.icon}</span>
+                    <span>{v.label}: {stageCounts[k] || 0}</span>
+                  </span>
+                ))}
+              </span>
+            </div>
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // Early Movers Panel: Kanban-style trading flow
       // ─────────────────────────────────────────────────────────────
       function EarlyMoversPanel({
@@ -11479,8 +11753,9 @@
             <div className="flex items-stretch gap-0 mb-1">
               {/* Lane label */}
               <div
-                className={`flex flex-col justify-center items-center w-[88px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-white/[0.04] ${color} px-1.5 py-2`}
+                className={`flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-white/[0.04] ${color} px-1 py-2`}
                 style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" }}
+                title={subtitle || title}
               >
                 <span className="text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight">
                   {icon}<br/>{title}
@@ -11488,7 +11763,6 @@
                 <span className={`text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`}>
                   {count}
                 </span>
-                {subtitle && <span className="text-[8px] text-[#6b7280] text-center leading-tight mt-1 max-w-[76px]" title={subtitle}>{subtitle}</span>}
               </div>
               {/* Horizontal scrollable card area */}
               <div
@@ -14658,6 +14932,14 @@
         const [hoveredTicker, setHoveredTicker] = useState(null);
         const [journeyHoverPoint, setJourneyHoverPoint] = useState(null);
         const [journeySelectedPoint, setJourneySelectedPoint] = useState(null);
+        // Dashboard view mode: "advanced" (Kanban cards) or "simple" (table)
+        const [dashboardViewMode, setDashboardViewMode] = useState(() => {
+          try { return localStorage.getItem("timedTrading_viewMode") || "advanced"; } catch { return "advanced"; }
+        });
+        const toggleViewMode = useCallback((mode) => {
+          setDashboardViewMode(mode);
+          try { localStorage.setItem("timedTrading_viewMode", mode); } catch {}
+        }, []);
         // AI Assistant removed (unused)
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(() => {
           // Check if user has seen dashboard welcome page before
@@ -15209,6 +15491,32 @@
                       Filters {showAdvancedFilters ? "▼" : "▶"}
                     </button>
 
+                    {/* View Mode Toggle */}
+                    <div className="flex items-center bg-white/[0.03] border border-white/[0.08] rounded-lg overflow-hidden">
+                      <button
+                        onClick={() => toggleViewMode("advanced")}
+                        className={`px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                          dashboardViewMode === "advanced"
+                            ? "bg-white/[0.10] text-white"
+                            : "text-[#6b7280] hover:text-white"
+                        }`}
+                        title="Advanced: Kanban card view"
+                      >
+                        Cards
+                      </button>
+                      <button
+                        onClick={() => toggleViewMode("simple")}
+                        className={`px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                          dashboardViewMode === "simple"
+                            ? "bg-white/[0.10] text-white"
+                            : "text-[#6b7280] hover:text-white"
+                        }`}
+                        title="Simple: Table view"
+                      >
+                        Table
+                      </button>
+                    </div>
+
                     {/* Time Travel (inline with pills) */}
                     <div className="flex-1 min-w-[200px]">
                       <TimeTravelSlider
@@ -15297,16 +15605,28 @@
                     />
                   </div>
 
-                  {/* Kanban Lanes (horizontal swim-lanes) */}
-                  <EarlyMoversPanel
-                    tickers={tickers}
-                    trades={trades}
-                    onSelectTicker={handleTickerSelect}
-                    rankPositions={rankedTickerPositions}
-                    rankTotal={allTickersWithRanks.length}
-                    savedTickers={savedTickers}
-                    toggleSavedTicker={toggleSavedTicker}
-                  />
+                  {/* Kanban Lanes (horizontal swim-lanes) or Simple Table */}
+                  {dashboardViewMode === "simple" ? (
+                    <SimpleKanbanTable
+                      tickers={tickers}
+                      trades={trades}
+                      onSelectTicker={handleTickerSelect}
+                      rankPositions={rankedTickerPositions}
+                      savedTickers={savedTickers}
+                      toggleSavedTicker={toggleSavedTicker}
+                      contextData={data}
+                    />
+                  ) : (
+                    <EarlyMoversPanel
+                      tickers={tickers}
+                      trades={trades}
+                      onSelectTicker={handleTickerSelect}
+                      rankPositions={rankedTickerPositions}
+                      rankTotal={allTickersWithRanks.length}
+                      savedTickers={savedTickers}
+                      toggleSavedTicker={toggleSavedTicker}
+                    />
+                  )}
                 </header>
 
                 {/* Error Display */}
@@ -15342,7 +15662,7 @@
                     {/* Hero Section: Activity Feed | Bubble Chart | Detail View */}
                     <div className="flex flex-col lg:flex-row gap-4 items-stretch">
                       {/* Viewport - Left side */}
-                      <div className="w-full lg:w-[440px] lg:flex-shrink-0 h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
+                      <div className="w-full lg:w-[300px] lg:flex-shrink-0 h-[600px] sm:h-[700px] md:h-[800px] lg:h-[900px]">
                         <OpportunitiesPanel
                           tickers={tickersWithRanks}
                           rankPositions={rankedTickerPositions}

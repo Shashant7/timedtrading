@@ -341,6 +341,165 @@
     );
   }
 
+  // ── Terms Gate Screen ────────────────────────────────────────────────────
+  // Shown after authentication, before dashboard access.
+  // User must accept Terms of Use to continue.
+  function TermsGateScreen({ user, apiBase, onAccepted }) {
+    const [agreed, setAgreed] = React.useState(false);
+    const [submitting, setSubmitting] = React.useState(false);
+    const [error, setError] = React.useState(null);
+    const h = React.createElement;
+    const font = '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+    const handleAccept = async () => {
+      if (!agreed || submitting) return;
+      setSubmitting(true);
+      setError(null);
+      try {
+        const res = await fetch(`${apiBase}/timed/accept-terms`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const json = await res.json();
+        if (json.ok && json.terms_accepted_at) {
+          onAccepted(json.terms_accepted_at);
+        } else {
+          setError(json.error || "Failed to record acceptance. Please try again.");
+          setSubmitting(false);
+        }
+      } catch (e) {
+        setError("Network error. Please check your connection and try again.");
+        setSubmitting(false);
+      }
+    };
+
+    const handleSignOut = () => {
+      clearSession();
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
+      document.body.appendChild(iframe);
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); } catch {}
+        window.location.href = "/splash.html";
+      }, 1500);
+    };
+
+    const chartIcon = h("svg", { width: "36", height: "36", viewBox: "0 0 24 24", fill: "none", stroke: "white", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
+      h("polyline", { points: "22 7 13.5 15.5 8.5 10.5 2 17" }),
+      h("polyline", { points: "16 7 22 7 22 13" }),
+    );
+
+    return h("div", { style: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "radial-gradient(ellipse at 50% 0%, #111820 0%, #0b0e11 60%)", fontFamily: font, position: "relative", overflow: "hidden", padding: "24px" } },
+      h("style", null, `
+        @keyframes tt-glow { 0%,100%{box-shadow:0 0 40px rgba(0,200,83,0.15),0 0 80px rgba(0,200,83,0.05)} 50%{box-shadow:0 0 60px rgba(0,200,83,0.25),0 0 120px rgba(0,200,83,0.08)} }
+        @keyframes tt-fade-in { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin { to{transform:rotate(360deg)} }
+      `),
+      // Background grid
+      h("div", { style: { position: "absolute", inset: 0, backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.015) 1px, transparent 0)", backgroundSize: "40px 40px", pointerEvents: "none" } }),
+
+      h("div", { style: { position: "relative", zIndex: 1, width: "100%", maxWidth: "520px", animation: "tt-fade-in 0.5s ease-out" } },
+        // Logo
+        h("div", { style: { textAlign: "center", marginBottom: "24px" } },
+          h("div", { style: { width: "64px", height: "64px", borderRadius: "18px", background: "linear-gradient(135deg, #00c853 0%, #00e676 50%, #69f0ae 100%)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", animation: "tt-glow 4s ease-in-out infinite" } }, chartIcon),
+          h("h1", { style: { fontSize: "24px", fontWeight: "700", color: "#f0f2f5", margin: "0 0 4px", letterSpacing: "-0.03em" } }, "Terms of Use Agreement"),
+          h("p", { style: { fontSize: "13px", color: "#6b7280", margin: 0 } }, "Signed in as ", h("span", { style: { color: "#9ca3af", fontWeight: "500" } }, user?.email || "Unknown")),
+        ),
+
+        // Card
+        h("div", { style: { background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "20px", padding: "28px", backdropFilter: "blur(12px)" } },
+          h("p", { style: { fontSize: "14px", color: "#9ca3af", lineHeight: "1.6", margin: "0 0 20px" } },
+            "Before accessing the Timed Trading platform, you must review and accept our Terms of Use. By accepting, you acknowledge that this platform is for ",
+            h("strong", { style: { color: "#e5e7eb" } }, "entertainment and educational purposes only"),
+            " and does not constitute financial advice.",
+          ),
+
+          // Key points box
+          h("div", { style: { background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", padding: "20px", marginBottom: "20px", maxHeight: "220px", overflowY: "auto" } },
+            h("p", { style: { fontSize: "12px", color: "#6b7280", margin: "0 0 12px", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: "600" } }, "Key Terms Summary"),
+            ...[
+              "Timed Trading is NOT a registered investment advisor, broker-dealer, or financial institution.",
+              "All scores, signals, and analytics are for entertainment and educational purposes only.",
+              "You are solely responsible for your own investment decisions and any resulting gains or losses.",
+              "Past performance does not guarantee or predict future results.",
+              "All investments carry substantial risk of loss, including loss of principal.",
+              "You must consult a qualified financial professional before making investment decisions.",
+              "The service is provided \"as is\" without warranties of any kind.",
+            ].map((text, i) => h("div", { key: i, style: { display: "flex", gap: "8px", marginBottom: "10px", alignItems: "flex-start" } },
+              h("span", { style: { color: "#00c853", fontSize: "14px", lineHeight: "1.4", flexShrink: 0 } }, "\u2022"),
+              h("p", { style: { fontSize: "13px", color: "#9ca3af", margin: 0, lineHeight: "1.5" } }, text),
+            )),
+          ),
+
+          // Link to full terms
+          h("div", { style: { textAlign: "center", marginBottom: "20px" } },
+            h("a", {
+              href: "/terms.html",
+              target: "_blank",
+              rel: "noopener noreferrer",
+              style: { fontSize: "13px", color: "#00c853", textDecoration: "none", fontWeight: "500", borderBottom: "1px solid rgba(0,200,83,0.3)" },
+            }, "Read the full Terms of Use \u2192"),
+          ),
+
+          // Error
+          error && h("div", { style: { background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: "10px", padding: "12px 16px", marginBottom: "16px", fontSize: "13px", color: "#f87171", lineHeight: "1.4" } }, error),
+
+          // Checkbox
+          h("label", {
+            style: { display: "flex", alignItems: "flex-start", gap: "12px", cursor: "pointer", padding: "12px 16px", borderRadius: "12px", border: agreed ? "1px solid rgba(0,200,83,0.2)" : "1px solid rgba(255,255,255,0.06)", background: agreed ? "rgba(0,200,83,0.04)" : "transparent", transition: "all 0.2s", marginBottom: "20px" },
+          },
+            h("input", {
+              type: "checkbox",
+              checked: agreed,
+              onChange: (e) => setAgreed(e.target.checked),
+              style: { marginTop: "2px", width: "18px", height: "18px", accentColor: "#00c853", cursor: "pointer", flexShrink: 0 },
+            }),
+            h("span", { style: { fontSize: "13px", color: agreed ? "#e5e7eb" : "#9ca3af", lineHeight: "1.5", transition: "color 0.2s" } },
+              "I have read and agree to the ",
+              h("a", { href: "/terms.html", target: "_blank", rel: "noopener noreferrer", style: { color: "#00c853", textDecoration: "underline" } }, "Terms of Use"),
+              " and Disclaimer. I understand that Timed Trading is for entertainment and educational purposes only and does not provide financial advice.",
+            ),
+          ),
+
+          // Buttons
+          h("div", { style: { display: "flex", gap: "12px" } },
+            h("button", {
+              onClick: handleAccept,
+              disabled: !agreed || submitting,
+              style: {
+                flex: 1, padding: "14px 20px", borderRadius: "12px", border: "none",
+                background: agreed && !submitting ? "linear-gradient(135deg, #00c853, #00e676)" : "rgba(255,255,255,0.04)",
+                color: agreed && !submitting ? "#0b0e11" : "#6b7280",
+                fontSize: "14px", fontWeight: "700", cursor: agreed && !submitting ? "pointer" : "not-allowed",
+                transition: "all 0.2s", fontFamily: "inherit", letterSpacing: "-0.01em",
+              },
+            },
+              submitting
+                ? h("span", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" } },
+                    h("span", { style: { width: "16px", height: "16px", border: "2px solid rgba(11,14,17,0.3)", borderTopColor: "#0b0e11", borderRadius: "50%", animation: "spin 0.8s linear infinite" } }),
+                    "Recording...")
+                : "Accept & Continue",
+            ),
+            h("button", {
+              onClick: handleSignOut,
+              style: { padding: "14px 20px", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.06)", background: "transparent", color: "#9ca3af", fontSize: "13px", fontWeight: "500", cursor: "pointer", transition: "all 0.2s", fontFamily: "inherit", whiteSpace: "nowrap" },
+              onMouseEnter: (e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "#e5e7eb"; },
+              onMouseLeave: (e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#9ca3af"; },
+            }, "Sign Out"),
+          ),
+        ),
+
+        // Footer
+        h("div", { style: { textAlign: "center", marginTop: "20px" } },
+          h("p", { style: { fontSize: "11px", color: "#374151" } }, "\u00a9 2026 Timed Trading. All rights reserved."),
+        ),
+      ),
+    );
+  }
+
   // ── Auth Gate Component ──────────────────────────────────────────────────
   // Props:
   //   apiBase     - API base URL
@@ -461,11 +620,9 @@
     }
 
     if (state === "unauthenticated") {
-      return React.createElement(LoginScreen, {
-        onRetry: handleLogin,
-        error: error,
-        loading: false,
-      });
+      // Redirect to public splash page instead of showing inline login screen
+      window.location.href = "/splash.html";
+      return null;
     }
 
     // Tier gating: if requiredTier is set, check the user has sufficient access
@@ -480,8 +637,59 @@
       }
     }
 
-    // Authenticated (and tier-authorized) — render children with user context
-    return typeof children === "function" ? children(user) : children;
+    // Terms acceptance gate: user must accept Terms of Use before accessing the platform
+    if (user && !user.terms_accepted_at) {
+      return React.createElement(TermsGateScreen, {
+        user: user,
+        apiBase: apiBase,
+        onAccepted: (ts) => {
+          // Update user state with accepted timestamp so the gate passes
+          const updated = { ...user, terms_accepted_at: ts };
+          setUser(updated);
+          storeSession(updated);
+        },
+      });
+    }
+
+    // Authenticated, tier-authorized, and terms accepted — render children with user context
+    const appContent = typeof children === "function" ? children(user) : children;
+
+    // Wrap app content with a global footer containing Terms link
+    return React.createElement(React.Fragment, null,
+      appContent,
+      React.createElement("div", {
+        style: {
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: "16px",
+          padding: "6px 16px",
+          background: "rgba(11,14,17,0.85)",
+          backdropFilter: "blur(8px)",
+          borderTop: "1px solid rgba(255,255,255,0.04)",
+          zIndex: 9999,
+          fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          fontSize: "11px",
+          pointerEvents: "auto",
+        },
+      },
+        React.createElement("span", { style: { color: "#374151" } }, "\u00a9 2026 Timed Trading"),
+        React.createElement("a", {
+          href: "/terms.html",
+          target: "_blank",
+          rel: "noopener noreferrer",
+          style: { color: "#4b5563", textDecoration: "none", borderBottom: "1px solid rgba(75,85,99,0.3)", transition: "color 0.2s" },
+          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
+          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
+        }, "Terms of Use"),
+        React.createElement("span", { style: { color: "#1f2937" } }, "\u00b7"),
+        React.createElement("span", { style: { color: "#374151" } }, "Not financial advice"),
+      ),
+    );
   }
 
   // ── User Badge (for nav bars) ────────────────────────────────────────────
@@ -498,15 +706,15 @@
     const handleLogout = () => {
       clearSession();
       // Clear the CF Access JWT cookie via a hidden iframe, then redirect
-      // back to the main site (which triggers the CF Access login page).
+      // back to the splash page (public landing page).
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
       iframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
       document.body.appendChild(iframe);
-      // Give the iframe time to clear the cookie, then redirect to home
+      // Give the iframe time to clear the cookie, then redirect to splash
       setTimeout(() => {
         try { document.body.removeChild(iframe); } catch {}
-        window.location.href = window.location.origin;
+        window.location.href = "/splash.html";
       }, 1500);
     };
 

@@ -2368,16 +2368,52 @@ export async function alpacaFetchSnapshots(env, symbols) {
     // Map Alpaca symbol back to our internal format (BRK.B → BRK-B)
     const ourSym = reverseSymMap[sym] || sym;
     const lt = snap.latestTrade;
+    const lq = snap.latestQuote;
     const db = snap.dailyBar;
     const pdb = snap.prevDailyBar;
     const mb = snap.minuteBar;
+
+    // Smart price selection: latestTrade can be a stale low-volume AH trade
+    // (e.g. ULTA $675 when actual close was $679.28 and bid/ask is $679/$682).
+    // Strategy:
+    //   1. During RTH or if latestTrade is recent (<5 min) & decent volume: use latestTrade.p
+    //   2. If quote midpoint available and latestTrade looks stale: prefer quote midpoint
+    //   3. Fall back to dailyBar.c (official RTH close)
+    const tradePrice = Number(lt?.p) || 0;
+    const tradeTs = lt?.t ? new Date(lt.t).getTime() : 0;
+    const tradeAgeMin = tradeTs > 0 ? (Date.now() - tradeTs) / 60000 : Infinity;
+    const dailyClose = Number(db?.c) || 0;
+    const bid = Number(lq?.bp) || 0;
+    const ask = Number(lq?.ap) || 0;
+    const quoteMid = (bid > 0 && ask > 0 && ask >= bid) ? Math.round((bid + ask) / 2 * 100) / 100 : 0;
+
+    let price = tradePrice; // default: latestTrade.p
+
+    // If latestTrade is stale (>5 min old), check for better sources
+    if (tradeAgeMin > 5 && tradePrice > 0) {
+      // Check if latestTrade diverges significantly from dailyBar.c or quote midpoint
+      const refPrice = quoteMid > 0 ? quoteMid : dailyClose;
+      if (refPrice > 0) {
+        const divergePct = Math.abs(tradePrice - refPrice) / refPrice * 100;
+        if (divergePct > 0.5) {
+          // Stale trade diverges from quote/close — use quote midpoint or daily close
+          price = quoteMid > 0 ? quoteMid : dailyClose;
+        }
+      }
+    }
+
+    // If no trade price at all, fall back to quote midpoint or daily close
+    if (!(price > 0)) {
+      price = quoteMid > 0 ? quoteMid : dailyClose;
+    }
+
     snapshots[ourSym] = {
-      price: lt?.p || db?.c || 0,
-      trade_ts: lt?.t ? new Date(lt.t).getTime() : 0,
+      price,
+      trade_ts: tradeTs,
       dailyOpen: db?.o || 0,
       dailyHigh: db?.h || 0,
       dailyLow: db?.l || 0,
-      dailyClose: db?.c || 0,
+      dailyClose,
       dailyVolume: db?.v || 0,
       prevDailyClose: pdb?.c || 0,
       minuteBar: mb ? { o: mb.o, h: mb.h, l: mb.l, c: mb.c, v: mb.v, ts: new Date(mb.t).getTime() } : null,

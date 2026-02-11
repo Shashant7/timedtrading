@@ -1,21 +1,59 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Pages Worker — proxy /timed/* requests to the Worker API.
+// Pages Worker — smart root routing + proxy /timed/* to the API Worker.
 //
-// This eliminates cross-origin issues: the browser only talks to the Pages
-// domain (timedtrading.pages.dev), and this worker forwards /timed/* to
-// the API Worker (timed-trading-ingest.shashant.workers.dev) server-side.
+// Root path routing:
+//   - If the user has a CF_Authorization cookie (authenticated) → redirect
+//     to /index-react.html (dashboard).
+//   - Otherwise → serve /splash.html (public landing page).
 //
-// The CF-Access-JWT-Assertion header (set by Cloudflare Access on the Pages
-// domain) is forwarded so the API Worker can identify the authenticated user.
+// API proxy:
+//   - /timed/* requests are forwarded to the API Worker server-side.
+//   - The CF-Access-JWT-Assertion header is extracted from the CF Access
+//     header (if present) or from the CF_Authorization cookie and forwarded
+//     to the API Worker for authentication.
 //
 // All other requests (HTML, JS, CSS) are served as static assets via env.ASSETS.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const WORKER_ORIGIN = "https://timed-trading-ingest.shashant.workers.dev";
 
+/**
+ * Extract the CF Access JWT from the request.
+ * Priority: CF-Access-JWT-Assertion header (set by CF Access on protected paths),
+ * then fallback to the CF_Authorization cookie (set domain-wide by CF Access
+ * after the user authenticates on any protected path).
+ */
+function extractJwt(request) {
+  const header = request.headers.get("CF-Access-JWT-Assertion");
+  if (header) return header;
+
+  const cookies = request.headers.get("Cookie") || "";
+  const match = cookies.match(/CF_Authorization=([^;]+)/);
+  return match ? match[1] : null;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // ── Smart root routing ───────────────────────────────────────────────
+    // Authenticated users (have CF_Authorization cookie) → dashboard.
+    // Everyone else → public splash page.
+    if (url.pathname === "/") {
+      const cookies = request.headers.get("Cookie") || "";
+      const hasAuth = cookies.includes("CF_Authorization=");
+      if (hasAuth) {
+        return Response.redirect(
+          new URL("/index-react.html", url.origin).toString(),
+          302,
+        );
+      } else {
+        // Serve splash.html as the public landing page
+        return env.ASSETS.fetch(
+          new Request(new URL("/splash.html", url.origin), request),
+        );
+      }
+    }
 
     // ── Proxy /timed/* to the API Worker ─────────────────────────────────
     if (url.pathname.startsWith("/timed/") || url.pathname === "/timed") {
@@ -24,8 +62,8 @@ export default {
       // Forward select headers
       const headers = new Headers();
 
-      // Forward CF Access JWT (set by CF Access on Pages domain)
-      const jwt = request.headers.get("CF-Access-JWT-Assertion");
+      // Forward CF Access JWT (from header or cookie fallback)
+      const jwt = extractJwt(request);
       if (jwt) headers.set("CF-Access-JWT-Assertion", jwt);
 
       // Forward content type (important for POST with JSON body)
@@ -35,6 +73,10 @@ export default {
       // Forward user-agent for logging
       const ua = request.headers.get("User-Agent");
       if (ua) headers.set("User-Agent", ua);
+
+      // Forward CF-Connecting-IP for audit trails (terms acceptance, etc.)
+      const ip = request.headers.get("CF-Connecting-IP");
+      if (ip) headers.set("CF-Connecting-IP", ip);
 
       const init = { method: request.method, headers };
 

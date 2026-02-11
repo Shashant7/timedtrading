@@ -189,3 +189,21 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_role ON users (role);
 CREATE INDEX IF NOT EXISTS idx_users_tier ON users (tier);
 
+-- -----------------------------------------------------------------------------
+-- Terms acceptance: audit trail for legal proof of user consent
+-- Users must accept Terms of Use before accessing the platform.
+-- The users.terms_accepted_at column provides a fast lookup;
+-- this table provides a versioned audit trail.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS terms_acceptance (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL,
+  terms_version TEXT NOT NULL DEFAULT '1.0',
+  accepted_at INTEGER NOT NULL,           -- ms epoch (UTC)
+  ip_address TEXT,
+  user_agent TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_terms_acceptance_email ON terms_acceptance (email);
+

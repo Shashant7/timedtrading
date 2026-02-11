@@ -661,9 +661,20 @@
                         );
                       })()}
                       
-                      {/* Bias - Inline */}
+                      {/* Bias - Inline: show trade direction when open position, otherwise ticker bias */}
                       {(() => {
-                        const dir = getDirection(ticker);
+                        const tickerDir = getDirection(ticker);
+                        // Check if there's an open trade with a direction
+                        const tradeStatus = String(trade?.status || "").toUpperCase();
+                        const tradeIsOpen = trade && (
+                          tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
+                          (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
+                        );
+                        const tradeDirStr = String(trade?.direction || "").toUpperCase();
+                        const useTradeDir = tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT");
+                        const dir = useTradeDir
+                          ? { text: tradeDirStr, color: tradeDirStr === "LONG" ? "text-teal-400" : "text-rose-400", bg: tradeDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20" }
+                          : tickerDir;
                         return (
                           <div className="mt-2">
                             <span
@@ -1175,6 +1186,15 @@
                         const sector = clean(ctx.sector);
                         const industry = clean(ctx.industry);
                         const country = clean(ctx.country);
+                        const marketCapRaw = ctx.market_cap != null ? Number(ctx.market_cap) : null;
+                        const marketCap = Number.isFinite(marketCapRaw) && marketCapRaw > 0 ? marketCapRaw : null;
+                        const fmtMCap = (v) => {
+                          if (!v) return null;
+                          if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
+                          if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+                          if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
+                          return `$${v.toLocaleString()}`;
+                        };
                         const tr =
                           ctx.technical_rating &&
                           typeof ctx.technical_rating === "object"
@@ -1246,6 +1266,11 @@
                               {[sector, industry, country]
                                 .filter(Boolean)
                                 .join(" • ") || "—"}
+                              {marketCap ? (
+                                <span className="ml-2 text-[10px] text-slate-400 font-medium">
+                                  MCap: {fmtMCap(marketCap)}
+                                </span>
+                              ) : null}
                             </div>
 
                             {(trStatus || trValue != null || lastEarnTs || events?.next_earnings_ts) ? (
@@ -2462,6 +2487,24 @@
                                 candles = Array.from(snappedMap.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
                               }
 
+                              // Daily dedup: group by ET calendar date, keep the market-close candle (latest per day)
+                              // This prevents duplicate bars from midnight vs 4PM ET timestamps.
+                              if (String(chartTf) === "D") {
+                                const byDate = new Map();
+                                for (const c of candles) {
+                                  const etDate = new Date(c.__ts_ms - 5 * 3600 * 1000);
+                                  const dateKey = `${etDate.getUTCFullYear()}-${String(etDate.getUTCMonth() + 1).padStart(2, "0")}-${String(etDate.getUTCDate()).padStart(2, "0")}`;
+                                  const prev = byDate.get(dateKey);
+                                  if (!prev || c.__ts_ms > prev.__ts_ms) {
+                                    byDate.set(dateKey, { ...c, _dateKey: dateKey });
+                                  } else {
+                                    prev.h = Math.max(prev.h, c.h);
+                                    prev.l = Math.min(prev.l, c.l);
+                                  }
+                                }
+                                candles = Array.from(byDate.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
+                              }
+
                               const weekStartUtcMs = (tsMs) => {
                                 const d0 = new Date(Number(tsMs));
                                 const day = d0.getUTCDay();
@@ -2819,6 +2862,50 @@
                                     return tdLabels;
                                   })()}
 
+                                  {/* Current Price Line */}
+                                  {(() => {
+                                    const lastC = candles[candles.length - 1];
+                                    if (!lastC) return null;
+                                    const cp = Number(lastC.c);
+                                    if (!Number.isFinite(cp)) return null;
+                                    const cpY = y(cp);
+                                    if (cpY < 0 || cpY > H) return null;
+                                    return (
+                                      <g>
+                                        <line
+                                          x1={leftMargin}
+                                          y1={cpY}
+                                          x2={W - rightMargin}
+                                          y2={cpY}
+                                          stroke="rgba(250,204,21,0.5)"
+                                          strokeWidth="1"
+                                          strokeDasharray="2 3"
+                                        />
+                                        <rect
+                                          x={W - rightMargin + 2}
+                                          y={cpY - 9}
+                                          width={rightMargin - 4}
+                                          height={18}
+                                          fill="rgba(250,204,21,0.15)"
+                                          stroke="rgba(250,204,21,0.5)"
+                                          strokeWidth="1"
+                                          rx="3"
+                                        />
+                                        <text
+                                          x={W - rightMargin + (rightMargin - 4) / 2}
+                                          y={cpY + 3.5}
+                                          fontSize="10"
+                                          fill="#fbbf24"
+                                          fontFamily="monospace"
+                                          fontWeight="700"
+                                          textAnchor="middle"
+                                        >
+                                          ${cp.toFixed(2)}
+                                        </text>
+                                      </g>
+                                    );
+                                  })()}
+
                                   {crosshair ? (
                                     <>
                                       <line
@@ -2898,42 +2985,53 @@
                                           );
                                           if (!Number.isFinite(ts)) return "—";
                                           const d = new Date(ts);
+                                          const isDWM = ["D", "W", "M"].includes(String(chartTf));
+                                          if (isDWM) {
+                                            return d.toLocaleString("en-US", {
+                                              weekday: "short",
+                                              month: "short",
+                                              day: "numeric",
+                                              year: "numeric",
+                                              timeZone: "America/New_York",
+                                            });
+                                          }
                                           return d.toLocaleString("en-US", {
                                             month: "short",
                                             day: "numeric",
                                             hour: "numeric",
                                             minute: "2-digit",
-                                          });
+                                            timeZone: "America/New_York",
+                                          }) + " ET";
                                         } catch {
                                           return "—";
                                         }
                                       })()}
                                     </div>
-                                    <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                                      <div className="text-[#6b7280]">O:</div>
-                                      <div className="text-white font-mono">
-                                        ${Number(crosshair.candle.o).toFixed(2)}
-                                      </div>
-                                      <div className="text-[#6b7280]">H:</div>
-                                      <div className="text-sky-300 font-mono">
-                                        ${Number(crosshair.candle.h).toFixed(2)}
-                                      </div>
-                                      <div className="text-[#6b7280]">L:</div>
-                                      <div className="text-orange-300 font-mono">
-                                        ${Number(crosshair.candle.l).toFixed(2)}
-                                      </div>
-                                      <div className="text-[#6b7280]">C:</div>
-                                      <div
-                                        className={`font-mono font-semibold ${
-                                          Number(crosshair.candle.c) >=
-                                          Number(crosshair.candle.o)
-                                            ? "text-sky-300"
-                                            : "text-orange-300"
-                                        }`}
-                                      >
-                                        ${Number(crosshair.candle.c).toFixed(2)}
-                                      </div>
-                                    </div>
+                                    {(() => {
+                                      const cc = crosshair.candle;
+                                      const chg = Number(cc.c) - Number(cc.o);
+                                      const chgPct = Number(cc.o) > 0 ? (chg / Number(cc.o)) * 100 : 0;
+                                      const isUp = chg >= 0;
+                                      return (
+                                        <div className="grid grid-cols-4 gap-x-2 gap-y-0.5 text-[10px]">
+                                          <div className="text-[#6b7280]">O</div>
+                                          <div className="text-white font-mono">${Number(cc.o).toFixed(2)}</div>
+                                          <div className="text-[#6b7280]">H</div>
+                                          <div className="text-sky-300 font-mono">${Number(cc.h).toFixed(2)}</div>
+                                          <div className="text-[#6b7280]">L</div>
+                                          <div className="text-orange-300 font-mono">${Number(cc.l).toFixed(2)}</div>
+                                          <div className="text-[#6b7280]">C</div>
+                                          <div className={`font-mono font-semibold ${isUp ? "text-teal-400" : "text-rose-400"}`}>
+                                            ${Number(cc.c).toFixed(2)}
+                                          </div>
+                                          <div className="col-span-4 mt-0.5 text-[9px]">
+                                            <span className={`font-semibold ${isUp ? "text-teal-400" : "text-rose-400"}`}>
+                                              {isUp ? "+" : ""}{chg.toFixed(2)} ({isUp ? "+" : ""}{chgPct.toFixed(2)}%)
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 ) : null}
 
@@ -2943,7 +3041,11 @@
                                       ? "Daily"
                                       : String(chartTf) === "W"
                                         ? "Weekly"
-                                        : `${chartTf}m`}{" "}
+                                        : String(chartTf) === "M"
+                                          ? "Monthly"
+                                          : Number(chartTf) >= 60
+                                            ? `${Number(chartTf) / 60}H`
+                                            : `${chartTf}m`}{" "}
                                     • {candles.length} bars
                                   </span>
                                   <span className="font-mono">
@@ -4345,6 +4447,23 @@
 
                               // Sort + dedupe/aggregate to prevent duplicate bars (common on W captures).
                               candles.sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
+
+                              // Daily dedup: group by ET calendar date, keep the market-close candle (latest per day)
+                              if (String(chartTf) === "D") {
+                                const byDate = new Map();
+                                for (const c of candles) {
+                                  const etDate = new Date(c.__ts_ms - 5 * 3600 * 1000);
+                                  const dateKey = `${etDate.getUTCFullYear()}-${String(etDate.getUTCMonth() + 1).padStart(2, "0")}-${String(etDate.getUTCDate()).padStart(2, "0")}`;
+                                  const prev = byDate.get(dateKey);
+                                  if (!prev || c.__ts_ms > prev.__ts_ms) {
+                                    byDate.set(dateKey, { ...c, _dateKey: dateKey });
+                                  } else {
+                                    prev.h = Math.max(prev.h, c.h);
+                                    prev.l = Math.min(prev.l, c.l);
+                                  }
+                                }
+                                candles = Array.from(byDate.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
+                              }
 
                               const weekStartUtcMs = (tsMs) => {
                                 const d0 = new Date(Number(tsMs));

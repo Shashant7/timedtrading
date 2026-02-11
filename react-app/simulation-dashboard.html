@@ -105,6 +105,7 @@
     <div id="root"></div>
 
     <script src="auth-gate.js"></script>
+    <script src="shared-price-utils.js"></script>
     <script src="shared-right-rail.compiled.js?v=3" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
@@ -228,162 +229,14 @@
         return null;
       }
 
-      function getIngestMs(src) {
-        const raw = src?.ingest_ts ?? src?.ingest_time ?? src?.ts;
-        if (raw == null) return null;
-        const msRaw =
-          typeof raw === "number" ? raw : new Date(String(raw)).getTime();
-        // Heuristic: if seconds, convert to ms
-        const ms =
-          typeof msRaw === "number" && msRaw > 0 && msRaw < 1e12
-            ? msRaw * 1000
-            : msRaw;
-        return Number.isFinite(ms) ? ms : null;
-      }
-
-      function getNyClock(now = new Date()) {
-        try {
-          const parts = new Intl.DateTimeFormat("en-US", {
-            timeZone: "America/New_York",
-            weekday: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          }).formatToParts(now);
-          const get = (type) => parts.find((p) => p.type === type)?.value;
-          const weekday = get("weekday") || "";
-          const hour = Number(get("hour"));
-          const minute = Number(get("minute"));
-          return {
-            weekday,
-            hour: Number.isFinite(hour) ? hour : null,
-            minute: Number.isFinite(minute) ? minute : null,
-          };
-        } catch {
-          return { weekday: "", hour: null, minute: null };
-        }
-      }
-
-      function isNyRegularMarketOpen(now = new Date()) {
-        const { weekday, hour, minute } = getNyClock(now);
-        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return true; // fail open
-        const wd = String(weekday || "").toLowerCase();
-        const isWeekday =
-          wd.startsWith("mon") ||
-          wd.startsWith("tue") ||
-          wd.startsWith("wed") ||
-          wd.startsWith("thu") ||
-          wd.startsWith("fri");
-        if (!isWeekday) return false;
-        const mins = hour * 60 + minute;
-        const open = 9 * 60 + 30;
-        const close = 16 * 60;
-        return mins >= open && mins <= close;
-      }
-
-      function ageLabelFromMinutes(ageMin) {
-        const m = Number(ageMin);
-        if (!Number.isFinite(m) || m < 0) return null;
-        if (m >= 60 * 24) return `${Math.round(m / (60 * 24))}d`;
-        if (m >= 120) return `${Math.round(m / 60)}h`;
-        return `${Math.round(m)}m`;
-      }
-
-      function getStaleInfo(src, { maxAgeMin = 90 } = {}) {
-        const staleness = String(src?.staleness || "").toUpperCase();
-        const ingestMs = getIngestMs(src);
-        const ageMin = Number.isFinite(ingestMs)
-          ? (Date.now() - ingestMs) / 60000
-          : null;
-        const staleByFlag = staleness && staleness !== "FRESH";
-        const staleByAge = Number.isFinite(ageMin) && ageMin > maxAgeMin;
-        const isStale = !!(staleByFlag || staleByAge);
-        return {
-          staleness: staleness || null,
-          ingestMs,
-          ageMin: Number.isFinite(ageMin) ? ageMin : null,
-          ageLabel: ageLabelFromMinutes(ageMin),
-          staleByFlag: !!staleByFlag,
-          staleByAge: !!staleByAge,
-          isStale,
-        };
-      }
-
-      function getDailyChange(t) {
-        const marketOpen = isNyRegularMarketOpen();
-        const maxAgeMin = marketOpen ? 90 : 72 * 60;
-        const stale = getStaleInfo(t, { maxAgeMin });
-        if (stale.isStale && (marketOpen || stale.staleByFlag)) {
-          return { dayChg: null, dayPct: null, stale, marketOpen };
-        }
-        const price = Number(t?.price);
-        const pickNum = (obj, keys) => {
-          for (const k of keys) {
-            const v = Number(obj?.[k]);
-            if (Number.isFinite(v)) return v;
-          }
-          return null;
-        };
-        const prevClose = pickNum(t, [
-          "prev_close",
-          "previous_close",
-          "prior_close",
-          "yclose",
-          "close_prev",
-        ]);
-        let dayChg = pickNum(t, [
-          "day_change",
-          "daily_change",
-          "session_change",
-          "change",
-          "chg",
-          "ch",
-        ]);
-        let dayPct = pickNum(t, [
-          "day_change_pct",
-          "daily_change_pct",
-          "session_change_pct",
-          "change_pct",
-          "pct_change",
-          "chp",
-        ]);
-        if (
-          !Number.isFinite(dayChg) &&
-          !Number.isFinite(dayPct) &&
-          Number.isFinite(price) &&
-          price > 0 &&
-          Number.isFinite(prevClose) &&
-          prevClose > 0
-        ) {
-          dayChg = price - prevClose;
-          dayPct = (dayChg / prevClose) * 100;
-        }
-        if (
-          !Number.isFinite(dayChg) &&
-          Number.isFinite(dayPct) &&
-          Number.isFinite(price) &&
-          price > 0
-        ) {
-          const p = dayPct / 100;
-          if (Number.isFinite(p) && Math.abs(p) < 5) {
-            const prev = price / (1 + p);
-            const abs = price - prev;
-            dayChg = Number.isFinite(abs) ? abs : null;
-          }
-        }
-        if (
-          !Number.isFinite(dayPct) &&
-          Number.isFinite(dayChg) &&
-          Number.isFinite(price) &&
-          price > 0
-        ) {
-          const prev = price - dayChg;
-          if (Number.isFinite(prev) && Math.abs(prev) > 1e-9) {
-            dayPct = (dayChg / prev) * 100;
-          }
-        }
-        return { dayChg, dayPct, stale, marketOpen };
-      }
+      // ── Shared price utilities (from shared-price-utils.js) ──
+      // Single source of truth for daily change, staleness, and market-hours logic.
+      const getIngestMs = window.TimedPriceUtils.getIngestMs;
+      const getNyClock = window.TimedPriceUtils.getNyClock;
+      const isNyRegularMarketOpen = window.TimedPriceUtils.isNyRegularMarketOpen;
+      const ageLabelFromMinutes = window.TimedPriceUtils.ageLabelFromMinutes;
+      const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
+      const getDailyChange = window.TimedPriceUtils.getDailyChange;
 
       function computeReturnPct(src) {
         const direct =

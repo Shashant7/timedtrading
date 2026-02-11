@@ -167,6 +167,7 @@
         const [actionStatus, setActionStatus] = useState(null);
         const [backfillStatus, setBackfillStatus] = useState({});
         const [priceData, setPriceData] = useState({});
+        const [contextData, setContextData] = useState({}); // ticker -> {name, sector, industry, market_cap}
         const [pendingTickers, setPendingTickers] = useState(new Set()); // Optimistic: tickers just added, show until they appear from API
         const pollUntilRef = useRef(null); // When to stop polling after add
         const addRef = useRef(null);
@@ -176,15 +177,40 @@
         // still show until the next refresh.
         const [watchlistTickers, setWatchlistTickers] = useState([]);
 
+        // Helper: get ticker context from enrichment data, fallback to hardcoded
+        const getTickerName = useCallback((ticker) => {
+          const ctx = contextData[ticker];
+          if (ctx?.name) return ctx.name;
+          return COMPANY_NAMES[ticker] || "—";
+        }, [contextData]);
+        const getTickerIndustry = useCallback((ticker) => {
+          const ctx = contextData[ticker];
+          return ctx?.industry || "";
+        }, [contextData]);
+        const getTickerMCap = useCallback((ticker) => {
+          const ctx = contextData[ticker];
+          const v = ctx?.market_cap ? Number(ctx.market_cap) : null;
+          if (!v || !Number.isFinite(v) || v <= 0) return null;
+          return v;
+        }, [contextData]);
+        const fmtMCap = (v) => {
+          if (!v) return "—";
+          if (v >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
+          if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+          if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
+          return `$${v.toLocaleString()}`;
+        };
+
         // ── Fetch data ──
         const fetchData = useCallback(async (clearPendingFromResponse = true, skipLoading = false) => {
           if (!skipLoading) setLoading(true);
           setError(null);
           try {
-            const [statusRes, priceRes, tickersRes] = await Promise.all([
+            const [statusRes, priceRes, tickersRes, allRes] = await Promise.all([
               fetch(`${API_BASE}/timed/admin/ingestion-status?_t=${Date.now()}`, { credentials: "include" }),
               fetch(`${API_BASE}/timed/prices?_t=${Date.now()}`),
               fetch(`${API_BASE}/timed/tickers?_t=${Date.now()}`),
+              fetch(`${API_BASE}/timed/all?_t=${Date.now()}`),
             ]);
             const json = await statusRes.json();
             if (!json.ok) throw new Error(json.error || "Failed to fetch");
@@ -204,6 +230,19 @@
               const pJson = await priceRes.json();
               if (pJson.ok && pJson.prices) {
                 setPriceData({ prices: pJson.prices, updated_at: pJson.updated_at });
+              }
+            } catch (_) {}
+            // Extract context (name, sector, industry, market_cap) from /timed/all
+            try {
+              const allJson = await allRes.json();
+              if (allJson.ok && allJson.data) {
+                const ctx = {};
+                for (const [sym, obj] of Object.entries(allJson.data)) {
+                  if (obj?.context && typeof obj.context === "object") {
+                    ctx[sym] = obj.context;
+                  }
+                }
+                setContextData(ctx);
               }
             } catch (_) {}
           } catch (e) {
@@ -269,7 +308,14 @@
           let items = tickers;
           if (search) {
             const q = search.toUpperCase();
-            items = items.filter(t => t.ticker.includes(q));
+            items = items.filter(t => {
+              if (t.ticker.includes(q)) return true;
+              const name = getTickerName(t.ticker);
+              if (name && name.toUpperCase().includes(q)) return true;
+              const ind = getTickerIndustry(t.ticker);
+              if (ind && ind.toUpperCase().includes(q)) return true;
+              return false;
+            });
           }
           if (sectorFilter !== "all") {
             items = items.filter(t => t.sector === sectorFilter);
@@ -279,6 +325,8 @@
             let va, vb;
             if (sortCol === "ticker") { va = a.ticker; vb = b.ticker; }
             else if (sortCol === "sector") { va = a.sector || ""; vb = b.sector || ""; }
+            else if (sortCol === "industry") { va = getTickerIndustry(a.ticker) || ""; vb = getTickerIndustry(b.ticker) || ""; }
+            else if (sortCol === "mcap") { va = getTickerMCap(a.ticker) || 0; vb = getTickerMCap(b.ticker) || 0; }
             else if (sortCol === "pct") { va = a.pct; vb = b.pct; }
             else if (sortCol === "price") {
               va = priceData?.prices?.[a.ticker]?.p ?? -1;
@@ -298,7 +346,7 @@
             return sortDir === "asc" ? va - vb : vb - va;
           });
           return items;
-        }, [tickers, search, sectorFilter, sortCol, sortDir]);
+        }, [tickers, search, sectorFilter, sortCol, sortDir, contextData, getTickerName, getTickerIndustry, getTickerMCap]);
 
         // ── Sort handler ──
         function handleSort(col) {
@@ -738,7 +786,7 @@
               {/* Table */}
               {!loading && filtered.length > 0 && (
                 <div className="overflow-x-auto border border-white/5 rounded-lg">
-                  <table className="text-sm" style={{ minWidth: 1500 }}>
+                  <table className="text-sm" style={{ minWidth: 1700 }}>
                     <thead>
                       <tr className="bg-white/[0.03] border-b border-white/5">
                         <th className="px-2 py-2 text-left w-8">
@@ -761,6 +809,18 @@
                           onClick={() => handleSort("sector")}
                         >
                           Sector{sortArrow("sector")}
+                        </th>
+                        <th
+                          className="px-2 py-2 text-left text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                          onClick={() => handleSort("industry")}
+                        >
+                          Industry{sortArrow("industry")}
+                        </th>
+                        <th
+                          className="px-2 py-2 text-right text-xs font-medium text-gray-400 cursor-pointer hover:text-white select-none"
+                          onClick={() => handleSort("mcap")}
+                        >
+                          MCap{sortArrow("mcap")}
                         </th>
                         <th className="px-2 py-2 text-left text-xs font-medium text-gray-400">Groups</th>
                         <th
@@ -813,12 +873,25 @@
                               />
                             </td>
                             <td className="px-3 py-1.5">
-                              <span className="font-semibold text-white text-xs">{t.ticker}</span>
+                              <a
+                                href={`index-react.html#ticker=${encodeURIComponent(t.ticker)}`}
+                                className="font-semibold text-blue-400 hover:text-blue-300 text-xs cursor-pointer hover:underline"
+                                title={`View ${t.ticker} details on Dashboard`}
+                              >{t.ticker}</a>
                               {t.backfilling && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-400" title="Backfill in progress; coverage will update shortly">Backfilling</span>}
                               {isTV && !t.backfilling && <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-purple-900/40 text-purple-400">TV</span>}
                             </td>
-                            <td className="px-2 py-1 text-[11px] text-gray-500 max-w-[100px] truncate" title={COMPANY_NAMES[t.ticker] || ""}>{COMPANY_NAMES[t.ticker] || "—"}</td>
+                            <td className="px-2 py-1 text-[11px] text-gray-400 max-w-[140px] truncate" title={getTickerName(t.ticker)}>{getTickerName(t.ticker)}</td>
                             <td className="px-2 py-1 text-[11px] text-gray-400 max-w-[100px] truncate" title={t.sector}>{t.sector || "—"}</td>
+                            <td className="px-2 py-1 text-[11px] text-gray-500 max-w-[130px] truncate" title={getTickerIndustry(t.ticker)}>{getTickerIndustry(t.ticker) || "—"}</td>
+                            <td className="px-2 py-1 text-[11px] text-right text-gray-500 tabular-nums whitespace-nowrap">
+                              {(() => {
+                                const mcap = getTickerMCap(t.ticker);
+                                if (!mcap) return <span className="text-gray-600">—</span>;
+                                const color = mcap >= 200e9 ? "text-blue-400" : mcap >= 10e9 ? "text-teal-400" : mcap >= 2e9 ? "text-gray-400" : "text-gray-500";
+                                return <span className={color}>{fmtMCap(mcap)}</span>;
+                              })()}
+                            </td>
                             <td className="px-2 py-1">
                               {(() => {
                                 const grps = groupsForTicker(t.ticker);

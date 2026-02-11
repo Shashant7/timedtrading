@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timed Trading — Swing &amp; Position Trading Intelligence</title>
+  <meta name="description" content="Multi-timeframe scoring engine for swing and position traders. Real-time signals, automated risk management, and self-learning analytics across 200+ tickers." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-base: #0b0e11;
+      --bg-surface: rgba(255,255,255,0.025);
+      --bg-surface-hover: rgba(255,255,255,0.045);
+      --border: rgba(255,255,255,0.06);
+      --border-hover: rgba(255,255,255,0.12);
+      --text-primary: #e5e7eb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #00c853;
+      --accent-glow: rgba(0,200,83,0.15);
+      --accent-subtle: rgba(0,200,83,0.08);
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* ── Utility ──────────────────────────────────────────────── */
+    .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+    /* ── Animations ──────────────────────────────────────────── */
+    @keyframes float {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-20px) scale(1.02); }
+    }
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+    @keyframes line-draw {
+      from { stroke-dashoffset: 600; }
+      to   { stroke-dashoffset: 0; }
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Nav ──────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 16px 0;
+      background: rgba(11,14,17,0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      transition: background 0.3s;
+    }
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+    .nav-logo {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #00c853, #00e676, #69f0ae);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .nav-links { display: flex; align-items: center; gap: 8px; }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface); }
+    .nav-links .btn-signin {
+      color: var(--bg-base);
+      background: var(--accent);
+      font-weight: 600;
+      padding: 8px 20px;
+    }
+    .nav-links .btn-signin:hover {
+      background: #00e676;
+      color: var(--bg-base);
+      transform: translateY(-1px);
+    }
+
+    /* ── Hero ─────────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      overflow: hidden;
+    }
+    .hero-bg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    /* Gradient orb */
+    .hero-orb {
+      position: absolute;
+      width: 600px; height: 600px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0,200,83,0.12) 0%, rgba(0,200,83,0.02) 50%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -55%);
+      animation: float 8s ease-in-out infinite;
+      filter: blur(40px);
+    }
+    /* Grid dots */
+    .hero-grid {
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
+      background-size: 48px 48px;
+    }
+    /* Chart line SVG */
+    .hero-chart {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 200px;
+      opacity: 0.08;
+    }
+    .hero-chart path {
+      stroke: var(--accent);
+      stroke-width: 2;
+      fill: none;
+      stroke-dasharray: 600;
+      animation: line-draw 3s ease-out forwards;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      max-width: 720px;
+      animation: fade-up 0.8s ease-out;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 100px;
+      background: var(--accent-subtle);
+      border: 1px solid rgba(0,200,83,0.15);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      margin-bottom: 24px;
+    }
+    .hero-badge::before {
+      content: "";
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+    .hero h1 {
+      font-size: clamp(2.5rem, 5vw, 4rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      margin-bottom: 20px;
+      background: linear-gradient(180deg, #ffffff 30%, #9ca3af 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: clamp(1rem, 2vw, 1.2rem);
+      color: var(--text-secondary);
+      max-width: 560px;
+      margin: 0 auto 36px;
+      line-height: 1.7;
+    }
+    .hero-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 32px;
+      border-radius: 12px;
+      background: var(--accent);
+      color: var(--bg-base);
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      letter-spacing: -0.01em;
+      transition: all 0.25s;
+      box-shadow: 0 0 32px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.3);
+    }
+    .hero-cta:hover {
+      background: #00e676;
+      transform: translateY(-2px);
+      box-shadow: 0 0 48px rgba(0,200,83,0.25), 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .hero-cta svg { transition: transform 0.2s; }
+    .hero-cta:hover svg { transform: translateX(3px); }
+
+    .hero-stats {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 40px;
+      margin-top: 56px;
+      padding-top: 40px;
+      border-top: 1px solid var(--border);
+    }
+    .hero-stat { text-align: center; }
+    .hero-stat .num {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+    }
+    .hero-stat .label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* ── Section common ──────────────────────────────────────── */
+    section { padding: 100px 0; }
+    .section-label {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(1.75rem, 3vw, 2.5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 16px;
+    }
+    .section-desc {
+      font-size: 16px;
+      color: var(--text-secondary);
+      max-width: 560px;
+      line-height: 1.7;
+    }
+
+    /* ── Value Props ──────────────────────────────────────────── */
+    .value-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-top: 48px;
+    }
+    .value-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px 28px;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .value-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .value-card:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-4px);
+    }
+    .value-card:hover::before { opacity: 1; }
+    .value-icon {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: var(--accent-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .value-icon svg { width: 22px; height: 22px; stroke: var(--accent); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .value-card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+    }
+    .value-card p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.65;
+    }
+    .value-card ul {
+      list-style: none;
+      margin-top: 16px;
+    }
+    .value-card li {
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 5px 0 5px 20px;
+      position: relative;
+    }
+    .value-card li::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 12px;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0.5;
+    }
+
+    /* ── Features Strip ──────────────────────────────────────── */
+    .features-section {
+      background: linear-gradient(180deg, transparent 0%, rgba(0,200,83,0.015) 50%, transparent 100%);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 48px;
+    }
+    .feature-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 18px;
+      border-radius: 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+    .feature-item:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+    }
+    .feature-item svg {
+      width: 20px; height: 20px;
+      stroke: var(--accent);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex-shrink: 0;
+    }
+    .feature-item span {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    /* ── How It Works ────────────────────────────────────────── */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-top: 56px;
+      position: relative;
+    }
+    .steps::before {
+      content: "";
+      position: absolute;
+      top: 32px;
+      left: calc(16.67% + 12px);
+      right: calc(16.67% + 12px);
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), rgba(0,200,83,0.2));
+    }
+    .step {
+      text-align: center;
+      position: relative;
+    }
+    .step-num {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: var(--bg-base);
+      border: 2px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--accent);
+      margin: 0 auto 20px;
+      position: relative;
+      z-index: 1;
+    }
+    .step h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+    .step p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      max-width: 240px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* ── CTA Banner ──────────────────────────────────────────── */
+    .cta-banner {
+      text-align: center;
+      padding: 80px 24px;
+    }
+    .cta-banner h2 {
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 12px;
+    }
+    .cta-banner p {
+      color: var(--text-secondary);
+      margin-bottom: 32px;
+      font-size: 15px;
+    }
+
+    /* ── Footer ──────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0;
+    }
+    footer .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .footer-row a, .footer-row span {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+      white-space: nowrap;
+    }
+    .footer-row a:hover { color: var(--text-secondary); }
+    .footer-sep { color: var(--border); font-size: 10px; }
+    .cf-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 3px 8px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .cf-badge svg { width: 12px; height: 12px; }
+    .footer-disclaimer {
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-top: 12px;
+      max-width: 680px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .value-grid { grid-template-columns: 1fr; }
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: 1fr; gap: 40px; }
+      .steps::before { display: none; }
+      .hero-stats { gap: 24px; }
+    }
+    @media (max-width: 600px) {
+      .features-grid { grid-template-columns: 1fr; }
+      .hero-stats { flex-direction: column; gap: 16px; }
+      footer .container { flex-direction: column; gap: 16px; text-align: center; }
+      .footer-links { flex-wrap: wrap; justify-content: center; }
+      nav .container { padding: 0 16px; }
+      .nav-links a:not(.btn-signin) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ NAV ═══ -->
+  <nav>
+    <div class="container">
+      <a href="/" class="nav-brand">
+        <div class="nav-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+            <polyline points="16 7 22 7 22 13" />
+          </svg>
+        </div>
+        Timed Trading
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="/index-react.html" class="btn-signin">Sign In</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══ HERO ═══ -->
+  <section class="hero">
+    <div class="hero-bg">
+      <div class="hero-orb"></div>
+      <div class="hero-grid"></div>
+      <svg class="hero-chart" viewBox="0 0 1200 200" preserveAspectRatio="none">
+        <path d="M0 180 Q100 160 200 140 T400 100 T600 120 T800 60 T1000 80 T1200 30" />
+      </svg>
+    </div>
+    <div class="hero-content">
+      <div class="hero-badge">Live Scoring Engine</div>
+      <h1>Trading Intelligence,<br />Timed to Perfection</h1>
+      <p>
+        A multi-timeframe scoring engine that surfaces high-conviction setups across
+        200+ tickers, manages risk automatically, and learns from every trade.
+      </p>
+      <a href="/index-react.html" class="hero-cta">
+        Get Started
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+        </svg>
+      </a>
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <div class="num">200+</div>
+          <div class="label">Tickers Scored</div>
+        </div>
+        <div class="hero-stat">
+          <div class="num">9</div>
+          <div class="label">Timeframes</div>
+        </div>
+        <div class="hero-stat">
+          <div class="num">5 min</div>
+          <div class="label">Refresh Cycle</div>
+        </div>
+        <div class="hero-stat">
+          <div class="num">24/5</div>
+          <div class="label">Market Coverage</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ VALUE PROPS ═══ -->
+  <section id="value">
+    <div class="container">
+      <div class="reveal">
+        <span class="section-label">Built For Every Style</span>
+        <h2 class="section-title">One platform, every trading horizon</h2>
+        <p class="section-desc">
+          Whether you scalp intraday, hold for weeks, or manage a long-term portfolio,
+          Timed Trading scores the market for your timeframe.
+        </p>
+      </div>
+      <div class="value-grid">
+
+        <!-- Active Traders -->
+        <div class="value-card reveal">
+          <div class="value-icon">
+            <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>
+          </div>
+          <h3>For Active Traders</h3>
+          <p>Real-time signals powered by a multi-timeframe consensus engine.</p>
+          <ul>
+            <li>HTF + LTF alignment scoring</li>
+            <li>Precise entry, stop-loss &amp; take-profit levels</li>
+            <li>SuperTrend &amp; TD Sequential signals</li>
+            <li>Risk-reward ratios on every setup</li>
+          </ul>
+        </div>
+
+        <!-- Position Holders -->
+        <div class="value-card reveal">
+          <div class="value-icon">
+            <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+          </div>
+          <h3>For Position Holders</h3>
+          <p>Manage open trades with automated stage tracking and live risk monitoring.</p>
+          <ul>
+            <li>Kanban-style trade lifecycle</li>
+            <li>Automated stop-loss breach alerts</li>
+            <li>Trailing targets with partial exits</li>
+            <li>Daily P&amp;L and portfolio heat map</li>
+          </ul>
+        </div>
+
+        <!-- Passive Investors -->
+        <div class="value-card reveal">
+          <div class="value-icon">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+          </div>
+          <h3>For Passive Investors</h3>
+          <p>Set your watchlist and let the engine score the market for you, every 5 minutes.</p>
+          <ul>
+            <li>Sector rotation &amp; alignment insights</li>
+            <li>Momentum screening across 200+ tickers</li>
+            <li>Scoring-driven watchlist prioritization</li>
+            <li>Self-learning signal refinement</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ FEATURES ═══ -->
+  <section id="features" class="features-section">
+    <div class="container">
+      <div class="reveal" style="text-align:center">
+        <span class="section-label">Platform Capabilities</span>
+        <h2 class="section-title">Everything you need in one place</h2>
+      </div>
+      <div class="features-grid reveal">
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><path d="M3 3v18h18" /><path d="M7 16l4-8 4 4 6-10" /></svg>
+          <span>Multi-Timeframe Analysis</span>
+        </div>
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span>200+ Tickers Scored</span>
+        </div>
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
+          <span>Real-Time Alpaca Data</span>
+        </div>
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+          <span>Kanban Trade Management</span>
+        </div>
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+          <span>Automated Risk Levels</span>
+        </div>
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>
+          <span>Self-Learning Signals</span>
+        </div>
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" /></svg>
+          <span>Sector Alignment</span>
+        </div>
+        <div class="feature-item">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 3v18" /></svg>
+          <span>TD Sequential Engine</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ HOW IT WORKS ═══ -->
+  <section id="how-it-works">
+    <div class="container">
+      <div class="reveal" style="text-align:center">
+        <span class="section-label">Getting Started</span>
+        <h2 class="section-title">Three steps to smarter trading</h2>
+        <p class="section-desc" style="margin:0 auto">
+          No complex setup, no manual charting. The engine does the heavy lifting.
+        </p>
+      </div>
+      <div class="steps reveal">
+        <div class="step">
+          <div class="step-num">1</div>
+          <h3>Build Your Watchlist</h3>
+          <p>Add any stock, ETF, or futures contract. The system starts scoring immediately.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <h3>Scores Update Every 5 Min</h3>
+          <p>Nine timeframes from 1-minute to monthly, fused into a single conviction score.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <h3>Act on High-Conviction Setups</h3>
+          <p>Get entry, stop-loss, and target levels. The system manages risk and tracks your trades.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CTA BANNER ═══ -->
+  <section class="cta-banner">
+    <div class="container reveal">
+      <h2>Ready to trade with conviction?</h2>
+      <p>Join Timed Trading and let the engine work for you.</p>
+      <a href="/index-react.html" class="hero-cta">
+        Get Started
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+        </svg>
+      </a>
+    </div>
+  </section>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer>
+    <div class="container" style="text-align: center;">
+      <div class="footer-row">
+        <span style="display:inline-flex;align-items:center;gap:6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>
+          &copy; 2026 Timed Trading
+        </span>
+        <span class="footer-sep">&middot;</span>
+        <a href="/terms.html">Terms of Use</a>
+        <span class="footer-sep">&middot;</span>
+        <a href="#features">Features</a>
+        <span class="footer-sep">&middot;</span>
+        <a href="#how-it-works">How It Works</a>
+        <span class="footer-sep">&middot;</span>
+        <a href="/index-react.html">Dashboard</a>
+        <span class="footer-sep">&middot;</span>
+        <span class="cf-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+          Secured by Cloudflare
+        </span>
+      </div>
+      <div class="footer-disclaimer">
+        Not a registered investment advisor. For entertainment &amp; educational purposes only. Not financial advice. <a href="/terms.html" style="color:var(--text-muted);text-decoration:underline;">Full Terms</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ═══ Scroll Reveal ═══ -->
+  <script>
+    (function () {
+      var els = document.querySelectorAll('.reveal');
+      if (!('IntersectionObserver' in window)) {
+        // Fallback: show all
+        els.forEach(function (el) { el.classList.add('visible'); });
+        return;
+      }
+      var obs = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            obs.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+      els.forEach(function (el) { obs.observe(el); });
+    })();
+  </script>
+
+</body>
+</html>

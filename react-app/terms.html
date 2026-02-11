@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terms of Use — Timed Trading</title>
+  <meta name="description" content="Terms of Use and Disclaimer for the Timed Trading platform." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-base: #0b0e11;
+      --bg-surface: rgba(255,255,255,0.025);
+      --bg-surface-hover: rgba(255,255,255,0.045);
+      --border: rgba(255,255,255,0.06);
+      --border-hover: rgba(255,255,255,0.12);
+      --text-primary: #e5e7eb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #00c853;
+      --accent-glow: rgba(0,200,83,0.15);
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.7;
+    }
+
+    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 16px 0;
+      background: rgba(11,14,17,0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+    .nav-logo {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #00c853, #00e676, #69f0ae);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .nav-links { display: flex; align-items: center; gap: 8px; }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface); }
+
+    /* ── Content ── */
+    .terms-header {
+      padding: 120px 0 40px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 48px;
+    }
+    .terms-header h1 {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      margin-bottom: 12px;
+    }
+    .terms-header .meta {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+    .terms-header .meta strong {
+      color: var(--text-secondary);
+    }
+
+    .terms-content {
+      padding-bottom: 80px;
+    }
+    .terms-content h2 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 48px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+    .terms-content h2:first-child {
+      margin-top: 0;
+    }
+    .terms-content h3 {
+      font-size: 17px;
+      font-weight: 600;
+      margin: 28px 0 12px;
+      color: var(--text-primary);
+    }
+    .terms-content p {
+      margin: 0 0 16px;
+      color: var(--text-secondary);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+    .terms-content ul, .terms-content ol {
+      margin: 0 0 16px 24px;
+      color: var(--text-secondary);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+    .terms-content li {
+      margin-bottom: 6px;
+    }
+    .terms-content strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .disclaimer-box {
+      background: rgba(255, 59, 48, 0.06);
+      border: 1px solid rgba(255, 59, 48, 0.15);
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    .disclaimer-box h3 {
+      color: #ff6b6b;
+      margin-top: 0;
+    }
+    .disclaimer-box p, .disclaimer-box ul {
+      color: var(--text-secondary);
+    }
+
+    .highlight-box {
+      background: var(--accent-glow);
+      border: 1px solid rgba(0,200,83,0.15);
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+    }
+    .highlight-box p {
+      color: var(--text-secondary);
+      margin-bottom: 0;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0;
+    }
+    footer .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+    }
+    .footer-links a {
+      text-decoration: none;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+    .footer-links a:hover {
+      color: var(--text-primary);
+    }
+
+    @media (max-width: 640px) {
+      .container { padding: 0 16px; }
+      nav .nav-inner { padding: 0 16px; }
+      .nav-links a:not(:last-child) { display: none; }
+      footer .nav-inner { justify-content: center; text-align: center; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ NAV ═══ -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/splash.html" class="nav-brand">
+        <span class="nav-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+          </svg>
+        </span>
+        Timed Trading
+      </a>
+      <div class="nav-links">
+        <a href="/splash.html">Home</a>
+        <a href="/index-react.html">Dashboard</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══ HEADER ═══ -->
+  <div class="container">
+    <div class="terms-header">
+      <h1>Terms of Use</h1>
+      <p class="meta">
+        <strong>Effective Date:</strong> February 10, 2026 &nbsp;&middot;&nbsp;
+        <strong>Version:</strong> 1.0
+      </p>
+    </div>
+
+    <!-- ═══ CONTENT ═══ -->
+    <div class="terms-content">
+
+      <h2>1. Acceptance of Terms</h2>
+      <p>
+        Welcome to Timed Trading ("we," "our," "us," or the "Platform"). By accessing or using the Timed Trading platform, website, applications, APIs, or any related services (collectively, the "Service"), you ("User," "you," or "your") confirm that:
+      </p>
+      <ul>
+        <li>You are at least 18 years of age or the age of legal majority in your jurisdiction.</li>
+        <li>You have the legal capacity to enter into a binding agreement.</li>
+        <li>You have read, understood, and agree to be bound by these Terms of Use ("Terms") and our Disclaimer set forth herein.</li>
+      </ul>
+      <p>
+        If you do not agree to these Terms, you must immediately discontinue use of the Service and sign out.
+      </p>
+
+      <h2>2. Important Disclaimer &mdash; Not Financial Advice</h2>
+
+      <div class="disclaimer-box">
+        <h3>THIS IS NOT FINANCIAL ADVICE</h3>
+        <p>
+          Timed Trading is <strong>NOT</strong> a registered investment advisor, financial planner, broker-dealer, securities firm, or financial institution. Timed Trading is not registered with the U.S. Securities and Exchange Commission (SEC), the Financial Industry Regulatory Authority (FINRA), or any other federal, state, or international financial regulatory authority.
+        </p>
+        <p>
+          <strong>All content, scores, signals, analytics, alerts, and information provided through the Service are for entertainment, educational, and informational purposes only.</strong> Nothing on this Platform constitutes, or is intended to constitute, financial advice, investment advice, trading advice, or any other form of professional advice.
+        </p>
+      </div>
+
+      <h3>2.1 You Acknowledge and Understand That:</h3>
+      <ul>
+        <li><strong>No Investment Advisory Services:</strong> We do not provide personalized investment advice, portfolio management, or investment recommendations of any kind.</li>
+        <li><strong>Entertainment Purpose:</strong> All scoring, signals, analytics, and platform features are provided solely for entertainment and educational purposes and must not be used as the basis for investment decisions.</li>
+        <li><strong>Professional Consultation Required:</strong> You must consult with a qualified, licensed financial advisor, investment professional, or other appropriate professional before making any investment or trading decisions.</li>
+        <li><strong>Your Sole Responsibility:</strong> You are entirely and solely responsible for your own investment research, decisions, and all financial consequences thereof, including any losses.</li>
+        <li><strong>Past Performance Does Not Predict Future Results:</strong> Historical data, backtesting results, past performance, and prior scoring outputs do not guarantee, indicate, or predict future results or performance.</li>
+        <li><strong>Substantial Risk of Loss:</strong> All investments and trading carry substantial risk of loss, including the potential loss of your entire principal investment. You should never invest money you cannot afford to lose.</li>
+      </ul>
+
+      <h2>3. Description of Service</h2>
+      <p>
+        Timed Trading provides a multi-timeframe scoring engine and analytics platform for educational and entertainment purposes. The Platform processes market data across multiple timeframes to generate scores, signals, and analytics for stocks, ETFs, and other financial instruments. Features include, but are not limited to:
+      </p>
+      <ul>
+        <li>Multi-timeframe scoring and composite conviction scores</li>
+        <li>Technical analysis signals and TD Sequential indicators</li>
+        <li>Watchlist management and ticker tracking</li>
+        <li>Automated risk management analytics</li>
+        <li>Alert and notification systems</li>
+      </ul>
+      <p>
+        These features are analytical tools for entertainment and educational observation only. They are not recommendations to buy, sell, or hold any security.
+      </p>
+
+      <h2>4. Algorithm and Technology Limitations</h2>
+      <p>
+        The Service uses proprietary algorithms, scoring models, and data processing systems. You acknowledge and accept the following inherent limitations:
+      </p>
+      <ul>
+        <li><strong>Historical Data Dependency:</strong> Scoring models are trained on and process historical data. They may not reflect current market conditions, unprecedented events, or future trends.</li>
+        <li><strong>Errors, Biases, and Inaccuracies:</strong> Algorithms may produce errors, contain biases, generate inaccurate analyses, or provide incomplete information. No algorithm is infallible.</li>
+        <li><strong>No Guarantee of Accuracy:</strong> We make no representations or warranties about the accuracy, reliability, completeness, or timeliness of any score, signal, analysis, or data presented on the Platform.</li>
+        <li><strong>Rapid Market Changes:</strong> Financial markets change faster than algorithms can adapt. Real-time data may be delayed, and scores may not reflect the most current market state.</li>
+        <li><strong>Third-Party Data Limitations:</strong> The Platform relies on third-party data sources (including market data providers) that may contain delays, errors, omissions, or inaccuracies. We are not responsible for the quality or availability of third-party data.</li>
+        <li><strong>System Availability:</strong> The Platform may experience downtime, interruptions, latency, or technical failures at any time without notice.</li>
+      </ul>
+
+      <h2>5. User Responsibilities</h2>
+      <p>By using the Service, you represent, warrant, and agree to the following:</p>
+      <h3>5.1 Financial Responsibility</h3>
+      <ul>
+        <li>You are solely responsible for all investment and trading decisions, and all resulting gains or losses.</li>
+        <li>You will conduct your own independent research and due diligence before making any financial decisions.</li>
+        <li>You will not rely on Platform content as the sole or primary basis for investment decisions.</li>
+        <li>You fully understand and accept all risks associated with investing and trading in financial markets.</li>
+      </ul>
+      <h3>5.2 Account and Platform Use</h3>
+      <ul>
+        <li>You will provide accurate information when using the Service.</li>
+        <li>You are responsible for maintaining the security of your account credentials.</li>
+        <li>You will use the Service only for lawful purposes and in compliance with all applicable laws and regulations.</li>
+        <li>You will not attempt to reverse-engineer, decompile, or extract proprietary algorithms, scoring models, or platform systems.</li>
+        <li>You will not use the Platform for market manipulation, illegal trading, or any unlawful activity.</li>
+        <li>You will not redistribute, resell, or commercially exploit Platform content without prior written consent.</li>
+      </ul>
+
+      <h2>6. Account and Authentication</h2>
+      <p>
+        Access to the Service requires authentication via Cloudflare Access and Google Single Sign-On (SSO). You are responsible for all activity under your authenticated account. We reserve the right to suspend or terminate accounts that violate these Terms.
+      </p>
+
+      <h2>7. Intellectual Property</h2>
+      <p>
+        All content, software, code, algorithms, scoring models, designs, trademarks, trade names, and other intellectual property associated with Timed Trading are the exclusive property of Timed Trading or its licensors. You may not copy, modify, distribute, sell, lease, or create derivative works from any part of the Service without prior written consent.
+      </p>
+
+      <h2>8. Service Provided "As Is"</h2>
+      <p>
+        THE SERVICE IS PROVIDED ON AN "AS IS" AND "AS AVAILABLE" BASIS WITHOUT ANY WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, WE DISCLAIM ALL WARRANTIES, INCLUDING BUT NOT LIMITED TO:
+      </p>
+      <ul>
+        <li>WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT;</li>
+        <li>WARRANTIES REGARDING THE ACCURACY, RELIABILITY, COMPLETENESS, OR TIMELINESS OF ANY CONTENT, DATA, OR ANALYSIS;</li>
+        <li>WARRANTIES THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, SECURE, OR FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS.</li>
+      </ul>
+
+      <h2>9. Limitation of Liability</h2>
+      <p>
+        TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, TIMED TRADING AND ITS AFFILIATES, OFFICERS, DIRECTORS, EMPLOYEES, AGENTS, PARTNERS, AND LICENSORS SHALL NOT BE LIABLE FOR ANY:
+      </p>
+      <ul>
+        <li>Investment losses, trading losses, or any financial losses of any kind;</li>
+        <li>Missed investment or trading opportunities;</li>
+        <li>Losses due to reliance on any content, score, signal, or analysis from the Platform;</li>
+        <li>Direct, indirect, incidental, special, consequential, or punitive damages;</li>
+        <li>Loss of profits, revenue, data, goodwill, or other intangible losses;</li>
+        <li>Damages arising from system downtime, data delays, errors, or third-party service failures;</li>
+        <li>Any damages exceeding the greater of (a) the total amount you paid to us in the twelve (12) months preceding the claim, or (b) one hundred U.S. dollars (USD $100).</li>
+      </ul>
+      <p>
+        You acknowledge that this limitation of liability is a fundamental part of the agreement between you and Timed Trading, and that the Service would not be provided without these limitations.
+      </p>
+
+      <h2>10. Indemnification</h2>
+      <p>
+        You agree to defend, indemnify, and hold harmless Timed Trading, its affiliates, officers, directors, employees, agents, and licensors from and against any and all claims, damages, obligations, losses, liabilities, costs, and expenses (including reasonable attorneys' fees) arising from:
+      </p>
+      <ul>
+        <li>Your use of the Service or any content obtained through the Service;</li>
+        <li>Any investment or trading decisions you make;</li>
+        <li>Your violation of these Terms or any applicable law or regulation;</li>
+        <li>Any claim that your use of the Service caused financial harm to yourself or any third party;</li>
+        <li>Your breach of any representation or warranty contained herein.</li>
+      </ul>
+      <p>
+        This indemnification obligation survives termination of your account and these Terms.
+      </p>
+
+      <h2>11. Termination</h2>
+      <p>
+        We reserve the right to suspend or terminate your access to the Service at any time, with or without cause, and with or without notice. You may terminate your use of the Service at any time by signing out and discontinuing access. Upon termination, all provisions of these Terms that by their nature should survive will remain in effect, including but not limited to: disclaimer, limitation of liability, indemnification, and governing law.
+      </p>
+
+      <h2>12. Changes to Terms</h2>
+      <p>
+        We may modify these Terms at any time by posting the revised version on this page with an updated effective date. If we make material changes, we may require you to re-accept the updated Terms before continuing to use the Service. Your continued use of the Service after any changes constitutes acceptance of the revised Terms. It is your responsibility to review these Terms periodically.
+      </p>
+
+      <h2>13. Privacy</h2>
+      <p>
+        We collect and process limited personal information necessary to operate the Service, including your email address and authentication data provided through Cloudflare Access and Google SSO. We do not sell your personal information to third parties. Data is stored securely using Cloudflare's infrastructure. By using the Service, you consent to the collection and use of your information as described herein.
+      </p>
+
+      <h2>14. Governing Law and Dispute Resolution</h2>
+      <p>
+        These Terms shall be governed by and construed in accordance with the laws of the State of California, United States, without regard to its conflict of laws provisions. Any dispute arising from or relating to these Terms or the Service shall be resolved exclusively in the federal or state courts located in California. You consent to personal jurisdiction in such courts and waive any objections to venue.
+      </p>
+
+      <h2>15. Severability</h2>
+      <p>
+        If any provision of these Terms is found to be unenforceable or invalid by a court of competent jurisdiction, that provision shall be limited or eliminated to the minimum extent necessary so that the remaining provisions of these Terms remain in full force and effect.
+      </p>
+
+      <h2>16. Entire Agreement</h2>
+      <p>
+        These Terms constitute the entire agreement between you and Timed Trading regarding your use of the Service and supersede all prior or contemporaneous agreements, communications, and proposals, whether oral or written.
+      </p>
+
+      <h2>17. Contact</h2>
+
+      <div class="highlight-box">
+        <p>
+          For questions about these Terms of Use, please contact us at:<br />
+          <strong>Email:</strong> legal@timed-trading.com
+        </p>
+      </div>
+
+      <p style="margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-muted);">
+        &copy; 2026 Timed Trading. All rights reserved.
+      </p>
+
+    </div>
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer>
+    <div class="nav-inner">
+      <div class="footer-brand">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+        </svg>
+        &copy; 2026 Timed Trading. All rights reserved.
+      </div>
+      <div class="footer-links">
+        <a href="/splash.html">Home</a>
+        <a href="/terms.html" style="color: var(--text-secondary);">Terms of Use</a>
+        <a href="/index-react.html">Dashboard</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
