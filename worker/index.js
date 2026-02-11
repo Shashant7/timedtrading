@@ -18832,13 +18832,11 @@ export default {
                 const obj = data[sym];
                 if (!obj) continue;
                 // ONLY update live price from timed:prices.
-                // NEVER overwrite prev_close or day_change fields — D1 scoring data is the
-                // authoritative source for these. Alpaca's previousDailyBar is unreliable
-                // (often returns current price, making daily change = 0%).
                 obj.price = pf.p;
                 obj._live_price = pf.p;
-                // Preserve D1's prev_close as _live_prev_close for getDailyChange() computation
-                obj._live_prev_close = obj.prev_close || 0;
+                // Use price feed's prev_close when available (cron uses D1 then Alpaca); else fall back to D1
+                const pfPc = Number(pf.pc);
+                obj._live_prev_close = (Number.isFinite(pfPc) && pfPc > 0) ? pfPc : (obj.prev_close || 0);
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;

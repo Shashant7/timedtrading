@@ -832,15 +832,13 @@
                 if (!existing || !(priceInfo.p > 0)) continue;
                 // Skip update if price hasn't changed (avoid re-render churn)
                 if (existing._live_price === priceInfo.p) continue;
-                // ONLY update live price from the price feed.
-                // NEVER overwrite prev_close or day_change — the initial /timed/all
-                // response has authoritative values from D1 scoring data.
-                // getDailyChange() computes daily change from _live_price + prev_close.
+                // Use price feed's prev_close when available so daily change matches (CP, $, %)
+                const feedPc = Number(priceInfo.pc);
                 const merged = {
                   ...existing,
                   price: priceInfo.p,
                   _live_price: priceInfo.p,
-                  _live_prev_close: existing.prev_close || existing._live_prev_close || 0,
+                  _live_prev_close: (Number.isFinite(feedPc) && feedPc > 0) ? feedPc : (existing.prev_close || existing._live_prev_close || 0),
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
