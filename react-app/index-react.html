@@ -10874,8 +10874,9 @@
               })()}
 
               {/* ── Entry block reason (setup lane due to execution gates) ── */}
-              {stage === "setup" && (t?.__entry_block_reason || t?.__execution_block_reason) && (() => {
-                const raw = String(t.__entry_block_reason || t.__execution_block_reason);
+              {stage === "setup" && (t?.__execution_block_reason || t?.__entry_block_reason) && (() => {
+                // Prefer fresh read-time __execution_block_reason over stale cron __entry_block_reason
+                const raw = String(t.__execution_block_reason || t.__entry_block_reason);
                 // Format smart gate reasons for readability
                 const formatted = raw.split("+").map(r => {
                   if (r.startsWith("sector_full:")) return r.replace("sector_full:", "Sector full: ");

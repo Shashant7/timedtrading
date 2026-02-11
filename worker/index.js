@@ -18272,14 +18272,14 @@ export default {
                     if (eq > 0 && eq < 75) blockReasons.push(`correlated:${sectorCnt} in ${tkSector}`);
                   }
                 }
+                // ALWAYS clear stale cron-stored block reasons
+                delete data.__entry_block_reason;
                 if (blockReasons.length > 0) {
                   data.__execution_ready = false;
                   data.__execution_block_reason = blockReasons.join("+");
                 } else {
-                  // Clear stale block reasons so UI reflects current state
                   data.__execution_ready = true;
                   delete data.__execution_block_reason;
-                  delete data.__entry_block_reason;
                 }
               } catch { /* non-critical */ }
             }
@@ -18640,14 +18640,16 @@ export default {
                       if (eq > 0 && eq < 75) tickerBlockReasons.push(`correlated:${sectorCnt} in ${tkSector}`);
                     }
                   }
+                  // ALWAYS clear stale cron-stored block reasons — the read-time
+                  // check supersedes whatever the cron wrote. Without this, stale
+                  // __entry_block_reason="outside_RTH" persists even during market hours.
+                  delete obj.__entry_block_reason;
                   if (tickerBlockReasons.length > 0) {
                     obj.__execution_ready = false;
                     obj.__execution_block_reason = tickerBlockReasons.join("+");
                   } else {
-                    // Clear stale block reasons from cron so UI reflects current state
                     obj.__execution_ready = true;
                     delete obj.__execution_block_reason;
-                    delete obj.__entry_block_reason;
                   }
                 }
                 // CRITICAL: Always re-classify "enter" stage tickers through
@@ -18831,9 +18833,10 @@ export default {
           let allDailyPcMap = {};
           try {
             if (env?.DB) {
-              const nyTodayStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
-              const nyTodayMs = new Date(nyTodayStr + " 04:00:00 EST").getTime();
-              const cutoffMs = Number.isFinite(nyTodayMs) ? nyTodayMs : (Date.now() - 24 * 3600 * 1000);
+              // Midnight UTC today — excludes today's intraday daily candle
+              const todayMidnightUTC = new Date();
+              todayMidnightUTC.setUTCHours(0, 0, 0, 0);
+              const cutoffMs = todayMidnightUTC.getTime();
               const dcRows = await env.DB.prepare(
                 `SELECT ticker, c FROM ticker_candles WHERE tf = 'D' AND ts < ?1 ORDER BY ts DESC`
               ).bind(cutoffMs).all();
@@ -31137,16 +31140,16 @@ Provide 3-5 actionable next steps:
         // ═══════════════════════════════════════════════════════════════════════
 
         // Source 1: Daily candles — the authoritative previous close.
-        // Query the most recent daily candle BEFORE today's market open for each ticker.
+        // Query the most recent daily candle BEFORE today for each ticker.
         let dailyCandlePrevCloseMap = {};
         try {
           if (env?.DB) {
-            // Get the start of today in NY timezone (4:00 AM ET as unix ms)
-            // Any daily candle timestamped before this is a prior trading day's close.
-            const nyTodayStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
-            const nyTodayMs = new Date(nyTodayStr + " 04:00:00 EST").getTime();
-            // Fallback: if the above fails, use midnight UTC minus 5 hours
-            const cutoffMs = Number.isFinite(nyTodayMs) ? nyTodayMs : (Date.now() - 24 * 3600 * 1000);
+            // Use midnight UTC today as the cutoff — daily candle timestamps are
+            // typically at midnight UTC of the trading day. This excludes today's
+            // intraday bar (which has the current price, not the final close).
+            const todayMidnightUTC = new Date();
+            todayMidnightUTC.setUTCHours(0, 0, 0, 0);
+            const cutoffMs = todayMidnightUTC.getTime();
 
             const dcRows = await env.DB.prepare(
               `SELECT ticker, c, ts FROM ticker_candles
