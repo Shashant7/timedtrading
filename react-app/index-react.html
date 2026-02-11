@@ -371,8 +371,8 @@
     </div>
 
     <script src="auth-gate.js"></script>
-    <script src="shared-price-utils.js?v=20260210a"></script>
-    <script src="shared-right-rail.compiled.js?v=20260210a" type="text/babel"></script>
+    <script src="shared-price-utils.js?v=20260210b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260210b" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -832,20 +832,24 @@
                 if (!existing || !(priceInfo.p > 0)) continue;
                 // Skip update if price hasn't changed (avoid re-render churn)
                 if (existing._live_price === priceInfo.p) continue;
-                // Only overwrite daily-change fields when Alpaca had a valid prevClose.
-                // When pc=0, dp/dc are 0 — preserve the scoring snapshot's correct values.
-                const hasPc = priceInfo.pc > 0;
+                // Only overwrite daily-change fields when prevClose is TRUSTWORTHY:
+                // must be > 0 AND meaningfully differ from current price (>0.05%).
+                // Alpaca often returns previousDailyBar.close ≈ current price, making dp=0.
+                const pfPc = Number(priceInfo.pc);
+                const pfP = Number(priceInfo.p);
+                const divPct = (pfPc > 0 && pfP > 0) ? Math.abs(pfPc - pfP) / pfP * 100 : 0;
+                const trustPc = pfPc > 0 && divPct > 0.05;
                 const merged = {
                   ...existing,
                   price: priceInfo.p,
                   _live_price: priceInfo.p,
-                  _live_prev_close: hasPc ? priceInfo.pc : (existing.prev_close || existing._live_prev_close || 0),
+                  _live_prev_close: trustPc ? priceInfo.pc : (existing.prev_close || existing._live_prev_close || 0),
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
                   _price_updated_at: json.updated_at || Date.now(),
                 };
-                if (hasPc) {
+                if (trustPc) {
                   merged.prev_close = priceInfo.pc;
                   merged.day_change = priceInfo.dc;
                   merged.day_change_pct = priceInfo.dp;
@@ -15308,7 +15312,7 @@
           if (toFetch.length === 0) return;
           toFetch.forEach(s => sparkInFlightRef.current.add(s));
           const SPARK_WIDTH = 80;
-          const batchSize = 8;
+          const batchSize = 3; // Reduced from 8 to avoid overwhelming the worker
           const fetchCandles = async (sym, tf, limit) => {
             const res = await fetch(`${API_BASE}/timed/candles?ticker=${sym}&tf=${tf}&limit=${limit}`, { cache: "no-store" });
             if (!res.ok) return null;
@@ -15318,10 +15322,9 @@
           };
           const fetchSmart = async (sym) => {
             try {
-              let candles = await fetchCandles(sym, 1, 500);
-              if (candles && candles.length > SPARK_WIDTH * 2) {
-                const c5 = await fetchCandles(sym, 5, 200);
-                if (c5 && c5.length >= 5) candles = c5;
+              let candles = await fetchCandles(sym, 5, 200); // 5-min first (fewer rows, faster)
+              if (!candles || candles.length < 5) {
+                candles = await fetchCandles(sym, 1, 500); // fallback to 1-min
               }
               if (candles && candles.length >= 2) {
                 sparkCacheGlobalRef.current[sym] = { data: candles, ts: Date.now() };
@@ -15332,8 +15335,7 @@
           (async () => {
             for (let i = 0; i < toFetch.length; i += batchSize) {
               await Promise.allSettled(toFetch.slice(i, i + batchSize).map(fetchSmart));
-              if (i + batchSize < toFetch.length) await new Promise(r => setTimeout(r, 200));
-            }
+              if (i + batchSize < toFetch.length) await new Promise(r => setTimeout(r, 500));
             // Update React state from cache
             const next = {};
             for (const [s, v] of Object.entries(sparkCacheGlobalRef.current)) {

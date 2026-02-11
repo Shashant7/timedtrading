@@ -18832,11 +18832,15 @@ export default {
                 const obj = data[sym];
                 if (!obj) continue;
                 obj.price = pf.p;
-                // Only overwrite daily-change fields when Alpaca had a valid prevClose.
-                // When pc=0 (no previousDailyBar), dp/dc are 0 — do NOT poison the
-                // scoring snapshot's correct values with these zeros.
-                const hasPrevClose = Number(pf.pc) > 0;
-                if (hasPrevClose) {
+                // Only overwrite daily-change fields when timed:prices has a VALID prevClose
+                // that meaningfully differs from the current price. Alpaca's previousDailyBar
+                // often returns today's current price (making dc=0, dp=0), which would destroy
+                // the D1 scoring snapshot's correct values.
+                const pfPc = Number(pf.pc);
+                const pfP = Number(pf.p);
+                const divergePct = (pfPc > 0 && pfP > 0) ? Math.abs(pfPc - pfP) / pfP * 100 : 0;
+                const hasTrustworthyPc = pfPc > 0 && divergePct > 0.05;
+                if (hasTrustworthyPc) {
                   obj.prev_close = pf.pc;
                   obj.day_change = pf.dc;
                   obj.day_change_pct = pf.dp;
@@ -18845,9 +18849,10 @@ export default {
                 }
                 // Set _live_* fields so getDailyChange() can compute from price + prevClose
                 obj._live_price = pf.p;
-                obj._live_prev_close = hasPrevClose ? pf.pc : (obj.prev_close || 0);
-                obj._live_daily_change = hasPrevClose ? pf.dc : undefined;
-                obj._live_daily_change_pct = hasPrevClose ? pf.dp : undefined;
+                // Use timed:prices pc if trustworthy, otherwise preserve D1's prev_close
+                obj._live_prev_close = hasTrustworthyPc ? pf.pc : (obj.prev_close || 0);
+                obj._live_daily_change = hasTrustworthyPc ? pf.dc : undefined;
+                obj._live_daily_change_pct = hasTrustworthyPc ? pf.dp : undefined;
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;
@@ -31094,28 +31099,46 @@ Provide 3-5 actionable next steps:
         const snapshots = snapResult.snapshots || {};
 
         // Build compact price payload for KV
-        // Fallback prevClose: carry forward good pc values from the PREVIOUS timed:prices KV.
-        // The old code read from "timed:latest:all" which doesn't exist — scoring data is
-        // stored per-ticker as "timed:latest:${sym}". Reading the previous prices KV is a
-        // single read and ensures once a valid prevClose is seen, it's never lost.
-        let prevPcMap = {};
+        // PRIMARY prevClose source: D1 ticker_latest scoring data (set by daily ingestion pipeline).
+        // Alpaca's previousDailyBar.close is unreliable — often equals today's current price,
+        // making daily change = 0%. D1's prev_close is the authoritative previous close.
+        let d1PrevCloseMap = {};
         try {
-          const prevPrices = await kvGetJSON(KV, "timed:prices");
-          if (prevPrices && prevPrices.prices && typeof prevPrices.prices === "object") {
-            for (const [s, pf] of Object.entries(prevPrices.prices)) {
-              const pc = Number(pf?.pc);
-              if (Number.isFinite(pc) && pc > 0) prevPcMap[s] = pc;
+          if (env?.DB) {
+            const rows = await env.DB.prepare(
+              `SELECT ticker, payload_json FROM ticker_latest`
+            ).all();
+            for (const r of (rows?.results || [])) {
+              try {
+                const obj = JSON.parse(r.payload_json);
+                const pc = Number(obj?.prev_close);
+                if (Number.isFinite(pc) && pc > 0) {
+                  d1PrevCloseMap[String(r.ticker).toUpperCase()] = pc;
+                }
+              } catch (_) {}
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          console.error("[PRICE CRON] D1 prevClose load failed:", String(e));
+        }
 
         const prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
           const price = snap.price;
-          // Use Alpaca prevClose, fall back to previous cron's prevClose
-          let prevClose = snap.prevDailyClose;
-          if (!(prevClose > 0) && prevPcMap[sym] > 0) {
-            prevClose = prevPcMap[sym];
+          // Priority: D1 scoring data → Alpaca previousDailyBar (only if it differs from current price)
+          let prevClose = 0;
+          // Source 1: D1 scoring data (most reliable)
+          if (d1PrevCloseMap[sym] > 0) {
+            prevClose = d1PrevCloseMap[sym];
+          }
+          // Source 2: Alpaca previousDailyBar — but ONLY if it meaningfully differs from current price
+          // (Alpaca often returns prevDailyClose ≈ current price, which is wrong)
+          if (!(prevClose > 0) && snap.prevDailyClose > 0) {
+            const alpPc = snap.prevDailyClose;
+            const divergePct = price > 0 ? Math.abs(alpPc - price) / price * 100 : 0;
+            if (divergePct > 0.05) { // Only trust if >0.05% different from current price
+              prevClose = alpPc;
+            }
           }
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
@@ -31143,9 +31166,15 @@ Provide 3-5 actionable next steps:
           const retrySnap = retryResult.snapshots || {};
           for (const [sym, snap] of Object.entries(retrySnap)) {
             const price = snap.price;
-            let prevClose = snap.prevDailyClose;
-            if (!(prevClose > 0) && prevPcMap[sym] > 0) {
-              prevClose = prevPcMap[sym]; // carry forward from previous run
+            let prevClose = 0;
+            // Same priority as above: D1 → Alpaca (only if meaningfully different)
+            if (d1PrevCloseMap[sym] > 0) {
+              prevClose = d1PrevCloseMap[sym];
+            }
+            if (!(prevClose > 0) && snap.prevDailyClose > 0) {
+              const alpPc = snap.prevDailyClose;
+              const divergePct = price > 0 ? Math.abs(alpPc - price) / price * 100 : 0;
+              if (divergePct > 0.05) prevClose = alpPc;
             }
             const dailyChange = (price && prevClose && prevClose > 0)
               ? Math.round((price - prevClose) * 100) / 100
