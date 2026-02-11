@@ -115,6 +115,14 @@
         if (Number.isFinite(derived) && derived > 0) prevClose = derived;
       }
     }
+    // Source 4: derive from day_change_pct if available (last resort before giving up)
+    if (!(prevClose > 0)) {
+      var pctField = Number(t?.day_change_pct ?? t?.daily_change_pct ?? t?.change_pct ?? t?.pct_change);
+      if (Number.isFinite(pctField) && Math.abs(pctField) > 0.01) {
+        var derivedPc = price / (1 + pctField / 100);
+        if (Number.isFinite(derivedPc) && derivedPc > 0) prevClose = derivedPc;
+      }
+    }
 
     // ── Compute daily change ──
     if (prevClose > 0) {

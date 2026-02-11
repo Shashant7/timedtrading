@@ -31094,14 +31094,17 @@ Provide 3-5 actionable next steps:
         const snapshots = snapResult.snapshots || {};
 
         // Build compact price payload for KV
-        // Fallback prevClose: load scoring data to fill in when Alpaca has no previousDailyBar
-        let scoredPrevCloseMap = {};
+        // Fallback prevClose: carry forward good pc values from the PREVIOUS timed:prices KV.
+        // The old code read from "timed:latest:all" which doesn't exist — scoring data is
+        // stored per-ticker as "timed:latest:${sym}". Reading the previous prices KV is a
+        // single read and ensures once a valid prevClose is seen, it's never lost.
+        let prevPcMap = {};
         try {
-          const allData = await kvGetJSON(KV, "timed:latest:all");
-          if (allData && typeof allData === "object") {
-            for (const [s, obj] of Object.entries(allData)) {
-              const pc = Number(obj?.prev_close);
-              if (Number.isFinite(pc) && pc > 0) scoredPrevCloseMap[s] = pc;
+          const prevPrices = await kvGetJSON(KV, "timed:prices");
+          if (prevPrices && prevPrices.prices && typeof prevPrices.prices === "object") {
+            for (const [s, pf] of Object.entries(prevPrices.prices)) {
+              const pc = Number(pf?.pc);
+              if (Number.isFinite(pc) && pc > 0) prevPcMap[s] = pc;
             }
           }
         } catch (_) {}
@@ -31109,10 +31112,10 @@ Provide 3-5 actionable next steps:
         const prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
           const price = snap.price;
-          // Use Alpaca prevClose, fall back to scoring snapshot's prev_close
+          // Use Alpaca prevClose, fall back to previous cron's prevClose
           let prevClose = snap.prevDailyClose;
-          if (!(prevClose > 0) && scoredPrevCloseMap[sym] > 0) {
-            prevClose = scoredPrevCloseMap[sym];
+          if (!(prevClose > 0) && prevPcMap[sym] > 0) {
+            prevClose = prevPcMap[sym];
           }
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
@@ -31140,7 +31143,10 @@ Provide 3-5 actionable next steps:
           const retrySnap = retryResult.snapshots || {};
           for (const [sym, snap] of Object.entries(retrySnap)) {
             const price = snap.price;
-            const prevClose = snap.prevDailyClose;
+            let prevClose = snap.prevDailyClose;
+            if (!(prevClose > 0) && prevPcMap[sym] > 0) {
+              prevClose = prevPcMap[sym]; // carry forward from previous run
+            }
             const dailyChange = (price && prevClose && prevClose > 0)
               ? Math.round((price - prevClose) * 100) / 100
               : 0;
