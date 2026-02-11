@@ -14358,13 +14358,12 @@ export default {
         const id = env.PRICE_HUB.idFromName("global");
         const hub = env.PRICE_HUB.get(id);
         // Forward the request to the Durable Object (rewrite path for DO)
-        return hub.fetch(url.pathname === "/timed/ws/stats"
-          ? new Request(new URL("/ws/stats", req.url), { method: "GET" })
-          : new Request(new URL("/ws", req.url), {
-              method: req.method,
-              headers: req.headers,
-            })
-        );
+        // CRITICAL: pass `req` as init to preserve WebSocket upgrade internal state
+        if (url.pathname === "/timed/ws/stats") {
+          return hub.fetch(new Request(new URL("/ws/stats", req.url), { method: "GET" }));
+        }
+        const doUrl = new URL("/ws", req.url);
+        return hub.fetch(new Request(doUrl, req));
       }
 
       const KV = env.KV_TIMED;
