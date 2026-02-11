@@ -18827,6 +18827,26 @@ export default {
             console.warn("[HEARTBEAT] Merge failed:", String(e?.message || e));
           }
 
+          // ── Load daily candle prev_close for all tickers (yesterday's actual close) ──
+          let allDailyPcMap = {};
+          try {
+            if (env?.DB) {
+              const nyTodayStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+              const nyTodayMs = new Date(nyTodayStr + " 04:00:00 EST").getTime();
+              const cutoffMs = Number.isFinite(nyTodayMs) ? nyTodayMs : (Date.now() - 24 * 3600 * 1000);
+              const dcRows = await env.DB.prepare(
+                `SELECT ticker, c FROM ticker_candles WHERE tf = 'D' AND ts < ?1 ORDER BY ts DESC`
+              ).bind(cutoffMs).all();
+              for (const r of (dcRows?.results || [])) {
+                const sym = String(r.ticker).toUpperCase();
+                if (!allDailyPcMap[sym]) {
+                  const close = Number(r.c);
+                  if (Number.isFinite(close) && close > 0) allDailyPcMap[sym] = close;
+                }
+              }
+            }
+          } catch (_) { /* non-critical */ }
+
           // ── Overlay canonical timed:prices (Alpaca + TradingView merged by price feed cron) ──
           // This is the SAME data the frontend polls via /timed/prices, applied here so the
           // very first page load matches what usePriceFeed would deliver 30s later.
@@ -18846,27 +18866,21 @@ export default {
                 // ONLY update live price from timed:prices.
                 obj.price = pf.p;
                 obj._live_price = pf.p;
-                // Use price feed's prev_close when available; but reject if ≈ current price
-                // (known Alpaca bug: prevDailyClose = current price, making daily change 0%).
-                // NEVER set _live_prev_close to 0 — preserve existing value.
+                // Pick best prev_close: daily candle > price feed pc > D1 stored > fallback
+                // Daily candle is the authoritative source (yesterday's actual 4pm ET close).
+                const dailyCandlePc = allDailyPcMap[sym] || 0;
                 const pfPc = Number(pf.pc);
                 const pfP = Number(pf.p);
                 const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
-                  && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05; // reject if within 0.05% of price
-                let bestPc = pfPcUsable
-                  ? pfPc
-                  : (obj.prev_close || obj._live_prev_close || undefined);
-                // Sanity check: if bestPc gives extreme daily change (>10%) but D1 has a
-                // saner day_change_pct, derive prev_close from the stored day_change_pct.
-                // This catches stale prev_close values in D1 (e.g. from weeks ago).
-                if (bestPc > 0 && pf.p > 0) {
-                  const computedPct = Math.abs((pf.p - bestPc) / bestPc * 100);
-                  const storedPct = Math.abs(Number(obj.day_change_pct));
-                  if (computedPct > 10 && Number.isFinite(storedPct) && storedPct < computedPct && storedPct < 15) {
-                    // Derive prev_close from stored day_change_pct
-                    const derivedPc = pf.p / (1 + Number(obj.day_change_pct) / 100);
-                    if (Number.isFinite(derivedPc) && derivedPc > 0) bestPc = Math.round(derivedPc * 100) / 100;
-                  }
+                  && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
+                let bestPc = dailyCandlePc > 0
+                  ? dailyCandlePc
+                  : pfPcUsable
+                    ? pfPc
+                    : (obj.prev_close || obj._live_prev_close || undefined);
+                // Sanity check: if bestPc gives extreme daily change (>25%), skip it
+                if (bestPc > 0 && pf.p > 0 && Math.abs((pf.p - bestPc) / bestPc * 100) > 25) {
+                  bestPc = obj.prev_close || obj._live_prev_close || undefined;
                 }
                 if (bestPc > 0) obj._live_prev_close = bestPc;
                 obj._live_daily_high = pf.dh;
@@ -31115,9 +31129,47 @@ Provide 3-5 actionable next steps:
         const snapshots = snapResult.snapshots || {};
 
         // Build compact price payload for KV
-        // PRIMARY prevClose source: D1 ticker_latest scoring data (set by daily ingestion pipeline).
-        // Alpaca's previousDailyBar.close is unreliable — often equals today's current price,
-        // making daily change = 0%. D1's prev_close is the authoritative previous close.
+        // ═══════════════════════════════════════════════════════════════════════
+        // PREV_CLOSE PRIORITY:
+        //   1. ticker_candles tf='D' — yesterday's actual 4pm ET close (most reliable)
+        //   2. ticker_latest.prev_close — from scoring pipeline (can go stale)
+        //   3. Alpaca previousDailyBar.close — often returns CURRENT price (broken)
+        // ═══════════════════════════════════════════════════════════════════════
+
+        // Source 1: Daily candles — the authoritative previous close.
+        // Query the most recent daily candle BEFORE today's market open for each ticker.
+        let dailyCandlePrevCloseMap = {};
+        try {
+          if (env?.DB) {
+            // Get the start of today in NY timezone (4:00 AM ET as unix ms)
+            // Any daily candle timestamped before this is a prior trading day's close.
+            const nyTodayStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
+            const nyTodayMs = new Date(nyTodayStr + " 04:00:00 EST").getTime();
+            // Fallback: if the above fails, use midnight UTC minus 5 hours
+            const cutoffMs = Number.isFinite(nyTodayMs) ? nyTodayMs : (Date.now() - 24 * 3600 * 1000);
+
+            const dcRows = await env.DB.prepare(
+              `SELECT ticker, c, ts FROM ticker_candles
+               WHERE tf = 'D' AND ts < ?1
+               ORDER BY ts DESC`
+            ).bind(cutoffMs).all();
+            // Take only the FIRST (most recent) row per ticker
+            for (const r of (dcRows?.results || [])) {
+              const sym = String(r.ticker).toUpperCase();
+              if (!dailyCandlePrevCloseMap[sym]) {
+                const close = Number(r.c);
+                if (Number.isFinite(close) && close > 0) {
+                  dailyCandlePrevCloseMap[sym] = close;
+                }
+              }
+            }
+            console.log(`[PRICE CRON] Daily candle prev_close loaded for ${Object.keys(dailyCandlePrevCloseMap).length} tickers`);
+          }
+        } catch (e) {
+          console.error("[PRICE CRON] Daily candle prevClose load failed:", String(e));
+        }
+
+        // Source 2: ticker_latest scoring data (fallback for tickers without daily candles)
         let d1PrevCloseMap = {};
         try {
           if (env?.DB) {
@@ -31138,38 +31190,47 @@ Provide 3-5 actionable next steps:
           console.error("[PRICE CRON] D1 prevClose load failed:", String(e));
         }
 
-        // Helper: pick best prev_close from D1 and Alpaca with cross-check.
-        // D1 scoring data can become stale (e.g. prev_close from weeks ago).
-        // Alpaca's previousDailyBar.close is usually correct for the prior trading day
-        // but sometimes returns current price (making daily change ≈ 0%).
-        // Strategy: trust D1 unless it gives an extreme daily change AND Alpaca is saner.
-        function pickPrevClose(d1Pc, alpacaPc, currentPrice) {
-          const d1 = Number(d1Pc) || 0;
+        // Helper: pick best prev_close with priority: daily candle > D1 latest > Alpaca
+        function pickPrevClose(sym, alpacaPc, currentPrice) {
+          const dailyCandle = dailyCandlePrevCloseMap[sym] || 0;
+          const d1 = d1PrevCloseMap[sym] || 0;
           const alp = Number(alpacaPc) || 0;
           const px = Number(currentPrice) || 0;
-          if (!(px > 0)) return d1 > 0 ? d1 : alp;
 
-          // Is Alpaca's value usable? (must meaningfully differ from current price)
-          const alpDivPct = alp > 0 ? Math.abs(alp - px) / px * 100 : 0;
-          const alpUsable = alp > 0 && alpDivPct > 0.05; // reject if ≈ current price
-
-          if (d1 > 0 && alpUsable) {
-            // Both available — cross-check
-            const d1Pct = Math.abs((px - d1) / d1 * 100);
-            const alpPct = Math.abs((px - alp) / alp * 100);
-            // If D1 gives extreme daily change (>10%) and Alpaca is more moderate, prefer Alpaca
-            if (d1Pct > 10 && alpPct < d1Pct) return alp;
-            return d1; // D1 is reasonable
+          // Priority 1: Daily candle close (yesterday's actual 4pm ET close)
+          if (dailyCandle > 0) {
+            // Sanity check: daily candle shouldn't differ from current price by >25%
+            if (px > 0 && Math.abs((px - dailyCandle) / dailyCandle * 100) > 25) {
+              console.warn(`[PRICE CRON] ${sym} daily candle prev_close ${dailyCandle} diverges >25% from price ${px}, falling through`);
+            } else {
+              return dailyCandle;
+            }
           }
-          if (d1 > 0) return d1;
-          if (alpUsable) return alp;
-          return 0;
+
+          // Priority 2: D1 ticker_latest prev_close
+          if (d1 > 0) {
+            if (px > 0 && Math.abs((px - d1) / d1 * 100) > 15) {
+              // D1 value is stale (>15% off), try Alpaca
+              const alpDivPct = alp > 0 ? Math.abs(alp - px) / px * 100 : 0;
+              const alpUsable = alp > 0 && alpDivPct > 0.05;
+              if (alpUsable) return alp;
+            }
+            return d1;
+          }
+
+          // Priority 3: Alpaca previousDailyBar.close (reject if ≈ current price)
+          if (alp > 0 && px > 0) {
+            const alpDivPct = Math.abs(alp - px) / px * 100;
+            if (alpDivPct > 0.05) return alp; // Meaningfully different from current price
+          }
+
+          return 0; // No usable prev_close
         }
 
         const prices = {};
         for (const [sym, snap] of Object.entries(snapshots)) {
           const price = snap.price;
-          const prevClose = pickPrevClose(d1PrevCloseMap[sym], snap.prevDailyClose, price);
+          const prevClose = pickPrevClose(sym, snap.prevDailyClose, price);
           const dailyChange = (price && prevClose && prevClose > 0)
             ? Math.round((price - prevClose) * 100) / 100
             : 0;
@@ -31196,7 +31257,7 @@ Provide 3-5 actionable next steps:
           const retrySnap = retryResult.snapshots || {};
           for (const [sym, snap] of Object.entries(retrySnap)) {
             const price = snap.price;
-            const prevClose = pickPrevClose(d1PrevCloseMap[sym], snap.prevDailyClose, price);
+            const prevClose = pickPrevClose(sym, snap.prevDailyClose, price);
             const dailyChange = (price && prevClose && prevClose > 0)
               ? Math.round((price - prevClose) * 100) / 100
               : 0;
