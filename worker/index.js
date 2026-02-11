@@ -18275,6 +18275,11 @@ export default {
                 if (blockReasons.length > 0) {
                   data.__execution_ready = false;
                   data.__execution_block_reason = blockReasons.join("+");
+                } else {
+                  // Clear stale block reasons so UI reflects current state
+                  data.__execution_ready = true;
+                  delete data.__execution_block_reason;
+                  delete data.__entry_block_reason;
                 }
               } catch { /* non-critical */ }
             }
@@ -18484,10 +18489,12 @@ export default {
           let execRthBlock = null; // shared RTH/weekend block (applies to all)
           let execOpenPositions = []; // open positions for per-ticker sector/direction checks
           try {
-            const nyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-            const hh = nyNow.getHours(), mm = nyNow.getMinutes(), dow = nyNow.getDay();
-            if (dow === 0 || dow === 6) execRthBlock = "weekend";
-            else if (hh < 9 || (hh === 9 && mm < 30) || hh >= 16) execRthBlock = "outside_RTH";
+            // Use the reliable isNyRegularMarketOpen() — uses Intl.DateTimeFormat.formatToParts
+            // instead of the brittle toLocaleString + Date parsing pattern.
+            if (!isNyRegularMarketOpen()) {
+              const nowDow = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+              execRthBlock = (nowDow === "Sat" || nowDow === "Sun") ? "weekend" : "outside_RTH";
+            }
             const openPosResult = await env.DB.prepare(
               `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
             ).all();
@@ -18636,6 +18643,11 @@ export default {
                   if (tickerBlockReasons.length > 0) {
                     obj.__execution_ready = false;
                     obj.__execution_block_reason = tickerBlockReasons.join("+");
+                  } else {
+                    // Clear stale block reasons from cron so UI reflects current state
+                    obj.__execution_ready = true;
+                    delete obj.__execution_block_reason;
+                    delete obj.__entry_block_reason;
                   }
                 }
                 // CRITICAL: Always re-classify "enter" stage tickers through
