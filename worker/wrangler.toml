@@ -12,6 +12,15 @@ binding = "DB"
 database_name = "timed-trading-ledger"
 database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 
+# Durable Object: PriceHub — real-time WebSocket price + scoring push
+[[durable_objects.bindings]]
+name = "PRICE_HUB"
+class_name = "PriceHub"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["PriceHub"]
+
 [vars]
 DISCORD_ENABLE = "true"
 ALERT_MIN_RR = "1.5"
@@ -81,6 +90,11 @@ id = "e48593af3ef74bf986b2592909ed40cb"
 binding = "DB"
 database_name = "timed-trading-ledger"
 database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
+
+# Durable Object: PriceHub — real-time WebSocket price + scoring push
+[[env.production.durable_objects.bindings]]
+name = "PRICE_HUB"
+class_name = "PriceHub"
 
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security

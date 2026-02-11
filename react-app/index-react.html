@@ -372,7 +372,7 @@
 
     <script src="auth-gate.js"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
-    <script src="shared-right-rail.compiled.js?v=20260211d" type="text/babel"></script>
+    <script src="shared-right-rail.compiled.js?v=20260211e" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -875,6 +875,153 @@
         }, [priceReady, fetchPrices]);
 
         return { priceLastUpdated, priceUpdateCount: priceUpdateRef.current };
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // useWebSocket — real-time price + scoring push via Durable Object
+      // Falls back to usePriceFeed polling if WS connection fails.
+      // ─────────────────────────────────────────────────────────────────────
+      function useWebSocket(tickerData, setTickerData) {
+        const wsRef = useRef(null);
+        const reconnectTimer = useRef(null);
+        const reconnectDelay = useRef(1000); // exponential backoff: 1s → 2s → 4s → max 30s
+        const [wsConnected, setWsConnected] = useState(false);
+        const [wsLastMessage, setWsLastMessage] = useState(0);
+        const tickerDataRef = useRef(tickerData);
+        tickerDataRef.current = tickerData;
+        const setTickerDataRef = useRef(setTickerData);
+        setTickerDataRef.current = setTickerData;
+
+        const connect = useCallback(() => {
+          // Don't connect if already connected or during SSR
+          if (wsRef.current && wsRef.current.readyState <= 1) return;
+
+          try {
+            const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${proto}//${window.location.host}/ws`;
+            const ws = new WebSocket(wsUrl);
+            wsRef.current = ws;
+
+            ws.onopen = () => {
+              console.log("[WS] Connected");
+              setWsConnected(true);
+              reconnectDelay.current = 1000; // reset backoff
+            };
+
+            ws.onmessage = (event) => {
+              try {
+                const msg = JSON.parse(event.data);
+                setWsLastMessage(Date.now());
+
+                if (msg.type === "prices" && msg.data) {
+                  const currentData = tickerDataRef.current;
+                  const setter = setTickerDataRef.current;
+                  if (!currentData || typeof currentData !== "object" || Object.keys(currentData).length === 0) return;
+
+                  const updatedData = { ...currentData };
+                  let changed = false;
+                  for (const [sym, priceInfo] of Object.entries(msg.data)) {
+                    const normalizedSym = normTicker(sym);
+                    const existing = updatedData[normalizedSym];
+                    if (!existing || !(priceInfo.p > 0)) continue;
+                    if (existing._live_price === priceInfo.p) continue;
+                    // Same merge logic as usePriceFeed
+                    const feedPc = Number(priceInfo.pc);
+                    const feedP = Number(priceInfo.p);
+                    const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
+                      && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
+                    const bestPc = feedPcUsable
+                      ? feedPc
+                      : (existing._live_prev_close || existing.prev_close || undefined);
+                    updatedData[normalizedSym] = {
+                      ...existing,
+                      price: priceInfo.p,
+                      _live_price: priceInfo.p,
+                      ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
+                      _live_daily_high: priceInfo.dh,
+                      _live_daily_low: priceInfo.dl,
+                      _live_daily_volume: priceInfo.dv,
+                      _price_updated_at: msg.updated_at || Date.now(),
+                    };
+                    changed = true;
+                  }
+                  if (changed && setter) setter(updatedData);
+                }
+
+                if (msg.type === "scoring" && msg.data) {
+                  const currentData = tickerDataRef.current;
+                  const setter = setTickerDataRef.current;
+                  if (!currentData || typeof currentData !== "object") return;
+
+                  const updatedData = { ...currentData };
+                  let changed = false;
+                  for (const [sym, update] of Object.entries(msg.data)) {
+                    const normalizedSym = normTicker(sym);
+                    const existing = updatedData[normalizedSym];
+                    if (!existing) continue;
+                    updatedData[normalizedSym] = {
+                      ...existing,
+                      ...(update.score != null ? { eqScore: update.score, eq_score: update.score } : {}),
+                      ...(update.stage ? { kanban_stage: update.stage } : {}),
+                      ...(update.dir ? { bias_direction: update.dir } : {}),
+                      ...(update.price > 0 ? { price: update.price } : {}),
+                      _scoring_updated_at: update.ts || Date.now(),
+                    };
+                    changed = true;
+                  }
+                  if (changed && setter) setter(updatedData);
+                }
+              } catch (e) {
+                // Ignore malformed messages
+              }
+            };
+
+            ws.onclose = (event) => {
+              console.log(`[WS] Disconnected (code=${event.code})`);
+              setWsConnected(false);
+              wsRef.current = null;
+              // Reconnect with exponential backoff
+              const delay = reconnectDelay.current;
+              reconnectDelay.current = Math.min(delay * 2, 30000);
+              reconnectTimer.current = setTimeout(connect, delay);
+            };
+
+            ws.onerror = (error) => {
+              console.warn("[WS] Error:", error);
+              // onclose will fire after onerror, triggering reconnect
+            };
+          } catch (e) {
+            console.warn("[WS] Connection failed:", e);
+            // Schedule reconnect
+            const delay = reconnectDelay.current;
+            reconnectDelay.current = Math.min(delay * 2, 30000);
+            reconnectTimer.current = setTimeout(connect, delay);
+          }
+        }, []);
+
+        useEffect(() => {
+          connect();
+          return () => {
+            clearTimeout(reconnectTimer.current);
+            if (wsRef.current) {
+              wsRef.current.onclose = null; // prevent reconnect on unmount
+              wsRef.current.close();
+              wsRef.current = null;
+            }
+          };
+        }, [connect]);
+
+        // Ping every 30s to keep the connection alive
+        useEffect(() => {
+          const pingInterval = setInterval(() => {
+            if (wsRef.current && wsRef.current.readyState === 1) {
+              wsRef.current.send(JSON.stringify({ type: "ping" }));
+            }
+          }, 30000);
+          return () => clearInterval(pingInterval);
+        }, []);
+
+        return { wsConnected, wsLastMessage };
       }
 
       function useDebounce(value, delay) {
@@ -15372,7 +15519,8 @@
           refetch,
           setData: setTickerData,
         } = useTickerData();
-        // Real-time price feed: polls /timed/prices every 30s for live price + daily change
+        // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
+        const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
         const { sectors } = useSectors();
@@ -15974,6 +16122,12 @@
               <nav className="flex items-center justify-between px-4 py-2.5 mb-4 border-b border-white/[0.04]">
                 <div className="flex items-center gap-5">
                   <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+                  {wsConnected && (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20" title="WebSocket connected — real-time push active">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-[9px] text-emerald-400 font-medium">LIVE</span>
+                    </span>
+                  )}
                   <div className="flex items-center gap-0.5">
                     <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Dashboard</a>
                     <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>

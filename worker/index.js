@@ -1,5 +1,6 @@
 // Timed Trading Worker — KV latest + trail + rank + top lists + Discord alerts (CORRIDOR-ONLY)
 import { DASHBOARD_HTML } from "./dashboard-html.js";
+export { PriceHub } from "./price-hub.js";
 import {
   kvGetJSON,
   kvPutJSON,
@@ -68,6 +69,24 @@ import {
   computeMultiLevelPredictions,
   extractTDSeqFeatures,
 } from "./model.js";
+
+// ─── PriceHub DO notification helper ───────────────────────────────────────
+// Fire-and-forget POST to the Durable Object to fan out data to WS clients.
+// Always non-blocking (wrapped in ctx.waitUntil) and failure-tolerant.
+async function notifyPriceHub(env, payload) {
+  if (!env.PRICE_HUB) return;
+  try {
+    const id = env.PRICE_HUB.idFromName("global");
+    const hub = env.PRICE_HUB.get(id);
+    await hub.fetch(new Request("https://internal/ws/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }));
+  } catch (e) {
+    console.warn("[WS NOTIFY] Error:", String(e).slice(0, 200));
+  }
+}
 
 // ─── Pattern Library Cache (for Kanban integration) ────────────────────────
 // Avoids hitting D1 on every ingest. Refreshes every 5 minutes.
@@ -14329,6 +14348,20 @@ export default {
           status: 204,
           headers: corsHeaders(env, req),
         });
+      }
+
+      // ── WebSocket upgrade: /ws → Durable Object PriceHub ──
+      if (url.pathname === "/ws" || url.pathname === "/ws/stats") {
+        if (!env.PRICE_HUB) {
+          return sendJSON({ ok: false, error: "websocket_not_configured" }, 503, corsHeaders(env, req));
+        }
+        const id = env.PRICE_HUB.idFromName("global");
+        const hub = env.PRICE_HUB.get(id);
+        // Forward the request to the Durable Object
+        return hub.fetch(url.pathname === "/ws/stats"
+          ? new Request(new URL("/ws/stats", req.url), { method: "GET" })
+          : req
+        );
       }
 
       const KV = env.KV_TIMED;
@@ -31435,12 +31468,20 @@ Provide 3-5 actionable next steps:
           const p = prices[dbgSym];
           console.log(`[PRICE FEED DBG] ${dbgSym}: d1pc=${d1PrevCloseMap[dbgSym]}, alpPc=${snap?.prevDailyClose}, price=${snap?.price}, stored_pc=${p?.pc}, stored_dc=${p?.dc}`);
         }
+        const priceUpdateTs = Date.now();
         await kvPutJSON(KV, "timed:prices", {
           prices,
-          updated_at: Date.now(),
+          updated_at: priceUpdateTs,
           ticker_count: Object.keys(prices).length,
           _debug: { d1PcCount, pcEqP, pcZero, pcReal, version: "v2-pickPrevClose" },
         });
+
+        // ── Push prices to WebSocket clients via PriceHub DO ──
+        ctx.waitUntil(notifyPriceHub(env, {
+          type: "prices",
+          data: prices,
+          updated_at: priceUpdateTs,
+        }));
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction
@@ -31636,6 +31677,7 @@ Provide 3-5 actionable next steps:
         // With ~140 tickers and 15-way parallelism, full cycle completes in ~10-15s
         let scored = 0, skipped = 0, errors = 0, trailWrites = 0;
         const pendingTrailPoints = []; // Collect trail points for batch write at end
+        const scoredUpdates = {}; // Collect scored ticker deltas for WS push
 
         // Get open positions for priority sorting and kanban context
         const openTradesCheck = ((await kvGetJSON(KV, "timed:trades:all")) || [])
@@ -31780,6 +31822,14 @@ Provide 3-5 actionable next steps:
             if (stdCronMarketOpen || hasPayloadChangedMeaningfully(existing, result) || triggerStale) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
+              // Collect lightweight delta for WS push
+              scoredUpdates[ticker] = {
+                score: result.eqScore ?? result.eq_score,
+                stage: result.kanban_stage,
+                dir: result.bias_direction,
+                price: result.price || result.close,
+                ts: result.trigger_ts,
+              };
             } else {
               skipped++;
             }
@@ -31846,6 +31896,16 @@ Provide 3-5 actionable next steps:
 
         const elapsed = Date.now() - scoringStart;
         console.log(`[SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${trailWrites} trail, ${elapsed}ms, ALL ${tickersToScore.length} tickers`);
+
+        // ── Push scoring deltas to WebSocket clients via PriceHub DO ──
+        if (Object.keys(scoredUpdates).length > 0) {
+          ctx.waitUntil(notifyPriceHub(env, {
+            type: "scoring",
+            data: scoredUpdates,
+            updated_at: Date.now(),
+            scored_count: Object.keys(scoredUpdates).length,
+          }));
+        }
       } catch (e) {
         console.error("[SCORING] Error:", e);
       }
