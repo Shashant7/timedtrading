@@ -897,8 +897,9 @@
           if (wsRef.current && wsRef.current.readyState <= 1) return;
 
           try {
-            const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-            const wsUrl = `${proto}//${window.location.host}/timed/ws`;
+            // Connect to workers.dev subdomain to bypass Cloudflare Access
+            // (Access blocks WebSocket upgrades on the custom domain)
+            const wsUrl = `wss://timed-trading-ingest.shashant.workers.dev/timed/ws`;
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
