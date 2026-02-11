@@ -14357,13 +14357,8 @@ export default {
         }
         const id = env.PRICE_HUB.idFromName("global");
         const hub = env.PRICE_HUB.get(id);
-        // Forward the request to the Durable Object (rewrite path for DO)
-        // CRITICAL: pass `req` as init to preserve WebSocket upgrade internal state
-        if (url.pathname === "/timed/ws/stats") {
-          return hub.fetch(new Request(new URL("/ws/stats", req.url), { method: "GET" }));
-        }
-        const doUrl = new URL("/ws", req.url);
-        return hub.fetch(new Request(doUrl, req));
+        // Forward the original request directly to preserve WebSocket upgrade state
+        return hub.fetch(req);
       }
 
       const KV = env.KV_TIMED;

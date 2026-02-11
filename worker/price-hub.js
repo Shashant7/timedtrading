@@ -24,7 +24,7 @@ export class PriceHub {
     const url = new URL(request.url);
 
     // ── POST /ws/notify — cron pushes data here ────────────────────────────
-    if (request.method === "POST" && url.pathname === "/ws/notify") {
+    if (request.method === "POST" && (url.pathname === "/ws/notify" || url.pathname === "/timed/ws/notify")) {
       try {
         const payload = await request.json();
         this._broadcast(payload);
@@ -40,7 +40,7 @@ export class PriceHub {
     }
 
     // ── GET /ws/stats — debug endpoint ─────────────────────────────────────
-    if (request.method === "GET" && url.pathname === "/ws/stats") {
+    if (request.method === "GET" && (url.pathname === "/ws/stats" || url.pathname === "/timed/ws/stats")) {
       const sockets = this.state.getWebSockets();
       const connections = sockets.map((ws) => {
         const tags = this.state.getTags(ws) || [];
