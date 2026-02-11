@@ -14350,17 +14350,20 @@ export default {
         });
       }
 
-      // ── WebSocket upgrade: /ws → Durable Object PriceHub ──
-      if (url.pathname === "/ws" || url.pathname === "/ws/stats") {
+      // ── WebSocket upgrade: /timed/ws → Durable Object PriceHub ──
+      if (url.pathname === "/timed/ws" || url.pathname === "/timed/ws/stats") {
         if (!env.PRICE_HUB) {
           return sendJSON({ ok: false, error: "websocket_not_configured" }, 503, corsHeaders(env, req));
         }
         const id = env.PRICE_HUB.idFromName("global");
         const hub = env.PRICE_HUB.get(id);
-        // Forward the request to the Durable Object
-        return hub.fetch(url.pathname === "/ws/stats"
+        // Forward the request to the Durable Object (rewrite path for DO)
+        return hub.fetch(url.pathname === "/timed/ws/stats"
           ? new Request(new URL("/ws/stats", req.url), { method: "GET" })
-          : req
+          : new Request(new URL("/ws", req.url), {
+              method: req.method,
+              headers: req.headers,
+            })
         );
       }
 

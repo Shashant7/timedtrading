@@ -898,7 +898,7 @@
 
           try {
             const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-            const wsUrl = `${proto}//${window.location.host}/ws`;
+            const wsUrl = `${proto}//${window.location.host}/timed/ws`;
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
