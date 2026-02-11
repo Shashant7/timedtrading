@@ -10993,8 +10993,8 @@
                     className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
                     <defs>
                       <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={gradColor} stopOpacity="0.14" />
-                        <stop offset="100%" stopColor={gradColor} stopOpacity="0.01" />
+                        <stop offset="0%" stopColor={gradColor} stopOpacity="0.22" />
+                        <stop offset="100%" stopColor={gradColor} stopOpacity="0.03" />
                       </linearGradient>
                     </defs>
                     {/* Gradient fill under line */}
@@ -11002,13 +11002,13 @@
                       fill={`url(#${gId})`} />
                     {/* Opening price reference line */}
                     <line x1="0" y1={openY} x2={VW} y2={openY}
-                      stroke="rgba(255,255,255,0.06)" strokeWidth="2" strokeDasharray="8,6" />
+                      stroke="rgba(255,255,255,0.09)" strokeWidth="2" strokeDasharray="8,6" />
                     {/* "Now" vertical line */}
                     <line x1={nowX} y1="0" x2={nowX} y2={VH}
                       stroke="rgba(255,255,255,0.04)" strokeWidth="2" />
                     {/* Price line */}
                     <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="3"
-                      strokeLinejoin="round" strokeLinecap="round" opacity="0.28" />
+                      strokeLinejoin="round" strokeLinecap="round" opacity="0.40" />
                   </svg>
                 );
               })()}
@@ -11965,23 +11965,23 @@
                     </th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400" title="Intraday sparkline (1m or 5m)">Spark</th>
-                    <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
+                    <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
                       CP{sortArrow("price")}
                     </th>
-                    <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
+                    <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
                       Day %{sortArrow("change")}
                     </th>
-                    <th className="px-2 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>
+                    <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Bias</th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400" title="SL/EP/TP Progress">Trade</th>
-                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("score")}>
+                    <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("score")}>
                       Score{sortArrow("score")}
                     </th>
-                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("rank")}>
+                    <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("rank")}>
                       Rank{sortArrow("rank")}
                     </th>
-                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">R:R</th>
-                    <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Flags</th>
+                    <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400">R:R</th>
+                    <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400">Flags</th>
                     {/* Stage lane columns with spelled-out labels */}
                     {STAGE_KEYS.map(sk => {
                       const m = STAGE_META[sk];
@@ -12062,11 +12062,11 @@
                           <Sparkline candles={sparkData[sym]} sym={sym} width={72} height={24} />
                         </td>
                         {/* Current Price */}
-                        <td className="px-2 py-1 text-right text-[11px] text-white font-medium tabular-nums">
+                        <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
                         </td>
                         {/* Daily % Change */}
-                        <td className="px-2 py-1 text-right text-[11px] tabular-nums">
+                        <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayPct !== null ? (
                             <span style={{ color: dayPct > 0 ? "#22c55e" : dayPct < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayPct > 0 ? "+" : ""}{dayPct.toFixed(2)}%
@@ -12074,7 +12074,7 @@
                           ) : <span className="text-gray-600">—</span>}
                         </td>
                         {/* Daily $ Change */}
-                        <td className="px-2 py-1 text-right text-[11px] tabular-nums">
+                        <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayChg !== null ? (
                             <span style={{ color: dayChg > 0 ? "#22c55e" : dayChg < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayChg > 0 ? "+" : ""}{dayChg.toFixed(2)}
@@ -12092,10 +12092,10 @@
                           ) : <span className="text-[9px] text-gray-600 block text-center">—</span>}
                         </td>
                         {/* Score */}
-                        <td className="px-2 py-1.5 text-center">
+                        <td className="px-1 py-1.5 text-center">
                           {score > 0 ? (
                             <span
-                              className="text-[11px] font-bold px-1.5 py-0.5 rounded"
+                              className="text-[11px] font-bold px-1 py-0.5 rounded"
                               style={{
                                 color: score >= 80 ? "#22c55e" : score >= 50 ? "#f59e0b" : "#ef4444",
                                 background: score >= 80 ? "rgba(34,197,94,0.12)" : score >= 50 ? "rgba(245,158,11,0.12)" : "rgba(239,68,68,0.12)",
@@ -12106,13 +12106,13 @@
                           ) : <span className="text-[11px] text-gray-600">—</span>}
                         </td>
                         {/* Rank */}
-                        <td className="px-2 py-1.5 text-center text-[11px] tabular-nums">
+                        <td className="px-1 py-1.5 text-center text-[11px] tabular-nums">
                           {rank ? (
                             <span className="text-gray-300">{rank}<span className="text-gray-600 text-[9px]">/{rankTotal}</span></span>
                           ) : <span className="text-gray-600">—</span>}
                         </td>
                         {/* R:R */}
-                        <td className="px-2 py-1.5 text-center text-[11px] tabular-nums">
+                        <td className="px-1 py-1.5 text-center text-[11px] tabular-nums">
                           {rr !== null && Number.isFinite(rr) ? (
                             <span className={rr >= 2 ? "text-teal-400 font-semibold" : rr >= 1 ? "text-gray-300" : "text-rose-400"}>
                               {rr.toFixed(1)}
@@ -12120,7 +12120,7 @@
                           ) : <span className="text-gray-600">—</span>}
                         </td>
                         {/* Flags */}
-                        <td className="px-2 py-1.5 text-center text-[11px]">
+                        <td className="px-1 py-1.5 text-center text-[11px]">
                           {badges.length > 0 ? badges.join("") : <span className="text-gray-600">—</span>}
                         </td>
                         {/* Stage lane columns: colored dot in active stage, pulse for critical */}
@@ -16443,7 +16443,6 @@
                         )}
                         {sectorChips.length > 0 && (
                           <div className="flex items-center gap-2 overflow-x-auto pt-1.5 pb-1" style={{ scrollbarWidth: "none" }}>
-                            <span className="text-[9px] text-[#6b7280] font-semibold whitespace-nowrap flex-shrink-0">Sectors</span>
                             {sectorChips}
                           </div>
                         )}
