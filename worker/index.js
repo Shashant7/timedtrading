@@ -6699,8 +6699,12 @@ async function processTradeSimulation(
     // During replay, use the simulation time (asOfMs) to check weekend, not wall-clock time.
     const weekendNow = isNyWeekend(isReplay && Number.isFinite(asOfMs) ? asOfMs : Date.now());
 
-    // RTH guard: New trade ENTRIES are restricted to regular trading hours (9:30 AM - 4:00 PM ET).
-    // Trade management (exits, trims, defend, SL) can still run during extended hours.
+    // RTH guard: Regular Trading Hours = 9:30 AM - 4:00 PM ET.
+    // ENTRIES: Restricted to RTH only.
+    // EXITS/TRIMS outside RTH: Only allowed if PRICE-DRIVEN (SL breach, max-loss, TP hit).
+    //   Signal-based exits (fuse, kanban, completion) are blocked outside RTH.
+    //   This prevents premature trims/exits during thin pre-market/after-hours volume.
+    // DEFEND (SL adjustment): Allowed outside RTH (no position change, just SL tightening).
     // During replay, use the simulation time to check RTH.
     const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
     const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
@@ -6713,7 +6717,8 @@ async function processTradeSimulation(
     // Trailing: after TP1, trail SL using Daily EMA(21)
     // ═══════════════════════════════════════════════════════════════════════════
     let fuseExitFired = false;
-    if (openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow) {
+    // FUSE EXITS are signal-based (RSI extremes), NOT price-driven — block outside RTH
+    if (openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow) && !weekendNow && !outsideRTH) {
       const tradeDir = String(openTrade.direction || "").toUpperCase();
       const isLong = tradeDir === "LONG";
       const entryPx = Number(openTrade.entryPrice);
@@ -6804,6 +6809,13 @@ async function processTradeSimulation(
           }
         }
       }
+    } else if (openTrade && isOpenTradeStatus(openTrade.status) && !weekendNow && outsideRTH) {
+      // Log when fuse checks would have run but were blocked by RTH
+      const rsi1H = tickerData?.tf_tech?.["1H"]?.rsi?.r5 ?? 50;
+      const rsi4H = tickerData?.tf_tech?.["4H"]?.rsi?.r5 ?? 50;
+      if (rsi1H >= 75 || rsi1H <= 25 || rsi4H >= 80 || rsi4H <= 20) {
+        console.log(`[FUSE EXIT] ${sym} fuse check blocked: outside RTH (rsi1H=${rsi1H} rsi4H=${rsi4H}), signal-based exits wait for market open`);
+      }
     }
 
     // 1) EXIT: close any open trade while in EXIT lane
@@ -6816,7 +6828,9 @@ async function processTradeSimulation(
       && Math.abs(pxNow - Number(openTrade.entryPrice)) / Number(openTrade.entryPrice) < 0.001; // < 0.1% movement
     const exitReasonRaw = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
     const isSLExit = /\bSL\b|stop.?loss|max.?loss/i.test(String(exitReasonRaw));
-    if (isExit && !weekendNow && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status)) {
+    // Outside RTH: only allow price-driven exits (SL breach, max loss). Signal-based exits wait for RTH.
+    const exitAllowedOutsideRTH = isSLExit;
+    if (isExit && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status)) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -6826,6 +6840,8 @@ async function processTradeSimulation(
         if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, exitExecUpdate);
         else if (!isReplay) await kvPutJSON(KV, execKey, exitExecUpdate);
       }
+    } else if (isExit && openTrade && outsideRTH && !exitAllowedOutsideRTH && !fuseExitFired) {
+      console.log(`[TRADE SIM] ${sym} exit blocked: outside RTH (reason=${exitReasonRaw}), only SL/max-loss exits allowed pre/post-market`);
     } else if (isExit && openTrade && !exitMinAgeOk && !fuseExitFired) {
       const ageMin = Number.isFinite(entryMsNorm) ? Math.round((now - entryMsNorm) / 60000) : 0;
       console.log(
@@ -6945,6 +6961,7 @@ async function processTradeSimulation(
       
       // Find which TP level price has reached
       let target = THREE_TIER_CONFIG.TRIM.trimPct; // Default to TRIM (60%)
+      let trimIsPriceDriven = false; // Track if trim is TP-hit (allowed outside RTH)
       
       if (tpArray.length > 0 && Number.isFinite(entryPx)) {
         // Check if price has reached each tier's TP
@@ -6959,12 +6976,15 @@ async function processTradeSimulation(
         
         if (reachedTp(runnerTp)) {
           target = THREE_TIER_CONFIG.RUNNER.trimPct; // 100%
+          trimIsPriceDriven = true;
           console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached RUNNER TP $${runnerTp?.price?.toFixed(2)}`);
         } else if (reachedTp(exitTp)) {
           target = THREE_TIER_CONFIG.EXIT.trimPct; // 80%
+          trimIsPriceDriven = true;
           console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached EXIT TP $${exitTp?.price?.toFixed(2)}`);
         } else if (reachedTp(trimTp)) {
           target = THREE_TIER_CONFIG.TRIM.trimPct; // 60%
+          trimIsPriceDriven = true;
           console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached TRIM TP $${trimTp?.price?.toFixed(2)}`);
         } else {
           // Price hasn't reached TRIM TP yet - use completion-based approach as fallback
@@ -6974,11 +6994,18 @@ async function processTradeSimulation(
           const completionToTrim = computeCompletionToTier(tickerData, "TRIM");
           if (completionToTrim >= 0.9 || (Number.isFinite(comp) && comp >= 0.6)) {
             target = THREE_TIER_CONFIG.TRIM.trimPct; // 60%
+            // Completion-based trim is NOT price-driven — block outside RTH
           } else {
             // Don't trim yet if we're not close to TRIM TP
             target = 0;
           }
         }
+      }
+      
+      // Outside RTH: only allow price-driven trims (TP actually hit). Signal/completion-based trims wait for RTH.
+      if (target > 0 && outsideRTH && !trimIsPriceDriven) {
+        console.log(`[TRADE SIM] ${sym} trim blocked: outside RTH, non-price-driven trim (completion/signal-based), waiting for market open`);
+        target = 0;
       }
       
       if (target > 0) {

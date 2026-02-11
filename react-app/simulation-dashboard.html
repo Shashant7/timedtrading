@@ -6985,10 +6985,11 @@
                                     return isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
                                   })()
                                 : "";
-                              const dayChg = Number(tickerData?._live_daily_change ?? tickerData?.day_change);
-                              const dayChgPct = Number(tickerData?._live_daily_change_pct ?? tickerData?.day_change_pct);
-                              const hasDayChg = Number.isFinite(dayChg);
-                              const hasDayChgPct = Number.isFinite(dayChgPct);
+                              const dailyResult = getDailyChange(tickerData) || {};
+                              const dayChg = Number.isFinite(dailyResult.dayChg) ? dailyResult.dayChg : null;
+                              const dayChgPct = Number.isFinite(dailyResult.dayPct) ? dailyResult.dayPct : null;
+                              const hasDayChg = dayChg !== null;
+                              const hasDayChgPct = dayChgPct !== null;
                               const pnlOpen = pos.pnlOpen;
                               const retOpenPct = pos.retOpenPct;
                               const stageInfo = getPositionStage(pos);
