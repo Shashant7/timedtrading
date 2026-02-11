@@ -18834,12 +18834,16 @@ export default {
                 // ONLY update live price from timed:prices.
                 obj.price = pf.p;
                 obj._live_price = pf.p;
-                // Use price feed's prev_close when available; else fall back to D1.
+                // Use price feed's prev_close when available; but reject if ≈ current price
+                // (known Alpaca bug: prevDailyClose = current price, making daily change 0%).
                 // NEVER set _live_prev_close to 0 — preserve existing value.
                 const pfPc = Number(pf.pc);
-                const bestPc = (Number.isFinite(pfPc) && pfPc > 0)
+                const pfP = Number(pf.p);
+                const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
+                  && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05; // reject if within 0.05% of price
+                const bestPc = pfPcUsable
                   ? pfPc
-                  : (obj._live_prev_close || obj.prev_close || undefined);
+                  : (obj.prev_close || obj._live_prev_close || undefined);
                 if (bestPc > 0) obj._live_prev_close = bestPc;
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;
@@ -31331,11 +31335,23 @@ Provide 3-5 actionable next steps:
           console.warn(`[PRICE→CANDLE] error:`, String(candleErr).slice(0, 120));
         }
 
-        // Store in KV with timestamp
+        // Store in KV with timestamp + debug
+        const d1PcCount = Object.keys(d1PrevCloseMap).length;
+        const pcEqP = Object.values(prices).filter(v => v.pc === v.p && v.p > 0).length;
+        const pcZero = Object.values(prices).filter(v => v.pc === 0).length;
+        const pcReal = Object.values(prices).filter(v => v.pc > 0 && v.pc !== v.p).length;
+        console.log(`[PRICE FEED] d1PrevCloseMap: ${d1PcCount} tickers, pc==p: ${pcEqP}, pc==0: ${pcZero}, pc_real: ${pcReal}`);
+        // Sample debug: log a few tickers' prev_close sources
+        for (const dbgSym of ["CAT", "TSLA", "AAPL"]) {
+          const snap = snapshots[dbgSym];
+          const p = prices[dbgSym];
+          console.log(`[PRICE FEED DBG] ${dbgSym}: d1pc=${d1PrevCloseMap[dbgSym]}, alpPc=${snap?.prevDailyClose}, price=${snap?.price}, stored_pc=${p?.pc}, stored_dc=${p?.dc}`);
+        }
         await kvPutJSON(KV, "timed:prices", {
           prices,
           updated_at: Date.now(),
           ticker_count: Object.keys(prices).length,
+          _debug: { d1PcCount, pcEqP, pcZero, pcReal, version: "v2-pickPrevClose" },
         });
 
         // ── SL/TP Exit Checking on price loop ──

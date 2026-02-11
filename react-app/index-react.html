@@ -832,10 +832,14 @@
                 if (!existing || !(priceInfo.p > 0)) continue;
                 // Skip update if price hasn't changed (avoid re-render churn)
                 if (existing._live_price === priceInfo.p) continue;
-                // Use price feed's prev_close when available so daily change matches (CP, $, %)
-                // NEVER set _live_prev_close to 0 — preserve existing value if feed lacks valid pc
+                // Use price feed's prev_close — but reject when it ≈ current price
+                // (known Alpaca bug: prevDailyBar.close = current price → 0% daily change).
+                // NEVER set _live_prev_close to 0 — preserve existing value.
                 const feedPc = Number(priceInfo.pc);
-                const bestPc = (Number.isFinite(feedPc) && feedPc > 0)
+                const feedP = Number(priceInfo.p);
+                const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
+                  && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
+                const bestPc = feedPcUsable
                   ? feedPc
                   : (existing._live_prev_close || existing.prev_close || undefined);
                 const merged = {
