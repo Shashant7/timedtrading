@@ -1958,55 +1958,125 @@
       const getStaleInfo = window.TimedPriceUtils.getStaleInfo;
       const getDailyChange = window.TimedPriceUtils.getDailyChange;
 
-      // ── Sparkline helpers: filter to today's session & find market open ──
-      // Compute once per page load: 4:00 AM ET today as epoch seconds
-      const _todayCutoffSec = (() => {
-        const etDateStr = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York" });
-        const [mo, dy, yr] = etDateStr.split("/").map(Number);
-        // Noon UTC → check what hour ET reports to get offset
-        const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
-        const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
-        const etOffset = etHour - 12; // EST=-5, EDT=-4
-        return Date.UTC(yr, mo - 1, dy, 4 - etOffset, 0, 0) / 1000;
-      })();
+      // ══════════════════════════════════════════════════════════════════
+      // Sparkline helpers — session-aware time axis
+      // ══════════════════════════════════════════════════════════════════
 
-      function _filterTodaySession(rawCandles) {
-        if (!rawCandles || rawCandles.length < 2) return rawCandles;
-        const filtered = rawCandles.filter(c => {
-          const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
-          return ts >= _todayCutoffSec;
-        });
-        return filtered.length >= 2 ? filtered : rawCandles; // fallback to all if today < 2
+      // 24/7 tickers: futures & crypto that trade Sun 6 PM → Fri 5 PM ET
+      const _CONTINUOUS_TICKERS = new Set([
+        "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "ZB1!", "ZN1!", "6E1!", "6J1!",
+        "ES", "NQ", "BTC", "ETH", "GC", "SI", "US500", "USOIL", "GOLD", "SILVER", "DXY",
+        "BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT",
+      ]);
+
+      // Session config: returns { openMin, closeMin, sessionDur, label }
+      // openMin/closeMin are ET minutes from midnight (may wrap: 1080 → 1020 next day = 23h)
+      function _getSessionConfig(sym) {
+        const s = String(sym || "").toUpperCase();
+        if (_CONTINUOUS_TICKERS.has(s) || s.endsWith("1!") || s.endsWith("USDT") || s.endsWith("USD")) {
+          // Futures/crypto: 6:00 PM ET (1080) → 5:00 PM ET next day (1020)
+          // Session duration: 23 hours = 1380 minutes
+          return { openMin: 1080, closeMin: 1020, sessionDur: 1380, label: "6PM–5PM" };
+        }
+        // Equity RTH: 9:30 AM ET (570) → 4:00 PM ET (960)
+        return { openMin: 570, closeMin: 960, sessionDur: 390, label: "9:30–4PM" };
       }
 
-      // Find index of first candle at or after 9:30 AM ET (market open)
-      function _findOpenIdx(candles) {
+      // Convert a Unix timestamp (seconds) to ET minutes-from-midnight
+      const _etFmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York", hour12: false,
+        hour: "2-digit", minute: "2-digit"
+      });
+      function _tsToEtMin(tsSec) {
+        if (!tsSec) return NaN;
+        const d = new Date(tsSec * 1000);
+        const parts = _etFmt.formatToParts(d);
+        let hr = 0, mn = 0;
+        for (const p of parts) {
+          if (p.type === "hour") hr = parseInt(p.value);
+          if (p.type === "minute") mn = parseInt(p.value);
+        }
+        // Handle midnight: formatToParts returns "24" for midnight in hour12: false
+        if (hr === 24) hr = 0;
+        return hr * 60 + mn;
+      }
+
+      // Session fraction: maps a candle timestamp to 0–1 within the session window
+      // 0 = session open, 1 = session close
+      function _sessionFraction(tsSec, sym) {
+        const min = _tsToEtMin(tsSec);
+        if (isNaN(min)) return 1;
+        const cfg = _getSessionConfig(sym);
+        if (cfg.sessionDur === 390) {
+          // Equity: simple linear 570→960
+          if (min < cfg.openMin) return 0;
+          if (min >= cfg.closeMin) return 1;
+          return (min - cfg.openMin) / cfg.sessionDur;
+        }
+        // Continuous (wraps midnight): 1080 → 0 → 1020
+        // Minutes past session open, handling midnight wrap
+        let elapsed;
+        if (min >= cfg.openMin) {
+          elapsed = min - cfg.openMin; // same day, after 6 PM
+        } else if (min < cfg.closeMin) {
+          elapsed = (1440 - cfg.openMin) + min; // next day, before 5 PM
+        } else {
+          // Between 5 PM and 6 PM ET = session gap
+          return 1;
+        }
+        return Math.max(0, Math.min(1, elapsed / cfg.sessionDur));
+      }
+
+      // Compute session open time as epoch seconds for "today's" session
+      // Equity: today 9:30 AM ET → epoch sec
+      // Continuous: today (or yesterday if before 6 PM) 6:00 PM ET → epoch sec
+      function _getSessionOpenEpoch(sym) {
+        const cfg = _getSessionConfig(sym);
+        const now = new Date();
+        // Get today's date in ET
+        const etDateStr = now.toLocaleDateString("en-US", { timeZone: "America/New_York" });
+        const [mo, dy, yr] = etDateStr.split("/").map(Number);
+        // Get current ET offset (EST=-5, EDT=-4)
+        const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
+        const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
+        const etOffset = etHour - 12; // negative number
+        const openHr = Math.floor(cfg.openMin / 60);
+        const openMn = cfg.openMin % 60;
+        // UTC time of session open today
+        let openUtc = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0) / 1000;
+        if (cfg.sessionDur > 500) {
+          // Continuous: if current ET time is before session open (before 6 PM),
+          // the active session started YESTERDAY at 6 PM
+          const nowEtMin = _tsToEtMin(Math.floor(Date.now() / 1000));
+          if (nowEtMin < cfg.openMin) {
+            openUtc -= 86400; // subtract 1 day
+          }
+        }
+        return openUtc;
+      }
+
+      // Filter candles to today's session (ticker-aware)
+      function _filterTodaySession(rawCandles, sym) {
+        if (!rawCandles || rawCandles.length < 2) return rawCandles;
+        const openEpoch = _getSessionOpenEpoch(sym);
+        const filtered = rawCandles.filter(c => {
+          const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
+          return ts >= openEpoch;
+        });
+        return filtered.length >= 2 ? filtered : rawCandles;
+      }
+
+      // Find index of first candle at or after session open
+      function _findOpenIdx(candles, sym) {
         if (!candles || candles.length === 0) return -1;
+        const cfg = _getSessionConfig(sym);
         for (let i = 0; i < candles.length; i++) {
           const ts = Number(candles[i].t ?? candles[i].ts ?? candles[i].timestamp ?? 0);
           if (!ts) continue;
-          const d = new Date(ts * 1000);
-          const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
-          const parts = etStr.split(", ");
-          if (parts.length < 2) continue;
-          const [hr, mn] = parts[1].split(":").map(Number);
-          if (hr * 60 + mn >= 570) return i; // 9:30 AM = 570 min
+          const frac = _sessionFraction(ts, sym);
+          if (frac >= 0) return i;
         }
         return -1;
-      }
-
-      // Session fraction: 0 = 9:30 AM, 1 = 4:00 PM ET (390 min session)
-      function _sessionFraction(tsSec) {
-        if (!tsSec) return 1;
-        const d = new Date(tsSec * 1000);
-        const etStr = d.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false });
-        const parts = etStr.split(", ");
-        if (parts.length < 2) return 1;
-        const [hr, mn] = parts[1].split(":").map(Number);
-        const mins = hr * 60 + mn;
-        if (mins < 570) return 0;
-        if (mins >= 960) return 1;
-        return (mins - 570) / 390;
       }
 
       // Shared card skin (used by Kanban + Viewport cards)
@@ -10835,39 +10905,72 @@
                 )}
               </div>
 
-              {/* ── Sparkline strip (O=open, dot=now, shaded=now→close) ── */}
+              {/* ── Sparkline strip — session-aware time axis ── */}
               {(() => {
                 const rawCandles = cardSparkData?.[sym];
                 if (!rawCandles || rawCandles.length < 2) return null;
-                const candles = _filterTodaySession(rawCandles);
+                const candles = _filterTodaySession(rawCandles, sym);
                 if (!candles || candles.length < 2) return null;
-                const closes = candles.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
-                if (closes.length < 2) return null;
+
+                // Build (x-fraction, close-price) points mapped to session time axis
+                const points = [];
+                for (const c of candles) {
+                  const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
+                  const cl = Number(c.c ?? c.close ?? 0);
+                  if (!ts || cl <= 0) continue;
+                  const frac = _sessionFraction(ts, sym);
+                  if (frac >= 0 && frac <= 1) points.push({ frac, cl, ts });
+                }
+                if (points.length < 2) return null;
+
+                const closes = points.map(p => p.cl);
                 const lo = Math.min(...closes);
                 const hi = Math.max(...closes);
                 const range = hi - lo || 1;
-                const w = 264, h = 16, pad = 1;
+                const w = 264, h = 20, pad = 1;
                 const iw = w - pad * 2, ih = h - pad * 2;
-                const lastTs = Number(candles[candles.length - 1]?.t ?? candles[candles.length - 1]?.ts ?? 0);
-                const dataFrac = Math.max(0.1, Math.min(1, _sessionFraction(lastTs)));
-                const dataW = iw * dataFrac;
-                const pts = closes.map((v, i) => `${(pad + (i / (closes.length - 1)) * dataW).toFixed(1)},${(pad + ih - ((v - lo) / range) * ih).toFixed(1)}`).join(" ");
+
+                // Map each point to its true session position
+                const svgPts = points.map(p => ({
+                  x: pad + p.frac * iw,
+                  y: pad + ih - ((p.cl - lo) / range) * ih,
+                }));
+                const polyStr = svgPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
                 const up = closes[closes.length - 1] >= closes[0];
-                const color = up ? "#22c55e" : "#ef4444";
-                const openIdx = _findOpenIdx(candles);
-                const openX = openIdx >= 0 ? pad + (openIdx / (closes.length - 1)) * dataW : -1;
-                const nowX = pad + dataW;
-                const nowY = pad + ih - ((closes[closes.length - 1] - lo) / range) * ih;
+                const lineColor = up ? "#22c55e" : "#ef4444";
+                const lastPt = svgPts[svgPts.length - 1];
+                const nowFrac = _sessionFraction(Math.floor(Date.now() / 1000), sym);
+                const nowX = pad + nowFrac * iw;
+                // Shaded region = from now to session close (right edge)
+                const futureX = Math.max(lastPt.x, nowX);
+
+                const gradId = `csg-${sym}`;
                 return (
-                  <div className="px-1 overflow-hidden" style={{ height: "18px" }}>
-                    <svg width={w} height={h} className="block w-full">
-                      <rect x={nowX} y={pad} width={iw - dataW} height={ih} fill="rgba(255,255,255,0.05)" strokeDasharray="2,2" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
-                      {openX >= 0 && (
-                        <line x1={openX} y1={0} x2={openX} y2={h} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,2" opacity="0.7" />
+                  <div className="px-1 overflow-hidden" style={{ height: `${h}px` }}>
+                    <svg width={w} height={h} className="block w-full" style={{ shapeRendering: "geometricPrecision" }}>
+                      <defs>
+                        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
+                          <stop offset="100%" stopColor={lineColor} stopOpacity="0.02" />
+                        </linearGradient>
+                      </defs>
+                      {/* Future session (unfilled time) */}
+                      {futureX < pad + iw && (
+                        <rect x={futureX} y={pad} width={pad + iw - futureX} height={ih}
+                          fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" strokeDasharray="2,2" />
                       )}
-                      <polyline points={pts} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />
-                      <polygon points={`${pad},${pad + ih} ${pts} ${nowX},${pad + ih}`} fill={color} fillOpacity="0.1" />
-                      <circle cx={nowX} cy={nowY} r="2" fill={color} opacity="0.95" />
+                      {/* Gradient fill under line */}
+                      <polygon points={`${svgPts[0].x.toFixed(1)},${pad + ih} ${polyStr} ${lastPt.x.toFixed(1)},${pad + ih}`}
+                        fill={`url(#${gradId})`} />
+                      {/* Price line */}
+                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.2"
+                        strokeLinejoin="round" strokeLinecap="round" opacity="0.92" />
+                      {/* Session open marker (thin amber line at x=0) */}
+                      <line x1={pad} y1={pad} x2={pad} y2={pad + ih} stroke="#f59e0b" strokeWidth="0.7" opacity="0.5" />
+                      {/* Now dot — pulsing current price */}
+                      <circle cx={lastPt.x} cy={lastPt.y} r="2.5" fill={lineColor} opacity="0.95" />
+                      <circle cx={lastPt.x} cy={lastPt.y} r="4" fill="none" stroke={lineColor} strokeWidth="0.5" opacity="0.4" />
                     </svg>
                   </div>
                 );
@@ -11564,41 +11667,53 @@
           fetchSparklines(syms);
         }, [_filteredTickerKey, fetchSparklines]);
 
-        // ─── Sparkline SVG component (today's session, Webull-style, with tooltip) ───
+        // ─── Sparkline SVG component — session-aware time axis with tooltip ───
         const sparklineIdRef = React.useRef(0);
-        const Sparkline = React.memo(({ candles: rawCandles, width = 64, height = 22 }) => {
+        const Sparkline = React.memo(({ candles: rawCandles, sym: sparkSym, width = 72, height = 24 }) => {
           const [tooltip, setTooltip] = React.useState(null);
           const gradId = React.useMemo(() => `spk-tbl-${++sparklineIdRef.current}`, []);
           if (!rawCandles || rawCandles.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
-          const candles = React.useMemo(() => _filterTodaySession(rawCandles), [rawCandles]);
-          const closes = candles.map(c => Number(c.c ?? c.close ?? 0)).filter(v => v > 0);
-          if (closes.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
+          const candles = React.useMemo(() => _filterTodaySession(rawCandles, sparkSym), [rawCandles, sparkSym]);
+
+          // Build session-mapped points
+          const points = React.useMemo(() => {
+            const pts = [];
+            for (const c of candles) {
+              const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
+              const cl = Number(c.c ?? c.close ?? 0);
+              if (!ts || cl <= 0) continue;
+              const frac = _sessionFraction(ts, sparkSym);
+              if (frac >= 0 && frac <= 1) pts.push({ frac, cl, ts });
+            }
+            return pts;
+          }, [candles, sparkSym]);
+
+          if (points.length < 2) return <span className="text-gray-700 text-[9px]">—</span>;
+          const closes = points.map(p => p.cl);
           const lo = Math.min(...closes);
           const hi = Math.max(...closes);
           const range = hi - lo || 1;
           const pad = 1;
           const w = width - pad * 2;
           const h = height - pad * 2;
-          const pts = closes.map((v, i) => {
-            const x = pad + (i / (closes.length - 1)) * w;
-            const y = pad + h - ((v - lo) / range) * h;
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
-          }).join(" ");
+
+          const svgPts = points.map(p => ({
+            x: pad + p.frac * w,
+            y: pad + h - ((p.cl - lo) / range) * h,
+            ts: p.ts,
+            price: p.cl,
+          }));
+          const polyStr = svgPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
           const up = closes[closes.length - 1] >= closes[0];
           const color = up ? "#22c55e" : "#ef4444";
-          const openIdx = _findOpenIdx(candles);
-          const openX = openIdx >= 0 ? pad + (openIdx / (closes.length - 1)) * w : -1;
-          const pointsWithTs = candles.map((c, i) => ({
-            x: pad + (i / (closes.length - 1)) * w,
-            price: closes[i],
-            ts: Number(c.t ?? c.ts ?? c.timestamp ?? 0),
-          }));
+          const lastPt = svgPts[svgPts.length - 1];
+
           const handleMouseMove = (e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const svgX = e.clientX - rect.left;
-            let closest = pointsWithTs[0];
+            let closest = svgPts[0];
             let minD = 999;
-            for (const p of pointsWithTs) {
+            for (const p of svgPts) {
               const d = Math.abs(p.x - svgX);
               if (d < minD) { minD = d; closest = p; }
             }
@@ -11610,17 +11725,22 @@
           const handleMouseLeave = () => setTooltip(null);
           return (
             <>
-              <svg width={width} height={height} className="block" style={{ minWidth: width }}
+              <svg width={width} height={height} className="block" style={{ minWidth: width, shapeRendering: "geometricPrecision" }}
                 onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-              {openX >= 0 && <line x1={openX} y1={0} x2={openX} y2={height} stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="2,2" opacity="0.5" />}
-              <polyline points={pts} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />
               <defs>
-                <linearGradient id={`${gradId}-${up ? "g" : "r"}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity="0.15" />
+                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity="0.18" />
                   <stop offset="100%" stopColor={color} stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <polygon points={`${pad},${pad + h} ${pts} ${pad + w},${pad + h}`} fill={`url(#${gradId}-${up ? "g" : "r"})`} />
+              {/* Session open marker */}
+              <line x1={pad} y1={pad} x2={pad} y2={pad + h} stroke="#f59e0b" strokeWidth="0.5" opacity="0.4" />
+              {/* Gradient fill under line */}
+              <polygon points={`${svgPts[0].x.toFixed(1)},${pad + h} ${polyStr} ${lastPt.x.toFixed(1)},${pad + h}`} fill={`url(#${gradId})`} />
+              {/* Price line */}
+              <polyline points={polyStr} fill="none" stroke={color} strokeWidth="1.1" strokeLinejoin="round" strokeLinecap="round" opacity="0.92" />
+              {/* Now dot */}
+              <circle cx={lastPt.x} cy={lastPt.y} r="1.8" fill={color} opacity="0.95" />
             </svg>
             {tooltip && (
               <div className="fixed z-[9999] pointer-events-none px-2 py-1 rounded text-[10px] bg-black/90 text-white border border-white/20 shadow-lg"
@@ -11670,8 +11790,8 @@
               ))}
               <span className="text-white/10 shrink-0">|</span>
               <span className="text-[11px] font-semibold text-white/70 shrink-0">Sparkline</span>
-              <span className="shrink-0"><span style={{ color: "#f59e0b" }}>O</span> = 9:30 AM ET</span>
-              <span className="shrink-0"><span style={{ color: "#8b5cf6" }}>C</span> = 4:00 PM ET</span>
+              <span className="shrink-0"><span style={{ color: "#f59e0b" }}>|</span> = Session Open</span>
+              <span className="shrink-0">Equities 9:30AM–4PM · Futures/Crypto 6PM–5PM ET</span>
             </div>
 
             {/* Table */}
@@ -11781,7 +11901,7 @@
                         <td className="px-2 py-1 text-[11px] text-gray-400 truncate max-w-[120px]" title={name}>{name || "—"}</td>
                         {/* Sparkline */}
                         <td className="px-1 py-0.5 text-center">
-                          <Sparkline candles={sparkData[sym]} width={64} height={22} />
+                          <Sparkline candles={sparkData[sym]} sym={sym} width={72} height={24} />
                         </td>
                         {/* Current Price */}
                         <td className="px-2 py-1 text-right text-[11px] text-white font-medium tabular-nums">
@@ -15370,7 +15490,10 @@
           };
           const fetchSmart = async (sym) => {
             try {
-              let candles = await fetchCandles(sym, 5, 250);
+              // Futures/crypto sessions are 23hrs → need ~280 5m candles; equities need ~78
+              const isContinuous = _CONTINUOUS_TICKERS.has(sym) || sym.endsWith("1!") || sym.endsWith("USDT") || sym.endsWith("USD");
+              const limit = isContinuous ? 350 : 250;
+              let candles = await fetchCandles(sym, 5, limit);
               if (!candles || candles.length < 5) {
                 candles = await fetchCandles(sym, 1, 600);
               }
