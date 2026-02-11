@@ -18841,9 +18841,21 @@ export default {
                 const pfP = Number(pf.p);
                 const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
                   && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05; // reject if within 0.05% of price
-                const bestPc = pfPcUsable
+                let bestPc = pfPcUsable
                   ? pfPc
                   : (obj.prev_close || obj._live_prev_close || undefined);
+                // Sanity check: if bestPc gives extreme daily change (>10%) but D1 has a
+                // saner day_change_pct, derive prev_close from the stored day_change_pct.
+                // This catches stale prev_close values in D1 (e.g. from weeks ago).
+                if (bestPc > 0 && pf.p > 0) {
+                  const computedPct = Math.abs((pf.p - bestPc) / bestPc * 100);
+                  const storedPct = Math.abs(Number(obj.day_change_pct));
+                  if (computedPct > 10 && Number.isFinite(storedPct) && storedPct < computedPct && storedPct < 15) {
+                    // Derive prev_close from stored day_change_pct
+                    const derivedPc = pf.p / (1 + Number(obj.day_change_pct) / 100);
+                    if (Number.isFinite(derivedPc) && derivedPc > 0) bestPc = Math.round(derivedPc * 100) / 100;
+                  }
+                }
                 if (bestPc > 0) obj._live_prev_close = bestPc;
                 obj._live_daily_high = pf.dh;
                 obj._live_daily_low = pf.dl;

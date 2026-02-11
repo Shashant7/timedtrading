@@ -124,6 +124,18 @@
       }
     }
 
+    // ── Sanity check: if prevClose gives extreme daily change (>10%) but a ──
+    // ── stored day_change_pct is available and saner, derive prevClose from it ──
+    if (prevClose > 0 && price > 0) {
+      var computedPctAbs = Math.abs((price - prevClose) / prevClose * 100);
+      var storedPctRaw = Number(t?.day_change_pct ?? t?.daily_change_pct ?? t?.change_pct);
+      var storedPctAbs = Number.isFinite(storedPctRaw) ? Math.abs(storedPctRaw) : NaN;
+      if (computedPctAbs > 10 && Number.isFinite(storedPctAbs) && storedPctAbs < computedPctAbs && storedPctAbs < 15) {
+        var betterPc = price / (1 + storedPctRaw / 100);
+        if (Number.isFinite(betterPc) && betterPc > 0) prevClose = Math.round(betterPc * 100) / 100;
+      }
+    }
+
     // ── Compute daily change ──
     if (prevClose > 0) {
       var chg = Math.round((price - prevClose) * 100) / 100;
