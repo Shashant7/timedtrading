@@ -634,8 +634,13 @@
                         );
                         const tradeDirStr = String(trade?.direction || "").toUpperCase();
                         const useTradeDir = tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT");
+                        // Also check ticker-level position_direction (from server)
+                        const posDirStr = String(ticker?.position_direction || "").toUpperCase();
+                        const usePositionDir = !useTradeDir && ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT");
                         const dir = useTradeDir
                           ? { text: tradeDirStr, color: tradeDirStr === "LONG" ? "text-teal-400" : "text-rose-400", bg: tradeDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20" }
+                          : usePositionDir
+                          ? { text: posDirStr, color: posDirStr === "LONG" ? "text-teal-400" : "text-rose-400", bg: posDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20" }
                           : tickerDir;
                         return (
                           <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs ${dir.bg} ${dir.color} border border-current/30`}>
@@ -1784,7 +1789,10 @@
 
                       {/* Unified Risk / Reward Levels — single source of truth */}
                       {(() => {
-                        const sl = ticker.sl ? Number(ticker.sl) : null;
+                        // Use position SL/TP when available (correct for SHORT trades)
+                        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+                        const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
+                        const sl = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker.sl ? Number(ticker.sl) : null);
                         const price = Number(ticker?.price);
                         const rr = ticker.rr ? Number(ticker.rr) : null;
                         const hasSl = Number.isFinite(sl) && sl > 0;
@@ -1802,7 +1810,10 @@
                         if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
 
                         const stateStr = String(ticker?.state || "");
-                        const dir = stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null;
+                        // Use position direction when open trade exists (fixes SHORT positions showing LONG R:R)
+                        const posDir = ticker?.has_open_position ? String(ticker?.position_direction || "").toUpperCase() : null;
+                        const dir = (posDir === "LONG" || posDir === "SHORT") ? posDir
+                          : stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null;
                         // SL% = absolute risk distance from current price
                         const slDistPct = hasSl && Number.isFinite(price) && price > 0
                           ? Math.abs((sl - price) / price) * 100
