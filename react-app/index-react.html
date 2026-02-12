@@ -1076,6 +1076,30 @@
         return { trades, loading, error, refetch: fetchTrades };
       }
 
+      // Portfolio hook — same source as Simulation Dashboard (GET /timed/portfolio)
+      function usePortfolio() {
+        const [portfolio, setPortfolio] = useState(null);
+        const [loading, setLoading] = useState(true);
+
+        const fetchPortfolio = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/portfolio?_t=${Date.now()}`, { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok) setPortfolio(json);
+          } catch { /* best-effort */ }
+          finally { setLoading(false); }
+        }, []);
+
+        useEffect(() => {
+          fetchPortfolio();
+          const interval = setInterval(fetchPortfolio, 60000);
+          return () => clearInterval(interval);
+        }, [fetchPortfolio]);
+
+        return { portfolio, loading, refetch: fetchPortfolio };
+      }
+
       // Hook to fetch sector ratings
       function useSectors() {
         const [sectors, setSectors] = useState([]);
@@ -11328,6 +11352,7 @@
         defaultLimit = 12,
         storageKey = "timedTrading_activeMovesSnapshot_v1",
         trades = [],
+        portfolio = null,
         savedTickers = new Set(),
         toggleSavedTicker = null,
       }) {
@@ -11596,25 +11621,36 @@
         const todayRealizedPnl = todayExits.reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
         const todayActivityCount = todayEntries.length + todayExits.length;
 
-        // Open positions stats
-        const openTrades = (trades || []).filter((tr) => {
-          const s = String(tr?.status || "").toUpperCase();
-          return s === "OPEN" || s === "TP_HIT_TRIM";
-        });
-        const openPositionCount = openTrades.length;
-        const openPnl = openTrades.reduce((sum, tr) => {
-          const ep = Number(tr?.entryPrice || tr?.entry_price);
-          const sym = String(tr?.ticker || "").toUpperCase();
-          const tickerObj = tickers.find(t => String(t?.ticker || "").toUpperCase() === sym);
-          const cp = Number(tickerObj?.price ?? tickerObj?.close);
-          if (!Number.isFinite(ep) || !Number.isFinite(cp) || ep <= 0) return sum;
-          const shares = Number(tr?.shares || tr?.total_qty || 0);
-          const dirSign = String(tr?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
-          return sum + (cp - ep) * shares * dirSign;
-        }, 0);
-        // Account value: starting capital + realized P&L + open P&L
+        // Open positions stats — use portfolio API (single source of truth, same as Simulation Dashboard)
         const STARTING_CAPITAL = 100000;
-        const allRealizedPnl = (trades || []).reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
+        const portfolioData = portfolio?.portfolio;
+        const portfolioOpenPositions = Array.isArray(portfolioData?.openPositions) ? portfolioData.openPositions : [];
+        const openPositionCount = portfolioOpenPositions.length;
+
+        // Realized P&L from portfolio proof (same as Simulation Dashboard)
+        const proofByDay = portfolio?.proof?.byDay || {};
+        const allRealizedPnl = Object.values(proofByDay).reduce(
+          (sum, day) => sum + (Number(day?.stats?.realizedPnl) || 0), 0,
+        );
+
+        // Open P&L: use portfolio positions but prefer live ticker prices from allData
+        // (portfolio mark may be stale D1 data; allData has price-feed-refreshed prices)
+        const openPnl = portfolioOpenPositions.reduce((sum, pos) => {
+          const avgEntry = Number(pos?.avgEntry);
+          const shares = Number(pos?.shares);
+          const dir = String(pos?.direction || "").toUpperCase();
+          const sign = dir === "SHORT" ? -1 : 1;
+          if (!Number.isFinite(avgEntry) || !Number.isFinite(shares)) return sum;
+          // Prefer live price from tickers (price-feed updated), fall back to portfolio mark
+          const sym = String(pos?.ticker || "").toUpperCase();
+          const tickerObj = tickers.find(t => String(t?.ticker || "").toUpperCase() === sym);
+          const livePx = Number(tickerObj?.price ?? tickerObj?.close);
+          const mark = Number.isFinite(livePx) && livePx > 0 ? livePx : Number(pos?.mark);
+          if (!Number.isFinite(mark)) return sum;
+          return sum + (mark - avgEntry) * shares * sign;
+        }, 0);
+
+        // Account value = starting capital + realized + open (matches Simulation Dashboard formula)
         const accountValue = STARTING_CAPITAL + allRealizedPnl + openPnl;
 
         return (
@@ -15605,6 +15641,7 @@
         const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
+        const { portfolio } = usePortfolio();
         const { sectors } = useSectors();
         const [filters, setFilters] = useState(() => {
           // Safety check: reset to defaults if localStorage was cleared
@@ -16375,6 +16412,7 @@
                     <ActionCenterPanel
                       tickers={tickers}
                       trades={trades}
+                      portfolio={portfolio}
                       allTickersWithRanks={allTickersWithRanks}
                       rankPositions={rankedTickerPositions}
                       onSelectTicker={handleTickerSelect}

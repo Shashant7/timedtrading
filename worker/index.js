@@ -19201,6 +19201,18 @@ export default {
                 obj._live_daily_low = pf.dl;
                 obj._live_daily_volume = pf.dv;
                 obj._price_updated_at = pricesUpdatedAt;
+                // Keep ingest_ts fresh: price feed runs every minute, so if the feed
+                // has a newer timestamp than the stored payload, use the feed's time.
+                // This prevents the tooltip from showing stale dates (e.g. "Feb 10 4:00 PM")
+                // when D1 payload_json hasn't been synced from KV yet.
+                if (Number.isFinite(pricesUpdatedAt) && pricesUpdatedAt > 0) {
+                  const existingTs = Number(obj.ingest_ts) || Number(obj.ts) || 0;
+                  const existingNorm = existingTs > 0 && existingTs < 1e12 ? existingTs * 1000 : existingTs;
+                  if (pricesUpdatedAt > existingNorm) {
+                    obj.ingest_ts = pricesUpdatedAt;
+                    obj.ingest_time = new Date(pricesUpdatedAt).toISOString();
+                  }
+                }
               }
             }
           } catch (e) {
