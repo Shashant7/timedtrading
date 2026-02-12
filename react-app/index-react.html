@@ -11001,15 +11001,24 @@
                     {/* Gradient fill under line */}
                     <polygon points={`${svgPts[0].x.toFixed(1)},${VH} ${polyStr} ${lastPt.x.toFixed(1)},${VH}`}
                       fill={`url(#${gId})`} />
-                    {/* Opening price reference line */}
+                    <defs>
+                      <filter id={`glow-line-${sym}`}>
+                        <feGaussianBlur stdDeviation="4" result="blur" />
+                        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                      </filter>
+                      <filter id={`glow-ref-${sym}`}>
+                        <feGaussianBlur stdDeviation="2.5" result="blur" />
+                        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                      </filter>
+                    </defs>
+                    {/* Opening price reference line — with glow */}
                     <line x1="0" y1={openY} x2={VW} y2={openY}
-                      stroke="rgba(255,255,255,0.09)" strokeWidth="2" strokeDasharray="8,6" />
-                    {/* "Now" vertical line */}
-                    <line x1={nowX} y1="0" x2={nowX} y2={VH}
-                      stroke="rgba(255,255,255,0.04)" strokeWidth="2" />
-                    {/* Price line */}
+                      stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" strokeDasharray="8,6"
+                      filter={`url(#glow-ref-${sym})`} />
+                    {/* Price line — with glow */}
                     <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="3"
-                      strokeLinejoin="round" strokeLinecap="round" opacity="0.40" />
+                      strokeLinejoin="round" strokeLinecap="round" opacity="0.50"
+                      filter={`url(#glow-line-${sym})`} />
                   </svg>
                 );
               })()}
@@ -11018,7 +11027,7 @@
               <div className="relative z-10 flex flex-col flex-1 min-h-0">
 
               {/* ── Section 1: Header — Ticker + Direction + Price ──────── */}
-              <div className="flex items-center justify-between px-2.5 pt-2 pb-1 border-b border-white/[0.06]">
+              <div className="flex items-center justify-between px-2.5 pt-2 pb-1">
                 <div className="flex items-center gap-1.5 min-w-0">
                   {toggleSavedTicker && (
                     <button
@@ -11065,7 +11074,7 @@
               </div>
 
               {/* ── Section 2: Stats — Score, R:R left | SL, TP right ──── */}
-              <div className="flex items-center justify-between px-2.5 py-1 border-b border-white/[0.06] text-[10px] font-medium">
+              <div className="flex items-center justify-between px-2.5 py-1 text-[10px] font-medium">
                 <div className="flex items-center gap-2.5 text-[#8b95a5]">
                   <span>Score <span className="text-white font-bold tabular-nums">{Number.isFinite(score) ? score.toFixed(0) : "—"}</span></span>
                   <span>R:R <span className="text-white font-bold tabular-nums">{Number.isFinite(rrNow) ? rrNow.toFixed(2) : "—"}</span></span>
@@ -11078,7 +11087,7 @@
 
               {/* ── Section 2b: Entry stats (only for active trades) ────── */}
               {isActiveTrade && Number.isFinite(entryPrice) && (
-                <div className="flex items-center justify-between px-2.5 py-0.5 border-b border-white/[0.06] text-[10px] font-medium">
+                <div className="flex items-center justify-between px-2.5 py-0.5 text-[10px] font-medium">
                   <span className="text-[#8b95a5]">
                     Entry <span className="text-yellow-300 font-bold tabular-nums">${entryPrice.toFixed(2)}</span>
                   </span>
@@ -11147,7 +11156,7 @@
                   return r.replace(/_/g, " ");
                 }).join(", ");
                 return (
-                  <div className="px-2.5 py-0.5 text-[9px] text-amber-300/80 border-b border-white/[0.06]">
+                  <div className="px-2.5 py-0.5 text-[9px] text-amber-300/80">
                     <span className="text-[#6b7280]">Blocked:</span>{" "}
                     <span className="font-semibold">{formatted}</span>
                   </div>

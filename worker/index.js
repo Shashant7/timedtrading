@@ -18916,21 +18916,38 @@ export default {
           }
 
           // ── Load daily candle prev_close for all tickers (yesterday's actual close) ──
+          // BUG FIX: The old code used midnight UTC which, after 7 PM ET (midnight UTC
+          // rollover), would include today's daily candle as "yesterday's close", giving
+          // 0% change after hours. Fix: compute NY midnight today in UTC and use that
+          // as the cutoff. Alpaca daily bars use ts = midnight ET, so ts < NY-midnight
+          // always excludes today's candle regardless of UTC clock position.
           let allDailyPcMap = {};
           try {
             if (env?.DB) {
-              // Midnight UTC today — excludes today's intraday daily candle
-              const todayMidnightUTC = new Date();
-              todayMidnightUTC.setUTCHours(0, 0, 0, 0);
-              const cutoffMs = todayMidnightUTC.getTime();
-              const dcRows = await env.DB.prepare(
-                `SELECT ticker, c FROM ticker_candles WHERE tf = 'D' AND ts < ?1 ORDER BY ts DESC`
-              ).bind(cutoffMs).all();
-              for (const r of (dcRows?.results || [])) {
-                const sym = String(r.ticker).toUpperCase();
-                if (!allDailyPcMap[sym]) {
-                  const close = Number(r.c);
-                  if (Number.isFinite(close) && close > 0) allDailyPcMap[sym] = close;
+              // Compute today's midnight ET in UTC ms.
+              // nyTradingDayKey returns "YYYY-MM-DD" in NY timezone.
+              const todayNY = nyTradingDayKey(Date.now());
+              if (todayNY) {
+                // Parse as midnight in ET. We detect EST vs EDT by comparing
+                // a known date's NY representation against UTC.
+                // Simple: Jan = EST (UTC-5), Jul = EDT (UTC-4). Check current month.
+                const etNow = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+                const etMonth = new Date(etNow).getMonth(); // 0-indexed
+                // DST in US: Mar second Sun - Nov first Sun. Approximate: months 2-10 inclusive.
+                const isDST = etMonth >= 2 && etMonth <= 10;
+                const etOffsetHours = isDST ? 4 : 5;
+                // todayNY midnight ET = todayNY + etOffsetHours in UTC
+                const cutoffMs = new Date(`${todayNY}T00:00:00Z`).getTime() + etOffsetHours * 3600000;
+
+                const dcRows = await env.DB.prepare(
+                  `SELECT ticker, c FROM ticker_candles WHERE tf = 'D' AND ts < ?1 ORDER BY ts DESC`
+                ).bind(cutoffMs).all();
+                for (const r of (dcRows?.results || [])) {
+                  const sym = String(r.ticker).toUpperCase();
+                  if (!allDailyPcMap[sym]) {
+                    const close = Number(r.c);
+                    if (Number.isFinite(close) && close > 0) allDailyPcMap[sym] = close;
+                  }
                 }
               }
             }
