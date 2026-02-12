@@ -250,6 +250,15 @@ const ROUTES = [
   ["GET", "/timed/investor/ticker", "GET /timed/investor/ticker"],
   ["POST", "/timed/investor/compute", "POST /timed/investor/compute"],
   ["POST", "/timed/investor/weekly-digest", "POST /timed/investor/weekly-digest"],
+  // ── Investor Positions & DCA ──
+  ["GET", "/timed/investor/positions", "GET /timed/investor/positions"],
+  ["POST", "/timed/investor/positions", "POST /timed/investor/positions"],
+  ["PUT", "/timed/investor/positions", "PUT /timed/investor/positions"],
+  ["DELETE", "/timed/investor/positions", "DELETE /timed/investor/positions"],
+  ["POST", "/timed/investor/positions/lot", "POST /timed/investor/positions/lot"],
+  ["GET", "/timed/investor/dca/plans", "GET /timed/investor/dca/plans"],
+  ["POST", "/timed/investor/dca/configure", "POST /timed/investor/dca/configure"],
+  ["POST", "/timed/investor/dca/execute", "POST /timed/investor/dca/execute"],
   ["GET", "/timed/debug/trades", "GET /timed/debug/trades"],
   ["GET", "/timed/debug/tickers", "GET /timed/debug/tickers"],
   ["GET", "/timed/debug/config", "GET /timed/debug/config"],
@@ -10892,6 +10901,90 @@ async function d1EnsureCandleSchema(env) {
   } catch (err) {
     console.error("[D1 CANDLES] Schema ensure failed:", err);
     return { ok: false, error: String(err) };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Investor Positions & DCA — D1 schema
+// ─────────────────────────────────────────────────────────────
+
+async function ensureInvestorPositionsSchema(db, KV) {
+  const throttleKey = "timed:schema:investor_positions:v1";
+  try {
+    if (KV) {
+      const last = Number(await KV.get(throttleKey));
+      if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) {
+        return { ok: true, skipped: true };
+      }
+    }
+  } catch {}
+
+  try {
+    // Long-term investor positions (separate from short-term trading positions)
+    await db.prepare(`CREATE TABLE IF NOT EXISTS investor_positions (
+      id TEXT PRIMARY KEY,
+      ticker TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      total_shares REAL NOT NULL DEFAULT 0,
+      cost_basis REAL NOT NULL DEFAULT 0,
+      avg_entry REAL NOT NULL DEFAULT 0,
+      first_entry_ts INTEGER,
+      last_entry_ts INTEGER,
+      thesis TEXT,
+      thesis_invalidation TEXT,
+      investor_stage TEXT,
+      target_alloc_pct REAL,
+      notes TEXT,
+      dca_enabled INTEGER NOT NULL DEFAULT 0,
+      dca_amount REAL DEFAULT 0,
+      dca_frequency TEXT DEFAULT 'monthly',
+      dca_next_ts INTEGER,
+      dca_total_invested REAL DEFAULT 0,
+      dca_num_buys INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      closed_at INTEGER
+    )`).run();
+
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_pos_ticker ON investor_positions (ticker)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_pos_status ON investor_positions (status)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_pos_dca ON investor_positions (dca_enabled, dca_next_ts)`).run();
+
+    // Transaction log for each buy/sell in an investor position
+    await db.prepare(`CREATE TABLE IF NOT EXISTS investor_lots (
+      id TEXT PRIMARY KEY,
+      position_id TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      action TEXT NOT NULL,
+      shares REAL NOT NULL,
+      price REAL NOT NULL,
+      value REAL NOT NULL,
+      ts INTEGER NOT NULL,
+      reason TEXT,
+      created_at INTEGER NOT NULL
+    )`).run();
+
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_lots_pos ON investor_lots (position_id)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_inv_lots_ticker ON investor_lots (ticker, ts)`).run();
+
+    try {
+      if (KV) await KV.put(throttleKey, String(Date.now()), { expirationTtl: 7 * 24 * 60 * 60 });
+    } catch {}
+
+    return { ok: true };
+  } catch (err) {
+    console.error("[D1 INVESTOR] Schema ensure failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+// DCA frequency → milliseconds between buys
+function dcaFrequencyMs(freq) {
+  switch (freq) {
+    case "weekly": return 7 * 24 * 60 * 60 * 1000;
+    case "biweekly": return 14 * 24 * 60 * 60 * 1000;
+    case "monthly": return 30 * 24 * 60 * 60 * 1000;
+    default: return 30 * 24 * 60 * 60 * 1000;
   }
 }
 
@@ -27717,16 +27810,17 @@ Provide 3-5 actionable next steps:
         }, 200, corsHeaders(env, req));
       }
 
-      // GET /timed/investor/portfolio — Portfolio analytics for investor
+      // GET /timed/investor/portfolio — Portfolio analytics for investor (uses investor_positions table)
       if (routeKey === "GET /timed/investor/portfolio") {
         try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
           const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
           const rsRanks = await kvGetJSON(env.KV_TIMED, "timed:investor:rs-ranks") || {};
           const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
 
-          // Get open positions from D1
+          // Get open investor positions from D1 (investor_positions table)
           const posResp = await env.DB.prepare(
-            "SELECT ticker, direction, total_qty, cost_basis, stop_loss, take_profit FROM positions WHERE status = 'OPEN'"
+            "SELECT id, ticker, total_shares, cost_basis, avg_entry, thesis, investor_stage, dca_enabled, dca_amount, dca_frequency, dca_next_ts, dca_total_invested, dca_num_buys, target_alloc_pct, first_entry_ts, last_entry_ts FROM investor_positions WHERE status = 'OPEN' AND total_shares > 0"
           ).all();
           const dbPositions = posResp?.results || [];
 
@@ -27735,15 +27829,23 @@ Provide 3-5 actionable next steps:
           for (const p of dbPositions) {
             const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${p.ticker}`);
             const mark = td?.price || 0;
-            const avgEntry = p.total_qty > 0 ? p.cost_basis / p.total_qty : 0;
             positions.push({
               ticker: p.ticker,
-              direction: p.direction,
-              shares: p.total_qty,
-              avgEntry,
+              direction: "LONG", // investors are always long
+              shares: p.total_shares,
+              avgEntry: p.avg_entry,
               mark,
-              unrealizedPnl: (mark - avgEntry) * p.total_qty * (p.direction === "SHORT" ? -1 : 1),
-              unrealizedPnlPct: avgEntry > 0 ? ((mark - avgEntry) / avgEntry * 100) * (p.direction === "SHORT" ? -1 : 1) : 0,
+              unrealizedPnl: mark > 0 ? (mark - p.avg_entry) * p.total_shares : 0,
+              unrealizedPnlPct: p.avg_entry > 0 && mark > 0 ? ((mark - p.avg_entry) / p.avg_entry * 100) : 0,
+              thesis: p.thesis,
+              investorStage: p.investor_stage,
+              targetAllocPct: p.target_alloc_pct,
+              dca: p.dca_enabled ? {
+                amount: p.dca_amount, frequency: p.dca_frequency,
+                nextDate: p.dca_next_ts ? new Date(p.dca_next_ts).toISOString().slice(0, 10) : null,
+                totalInvested: p.dca_total_invested, numBuys: p.dca_num_buys,
+              } : null,
+              holdingDays: p.first_entry_ts ? Math.round((Date.now() - p.first_entry_ts) / 86400000) : 0,
             });
           }
 
@@ -27825,6 +27927,420 @@ Provide 3-5 actionable next steps:
             discord: discordResult,
             stageChanges: stageChanges.length,
             topAccumulate: topAccumulate.length,
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // INVESTOR POSITIONS & DCA ENDPOINTS
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/investor/positions — list all investor positions
+      if (routeKey === "GET /timed/investor/positions") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const status = url.searchParams.get("status") || "OPEN";
+          const ticker = url.searchParams.get("ticker");
+
+          let rows;
+          if (ticker) {
+            rows = (await env.DB.prepare(
+              "SELECT * FROM investor_positions WHERE ticker = ?1 AND status = ?2 ORDER BY updated_at DESC"
+            ).bind(ticker.toUpperCase(), status).all())?.results || [];
+          } else {
+            rows = (await env.DB.prepare(
+              "SELECT * FROM investor_positions WHERE status = ?1 ORDER BY updated_at DESC"
+            ).bind(status).all())?.results || [];
+          }
+
+          // Enrich with current prices
+          const enriched = [];
+          for (const p of rows) {
+            const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${p.ticker}`);
+            const mark = td?.price || 0;
+            const unrealizedPnl = p.total_shares > 0 && mark > 0
+              ? (mark - p.avg_entry) * p.total_shares : 0;
+            const unrealizedPnlPct = p.avg_entry > 0 && mark > 0
+              ? ((mark - p.avg_entry) / p.avg_entry) * 100 : 0;
+
+            // Get lots
+            const lots = (await env.DB.prepare(
+              "SELECT * FROM investor_lots WHERE position_id = ?1 ORDER BY ts DESC LIMIT 50"
+            ).bind(p.id).all())?.results || [];
+
+            enriched.push({
+              ...p,
+              currentPrice: mark,
+              marketValue: mark * p.total_shares,
+              unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
+              unrealizedPnlPct: Math.round(unrealizedPnlPct * 100) / 100,
+              lots,
+            });
+          }
+
+          return sendJSON({ ok: true, positions: enriched }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/investor/positions — open a new investor position
+      if (routeKey === "POST /timed/investor/positions") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const body = await req.json();
+          const { ticker, shares, price, thesis, thesisInvalidation, targetAllocPct, notes } = body;
+          if (!ticker || !shares || !price) {
+            return sendJSON({ ok: false, error: "ticker, shares, price required" }, 400, corsHeaders(env, req));
+          }
+
+          const sym = ticker.toUpperCase();
+          const now = Date.now();
+          const value = shares * price;
+          const posId = `inv-${sym}-${now}`;
+          const lotId = `lot-${sym}-${now}`;
+
+          // Check for existing open position
+          const existing = (await env.DB.prepare(
+            "SELECT id, total_shares, cost_basis FROM investor_positions WHERE ticker = ?1 AND status = 'OPEN' LIMIT 1"
+          ).bind(sym).all())?.results?.[0];
+
+          if (existing) {
+            // Add to existing position
+            const newShares = existing.total_shares + shares;
+            const newCost = existing.cost_basis + value;
+            const newAvg = newCost / newShares;
+
+            await env.DB.prepare(
+              "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, avg_entry = ?3, last_entry_ts = ?4, updated_at = ?4 WHERE id = ?5"
+            ).bind(newShares, newCost, newAvg, now, existing.id).run();
+
+            await env.DB.prepare(
+              "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, ?8, ?7)"
+            ).bind(lotId, existing.id, sym, shares, price, value, now, "manual_add").run();
+
+            return sendJSON({ ok: true, positionId: existing.id, action: "added", shares: newShares, avgEntry: newAvg }, 200, corsHeaders(env, req));
+          }
+
+          // Create new position
+          await env.DB.prepare(`INSERT INTO investor_positions
+            (id, ticker, status, total_shares, cost_basis, avg_entry, first_entry_ts, last_entry_ts,
+             thesis, thesis_invalidation, target_alloc_pct, notes, created_at, updated_at)
+            VALUES (?1, ?2, 'OPEN', ?3, ?4, ?5, ?6, ?6, ?7, ?8, ?9, ?10, ?6, ?6)
+          `).bind(posId, sym, shares, value, price, now,
+            thesis || null, thesisInvalidation || null,
+            targetAllocPct || null, notes || null).run();
+
+          await env.DB.prepare(
+            "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, 'initial_entry', ?7)"
+          ).bind(lotId, posId, sym, shares, price, value, now).run();
+
+          return sendJSON({ ok: true, positionId: posId, action: "created", shares, avgEntry: price }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // PUT /timed/investor/positions — update position metadata (thesis, notes, target allocation)
+      if (routeKey === "PUT /timed/investor/positions") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const body = await req.json();
+          const { ticker, thesis, thesisInvalidation, targetAllocPct, notes, investorStage } = body;
+          if (!ticker) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+          const sym = ticker.toUpperCase();
+          const now = Date.now();
+          const sets = [];
+          const vals = [];
+          let idx = 1;
+
+          if (thesis !== undefined) { sets.push(`thesis = ?${idx++}`); vals.push(thesis); }
+          if (thesisInvalidation !== undefined) { sets.push(`thesis_invalidation = ?${idx++}`); vals.push(thesisInvalidation); }
+          if (targetAllocPct !== undefined) { sets.push(`target_alloc_pct = ?${idx++}`); vals.push(targetAllocPct); }
+          if (notes !== undefined) { sets.push(`notes = ?${idx++}`); vals.push(notes); }
+          if (investorStage !== undefined) { sets.push(`investor_stage = ?${idx++}`); vals.push(investorStage); }
+          sets.push(`updated_at = ?${idx++}`); vals.push(now);
+
+          if (sets.length < 2) return sendJSON({ ok: false, error: "no fields to update" }, 400, corsHeaders(env, req));
+
+          vals.push(sym); // for WHERE
+          await env.DB.prepare(
+            `UPDATE investor_positions SET ${sets.join(", ")} WHERE ticker = ?${idx} AND status = 'OPEN'`
+          ).bind(...vals).run();
+
+          return sendJSON({ ok: true, ticker: sym }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // DELETE /timed/investor/positions — close/sell an investor position
+      if (routeKey === "DELETE /timed/investor/positions") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const body = await req.json();
+          const { ticker, shares, price, reason } = body;
+          if (!ticker) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+          const sym = ticker.toUpperCase();
+          const now = Date.now();
+
+          const pos = (await env.DB.prepare(
+            "SELECT * FROM investor_positions WHERE ticker = ?1 AND status = 'OPEN' LIMIT 1"
+          ).bind(sym).all())?.results?.[0];
+
+          if (!pos) return sendJSON({ ok: false, error: "no open position for " + sym }, 404, corsHeaders(env, req));
+
+          const sellShares = shares || pos.total_shares;
+          const sellPrice = price || 0;
+          const sellValue = sellShares * sellPrice;
+          const remaining = pos.total_shares - sellShares;
+          const lotId = `lot-${sym}-sell-${now}`;
+
+          // Log the sell lot
+          await env.DB.prepare(
+            "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, ?8, ?7)"
+          ).bind(lotId, pos.id, sym, sellShares, sellPrice, sellValue, now, reason || "manual_sell").run();
+
+          if (remaining <= 0.0001) {
+            // Full close
+            const pnl = sellValue - pos.cost_basis;
+            await env.DB.prepare(
+              "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1 WHERE id = ?2"
+            ).bind(now, pos.id).run();
+
+            return sendJSON({ ok: true, action: "closed", pnl: Math.round(pnl * 100) / 100, pnlPct: pos.cost_basis > 0 ? Math.round(pnl / pos.cost_basis * 10000) / 100 : 0 }, 200, corsHeaders(env, req));
+          } else {
+            // Partial sell
+            const newCost = pos.cost_basis * (remaining / pos.total_shares);
+            await env.DB.prepare(
+              "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, avg_entry = ?3, updated_at = ?4 WHERE id = ?5"
+            ).bind(remaining, newCost, pos.avg_entry, now, pos.id).run();
+
+            return sendJSON({ ok: true, action: "partial_sell", remainingShares: remaining, soldShares: sellShares }, 200, corsHeaders(env, req));
+          }
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/investor/positions/lot — manually add a buy/sell lot to an existing position
+      if (routeKey === "POST /timed/investor/positions/lot") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const body = await req.json();
+          const { ticker, action, shares, price, reason } = body;
+          if (!ticker || !action || !shares || !price) {
+            return sendJSON({ ok: false, error: "ticker, action (BUY/SELL), shares, price required" }, 400, corsHeaders(env, req));
+          }
+
+          const sym = ticker.toUpperCase();
+          const act = action.toUpperCase();
+          const now = Date.now();
+          const value = shares * price;
+
+          const pos = (await env.DB.prepare(
+            "SELECT * FROM investor_positions WHERE ticker = ?1 AND status = 'OPEN' LIMIT 1"
+          ).bind(sym).all())?.results?.[0];
+
+          if (!pos) return sendJSON({ ok: false, error: "no open position for " + sym }, 404, corsHeaders(env, req));
+
+          const lotId = `lot-${sym}-${act.toLowerCase()}-${now}`;
+          await env.DB.prepare(
+            "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?8)"
+          ).bind(lotId, pos.id, sym, act, shares, price, value, now, reason || "manual").run();
+
+          let newShares = pos.total_shares;
+          let newCost = pos.cost_basis;
+          if (act === "BUY") {
+            newShares += shares;
+            newCost += value;
+          } else if (act === "SELL") {
+            newShares = Math.max(0, newShares - shares);
+            newCost = newShares > 0 ? pos.cost_basis * (newShares / pos.total_shares) : 0;
+          }
+          const newAvg = newShares > 0 ? newCost / newShares : 0;
+
+          if (newShares <= 0.0001) {
+            await env.DB.prepare(
+              "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, cost_basis = 0, closed_at = ?1, updated_at = ?1 WHERE id = ?2"
+            ).bind(now, pos.id).run();
+          } else {
+            await env.DB.prepare(
+              "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, avg_entry = ?3, last_entry_ts = ?4, updated_at = ?4 WHERE id = ?5"
+            ).bind(newShares, newCost, newAvg, now, pos.id).run();
+          }
+
+          return sendJSON({ ok: true, lotId, shares: newShares, avgEntry: Math.round(newAvg * 100) / 100 }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/investor/dca/plans — list all DCA plans
+      if (routeKey === "GET /timed/investor/dca/plans") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const rows = (await env.DB.prepare(
+            "SELECT id, ticker, status, dca_enabled, dca_amount, dca_frequency, dca_next_ts, dca_total_invested, dca_num_buys, total_shares, avg_entry, cost_basis FROM investor_positions WHERE dca_enabled = 1 ORDER BY dca_next_ts ASC"
+          ).all())?.results || [];
+
+          // Enrich with current prices
+          const plans = [];
+          for (const p of rows) {
+            const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${p.ticker}`);
+            const mark = td?.price || 0;
+            plans.push({
+              ...p,
+              currentPrice: mark,
+              marketValue: Math.round(mark * p.total_shares * 100) / 100,
+              nextBuyDate: p.dca_next_ts ? new Date(p.dca_next_ts).toISOString().slice(0, 10) : null,
+              unrealizedPnlPct: p.avg_entry > 0 && mark > 0 ? Math.round(((mark - p.avg_entry) / p.avg_entry) * 10000) / 100 : 0,
+            });
+          }
+
+          return sendJSON({ ok: true, plans }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/investor/dca/configure — set up or update a DCA plan for a position
+      if (routeKey === "POST /timed/investor/dca/configure") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const body = await req.json();
+          const { ticker, amount, frequency, enabled } = body;
+          if (!ticker) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+          const sym = ticker.toUpperCase();
+          const now = Date.now();
+          const freq = ["weekly", "biweekly", "monthly"].includes(frequency) ? frequency : "monthly";
+          const dcaEnabled = enabled !== false ? 1 : 0;
+          const nextTs = dcaEnabled ? now + dcaFrequencyMs(freq) : null;
+
+          // Ensure position exists (create one if not)
+          let pos = (await env.DB.prepare(
+            "SELECT id FROM investor_positions WHERE ticker = ?1 AND status = 'OPEN' LIMIT 1"
+          ).bind(sym).all())?.results?.[0];
+
+          if (!pos) {
+            // Create a zero-position placeholder for DCA
+            const posId = `inv-${sym}-dca-${now}`;
+            await env.DB.prepare(`INSERT INTO investor_positions
+              (id, ticker, status, total_shares, cost_basis, avg_entry,
+               dca_enabled, dca_amount, dca_frequency, dca_next_ts,
+               created_at, updated_at)
+              VALUES (?1, ?2, 'OPEN', 0, 0, 0, ?3, ?4, ?5, ?6, ?7, ?7)
+            `).bind(posId, sym, dcaEnabled, amount || 0, freq, nextTs, now).run();
+            pos = { id: posId };
+          } else {
+            await env.DB.prepare(
+              "UPDATE investor_positions SET dca_enabled = ?1, dca_amount = ?2, dca_frequency = ?3, dca_next_ts = ?4, updated_at = ?5 WHERE id = ?6"
+            ).bind(dcaEnabled, amount || 0, freq, nextTs, now, pos.id).run();
+          }
+
+          return sendJSON({
+            ok: true, positionId: pos.id, ticker: sym,
+            dca: { enabled: !!dcaEnabled, amount: amount || 0, frequency: freq, nextBuyDate: nextTs ? new Date(nextTs).toISOString().slice(0, 10) : null },
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/investor/dca/execute — execute all due DCA buys (called by cron or manually)
+      if (routeKey === "POST /timed/investor/dca/execute") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          const now = Date.now();
+
+          // Find all positions with DCA enabled and next_ts <= now
+          const duePositions = (await env.DB.prepare(
+            "SELECT * FROM investor_positions WHERE dca_enabled = 1 AND dca_next_ts <= ?1 AND status = 'OPEN' AND dca_amount > 0"
+          ).bind(now).all())?.results || [];
+
+          const executed = [];
+          const errors = [];
+
+          for (const pos of duePositions) {
+            try {
+              // Get current price
+              const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${pos.ticker}`);
+              const price = td?.price;
+              if (!price || price <= 0) {
+                errors.push({ ticker: pos.ticker, error: "no_current_price" });
+                continue;
+              }
+
+              // Check investor score — skip DCA if score is very low (< 30) or market health is poor
+              const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
+              const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
+              const tickerScore = scores[pos.ticker]?.score;
+              const marketHealthScore = health?.score || 50;
+
+              let skipReason = null;
+              if (tickerScore !== undefined && tickerScore < 30) {
+                skipReason = `investor_score_low (${tickerScore})`;
+              }
+              if (marketHealthScore < 25) {
+                skipReason = `market_health_critical (${marketHealthScore})`;
+              }
+
+              if (skipReason) {
+                // Defer DCA by one period instead of executing
+                const nextTs = now + dcaFrequencyMs(pos.dca_frequency);
+                await env.DB.prepare(
+                  "UPDATE investor_positions SET dca_next_ts = ?1, updated_at = ?2 WHERE id = ?3"
+                ).bind(nextTs, now, pos.id).run();
+                errors.push({ ticker: pos.ticker, skipped: true, reason: skipReason });
+                continue;
+              }
+
+              // Calculate shares to buy
+              const shares = pos.dca_amount / price;
+              const value = shares * price;
+              const lotId = `lot-${pos.ticker}-dca-${now}`;
+
+              // Record the lot
+              await env.DB.prepare(
+                "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'DCA_BUY', ?4, ?5, ?6, ?7, 'dca_auto', ?7)"
+              ).bind(lotId, pos.id, pos.ticker, shares, price, value, now).run();
+
+              // Update position
+              const newShares = pos.total_shares + shares;
+              const newCost = pos.cost_basis + value;
+              const newAvg = newCost / newShares;
+              const nextTs = now + dcaFrequencyMs(pos.dca_frequency);
+
+              await env.DB.prepare(`UPDATE investor_positions SET
+                total_shares = ?1, cost_basis = ?2, avg_entry = ?3,
+                last_entry_ts = ?4, dca_next_ts = ?5,
+                dca_total_invested = dca_total_invested + ?6,
+                dca_num_buys = dca_num_buys + 1,
+                updated_at = ?4
+                WHERE id = ?7
+              `).bind(newShares, newCost, newAvg, now, nextTs, value, pos.id).run();
+
+              executed.push({
+                ticker: pos.ticker, shares: Math.round(shares * 10000) / 10000,
+                price, value: Math.round(value * 100) / 100,
+                newTotalShares: Math.round(newShares * 10000) / 10000,
+                newAvgEntry: Math.round(newAvg * 100) / 100,
+                nextBuyDate: new Date(nextTs).toISOString().slice(0, 10),
+              });
+            } catch (e) {
+              errors.push({ ticker: pos.ticker, error: e.message });
+            }
+          }
+
+          return sendJSON({
+            ok: true, due: duePositions.length,
+            executed: executed.length, skipped: errors.length,
+            buys: executed, errors,
           }, 200, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
@@ -31524,16 +32040,24 @@ Provide 3-5 actionable next steps:
       return;
     }
 
-    // ── Investor Intelligence: daily scoring (4:30 PM ET = 21:30 UTC, Mon-Fri) ──
-    // Self-invokes the existing POST /timed/investor/compute endpoint to reuse all logic.
+    // ── Investor Intelligence: daily scoring + DCA execution (4:30 PM ET = 21:30 UTC, Mon-Fri) ──
+    // Self-invokes the existing POST endpoints to reuse all logic.
     if (event.cron === "30 21 * * 1-5") {
       ctx.waitUntil((async () => {
         try {
-          console.log("[INVESTOR CRON] Triggering daily investor compute...");
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
-          const resp = await fetch(`${selfUrl}/timed/investor/compute`, { method: "POST" });
-          const data = await resp.json().catch(() => ({}));
-          console.log(`[INVESTOR CRON] Done: ${data.tickers || 0} tickers, market=${data.marketHealth?.regime || "?"}, alerts=${(data.alertsSent || []).length}`);
+
+          // 1. Run investor compute
+          console.log("[INVESTOR CRON] Triggering daily investor compute...");
+          const compResp = await fetch(`${selfUrl}/timed/investor/compute`, { method: "POST" });
+          const compData = await compResp.json().catch(() => ({}));
+          console.log(`[INVESTOR CRON] Compute done: ${compData.tickers || 0} tickers, market=${compData.marketHealth?.regime || "?"}`);
+
+          // 2. Execute due DCA buys
+          console.log("[INVESTOR CRON] Checking DCA plans...");
+          const dcaResp = await fetch(`${selfUrl}/timed/investor/dca/execute`, { method: "POST" });
+          const dcaData = await dcaResp.json().catch(() => ({}));
+          console.log(`[INVESTOR CRON] DCA: ${dcaData.executed || 0} executed, ${dcaData.skipped || 0} skipped`);
         } catch (e) {
           console.warn(`[INVESTOR CRON] Failed:`, String(e?.message || e).slice(0, 300));
         }
