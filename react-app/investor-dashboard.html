@@ -294,8 +294,15 @@
                 ),
               ),
               React.createElement("div", { className: "flex items-center justify-between mt-0.5" },
-                React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, `RS: ${t.rsRank || "—"}`),
+                React.createElement("span", { className: "text-[10px] text-[#6b7280] tabular-nums" },
+                  t.price != null && Number.isFinite(t.price)
+                    ? `$${t.price.toFixed(2)}`
+                    : `RS: ${t.rsRank || "—"}`,
+                ),
                 React.createElement("span", { className: "flex items-center gap-1" },
+                  t.dailyChgPct != null && Number.isFinite(t.dailyChgPct) && React.createElement("span", {
+                    className: `text-[9px] tabular-nums font-medium ${t.dailyChgPct >= 0 ? "text-emerald-400" : "text-red-400"}`,
+                  }, `${t.dailyChgPct >= 0 ? "+" : ""}${t.dailyChgPct.toFixed(1)}%`),
                   t.accumZone?.inZone && React.createElement("span", { className: "text-[8px] text-emerald-400 bg-emerald-500/10 px-1 rounded" }, "ZONE"),
                   t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[8px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
                 ),
@@ -404,10 +411,15 @@
       }
 
       // ─── Ticker Deep Dive (Right Rail) ──────────────────────────────
-      function TickerDeepDive({ ticker, data }) {
+      function TickerDeepDive({ ticker, data, onStartPosition }) {
         if (!ticker || !data) return React.createElement("div", { className: "card p-4 text-center text-[#6b7280] text-sm" }, "Select a ticker to see details");
 
+        const price = data.price;
+        const chg = data.dailyChgPct;
+        const hasPrice = price != null && Number.isFinite(price);
+
         return React.createElement("div", { className: "card p-4 fade-in space-y-4" },
+          // Header: ticker + sector + score
           React.createElement("div", { className: "flex items-center justify-between" },
             React.createElement("div", null,
               React.createElement("h2", { className: "text-lg font-bold text-white" }, ticker),
@@ -418,11 +430,32 @@
               React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Investor Score"),
             ),
           ),
+          // Price + Daily Change row
+          hasPrice && React.createElement("div", { className: "card p-2.5 flex items-center justify-between" },
+            React.createElement("div", null,
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Current Price"),
+              React.createElement("div", { className: "text-lg font-bold text-white tabular-nums" }, `$${price.toFixed(2)}`),
+            ),
+            chg != null && Number.isFinite(chg) && React.createElement("div", { className: "text-right" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Daily Chg"),
+              React.createElement("div", { className: `text-lg font-bold tabular-nums ${chg >= 0 ? "text-emerald-400" : "text-red-400"}` }, `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`),
+            ),
+            data.prevClose != null && Number.isFinite(data.prevClose) && React.createElement("div", { className: "text-right" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Prev Close"),
+              React.createElement("div", { className: "text-sm font-semibold text-[#9ca3af] tabular-nums" }, `$${data.prevClose.toFixed(2)}`),
+            ),
+          ),
           React.createElement(ScoreBar, { score: data.score, color: data.score >= 70 ? "#10b981" : data.score >= 50 ? "#f59e0b" : "#ef4444" }),
-          // Stage
-          React.createElement("div", { className: "flex items-center gap-2" },
-            React.createElement(StageBadge, { stage: data.stage }),
-            React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, data.stageReason),
+          // Stage + Start Position button
+          React.createElement("div", { className: "flex items-center justify-between" },
+            React.createElement("div", { className: "flex items-center gap-2" },
+              React.createElement(StageBadge, { stage: data.stage }),
+              React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, data.stageReason),
+            ),
+            (data.stage === "accumulate" || data.stage === "watch") && onStartPosition && React.createElement("button", {
+              onClick: () => onStartPosition(ticker, data),
+              className: "px-3 py-1 rounded-lg text-[11px] font-semibold border transition-colors bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25",
+            }, data.stage === "accumulate" ? "Start Position" : "Add to Watchlist"),
           ),
           // Score components
           data.components && React.createElement("div", null,
@@ -556,6 +589,40 @@
           fetchData();
           const interval = setInterval(fetchData, 60000);
           return () => clearInterval(interval);
+        }, [fetchData]);
+
+        // ── Start Position (creates an investor position via API) ──
+        const handleStartPosition = useCallback(async (sym, tickerData) => {
+          if (!tickerData?.price || !Number.isFinite(tickerData.price)) {
+            alert("Cannot start position: no current price available.");
+            return;
+          }
+          const shareCount = prompt(`How many shares of ${sym} to buy at $${tickerData.price.toFixed(2)}?`, "1");
+          if (!shareCount || isNaN(Number(shareCount)) || Number(shareCount) <= 0) return;
+          const shares = Number(shareCount);
+          try {
+            const resp = await fetch(`${API_BASE}/timed/investor/positions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                ticker: sym,
+                shares,
+                price: tickerData.price,
+                thesis: tickerData.thesis || `${sym}: Accumulation zone entry`,
+                thesisInvalidation: tickerData.thesisInvalidation?.join("; ") || null,
+              }),
+            });
+            const json = await resp.json();
+            if (json.ok) {
+              alert(`Position opened: ${shares} shares of ${sym} at $${tickerData.price.toFixed(2)}`);
+              fetchData();
+            } else {
+              alert(`Error: ${json.error || "Failed to create position"}`);
+            }
+          } catch (e) {
+            alert(`Network error: ${e.message}`);
+          }
         }, [fetchData]);
 
         const allTickers = useMemo(() => scores?.tickers || [], [scores]);
@@ -783,7 +850,7 @@
 
             // Right: Detail
             React.createElement("div", { className: "w-80 flex-shrink-0 overflow-y-auto min-h-0" },
-              React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
+              React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData, onStartPosition: handleStartPosition }),
             ),
           ),
 

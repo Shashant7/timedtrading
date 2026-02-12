@@ -28289,7 +28289,7 @@ Provide 3-5 actionable next steps:
             allTheses[ticker] = thesis;
 
             investorResults[ticker] = {
-              score, components, accumZone,
+              score, components, accumZone, sector,
               rsRank, rs: rsMap[ticker] ? {
                 rs1m: rsMap[ticker].rs1m,
                 rs3m: rsMap[ticker].rs3m,
@@ -28382,17 +28382,33 @@ Provide 3-5 actionable next steps:
           return sendJSON({ ok: false, error: "No investor scores computed yet. POST /timed/investor/compute first." }, 404, corsHeaders(env, req));
         }
 
+        // Enrich with live prices (single KV read — { prices: { ORCL: { p, dc, pc, ... } } })
+        const pricesKV = await kvGetJSON(env.KV_TIMED, "timed:prices") || {};
+        const priceMap = pricesKV.prices || {};
+
         // Optional filter
         const stage = url.searchParams.get("stage");
         const minScore = Number(url.searchParams.get("minScore") || 0);
         const sector = url.searchParams.get("sector");
         const sort = url.searchParams.get("sort") || "score";
 
-        let entries = Object.entries(scores).map(([ticker, data]) => ({ ticker, ...data }));
+        let entries = Object.entries(scores).map(([ticker, data]) => {
+          const pf = priceMap[ticker];
+          const price = pf ? Number(pf.p) : null;
+          const prevClose = pf ? Number(pf.pc) : null;
+          const dailyChgPct = pf && Number(pf.dc) != null ? Number(pf.dc) : null;
+          return {
+            ticker, ...data,
+            sector: data.sector || SECTOR_MAP[ticker] || "Unknown",
+            price: Number.isFinite(price) ? price : null,
+            dailyChgPct: Number.isFinite(dailyChgPct) ? dailyChgPct : null,
+            prevClose: Number.isFinite(prevClose) ? prevClose : null,
+          };
+        });
 
         if (stage) entries = entries.filter(e => e.stage === stage);
         if (minScore > 0) entries = entries.filter(e => e.score >= minScore);
-        if (sector) entries = entries.filter(e => (SECTOR_MAP[e.ticker] || "") === sector);
+        if (sector) entries = entries.filter(e => (e.sector || "") === sector);
 
         if (sort === "rsRank") entries.sort((a, b) => (b.rsRank || 0) - (a.rsRank || 0));
         else entries.sort((a, b) => (b.score || 0) - (a.score || 0));
