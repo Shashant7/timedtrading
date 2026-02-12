@@ -2193,39 +2193,68 @@
       // Equity: today 9:30 AM ET → epoch ms
       // Continuous: today (or yesterday if before 6 PM) 6:00 PM ET → epoch ms
       function _getSessionOpenMs(sym) {
-        const cfg = _getSessionConfig(sym);
-        const now = new Date();
-        // Get today's date in ET
-        const etDateStr = now.toLocaleDateString("en-US", { timeZone: "America/New_York" });
-        const [mo, dy, yr] = etDateStr.split("/").map(Number);
-        // Get current ET offset (EST=-5, EDT=-4)
-        const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
-        const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
-        const etOffset = etHour - 12; // negative number
-        const openHr = Math.floor(cfg.openMin / 60);
-        const openMn = cfg.openMin % 60;
-        // UTC time of session open today (milliseconds)
-        let openMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
-        if (cfg.sessionDur > 500) {
-          // Continuous: if current ET time is before session open (before 6 PM),
-          // the active session started YESTERDAY at 6 PM
-          const nowEtMin = _tsToEtMin(Date.now());
-          if (nowEtMin < cfg.openMin) {
-            openMs -= 86400000; // subtract 1 day
-          }
-        }
-        return openMs;
+        const w = _getSessionWindowMs(sym);
+        return w?.openMs ?? 0;
       }
 
-      // Filter candles to today's session (ticker-aware)
-      // Handles both seconds and millisecond timestamps in candle data
+      // Session window { openMs, closeMs } for filtering candles.
+      // Equities RTH 9:30–4 PM ET:
+      //   Pre-market: use yesterday's RTH (no live pre-market painting)
+      //   During RTH: today 9:30 → now
+      //   After-hours: today 9:30 → 4 PM (completed session)
+      // Continuous tickers: unchanged (6 PM–5 PM).
+      function _getSessionWindowMs(sym) {
+        const cfg = _getSessionConfig(sym);
+        const now = new Date();
+        const etDateStr = now.toLocaleDateString("en-US", { timeZone: "America/New_York" });
+        const [mo, dy, yr] = etDateStr.split("/").map(Number);
+        const testUtc = new Date(Date.UTC(yr, mo - 1, dy, 12, 0, 0));
+        const etHour = parseInt(testUtc.toLocaleString("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit" }));
+        const etOffset = etHour - 12;
+        const openHr = Math.floor(cfg.openMin / 60);
+        const openMn = cfg.openMin % 60;
+        const closeHr = Math.floor(cfg.closeMin / 60);
+        const closeMn = cfg.closeMin % 60;
+
+        if (cfg.sessionDur > 500) {
+          // Continuous: if before 6 PM ET, session started yesterday
+          const nowEtMin = _tsToEtMin(Date.now());
+          let openMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
+          if (nowEtMin < cfg.openMin) openMs -= 86400000;
+          return { openMs, closeMs: null };
+        }
+
+        // Equity RTH: 9:30 (570) – 4 PM (960)
+        const nowEtMin = _tsToEtMin(Date.now());
+        let openMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
+        let closeMs = Date.UTC(yr, mo - 1, dy, closeHr - etOffset, closeMn, 0);
+
+        if (nowEtMin < cfg.openMin) {
+          // Pre-market: show yesterday's RTH (last completed session), NOT live pre-market
+          openMs -= 86400000;
+          closeMs -= 86400000;
+          return { openMs, closeMs };
+        }
+        if (nowEtMin >= cfg.closeMin) {
+          // After-hours: show today's completed RTH
+          return { openMs, closeMs };
+        }
+        // During RTH: today 9:30 → now (no upper bound)
+        return { openMs, closeMs: null };
+      }
+
+      // Filter candles to the relevant session (ticker-aware, RTH 9:30–4 for equities)
+      // Pre-market: yesterday's RTH only (avoids "painting live" pre-market noise)
       function _filterTodaySession(rawCandles, sym) {
         if (!rawCandles || rawCandles.length < 2) return rawCandles;
-        const openMs = _getSessionOpenMs(sym);
+        const w = _getSessionWindowMs(sym);
+        if (!w || !w.openMs) return rawCandles;
         const filtered = rawCandles.filter(c => {
           const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
           const tsMs = _toMs(ts);
-          return tsMs >= openMs;
+          if (tsMs < w.openMs) return false;
+          if (w.closeMs != null && tsMs > w.closeMs) return false;
+          return true;
         });
         return filtered.length >= 2 ? filtered : rawCandles;
       }
