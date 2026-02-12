@@ -1050,7 +1050,7 @@
           try {
             setLoading(true);
             setError(null);
-            const res = await fetch(`${API_BASE}/timed/trades`);
+            const res = await fetch(`${API_BASE}/timed/trades?source=d1`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
             if (json.ok && Array.isArray(json.trades)) {
@@ -11629,7 +11629,7 @@
                     {todayExits.length > 0 && (
                       <>
                         <span className="text-[#6b7280]">W/L <span className="text-teal-400 font-bold tabular-nums">{todayWins}</span><span className="text-[#4b5563]">/</span><span className="text-rose-400 font-bold tabular-nums">{todayLosses}</span></span>
-                        <span className="text-[#6b7280]">Realized <span className={`font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{todayRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`}</span></span>
+                        <span className="text-[#6b7280]">Today Realized <span className={`font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{todayRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`}</span></span>
                       </>
                     )}
                   </>
@@ -11637,10 +11637,10 @@
                   <span className="text-[#4b5563]">No activity today</span>
                 )}
               </div>
-              {/* Right: Account + Open Positions */}
+              {/* Right: Account + Open Positions — Realized = total from all closed trades */}
               <div className="flex items-center gap-5 text-[11px]">
                 <span className="text-[#6b7280]">Account <span className="text-white font-bold tabular-nums">{typeof fmtUsd === "function" ? fmtUsd(accountValue) : `$${accountValue.toFixed(0)}`}</span></span>
-                <span className="text-[#6b7280]">Realized <span className={`font-bold tabular-nums ${todayRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{todayRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(todayRealizedPnl) : `$${todayRealizedPnl.toFixed(2)}`}</span></span>
+                <span className="text-[#6b7280]">Realized <span className={`font-bold tabular-nums ${allRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{allRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(allRealizedPnl) : `$${allRealizedPnl.toFixed(2)}`}</span></span>
                 <span className="text-[#6b7280]">Open <span className="text-white font-bold tabular-nums">{openPositionCount}</span></span>
                 <span className="text-[#6b7280]">Open P&L <span className={`font-bold tabular-nums ${openPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{openPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(openPnl) : `$${openPnl.toFixed(2)}`}</span></span>
               </div>

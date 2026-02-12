@@ -19082,7 +19082,16 @@ export default {
                   obj.day_change_pct = hb.day_change_pct;
                   obj.change_pct = hb.day_change_pct;
                 }
-                if (hb.ingest_ts != null) obj.ingest_ts = hb.ingest_ts;
+                // Only overlay ingest_ts if heartbeat is NEWER — never overwrite fresh scoring with stale TradingView data
+                if (hb.ingest_ts != null) {
+                  const hbMs = typeof hb.ingest_ts === "number" ? hb.ingest_ts : (hb.ingest_ts < 1e12 ? hb.ingest_ts * 1000 : new Date(String(hb.ingest_ts)).getTime());
+                  const objMs = Number(obj.ingest_ts) || Number(obj.ts) || 0;
+                  const objMsNorm = objMs > 0 && objMs < 1e12 ? objMs * 1000 : objMs;
+                  if (Number.isFinite(hbMs) && hbMs > 0 && (objMsNorm <= 0 || hbMs > objMsNorm)) {
+                    obj.ingest_ts = hb.ingest_ts;
+                    if (hb.ingest_time != null) obj.ingest_time = hb.ingest_time;
+                  }
+                }
                 if (hb.session != null) obj.session = hb.session;
                 if (hb.is_rth != null) obj.is_rth = hb.is_rth;
               }

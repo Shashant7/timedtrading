@@ -6836,7 +6836,7 @@
                         </div>
 
                         {/* Account summary stats */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                           {(() => {
                             const lastVal = portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0;
                             const todayKey = new Date().toISOString().slice(0, 10);
@@ -6866,6 +6866,15 @@
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Closed</div>
                                   <div className="text-lg font-bold text-[var(--tt-text)]">{ledgerClosedTrades.length}</div>
+                                </div>
+                                <div className="tt-card p-3">
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized P&L</div>
+                                  <div className={`text-lg font-bold ${(() => {
+                                    const totalRealized = ledgerClosedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+                                    return totalRealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                                  })()}`}>
+                                    {fmtUsd(ledgerClosedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0))}
+                                  </div>
                                 </div>
                               </>
                             );
