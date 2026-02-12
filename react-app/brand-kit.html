@@ -24,6 +24,7 @@
           return;
         }
         // Admin verified — show content
+        document.body.dataset.userRole = "admin";
         document.body.style.visibility = "visible";
       } catch (e) {
         document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Authentication required. <a href="/index-react.html" style="color:#00c853;margin-left:4px;">Sign in</a></div>';
@@ -676,6 +677,17 @@
     }
     .sg-sub-nav a:hover { color: var(--text-primary); background: var(--bg-surface); }
 
+    /* Admin-only nav links: greyed out with lock for non-admin users */
+    body:not([data-user-role="admin"]) a[data-admin-only] {
+      opacity: 0.35;
+      pointer-events: none;
+      position: relative;
+    }
+    body:not([data-user-role="admin"]) a[data-admin-only]::after {
+      content: " 🔒";
+      font-size: 9px;
+    }
+
     /* ── Responsive ── */
     @media (max-width: 900px) {
       .logo-grid { grid-template-columns: 1fr; }
@@ -697,9 +709,7 @@
         <a href="investor-dashboard.html">Investor</a>
         <a href="model-dashboard.html">Model</a>
         <a href="screener.html">Screener</a>
-        <a href="ticker-management.html">Tickers</a>
-        <a href="brand-kit.html" class="active">Brand Kit</a>
-        <a href="debug-dashboard.html">Debug</a>
+        <a href="ticker-management.html" data-admin-only="true">Tickers</a>
       </div>
     </div>
   </nav>

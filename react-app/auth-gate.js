@@ -658,6 +658,14 @@
       });
     }
 
+    // Set user role on body for CSS-based admin gating of nav links
+    useEffect(() => {
+      if (user) {
+        document.body.dataset.userRole = (user.role === "admin" || user.tier === "admin") ? "admin" : (user.role || "member");
+        document.body.dataset.userTier = user.tier || "free";
+      }
+    }, [user]);
+
     // Authenticated, tier-authorized, and terms accepted — render children with user context
     const appContent = typeof children === "function" ? children(user) : children;
 

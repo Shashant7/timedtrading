@@ -237,6 +237,7 @@ const ROUTES = [
   ["GET", "/timed/ledger/summary", "GET /timed/ledger/summary"],
   ["GET", "/timed/trades", "GET /timed/trades"],
   ["GET", "/timed/portfolio", "GET /timed/portfolio"],
+  ["GET", "/timed/account-summary", "GET /timed/account-summary"],
   ["POST", "/timed/trades", "POST /timed/trades"],
   ["DELETE", (p) => p.startsWith("/timed/trades/"), "DELETE /timed/trades/:id"],
   ["OPTIONS", "/timed/ai/chat", "OPTIONS /timed/ai/chat"],
@@ -6414,6 +6415,24 @@ async function processTradeSimulation(
       // Portfolio cash increases by proceeds
       portfolio.cash = Number(portfolio.cash) + p * remainingShares;
 
+      // Account ledger: record EXIT (cash inflow + realized P&L)
+      if (!isReplay && env?.DB) {
+        d1InsertLedgerEntry(env, {
+          mode: "trader",
+          ts: trade.exit_ts || Date.now(),
+          event_type: "EXIT",
+          position_id: trade.id,
+          ticker: sym,
+          direction: trade.direction,
+          qty: remainingShares,
+          price: p,
+          cash_delta: p * remainingShares,
+          realized_pnl: pnlRemaining,
+          balance: portfolio.cash,
+          note: `Exit ${sym} ${remainingShares}sh @$${p.toFixed(2)} (${closeReason}) PnL=$${pnlRemaining.toFixed(2)}`,
+        }).catch(e => console.error("[LEDGER] EXIT insert failed:", e));
+      }
+
       // Persist via execution adapter (D1 source of truth), then Discord
       if (adapter) {
         await adapter.closePosition(sym, {
@@ -6681,6 +6700,24 @@ async function processTradeSimulation(
 
       // Portfolio cash increases by proceeds
       portfolio.cash = Number(portfolio.cash) + p * trimShares;
+
+      // Account ledger: record TRIM (cash inflow + realized P&L)
+      if (!isReplay && env?.DB) {
+        d1InsertLedgerEntry(env, {
+          mode: "trader",
+          ts: ev.timestamp ? new Date(ev.timestamp).getTime() : Date.now(),
+          event_type: isFullClose ? "EXIT" : "TRIM",
+          position_id: trade.id,
+          ticker: sym,
+          direction: trade.direction,
+          qty: trimShares,
+          price: p,
+          cash_delta: p * trimShares,
+          realized_pnl: pnlRealized,
+          balance: portfolio.cash,
+          note: `${isFullClose ? "Exit" : "Trim"} ${sym} ${trimShares.toFixed(1)}sh @$${p.toFixed(2)} PnL=$${pnlRealized.toFixed(2)}`,
+        }).catch(e => console.error("[LEDGER] TRIM insert failed:", e));
+      }
 
       // Persist via execution adapter (D1 source of truth)
       if (adapter) {
@@ -7484,6 +7521,24 @@ async function processTradeSimulation(
 
             // Portfolio cash decreases by cost
             portfolio.cash = Number(portfolio.cash) - entryPx * shares;
+
+            // Account ledger: record ENTRY (cash outflow)
+            if (!isReplay && env?.DB) {
+              d1InsertLedgerEntry(env, {
+                mode: "trader",
+                ts: entryTsMs || Date.now(),
+                event_type: "ENTRY",
+                position_id: tradeId,
+                ticker: sym,
+                direction,
+                qty: shares,
+                price: entryPx,
+                cash_delta: -(entryPx * shares),
+                realized_pnl: 0,
+                balance: portfolio.cash,
+                note: `Entry ${direction} ${sym} ${shares}sh @$${entryPx.toFixed(2)}`,
+              }).catch(e => console.error("[LEDGER] ENTRY insert failed:", e));
+            }
 
             allTrades.push(trade);
             console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares} isReplay=${isReplay}`);
@@ -12475,6 +12530,100 @@ async function d1InsertExecutionAction(env, row) {
     if (err && (err.message || "").includes("no such table")) return { ok: false, skipped: true, reason: "schema" };
     console.error("[D1 LEDGER] execution_actions insert failed:", err);
     return { ok: false, error: String(err) };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Account Ledger: single source of truth for cash balance + realized P&L
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function ensureAccountLedgerSchema(db, KV) {
+  const throttleKey = "timed:schema:account_ledger:v1";
+  try {
+    if (KV) {
+      const last = Number(await KV.get(throttleKey));
+      if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) return;
+    }
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS account_ledger (
+        ledger_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mode TEXT NOT NULL DEFAULT 'trader',
+        ts INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        position_id TEXT,
+        ticker TEXT,
+        direction TEXT,
+        qty REAL,
+        price REAL,
+        cash_delta REAL NOT NULL,
+        realized_pnl REAL DEFAULT 0,
+        balance REAL NOT NULL,
+        note TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_account_ledger_ts ON account_ledger (ts);
+      CREATE INDEX IF NOT EXISTS idx_account_ledger_mode_ts ON account_ledger (mode, ts);
+    `);
+    if (KV) await KV.put(throttleKey, String(Date.now()));
+  } catch (err) {
+    console.error("[D1 LEDGER] ensureAccountLedgerSchema failed:", err);
+  }
+}
+
+/**
+ * Insert a row into account_ledger. `balance` is the running cash balance AFTER this event.
+ */
+async function d1InsertLedgerEntry(env, row) {
+  const db = env?.DB;
+  if (!db || !row) return { ok: false, skipped: true };
+  const { mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note } = row;
+  if (!event_type || ts == null || cash_delta == null || balance == null) return { ok: false, skipped: true, reason: "missing_key" };
+  try {
+    await ensureAccountLedgerSchema(db, env?.KV_TIMED);
+    await db.prepare(
+      `INSERT INTO account_ledger (mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
+    ).bind(
+      mode || "trader",
+      Number(ts),
+      String(event_type).toUpperCase(),
+      position_id || null,
+      ticker || null,
+      direction || null,
+      qty != null ? Number(qty) : null,
+      price != null ? Number(price) : null,
+      Number(cash_delta),
+      realized_pnl != null ? Number(realized_pnl) : 0,
+      Number(balance),
+      note || null,
+    ).run();
+    return { ok: true };
+  } catch (err) {
+    if (err && (err.message || "").includes("no such table")) {
+      try {
+        await ensureAccountLedgerSchema(db, null); // force create
+        return d1InsertLedgerEntry(env, row); // retry once
+      } catch { /* fall through */ }
+    }
+    console.error("[D1 LEDGER] account_ledger insert failed:", err);
+    return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * Get the latest balance from account_ledger for a mode.
+ * Returns the starting capital if no entries exist yet.
+ */
+async function d1GetLedgerBalance(env, mode = "trader") {
+  const db = env?.DB;
+  if (!db) return mode === "trader" ? PORTFOLIO_START_CASH : 100000;
+  try {
+    await ensureAccountLedgerSchema(db, env?.KV_TIMED);
+    const row = await db.prepare(
+      "SELECT balance FROM account_ledger WHERE mode = ?1 ORDER BY ts DESC, ledger_id DESC LIMIT 1"
+    ).bind(mode).first();
+    return row ? Number(row.balance) : (mode === "trader" ? PORTFOLIO_START_CASH : 100000);
+  } catch {
+    return mode === "trader" ? PORTFOLIO_START_CASH : 100000;
   }
 }
 
@@ -25696,6 +25845,208 @@ export default {
         );
       }
 
+      // ═══════════════════════════════════════════════════════════════════════
+      // GET /timed/account-summary — single source of truth for account value
+      // Uses account_ledger table; backfills from execution_actions / investor_lots if empty
+      // ═══════════════════════════════════════════════════════════════════════
+      if (routeKey === "GET /timed/account-summary") {
+        try {
+          const mode = url.searchParams.get("mode") || "trader";
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+
+          await ensureAccountLedgerSchema(db, KV);
+
+          // Check if ledger has entries for this mode; if not, backfill
+          const countRow = await db.prepare(
+            "SELECT COUNT(*) as cnt FROM account_ledger WHERE mode = ?1"
+          ).bind(mode).first();
+
+          if (!countRow || countRow.cnt === 0) {
+            // ── BACKFILL ─────────────────────────────────────────────
+            const startCash = mode === "trader" ? PORTFOLIO_START_CASH : 100000;
+            let balance = startCash;
+
+            if (mode === "trader") {
+              // Backfill from execution_actions
+              const actions = (await db.prepare(
+                `SELECT ea.action_id, ea.position_id, ea.ts, ea.action_type, ea.qty, ea.price, ea.value, ea.pnl_realized, ea.reason,
+                        p.ticker, p.direction
+                 FROM execution_actions ea
+                 LEFT JOIN positions p ON ea.position_id = p.position_id
+                 ORDER BY ea.ts ASC`
+              ).all())?.results || [];
+
+              const stmts = [];
+              for (const a of actions) {
+                const aType = String(a.action_type).toUpperCase();
+                let cashDelta = 0;
+                let realizedPnl = 0;
+                if (aType === "ENTRY" || aType === "ADD_ENTRY") {
+                  cashDelta = -(Number(a.value) || (Number(a.qty) * Number(a.price)) || 0);
+                } else if (aType === "TRIM" || aType === "EXIT") {
+                  cashDelta = Number(a.value) || (Number(a.qty) * Number(a.price)) || 0;
+                  realizedPnl = Number(a.pnl_realized) || 0;
+                }
+                if (cashDelta === 0 && aType !== "ENTRY") continue;
+                balance += cashDelta;
+                stmts.push(db.prepare(
+                  `INSERT INTO account_ledger (mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
+                ).bind(
+                  "trader", Number(a.ts), aType, a.position_id || null,
+                  a.ticker || null, a.direction || null,
+                  Number(a.qty) || null, Number(a.price) || null,
+                  cashDelta, realizedPnl, balance, `Backfill from ${a.action_id}`
+                ));
+              }
+              // Batch insert (max 500 per batch)
+              for (let i = 0; i < stmts.length; i += 500) {
+                await db.batch(stmts.slice(i, i + 500));
+              }
+              console.log(`[LEDGER BACKFILL] trader: ${stmts.length} entries from execution_actions`);
+
+            } else if (mode === "investor") {
+              // Backfill from investor_lots
+              try {
+                const lots = (await db.prepare(
+                  `SELECT l.id, l.position_id, l.ticker, l.action, l.shares, l.price, l.value, l.ts,
+                          p.avg_entry, p.cost_basis
+                   FROM investor_lots l
+                   LEFT JOIN investor_positions p ON l.position_id = p.id
+                   ORDER BY l.ts ASC`
+                ).all())?.results || [];
+
+                const stmts = [];
+                for (const lot of lots) {
+                  const act = String(lot.action).toUpperCase();
+                  const val = Number(lot.value) || (Number(lot.shares) * Number(lot.price)) || 0;
+                  let cashDelta = 0;
+                  let realizedPnl = 0;
+                  if (act === "BUY" || act === "DCA_BUY") {
+                    cashDelta = -val;
+                  } else if (act === "SELL") {
+                    cashDelta = val;
+                    // Approximate realized P&L using avg_entry at time of lot
+                    const avgEntry = Number(lot.avg_entry) || 0;
+                    if (avgEntry > 0) {
+                      realizedPnl = (Number(lot.price) - avgEntry) * Number(lot.shares);
+                    }
+                  }
+                  if (cashDelta === 0) continue;
+                  balance += cashDelta;
+                  stmts.push(db.prepare(
+                    `INSERT INTO account_ledger (mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'LONG', ?6, ?7, ?8, ?9, ?10, ?11)`
+                  ).bind(
+                    "investor", Number(lot.ts),
+                    act === "SELL" ? "EXIT" : (act === "DCA_BUY" ? "DCA_BUY" : "ENTRY"),
+                    lot.position_id || null, lot.ticker || null,
+                    Number(lot.shares) || null, Number(lot.price) || null,
+                    cashDelta, realizedPnl, balance, `Backfill from lot ${lot.id}`
+                  ));
+                }
+                for (let i = 0; i < stmts.length; i += 500) {
+                  await db.batch(stmts.slice(i, i + 500));
+                }
+                console.log(`[LEDGER BACKFILL] investor: ${stmts.length} entries from investor_lots`);
+              } catch (invErr) {
+                console.error("[LEDGER BACKFILL] investor failed (table may not exist):", invErr);
+              }
+            }
+          }
+
+          // ── Read current state ──────────────────────────────────────
+          const latestRow = await db.prepare(
+            "SELECT balance FROM account_ledger WHERE mode = ?1 ORDER BY ts DESC, ledger_id DESC LIMIT 1"
+          ).bind(mode).first();
+
+          const startCash = mode === "trader" ? PORTFOLIO_START_CASH : 100000;
+          const cash = latestRow ? Number(latestRow.balance) : startCash;
+
+          const pnlRow = await db.prepare(
+            "SELECT SUM(realized_pnl) as total_realized FROM account_ledger WHERE mode = ?1"
+          ).bind(mode).first();
+          const totalRealized = pnlRow ? Number(pnlRow.total_realized) || 0 : 0;
+
+          // Mark-to-market open positions
+          let unrealized = 0;
+          let costBasis = 0;
+          let markToMarket = 0;
+
+          if (mode === "trader") {
+            const openPos = (await db.prepare(
+              "SELECT position_id, ticker, direction, total_qty, cost_basis FROM positions WHERE status = 'OPEN'"
+            ).all())?.results || [];
+
+            // Batch price lookup
+            const pricesRaw = await kvGetJSON(KV, "timed:prices");
+            const priceMap = {};
+            if (pricesRaw?.prices) {
+              for (const [sym, p] of Object.entries(pricesRaw.prices)) {
+                priceMap[sym] = Number(p.price || p.latestTrade?.p) || 0;
+              }
+            }
+
+            for (const pos of openPos) {
+              const px = priceMap[pos.ticker] || 0;
+              const qty = Number(pos.total_qty) || 0;
+              const cb = Number(pos.cost_basis) || 0;
+              const mtm = px * qty;
+              const dir = String(pos.direction).toUpperCase() === "SHORT" ? -1 : 1;
+              unrealized += dir * (mtm - cb);
+              costBasis += cb;
+              markToMarket += mtm;
+            }
+          } else {
+            // Investor positions
+            try {
+              const openPos = (await db.prepare(
+                "SELECT id, ticker, total_shares, cost_basis, avg_entry FROM investor_positions WHERE status = 'OPEN'"
+              ).all())?.results || [];
+
+              const pricesRaw = await kvGetJSON(KV, "timed:prices");
+              const priceMap = {};
+              if (pricesRaw?.prices) {
+                for (const [sym, p] of Object.entries(pricesRaw.prices)) {
+                  priceMap[sym] = Number(p.price || p.latestTrade?.p) || 0;
+                }
+              }
+
+              for (const pos of openPos) {
+                const px = priceMap[pos.ticker] || 0;
+                const qty = Number(pos.total_shares) || 0;
+                const cb = Number(pos.cost_basis) || 0;
+                const mtm = px * qty;
+                unrealized += mtm - cb;
+                costBasis += cb;
+                markToMarket += mtm;
+              }
+            } catch {
+              // investor_positions table may not exist yet
+            }
+          }
+
+          const accountValue = cash + markToMarket;
+
+          return sendJSON({
+            ok: true,
+            mode,
+            startCash,
+            cash: Math.round(cash * 100) / 100,
+            totalRealized: Math.round(totalRealized * 100) / 100,
+            unrealized: Math.round(unrealized * 100) / 100,
+            costBasis: Math.round(costBasis * 100) / 100,
+            markToMarket: Math.round(markToMarket * 100) / 100,
+            accountValue: Math.round(accountValue * 100) / 100,
+            generated_at: new Date().toISOString(),
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          console.error("[ACCOUNT SUMMARY] Error:", err);
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/portfolio (paper portfolio + executions, derived from D1 positions)
       // D1 is the SINGLE SOURCE OF TRUTH for positions
       if (routeKey === "GET /timed/portfolio") {
@@ -28297,6 +28648,16 @@ Provide 3-5 actionable next steps:
               "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, ?8, ?7)"
             ).bind(lotId, existing.id, sym, shares, price, value, now, "manual_add").run();
 
+            // Investor ledger: BUY (add to position)
+            const prevBal = await d1GetLedgerBalance(env, "investor");
+            d1InsertLedgerEntry(env, {
+              mode: "investor", ts: now, event_type: "ENTRY",
+              position_id: existing.id, ticker: sym, direction: "LONG",
+              qty: shares, price, cash_delta: -value,
+              realized_pnl: 0, balance: prevBal - value,
+              note: `Add ${shares}sh ${sym} @$${price.toFixed(2)}`,
+            }).catch(e => console.error("[LEDGER] investor BUY add failed:", e));
+
             return sendJSON({ ok: true, positionId: existing.id, action: "added", shares: newShares, avgEntry: newAvg }, 200, corsHeaders(env, req));
           }
 
@@ -28312,6 +28673,16 @@ Provide 3-5 actionable next steps:
           await env.DB.prepare(
             "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, 'initial_entry', ?7)"
           ).bind(lotId, posId, sym, shares, price, value, now).run();
+
+          // Investor ledger: BUY (new position)
+          const prevBalNew = await d1GetLedgerBalance(env, "investor");
+          d1InsertLedgerEntry(env, {
+            mode: "investor", ts: now, event_type: "ENTRY",
+            position_id: posId, ticker: sym, direction: "LONG",
+            qty: shares, price, cash_delta: -value,
+            realized_pnl: 0, balance: prevBalNew - value,
+            note: `New position ${shares}sh ${sym} @$${price.toFixed(2)}`,
+          }).catch(e => console.error("[LEDGER] investor BUY new failed:", e));
 
           return sendJSON({ ok: true, positionId: posId, action: "created", shares, avgEntry: price }, 200, corsHeaders(env, req));
         } catch (err) {
@@ -28388,13 +28759,35 @@ Provide 3-5 actionable next steps:
               "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1 WHERE id = ?2"
             ).bind(now, pos.id).run();
 
+            // Investor ledger: EXIT (full close)
+            const prevBalClose = await d1GetLedgerBalance(env, "investor");
+            d1InsertLedgerEntry(env, {
+              mode: "investor", ts: now, event_type: "EXIT",
+              position_id: pos.id, ticker: sym, direction: "LONG",
+              qty: sellShares, price: sellPrice, cash_delta: sellValue,
+              realized_pnl: pnl, balance: prevBalClose + sellValue,
+              note: `Close ${sym} ${sellShares}sh @$${sellPrice.toFixed(2)} PnL=$${pnl.toFixed(2)}`,
+            }).catch(e => console.error("[LEDGER] investor EXIT failed:", e));
+
             return sendJSON({ ok: true, action: "closed", pnl: Math.round(pnl * 100) / 100, pnlPct: pos.cost_basis > 0 ? Math.round(pnl / pos.cost_basis * 10000) / 100 : 0 }, 200, corsHeaders(env, req));
           } else {
             // Partial sell
             const newCost = pos.cost_basis * (remaining / pos.total_shares);
+            const partialCostBasis = pos.cost_basis * (sellShares / pos.total_shares);
+            const partialPnl = sellValue - partialCostBasis;
             await env.DB.prepare(
               "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, avg_entry = ?3, updated_at = ?4 WHERE id = ?5"
             ).bind(remaining, newCost, pos.avg_entry, now, pos.id).run();
+
+            // Investor ledger: TRIM (partial sell)
+            const prevBalPartial = await d1GetLedgerBalance(env, "investor");
+            d1InsertLedgerEntry(env, {
+              mode: "investor", ts: now, event_type: "TRIM",
+              position_id: pos.id, ticker: sym, direction: "LONG",
+              qty: sellShares, price: sellPrice, cash_delta: sellValue,
+              realized_pnl: partialPnl, balance: prevBalPartial + sellValue,
+              note: `Partial sell ${sym} ${sellShares}sh @$${sellPrice.toFixed(2)} PnL=$${partialPnl.toFixed(2)}`,
+            }).catch(e => console.error("[LEDGER] investor TRIM failed:", e));
 
             return sendJSON({ ok: true, action: "partial_sell", remainingShares: remaining, soldShares: sellShares }, 200, corsHeaders(env, req));
           }
@@ -28449,6 +28842,19 @@ Provide 3-5 actionable next steps:
               "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, avg_entry = ?3, last_entry_ts = ?4, updated_at = ?4 WHERE id = ?5"
             ).bind(newShares, newCost, newAvg, now, pos.id).run();
           }
+
+          // Investor ledger: manual lot (BUY or SELL)
+          const lotPrevBal = await d1GetLedgerBalance(env, "investor");
+          const lotCashDelta = act === "BUY" ? -value : value;
+          const lotPnl = act === "SELL" ? (value - pos.cost_basis * (shares / pos.total_shares)) : 0;
+          d1InsertLedgerEntry(env, {
+            mode: "investor", ts: now,
+            event_type: act === "BUY" ? "ENTRY" : (newShares <= 0.0001 ? "EXIT" : "TRIM"),
+            position_id: pos.id, ticker: sym, direction: "LONG",
+            qty: shares, price, cash_delta: lotCashDelta,
+            realized_pnl: lotPnl, balance: lotPrevBal + lotCashDelta,
+            note: `Manual ${act} ${shares}sh ${sym} @$${price.toFixed(2)}`,
+          }).catch(e => console.error("[LEDGER] investor lot failed:", e));
 
           return sendJSON({ ok: true, lotId, shares: newShares, avgEntry: Math.round(newAvg * 100) / 100 }, 200, corsHeaders(env, req));
         } catch (err) {
@@ -28600,6 +29006,16 @@ Provide 3-5 actionable next steps:
                 updated_at = ?4
                 WHERE id = ?7
               `).bind(newShares, newCost, newAvg, now, nextTs, value, pos.id).run();
+
+              // Investor ledger: DCA_BUY
+              const dcaPrevBal = await d1GetLedgerBalance(env, "investor");
+              d1InsertLedgerEntry(env, {
+                mode: "investor", ts: now, event_type: "DCA_BUY",
+                position_id: pos.id, ticker: pos.ticker, direction: "LONG",
+                qty: shares, price, cash_delta: -value,
+                realized_pnl: 0, balance: dcaPrevBal - value,
+                note: `DCA ${pos.ticker} ${shares.toFixed(4)}sh @$${price.toFixed(2)}`,
+              }).catch(e => console.error("[LEDGER] investor DCA_BUY failed:", e));
 
               executed.push({
                 ticker: pos.ticker, shares: Math.round(shares * 10000) / 10000,

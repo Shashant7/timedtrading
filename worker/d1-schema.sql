@@ -207,3 +207,28 @@ CREATE TABLE IF NOT EXISTS terms_acceptance (
 
 CREATE INDEX IF NOT EXISTS idx_terms_acceptance_email ON terms_acceptance (email);
 
+-- -----------------------------------------------------------------------------
+-- Account ledger: single source of truth for cash balance + realized P&L
+-- Shared by Trader and Investor modes via the `mode` column.
+-- Each cash-affecting event (entry, exit, trim, DCA buy, sell) appends a row.
+-- `balance` is the running cash balance AFTER this event.
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS account_ledger (
+  ledger_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  mode TEXT NOT NULL DEFAULT 'trader',     -- 'trader' or 'investor'
+  ts INTEGER NOT NULL,                     -- event timestamp (ms epoch UTC)
+  event_type TEXT NOT NULL,                -- ENTRY, TRIM, EXIT, DCA_BUY, SELL, ADJUSTMENT
+  position_id TEXT,                        -- FK to positions.position_id or investor_positions.id
+  ticker TEXT,
+  direction TEXT,                          -- LONG / SHORT
+  qty REAL,
+  price REAL,
+  cash_delta REAL NOT NULL,                -- negative for buys, positive for sells
+  realized_pnl REAL DEFAULT 0,            -- P&L attributed to this event (TRIM/EXIT/SELL)
+  balance REAL NOT NULL,                   -- running cash balance AFTER this event
+  note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_ledger_ts ON account_ledger (ts);
+CREATE INDEX IF NOT EXISTS idx_account_ledger_mode_ts ON account_ledger (mode, ts);

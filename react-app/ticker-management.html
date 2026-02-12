@@ -19,6 +19,16 @@
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
       ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+      /* Admin-only nav links: greyed out with lock for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        opacity: 0.35;
+        pointer-events: none;
+        position: relative;
+      }
+      body:not([data-user-role="admin"]) a[data-admin-only]::after {
+        content: " 🔒";
+        font-size: 9px;
+      }
     </style>
   </head>
   <body>
@@ -625,9 +635,7 @@
                   <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
                   <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
                   <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
-                  <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Tickers</a>
-                  <a href="brand-kit.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Brand Kit</a>
-                  <a href="debug-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Debug</a>
+                  <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Tickers</a>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -1008,6 +1016,25 @@
                   </div>
                 </div>
               )}
+
+              {/* Admin Tools — access Brand Kit and Debug from here */}
+              <div className="mt-6 pt-4 border-t border-white/[0.06]">
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] text-[#4b5563] uppercase tracking-wide">Admin Tools</span>
+                  <a
+                    href="brand-kit.html"
+                    className="px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-all"
+                  >
+                    Brand Kit
+                  </a>
+                  <a
+                    href="debug-dashboard.html"
+                    className="px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-all"
+                  >
+                    Debug Dashboard
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
         );

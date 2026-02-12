@@ -40,6 +40,16 @@
       .tab-active { border-bottom: 2px solid #10b981; color: #e8eaf0; }
       .tab-inactive { border-bottom: 2px solid transparent; color: #626b7d; }
       .tab-inactive:hover { color: #9098a8; }
+      /* Admin-only nav links: greyed out with lock for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        opacity: 0.35;
+        pointer-events: none;
+        position: relative;
+      }
+      body:not([data-user-role="admin"]) a[data-admin-only]::after {
+        content: " 🔒";
+        font-size: 9px;
+      }
     </style>
   </head>
   <body>
@@ -102,9 +112,7 @@ function NavHeader() {
           <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
           <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Model</a>
           <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
-          <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
-          <a href="brand-kit.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Brand Kit</a>
-          <a href="debug-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Debug</a>
+          <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
         </div>
       </div>
       <div className="flex items-center gap-3">
@@ -397,9 +405,10 @@ function RecentPredictions({ predictions }) {
 
 // ─── Main App ────────────────────────────────────────────────────────────────
 
-function App() {
+function App({ user }) {
   const { health, signals, patterns, proposals, predictions, loading, lastRefresh, refresh } = useModelData();
   const [tab, setTab] = useState("overview");
+  const isAdmin = user?.role === "admin" || user?.tier === "admin";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -408,20 +417,25 @@ function App() {
       {/* Sub-navigation */}
       <div className="border-b border-white/[0.06] px-6 flex items-center justify-between">
         <div className="flex gap-6">
-          {["overview", "patterns", "proposals", "predictions"].map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`py-3 text-sm font-medium capitalize ${tab === t ? "tab-active" : "tab-inactive"}`}
-            >
-              {t}
-              {t === "proposals" && proposals.length > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-600 text-white text-xs">
-                  {proposals.length}
-                </span>
-              )}
-            </button>
-          ))}
+          {["overview", "patterns", "proposals", "predictions"].map(t => {
+            const isProposalLocked = t === "proposals" && !isAdmin;
+            return (
+              <button
+                key={t}
+                onClick={() => !isProposalLocked && setTab(t)}
+                className={`py-3 text-sm font-medium capitalize ${tab === t ? "tab-active" : "tab-inactive"} ${isProposalLocked ? "opacity-40 cursor-not-allowed" : ""}`}
+                title={isProposalLocked ? "Admin access required" : ""}
+              >
+                {t}
+                {isProposalLocked && <span className="ml-1 text-[10px]">🔒</span>}
+                {t === "proposals" && !isProposalLocked && proposals.length > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-600 text-white text-xs">
+                    {proposals.length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && <span className="text-xs text-slate-500">Updated {lastRefresh.toLocaleTimeString()}</span>}
@@ -449,12 +463,16 @@ function App() {
                     color={health?.outcomes?.hitRate > 60 ? "text-emerald-400" : health?.outcomes?.hitRate > 40 ? "text-amber-400" : "text-red-400"}
                   />
                   <StatCard label="Active Patterns" value={health?.patterns?.active || 0} sub={health?.patterns?.degraded > 0 ? `${health.patterns.degraded} degraded` : "All healthy"} />
-                  <StatCard
-                    label="Pending Proposals"
-                    value={proposals.length}
-                    sub={proposals.length > 0 ? "Review needed" : "None"}
-                    color={proposals.length > 0 ? "text-amber-400" : "text-slate-300"}
-                  />
+                  {isAdmin ? (
+                    <StatCard
+                      label="Pending Proposals"
+                      value={proposals.length}
+                      sub={proposals.length > 0 ? "Review needed" : "None"}
+                      color={proposals.length > 0 ? "text-amber-400" : "text-slate-300"}
+                    />
+                  ) : (
+                    <StatCard label="Proposals" value="🔒" sub="Admin only" color="text-slate-500" />
+                  )}
                 </div>
 
                 {/* Market + Sectors */}
@@ -475,7 +493,13 @@ function App() {
             )}
 
             {tab === "proposals" && (
-              <ProposalsPanel proposals={proposals} onRefresh={refresh} />
+              isAdmin
+                ? <ProposalsPanel proposals={proposals} onRefresh={refresh} />
+                : <div className="card p-8 text-center text-slate-500">
+                    <div className="text-2xl mb-2">🔒</div>
+                    <div className="text-sm font-medium">Admin Access Required</div>
+                    <div className="text-xs mt-1">Model proposals are only accessible to admin users.</div>
+                  </div>
             )}
 
             {tab === "predictions" && (
@@ -490,7 +514,7 @@ function App() {
 
 const AuthGate = window.TimedAuthGate;
 const modelApp = AuthGate
-  ? <AuthGate apiBase={API_BASE} requiredTier="admin">{(user) => <App user={user} />}</AuthGate>
+  ? <AuthGate apiBase={API_BASE}>{(user) => <App user={user} />}</AuthGate>
   : <App />;
 ReactDOM.createRoot(document.getElementById("root")).render(modelApp);
     </script>

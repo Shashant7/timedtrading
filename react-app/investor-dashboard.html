@@ -12,6 +12,7 @@
     <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js"></script>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
@@ -28,6 +29,16 @@
       .stage-reduce { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
       .stage-research { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
       .stage-exited { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+      /* Admin-only nav links: greyed out with lock for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        opacity: 0.35;
+        pointer-events: none;
+        position: relative;
+      }
+      body:not([data-user-role="admin"]) a[data-admin-only]::after {
+        content: " 🔒";
+        font-size: 9px;
+      }
     </style>
   </head>
   <body>
@@ -356,6 +367,7 @@
         const [scores, setScores] = useState(null);
         const [health, setHealth] = useState(null);
         const [portfolio, setPortfolio] = useState(null);
+        const [acctSummary, setAcctSummary] = useState(null);
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [loading, setLoading] = useState(false);
         const [computing, setComputing] = useState(false);
@@ -365,14 +377,16 @@
         const fetchData = useCallback(async () => {
           setLoading(true);
           try {
-            const [scoresResp, healthResp, portfolioResp] = await Promise.all([
+            const [scoresResp, healthResp, portfolioResp, acctResp] = await Promise.all([
               fetch(`${API_BASE}/timed/investor/scores`).then(r => r.json()).catch(() => null),
               fetch(`${API_BASE}/timed/investor/market-health`).then(r => r.json()).catch(() => null),
               fetch(`${API_BASE}/timed/investor/portfolio`).then(r => r.json()).catch(() => null),
+              fetch(`${API_BASE}/timed/account-summary?mode=investor&_t=${Date.now()}`).then(r => r.json()).catch(() => null),
             ]);
             if (scoresResp?.ok) { setScores(scoresResp); setLastComputed(scoresResp.computedAt); }
             if (healthResp?.ok) setHealth(healthResp);
             if (portfolioResp?.ok) setPortfolio(portfolioResp);
+            if (acctResp?.ok) setAcctSummary(acctResp);
           } finally { setLoading(false); }
         }, []);
 
@@ -426,8 +440,7 @@
                 React.createElement("a", { href: "investor-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" }, "Investor"),
                 React.createElement("a", { href: "model-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Model"),
                 React.createElement("a", { href: "screener.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Screener"),
-                React.createElement("a", { href: "brand-kit.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Brand Kit"),
-                React.createElement("a", { href: "debug-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Debug"),
+                React.createElement("a", { href: "ticker-management.html", "data-admin-only": "true", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Tickers"),
               ),
             ),
             React.createElement("div", { className: "flex items-center gap-2" },
@@ -464,6 +477,30 @@
                     React.createElement("div", { className: "text-lg mb-2" }, "No investor data yet"),
                     React.createElement("div", { className: "text-sm" }, "Click 'Compute' to run the investor scoring pipeline."),
                   ),
+              // Account Summary bar (from server-side ledger)
+              acctSummary && React.createElement("div", { className: "card p-3 mb-4 fade-in" },
+                React.createElement("div", { className: "flex items-center justify-between flex-wrap gap-3 text-[11px]" },
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Account ",
+                    React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.accountValue || 0)),
+                  ),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Cash ",
+                    React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.cash || 0)),
+                  ),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Invested ",
+                    React.createElement("span", { className: "text-white font-bold tabular-nums" }, fmtUsd(acctSummary.markToMarket || 0)),
+                  ),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Unrealized ",
+                    React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.unrealized || 0) >= 0 ? "text-emerald-400" : "text-red-400"}` },
+                      (acctSummary.unrealized >= 0 ? "+" : "") + fmtUsd(acctSummary.unrealized || 0),
+                    ),
+                  ),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Realized ",
+                    React.createElement("span", { className: `font-bold tabular-nums ${(acctSummary.totalRealized || 0) >= 0 ? "text-emerald-400" : "text-red-400"}` },
+                      (acctSummary.totalRealized >= 0 ? "+" : "") + fmtUsd(acctSummary.totalRealized || 0),
+                    ),
+                  ),
+                ),
+              ),
               React.createElement(PortfolioSection, { portfolio }),
             ),
 
@@ -476,8 +513,15 @@
       }
 
       // ─── Render ──────────────────────────────────────────────────────
+      const _AuthGate = window.TimedAuthGate;
       const root = ReactDOM.createRoot(document.getElementById("root"));
-      root.render(React.createElement(InvestorDashboard));
+      root.render(
+        _AuthGate
+          ? React.createElement(_AuthGate, { apiBase: API_BASE },
+              (user) => React.createElement(InvestorDashboard, { user })
+            )
+          : React.createElement(InvestorDashboard)
+      );
     </script>
   </body>
 </html>

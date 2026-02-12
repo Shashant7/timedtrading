@@ -99,6 +99,17 @@
         0%, 100% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2); }
         50% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.5); }
       }
+
+      /* Admin-only nav links: greyed out with lock for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        opacity: 0.35;
+        pointer-events: none;
+        position: relative;
+      }
+      body:not([data-user-role="admin"]) a[data-admin-only]::after {
+        content: " 🔒";
+        font-size: 9px;
+      }
     </style>
   </head>
   <body>
@@ -564,6 +575,49 @@
           lastUpdate,
           refetch: fetchPortfolio,
         };
+      }
+
+      // Account Summary hook — single source of truth from account_ledger
+      function useAccountSummary(mode = "trader") {
+        const [summary, setSummary] = useState(null);
+        const fetchSummary = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/account-summary?mode=${mode}&_t=${Date.now()}`, { cache: "no-store" });
+            if (!res.ok) return;
+            const json = await res.json();
+            if (json.ok) setSummary(json);
+          } catch { /* best-effort */ }
+        }, [mode]);
+        useEffect(() => {
+          fetchSummary();
+          const interval = setInterval(fetchSummary, 60000);
+          return () => clearInterval(interval);
+        }, [fetchSummary]);
+        return { summary, refetch: fetchSummary };
+      }
+
+      // Account Summary hook — single source of truth from account_ledger
+      function useAccountSummary(mode = "trader") {
+        const [summary, setSummary] = useState(null);
+        const [loading, setLoading] = useState(true);
+
+        const fetchSummary = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/account-summary?mode=${mode}&_t=${Date.now()}`, { cache: "no-store" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (json.ok) setSummary(json);
+          } catch { /* best-effort */ }
+          finally { setLoading(false); }
+        }, [mode]);
+
+        useEffect(() => {
+          fetchSummary();
+          const interval = setInterval(fetchSummary, 60000);
+          return () => clearInterval(interval);
+        }, [fetchSummary]);
+
+        return { summary, loading, refetch: fetchSummary };
       }
 
       // ─────────────────────────────────────────────────────────────
@@ -5603,6 +5657,7 @@
           refetch: refetchTrades,
         } = useSimulatedTrades();
         const { sectors } = useSectors();
+        const { summary: acctSummary } = useAccountSummary("trader");
 
         // Welcome Guide state
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(false);
@@ -5833,6 +5888,7 @@
           until: ledgerUntil,
         });
         const paperPortfolio = usePaperPortfolio();
+        const { summary: acctSummary } = useAccountSummary("trader");
         // Legacy "Trade Detail" right rail removed; use unified ticker right rail instead.
 
         const rankedTickers = useMemo(() => {
@@ -6647,9 +6703,7 @@
                     <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
                     <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
                     <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
-                    <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
-                    <a href="brand-kit.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Brand Kit</a>
-                    <a href="debug-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Debug</a>
+                    <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -6835,25 +6889,31 @@
                           <p className="text-[10px] text-[var(--tt-text-faint)] mt-2">Baseline {fmtUsd(BASELINE_ACCOUNT)}</p>
                         </div>
 
-                        {/* Account summary stats */}
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        {/* Account summary stats — uses server-side account_ledger for consistency */}
+                        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                           {(() => {
-                            const lastVal = portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0;
+                            const acctVal = acctSummary?.accountValue ?? BASELINE_ACCOUNT;
+                            const totalRealized = acctSummary?.totalRealized ?? ledgerClosedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+                            const openPnl = acctSummary?.unrealized ?? ledgerOpenTrades.reduce((sum, t) => {
+                              const m = getPositionMetrics(t, data && (data[t.ticker] || data[String(t.ticker).toUpperCase()]));
+                              return sum + (Number(m.pnlOpen) || 0);
+                            }, 0);
+                            const totalPnl = totalRealized + openPnl;
                             const todayKey = new Date().toISOString().slice(0, 10);
                             const todayPnl = ledgerClosedTrades.filter((t) => {
                               const exitTs = tsToMs(t.exit_ts);
                               if (!exitTs) return false;
                               return new Date(exitTs).toISOString().slice(0, 10) === todayKey;
                             }).reduce((s, t) => s + (Number(t.pnl) || 0), 0);
-                            const openPnl = ledgerOpenTrades.reduce((sum, t) => {
-                              const m = getPositionMetrics(t, data && (data[t.ticker] || data[String(t.ticker).toUpperCase()]));
-                              return sum + (Number(m.pnlOpen) || 0);
-                            }, 0);
                             return (
                               <>
                                 <div className="tt-card p-3">
+                                  <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Account</div>
+                                  <div className="text-lg font-bold text-[var(--tt-text)]">{fmtUsd(acctVal)}</div>
+                                </div>
+                                <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Total P&L</div>
-                                  <div className={`text-lg font-bold ${lastVal >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(lastVal)}</div>
+                                  <div className={`text-lg font-bold ${totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalPnl)}</div>
                                 </div>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Today</div>
@@ -6869,11 +6929,8 @@
                                 </div>
                                 <div className="tt-card p-3">
                                   <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized P&L</div>
-                                  <div className={`text-lg font-bold ${(() => {
-                                    const totalRealized = ledgerClosedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
-                                    return totalRealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
-                                  })()}`}>
-                                    {fmtUsd(ledgerClosedTrades.reduce((s, t) => s + (Number(t.pnl) || 0), 0))}
+                                  <div className={`text-lg font-bold ${totalRealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                    {fmtUsd(totalRealized)}
                                   </div>
                                 </div>
                               </>

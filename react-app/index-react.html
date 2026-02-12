@@ -360,6 +360,17 @@
       .scrollbar-hide::-webkit-scrollbar {
         display: none; /* Chrome, Safari, Opera */
       }
+
+      /* Admin-only nav links: greyed out with lock for non-admin users */
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        opacity: 0.35;
+        pointer-events: none;
+        position: relative;
+      }
+      body:not([data-user-role="admin"]) a[data-admin-only]::after {
+        content: " 🔒";
+        font-size: 9px;
+      }
     </style>
   </head>
   <body>
@@ -1076,28 +1087,28 @@
         return { trades, loading, error, refetch: fetchTrades };
       }
 
-      // Portfolio hook — same source as Simulation Dashboard (GET /timed/portfolio)
-      function usePortfolio() {
-        const [portfolio, setPortfolio] = useState(null);
+      // Account Summary hook — single source of truth from account_ledger (GET /timed/account-summary)
+      function useAccountSummary(mode = "trader") {
+        const [summary, setSummary] = useState(null);
         const [loading, setLoading] = useState(true);
 
-        const fetchPortfolio = useCallback(async () => {
+        const fetchSummary = useCallback(async () => {
           try {
-            const res = await fetch(`${API_BASE}/timed/portfolio?_t=${Date.now()}`, { cache: "no-store" });
+            const res = await fetch(`${API_BASE}/timed/account-summary?mode=${mode}&_t=${Date.now()}`, { cache: "no-store" });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
-            if (json.ok) setPortfolio(json);
+            if (json.ok) setSummary(json);
           } catch { /* best-effort */ }
           finally { setLoading(false); }
-        }, []);
+        }, [mode]);
 
         useEffect(() => {
-          fetchPortfolio();
-          const interval = setInterval(fetchPortfolio, 60000);
+          fetchSummary();
+          const interval = setInterval(fetchSummary, 60000);
           return () => clearInterval(interval);
-        }, [fetchPortfolio]);
+        }, [fetchSummary]);
 
-        return { portfolio, loading, refetch: fetchPortfolio };
+        return { summary, loading, refetch: fetchSummary };
       }
 
       // Hook to fetch sector ratings
@@ -2282,12 +2293,13 @@
           return true;
         });
         if (filtered.length >= 2) return filtered;
-        // Pre-market equities: never show raw (pre-market) candles — return empty so sparkline hides
+        // Equities: NEVER fall back to raw candles.
+        // Raw candles span multiple days; _sessionFraction maps by time-of-day only (ignoring date),
+        // so yesterday's candles overlay today's session positions → chaotic sparklines at market open.
+        // Pre-market or early RTH with < 2 session candles: return filtered (sparkline hides gracefully).
         const cfg = _getSessionConfig(sym);
-        if (cfg.sessionDur === 390) {
-          const nowEtMin = _tsToEtMin(Date.now());
-          if (nowEtMin < cfg.openMin) return [];
-        }
+        if (cfg.sessionDur === 390) return filtered;
+        // Continuous tickers (futures/crypto): fall back to raw if session filter yields < 2
         return rawCandles;
       }
 
@@ -11352,7 +11364,7 @@
         defaultLimit = 12,
         storageKey = "timedTrading_activeMovesSnapshot_v1",
         trades = [],
-        portfolio = null,
+        accountSummary = null,
         savedTickers = new Set(),
         toggleSavedTicker = null,
       }) {
@@ -11621,37 +11633,11 @@
         const todayRealizedPnl = todayExits.reduce((sum, t) => sum + (Number(t?.pnl ?? t?.realizedPnl) || 0), 0);
         const todayActivityCount = todayEntries.length + todayExits.length;
 
-        // Open positions stats — use portfolio API (single source of truth, same as Simulation Dashboard)
-        const STARTING_CAPITAL = 100000;
-        const portfolioData = portfolio?.portfolio;
-        const portfolioOpenPositions = Array.isArray(portfolioData?.openPositions) ? portfolioData.openPositions : [];
-        const openPositionCount = portfolioOpenPositions.length;
-
-        // Realized P&L from portfolio proof (same as Simulation Dashboard)
-        const proofByDay = portfolio?.proof?.byDay || {};
-        const allRealizedPnl = Object.values(proofByDay).reduce(
-          (sum, day) => sum + (Number(day?.stats?.realizedPnl) || 0), 0,
-        );
-
-        // Open P&L: use portfolio positions but prefer live ticker prices from allData
-        // (portfolio mark may be stale D1 data; allData has price-feed-refreshed prices)
-        const openPnl = portfolioOpenPositions.reduce((sum, pos) => {
-          const avgEntry = Number(pos?.avgEntry);
-          const shares = Number(pos?.shares);
-          const dir = String(pos?.direction || "").toUpperCase();
-          const sign = dir === "SHORT" ? -1 : 1;
-          if (!Number.isFinite(avgEntry) || !Number.isFinite(shares)) return sum;
-          // Prefer live price from tickers (price-feed updated), fall back to portfolio mark
-          const sym = String(pos?.ticker || "").toUpperCase();
-          const tickerObj = tickers.find(t => String(t?.ticker || "").toUpperCase() === sym);
-          const livePx = Number(tickerObj?.price ?? tickerObj?.close);
-          const mark = Number.isFinite(livePx) && livePx > 0 ? livePx : Number(pos?.mark);
-          if (!Number.isFinite(mark)) return sum;
-          return sum + (mark - avgEntry) * shares * sign;
-        }, 0);
-
-        // Account value = starting capital + realized + open (matches Simulation Dashboard formula)
-        const accountValue = STARTING_CAPITAL + allRealizedPnl + openPnl;
+        // Account summary from server-side ledger (single source of truth)
+        const accountValue = accountSummary?.accountValue ?? 100000;
+        const allRealizedPnl = accountSummary?.totalRealized ?? 0;
+        const openPnl = accountSummary?.unrealized ?? 0;
+        const openPositionCount = tradeByTicker ? [...tradeByTicker.values()].filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM").length : 0;
 
         return (
           <div className="mb-2">
@@ -15641,7 +15627,7 @@
         const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
-        const { portfolio } = usePortfolio();
+        const { summary: accountSummary } = useAccountSummary("trader");
         const { sectors } = useSectors();
         const [filters, setFilters] = useState(() => {
           // Safety check: reset to defaults if localStorage was cleared
@@ -15750,10 +15736,15 @@
         const fetchSparklines = useCallback((syms) => {
           if (!syms || syms.length === 0) return;
           const now = Date.now();
+          // During equity RTH, use shorter TTL so sparklines stay live; even shorter in first 20 min
+          const nowEtMin = _tsToEtMin(now);
+          const isEquityRTH = nowEtMin >= 570 && nowEtMin < 960; // 9:30 AM – 4 PM ET
+          const isEarlyRTH = isEquityRTH && (nowEtMin - 570) < 20; // first 20 minutes
+          const effectiveTTL = isEarlyRTH ? 30 * 1000 : isEquityRTH ? 60 * 1000 : SPARK_TTL;
           const toFetch = syms.filter(s => {
             if (sparkInFlightRef.current.has(s)) return false;
             const c = sparkCacheGlobalRef.current[s];
-            return !c || (now - c.ts > SPARK_TTL);
+            return !c || (now - c.ts > effectiveTTL);
           });
           if (toFetch.length === 0) return;
           toFetch.forEach(s => sparkInFlightRef.current.add(s));
@@ -15768,12 +15759,23 @@
           };
           const fetchSmart = async (sym) => {
             try {
-              // Futures/crypto sessions are 23hrs → need ~280 5m candles; equities need ~78 for one RTH
               const isContinuous = _CONTINUOUS_TICKERS.has(sym) || sym.endsWith("1!") || sym.endsWith("USDT") || sym.endsWith("USD");
               const cfg = _getSessionConfig(sym);
               const nowEtMin = _tsToEtMin(Date.now());
               const isEquityPreMarket = !isContinuous && cfg.sessionDur === 390 && nowEtMin < cfg.openMin;
-              // Pre-market equities: need ~24h of history to include yesterday's RTH (9:30–4)
+              // Early RTH (first 20 min of equity session): use 1m candles for immediate sparkline data
+              const isEarlyRTH = !isContinuous && cfg.sessionDur === 390 && nowEtMin >= cfg.openMin && (nowEtMin - cfg.openMin) < 20;
+              if (isEarlyRTH) {
+                // 1m candles give data within 2–3 min of market open (vs 10+ min for 5m)
+                const candles = await fetchCandles(sym, 1, 100);
+                if (candles && candles.length >= 2) {
+                  sparkCacheGlobalRef.current[sym] = { data: candles, ts: Date.now() };
+                  sparkInFlightRef.current.delete(sym);
+                  return;
+                }
+              }
+              // Normal: 5m candles (fall back to 1m if sparse)
+              // Futures/crypto sessions are 23hrs → need ~280 5m candles; equities need ~78 for one RTH
               const limit = isContinuous ? 350 : isEquityPreMarket ? 500 : 250;
               let candles = await fetchCandles(sym, 5, limit);
               if (!candles || candles.length < 5) {
@@ -15804,6 +15806,21 @@
         // Fetch Market Pulse sparkline data on mount
         useEffect(() => {
           if (fetchSparklines) fetchSparklines(MARKET_PULSE_TICKERS);
+        }, [fetchSparklines]);
+
+        // Periodic sparkline refresh during market hours
+        // Tickers don't change but prices do — keeps all visible sparklines live
+        useEffect(() => {
+          const tick = () => {
+            const etMin = _tsToEtMin(Date.now());
+            // Only auto-refresh during equity RTH (9:30 AM – 4 PM ET)
+            if (etMin < 570 || etMin >= 960) return;
+            const syms = Object.keys(sparkCacheGlobalRef.current);
+            if (syms.length > 0 && fetchSparklines) fetchSparklines(syms);
+          };
+          // Tick every 30 seconds; the TTL check inside fetchSparklines decides what actually re-fetches
+          const id = setInterval(tick, 30000);
+          return () => clearInterval(id);
         }, [fetchSparklines]);
 
         // AI Assistant removed (unused)
@@ -16263,9 +16280,7 @@
                     <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
                     <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
                     <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
-                    <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
-                    <a href="brand-kit.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Brand Kit</a>
-                    <a href="debug-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Debug</a>
+                    <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -16412,7 +16427,7 @@
                     <ActionCenterPanel
                       tickers={tickers}
                       trades={trades}
-                      portfolio={portfolio}
+                      accountSummary={accountSummary}
                       allTickersWithRanks={allTickersWithRanks}
                       rankPositions={rankedTickerPositions}
                       onSelectTicker={handleTickerSelect}
