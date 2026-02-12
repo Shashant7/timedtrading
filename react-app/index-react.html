@@ -11192,8 +11192,8 @@
                 const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
                 const tpSanity = (v) => {
                   if (!Number.isFinite(v) || v <= 0 || !cp) return null;
-                  if (tickerBiasDir === "LONG" && v <= cp) return null;
-                  if (tickerBiasDir === "SHORT" && v >= cp) return null;
+                  if (effectiveDir === "LONG" && v <= cp) return null;
+                  if (effectiveDir === "SHORT" && v >= cp) return null;
                   return v;
                 };
                 const tp1 = tpSanity(tp1Raw);
