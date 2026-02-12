@@ -138,10 +138,19 @@
             ),
             React.createElement("button", {
               onClick: () => setShowLegend(!showLegend),
-              className: "text-[10px] text-[#6b7280] hover:text-white transition-colors flex items-center gap-1",
+              className: `px-3 py-1.5 rounded-lg border text-[11px] font-bold transition-all flex items-center gap-1.5 ${
+                showLegend
+                  ? "bg-purple-500/25 border-purple-500/50 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.25)]"
+                  : "bg-gradient-to-r from-purple-500/20 to-blue-500/20 border-purple-500/30 text-purple-300 hover:text-white hover:border-purple-400/50 hover:shadow-[0_0_8px_rgba(168,85,247,0.2)]"
+              }`,
             },
-              React.createElement("span", null, showLegend ? "Hide" : "Legend"),
-              React.createElement("svg", { width: 10, height: 10, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", style: { transform: showLegend ? "rotate(180deg)" : "none", transition: "transform 0.2s" } },
+              React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round" },
+                React.createElement("circle", { cx: "12", cy: "12", r: "10" }),
+                React.createElement("path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" }),
+                React.createElement("line", { x1: "12", y1: "17", x2: "12.01", y2: "17" }),
+              ),
+              React.createElement("span", null, showLegend ? "Hide Legend" : "How to Read Scores"),
+              React.createElement("svg", { width: 10, height: 10, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round", style: { transform: showLegend ? "rotate(180deg)" : "none", transition: "transform 0.2s" } },
                 React.createElement("polyline", { points: "6 9 12 15 18 9" }),
               ),
             ),
@@ -248,17 +257,17 @@
                     },
                       React.createElement("div", { className: "flex items-center justify-between" },
                         React.createElement("span", { className: "text-xs font-semibold text-white" }, t.ticker),
-                        React.createElement("span", { className: `text-[11px] font-medium ${t.score >= 70 ? "text-emerald-400" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
+                        React.createElement("span", { className: "flex items-center gap-1.5" },
+                          t.price != null && Number.isFinite(t.price) && React.createElement("span", { className: "text-[10px] text-[#9ca3af] tabular-nums" }, `$${t.price.toFixed(2)}`),
+                          t.dailyChgPct != null && Number.isFinite(t.dailyChgPct) && React.createElement("span", { className: `text-[10px] font-medium tabular-nums ${t.dailyChgPct >= 0 ? "text-emerald-400" : "text-red-400"}` }, `${t.dailyChgPct >= 0 ? "+" : ""}${t.dailyChgPct.toFixed(1)}%`),
+                        ),
                       ),
-                      React.createElement("div", { className: "flex items-center justify-between mt-1" },
-                        React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, `RS: ${t.rsRank || "—"}`),
+                      React.createElement("div", { className: "flex items-center justify-between mt-0.5" },
+                        React.createElement("span", { className: `text-[11px] font-semibold tabular-nums ${t.score >= 70 ? "text-emerald-400" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
                         React.createElement("span", { className: "flex items-center gap-1" },
                           t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] text-emerald-400 bg-emerald-500/10 px-1 rounded" }, "ZONE"),
                           t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
                         ),
-                      ),
-                      React.createElement("div", { className: "mt-1" },
-                        React.createElement(ScoreBar, { score: t.score, color: stageColors[stage] }),
                       ),
                     )
                   ),
@@ -411,7 +420,7 @@
       }
 
       // ─── Ticker Deep Dive (Right Rail) ──────────────────────────────
-      function TickerDeepDive({ ticker, data, onStartPosition }) {
+      function TickerDeepDive({ ticker, data }) {
         if (!ticker || !data) return React.createElement("div", { className: "card p-4 text-center text-[#6b7280] text-sm" }, "Select a ticker to see details");
 
         const price = data.price;
@@ -419,11 +428,12 @@
         const hasPrice = price != null && Number.isFinite(price);
 
         return React.createElement("div", { className: "card p-4 fade-in space-y-4" },
-          // Header: ticker + sector + score
+          // Header: ticker + company name + sector + score
           React.createElement("div", { className: "flex items-center justify-between" },
             React.createElement("div", null,
               React.createElement("h2", { className: "text-lg font-bold text-white" }, ticker),
-              React.createElement("span", { className: "text-xs text-[#6b7280]" }, data.sector || "Unknown"),
+              data.companyName && React.createElement("div", { className: "text-xs text-[#9ca3af] mb-0.5" }, data.companyName),
+              React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, data.sector || "Unknown"),
             ),
             React.createElement("div", { className: "text-right" },
               React.createElement("div", { className: `text-2xl font-bold ${data.score >= 70 ? "text-emerald-400" : data.score >= 50 ? "text-amber-400" : "text-red-400"}` }, data.score),
@@ -452,10 +462,15 @@
               React.createElement(StageBadge, { stage: data.stage }),
               React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, data.stageReason),
             ),
-            (data.stage === "accumulate" || data.stage === "watch") && onStartPosition && React.createElement("button", {
-              onClick: () => onStartPosition(ticker, data),
-              className: "px-3 py-1 rounded-lg text-[11px] font-semibold border transition-colors bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25",
-            }, data.stage === "accumulate" ? "Start Position" : "Add to Watchlist"),
+            data.stage === "accumulate" && React.createElement("span", {
+              className: "text-[9px] text-emerald-400/80 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20",
+            }, "Auto-buying at rebalance"),
+            data.stage === "watch" && React.createElement("span", {
+              className: "text-[9px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20",
+            }, "Starter position at rebalance"),
+            data.stage === "reduce" && React.createElement("span", {
+              className: "text-[9px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20",
+            }, "Auto-trimming at rebalance"),
           ),
           // Score components
           data.components && React.createElement("div", null,
@@ -538,7 +553,7 @@
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [loading, setLoading] = useState(false);
         const [lastComputed, setLastComputed] = useState(null);
-        const [stageFilter, setStageFilter] = useState(null);
+        const [sectorFilter, setSectorFilter] = useState(null);
         const [searchQuery, setSearchQuery] = useState("");
         const [showSaved, setShowSaved] = useState(false);
 
@@ -591,40 +606,6 @@
           return () => clearInterval(interval);
         }, [fetchData]);
 
-        // ── Start Position (creates an investor position via API) ──
-        const handleStartPosition = useCallback(async (sym, tickerData) => {
-          if (!tickerData?.price || !Number.isFinite(tickerData.price)) {
-            alert("Cannot start position: no current price available.");
-            return;
-          }
-          const shareCount = prompt(`How many shares of ${sym} to buy at $${tickerData.price.toFixed(2)}?`, "1");
-          if (!shareCount || isNaN(Number(shareCount)) || Number(shareCount) <= 0) return;
-          const shares = Number(shareCount);
-          try {
-            const resp = await fetch(`${API_BASE}/timed/investor/positions`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                ticker: sym,
-                shares,
-                price: tickerData.price,
-                thesis: tickerData.thesis || `${sym}: Accumulation zone entry`,
-                thesisInvalidation: tickerData.thesisInvalidation?.join("; ") || null,
-              }),
-            });
-            const json = await resp.json();
-            if (json.ok) {
-              alert(`Position opened: ${shares} shares of ${sym} at $${tickerData.price.toFixed(2)}`);
-              fetchData();
-            } else {
-              alert(`Error: ${json.error || "Failed to create position"}`);
-            }
-          } catch (e) {
-            alert(`Network error: ${e.message}`);
-          }
-        }, [fetchData]);
-
         const allTickers = useMemo(() => scores?.tickers || [], [scores]);
 
         const selectedData = useMemo(() => {
@@ -647,25 +628,30 @@
           return allTickers.filter(t => t.stage && t.stage !== "research").length;
         }, [allTickers]);
 
-        // ── Filtered tickers (for viewport) ──
+        // ── Filtered tickers (applies to both viewport AND kanban) ──
         const filteredTickers = useMemo(() => {
           let list = allTickers;
           if (showSaved) list = list.filter(t => savedTickers.has(t.ticker));
-          if (stageFilter) {
-            if (stageFilter === "_zone") list = list.filter(t => t.accumZone?.inZone);
-            else if (stageFilter === "_rshigh") list = list.filter(t => t.rs?.rsNewHigh3m);
-            else if (stageFilter === "_strong") list = list.filter(t => t.score >= 70);
-            else list = list.filter(t => (t.stage || "research") === stageFilter);
-          }
+          if (sectorFilter) list = list.filter(t => (t.sector || "Unknown") === sectorFilter);
           if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
-            list = list.filter(t => t.ticker.toLowerCase().includes(q));
+            list = list.filter(t => t.ticker.toLowerCase().includes(q) || (t.companyName || "").toLowerCase().includes(q));
           }
           return list;
-        }, [allTickers, showSaved, savedTickers, stageFilter, searchQuery]);
+        }, [allTickers, showSaved, savedTickers, sectorFilter, searchQuery]);
+
+        // Sector counts for filter pills
+        const sectorCounts = useMemo(() => {
+          const counts = {};
+          for (const t of allTickers) {
+            const s = t.sector || "Unknown";
+            counts[s] = (counts[s] || 0) + 1;
+          }
+          return counts;
+        }, [allTickers]);
 
         const [showFilters, setShowFilters] = useState(false);
-        const activeFilterCount = (stageFilter ? 1 : 0) + (showSaved ? 1 : 0);
+        const activeFilterCount = (sectorFilter ? 1 : 0) + (showSaved ? 1 : 0);
 
         return React.createElement("div", { className: "min-h-screen flex flex-col" },
           // ═══ Nav ═══
@@ -673,9 +659,9 @@
             React.createElement("div", { className: "flex items-center gap-3" },
               React.createElement("span", { className: "text-[15px] font-semibold text-white tracking-tight" }, "Timed Trading"),
               React.createElement("div", { className: "flex items-center gap-0.5" },
-                React.createElement("a", { href: "index-react.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Dashboard"),
-                React.createElement("a", { href: "simulation-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Trades"),
+                React.createElement("a", { href: "index-react.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Active Trader"),
                 React.createElement("a", { href: "investor-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" }, "Investor"),
+                React.createElement("a", { href: "simulation-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Trades"),
                 React.createElement("a", { href: "model-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Model"),
                 React.createElement("a", { href: "screener.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Screener"),
                 React.createElement("a", { href: "ticker-management.html", "data-admin-only": "true", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Tickers"),
@@ -729,7 +715,7 @@
                 ),
                 // Saved pill
                 React.createElement("button", {
-                  onClick: () => { setShowSaved(!showSaved); if (!showSaved) setStageFilter(null); },
+                  onClick: () => { setShowSaved(!showSaved); if (!showSaved) setSectorFilter(null); },
                   className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
                     showSaved
                       ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
@@ -758,39 +744,23 @@
                 ),
               ),
             ),
-            // ── Filter groups (collapsible) ──
+            // ── Filter groups (collapsible): S&P Sectors ──
             showFilters && React.createElement("div", { className: "mt-2 rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 fade-in" },
-              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-2" }, "Stage"),
-              React.createElement("div", { className: "flex flex-wrap gap-1.5 mb-3" },
-                React.createElement("button", {
-                  onClick: () => setStageFilter(null),
-                  className: `px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${!stageFilter ? "bg-white/[0.1] border-white/[0.15] text-white" : "border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
-                }, `All (${allTickers.length})`),
-                ...["accumulate", "core_hold", "watch", "reduce", "research"].map(s =>
-                  React.createElement("button", {
-                    key: s,
-                    onClick: () => setStageFilter(stageFilter === s ? null : s),
-                    className: `px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${stageFilter === s ? `bg-white/[0.1] border-white/[0.15] text-white` : "border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
-                  },
-                    React.createElement("span", { className: `inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${s === "accumulate" ? "bg-emerald-400" : s === "core_hold" ? "bg-blue-400" : s === "watch" ? "bg-amber-400" : s === "reduce" ? "bg-red-400" : "bg-purple-400"}` }),
-                    `${s.replace("_", " ")} (${stageCounts[s] || 0})`,
-                  )
-                ),
-              ),
-              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-2" }, "Signals"),
+              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-2" }, "S&P Sectors"),
               React.createElement("div", { className: "flex flex-wrap gap-1.5" },
                 React.createElement("button", {
-                  onClick: () => setStageFilter(stageFilter === "_zone" ? null : "_zone"),
-                  className: `px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${stageFilter === "_zone" ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-300" : "border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
-                }, "In Accumulation Zone"),
-                React.createElement("button", {
-                  onClick: () => setStageFilter(stageFilter === "_rshigh" ? null : "_rshigh"),
-                  className: `px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${stageFilter === "_rshigh" ? "bg-sky-500/20 border-sky-500/30 text-sky-300" : "border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
-                }, "RS New High"),
-                React.createElement("button", {
-                  onClick: () => setStageFilter(stageFilter === "_strong" ? null : "_strong"),
-                  className: `px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${stageFilter === "_strong" ? "bg-white/[0.1] border-white/[0.15] text-white" : "border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
-                }, "Score 70+"),
+                  onClick: () => setSectorFilter(null),
+                  className: `px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${!sectorFilter ? "bg-white/[0.1] border-white/[0.15] text-white" : "border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
+                }, `All Sectors (${allTickers.length})`),
+                ...Object.entries(sectorCounts)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([sec, cnt]) =>
+                    React.createElement("button", {
+                      key: sec,
+                      onClick: () => setSectorFilter(sectorFilter === sec ? null : sec),
+                      className: `px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border ${sectorFilter === sec ? "bg-blue-500/20 border-blue-500/30 text-blue-300" : "border-white/[0.06] text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
+                    }, `${sec} (${cnt})`)
+                  ),
               ),
             ),
           ),
@@ -840,8 +810,8 @@
             // Center: Action Kanban
             React.createElement("div", { className: "flex-1 flex flex-col min-h-0 min-w-0" },
               React.createElement(ActionBoardHeader, { actionCount }),
-              allTickers.length > 0
-                ? React.createElement(ActionKanban, { tickers: allTickers, onSelect: setSelectedTicker, selectedTicker })
+              filteredTickers.length > 0
+                ? React.createElement(ActionKanban, { tickers: filteredTickers, onSelect: setSelectedTicker, selectedTicker })
                 : React.createElement("div", { className: "card p-8 text-center text-[#6b7280] flex-1" },
                     React.createElement("div", { className: "text-lg mb-2" }, "No investor data yet"),
                     React.createElement("div", { className: "text-sm" }, "Scores are computed hourly during market hours."),
@@ -850,7 +820,7 @@
 
             // Right: Detail
             React.createElement("div", { className: "w-80 flex-shrink-0 overflow-y-auto min-h-0" },
-              React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData, onStartPosition: handleStartPosition }),
+              React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
             ),
           ),
 

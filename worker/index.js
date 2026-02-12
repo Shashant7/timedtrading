@@ -261,6 +261,7 @@ const ROUTES = [
   ["GET", "/timed/investor/dca/plans", "GET /timed/investor/dca/plans"],
   ["POST", "/timed/investor/dca/configure", "POST /timed/investor/dca/configure"],
   ["POST", "/timed/investor/dca/execute", "POST /timed/investor/dca/execute"],
+  ["POST", "/timed/investor/auto-rebalance", "POST /timed/investor/auto-rebalance"],
   ["GET", "/timed/debug/trades", "GET /timed/debug/trades"],
   ["GET", "/timed/debug/tickers", "GET /timed/debug/tickers"],
   ["GET", "/timed/debug/config", "GET /timed/debug/config"],
@@ -791,7 +792,7 @@ function buildAlertDedupeKey({ ticker, action, side, ts }) {
 
 async function shouldSendTradeDiscordEvent(
   KV,
-  { tradeId, type, ts },
+  { tradeId, type, ts, bucketMs },
   ttlSec = 48 * 60 * 60,
 ) {
   try {
@@ -803,8 +804,10 @@ async function shouldSendTradeDiscordEvent(
     if (!id || !t || !Number.isFinite(ms)) {
       return { ok: true, key: null, deduped: false };
     }
-    // Minute-bucketed idempotency. Prevents duplicate Discord posts caused by concurrent ingests/races.
-    const bucket = Math.floor(ms / 60000);
+    // Bucketed idempotency. Default 1-minute buckets for entries/exits/trims.
+    // DEFEND uses 30-minute buckets (no value in alerting more than twice per hour).
+    const bMs = Number(bucketMs) || 60000;
+    const bucket = Math.floor(ms / bMs);
     const key = `timed:dedupe:trade_event:${id}:${t}:${bucket}`;
     const already = await KV.get(key);
     if (already) return { ok: true, key, deduped: true };
@@ -2448,7 +2451,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const supportCollapsing = (direction === "LONG" && stSupportScore < 0.3) ||
                               (direction === "SHORT" && stSupportScore > 0.7);
     
-    if (isAdverseMove || isBelowTrigger || isLeftCorridor || needsDefense || fuelDefend || supportCollapsing) {
+    // Skip DEFEND if near TP — position should TRIM, not defend.
+    // Let it fall through to "hold" so TRIM takes priority on next evaluation.
+    if (!isNearTp && (isAdverseMove || isBelowTrigger || isLeftCorridor || needsDefense || fuelDefend || supportCollapsing)) {
       tickerData.__defend_reason = isAdverseMove ? "adverse_move" :
                                     isBelowTrigger ? "below_trigger" :
                                     isLeftCorridor ? "left_corridor" :
@@ -7054,7 +7059,7 @@ async function processTradeSimulation(
             `P&L ${pnlPct.toFixed(2)}%, SL ${currentSL?.toFixed(2) || 'none'} → $${newSL.toFixed(2)}`
           );
           
-          // Discord alert for DEFEND action
+          // Discord alert for DEFEND action (30-min dedup bucket — max 2/hr)
           if (env) {
             try {
               const tsMs = Date.now();
@@ -7062,6 +7067,7 @@ async function processTradeSimulation(
                 tradeId: openTrade.id,
                 type: "TRADE_DEFEND",
                 ts: tsMs,
+                bucketMs: 30 * 60 * 1000,
               });
               if (!dedupe.deduped) {
                 // Use unified kanban stage embed for DEFEND (replaces inline embed)
@@ -8238,35 +8244,26 @@ async function processTradeSimulation(
               tdSeq.td13_bearish === true || tdSeq.td13_bearish === "true",
           });
 
-          // Discord + D1 alert (deduped hourly)
+          // Discord + D1 alert — unified dedup with kanban DEFEND path
+          // Uses shouldSendTradeDiscordEvent so both kanban DEFEND and TDSEQ defense
+          // share the same dedup key (prevents duplicate alerts).
+          // 30-min bucket = max 2 alerts per hour per trade.
           try {
-            const discordEnable = env?.DISCORD_ENABLE || "false";
-            const discordWebhook = env?.DISCORD_WEBHOOK_URL;
-            const discordConfigured =
-              discordEnable === "true" && !!discordWebhook;
-
             const nowMs = Date.now();
-            const hourBucket = new Date(nowMs).toISOString().slice(0, 13); // YYYY-MM-DDTHH
-            const dedupeKey = `timed:dedupe:tdseq_defense:${ticker}:${direction}:${hourBucket}`;
-            const already = await KV.get(dedupeKey);
+            const tradeId = existingOpenTrade?.id || `${ticker}-${direction}`;
+            const dedupe = await shouldSendTradeDiscordEvent(KV, {
+              tradeId,
+              type: "TRADE_DEFEND",
+              ts: nowMs,
+              bucketMs: 30 * 60 * 1000,
+            });
 
-            if (!already) {
-              await KV.put(dedupeKey, "1", { expirationTtl: 60 * 60 });
-
-              if (
-                discordConfigured &&
-                shouldSendDiscordAlert(env, "KANBAN_DEFEND", {
-                  ticker,
-                  direction,
-                })
-              ) {
-                // TD defense context folded into kanban DEFEND embed
+            if (!dedupe.deduped) {
+              const allow = shouldSendDiscordAlert(env, "KANBAN_DEFEND", { ticker, direction });
+              if (allow) {
                 const embed = createKanbanStageEmbed(ticker, "defend", "hold", tickerData, existingOpenTrade);
                 const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                  console.error(
-                    `[TRADE SIM] ❌ Failed to send TDSEQ defense alert for ${ticker}:`,
-                    err,
-                  );
+                  console.error(`[TRADE SIM] Failed to send TDSEQ defense alert for ${ticker}:`, err);
                   return { ok: false, error: String(err) };
                 });
 
@@ -8282,27 +8279,15 @@ async function processTradeSimulation(
                   dedupe_day: formatDedupDay(nowMs),
                   discord_sent: !!sendRes?.ok,
                   discord_status: sendRes?.status ?? null,
-                  discord_error: sendRes?.ok
-                    ? null
-                    : sendRes?.reason ||
-                      sendRes?.statusText ||
-                      sendRes?.error ||
-                      "discord_send_failed",
+                  discord_error: sendRes?.ok ? null : sendRes?.reason || sendRes?.statusText || sendRes?.error || "discord_send_failed",
                   payload_json: JSON.stringify({
-                    ticker,
-                    direction,
-                    price: priceNow,
-                    old_sl: oldSl,
-                    new_sl: tighten ? suggestedSl : oldSl,
-                    cloud: dailyExists ? daily : fourH,
-                    td_sequential: tdSeq,
+                    ticker, direction, price: priceNow,
+                    old_sl: oldSl, new_sl: tighten ? suggestedSl : oldSl,
+                    cloud: dailyExists ? daily : fourH, td_sequential: tdSeq,
                   }),
                   meta_json: JSON.stringify({ kind: "tdseq_defense" }),
                 }).catch((e) => {
-                  console.error(
-                    `[D1 LEDGER] Failed to upsert TDSEQ defense alert:`,
-                    e,
-                  );
+                  console.error(`[D1 LEDGER] Failed to upsert TDSEQ defense alert:`, e);
                 });
               }
             }
@@ -8802,167 +8787,78 @@ async function processTradeSimulation(
               }
             }
 
-            // Send EXIT alert on first transition into WIN/LOSS
+            // EXIT Discord alert is already sent by closeTradeAtPrice() above.
+            // Only send additional TD9/TD13 alert here if applicable (separate alert type).
             if (
               (newStatus === "WIN" || newStatus === "LOSS") &&
               oldStatus !== "WIN" &&
               oldStatus !== "LOSS"
             ) {
               console.log(
-                `[TRADE SIM] 📢 Preparing exit alert for ${ticker} ${direction} (${newStatus})`,
+                `[TRADE SIM] 📢 Exit alert for ${ticker} ${direction} (${newStatus}) — handled by closeTradeAtPrice`,
               );
-              const exitTs = findHistoryTs("EXIT");
-              const exitDedupe = await shouldSendTradeDiscordEvent(KV, {
-                tradeId: updatedTrade.id,
-                type: "TRADE_EXIT",
-                ts: exitTs,
-              });
-              if (exitDedupe.deduped) {
-                console.log(
-                  `[TRADE SIM] 🔁 Deduped EXIT alert for ${ticker} ${direction} (${exitDedupe.key})`,
-                );
-              } else {
-                const exitQty = Number(updatedTrade.shares) || 0;
-                const embed = createTradeClosedEmbed(
-                  ticker,
-                  direction,
-                  newStatus,
-                  updatedTrade.entryPrice,
-                  exitPrice,
-                  pnl,
-                  pnlPct,
-                  updatedTrade.rank || existingOpenTrade.rank || 0,
-                  updatedTrade.rr || existingOpenTrade.rr || 0,
-                  tickerData,
-                  updatedTrade,
-                  {
-                    qty: exitQty,
-                    value: Number(exitPrice) * exitQty,
-                    pnl,
-                  },
-                );
-                const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                  console.error(
-                    `[TRADE SIM] ❌ Failed to send exit alert for ${ticker}:`,
-                    err,
-                  );
-                  return { ok: false, error: String(err) };
-                }); // Don't let Discord errors break trade updates
-                // persist alert (best-effort)
-                const exitPayloadJson = (() => {
-                  try {
-                    return JSON.stringify(tickerData);
-                  } catch {
-                    return null;
-                  }
-                })();
-                const exitMetaJson = (() => {
-                  try {
-                    return JSON.stringify({
-                      type: "TRADE_EXIT",
-                      trade_id: updatedTrade.id,
-                      status: newStatus,
-                      exit_reason: updatedTrade.exitReason || null,
-                      pnl,
-                      pnlPct,
-                    });
-                  } catch {
-                    return null;
-                  }
-                })();
-                d1UpsertAlert(env, {
-                  alert_id: buildAlertId(ticker, exitTs, "TRADE_EXIT"),
-                  ticker,
-                  ts: exitTs,
-                  side: direction,
-                  state: tickerData.state,
-                  rank: updatedTrade.rank,
-                  rr_at_alert: updatedTrade.rr,
-                  trigger_reason: updatedTrade.exitReason || "TRADE_EXIT",
-                  dedupe_day: formatDedupDay(exitTs),
-                  discord_sent: !!sendRes?.ok,
-                  discord_status: sendRes?.status ?? null,
-                  discord_error: sendRes?.ok
-                    ? null
-                    : sendRes?.reason ||
-                      sendRes?.statusText ||
-                      sendRes?.error ||
-                      "discord_send_failed",
-                  payload_json: exitPayloadJson,
-                  meta_json: exitMetaJson,
-                }).catch((e) => {
-                  console.error(`[D1 LEDGER] Failed to upsert exit alert:`, e);
-                });
 
-                // If this was a TD exit, send additional TD9/TD13 alert
-                if (
-                  shouldExitFromTDSeq &&
-                  shouldSendDiscordAlert(env, "TD9_EXIT", { ticker, direction })
-                ) {
+              // If this was a TD exit, send additional TD9/TD13 alert (separate type, not duplicate)
+              if (
+                shouldExitFromTDSeq &&
+                shouldSendDiscordAlert(env, "TD9_EXIT", { ticker, direction })
+              ) {
+                console.log(
+                  `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`,
+                );
+                const exitTs = findHistoryTs("EXIT");
+                const td9Dedupe = await shouldSendTradeDiscordEvent(KV, {
+                  tradeId: updatedTrade.id,
+                  type: "TD9_EXIT",
+                  ts: exitTs,
+                });
+                if (td9Dedupe.deduped) {
                   console.log(
-                    `[TRADE SIM] 📢 Preparing TD9 exit alert for ${ticker} ${direction}`,
+                    `[TRADE SIM] 🔁 Deduped TD9_EXIT alert for ${ticker} ${direction} (${td9Dedupe.key})`,
                   );
-                  const td9Ts = exitTs || findHistoryTs("EXIT");
-                  const td9Dedupe = await shouldSendTradeDiscordEvent(KV, {
-                    tradeId: updatedTrade.id,
-                    type: "TD9_EXIT",
-                    ts: td9Ts,
-                  });
-                  if (td9Dedupe.deduped) {
-                    console.log(
-                      `[TRADE SIM] 🔁 Deduped TD9_EXIT alert for ${ticker} ${direction} (${td9Dedupe.key})`,
-                    );
-                  } else {
-                    // TD9 exit context now folded into the standard TRADE_EXIT embed
-                    const td9Embed = createTradeClosedEmbed(
-                      ticker,
-                      direction,
-                      newStatus,
-                      updatedTrade.entryPrice,
-                      exitPrice,
-                      pnl,
-                      pnlPct,
-                      updatedTrade.rank || existingOpenTrade.rank || 0,
-                      updatedTrade.rr || existingOpenTrade.rr || 0,
-                      tickerData,
-                      updatedTrade,
-                    );
-                    const td9Res = await notifyDiscord(env, td9Embed).catch(
-                      (err) => {
-                        console.error(
-                          `[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`,
-                          err,
-                        );
-                        return { ok: false, error: String(err) };
-                      },
-                    );
-                    d1UpsertAlert(env, {
-                      alert_id: buildAlertId(ticker, td9Ts, "TD9_EXIT"),
-                      ticker,
-                      ts: td9Ts,
-                      side: direction,
-                      state: tickerData.state,
-                      rank: updatedTrade.rank,
-                      rr_at_alert: updatedTrade.rr,
-                      trigger_reason: "TDSEQ_EXIT",
-                      dedupe_day: formatDedupDay(td9Ts),
-                      discord_sent: !!td9Res?.ok,
-                      discord_status: td9Res?.status ?? null,
-                      discord_error: td9Res?.ok
-                        ? null
-                        : td9Res?.reason ||
-                          td9Res?.statusText ||
-                          td9Res?.error ||
-                          "discord_send_failed",
-                      payload_json: exitPayloadJson,
-                      meta_json: exitMetaJson,
-                    }).catch((e) => {
+                } else {
+                  const td9Embed = createTradeClosedEmbed(
+                    ticker,
+                    direction,
+                    newStatus,
+                    updatedTrade.entryPrice,
+                    exitPrice,
+                    pnl,
+                    pnlPct,
+                    updatedTrade.rank || existingOpenTrade.rank || 0,
+                    updatedTrade.rr || existingOpenTrade.rr || 0,
+                    tickerData,
+                    updatedTrade,
+                  );
+                  const td9Res = await notifyDiscord(env, td9Embed).catch(
+                    (err) => {
                       console.error(
-                        `[D1 LEDGER] Failed to upsert TD9 exit alert:`,
-                        e,
+                        `[TRADE SIM] ❌ Failed to send TD9 exit alert for ${ticker}:`,
+                        err,
                       );
-                    });
-                  }
+                      return { ok: false, error: String(err) };
+                    },
+                  );
+                  const exitPayloadJson = (() => { try { return JSON.stringify(tickerData); } catch { return null; } })();
+                  const exitMetaJson = (() => { try { return JSON.stringify({ type: "TD9_EXIT", trade_id: updatedTrade.id, status: newStatus }); } catch { return null; } })();
+                  d1UpsertAlert(env, {
+                    alert_id: buildAlertId(ticker, exitTs, "TD9_EXIT"),
+                    ticker,
+                    ts: exitTs,
+                    side: direction,
+                    state: tickerData.state,
+                    rank: updatedTrade.rank,
+                    rr_at_alert: updatedTrade.rr,
+                    trigger_reason: "TDSEQ_EXIT",
+                    dedupe_day: formatDedupDay(exitTs),
+                    discord_sent: !!td9Res?.ok,
+                    discord_status: td9Res?.status ?? null,
+                    discord_error: td9Res?.ok ? null : td9Res?.reason || td9Res?.statusText || td9Res?.error || "discord_send_failed",
+                    payload_json: exitPayloadJson,
+                    meta_json: exitMetaJson,
+                  }).catch((e) => {
+                    console.error(`[D1 LEDGER] Failed to upsert TD9 exit alert:`, e);
+                  });
                 }
               }
             }
@@ -22804,7 +22700,7 @@ export default {
         );
       }
 
-      // GET /timed/ledger/trades?since&until&ticker&status&limit&cursor
+      // GET /timed/ledger/trades?since&until&ticker&status&limit&cursor&mode=trader|investor
       if (routeKey === "GET /timed/ledger/trades") {
         const db = env?.DB;
         if (!db) {
@@ -22829,6 +22725,60 @@ export default {
             429,
             corsHeaders(env, req),
           );
+        }
+
+        // ── INVESTOR MODE: query investor_lots + investor_positions ──
+        const mode = (url.searchParams.get("mode") || "trader").toLowerCase();
+        if (mode === "investor") {
+          try {
+            const ticker = normTicker(url.searchParams.get("ticker")) || null;
+            const sinceRaw = url.searchParams.get("since");
+            const untilRaw = url.searchParams.get("until");
+            const limitVal = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit")) || 200));
+            let where = "WHERE 1=1";
+            const binds = [];
+            if (ticker) { where += " AND l.ticker = ?"; binds.push(ticker.toUpperCase()); }
+            if (sinceRaw) { where += " AND l.ts >= ?"; binds.push(Number(sinceRaw)); }
+            if (untilRaw) { where += " AND l.ts <= ?"; binds.push(Number(untilRaw)); }
+            const sql = `SELECT l.id as lot_id, l.position_id, l.ticker, l.action, l.shares, l.price, l.value, l.ts, l.reason,
+                           p.status, p.total_shares, p.cost_basis, p.avg_entry, p.investor_stage
+                         FROM investor_lots l
+                         LEFT JOIN investor_positions p ON l.position_id = p.id
+                         ${where}
+                         ORDER BY l.ts DESC
+                         LIMIT ?`;
+            const rows = await db.prepare(sql).bind(...binds, limitVal + 1).all();
+            const results = rows?.results || [];
+            const page = results.slice(0, limitVal);
+            const hasMore = results.length > limitVal;
+            // Normalize to trade-like shape for frontend consistency
+            const trades = page.map(r => ({
+              trade_id: r.lot_id,
+              position_id: r.position_id,
+              ticker: r.ticker,
+              direction: "LONG",
+              action: r.action,
+              entry_ts: r.ts,
+              entry_price: r.price,
+              shares: r.shares,
+              value: r.value || (r.shares * r.price),
+              reason: r.reason,
+              status: r.status,
+              investor_stage: r.investor_stage,
+              total_shares: r.total_shares,
+              cost_basis: r.cost_basis,
+              avg_entry: r.avg_entry,
+              pnl: r.action === "SELL" ? ((r.price - (r.avg_entry || 0)) * r.shares) : null,
+              pnl_pct: r.action === "SELL" && r.avg_entry > 0 ? (((r.price - r.avg_entry) / r.avg_entry) * 100) : null,
+            }));
+            return sendJSON({ ok: true, mode: "investor", count: trades.length, hasMore, trades }, 200, corsHeaders(env, req));
+          } catch (e) {
+            const msg = (e?.message || String(e));
+            if (msg.includes("no such table")) {
+              return sendJSON({ ok: true, mode: "investor", count: 0, hasMore: false, trades: [] }, 200, corsHeaders(env, req));
+            }
+            return sendJSON({ ok: false, error: msg }, 500, corsHeaders(env, req));
+          }
         }
 
         const ticker = normTicker(url.searchParams.get("ticker")) || null;
@@ -25855,6 +25805,13 @@ export default {
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
 
+          // Force schema creation (bypass throttle if table doesn't exist)
+          try {
+            await db.prepare("SELECT 1 FROM account_ledger LIMIT 1").first();
+          } catch {
+            // Table doesn't exist — force create bypassing throttle
+            await ensureAccountLedgerSchema(db, null);
+          }
           await ensureAccountLedgerSchema(db, KV);
 
           // Check if ledger has entries for this mode; if not, backfill
@@ -25979,12 +25936,12 @@ export default {
               "SELECT position_id, ticker, direction, total_qty, cost_basis FROM positions WHERE status = 'OPEN'"
             ).all())?.results || [];
 
-            // Batch price lookup
+            // Batch price lookup — KV stores prices as { p: 71.74, pc: 77.97, ... }
             const pricesRaw = await kvGetJSON(KV, "timed:prices");
             const priceMap = {};
             if (pricesRaw?.prices) {
-              for (const [sym, p] of Object.entries(pricesRaw.prices)) {
-                priceMap[sym] = Number(p.price || p.latestTrade?.p) || 0;
+              for (const [sym, pObj] of Object.entries(pricesRaw.prices)) {
+                priceMap[sym] = Number(pObj.p || pObj.price || pObj.latestTrade?.p) || 0;
               }
             }
 
@@ -26008,8 +25965,8 @@ export default {
               const pricesRaw = await kvGetJSON(KV, "timed:prices");
               const priceMap = {};
               if (pricesRaw?.prices) {
-                for (const [sym, p] of Object.entries(pricesRaw.prices)) {
-                  priceMap[sym] = Number(p.price || p.latestTrade?.p) || 0;
+                for (const [sym, pObj] of Object.entries(pricesRaw.prices)) {
+                  priceMap[sym] = Number(pObj.p || pObj.price || pObj.latestTrade?.p) || 0;
                 }
               }
 
@@ -26027,7 +25984,10 @@ export default {
             }
           }
 
-          const accountValue = cash + markToMarket;
+          // Account value = starting capital + total P&L (realized + unrealized)
+          // This is correct for mixed LONG/SHORT portfolios where cash + markToMarket
+          // would double-count SHORT positions (entry deducts cash but market value is a liability)
+          const accountValue = startCash + totalRealized + unrealized;
 
           return sendJSON({
             ok: true,
@@ -28290,6 +28250,7 @@ Provide 3-5 actionable next steps:
 
             investorResults[ticker] = {
               score, components, accumZone, sector,
+              companyName: td?.context?.name || td?.name || null,
               rsRank, rs: rsMap[ticker] ? {
                 rs1m: rsMap[ticker].rs1m,
                 rs3m: rsMap[ticker].rs3m,
@@ -28396,12 +28357,15 @@ Provide 3-5 actionable next steps:
           const pf = priceMap[ticker];
           const price = pf ? Number(pf.p) : null;
           const prevClose = pf ? Number(pf.pc) : null;
-          const dailyChgPct = pf && Number(pf.dc) != null ? Number(pf.dc) : null;
+          const dailyChgPct = pf ? Number(pf.dp) : null;  // dp = daily percent change, dc = dollar change
+          const dailyChgDollar = pf ? Number(pf.dc) : null;
           return {
             ticker, ...data,
             sector: data.sector || SECTOR_MAP[ticker] || "Unknown",
+            companyName: data.companyName || null,
             price: Number.isFinite(price) ? price : null,
             dailyChgPct: Number.isFinite(dailyChgPct) ? dailyChgPct : null,
+            dailyChgDollar: Number.isFinite(dailyChgDollar) ? dailyChgDollar : null,
             prevClose: Number.isFinite(prevClose) ? prevClose : null,
           };
         });
@@ -29051,6 +29015,233 @@ Provide 3-5 actionable next steps:
             buys: executed, errors,
           }, 200, corsHeaders(env, req));
         } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/investor/auto-rebalance — automatically open/add positions for tickers in actionable stages
+      // Called by daily cron after scoring. Determines position sizing based on stage, score, and available capital.
+      if (routeKey === "POST /timed/investor/auto-rebalance") {
+        try {
+          await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
+          await ensureAccountLedgerSchema(env.DB, env.KV_TIMED);
+          const now = Date.now();
+
+          // ── Configuration ──
+          const INVESTOR_CAPITAL = 100000;                   // Total investable capital
+          const MAX_POSITIONS = 20;                          // Max simultaneous positions
+          const MAX_ALLOC_PCT = 0.08;                        // Max 8% of capital per ticker
+          const ACCUMULATE_BASE_PCT = 0.05;                  // Base allocation: 5% for accumulate stage
+          const ACCUMULATE_STRONG_PCT = 0.07;                // Strong score (70+): 7%
+          const WATCH_ALLOC_PCT = 0.02;                      // Watch stage: 2% starter position
+          const MIN_ORDER_VALUE = 50;                        // Minimum order to be worth executing
+
+          // ── Load scores and prices ──
+          const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
+          const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
+          const pricesRaw = await kvGetJSON(env.KV_TIMED, "timed:prices") || {};
+          const priceMap = pricesRaw.prices || {};
+          const marketScore = health?.score || 50;
+
+          // Skip entirely if market health is critical
+          if (marketScore < 25) {
+            return sendJSON({ ok: true, skipped: true, reason: "market_health_critical", marketScore }, 200, corsHeaders(env, req));
+          }
+
+          // ── Load existing open positions ──
+          const existingPos = (await env.DB.prepare(
+            "SELECT id, ticker, total_shares, cost_basis, avg_entry FROM investor_positions WHERE status = 'OPEN'"
+          ).all())?.results || [];
+          const existingByTicker = {};
+          let totalInvested = 0;
+          for (const p of existingPos) {
+            existingByTicker[p.ticker] = p;
+            totalInvested += Number(p.cost_basis) || 0;
+          }
+          const availableCapital = INVESTOR_CAPITAL - totalInvested;
+
+          // ── Identify actionable tickers from scores ──
+          const actionable = [];
+          for (const [ticker, data] of Object.entries(scores)) {
+            const stage = data.stage;
+            if (stage !== "accumulate" && stage !== "watch") continue;
+
+            const pf = priceMap[ticker];
+            const price = pf ? Number(pf.p) : null;
+            if (!price || price <= 0) continue;
+
+            const score = data.score || 0;
+            actionable.push({ ticker, stage, score, price, existing: existingByTicker[ticker] || null });
+          }
+
+          // Sort by score descending — best opportunities first
+          actionable.sort((a, b) => b.score - a.score);
+
+          const opened = [];
+          const added = [];
+          const skipped = [];
+          let positionsCount = existingPos.length;
+          let remainingCapital = availableCapital;
+
+          for (const t of actionable) {
+            // Determine target allocation
+            let targetPct;
+            if (t.stage === "accumulate") {
+              targetPct = t.score >= 70 ? ACCUMULATE_STRONG_PCT : ACCUMULATE_BASE_PCT;
+            } else {
+              targetPct = WATCH_ALLOC_PCT;
+            }
+            targetPct = Math.min(targetPct, MAX_ALLOC_PCT);
+            const targetValue = INVESTOR_CAPITAL * targetPct;
+
+            if (t.existing) {
+              // Already have position — check if we should add more
+              const currentValue = t.existing.total_shares * t.price;
+              const gap = targetValue - Number(t.existing.cost_basis);
+              if (gap < MIN_ORDER_VALUE) {
+                skipped.push({ ticker: t.ticker, reason: "already_at_target", currentCostBasis: t.existing.cost_basis, targetValue });
+                continue;
+              }
+              // Only add up to half the gap per rebalance (gradual scaling)
+              const addValue = Math.min(gap * 0.5, remainingCapital);
+              if (addValue < MIN_ORDER_VALUE) {
+                skipped.push({ ticker: t.ticker, reason: "insufficient_capital_for_add" });
+                continue;
+              }
+              const addShares = Math.floor((addValue / t.price) * 10000) / 10000; // 4dp precision
+              if (addShares <= 0) continue;
+
+              const value = addShares * t.price;
+              const newShares = t.existing.total_shares + addShares;
+              const newCost = Number(t.existing.cost_basis) + value;
+              const newAvg = newCost / newShares;
+              const lotId = `lot-${t.ticker}-auto-${now}`;
+
+              await env.DB.prepare(
+                "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, avg_entry = ?3, last_entry_ts = ?4, updated_at = ?4 WHERE id = ?5"
+              ).bind(newShares, newCost, newAvg, now, t.existing.id).run();
+
+              await env.DB.prepare(
+                "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, ?8, ?7)"
+              ).bind(lotId, t.existing.id, t.ticker, addShares, t.price, value, now, `auto_rebalance_${t.stage}`).run();
+
+              const prevBal = await d1GetLedgerBalance(env, "investor");
+              d1InsertLedgerEntry(env, {
+                mode: "investor", ts: now, event_type: "ENTRY",
+                position_id: t.existing.id, ticker: t.ticker, direction: "LONG",
+                qty: addShares, price: t.price, cash_delta: -value,
+                realized_pnl: 0, balance: prevBal - value,
+                note: `Auto-add ${addShares}sh ${t.ticker} @$${t.price.toFixed(2)} (${t.stage}, score ${t.score})`,
+              }).catch(e => console.error("[LEDGER] auto-add failed:", e));
+
+              remainingCapital -= value;
+              added.push({ ticker: t.ticker, shares: addShares, price: t.price, value: Math.round(value * 100) / 100, stage: t.stage, score: t.score });
+            } else {
+              // New position
+              if (positionsCount >= MAX_POSITIONS) {
+                skipped.push({ ticker: t.ticker, reason: "max_positions_reached" });
+                continue;
+              }
+              const orderValue = Math.min(targetValue, remainingCapital);
+              if (orderValue < MIN_ORDER_VALUE) {
+                skipped.push({ ticker: t.ticker, reason: "insufficient_capital" });
+                continue;
+              }
+              const shares = Math.floor((orderValue / t.price) * 10000) / 10000;
+              if (shares <= 0) continue;
+
+              const value = shares * t.price;
+              const posId = `inv-${t.ticker}-auto-${now}`;
+              const lotId = `lot-${t.ticker}-auto-${now}`;
+
+              await env.DB.prepare(`INSERT INTO investor_positions
+                (id, ticker, status, total_shares, cost_basis, avg_entry, first_entry_ts, last_entry_ts,
+                 investor_stage, notes, created_at, updated_at)
+                VALUES (?1, ?2, 'OPEN', ?3, ?4, ?5, ?6, ?6, ?7, ?8, ?6, ?6)
+              `).bind(posId, t.ticker, shares, value, t.price, now,
+                t.stage, `Auto-initiated: ${t.stage} (score ${t.score})`).run();
+
+              await env.DB.prepare(
+                "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'BUY', ?4, ?5, ?6, ?7, ?8, ?7)"
+              ).bind(lotId, posId, t.ticker, shares, t.price, value, now, `auto_entry_${t.stage}`).run();
+
+              const prevBal = await d1GetLedgerBalance(env, "investor");
+              d1InsertLedgerEntry(env, {
+                mode: "investor", ts: now, event_type: "ENTRY",
+                position_id: posId, ticker: t.ticker, direction: "LONG",
+                qty: shares, price: t.price, cash_delta: -value,
+                realized_pnl: 0, balance: prevBal - value,
+                note: `Auto-entry ${shares}sh ${t.ticker} @$${t.price.toFixed(2)} (${t.stage}, score ${t.score})`,
+              }).catch(e => console.error("[LEDGER] auto-entry failed:", e));
+
+              remainingCapital -= value;
+              positionsCount++;
+              opened.push({ ticker: t.ticker, shares, price: t.price, value: Math.round(value * 100) / 100, stage: t.stage, score: t.score });
+            }
+          }
+
+          // ── Auto-reduce: trim positions where score dropped to "reduce" stage ──
+          const reduced = [];
+          for (const pos of existingPos) {
+            const data = scores[pos.ticker];
+            if (!data || data.stage !== "reduce") continue;
+
+            const pf = priceMap[pos.ticker];
+            const price = pf ? Number(pf.p) : null;
+            if (!price || price <= 0) continue;
+
+            // Trim 25% of position per rebalance cycle
+            const trimShares = Math.floor(pos.total_shares * 0.25 * 10000) / 10000;
+            if (trimShares <= 0) continue;
+
+            const sellValue = trimShares * price;
+            const partialCostBasis = Number(pos.cost_basis) * (trimShares / pos.total_shares);
+            const pnl = sellValue - partialCostBasis;
+            const remaining = pos.total_shares - trimShares;
+            const newCost = Number(pos.cost_basis) - partialCostBasis;
+            const lotId = `lot-${pos.ticker}-autotrim-${now}`;
+
+            if (remaining <= 0.0001) {
+              // Full close
+              await env.DB.prepare(
+                "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1 WHERE id = ?2"
+              ).bind(now, pos.id).run();
+            } else {
+              await env.DB.prepare(
+                "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, updated_at = ?3 WHERE id = ?4"
+              ).bind(remaining, newCost, now, pos.id).run();
+            }
+
+            await env.DB.prepare(
+              "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, 'auto_reduce', ?7)"
+            ).bind(lotId, pos.id, pos.ticker, trimShares, price, sellValue, now).run();
+
+            const prevBal = await d1GetLedgerBalance(env, "investor");
+            d1InsertLedgerEntry(env, {
+              mode: "investor", ts: now, event_type: "TRIM",
+              position_id: pos.id, ticker: pos.ticker, direction: "LONG",
+              qty: trimShares, price, cash_delta: sellValue,
+              realized_pnl: pnl, balance: prevBal + sellValue,
+              note: `Auto-trim ${trimShares}sh ${pos.ticker} @$${price.toFixed(2)} (reduce stage, P&L $${pnl.toFixed(2)})`,
+            }).catch(e => console.error("[LEDGER] auto-reduce failed:", e));
+
+            reduced.push({ ticker: pos.ticker, trimmedShares: trimShares, price, pnl: Math.round(pnl * 100) / 100, remaining: Math.round(remaining * 10000) / 10000 });
+          }
+
+          return sendJSON({
+            ok: true,
+            capitalAvailable: Math.round(availableCapital * 100) / 100,
+            capitalRemaining: Math.round(remainingCapital * 100) / 100,
+            marketHealth: marketScore,
+            totalPositions: positionsCount,
+            newPositions: opened.length,
+            addedTo: added.length,
+            reduced: reduced.length,
+            skippedCount: skipped.length,
+            opened, added, reduced, skipped,
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          console.error("[AUTO-REBALANCE] Error:", err);
           return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
         }
       }
@@ -32821,7 +33012,13 @@ Provide 3-5 actionable next steps:
           const compData = await compResp.json().catch(() => ({}));
           console.log(`[INVESTOR CRON] Compute done: ${compData.tickers || 0} tickers, market=${compData.marketHealth?.regime || "?"}`);
 
-          // 2. Execute due DCA buys
+          // 2. Auto-rebalance: open/add/trim positions based on stages
+          console.log("[INVESTOR CRON] Running auto-rebalance...");
+          const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance`, { method: "POST" });
+          const rebalData = await rebalResp.json().catch(() => ({}));
+          console.log(`[INVESTOR CRON] Rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reduced || 0} trimmed`);
+
+          // 3. Execute due DCA buys
           console.log("[INVESTOR CRON] Checking DCA plans...");
           const dcaResp = await fetch(`${selfUrl}/timed/investor/dca/execute`, { method: "POST" });
           const dcaData = await dcaResp.json().catch(() => ({}));

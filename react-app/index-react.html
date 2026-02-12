@@ -2145,11 +2145,15 @@
       // Sparkline helpers — session-aware time axis
       // ══════════════════════════════════════════════════════════════════
 
-      // 24/7 tickers: futures & crypto that trade Sun 6 PM → Fri 5 PM ET
+      // True 24/7 crypto tickers — use midnight-to-midnight session
+      const _24_7_CRYPTO = new Set([
+        "BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT",
+      ]);
+
+      // Futures & extended-hours tickers: Sun 6 PM → Fri 5 PM ET
       const _CONTINUOUS_TICKERS = new Set([
         "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "ZB1!", "ZN1!", "6E1!", "6J1!",
         "ES", "NQ", "BTC", "ETH", "GC", "SI", "US500", "USOIL", "GOLD", "SILVER", "DXY",
-        "BTCUSD", "ETHUSD", "BTCUSDT", "ETHUSDT",
       ]);
 
       // Market Pulse tickers: indices + S&P sector ETFs
@@ -2164,8 +2168,12 @@
       // openMin/closeMin are ET minutes from midnight (may wrap: 1080 → 1020 next day = 23h)
       function _getSessionConfig(sym) {
         const s = String(sym || "").toUpperCase();
+        // 24/7 crypto: midnight ET (0) → midnight next day (1440) — full 24h
+        if (_24_7_CRYPTO.has(s)) {
+          return { openMin: 0, closeMin: 1440, sessionDur: 1440, label: "24/7" };
+        }
         if (_CONTINUOUS_TICKERS.has(s) || s.endsWith("1!") || s.endsWith("USDT") || s.endsWith("USD")) {
-          // Futures/crypto: 6:00 PM ET (1080) → 5:00 PM ET next day (1020)
+          // Futures: 6:00 PM ET (1080) → 5:00 PM ET next day (1020)
           // Session duration: 23 hours = 1380 minutes
           return { openMin: 1080, closeMin: 1020, sessionDur: 1380, label: "6PM–5PM" };
         }
@@ -2251,8 +2259,14 @@
         const closeHr = Math.floor(cfg.closeMin / 60);
         const closeMn = cfg.closeMin % 60;
 
+        if (cfg.sessionDur === 1440) {
+          // 24/7 crypto: midnight ET today → now
+          const openMs = Date.UTC(yr, mo - 1, dy, 0 - etOffset, 0, 0);
+          return { openMs, closeMs: null };
+        }
+
         if (cfg.sessionDur > 500) {
-          // Continuous: if before 6 PM ET, session started yesterday
+          // Continuous futures: if before 6 PM ET, session started yesterday
           const nowEtMin = _tsToEtMin(Date.now());
           let openMs = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
           if (nowEtMin < cfg.openMin) openMs -= 86400000;
@@ -7020,62 +7034,127 @@
           const tpReached = tp > 0 && cp > 0 && ((isLong && cp >= tp) || (!isLong && cp <= tp));
           const nearSl = sl > 0 && cp > 0 && !slBreached && (Math.abs(cp - sl) / cp) < 0.015;
           const nearTp = tp > 0 && cp > 0 && !tpReached && (Math.abs(cp - tp) / cp) < 0.015;
+          const meta = ticker?.kanban_meta || {};
+          const metaReason = meta?.reason || "";
+          const priceSummary = `${isLong ? "Long" : "Short"} from $${ep.toFixed(2)}, current $${cp.toFixed(2)} (${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(1)}%).`;
 
-          // Already partially trimmed
+          // Already partially trimmed — always show runner management
           if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) {
             return {
               action: "✂️ Position Trimmed — Manage Runner",
-              description: `${(trimmedPct * 100).toFixed(0)}% of position trimmed. ${isProfit ? `Unrealized ${isLong ? "long" : "short"} gain of ${unrealizedPct.toFixed(1)}% on the runner.` : `Position currently at ${unrealizedPct.toFixed(1)}%.`} Trail your stop-loss to protect remaining gains. ${!isAligned ? "Timeframes no longer aligned — consider closing the runner." : "Trend alignment still intact — let it ride with a trailing stop."}`,
+              description: `${(trimmedPct * 100).toFixed(0)}% of position trimmed. ${priceSummary} Trail your TSL to protect remaining gains. ${!isAligned ? "Timeframes no longer aligned — consider closing the runner." : "Trend alignment still intact — let it ride with a trailing stop."}`,
               color: "text-yellow-300",
               bg: "bg-yellow-500/15",
             };
           }
 
-          // SL breached — exit signal
-          if (slBreached) {
+          // ─── Kanban-stage-first guidance for open trades ───
+
+          // EXIT stage — most urgent, close immediately
+          if (stage === "exit") {
+            const exitReason = metaReason || (slBreached ? "TSL breached" : "Exit signal triggered");
             return {
-              action: "🚨 Stop-Loss Breached — Exit Now",
-              description: `Current price ($${cp.toFixed(2)}) has breached your stop-loss at $${sl.toFixed(2)}. This is an exit signal. Close the position to limit losses. Do not average down.`,
+              action: "🚨 EXIT — Close Position",
+              description: `System says EXIT. Reason: ${exitReason}. ${priceSummary} Close the position now to ${isProfit ? "lock in remaining gains" : "limit losses"}. Do not average down or widen your stop.`,
               color: "text-rose-400",
               bg: "bg-rose-500/20",
             };
           }
 
-          // TP reached — take profit
+          // DEFEND stage — tighten stops, warning signals
+          if (stage === "defend" || (stage === "hold" && meta?.bucket === "defend")) {
+            const defendReason = metaReason || "Warning signals detected";
+            return {
+              action: "🛡 DEFEND — Tighten Stop",
+              description: `System says DEFEND. Reason: ${defendReason}. ${priceSummary} The system is tightening TSL to ${isProfit ? "protect gains" : "limit further downside"}. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
+              color: "text-amber-400",
+              bg: "bg-amber-500/15",
+            };
+          }
+
+          // TRIM stage — take partial profits on extremes
+          if (stage === "trim") {
+            const trimReason = metaReason || (nearTp ? "Near TP target" : `${(comp * 100).toFixed(0)}% complete`);
+            return {
+              action: "✂️ TRIM — Take Partial Profits",
+              description: `System says TRIM. Reason: ${trimReason}. ${priceSummary} Consider trimming 50–75% of the position to lock in gains. ${isAligned ? "Trend still aligned — trail the stop on the remaining runner." : "Alignment weakening — consider a larger trim."}`,
+              color: "text-yellow-400",
+              bg: "bg-yellow-500/20",
+            };
+          }
+
+          // JUST ENTERED stage — newly opened, monitor
+          if (stage === "just_entered") {
+            return {
+              action: "🆕 JUST ENTERED — Monitor",
+              description: `Position recently opened. ${priceSummary} Watch for confirmation and initial move in your favor. The system will promote to HOLD once the position stabilizes, or to DEFEND/EXIT if adverse signals appear.`,
+              color: "text-sky-300",
+              bg: "bg-sky-500/15",
+            };
+          }
+
+          // HOLD stage — position is healthy, keep it
+          if (stage === "hold") {
+            const holdExtra = isPullback
+              ? `HTF still supports the ${isLong ? "bullish" : "bearish"} case but LTF pulling back — hold above TSL.`
+              : isAligned
+                ? "All timeframes aligned — conditions favor holding."
+                : "Monitor alignment.";
+            return {
+              action: isProfit ? "💎 HOLD — Trend Intact" : "🔄 HOLD — Position Building",
+              description: `System says HOLD. Position is healthy and working as expected. ${priceSummary} ${holdExtra} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim signals.` : "Let the trade develop."}`,
+              color: isProfit ? "text-teal-300" : "text-sky-300",
+              bg: isProfit ? "bg-teal-500/15" : "bg-sky-500/15",
+            };
+          }
+
+          // ─── Fallback: price-level checks when kanban stage is unset or unexpected ───
+
+          // SL breached
+          if (slBreached) {
+            return {
+              action: "🚨 TSL Breached — Exit Now",
+              description: `Current price ($${cp.toFixed(2)}) has breached your TSL at $${sl.toFixed(2)}. ${priceSummary} Close the position to limit losses. Do not average down.`,
+              color: "text-rose-400",
+              bg: "bg-rose-500/20",
+            };
+          }
+
+          // TP reached
           if (tpReached) {
             return {
               action: "🎯 Target Reached — Take Profit",
-              description: `Price has reached the first take-profit target ($${tp.toFixed(2)}). Consider trimming 50–75% to lock in ${unrealizedPct.toFixed(1)}% gains. ${isAligned ? "Trend still aligned — trail the stop on the remaining runner." : "Alignment weakening — consider full exit."}`,
+              description: `Price has reached the first take-profit target ($${tp.toFixed(2)}). ${priceSummary} Consider trimming 50–75% to lock in gains. ${isAligned ? "Trend still aligned — trail the stop on the remaining runner." : "Alignment weakening — consider full exit."}`,
               color: "text-emerald-400",
               bg: "bg-emerald-500/20",
             };
           }
 
-          // Near SL — defend
+          // Near SL
           if (nearSl) {
             return {
-              action: "🛡 Near Stop-Loss — Defend",
-              description: `Price ($${cp.toFixed(2)}) is approaching your stop-loss at $${sl.toFixed(2)}. ${!isAligned ? "Timeframes have lost alignment, increasing risk." : "Trend still aligned — SL may hold."} Prepare to exit if SL is breached. Do not widen your stop.`,
+              action: "🛡 Near TSL — Defend",
+              description: `Price ($${cp.toFixed(2)}) is approaching your TSL at $${sl.toFixed(2)}. ${!isAligned ? "Timeframes have lost alignment, increasing risk." : "Trend still aligned — TSL may hold."} Prepare to exit if TSL is breached. Do not widen your stop.`,
               color: "text-orange-400",
               bg: "bg-orange-500/15",
             };
           }
 
-          // Near TP — trim zone
+          // Near TP
           if (nearTp) {
             return {
               action: "📈 Approaching Target — Prepare to Trim",
-              description: `Price ($${cp.toFixed(2)}) is nearing your take-profit at $${tp.toFixed(2)}. Unrealized ${isLong ? "long" : "short"} gain of ${unrealizedPct.toFixed(1)}%. Set a limit order at TP or prepare a manual trim when target is touched.`,
+              description: `Price ($${cp.toFixed(2)}) is nearing your take-profit at $${tp.toFixed(2)}. ${priceSummary} Set a limit order at TP or prepare a manual trim when target is touched.`,
               color: "text-teal-300",
               bg: "bg-teal-500/15",
             };
           }
 
-          // Alignment lost — warning
+          // Alignment lost
           if (!isAligned && !isPullback) {
             return {
               action: "⚠️ Alignment Lost — Monitor Closely",
-              description: `Timeframes no longer aligned (${state.replace(/_/g, " ")}). Position is ${isLong ? "long" : "short"} from $${ep.toFixed(2)}, currently ${isProfit ? "in profit" : "at a loss"} (${unrealizedPct.toFixed(1)}%). Consider tightening stop-loss or trimming to reduce exposure until alignment returns.`,
+              description: `Timeframes no longer aligned (${state.replace(/_/g, " ")}). ${priceSummary} Consider tightening TSL or trimming to reduce exposure until alignment returns.`,
               color: "text-amber-300",
               bg: "bg-amber-500/15",
             };
@@ -7085,16 +7164,16 @@
           if (isPullback) {
             return {
               action: "↩️ Pullback in Progress — Hold",
-              description: `Higher timeframe still supports the ${isLong ? "bullish" : "bearish"} case, but lower timeframe is pulling back. Position is ${isProfit ? "profitable" : "underwater"} at ${unrealizedPct.toFixed(1)}%. Hold as long as price stays above SL ($${sl > 0 ? sl.toFixed(2) : "N/A"}). Pullbacks in aligned trends can offer add-on opportunities.`,
+              description: `Higher timeframe still supports the ${isLong ? "bullish" : "bearish"} case, but lower timeframe is pulling back. ${priceSummary} Hold as long as price stays above TSL ($${sl > 0 ? sl.toFixed(2) : "N/A"}). Pullbacks in aligned trends can offer add-on opportunities.`,
               color: "text-cyan-300",
               bg: "bg-cyan-500/15",
             };
           }
 
-          // Default open-trade guidance: trend aligned, in profit or building
+          // Default open-trade guidance
           return {
             action: isProfit ? "💎 Hold Position — Trend Intact" : "🔄 Position Active — Building",
-            description: `${isLong ? "Long" : "Short"} position from $${ep.toFixed(2)}, currently ${isProfit ? "in profit" : "building"} at ${unrealizedPct.toFixed(1)}%. ${isAligned ? "All timeframes aligned — conditions favor holding." : ""} SL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — consider partial trim if momentum fades.` : "Let the trade develop."}`,
+            description: `${priceSummary} ${isAligned ? "All timeframes aligned — conditions favor holding." : ""} TSL at $${sl > 0 ? sl.toFixed(2) : "N/A"}, TP at $${tp > 0 ? tp.toFixed(2) : "N/A"}. ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — consider partial trim if momentum fades.` : "Let the trade develop."}`,
             color: isProfit ? "text-teal-300" : "text-sky-300",
             bg: isProfit ? "bg-teal-500/15" : "bg-sky-500/15",
           };
@@ -7170,26 +7249,64 @@
           };
         }
 
-        // Just Entered - recently entered position
+        // ─── Post-entry Kanban stages (no open trade in the system, but stage is set) ───
+
+        // EXIT stage — system says close, even if no trade tracked here
+        if (stage === "exit") {
+          const exitMeta = ticker?.kanban_meta || {};
+          const exitReason = exitMeta?.reason || "Exit signal triggered";
+          return {
+            action: "🚨 EXIT — Close Position",
+            description: `System says EXIT. Reason: ${exitReason}. If you have an open position, close it now. The setup has deteriorated beyond recovery thresholds.`,
+            color: "text-rose-400",
+            bg: "bg-rose-500/20",
+          };
+        }
+
+        // DEFEND stage: Warning signals, tighten TSL
+        if (stage === "defend" || (stage === "hold" && ticker?.kanban_meta?.bucket === "defend")) {
+          const defendReason = ticker?.kanban_meta?.reason || "Warning signals detected";
+          return {
+            action: "🛡 DEFEND — Tighten Stop",
+            description: `System says DEFEND. Reason: ${defendReason}. The system is tightening TSL to protect gains or limit losses. Do NOT trim yet — just defending. Monitor for recovery (back to HOLD) or further deterioration (to EXIT).`,
+            color: "text-amber-400",
+            bg: "bg-amber-500/15",
+          };
+        }
+
+        // TRIM stage: take partial profits
+        if (stage === "trim") {
+          const trimMeta = ticker?.kanban_meta || {};
+          const trimReason = trimMeta?.reason || `${(comp * 100).toFixed(0)}% complete`;
+          return {
+            action: "✂️ TRIM — Take Partial Profits",
+            description: `System says TRIM. Reason: ${trimReason}. ${momentumElite ? "Despite Momentum Elite status, " : ""}Consider trimming 50–75% of position to lock in gains while allowing runners to continue. Monitor for signs of reversal or continuation beyond TP levels.`,
+            color: "text-yellow-400",
+            bg: "bg-yellow-500/20",
+          };
+        }
+
+        // HOLD stage: position is healthy
+        if (stage === "hold") {
+          return {
+            action: "💎 HOLD — Position Healthy",
+            description: `System says HOLD. Position is working as expected. ${isAligned ? "All timeframes aligned — conditions favor holding." : isPullback ? "HTF trend intact, LTF pulling back — normal behavior." : "Monitor alignment."} ${comp > 0.5 ? `Completion at ${(comp * 100).toFixed(0)}% — watch for trim signals.` : "Let the trade develop."}`,
+            color: "text-teal-300",
+            bg: "bg-teal-500/15",
+          };
+        }
+
+        // JUST ENTERED stage: recently entered position
         if (stage === "just_entered") {
           return {
-            action: "Just Entered",
-            description: "Position recently opened. Monitor for confirmation and hold. Watch for adverse moves or corridor exit.",
+            action: "🆕 JUST ENTERED — Monitor",
+            description: "Position recently opened. Watch for confirmation and initial move in your favor. The system will promote to HOLD once the position stabilizes, or to DEFEND/EXIT if adverse signals appear.",
             color: "text-sky-300",
             bg: "bg-sky-500/15",
           };
         }
 
-        // DEFEND stage: Warning signals, tighten SL to protect gains
-        if (stage === "defend" || (stage === "hold" && ticker?.kanban_meta?.bucket === "defend")) {
-          const defendReason = ticker?.kanban_meta?.reason || "Warning signals detected";
-          return {
-            action: "🛡 Defend Position",
-            description: `Position showing warning signals: ${defendReason}. System is tightening stop-loss to protect gains or limit losses. DO NOT trim yet - just defending. Monitor for recovery (back to JUST ENTERED) or further deterioration (to EXIT).`,
-            color: "text-amber-400",
-            bg: "bg-amber-500/15",
-          };
-        }
+        // ─── Generic fallback conditions (stage not set or unrecognized) ───
 
         // High completion = near target, consider exit/trim
         if (comp > 0.8) {
@@ -11321,24 +11438,27 @@
                 };
 
                 const isShort = dir === "SHORT";
-                const fillColor = fillPct >= 50
-                  ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50")
-                  : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
+                // For LONG: high fillPct = good (price moving toward TP on right)
+                // For SHORT: high fillPct = BAD (price near SL on right), so invert
+                const effectiveFill = isShort ? (100 - fillPct) : fillPct;
+                const fillColor = effectiveFill >= 50
+                  ? (effectiveFill >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50")
+                  : (effectiveFill <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
 
                 return (
                   <div className="px-2.5 pb-1.5">
                     <div className="relative h-2.5 rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2.5 mb-2.5">
                       {cp && (
                         <div
-                          className={`absolute top-0 bottom-0 rounded left-0 ${fillColor} overflow-visible`}
-                          style={{ width: `${fillPct}%` }}
+                          className={`absolute top-0 bottom-0 rounded ${isShort ? "right-0" : "left-0"} ${fillColor} overflow-visible`}
+                          style={{ width: `${isShort ? (100 - fillPct) : fillPct}%` }}
                           title={`CP: $${cp.toFixed(2)}`}
                         >
                           <span className="absolute -translate-x-1/2 text-[7px] font-extrabold text-white whitespace-nowrap"
-                            style={{ left: "100%", bottom: "-14px" }}>CP</span>
+                            style={{ [isShort ? "right" : "left"]: "100%", bottom: "-14px", transform: isShort ? "translateX(50%)" : "translateX(-50%)" }}>CP</span>
                         </div>
                       )}
-                      <Marker val={slP} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} bold={slMovedPastEntry} />
+                      <Marker val={slP} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} bold={slMovedPastEntry} />
                       <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" />
                       <Marker val={tp1} label="TP" color="bg-teal-400/80" textColor="text-teal-300" />
                       <Marker val={tp2} label="TP2" color="bg-teal-400/80" textColor="text-teal-300" />
@@ -11634,7 +11754,7 @@
         const todayActivityCount = todayEntries.length + todayExits.length;
 
         // Account summary from server-side ledger (single source of truth)
-        const accountValue = accountSummary?.accountValue ?? 100000;
+        const accountValue = accountSummary?.accountValue ?? null;
         const allRealizedPnl = accountSummary?.totalRealized ?? 0;
         const openPnl = accountSummary?.unrealized ?? 0;
         const openPositionCount = (trades || []).filter(t => {
@@ -11664,7 +11784,7 @@
               </div>
               {/* Right: Account + Open Positions — Realized = total from all closed trades */}
               <div className="flex items-center gap-5 text-[11px]">
-                <span className="text-[#6b7280]">Account <span className="text-white font-bold tabular-nums">{typeof fmtUsd === "function" ? fmtUsd(accountValue) : `$${accountValue.toFixed(0)}`}</span></span>
+                <span className="text-[#6b7280]">Account <span className="text-white font-bold tabular-nums">{accountValue != null ? (typeof fmtUsd === "function" ? fmtUsd(accountValue) : `$${accountValue.toFixed(0)}`) : "Loading..."}</span></span>
                 <span className="text-[#6b7280]">Realized <span className={`font-bold tabular-nums ${allRealizedPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{allRealizedPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(allRealizedPnl) : `$${allRealizedPnl.toFixed(2)}`}</span></span>
                 <span className="text-[#6b7280]">Open <span className="text-white font-bold tabular-nums">{openPositionCount}</span></span>
                 <span className="text-[#6b7280]">Open P&L <span className={`font-bold tabular-nums ${openPnl >= 0 ? "text-teal-400" : "text-rose-400"}`}>{openPnl >= 0 ? "+" : ""}{typeof fmtUsd === "function" ? fmtUsd(openPnl) : `$${openPnl.toFixed(2)}`}</span></span>
@@ -11902,7 +12022,7 @@
                       style={{ left: "100%", bottom: "-14px" }}>CP</span>
                   </div>
                 )}
-                <Mk val={sl} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
+                <Mk val={sl} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
                 <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
                 <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
                 <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />
@@ -12056,7 +12176,7 @@
               <span className="text-white/10 shrink-0">|</span>
               <span className="text-[11px] font-semibold text-white/70 shrink-0">Sparkline</span>
               <span className="shrink-0"><span style={{ color: "#f59e0b" }}>|</span> = Session Open</span>
-              <span className="shrink-0">Equities 9:30AM–4PM · Futures/Crypto 6PM–5PM ET</span>
+              <span className="shrink-0">Equities 9:30AM–4PM · Futures 6PM–5PM · Crypto 24/7 ET</span>
             </div>
 
             {/* Table */}
@@ -16278,9 +16398,9 @@
                     </span>
                   )}
                   <div className="flex items-center gap-0.5">
-                    <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Dashboard</a>
-                    <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+                    <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Active Trader</a>
                     <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
+                    <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
                     <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
                     <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>

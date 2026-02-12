@@ -580,25 +580,6 @@
       // Account Summary hook — single source of truth from account_ledger
       function useAccountSummary(mode = "trader") {
         const [summary, setSummary] = useState(null);
-        const fetchSummary = useCallback(async () => {
-          try {
-            const res = await fetch(`${API_BASE}/timed/account-summary?mode=${mode}&_t=${Date.now()}`, { cache: "no-store" });
-            if (!res.ok) return;
-            const json = await res.json();
-            if (json.ok) setSummary(json);
-          } catch { /* best-effort */ }
-        }, [mode]);
-        useEffect(() => {
-          fetchSummary();
-          const interval = setInterval(fetchSummary, 60000);
-          return () => clearInterval(interval);
-        }, [fetchSummary]);
-        return { summary, refetch: fetchSummary };
-      }
-
-      // Account Summary hook — single source of truth from account_ledger
-      function useAccountSummary(mode = "trader") {
-        const [summary, setSummary] = useState(null);
         const [loading, setLoading] = useState(true);
 
         const fetchSummary = useCallback(async () => {
@@ -4038,7 +4019,7 @@
                     </span>
                   </div>
                   <div className="flex justify-between items-center py-1 border-b border-[var(--tt-border)]/50">
-                    <span className="text-[var(--tt-text-muted)]">SL</span>
+                    <span className="text-[var(--tt-text-muted)]" title="Trailing Stop Loss">TSL</span>
                     <span className="font-semibold">
                       {ticker.sl ? Number(ticker.sl).toFixed(2) : "—"}
                     </span>
@@ -5642,6 +5623,192 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // Investor Portfolio Panel — shown when "Investor" tab is active
+      // ─────────────────────────────────────────────────────────────
+      function InvestorPortfolioPanel({ summary, trades, loading }) {
+        const startCash = summary?.startCash || 100000;
+        const acctVal = summary?.accountValue ?? startCash;
+        const totalRealized = summary?.totalRealized ?? 0;
+        const unrealized = summary?.unrealized ?? 0;
+        const totalPnl = totalRealized + unrealized;
+        const pct = startCash ? (totalPnl / startCash) * 100 : 0;
+
+        // Compute stats from trades
+        const buys = (trades || []).filter(t => t.action === "BUY" || t.action === "DCA_BUY");
+        const sells = (trades || []).filter(t => t.action === "SELL");
+        const entries = buys.length;
+        const exits = sells.length;
+        const wins = sells.filter(t => (t.pnl || 0) > 0).length;
+        const losses = sells.filter(t => (t.pnl || 0) < 0).length;
+        const winRate = exits > 0 ? (wins / exits * 100) : 0;
+
+        // Trade by ticker
+        const byTicker = useMemo(() => {
+          const map = {};
+          for (const t of trades || []) {
+            if (!map[t.ticker]) map[t.ticker] = { ticker: t.ticker, buys: 0, sells: 0, totalPnl: 0, lots: [] };
+            if (t.action === "BUY" || t.action === "DCA_BUY") map[t.ticker].buys++;
+            if (t.action === "SELL") { map[t.ticker].sells++; map[t.ticker].totalPnl += (t.pnl || 0); }
+            map[t.ticker].lots.push(t);
+          }
+          return Object.values(map).sort((a, b) => b.totalPnl - a.totalPnl);
+        }, [trades]);
+
+        // Trade by day
+        const byDay = useMemo(() => {
+          const map = {};
+          for (const t of trades || []) {
+            const day = t.entry_ts ? new Date(t.entry_ts).toISOString().slice(0, 10) : "unknown";
+            if (!map[day]) map[day] = { day, entries: 0, exits: 0, pnl: 0, actions: [] };
+            if (t.action === "BUY" || t.action === "DCA_BUY") map[day].entries++;
+            if (t.action === "SELL") { map[day].exits++; map[day].pnl += (t.pnl || 0); }
+            map[day].actions.push(t);
+          }
+          return Object.values(map).sort((a, b) => b.day.localeCompare(a.day));
+        }, [trades]);
+
+        return (
+          <div className="space-y-6">
+            {/* Account summary */}
+            <div className="tt-card overflow-hidden p-6">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="tt-label mb-0.5">Investor Account Value</p>
+                  <p className="text-2xl font-semibold tracking-tight text-[var(--tt-text)]">{fmtUsd(acctVal)}</p>
+                  <p className={`text-sm font-medium mt-1 ${totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                    {totalPnl >= 0 ? "Up" : "Down"} {fmtUsd(Math.abs(totalPnl))} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%) from {fmtUsd(startCash)} baseline
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+              <div className="tt-card p-3">
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Account</div>
+                <div className="text-lg font-bold text-[var(--tt-text)]">{fmtUsd(acctVal)}</div>
+              </div>
+              <div className="tt-card p-3">
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized P&L</div>
+                <div className={`text-lg font-bold ${totalRealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalRealized)}</div>
+              </div>
+              <div className="tt-card p-3">
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Unrealized P&L</div>
+                <div className={`text-lg font-bold ${unrealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(unrealized)}</div>
+              </div>
+              <div className="tt-card p-3">
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Entries</div>
+                <div className="text-lg font-bold text-[var(--tt-text)]">{entries}</div>
+              </div>
+              <div className="tt-card p-3">
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Exits</div>
+                <div className="text-lg font-bold text-[var(--tt-text)]">{exits}</div>
+              </div>
+              <div className="tt-card p-3">
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Win %</div>
+                <div className={`text-lg font-bold ${winRate >= 50 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{winRate.toFixed(0)}%</div>
+              </div>
+            </div>
+
+            {/* Trade History */}
+            <div className="tt-card p-4">
+              <h3 className="text-sm font-semibold text-[var(--tt-text)] mb-3">Trade History</h3>
+              {loading ? (
+                <div className="text-center py-8 text-[var(--tt-text-muted)]">Loading...</div>
+              ) : (!trades || trades.length === 0) ? (
+                <div className="text-center py-8 text-[var(--tt-text-muted)]">No investor trades yet</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-[var(--tt-text-muted)] border-b border-[var(--tt-border)]">
+                        <th className="text-left py-2 font-medium">Date</th>
+                        <th className="text-left py-2 font-medium">Ticker</th>
+                        <th className="text-left py-2 font-medium">Action</th>
+                        <th className="text-right py-2 font-medium">Shares</th>
+                        <th className="text-right py-2 font-medium">Price</th>
+                        <th className="text-right py-2 font-medium">Value</th>
+                        <th className="text-right py-2 font-medium">P&L</th>
+                        <th className="text-left py-2 font-medium pl-2">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trades.slice(0, 100).map((t, i) => {
+                        const isBuy = t.action === "BUY" || t.action === "DCA_BUY";
+                        const isSell = t.action === "SELL";
+                        const ts = t.entry_ts ? new Date(t.entry_ts) : null;
+                        return (
+                          <tr key={t.trade_id || i} className="border-b border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)]">
+                            <td className="py-2 text-[var(--tt-text-muted)]">{ts ? ts.toLocaleDateString() + " " + ts.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "—"}</td>
+                            <td className="py-2 font-semibold text-[var(--tt-text)]">{t.ticker}</td>
+                            <td className="py-2">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${isBuy ? "bg-emerald-500/20 text-emerald-400" : isSell ? "bg-rose-500/20 text-rose-400" : "bg-white/10 text-white/60"}`}>
+                                {t.action}
+                              </span>
+                            </td>
+                            <td className="py-2 text-right text-[var(--tt-text)]">{(t.shares || 0).toFixed(2)}</td>
+                            <td className="py-2 text-right text-[var(--tt-text)]">{fmtUsd(t.entry_price || 0)}</td>
+                            <td className="py-2 text-right text-[var(--tt-text)]">{fmtUsd(t.value || 0)}</td>
+                            <td className={`py-2 text-right font-medium ${(t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                              {t.pnl != null ? fmtUsd(t.pnl) : "—"}
+                            </td>
+                            <td className="py-2 pl-2 text-[var(--tt-text-muted)] truncate max-w-[120px]">{t.reason || "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Trade By Day + Trade By Ticker side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* By Day */}
+              <div className="tt-card p-4">
+                <h3 className="text-sm font-semibold text-[var(--tt-text)] mb-3">Trade By Day</h3>
+                {byDay.length === 0 ? (
+                  <div className="text-center py-4 text-[var(--tt-text-muted)] text-xs">No data</div>
+                ) : (
+                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                    {byDay.map(d => (
+                      <div key={d.day} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[var(--tt-bg-hover)] text-xs">
+                        <span className="text-[var(--tt-text-muted)] w-24">{d.day}</span>
+                        <span className="text-[var(--tt-text)]">{d.entries}E / {d.exits}X</span>
+                        <span className={`font-semibold ${d.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                          {d.pnl !== 0 ? fmtUsd(d.pnl) : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* By Ticker */}
+              <div className="tt-card p-4">
+                <h3 className="text-sm font-semibold text-[var(--tt-text)] mb-3">P&L By Ticker</h3>
+                {byTicker.length === 0 ? (
+                  <div className="text-center py-4 text-[var(--tt-text-muted)] text-xs">No data</div>
+                ) : (
+                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                    {byTicker.map(t => (
+                      <div key={t.ticker} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[var(--tt-bg-hover)] text-xs">
+                        <span className="text-[var(--tt-text)] font-semibold w-16">{t.ticker}</span>
+                        <span className="text-[var(--tt-text-muted)]">{t.buys}B / {t.sells}S</span>
+                        <span className={`font-semibold ${t.totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                          {t.totalPnl !== 0 ? fmtUsd(t.totalPnl) : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
@@ -5658,6 +5825,27 @@
         } = useSimulatedTrades();
         const { sectors } = useSectors();
         const { summary: acctSummary } = useAccountSummary("trader");
+
+        // ── Investor portfolio data ──
+        const { summary: investorSummary } = useAccountSummary("investor");
+        const [investorTrades, setInvestorTrades] = useState(null);
+        const [investorTradesLoading, setInvestorTradesLoading] = useState(false);
+        const [portfolioTab, setPortfolioTab] = useState("trader"); // "trader" | "investor"
+
+        // Fetch investor trades when tab is active
+        useEffect(() => {
+          if (portfolioTab !== "investor") return;
+          let cancelled = false;
+          setInvestorTradesLoading(true);
+          fetch(`${API_BASE}/timed/ledger/trades?mode=investor&limit=500`)
+            .then(r => r.json())
+            .then(json => {
+              if (!cancelled && json.ok) setInvestorTrades(json.trades || []);
+            })
+            .catch(() => {})
+            .finally(() => { if (!cancelled) setInvestorTradesLoading(false); });
+          return () => { cancelled = true; };
+        }, [portfolioTab]);
 
         // Welcome Guide state
         const [showWelcomeDashboard, setShowWelcomeDashboard] = useState(false);
@@ -5888,7 +6076,6 @@
           until: ledgerUntil,
         });
         const paperPortfolio = usePaperPortfolio();
-        const { summary: acctSummary } = useAccountSummary("trader");
         // Legacy "Trade Detail" right rail removed; use unified ticker right rail instead.
 
         const rankedTickers = useMemo(() => {
@@ -6698,9 +6885,9 @@
                 <div className="flex items-center gap-5">
                   <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
                   <div className="flex items-center gap-0.5">
-                    <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Dashboard</a>
-                    <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Trades</a>
+                    <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
                     <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
+                    <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Trades</a>
                     <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
                     <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
                     <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
@@ -6713,10 +6900,45 @@
               </nav>
 
               <div className="w-full mx-auto">
+                {/* ═══ Portfolio Tab Toggle ═══ */}
+                <div className="flex items-center gap-1 mb-4 border-b border-[var(--tt-border)]">
+                  <button
+                    onClick={() => setPortfolioTab("trader")}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      portfolioTab === "trader"
+                        ? "border-[var(--tt-accent)] text-[var(--tt-accent)]"
+                        : "border-transparent text-[var(--tt-text-muted)] hover:text-[var(--tt-text)]"
+                    }`}
+                  >
+                    Active Trader
+                  </button>
+                  <button
+                    onClick={() => setPortfolioTab("investor")}
+                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                      portfolioTab === "investor"
+                        ? "border-[var(--tt-accent)] text-[var(--tt-accent)]"
+                        : "border-transparent text-[var(--tt-text-muted)] hover:text-[var(--tt-text)]"
+                    }`}
+                  >
+                    Investor
+                  </button>
+                </div>
+
+                {/* ═══ Investor Portfolio Panel ═══ */}
+                {portfolioTab === "investor" && (
+                  <InvestorPortfolioPanel
+                    summary={investorSummary}
+                    trades={investorTrades}
+                    loading={investorTradesLoading}
+                  />
+                )}
+
+                {/* ═══ Active Trader Portfolio ═══ */}
+                {portfolioTab === "trader" && (<>
                 <header className="flex items-center justify-between gap-4 flex-wrap mb-6">
                   <div className="flex items-center gap-4">
                     <h1 className="text-lg font-semibold tracking-tight text-[var(--tt-text)]">
-                      Simulated Account
+                      Active Trader Account
                     </h1>
                   </div>
                   <div className="flex items-center gap-4 flex-wrap">
@@ -6780,10 +7002,11 @@
                             <div>
                               <p className="tt-label mb-0.5">Account value</p>
                               <p className="text-2xl font-semibold tracking-tight text-[var(--tt-text)]">
-                                {fmtUsd(BASELINE_ACCOUNT + (portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0))}
+                                {fmtUsd(acctSummary?.accountValue ?? BASELINE_ACCOUNT)}
                               </p>
                               {(() => {
-                                const pnl = portfolioChartPointsInRange.length > 0 ? portfolioChartPointsInRange[portfolioChartPointsInRange.length - 1].value : 0;
+                                const acctVal = acctSummary?.accountValue ?? BASELINE_ACCOUNT;
+                                const pnl = acctVal - BASELINE_ACCOUNT;
                                 const pct = BASELINE_ACCOUNT ? (pnl / BASELINE_ACCOUNT) * 100 : 0;
                                 return (
                                   <p className={`text-sm font-medium mt-1 ${pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
@@ -7189,7 +7412,7 @@
                                               style={{ left: "100%", bottom: "-12px" }}>CP</span>
                                           </div>
                                         )}
-                                        <Mk val={slP} label="SL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
+                                        <Mk val={slP} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
                                         <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
                                         <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
                                         <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />
@@ -7438,6 +7661,8 @@
                         </div>
                     )}
                   </div>
+                </div>
+                </>)}
 
                   {/* Right rail — same component and look as Dashboard */}
                   {(selectedTicker || selectedTrade) && (
@@ -7458,7 +7683,6 @@
                       />
                     </div>
                   )}
-                </div>
               </div>
             </div>
 

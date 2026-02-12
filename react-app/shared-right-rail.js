@@ -648,22 +648,29 @@
                           </span>
                         );
                       })()}
-                      {/* CP + daily change inline */}
-                      {ticker.price && (
-                        <span className="text-sm text-white font-semibold flex items-center gap-1">
-                          ${Number(ticker.price).toFixed(2)}
-                          {(() => {
-                            const priceAge = ticker._price_updated_at ? (Date.now() - ticker._price_updated_at) / 60000 : Infinity;
-                            const scoreAge = ticker.data_source_ts ? (Date.now() - ticker.data_source_ts) / 60000 : Infinity;
-                            const freshestAge = Math.min(priceAge, scoreAge);
-                            if (freshestAge <= 2) return <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" title={`Updated ${Math.round(freshestAge)}m ago`} />;
-                            if (freshestAge <= 10) return <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" title={`Updated ${Math.round(freshestAge)}m ago`} />;
-                            return <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" title={`Updated ${Math.round(freshestAge)}m ago`} />;
-                          })()}
-                        </span>
-                      )}
+                      {/* CP + daily change inline — prefer latestTicker for freshest data */}
                       {(() => {
-                        const { dayChg, dayPct, stale, marketOpen } = getDailyChange(ticker);
+                        const src = latestTicker || ticker;
+                        const price = Number(src?._live_price || src?.price || src?.close || 0);
+                        if (!price) return null;
+                        const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
+                        const scoreAge = src.data_source_ts ? (Date.now() - src.data_source_ts) / 60000 : Infinity;
+                        const freshestAge = Math.min(priceAge, scoreAge);
+                        return (
+                          <span className="text-sm text-white font-semibold flex items-center gap-1">
+                            ${price.toFixed(2)}
+                            {freshestAge <= 2
+                              ? <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" title={`Updated ${Math.round(freshestAge)}m ago`} />
+                              : freshestAge <= 10
+                                ? <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" title={`Updated ${Math.round(freshestAge)}m ago`} />
+                                : <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" title={`Updated ${Math.round(freshestAge)}m ago`} />
+                            }
+                          </span>
+                        );
+                      })()}
+                      {(() => {
+                        const src = latestTicker || ticker;
+                        const { dayChg, dayPct, stale, marketOpen } = getDailyChange(src);
                         if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
                         const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
                         const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
@@ -1856,7 +1863,7 @@
                             <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider">Risk / Reward Levels</div>
                             {hasSl && (
                               <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
-                                <span className="text-xs font-semibold text-red-400">SL</span>
+                                <span className="text-xs font-semibold text-red-400" title="Trailing Stop Loss">TSL</span>
                                 <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
                                 {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
                               </div>
@@ -4259,6 +4266,30 @@
                               const trimTs = t.trim_ts;
                               const hasTrimmed = trimmedPct > 0;
                               
+                              // Qty fields (enriched by backend from positions table)
+                              const remainingQty = Number(t.quantity ?? t.shares ?? 0);
+                              const entryQty = hasTrimmed && trimmedPct < 1 && remainingQty > 0
+                                ? Math.round(remainingQty / (1 - trimmedPct) * 100) / 100
+                                : remainingQty;
+                              const trimmedQty = hasTrimmed ? Math.round((entryQty * trimmedPct) * 100) / 100 : 0;
+                              
+                              // Human-readable exit reason
+                              const exitReasonRaw = String(t.exit_reason || "").toLowerCase();
+                              const exitReasonLabel = (() => {
+                                if (!exitReasonRaw || !isClosed) return null;
+                                if (exitReasonRaw.includes("sl_breached")) return "SL Hit";
+                                if (exitReasonRaw.includes("max_loss")) return "Max Loss";
+                                if (exitReasonRaw.includes("bias_flip")) return "Bias Flip";
+                                if (exitReasonRaw.includes("hard_fuse")) return "RSI Extreme";
+                                if (exitReasonRaw.includes("soft_fuse")) return "RSI Confirmed";
+                                if (exitReasonRaw.includes("trigger_breached")) return "Trigger Breach";
+                                if (exitReasonRaw.includes("large_adverse")) return "Adverse Move";
+                                if (exitReasonRaw.includes("tp_hit")) return "TP Hit";
+                                if (exitReasonRaw.includes("critical")) return "Critical";
+                                if (exitReasonRaw) return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                                return null;
+                              })();
+                              
                               // Compute P&L% from prices if pnl_pct not available
                               const computedPnlPct = (() => {
                                 if (Math.abs(pnlPct) > 0.001) return pnlPct;
@@ -4328,9 +4359,19 @@
                                       <span className={`text-[11px] font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
                                         {t.direction}
                                       </span>
+                                      {entryQty > 0 && (
+                                        <span className="text-[9px] text-[#6b7280]">
+                                          {entryQty % 1 === 0 ? entryQty : entryQty.toFixed(2)} shares
+                                        </span>
+                                      )}
                                       {hasTrimmed && (
                                         <span className="px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
-                                          {Math.round(trimmedPct * 100)}% trimmed
+                                          {Math.round(trimmedPct * 100)}% trimmed{trimmedQty > 0 ? ` (${trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(2)} sh)` : ""}
+                                        </span>
+                                      )}
+                                      {exitReasonLabel && (
+                                        <span className="px-1 py-0.5 rounded text-[8px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30" title={exitReasonRaw}>
+                                          {exitReasonLabel}
                                         </span>
                                       )}
                                       {duration && (
@@ -4369,9 +4410,9 @@
                                             </span>
                                           </div>
                                         </div>
-                                        {/* SL / TP / Entry row */}
+                                        {/* TSL / TP / Entry row */}
                                         <div className="flex items-center justify-between text-[10px] mb-1">
-                                          <span><span className="text-rose-400">SL</span> <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "—"}</span></span>
+                                          <span><span className="text-rose-400" title="Trailing Stop Loss">TSL</span> <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "—"}</span></span>
                                           <span><span className="text-[#6b7280]">EP</span> <span className="text-white font-medium">${entryPrice > 0 ? entryPrice.toFixed(2) : "—"}</span></span>
                                           <span><span className="text-teal-400">TP</span> <span className="text-white font-medium">{tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—"}</span></span>
                                         </div>
@@ -4410,12 +4451,26 @@
                                       <span className="text-[#9ca3af]">{formatDateTime(t.entry_ts)}</span>
                                     </div>
                                     
+                                    {/* Qty row for open trades */}
+                                    {!isClosed && remainingQty > 0 && (
+                                      <div className="flex justify-between col-span-2">
+                                        <span className="text-[#6b7280]">Qty:</span>
+                                        <span className="text-white font-medium">
+                                          {remainingQty % 1 === 0 ? remainingQty : remainingQty.toFixed(2)} shares
+                                          {hasTrimmed && <span className="text-yellow-400 ml-1">({Math.round(trimmedPct * 100)}% trimmed)</span>}
+                                        </span>
+                                      </div>
+                                    )}
+                                    
                                     {/* Trim row */}
                                     {hasTrimmed && trimPrice > 0 && (
                                       <>
                                         <div className="flex justify-between">
                                           <span className="text-yellow-500">Trim:</span>
-                                          <span className="text-yellow-300 font-medium">${trimPrice.toFixed(2)}</span>
+                                          <span className="text-yellow-300 font-medium">
+                                            ${trimPrice.toFixed(2)}
+                                            {trimmedQty > 0 && <span className="text-yellow-400/70 ml-1">({trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(2)} sh)</span>}
+                                          </span>
                                         </div>
                                         <div className="flex justify-between">
                                           <span className="text-yellow-500">Date:</span>
@@ -4437,6 +4492,12 @@
                                           <span className="text-[#6b7280]">Date:</span>
                                           <span className="text-[#9ca3af]">{formatDateTime(t.exit_ts)}</span>
                                         </div>
+                                        {exitReasonLabel && (
+                                          <div className="flex justify-between col-span-2">
+                                            <span className="text-purple-400">Reason:</span>
+                                            <span className="text-purple-300 font-medium" title={exitReasonRaw}>{exitReasonLabel}</span>
+                                          </div>
+                                        )}
                                       </>
                                     )}
                                   </div>
