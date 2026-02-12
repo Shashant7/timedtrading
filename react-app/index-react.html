@@ -2245,6 +2245,7 @@
 
       // Filter candles to the relevant session (ticker-aware, RTH 9:30–4 for equities)
       // Pre-market: yesterday's RTH only (avoids "painting live" pre-market noise)
+      // Never fall back to rawCandles when filtered is empty for equities in pre-market — that would show live pre-market.
       function _filterTodaySession(rawCandles, sym) {
         if (!rawCandles || rawCandles.length < 2) return rawCandles;
         const w = _getSessionWindowMs(sym);
@@ -2256,7 +2257,14 @@
           if (w.closeMs != null && tsMs > w.closeMs) return false;
           return true;
         });
-        return filtered.length >= 2 ? filtered : rawCandles;
+        if (filtered.length >= 2) return filtered;
+        // Pre-market equities: never show raw (pre-market) candles — return empty so sparkline hides
+        const cfg = _getSessionConfig(sym);
+        if (cfg.sessionDur === 390) {
+          const nowEtMin = _tsToEtMin(Date.now());
+          if (nowEtMin < cfg.openMin) return [];
+        }
+        return rawCandles;
       }
 
       // Find index of first candle at or after session open
@@ -15725,12 +15733,17 @@
           };
           const fetchSmart = async (sym) => {
             try {
-              // Futures/crypto sessions are 23hrs → need ~280 5m candles; equities need ~78
+              // Futures/crypto sessions are 23hrs → need ~280 5m candles; equities need ~78 for one RTH
               const isContinuous = _CONTINUOUS_TICKERS.has(sym) || sym.endsWith("1!") || sym.endsWith("USDT") || sym.endsWith("USD");
-              const limit = isContinuous ? 350 : 250;
+              const cfg = _getSessionConfig(sym);
+              const nowEtMin = _tsToEtMin(Date.now());
+              const isEquityPreMarket = !isContinuous && cfg.sessionDur === 390 && nowEtMin < cfg.openMin;
+              // Pre-market equities: need ~24h of history to include yesterday's RTH (9:30–4)
+              const limit = isContinuous ? 350 : isEquityPreMarket ? 500 : 250;
               let candles = await fetchCandles(sym, 5, limit);
               if (!candles || candles.length < 5) {
-                candles = await fetchCandles(sym, 1, 600);
+                const m1Limit = isEquityPreMarket ? 1500 : 600;
+                candles = await fetchCandles(sym, 1, m1Limit);
               }
               if (candles && candles.length >= 2) {
                 sparkCacheGlobalRef.current[sym] = { data: candles, ts: Date.now() };
