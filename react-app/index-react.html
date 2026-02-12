@@ -11637,7 +11637,10 @@
         const accountValue = accountSummary?.accountValue ?? 100000;
         const allRealizedPnl = accountSummary?.totalRealized ?? 0;
         const openPnl = accountSummary?.unrealized ?? 0;
-        const openPositionCount = tradeByTicker ? [...tradeByTicker.values()].filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM").length : 0;
+        const openPositionCount = (trades || []).filter(t => {
+          const s = String(t?.status || "").toUpperCase();
+          return s === "OPEN" || s === "TP_HIT_TRIM";
+        }).length;
 
         return (
           <div className="mb-2">
