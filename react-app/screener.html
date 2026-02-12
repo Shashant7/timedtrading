@@ -122,11 +122,12 @@
         const [selectedTickers, setSelectedTickers] = useState(new Set());
 
         // Fetch candidates
-        const fetchCandidates = useCallback(async () => {
+        const fetchCandidates = useCallback(async (cacheBust = false) => {
           setLoading(true);
           setError(null);
           try {
-            const res = await fetch(`${API_BASE}/timed/screener/candidates`, { cache: "no-store" });
+            const url = `${API_BASE}/timed/screener/candidates${cacheBust ? "?_rescan=" + Date.now() : ""}`;
+            const res = await fetch(url, { cache: "no-store" });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
             if (!json.ok) throw new Error(json.error || "Unknown error");
@@ -263,6 +264,8 @@
                   <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
                   <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Screener</a>
                   <a href="ticker-management.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+                  <a href="brand-kit.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Brand Kit</a>
+                  <a href="debug-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Debug</a>
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -294,14 +297,26 @@
                     </button>
                   )}
                   <button
-                    onClick={fetchCandidates}
+                    onClick={() => fetchCandidates(true)}
                     disabled={loading}
-                    className="px-3 py-1.5 rounded-lg text-[12px] text-[#9ca3af] border border-white/[0.06] hover:bg-white/[0.04] transition-all disabled:opacity-50"
+                    className="px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#00c853] border border-[#00c853]/25 hover:bg-[#00c853]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Fetch latest screener results"
                   >
-                    {loading ? "Loading..." : "Refresh"}
+                    {loading ? "Loading..." : "↻ Rescan"}
                   </button>
                 </div>
               </div>
+              {/* Last scan timestamp */}
+              {scanTs && (
+                <div className="text-[11px] text-[#4b5563] mb-3 -mt-4">
+                  Last scan: {new Date(scanTs).toLocaleString()} ({(() => {
+                    const mins = Math.round((Date.now() - new Date(scanTs).getTime()) / 60000);
+                    if (mins < 60) return `${mins}m ago`;
+                    if (mins < 1440) return `${Math.round(mins/60)}h ago`;
+                    return `${Math.round(mins/1440)}d ago`;
+                  })()})
+                </div>
+              )}
 
               {/* Filters Row */}
               <div className="flex items-center gap-4 flex-wrap mb-4">

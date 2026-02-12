@@ -1,0 +1,1831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timed Trading — Brand Kit &amp; Style Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script>
+    // Admin-only gate: check authentication and admin tier
+    (async function() {
+      try {
+        const resp = await fetch("/timed/me", { credentials: "include" });
+        if (!resp.ok) throw new Error("Auth check failed");
+        const data = await resp.json();
+        const user = data?.user;
+        if (!user || !data?.authenticated) {
+          document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Please <a href="/index-react.html" style="color:#00c853;margin:0 4px;">sign in</a> to view this page.</div>';
+          return;
+        }
+        if (user.tier !== "admin" && user.role !== "admin") {
+          document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">This page is restricted to admin users.</div>';
+          return;
+        }
+        // Admin verified — show content
+        document.body.style.visibility = "visible";
+      } catch (e) {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Authentication required. <a href="/index-react.html" style="color:#00c853;margin-left:4px;">Sign in</a></div>';
+      }
+    })();
+  </script>
+  <style>
+    /* Hide body until auth is verified */
+    body { visibility: hidden; }
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-base: #0b0e11;
+      --bg-surface: rgba(255,255,255,0.025);
+      --bg-surface-hover: rgba(255,255,255,0.045);
+      --border: rgba(255,255,255,0.06);
+      --border-hover: rgba(255,255,255,0.12);
+      --text-primary: #e5e7eb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #00c853;
+      --accent-glow: rgba(0,200,83,0.15);
+      --accent-subtle: rgba(0,200,83,0.08);
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --danger: #ef4444;
+      --danger-subtle: rgba(239,68,68,0.12);
+      --warning: #f59e0b;
+      --warning-subtle: rgba(245,158,11,0.12);
+      --info: #3b82f6;
+      --info-subtle: rgba(59,130,246,0.12);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.6;
+    }
+
+    .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Page Header ── */
+    .page-header {
+      padding: 80px 0 48px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 64px;
+    }
+    .page-header h1 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      margin-bottom: 12px;
+      background: linear-gradient(180deg, #ffffff 30%, #9ca3af 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .page-header p {
+      font-size: 16px;
+      color: var(--text-secondary);
+      max-width: 560px;
+      line-height: 1.7;
+    }
+
+    /* ── Sections ── */
+    .sg-section {
+      margin-bottom: 80px;
+    }
+    .sg-section-label {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .sg-section-title {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+    .sg-section-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      max-width: 560px;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+
+    /* ── Logo Section ── */
+    .logo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .logo-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      transition: all 0.3s;
+    }
+    .logo-card:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+    }
+    .logo-card-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .logo-card.light-bg {
+      background: #ffffff;
+      border-color: #e5e7eb;
+    }
+    .logo-card.light-bg .logo-card-label { color: #6b7280; }
+
+    .logo-full {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo-mark {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-mark.gradient { background: linear-gradient(135deg, #00c853, #00e676, #69f0ae); }
+    .logo-mark.solid { background: var(--accent); }
+    .logo-mark.outline { background: transparent; border: 2px solid var(--accent); }
+    .logo-text {
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.03em;
+    }
+    .logo-card.light-bg .logo-text { color: #0b0e11; }
+
+    /* ── Logomark only ── */
+    .logo-mark-lg {
+      width: 72px; height: 72px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-mark-lg.gradient { background: linear-gradient(135deg, #00c853, #00e676, #69f0ae); }
+
+    /* ── Color Palette ── */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    .color-card {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .color-swatch {
+      height: 80px;
+      display: flex;
+      align-items: flex-end;
+      padding: 8px 12px;
+    }
+    .color-info {
+      padding: 12px;
+      background: var(--bg-surface);
+    }
+    .color-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .color-value {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+    .color-usage {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    /* ── Typography ── */
+    .type-specimens {
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .type-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 24px;
+      align-items: baseline;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .type-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: "SF Mono", "Fira Code", monospace;
+      line-height: 1.8;
+    }
+    .type-sample { width: 100%; }
+
+    /* ── Spacing / Layout ── */
+    .spacing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 16px;
+    }
+    .spacing-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+    }
+    .spacing-visual {
+      width: 100%;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 8px;
+    }
+    .spacing-bar {
+      height: 8px;
+      border-radius: 4px;
+      background: var(--accent);
+      opacity: 0.4;
+    }
+    .spacing-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+    .spacing-name {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    /* ── Components ── */
+    .component-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 24px;
+    }
+    .component-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .component-preview {
+      padding: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 120px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .component-info {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .component-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .component-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 12px;
+      background: var(--accent);
+      color: var(--bg-base);
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      letter-spacing: -0.01em;
+      border: none;
+      cursor: pointer;
+      transition: all 0.25s;
+      box-shadow: 0 0 32px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.3);
+    }
+    .btn-primary:hover {
+      background: #00e676;
+      transform: translateY(-2px);
+      box-shadow: 0 0 48px rgba(0,200,83,0.25), 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 12px;
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+    .btn-secondary:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-ghost:hover {
+      color: var(--text-primary);
+      background: var(--bg-surface);
+    }
+    .btn-danger {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 12px;
+      background: var(--danger);
+      color: white;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+    .btn-danger:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
+    }
+    .btn-sm {
+      padding: 6px 14px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    /* ── Badges & Pills ── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .badge-accent { background: var(--accent-subtle); color: var(--accent); border: 1px solid rgba(0,200,83,0.15); }
+    .badge-danger { background: var(--danger-subtle); color: var(--danger); border: 1px solid rgba(239,68,68,0.15); }
+    .badge-warning { background: var(--warning-subtle); color: var(--warning); border: 1px solid rgba(245,158,11,0.15); }
+    .badge-info { background: var(--info-subtle); color: var(--info); border: 1px solid rgba(59,130,246,0.15); }
+    .badge-neutral { background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border); }
+
+    .badge::before {
+      content: "";
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .card:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+    }
+    .card-accent::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+
+    /* ── Gradients ── */
+    .gradient-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+    .gradient-card {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .gradient-preview {
+      height: 80px;
+    }
+    .gradient-info {
+      padding: 12px;
+      background: var(--bg-surface);
+    }
+    .gradient-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .gradient-css {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: "SF Mono", "Fira Code", monospace;
+      word-break: break-all;
+    }
+
+    /* ── Icons ── */
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+      gap: 12px;
+    }
+    .icon-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .icon-card:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+    }
+    .icon-card svg {
+      width: 24px; height: 24px;
+      stroke: var(--accent);
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .icon-card span {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ── Animation Section ── */
+    .animation-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .anim-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+    }
+    .anim-preview {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .anim-dot {
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .anim-dot.float { animation: float 3s ease-in-out infinite; }
+    .anim-dot.pulse { animation: pulse-glow 2s ease-in-out infinite; }
+    .anim-dot.fade-up { animation: fade-up 1.5s ease-out infinite; }
+    .anim-name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .anim-code {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-12px) scale(1.05); }
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.4; box-shadow: 0 0 0 0 rgba(0,200,83,0); }
+      50% { opacity: 1; box-shadow: 0 0 20px 4px rgba(0,200,83,0.3); }
+    }
+    @keyframes fade-up {
+      0% { opacity: 0; transform: translateY(12px); }
+      40% { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-8px); }
+    }
+
+    /* ── Code blocks ── */
+    .code-block {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.8;
+      overflow-x: auto;
+      margin-top: 16px;
+    }
+    .code-block .hl { color: var(--accent); }
+    .code-block .str { color: #f59e0b; }
+    .code-block .key { color: #9ca3af; }
+
+    /* ── Download Section ── */
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .download-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .download-card:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-hover);
+    }
+    .download-card svg { opacity: 0.4; }
+    .download-label {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .download-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ── Unified App Nav (matches Dashboard, Screener, etc.) ── */
+    .unified-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      background: var(--bg-base);
+    }
+    .unified-nav-inner {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .unified-nav-links {
+      display: flex;
+      gap: 2px;
+      flex-wrap: wrap;
+    }
+    .unified-nav-links a {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      text-decoration: none;
+      color: var(--text-muted);
+      transition: all 0.2s;
+    }
+    .unified-nav-links a:hover {
+      color: var(--text-primary);
+      background: rgba(255,255,255,0.04);
+    }
+    .unified-nav-links a.active {
+      color: var(--text-primary);
+      background: rgba(255,255,255,0.07);
+      font-weight: 600;
+    }
+    .sg-sub-nav {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+      background: rgba(0,0,0,0.2);
+    }
+    .sg-sub-nav a {
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .sg-sub-nav a:hover { color: var(--text-primary); background: var(--bg-surface); }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .logo-grid { grid-template-columns: 1fr; }
+      .type-row { grid-template-columns: 1fr; }
+      .unified-nav-links { flex-wrap: wrap; }
+      .sg-sub-nav { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ Unified App Nav (matches Dashboard, Screener, etc.) ── -->
+  <nav class="unified-nav">
+    <div class="unified-nav-inner">
+      <a href="index-react.html" style="font-size:15px;font-weight:600;color:var(--text-primary);text-decoration:none;letter-spacing:-0.02em;">Timed Trading</a>
+      <div class="unified-nav-links">
+        <a href="index-react.html">Dashboard</a>
+        <a href="simulation-dashboard.html">Trades</a>
+        <a href="investor-dashboard.html">Investor</a>
+        <a href="model-dashboard.html">Model</a>
+        <a href="screener.html">Screener</a>
+        <a href="ticker-management.html">Tickers</a>
+        <a href="brand-kit.html" class="active">Brand Kit</a>
+        <a href="debug-dashboard.html">Debug</a>
+      </div>
+    </div>
+  </nav>
+  <div class="sg-sub-nav">
+    <a href="#logo">Logo</a>
+    <a href="#download-logos">Download Logos</a>
+    <a href="#colors">Colors</a>
+    <a href="#typography">Typography</a>
+    <a href="#components">Components</a>
+    <a href="#gradients">Gradients</a>
+    <a href="#icons">Icons</a>
+    <a href="#animations">Animations</a>
+    <a href="#tokens">Tokens</a>
+  </div>
+
+  <!-- ═══ HEADER ═══ -->
+  <div class="container">
+    <div class="page-header" style="padding-top:32px;">
+      <span class="sg-section-label">Design System v1.0</span>
+      <h1>Timed Trading<br />Brand Kit &amp; Style Guide</h1>
+      <p>
+        A comprehensive design reference for maintaining visual consistency across all
+        Timed Trading surfaces — web app, marketing pages, Discord alerts, and beyond.
+      </p>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LOGO -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="logo">
+    <div class="sg-section">
+      <span class="sg-section-label">Identity</span>
+      <h2 class="sg-section-title">Logo</h2>
+      <p class="sg-section-desc">
+        The Timed Trading logo combines an upward-trending chart icon inside a green gradient
+        container with the wordmark in Inter 700. Use the full lockup wherever space allows;
+        use the mark alone for favicons, avatars, and compact contexts.
+      </p>
+
+      <div class="logo-grid">
+        <!-- Primary — dark bg -->
+        <div class="logo-card">
+          <div class="logo-full">
+            <div class="logo-mark gradient">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                <polyline points="16 7 22 7 22 13" />
+              </svg>
+            </div>
+            <span class="logo-text">Timed Trading</span>
+          </div>
+          <span class="logo-card-label">Primary — Dark Background</span>
+        </div>
+
+        <!-- Light bg -->
+        <div class="logo-card light-bg">
+          <div class="logo-full">
+            <div class="logo-mark gradient">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+                <polyline points="16 7 22 7 22 13" />
+              </svg>
+            </div>
+            <span class="logo-text">Timed Trading</span>
+          </div>
+          <span class="logo-card-label">Primary — Light Background</span>
+        </div>
+
+        <!-- Logomark only -->
+        <div class="logo-card">
+          <div class="logo-mark-lg gradient">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+              <polyline points="16 7 22 7 22 13" />
+            </svg>
+          </div>
+          <span class="logo-card-label">Logomark Only (Favicon / Avatar)</span>
+        </div>
+      </div>
+
+      <!-- Download Logos -->
+      <div id="download-logos" style="margin-top:40px;">
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;">Download Logos</h3>
+        <div class="download-grid">
+          <div class="download-card" onclick="downloadLogomark('svg')" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); downloadLogomark('svg'); }" role="button" tabindex="0">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span class="download-label">Logomark (SVG)</span>
+            <span class="download-desc">Icon only, scalable vector</span>
+          </div>
+          <div class="download-card" onclick="downloadLogomark('png')" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); downloadLogomark('png'); }" role="button" tabindex="0">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span class="download-label">Logomark (PNG)</span>
+            <span class="download-desc">512×512px with gradient</span>
+          </div>
+          <div class="download-card" onclick="downloadFullLogo('dark')" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); downloadFullLogo('dark'); }" role="button" tabindex="0">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span class="download-label">Full Logo (Dark BG)</span>
+            <span class="download-desc">PNG with dark background</span>
+          </div>
+          <div class="download-card" onclick="downloadFullLogo('light')" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); downloadFullLogo('light'); }" role="button" tabindex="0">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span class="download-label">Full Logo (Light BG)</span>
+            <span class="download-desc">PNG with white background</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logo construction -->
+      <div style="margin-top:32px;">
+        <h3 style="font-size:15px;font-weight:700;margin-bottom:12px;">Logo Construction</h3>
+        <div class="code-block">
+<span class="key">&lt;div</span> class=<span class="str">"logo-container"</span><span class="key">&gt;</span><br/>
+&nbsp;&nbsp;<span class="key">&lt;!--</span> 36×36px container, 10px radius, gradient background <span class="key">--&gt;</span><br/>
+&nbsp;&nbsp;<span class="key">&lt;div</span> style=<span class="str">"width:36px; height:36px; border-radius:10px;<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;background: <span class="hl">linear-gradient(135deg, #00c853, #00e676, #69f0ae)</span>;<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;display:flex; align-items:center; justify-content:center;"</span><span class="key">&gt;</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">&lt;svg</span> width=<span class="str">"20"</span> height=<span class="str">"20"</span> viewBox=<span class="str">"0 0 24 24"</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;fill=<span class="str">"none"</span> stroke=<span class="str">"white"</span> stroke-width=<span class="str">"2.5"</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;stroke-linecap=<span class="str">"round"</span> stroke-linejoin=<span class="str">"round"</span><span class="key">&gt;</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">&lt;polyline</span> points=<span class="str">"22 7 13.5 15.5 8.5 10.5 2 17"</span> <span class="key">/&gt;</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">&lt;polyline</span> points=<span class="str">"16 7 22 7 22 13"</span> <span class="key">/&gt;</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;<span class="key">&lt;/svg&gt;</span><br/>
+&nbsp;&nbsp;<span class="key">&lt;/div&gt;</span><br/>
+&nbsp;&nbsp;<span class="key">&lt;span</span> style=<span class="str">"font-weight:700; font-size:18px; letter-spacing:-0.03em;"</span><span class="key">&gt;</span>Timed Trading<span class="key">&lt;/span&gt;</span><br/>
+<span class="key">&lt;/div&gt;</span>
+        </div>
+      </div>
+
+      <!-- Clear space & minimum size -->
+      <div style="margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+        <div class="card">
+          <h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Clear Space</h4>
+          <p style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Maintain a minimum clear space equal to the height of the logomark (36px)
+            on all sides. Never crowd the logo with other elements.
+          </p>
+        </div>
+        <div class="card">
+          <h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Minimum Size</h4>
+          <p style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Minimum logomark: 24×24px. Minimum full lockup width: 140px.
+            Below these sizes, use the logomark alone.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- COLORS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="colors">
+    <div class="sg-section">
+      <span class="sg-section-label">Foundation</span>
+      <h2 class="sg-section-title">Color Palette</h2>
+      <p class="sg-section-desc">
+        A dark-first palette centered on a vibrant green accent. Every surface uses
+        semi-transparent whites over the base black to maintain depth and layering.
+      </p>
+
+      <!-- Primary Colors -->
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;margin-top:16px;">Core Colors</h3>
+      <div class="color-grid">
+        <div class="color-card">
+          <div class="color-swatch" style="background:#0b0e11;"></div>
+          <div class="color-info">
+            <div class="color-name">Base</div>
+            <div class="color-value">#0b0e11</div>
+            <div class="color-usage">Page background, dark surfaces</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:#00c853;"></div>
+          <div class="color-info">
+            <div class="color-name">Accent (Green)</div>
+            <div class="color-value">#00c853</div>
+            <div class="color-usage">Primary actions, highlights, brand</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:#00e676;"></div>
+          <div class="color-info">
+            <div class="color-name">Accent Hover</div>
+            <div class="color-value">#00e676</div>
+            <div class="color-usage">Hover states, active elements</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:#69f0ae;"></div>
+          <div class="color-info">
+            <div class="color-name">Accent Light</div>
+            <div class="color-value">#69f0ae</div>
+            <div class="color-usage">Gradient end, sparklines</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Text Colors -->
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;margin-top:32px;">Text Colors</h3>
+      <div class="color-grid">
+        <div class="color-card">
+          <div class="color-swatch" style="background:#e5e7eb;"></div>
+          <div class="color-info">
+            <div class="color-name">Primary Text</div>
+            <div class="color-value">#e5e7eb</div>
+            <div class="color-usage">Headings, key labels</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:#9ca3af;"></div>
+          <div class="color-info">
+            <div class="color-name">Secondary Text</div>
+            <div class="color-value">#9ca3af</div>
+            <div class="color-usage">Body copy, descriptions</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:#6b7280;"></div>
+          <div class="color-info">
+            <div class="color-name">Muted Text</div>
+            <div class="color-value">#6b7280</div>
+            <div class="color-usage">Captions, timestamps, footnotes</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:#ffffff;"></div>
+          <div class="color-info">
+            <div class="color-name">White</div>
+            <div class="color-value">#ffffff</div>
+            <div class="color-usage">Hero heading gradient start</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Surface Colors -->
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;margin-top:32px;">Surfaces &amp; Borders</h3>
+      <div class="color-grid">
+        <div class="color-card">
+          <div class="color-swatch" style="background:rgba(255,255,255,0.025);border:1px solid rgba(255,255,255,0.06);"></div>
+          <div class="color-info">
+            <div class="color-name">Surface</div>
+            <div class="color-value">rgba(255,255,255,0.025)</div>
+            <div class="color-usage">Cards, panels, containers</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:rgba(255,255,255,0.045);border:1px solid rgba(255,255,255,0.12);"></div>
+          <div class="color-info">
+            <div class="color-name">Surface Hover</div>
+            <div class="color-value">rgba(255,255,255,0.045)</div>
+            <div class="color-usage">Hovered cards, active rows</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:transparent;border:2px solid rgba(255,255,255,0.06);"></div>
+          <div class="color-info">
+            <div class="color-name">Border</div>
+            <div class="color-value">rgba(255,255,255,0.06)</div>
+            <div class="color-usage">Dividers, card edges</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:transparent;border:2px solid rgba(255,255,255,0.12);"></div>
+          <div class="color-info">
+            <div class="color-name">Border Hover</div>
+            <div class="color-value">rgba(255,255,255,0.12)</div>
+            <div class="color-usage">Hovered borders, active edges</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Semantic Colors -->
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;margin-top:32px;">Semantic Colors</h3>
+      <div class="color-grid">
+        <div class="color-card">
+          <div class="color-swatch" style="background:rgba(0,200,83,0.08);border-left:4px solid #00c853;"></div>
+          <div class="color-info">
+            <div class="color-name">Bullish / Long / Gain</div>
+            <div class="color-value">#00c853 / subtle: 0.08</div>
+            <div class="color-usage">Positive P&L, long bias, gains</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:rgba(239,68,68,0.12);border-left:4px solid #ef4444;"></div>
+          <div class="color-info">
+            <div class="color-name">Bearish / Short / Loss</div>
+            <div class="color-value">#ef4444 / subtle: 0.12</div>
+            <div class="color-usage">Negative P&L, short bias, losses</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:rgba(245,158,11,0.12);border-left:4px solid #f59e0b;"></div>
+          <div class="color-info">
+            <div class="color-name">Warning / Caution</div>
+            <div class="color-value">#f59e0b / subtle: 0.12</div>
+            <div class="color-usage">Defend stage, risk warnings</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background:rgba(59,130,246,0.12);border-left:4px solid #3b82f6;"></div>
+          <div class="color-info">
+            <div class="color-name">Info / Neutral</div>
+            <div class="color-value">#3b82f6 / subtle: 0.12</div>
+            <div class="color-usage">Informational states, links</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- TYPOGRAPHY -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="typography">
+    <div class="sg-section">
+      <span class="sg-section-label">Foundation</span>
+      <h2 class="sg-section-title">Typography</h2>
+      <p class="sg-section-desc">
+        Inter is the sole typeface, loaded in weights 400–800. Tight letter-spacing
+        on headings (−0.04em to −0.01em) gives a modern, confident feel.
+      </p>
+
+      <div class="type-specimens">
+        <div class="type-row">
+          <div class="type-meta">
+            Hero H1<br/>
+            clamp(2.5rem, 5vw, 4rem)<br/>
+            weight: 800<br/>
+            spacing: -0.04em<br/>
+            line-height: 1.1
+          </div>
+          <div class="type-sample">
+            <h1 style="font-size:clamp(2.5rem,5vw,4rem);font-weight:800;letter-spacing:-0.04em;line-height:1.1;background:linear-gradient(180deg,#ffffff 30%,#9ca3af 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
+              Trading Intelligence
+            </h1>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Section Title<br/>
+            clamp(1.75rem, 3vw, 2.5rem)<br/>
+            weight: 800<br/>
+            spacing: -0.03em<br/>
+            line-height: 1.15
+          </div>
+          <div class="type-sample">
+            <h2 style="font-size:clamp(1.75rem,3vw,2.5rem);font-weight:800;letter-spacing:-0.03em;line-height:1.15;">
+              One platform, every trading horizon
+            </h2>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Card Heading<br/>
+            18px<br/>
+            weight: 700<br/>
+            spacing: -0.02em
+          </div>
+          <div class="type-sample">
+            <h3 style="font-size:18px;font-weight:700;letter-spacing:-0.02em;">
+              For Active Traders
+            </h3>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Subheading<br/>
+            16px<br/>
+            weight: 700<br/>
+            spacing: -0.01em
+          </div>
+          <div class="type-sample">
+            <h4 style="font-size:16px;font-weight:700;letter-spacing:-0.01em;">
+              Follow the Stages
+            </h4>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Body<br/>
+            14–16px<br/>
+            weight: 400<br/>
+            line-height: 1.65–1.7
+          </div>
+          <div class="type-sample">
+            <p style="font-size:15px;color:var(--text-secondary);line-height:1.7;max-width:480px;">
+              A multi-timeframe scoring engine that surfaces high-conviction setups
+              across 200+ tickers, manages risk automatically, and learns from every trade.
+            </p>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Label / Overline<br/>
+            11px<br/>
+            weight: 700<br/>
+            UPPERCASE<br/>
+            spacing: 0.1em
+          </div>
+          <div class="type-sample">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);">
+              Platform Capabilities
+            </span>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Caption / Meta<br/>
+            11–12px<br/>
+            weight: 500–600<br/>
+            color: --text-muted
+          </div>
+          <div class="type-sample">
+            <span style="font-size:12px;color:var(--text-muted);font-weight:500;">
+              Updated 2 min ago &middot; Score 87 &middot; Rank #12
+            </span>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Stat Number<br/>
+            28px<br/>
+            weight: 800<br/>
+            spacing: -0.03em
+          </div>
+          <div class="type-sample">
+            <span style="font-size:28px;font-weight:800;letter-spacing:-0.03em;">200+</span>
+            <span style="display:block;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-top:4px;">Tickers Scored</span>
+          </div>
+        </div>
+
+        <div class="type-row">
+          <div class="type-meta">
+            Button<br/>
+            14–15px<br/>
+            weight: 700<br/>
+            spacing: -0.01em
+          </div>
+          <div class="type-sample">
+            <button class="btn-primary">Get Started</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="code-block" style="margin-top:24px;">
+<span class="key">/* Font Stack */</span><br/>
+font-family: <span class="str">"Inter"</span>, -apple-system, BlinkMacSystemFont, <span class="str">"Segoe UI"</span>, Roboto, sans-serif;<br/><br/>
+<span class="key">/* Load from Google Fonts */</span><br/>
+&lt;link href=<span class="str">"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"</span> rel=<span class="str">"stylesheet"</span> /&gt;
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- COMPONENTS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="components">
+    <div class="sg-section">
+      <span class="sg-section-label">UI Kit</span>
+      <h2 class="sg-section-title">Components</h2>
+      <p class="sg-section-desc">
+        Reusable building blocks that make up the Timed Trading experience.
+        All components use the same foundation of colors, radius, and spacing.
+      </p>
+
+      <div class="component-grid">
+        <!-- Buttons -->
+        <div class="component-card">
+          <div class="component-preview" style="flex-direction:column;gap:12px;">
+            <button class="btn-primary">Primary Action</button>
+            <button class="btn-secondary">Secondary</button>
+            <button class="btn-ghost">Ghost Link</button>
+            <button class="btn-danger btn-sm">Danger Small</button>
+          </div>
+          <div class="component-info">
+            <div class="component-name">Buttons</div>
+            <div class="component-desc">
+              Primary (green, glow shadow), Secondary (surface + border),
+              Ghost (transparent), Danger (red). All use 12px radius.
+            </div>
+          </div>
+        </div>
+
+        <!-- Badges -->
+        <div class="component-card">
+          <div class="component-preview" style="flex-direction:column;gap:8px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+              <span class="badge badge-accent">Bullish</span>
+              <span class="badge badge-danger">Bearish</span>
+              <span class="badge badge-warning">Defend</span>
+              <span class="badge badge-info">Setup</span>
+              <span class="badge badge-neutral">Watch</span>
+            </div>
+          </div>
+          <div class="component-info">
+            <div class="component-name">Badges / Pills</div>
+            <div class="component-desc">
+              Status indicators with pulsing dot. pill radius (100px),
+              11px text, 600 weight, color-coded backgrounds.
+            </div>
+          </div>
+        </div>
+
+        <!-- Card -->
+        <div class="component-card">
+          <div class="component-preview">
+            <div class="card card-accent" style="max-width:240px;width:100%;">
+              <h4 style="font-size:14px;font-weight:700;margin-bottom:4px;">AAPL</h4>
+              <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">Apple Inc.</p>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;">
+                <span style="font-size:18px;font-weight:800;letter-spacing:-0.02em;">$187.42</span>
+                <span style="font-size:12px;font-weight:600;color:var(--accent);">+2.4%</span>
+              </div>
+            </div>
+          </div>
+          <div class="component-info">
+            <div class="component-name">Cards</div>
+            <div class="component-desc">
+              Surface bg, 16px radius, 1px border. Optional top accent
+              gradient line on hover. 24–32px padding.
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature Item -->
+        <div class="component-card">
+          <div class="component-preview">
+            <div style="display:flex;align-items:center;gap:12px;padding:16px 18px;border-radius:12px;background:var(--bg-surface);border:1px solid var(--border);max-width:260px;width:100%;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;">
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+              </svg>
+              <span style="font-size:13px;font-weight:600;letter-spacing:-0.01em;">Multi-Timeframe Analysis</span>
+            </div>
+          </div>
+          <div class="component-info">
+            <div class="component-name">Feature Item</div>
+            <div class="component-desc">
+              Icon + label in a compact row. Surface bg, 12px radius.
+              Icon: 20px, accent stroke. Label: 13px, 600 weight.
+            </div>
+          </div>
+        </div>
+
+        <!-- Input / Search -->
+        <div class="component-card">
+          <div class="component-preview" style="flex-direction:column;gap:12px;">
+            <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:var(--bg-surface);border:1px solid var(--border);max-width:260px;width:100%;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <span style="font-size:13px;color:var(--text-muted);">Search tickers...</span>
+            </div>
+          </div>
+          <div class="component-info">
+            <div class="component-name">Search / Input</div>
+            <div class="component-desc">
+              Surface bg, 10px radius, 1px border. Leading icon in muted.
+              Placeholder: 13px, muted color.
+            </div>
+          </div>
+        </div>
+
+        <!-- Step Indicator -->
+        <div class="component-card">
+          <div class="component-preview">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+              <div style="width:56px;height:56px;border-radius:50%;background:var(--bg-base);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:var(--accent);">1</div>
+              <span style="font-size:13px;font-weight:700;">Build Your Watchlist</span>
+              <span style="font-size:11px;color:var(--text-secondary);text-align:center;max-width:160px;">Select from 200+ curated tickers</span>
+            </div>
+          </div>
+          <div class="component-info">
+            <div class="component-name">Step Indicator</div>
+            <div class="component-desc">
+              Numbered circle (64px, 2px accent border, base bg).
+              Used in "How It Works" section.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- GRADIENTS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="gradients">
+    <div class="sg-section">
+      <span class="sg-section-label">Visual Effects</span>
+      <h2 class="sg-section-title">Gradients</h2>
+      <p class="sg-section-desc">
+        Gradients add depth and energy. The logo gradient is the signature — use it
+        sparingly. The hero text gradient gives headings dimension.
+      </p>
+
+      <div class="gradient-grid">
+        <div class="gradient-card">
+          <div class="gradient-preview" style="background:linear-gradient(135deg, #00c853, #00e676, #69f0ae);"></div>
+          <div class="gradient-info">
+            <div class="gradient-name">Logo Gradient</div>
+            <div class="gradient-css">linear-gradient(135deg, #00c853, #00e676, #69f0ae)</div>
+          </div>
+        </div>
+        <div class="gradient-card">
+          <div class="gradient-preview" style="background:linear-gradient(180deg, #ffffff 30%, #9ca3af 100%);"></div>
+          <div class="gradient-info">
+            <div class="gradient-name">Hero Text Gradient</div>
+            <div class="gradient-css">linear-gradient(180deg, #ffffff 30%, #9ca3af 100%)</div>
+          </div>
+        </div>
+        <div class="gradient-card">
+          <div class="gradient-preview" style="background:radial-gradient(circle, rgba(0,200,83,0.12) 0%, rgba(0,200,83,0.02) 50%, transparent 70%);"></div>
+          <div class="gradient-info">
+            <div class="gradient-name">Hero Orb</div>
+            <div class="gradient-css">radial-gradient(circle, rgba(0,200,83,0.12) 0%, rgba(0,200,83,0.02) 50%, transparent 70%)</div>
+          </div>
+        </div>
+        <div class="gradient-card">
+          <div class="gradient-preview" style="background:linear-gradient(90deg, transparent, var(--accent), transparent);"></div>
+          <div class="gradient-info">
+            <div class="gradient-name">Card Top Accent</div>
+            <div class="gradient-css">linear-gradient(90deg, transparent, var(--accent), transparent)</div>
+          </div>
+        </div>
+        <div class="gradient-card">
+          <div class="gradient-preview" style="background:linear-gradient(90deg, var(--accent), rgba(0,200,83,0.2));"></div>
+          <div class="gradient-info">
+            <div class="gradient-name">Step Connector</div>
+            <div class="gradient-css">linear-gradient(90deg, var(--accent), rgba(0,200,83,0.2))</div>
+          </div>
+        </div>
+        <div class="gradient-card">
+          <div class="gradient-preview" style="background:linear-gradient(180deg, transparent 0%, rgba(0,200,83,0.015) 50%, transparent 100%);border-top:1px solid var(--border);border-bottom:1px solid var(--border);"></div>
+          <div class="gradient-info">
+            <div class="gradient-name">Section Highlight</div>
+            <div class="gradient-css">linear-gradient(180deg, transparent 0%, rgba(0,200,83,0.015) 50%, transparent 100%)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- ICONS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="icons">
+    <div class="sg-section">
+      <span class="sg-section-label">Iconography</span>
+      <h2 class="sg-section-title">Icons</h2>
+      <p class="sg-section-desc">
+        All icons follow a consistent stroke style: 2px weight, round caps &amp; joins,
+        rendered in accent green on dark backgrounds or white on colored surfaces.
+        Based on the Lucide / Feather icon family.
+      </p>
+
+      <div class="icon-grid">
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>
+          <span>Chart / Brand</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><path d="M3 3v18h18" /><path d="M7 16l4-8 4 4 6-10" /></svg>
+          <span>Analytics</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span>Search</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
+          <span>Refresh</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>
+          <span>Grid / Kanban</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+          <span>Shield / Risk</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>
+          <span>Book / Learn</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" /></svg>
+          <span>Sun / Align</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 3v18" /></svg>
+          <span>Table / Grid</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+          <span>Clock / Time</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+          <span>Monitor</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
+          <span>Arrow Right</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+          <span>Lock / Security</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+          <span>Bell / Alert</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
+          <span>Heart / Save</span>
+        </div>
+        <div class="icon-card">
+          <svg viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></svg>
+          <span>Trending Up</span>
+        </div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Icon Specs</h4>
+        <div class="code-block">
+<span class="key">/* Standard icon properties */</span><br/>
+width: <span class="hl">20px</span>; height: <span class="hl">20px</span>;<br/>
+stroke: <span class="hl">var(--accent)</span>; <span class="key">/* or white on colored surfaces */</span><br/>
+fill: <span class="hl">none</span>;<br/>
+stroke-width: <span class="hl">2</span>;<br/>
+stroke-linecap: <span class="hl">round</span>;<br/>
+stroke-linejoin: <span class="hl">round</span>;<br/><br/>
+<span class="key">/* Small icons (nav, badges) */</span><br/>
+width: <span class="hl">14–16px</span>;<br/><br/>
+<span class="key">/* Large icons (feature cards) */</span><br/>
+width: <span class="hl">22–24px</span>; stroke-width: <span class="hl">2</span>;
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- ANIMATIONS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="animations">
+    <div class="sg-section">
+      <span class="sg-section-label">Motion</span>
+      <h2 class="sg-section-title">Animations</h2>
+      <p class="sg-section-desc">
+        Subtle, purposeful motion. Transitions use ease-out with 0.2–0.3s duration.
+        Scroll reveal uses 0.7s. Decorative animations are gentle and infinite.
+      </p>
+
+      <div class="animation-grid">
+        <div class="anim-card">
+          <div class="anim-preview">
+            <div class="anim-dot float"></div>
+          </div>
+          <div class="anim-name">Float</div>
+          <div class="anim-code">8s ease-in-out infinite<br/>translateY(0) → translateY(-20px)</div>
+        </div>
+        <div class="anim-card">
+          <div class="anim-preview">
+            <div class="anim-dot pulse"></div>
+          </div>
+          <div class="anim-name">Pulse Glow</div>
+          <div class="anim-code">2s ease-in-out infinite<br/>opacity: 0.5 → 1 + box-shadow glow</div>
+        </div>
+        <div class="anim-card">
+          <div class="anim-preview">
+            <div class="anim-dot fade-up"></div>
+          </div>
+          <div class="anim-name">Fade Up</div>
+          <div class="anim-code">0.8s ease-out<br/>opacity: 0, Y+24 → opacity: 1, Y+0</div>
+        </div>
+      </div>
+
+      <div style="margin-top:32px;">
+        <h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Transition Defaults</h4>
+        <div class="code-block">
+<span class="key">/* Interactive elements (buttons, cards, links) */</span><br/>
+transition: all <span class="hl">0.2s</span> ease;<br/><br/>
+<span class="key">/* Cards, panels */</span><br/>
+transition: all <span class="hl">0.3s</span> ease;<br/><br/>
+<span class="key">/* Scroll reveal */</span><br/>
+transition: opacity <span class="hl">0.7s</span> ease, transform <span class="hl">0.7s</span> ease;<br/><br/>
+<span class="key">/* Hover lift */</span><br/>
+transform: translateY(<span class="hl">-2px</span>);  <span class="key">/* buttons */</span><br/>
+transform: translateY(<span class="hl">-4px</span>);  <span class="key">/* cards */</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- DESIGN TOKENS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container" id="tokens">
+    <div class="sg-section">
+      <span class="sg-section-label">Reference</span>
+      <h2 class="sg-section-title">Design Tokens</h2>
+      <p class="sg-section-desc">
+        Copy-pasteable CSS custom properties for use across all surfaces.
+      </p>
+
+      <div class="code-block" style="font-size:13px;line-height:2;">
+<span class="key">:root</span> {<br/>
+&nbsp;&nbsp;<span class="key">/* ── Backgrounds ── */</span><br/>
+&nbsp;&nbsp;--bg-base: <span class="hl">#0b0e11</span>;<br/>
+&nbsp;&nbsp;--bg-surface: <span class="hl">rgba(255,255,255,0.025)</span>;<br/>
+&nbsp;&nbsp;--bg-surface-hover: <span class="hl">rgba(255,255,255,0.045)</span>;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Borders ── */</span><br/>
+&nbsp;&nbsp;--border: <span class="hl">rgba(255,255,255,0.06)</span>;<br/>
+&nbsp;&nbsp;--border-hover: <span class="hl">rgba(255,255,255,0.12)</span>;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Text ── */</span><br/>
+&nbsp;&nbsp;--text-primary: <span class="hl">#e5e7eb</span>;<br/>
+&nbsp;&nbsp;--text-secondary: <span class="hl">#9ca3af</span>;<br/>
+&nbsp;&nbsp;--text-muted: <span class="hl">#6b7280</span>;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Accent (Brand Green) ── */</span><br/>
+&nbsp;&nbsp;--accent: <span class="hl">#00c853</span>;<br/>
+&nbsp;&nbsp;--accent-hover: <span class="hl">#00e676</span>;<br/>
+&nbsp;&nbsp;--accent-light: <span class="hl">#69f0ae</span>;<br/>
+&nbsp;&nbsp;--accent-glow: <span class="hl">rgba(0,200,83,0.15)</span>;<br/>
+&nbsp;&nbsp;--accent-subtle: <span class="hl">rgba(0,200,83,0.08)</span>;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Semantic ── */</span><br/>
+&nbsp;&nbsp;--danger: <span class="hl">#ef4444</span>;<br/>
+&nbsp;&nbsp;--danger-subtle: <span class="hl">rgba(239,68,68,0.12)</span>;<br/>
+&nbsp;&nbsp;--warning: <span class="hl">#f59e0b</span>;<br/>
+&nbsp;&nbsp;--warning-subtle: <span class="hl">rgba(245,158,11,0.12)</span>;<br/>
+&nbsp;&nbsp;--info: <span class="hl">#3b82f6</span>;<br/>
+&nbsp;&nbsp;--info-subtle: <span class="hl">rgba(59,130,246,0.12)</span>;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Typography ── */</span><br/>
+&nbsp;&nbsp;--font: <span class="str">"Inter"</span>, -apple-system, BlinkMacSystemFont, <span class="str">"Segoe UI"</span>, Roboto, sans-serif;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Radius ── */</span><br/>
+&nbsp;&nbsp;--radius-sm: <span class="hl">6px</span>;    <span class="key">/* small pills, inputs */</span><br/>
+&nbsp;&nbsp;--radius-md: <span class="hl">10px</span>;   <span class="key">/* inputs, logo container */</span><br/>
+&nbsp;&nbsp;--radius-lg: <span class="hl">12px</span>;   <span class="key">/* buttons, feature items */</span><br/>
+&nbsp;&nbsp;--radius-xl: <span class="hl">16px</span>;   <span class="key">/* cards, panels */</span><br/>
+&nbsp;&nbsp;--radius-full: <span class="hl">100px</span>; <span class="key">/* badges, pills */</span><br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Shadows ── */</span><br/>
+&nbsp;&nbsp;--shadow-glow: <span class="hl">0 0 32px var(--accent-glow)</span>;<br/>
+&nbsp;&nbsp;--shadow-glow-hover: <span class="hl">0 0 48px rgba(0,200,83,0.25)</span>;<br/>
+&nbsp;&nbsp;--shadow-elevation: <span class="hl">0 4px 16px rgba(0,0,0,0.3)</span>;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Spacing Scale ── */</span><br/>
+&nbsp;&nbsp;--space-xs: <span class="hl">4px</span>;<br/>
+&nbsp;&nbsp;--space-sm: <span class="hl">8px</span>;<br/>
+&nbsp;&nbsp;--space-md: <span class="hl">16px</span>;<br/>
+&nbsp;&nbsp;--space-lg: <span class="hl">24px</span>;<br/>
+&nbsp;&nbsp;--space-xl: <span class="hl">32px</span>;<br/>
+&nbsp;&nbsp;--space-2xl: <span class="hl">48px</span>;<br/>
+&nbsp;&nbsp;--space-3xl: <span class="hl">64px</span>;<br/>
+&nbsp;&nbsp;--space-4xl: <span class="hl">80px</span>;<br/><br/>
+&nbsp;&nbsp;<span class="key">/* ── Max Widths ── */</span><br/>
+&nbsp;&nbsp;--max-width-content: <span class="hl">1120px</span>;<br/>
+&nbsp;&nbsp;--max-width-text: <span class="hl">560px</span>;<br/>
+&nbsp;&nbsp;--max-width-hero: <span class="hl">720px</span>;<br/>
+}
+      </div>
+
+      <div style="margin-top:32px;">
+        <h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Spacing Scale</h4>
+        <div class="spacing-grid">
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:4px;"></div></div>
+            <div class="spacing-name">xs</div>
+            <div class="spacing-label">4px</div>
+          </div>
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:8px;"></div></div>
+            <div class="spacing-name">sm</div>
+            <div class="spacing-label">8px</div>
+          </div>
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:16px;"></div></div>
+            <div class="spacing-name">md</div>
+            <div class="spacing-label">16px</div>
+          </div>
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:24px;"></div></div>
+            <div class="spacing-name">lg</div>
+            <div class="spacing-label">24px</div>
+          </div>
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:32px;"></div></div>
+            <div class="spacing-name">xl</div>
+            <div class="spacing-label">32px</div>
+          </div>
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:48px;"></div></div>
+            <div class="spacing-name">2xl</div>
+            <div class="spacing-label">48px</div>
+          </div>
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:64px;"></div></div>
+            <div class="spacing-name">3xl</div>
+            <div class="spacing-label">64px</div>
+          </div>
+          <div class="spacing-card">
+            <div class="spacing-visual"><div class="spacing-bar" style="width:80px;"></div></div>
+            <div class="spacing-name">4xl</div>
+            <div class="spacing-label">80px</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:32px;">
+        <h4 style="font-size:13px;font-weight:700;margin-bottom:8px;">Border Radius Scale</h4>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;">
+          <div style="text-align:center;">
+            <div style="width:48px;height:48px;border-radius:6px;background:var(--accent);opacity:0.3;margin:0 auto 8px;"></div>
+            <div class="spacing-name">sm</div>
+            <div class="spacing-label">6px</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="width:48px;height:48px;border-radius:10px;background:var(--accent);opacity:0.3;margin:0 auto 8px;"></div>
+            <div class="spacing-name">md</div>
+            <div class="spacing-label">10px</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="width:48px;height:48px;border-radius:12px;background:var(--accent);opacity:0.3;margin:0 auto 8px;"></div>
+            <div class="spacing-name">lg</div>
+            <div class="spacing-label">12px</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="width:48px;height:48px;border-radius:16px;background:var(--accent);opacity:0.3;margin:0 auto 8px;"></div>
+            <div class="spacing-name">xl</div>
+            <div class="spacing-label">16px</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="width:48px;height:48px;border-radius:100px;background:var(--accent);opacity:0.3;margin:0 auto 8px;"></div>
+            <div class="spacing-name">full</div>
+            <div class="spacing-label">100px</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- DO'S AND DON'TS -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="container">
+    <div class="sg-section">
+      <span class="sg-section-label">Guidelines</span>
+      <h2 class="sg-section-title">Do's &amp; Don'ts</h2>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+        <div class="card" style="border-left:3px solid var(--accent);">
+          <h4 style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:12px;">Do</h4>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;">
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--accent);">&#10003;</span>
+              Use the dark base (#0b0e11) as the primary background
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--accent);">&#10003;</span>
+              Keep the green accent for primary CTAs and highlights only
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--accent);">&#10003;</span>
+              Use Inter for all text — no secondary typefaces
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--accent);">&#10003;</span>
+              Apply tight letter-spacing (-0.02 to -0.04em) on headings
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--accent);">&#10003;</span>
+              Use semi-transparent white surfaces for cards/panels
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--accent);">&#10003;</span>
+              Add glow shadows to primary CTAs for prominence
+            </li>
+          </ul>
+        </div>
+        <div class="card" style="border-left:3px solid var(--danger);">
+          <h4 style="font-size:14px;font-weight:700;color:var(--danger);margin-bottom:12px;">Don't</h4>
+          <ul style="list-style:none;display:flex;flex-direction:column;gap:8px;">
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--danger);">&#10007;</span>
+              Use the logo gradient for large backgrounds
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--danger);">&#10007;</span>
+              Mix rounded and sharp corners on the same surface
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--danger);">&#10007;</span>
+              Place green text on green backgrounds — use white or dark
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--danger);">&#10007;</span>
+              Use more than 3 text color levels in a single component
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--danger);">&#10007;</span>
+              Stretch or rotate the logo/logomark
+            </li>
+            <li style="font-size:13px;color:var(--text-secondary);padding-left:16px;position:relative;">
+              <span style="position:absolute;left:0;color:var(--danger);">&#10007;</span>
+              Use solid opaque cards — always use semi-transparent
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══ Logo Download Script ═══ -->
+  <script>
+    function getLogomarkSvg(size) {
+      const s = size || 512;
+      return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="' + s + '" height="' + s + '">' +
+        '<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">' +
+        '<stop offset="0%" stop-color="#00c853"/><stop offset="50%" stop-color="#00e676"/><stop offset="100%" stop-color="#69f0ae"/>' +
+        '</linearGradient></defs>' +
+        '<rect width="24" height="24" rx="5.5" fill="url(#g)"/>' +
+        '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<polyline points="16 7 22 7 22 13" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '</svg>';
+    }
+    function downloadLogomark(format) {
+      if (format === 'svg') {
+        const svg = getLogomarkSvg();
+        const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'timed-trading-logomark.svg';
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const svg = getLogomarkSvg(512);
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          canvas.width = 512;
+          canvas.height = 512;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const url = canvas.toDataURL('image/png');
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'timed-trading-logomark.png';
+          a.click();
+        };
+        img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+      }
+    }
+    function downloadFullLogo(bg) {
+      const isDark = bg === 'dark';
+      const bgColor = isDark ? '#0b0e11' : '#ffffff';
+      const textColor = isDark ? '#e5e7eb' : '#0b0e11';
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" width="480" height="128">' +
+        '<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">' +
+        '<stop offset="0%" stop-color="#00c853"/><stop offset="50%" stop-color="#00e676"/><stop offset="100%" stop-color="#69f0ae"/>' +
+        '</linearGradient></defs>' +
+        '<rect width="240" height="64" fill="' + bgColor + '"/>' +
+        '<rect x="12" y="12" width="40" height="40" rx="10" fill="url(#g)"/>' +
+        '<polyline points="34 20 28 26 24 23 16 30" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<polyline points="30 20 34 20 34 26" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<text x="62" y="40" font-family="-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif" font-size="20" font-weight="700" fill="' + textColor + '">Timed Trading</text>' +
+        '</svg>';
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 480;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, 480, 128);
+        ctx.drawImage(img, 0, 0);
+        const url = canvas.toDataURL('image/png');
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'timed-trading-logo-' + bg + '.png';
+        a.click();
+      };
+      img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    }
+  </script>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer style="border-top:1px solid var(--border);padding:32px 0;margin-top:40px;">
+    <div class="container" style="text-align:center;">
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px;">
+        <div class="logo-mark gradient" style="width:24px;height:24px;border-radius:6px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+            <polyline points="16 7 22 7 22 13" />
+          </svg>
+        </div>
+        <span style="font-size:13px;color:var(--text-muted);">Timed Trading Brand Kit v1.0 &mdash; &copy; 2026</span>
+      </div>
+      <p style="font-size:11px;color:var(--text-muted);">
+        For internal use. Keep designs consistent across web, mobile, Discord, and print.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

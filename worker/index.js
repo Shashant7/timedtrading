@@ -220,6 +220,7 @@ const ROUTES = [
   ["GET", "/timed/ingestion/stats", "GET /timed/ingestion/stats"],
   ["GET", "/timed/ingest-audit", "GET /timed/ingest-audit"],
   ["GET", "/timed/health", "GET /timed/health"],
+  ["GET", "/timed/auth", "GET /timed/auth"],
   ["POST", "/timed/purge", "POST /timed/purge"],
   ["POST", "/timed/rebuild-index", "POST /timed/rebuild-index"],
   ["POST", "/timed/clear-rate-limit", "POST /timed/clear-rate-limit"],
@@ -319,6 +320,7 @@ const ROUTES = [
   ["POST", "/timed/screener/candidates", "POST /timed/screener/candidates"],
   ["POST", "/timed/enrich-metadata", "POST /timed/enrich-metadata"],
   ["GET", "/timed/enrich-metadata", "GET /timed/enrich-metadata"],
+  ["POST", "/timed/enrich-alpaca", "POST /timed/enrich-alpaca"],
   // User / Auth
   ["GET", "/timed/me", "GET /timed/me"],
   ["POST", "/timed/accept-terms", "POST /timed/accept-terms"],
@@ -18920,7 +18922,8 @@ export default {
                 // ignore
               }
 
-              // Context fallback for D1 /timed/all path (payload_json may omit capture.context).
+              // Context inline derivation (fast, no KV reads).
+              // KV fallback is done in a batch AFTER the loop for much better performance.
               try {
                 if (obj.context && typeof obj.context === "object") {
                   const cleaned = sanitizeTickerContext(obj.context, obj);
@@ -18932,13 +18935,6 @@ export default {
                     obj.context = cleaned || derived;
                   }
                 }
-                // Final fallback: load from KV enrichment if still no context (or missing name/sector)
-                if (!obj.context || !(obj.context.name || obj.context.sector)) {
-                  const kvCtx = await kvGetJSON(KV, `timed:context:${sym}`);
-                  if (kvCtx && typeof kvCtx === "object") {
-                    obj.context = { ...(obj.context || {}), ...kvCtx };
-                  }
-                }
               } catch {
                 // ignore
               }
@@ -18947,6 +18943,33 @@ export default {
             } catch {
               // skip bad rows
             }
+          }
+
+          // ── BATCH context enrichment from KV ──
+          // Instead of doing 200+ sequential KV reads inside the loop, we collect
+          // all tickers still missing context.name and fetch them in parallel.
+          try {
+            const needCtx = Object.entries(data)
+              .filter(([, v]) => !v?.context?.name)
+              .map(([sym]) => sym);
+            if (needCtx.length > 0) {
+              // Parallel KV reads in batches of 50 for safety
+              for (let b = 0; b < needCtx.length; b += 50) {
+                const batch = needCtx.slice(b, b + 50);
+                const kvResults = await Promise.all(
+                  batch.map(sym => kvGetJSON(KV, `timed:context:${sym}`))
+                );
+                for (let i = 0; i < batch.length; i++) {
+                  const kvCtx = kvResults[i];
+                  if (kvCtx && typeof kvCtx === "object" && kvCtx.name) {
+                    const sym = batch[i];
+                    data[sym].context = { ...(data[sym].context || {}), ...kvCtx };
+                  }
+                }
+              }
+            }
+          } catch (ctxBatchErr) {
+            console.warn("[/timed/all] Batch context enrichment failed:", String(ctxBatchErr?.message || ctxBatchErr));
           }
 
           // POSITION RECONCILIATION: Ensure active tickers with open positions appear in data
@@ -19172,6 +19195,19 @@ export default {
           });
 
           const socialAdditions = (await kvGetJSON(KV, "timed:social:additions")) || [];
+
+          // ── Background auto-enrich: fill missing context from Alpaca asset API ──
+          // On each /timed/all request, enrich up to 10 tickers that have no context.name.
+          // This progressively fills the context cache without blocking the response.
+          try {
+            const missingCtx = Object.entries(data)
+              .filter(([, v]) => !v?.context?.name)
+              .map(([sym]) => sym)
+              .slice(0, 10);
+            if (missingCtx.length > 0 && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+              ctx.waitUntil(alpacaEnrichMissingContext(env, KV, missingCtx));
+            }
+          } catch { /* non-critical */ }
 
           return sendJSON(
             {
@@ -20505,6 +20541,66 @@ export default {
         return { valid, invalid };
       }
 
+      // ── Alpaca Auto-Enrichment: fetch company name from /v2/assets/{sym} ──
+      // Used by /timed/all background enrichment and POST /timed/enrich-alpaca bulk endpoint.
+      async function alpacaEnrichMissingContext(env, KV, symbols) {
+        const apiKeyId = env?.ALPACA_API_KEY_ID;
+        const apiSecret = env?.ALPACA_API_SECRET_KEY;
+        if (!apiKeyId || !apiSecret || !symbols.length) return { enriched: 0, skipped: 0 };
+        const base = env.ALPACA_API_BASE || "https://paper-api.alpaca.markets";
+        let enriched = 0, skipped = 0;
+        for (const sym of symbols) {
+          try {
+            // Check if already enriched in KV (avoid redundant Alpaca calls)
+            const existing = await kvGetJSON(KV, `timed:context:${sym}`);
+            if (existing && existing.name) { skipped++; continue; }
+
+            const url = `${base}/v2/assets/${encodeURIComponent(sym)}`;
+            const resp = await fetch(url, {
+              headers: {
+                "APCA-API-KEY-ID": apiKeyId,
+                "APCA-API-SECRET-KEY": apiSecret,
+                "Accept": "application/json",
+              },
+            });
+            if (!resp.ok) { skipped++; continue; }
+            const asset = await resp.json();
+            if (!asset?.name) { skipped++; continue; }
+
+            const enrichment = {
+              name: asset.name,
+              _enriched_at: Date.now(),
+              _source: "alpaca_asset",
+            };
+            if (asset.exchange) enrichment.exchange = asset.exchange;
+            // Merge with any existing partial context
+            const merged = { ...(existing || {}), ...enrichment };
+            await kvPutJSON(KV, `timed:context:${sym}`, merged, 90 * 24 * 60 * 60);
+
+            // Also patch D1 ticker_latest so /timed/all includes context on next load
+            try {
+              if (env?.DB) {
+                const row = await env.DB.prepare(`SELECT payload_json FROM ticker_latest WHERE ticker = ?`).bind(sym).first();
+                if (row?.payload_json) {
+                  const payload = JSON.parse(row.payload_json);
+                  payload.context = { ...(payload.context || {}), ...enrichment };
+                  await env.DB.prepare(`UPDATE ticker_latest SET payload_json = ? WHERE ticker = ?`).bind(JSON.stringify(payload), sym).run();
+                }
+              }
+            } catch { /* D1 patch non-critical */ }
+
+            enriched++;
+          } catch (e) {
+            console.warn(`[ALPACA ENRICH] Failed for ${sym}:`, String(e));
+            skipped++;
+          }
+        }
+        if (enriched > 0) {
+          console.log(`[ALPACA ENRICH] Enriched ${enriched} tickers, skipped ${skipped}`);
+        }
+        return { enriched, skipped };
+      }
+
       // POST /timed/watchlist/add?key=... - Add tickers to watchlist
       // Validates equity symbols against Alpaca universe before adding. Then triggers backfill (prev 30 days).
       // Supports both API key and CF Access JWT (admin) authentication.
@@ -21320,6 +21416,19 @@ export default {
           200,
           corsHeaders(env, req),
         );
+      }
+
+      // GET /timed/auth — Auth trigger: this Worker route is behind CF Access.
+      // Navigating here forces CF Access to authenticate the user, then redirects
+      // to the dashboard. Used by the LoginScreen when the user clicks "Sign In".
+      if (routeKey === "GET /timed/auth") {
+        const redirectTo = url.searchParams.get("redirect") || "/index-react.html";
+        // Sanitize: only allow same-origin paths
+        const safePath = redirectTo.startsWith("/") ? redirectTo : "/index-react.html";
+        return new Response(null, {
+          status: 302,
+          headers: { ...corsHeaders(env, req), Location: safePath },
+        });
       }
 
       // GET /timed/health
@@ -24902,11 +25011,33 @@ export default {
       // ═══════════════════════════════════════════════════════════════════════
 
       // GET /timed/screener/candidates - Get latest screener discovery results
+      // Enriches candidates with company name from timed:context:{sym} when missing
       if (routeKey === "GET /timed/screener/candidates") {
         try {
           const raw = await KV.get("timed:screener:candidates");
           const data = raw ? JSON.parse(raw) : { candidates: [], scan_ts: null, count: 0 };
-          return sendJSON({ ok: true, ...data }, 200, corsHeaders(env, req));
+          const candidates = data.candidates || [];
+          if (candidates.length > 0) {
+            // Enrich missing names from context cache (batch KV reads)
+            const needName = candidates.filter(c => !c.name || c.name === c.ticker);
+            const syms = [...new Set(needName.map(c => String(c.ticker || "").toUpperCase()).filter(Boolean))];
+            const symToName = {};
+            for (let b = 0; b < syms.length; b += 50) {
+              const batch = syms.slice(b, b + 50);
+              const kvResults = await Promise.all(
+                batch.map(sym => kvGetJSON(KV, `timed:context:${sym}`))
+              );
+              for (let i = 0; i < batch.length; i++) {
+                const ctx = kvResults[i];
+                if (ctx && typeof ctx === "object" && ctx.name) symToName[batch[i]] = ctx.name;
+              }
+            }
+            for (const c of candidates) {
+              const sym = String(c.ticker || "").toUpperCase();
+              if ((!c.name || c.name === c.ticker) && symToName[sym]) c.name = symToName[sym];
+            }
+          }
+          return sendJSON({ ok: true, ...data, candidates }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -25048,6 +25179,43 @@ export default {
             enriched: enriched.length,
             missing: missing.length,
             missingTickers: missing,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/enrich-alpaca — Bulk-enrich all tickers missing context via Alpaca /v2/assets
+      if (routeKey === "POST /timed/enrich-alpaca") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          if (!env.ALPACA_API_KEY_ID || !env.ALPACA_API_SECRET_KEY) {
+            return sendJSON({ ok: false, error: "Alpaca not configured" }, 400, corsHeaders(env, req));
+          }
+          const allTickers = Object.keys(SECTOR_MAP);
+          // Find tickers missing context in KV
+          const missing = [];
+          for (const sym of allTickers.slice(0, 300)) {
+            const ctx = await kvGetJSON(KV, `timed:context:${sym}`);
+            if (!ctx || !ctx.name) missing.push(sym);
+          }
+          if (missing.length === 0) {
+            return sendJSON({ ok: true, message: "All tickers already have context", enriched: 0 }, 200, corsHeaders(env, req));
+          }
+          // Enrich in batches of 20 to avoid overwhelming Alpaca
+          let totalEnriched = 0, totalSkipped = 0;
+          for (let i = 0; i < missing.length; i += 20) {
+            const batch = missing.slice(i, i + 20);
+            const result = await alpacaEnrichMissingContext(env, KV, batch);
+            totalEnriched += result.enriched;
+            totalSkipped += result.skipped;
+          }
+          return sendJSON({
+            ok: true,
+            totalMissing: missing.length,
+            enriched: totalEnriched,
+            skipped: totalSkipped,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));

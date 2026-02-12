@@ -21,6 +21,29 @@
         pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; }
     </style>
 </head>
+<script>
+  // Admin-only gate: check authentication and admin tier
+  (async function() {
+    try {
+      const resp = await fetch("/timed/me", { credentials: "include" });
+      if (!resp.ok) throw new Error("Auth check failed");
+      const data = await resp.json();
+      const user = data?.user;
+      if (!user || !data?.authenticated) {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Please <a href="/index-react.html" style="color:#00c853;margin:0 4px;">sign in</a> to view this page.</div>';
+        return;
+      }
+      if (user.tier !== "admin" && user.role !== "admin") {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">This page is restricted to admin users.</div>';
+        return;
+      }
+      document.body.style.visibility = "visible";
+    } catch (e) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Authentication required. <a href="/index-react.html" style="color:#00c853;margin-left:4px;">Sign in</a></div>';
+    }
+  })();
+</script>
+<style>body { visibility: hidden; }</style>
 <body>
     <!-- Unified Nav Bar -->
     <nav class="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.04]" style="background:#0b0e11">
@@ -32,6 +55,8 @@
           <a href="model-dashboard.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
           <a href="screener.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
           <a href="ticker-management.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+          <a href="brand-kit.html" class="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Brand Kit</a>
+          <a href="debug-dashboard.html" class="px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium">Debug</a>
         </div>
       </div>
     </nav>

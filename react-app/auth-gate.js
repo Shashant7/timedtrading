@@ -571,10 +571,12 @@
     }, [verifyAuth]);
 
     const handleLogin = useCallback(() => {
-      // Reload the page — Cloudflare Access (on the Pages domain) will
-      // intercept and redirect to Google SSO. After login, the page reloads
-      // with a valid CF-Access-JWT-Assertion header on all requests.
-      window.location.reload();
+      // Navigate to the exact path protected by Cloudflare Access.
+      // CF Access policies are configured for specific paths WITH the .html
+      // extension (e.g., /index-react.html). If the browser is on /index-react
+      // (without .html), CF Access won't intercept and auth won't trigger.
+      // Always redirect to the .html path to ensure CF Access kicks in.
+      window.location.href = "/index-react.html";
     }, []);
 
     if (state === "checking" && !user) {
@@ -829,6 +831,60 @@
                   user.tier === "free" ? "MEMBER" : user.tier,
                 ),
             ),
+            // Switch Account button
+            React.createElement(
+              "button",
+              {
+                onClick: () => {
+                  clearSession();
+                  // Robustly clear CF Access session using both fetch and iframe,
+                  // then redirect to the app. CF Access will intercept (no valid JWT)
+                  // and show the "Sign in with: Google" page for a fresh OAuth flow.
+                  // Google should then show the account chooser (if multiple accounts).
+                  try {
+                    fetch("https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout", {
+                      credentials: "include",
+                      mode: "no-cors",
+                    }).catch(() => {});
+                  } catch (_) {}
+                  const iframe = document.createElement("iframe");
+                  iframe.style.display = "none";
+                  iframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
+                  document.body.appendChild(iframe);
+                  // Also attempt to clear the CF_Authorization cookie directly
+                  try {
+                    const domain = window.location.hostname;
+                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + domain + ";";
+                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + domain + ";";
+                  } catch (_) {}
+                  // Wait 2s for logout to propagate, then redirect to app
+                  // CF Access will intercept → show login page → user clicks Google → fresh OAuth
+                  setTimeout(() => {
+                    try { document.body.removeChild(iframe); } catch {}
+                    window.location.href = "/index-react.html";
+                  }, 2000);
+                },
+                style: {
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#9ca3af",
+                  fontSize: "13px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                },
+                onMouseEnter: (e) =>
+                  (e.target.style.background = "rgba(255, 255, 255, 0.04)"),
+                onMouseLeave: (e) =>
+                  (e.target.style.background = "transparent"),
+              },
+              "Switch Account",
+            ),
+            // Sign Out button
             React.createElement(
               "button",
               {
@@ -850,7 +906,7 @@
                 onMouseLeave: (e) =>
                   (e.target.style.background = "transparent"),
               },
-              "Sign out",
+              "Sign Out",
             ),
           ),
       );
