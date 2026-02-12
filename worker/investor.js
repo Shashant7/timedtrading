@@ -423,22 +423,27 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 
   // ── Without position ──
 
-  // Accumulate: high score + in accumulation zone + market health okay
-  if (investorScore >= 65 && accumZone?.inZone && marketHealth >= 40) {
+  // Accumulate: in accumulation zone + decent score + market health okay
+  if (accumZone?.inZone && investorScore >= 30 && marketHealth >= 30) {
     return { stage: "accumulate", reason: accumZone.zoneType || "accumulation_zone" };
   }
 
-  // Accumulate: very high score even without perfect zone
-  if (investorScore >= 80 && marketHealth >= 50) {
+  // Accumulate: strong score even without perfect zone
+  if (investorScore >= 70 && marketHealth >= 40) {
     return { stage: "accumulate", reason: "strong_score" };
   }
 
-  // Research: moderate score, worth watching
-  if (investorScore >= 40) {
-    return { stage: "research", reason: investorScore >= 60 ? "promising" : "monitoring" };
+  // Watch: moderate-to-good score, worth monitoring closely
+  if (investorScore >= 50) {
+    return { stage: "watch", reason: investorScore >= 60 ? "promising" : "monitoring" };
   }
 
-  // Below 40: not interesting for investors right now
+  // Research: below 50 — still in the universe but not actionable yet
+  if (investorScore >= 30) {
+    return { stage: "research", reason: "moderate_score" };
+  }
+
+  // Below 30: low conviction
   return { stage: "research", reason: "low_score" };
 }
 
