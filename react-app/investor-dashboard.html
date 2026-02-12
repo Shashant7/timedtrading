@@ -370,7 +370,6 @@
         const [acctSummary, setAcctSummary] = useState(null);
         const [selectedTicker, setSelectedTicker] = useState(null);
         const [loading, setLoading] = useState(false);
-        const [computing, setComputing] = useState(false);
         const [lastComputed, setLastComputed] = useState(null);
         const [stageFilter, setStageFilter] = useState(null);
 
@@ -390,20 +389,11 @@
           } finally { setLoading(false); }
         }, []);
 
-        useEffect(() => { fetchData(); }, [fetchData]);
-
-        const computeScores = useCallback(async () => {
-          setComputing(true);
-          try {
-            const resp = await fetch(`${API_BASE}/timed/investor/compute`, { method: "POST" });
-            const data = await resp.json();
-            if (data.ok) {
-              await fetchData();
-            } else {
-              alert(`Compute failed: ${data.error}`);
-            }
-          } catch (e) { alert(`Error: ${e.message}`); }
-          finally { setComputing(false); }
+        useEffect(() => {
+          fetchData();
+          // Auto-refresh every 60 seconds to pick up hourly scoring updates
+          const interval = setInterval(fetchData, 60000);
+          return () => clearInterval(interval);
         }, [fetchData]);
 
         const tickers = useMemo(() => {
@@ -444,13 +434,8 @@
               ),
             ),
             React.createElement("div", { className: "flex items-center gap-2" },
-              React.createElement("button", {
-                onClick: computeScores,
-                disabled: computing,
-                className: "px-3 py-1 rounded-md text-[12px] text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-all",
-              }, computing ? "Computing..." : "Compute"),
+              lastComputed && React.createElement("span", { className: "text-[10px] text-[#4b5563]" }, `Scored ${new Date(lastComputed).toLocaleTimeString()}`),
               React.createElement("button", { onClick: fetchData, className: "px-3 py-1 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all" }, "Refresh"),
-              lastComputed && React.createElement("span", { className: "text-[10px] text-[#4b5563]" }, `Updated ${new Date(lastComputed).toLocaleTimeString()}`),
               loading && React.createElement("div", { className: "loading-spinner" }),
             ),
           ),

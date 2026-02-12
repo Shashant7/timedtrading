@@ -61,7 +61,8 @@ crons = [
   "0 4 * * *",           # Daily data lifecycle
   "15 21 * * 5",         # Friday 4:15 PM ET: weekly retrospective
   # ── Investor Intelligence ──
-  "30 21 * * 1-5",       # Mon-Fri 4:30 PM ET: daily investor scoring
+  "0 14-21 * * 1-5",     # Mon-Fri hourly 9AM-4PM ET: investor scoring refresh
+  "30 21 * * 1-5",       # Mon-Fri 4:30 PM ET: daily investor scoring + DCA execution
   "0 15 * * 6",          # Saturday 10:00 AM ET: weekly investor digest
 ]
 
@@ -151,6 +152,7 @@ crons = [
   "0 */6 * * *",
   "0 4 * * *",
   "15 21 * * 5",
+  "0 14-21 * * 1-5",
   "30 21 * * 1-5",
   "0 15 * * 6",
 ]

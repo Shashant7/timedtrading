@@ -32775,6 +32775,23 @@ Provide 3-5 actionable next steps:
       return;
     }
 
+    // ── Investor Intelligence: hourly scoring refresh (top of hour, 9AM-4PM ET = 14-21 UTC, Mon-Fri) ──
+    // Keeps investor scores fresh during market hours. Does NOT trigger DCA (that's daily only).
+    if (event.cron === "0 14-21 * * 1-5") {
+      ctx.waitUntil((async () => {
+        try {
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          console.log("[INVESTOR HOURLY] Triggering investor scoring refresh...");
+          const compResp = await fetch(`${selfUrl}/timed/investor/compute`, { method: "POST" });
+          const compData = await compResp.json().catch(() => ({}));
+          console.log(`[INVESTOR HOURLY] Done: ${compData.tickers || 0} tickers, regime=${compData.marketHealth?.regime || "?"}`);
+        } catch (e) {
+          console.warn(`[INVESTOR HOURLY] Failed:`, String(e?.message || e).slice(0, 300));
+        }
+      })());
+      // Don't return — let other cron handlers run too if they match
+    }
+
     // ── Investor Intelligence: daily scoring + DCA execution (4:30 PM ET = 21:30 UTC, Mon-Fri) ──
     // Self-invokes the existing POST endpoints to reuse all logic.
     if (event.cron === "30 21 * * 1-5") {
