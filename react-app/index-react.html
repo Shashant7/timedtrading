@@ -11007,17 +11007,17 @@
                         <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                       </filter>
                       <filter id={`glow-ref-${sym}`}>
-                        <feGaussianBlur stdDeviation="2.5" result="blur" />
+                        <feGaussianBlur stdDeviation="3.5" result="blur" />
                         <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                       </filter>
                     </defs>
-                    {/* Opening price reference line — with glow */}
+                    {/* Opening price reference line — dashed with glow */}
                     <line x1="0" y1={openY} x2={VW} y2={openY}
-                      stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" strokeDasharray="8,6"
+                      stroke="rgba(255,255,255,0.38)" strokeWidth="1.8" strokeDasharray="10,7"
                       filter={`url(#glow-ref-${sym})`} />
                     {/* Price line — with glow */}
                     <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="3"
-                      strokeLinejoin="round" strokeLinecap="round" opacity="0.50"
+                      strokeLinejoin="round" strokeLinecap="round" opacity="0.65"
                       filter={`url(#glow-line-${sym})`} />
                   </svg>
                 );

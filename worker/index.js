@@ -31524,6 +31524,39 @@ Provide 3-5 actionable next steps:
       return;
     }
 
+    // ── Investor Intelligence: daily scoring (4:30 PM ET = 21:30 UTC, Mon-Fri) ──
+    // Self-invokes the existing POST /timed/investor/compute endpoint to reuse all logic.
+    if (event.cron === "30 21 * * 1-5") {
+      ctx.waitUntil((async () => {
+        try {
+          console.log("[INVESTOR CRON] Triggering daily investor compute...");
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          const resp = await fetch(`${selfUrl}/timed/investor/compute`, { method: "POST" });
+          const data = await resp.json().catch(() => ({}));
+          console.log(`[INVESTOR CRON] Done: ${data.tickers || 0} tickers, market=${data.marketHealth?.regime || "?"}, alerts=${(data.alertsSent || []).length}`);
+        } catch (e) {
+          console.warn(`[INVESTOR CRON] Failed:`, String(e?.message || e).slice(0, 300));
+        }
+      })());
+      // Don't return — let other cron handlers run too if they match
+    }
+
+    // ── Investor Intelligence: weekly digest (Saturday 10 AM ET = 15:00 UTC) ──
+    if (event.cron === "0 15 * * 6") {
+      ctx.waitUntil((async () => {
+        try {
+          console.log("[INVESTOR DIGEST] Triggering weekly digest...");
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          const resp = await fetch(`${selfUrl}/timed/investor/weekly-digest`, { method: "POST" });
+          const data = await resp.json().catch(() => ({}));
+          console.log(`[INVESTOR DIGEST] Done: ${data.ok ? "sent" : "failed"}`);
+        } catch (e) {
+          console.warn(`[INVESTOR DIGEST] Failed:`, String(e?.message || e).slice(0, 300));
+        }
+      })());
+      // Don't return — allow other handlers
+    }
+
     // Data lifecycle: aggregate timed_trail → trail_5m_facts, purge old raw data (4 AM UTC daily)
     // Also resolve expired model predictions.
     if (event.cron === "0 4 * * *") {
