@@ -1,0 +1,804 @@
+{
+  "generated": "2026-02-12T00:44:36.330Z",
+  "config": {
+    "minMovePct": 3,
+    "windowHours": 4,
+    "lookbackHours": 4,
+    "since": "2025-10-01T00:00:00",
+    "until": "2026-02-12T00:00:00"
+  },
+  "summary": {
+    "totalMoves": 10678,
+    "upMoves": 62,
+    "downMoves": 38,
+    "avgMovePct": 4.74857952814571
+  },
+  "upAnalysis": {
+    "label": "UP Moves (Bulls)",
+    "count": 62,
+    "avgMovePct": 16.802858351896592,
+    "avgDuration": 180,
+    "atStart": {
+      "avgHtf": 27.95322580645163,
+      "medianHtf": 35,
+      "avgLtf": 2.7145161290322584,
+      "medianLtf": 0,
+      "avgRank": 0,
+      "avgCompletion": 0.15967741935483867,
+      "avgPhase": 0.30964516129032277,
+      "avgRR": null
+    },
+    "stateDistribution": {
+      "HTF_BULL_LTF_BULL": 48,
+      "HTF_BEAR_LTF_BEAR": 2,
+      "HTF_BULL_LTF_PULLBACK": 4,
+      "HTF_BEAR_LTF_PULLBACK": 8
+    },
+    "flagAnalysis": {},
+    "triggerDistribution": {
+      "NONE": 21,
+      "EMA_CROSS_30M_13_48": 13,
+      "SQUEEZE_RELEASE": 28
+    },
+    "preSignalPatterns": {
+      "htfImproving": {
+        "count": 22,
+        "pct": 0.3548387096774194
+      },
+      "ltfSetup": {
+        "count": 5,
+        "pct": 0.08064516129032258
+      },
+      "corridorEntry": {
+        "count": 0,
+        "pct": 0
+      },
+      "squeezeRelease": {
+        "count": 7,
+        "pct": 0.11290322580645161
+      },
+      "stateTransition": {
+        "count": 13,
+        "pct": 0.20967741935483872
+      }
+    }
+  },
+  "downAnalysis": {
+    "label": "DOWN Moves (Bears)",
+    "count": 38,
+    "avgMovePct": 17.045118492159613,
+    "avgDuration": 195,
+    "atStart": {
+      "avgHtf": 21.505263157894735,
+      "medianHtf": 30.9,
+      "avgLtf": -0.6684210526315788,
+      "medianLtf": 0,
+      "avgRank": 0,
+      "avgCompletion": 0.16213157894736838,
+      "avgPhase": 0.26071052631578945,
+      "avgRR": null
+    },
+    "stateDistribution": {
+      "HTF_BULL_LTF_PULLBACK": 8,
+      "HTF_BULL_LTF_BULL": 25,
+      "HTF_BEAR_LTF_PULLBACK": 5
+    },
+    "flagAnalysis": {},
+    "triggerDistribution": {
+      "NONE": 20,
+      "SQUEEZE_RELEASE": 11,
+      "EMA_CROSS_30M_13_48": 7
+    },
+    "preSignalPatterns": {
+      "htfImproving": {
+        "count": 16,
+        "pct": 0.42105263157894735
+      },
+      "ltfSetup": {
+        "count": 3,
+        "pct": 0.07894736842105263
+      },
+      "corridorEntry": {
+        "count": 0,
+        "pct": 0
+      },
+      "squeezeRelease": {
+        "count": 2,
+        "pct": 0.05263157894736842
+      },
+      "stateTransition": {
+        "count": 0,
+        "pct": 0
+      }
+    }
+  },
+  "journeys": [
+    {
+      "ticker": "VIX",
+      "direction": "UP",
+      "movePct": "+34.82%",
+      "duration": "120 min",
+      "startTime": "2025-11-20T14:30:00",
+      "atStart": {
+        "price": "$19.73",
+        "htf": "35.4",
+        "ltf": "0.0",
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": "10.5%",
+        "phase": "56.0%"
+      },
+      "preSignals": []
+    },
+    {
+      "ticker": "VIX",
+      "direction": "UP",
+      "movePct": "+34.82%",
+      "duration": "90 min",
+      "startTime": "2025-11-20T15:00:00",
+      "atStart": {
+        "price": "$19.73",
+        "htf": "35.4",
+        "ltf": "0.0",
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": "10.5%",
+        "phase": "56.0%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-20T14:35:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T14:40:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T14:45:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T14:50:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T14:55:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        }
+      ]
+    },
+    {
+      "ticker": "VIX",
+      "direction": "UP",
+      "movePct": "+27.13%",
+      "duration": "60 min",
+      "startTime": "2025-10-10T13:30:00",
+      "atStart": {
+        "price": "$16.40",
+        "htf": "21.9",
+        "ltf": "0.0",
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": "10.2%",
+        "phase": "97.7%"
+      },
+      "preSignals": []
+    },
+    {
+      "ticker": "VIX",
+      "direction": "UP",
+      "movePct": "+27.13%",
+      "duration": "30 min",
+      "startTime": "2025-10-10T14:00:00",
+      "atStart": {
+        "price": "$16.40",
+        "htf": "21.9",
+        "ltf": "0.0",
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": "10.2%",
+        "phase": "97.7%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-10-10T13:35:00",
+          "htf": "21.9",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-10-10T13:40:00",
+          "htf": "21.9",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-10-10T13:45:00",
+          "htf": "21.9",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-10-10T13:50:00",
+          "htf": "21.9",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-10-10T13:55:00",
+          "htf": "21.9",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-22.04%",
+      "duration": "240 min",
+      "startTime": "2025-11-04T17:00:00",
+      "atStart": {
+        "price": "$718.35",
+        "htf": "16.8",
+        "ltf": "-8.2",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.7%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T16:35:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T16:40:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T16:45:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T16:50:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T16:55:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-22.00%",
+      "duration": "60 min",
+      "startTime": "2025-11-04T20:00:00",
+      "atStart": {
+        "price": "$717.92",
+        "htf": "12.9",
+        "ltf": "-1.6",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.7%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T19:35:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:40:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:45:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:50:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:55:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "VIX",
+      "direction": "UP",
+      "movePct": "+21.91%",
+      "duration": "60 min",
+      "startTime": "2025-11-20T15:30:00",
+      "atStart": {
+        "price": "$21.82",
+        "htf": "36.6",
+        "ltf": "0.0",
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": "11.5%",
+        "phase": "56.0%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-20T15:05:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:10:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:15:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:20:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:25:00",
+          "htf": "35.4",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        }
+      ]
+    },
+    {
+      "ticker": "VIX",
+      "direction": "UP",
+      "movePct": "+21.91%",
+      "duration": "30 min",
+      "startTime": "2025-11-20T16:00:00",
+      "atStart": {
+        "price": "$21.82",
+        "htf": "36.6",
+        "ltf": "0.0",
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": "11.5%",
+        "phase": "56.0%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-20T15:35:00",
+          "htf": "36.6",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:40:00",
+          "htf": "36.6",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:45:00",
+          "htf": "36.6",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:50:00",
+          "htf": "36.6",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        },
+        {
+          "ts": "2025-11-20T15:55:00",
+          "htf": "36.6",
+          "ltf": "0.0",
+          "state": "BULL_BULL",
+          "flags": "—"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-21.68%",
+      "duration": "210 min",
+      "startTime": "2025-11-04T17:30:00",
+      "atStart": {
+        "price": "$715.01",
+        "htf": "16.8",
+        "ltf": "-7.1",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.6%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T17:05:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:10:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:15:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:20:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:25:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-21.32%",
+      "duration": "120 min",
+      "startTime": "2025-11-04T19:00:00",
+      "atStart": {
+        "price": "$711.70",
+        "htf": "16.8",
+        "ltf": "-8.2",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.5%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T18:35:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:40:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:45:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:50:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:55:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-21.30%",
+      "duration": "150 min",
+      "startTime": "2025-11-04T18:30:00",
+      "atStart": {
+        "price": "$711.54",
+        "htf": "16.8",
+        "ltf": "-8.2",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.5%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T18:05:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:10:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:15:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:20:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T18:25:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-21.22%",
+      "duration": "90 min",
+      "startTime": "2025-11-04T19:30:00",
+      "atStart": {
+        "price": "$710.88",
+        "htf": "16.8",
+        "ltf": "-8.2",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.5%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T19:05:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:10:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:15:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:20:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T19:25:00",
+          "htf": "16.8",
+          "ltf": "-8.2",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-21.00%",
+      "duration": "30 min",
+      "startTime": "2025-11-04T20:30:00",
+      "atStart": {
+        "price": "$708.83",
+        "htf": "12.9",
+        "ltf": "-9.4",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.5%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T20:05:00",
+          "htf": "12.9",
+          "ltf": "-1.6",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T20:10:00",
+          "htf": "12.9",
+          "ltf": "-1.6",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T20:15:00",
+          "htf": "12.9",
+          "ltf": "-1.6",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T20:20:00",
+          "htf": "12.9",
+          "ltf": "-1.6",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T20:25:00",
+          "htf": "12.9",
+          "ltf": "-1.6",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "AXON",
+      "direction": "DOWN",
+      "movePct": "-20.64%",
+      "duration": "180 min",
+      "startTime": "2025-11-04T18:00:00",
+      "atStart": {
+        "price": "$705.68",
+        "htf": "16.8",
+        "ltf": "-8.2",
+        "state": "HTF_BULL_LTF_PULLBACK",
+        "rank": 0,
+        "completion": "20.4%",
+        "phase": "3.1%"
+      },
+      "preSignals": [
+        {
+          "ts": "2025-11-04T17:35:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:40:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:45:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:50:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        },
+        {
+          "ts": "2025-11-04T17:55:00",
+          "htf": "16.8",
+          "ltf": "-7.1",
+          "state": "BULL_PULLBACK",
+          "flags": "move_completed"
+        }
+      ]
+    },
+    {
+      "ticker": "VIX",
+      "direction": "UP",
+      "movePct": "+18.98%",
+      "duration": "240 min",
+      "startTime": "2025-10-16T13:30:00",
+      "atStart": {
+        "price": "$20.76",
+        "htf": "24.5",
+        "ltf": "0.0",
+        "state": "HTF_BULL_LTF_BULL",
+        "rank": 0,
+        "completion": "11.6%",
+        "phase": "91.1%"
+      },
+      "preSignals": []
+    }
+  ]
+}

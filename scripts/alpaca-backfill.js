@@ -44,10 +44,10 @@ const TF_CONFIGS = {
   "W":   { alpaca: "1Week",  daysBack: 365 * 6, limit: 10000 },    // ~6 years for ~200 weekly bars
   "D":   { alpaca: "1Day",   daysBack: 450, limit: 10000 },        // ~300 trading days
   "240": { alpaca: "4Hour",  daysBack: 200, limit: 10000 },        // ~300 4H bars
-  "60":  { alpaca: "1Hour",  daysBack: 50, limit: 10000 },         // ~300 hourly bars
-  "30":  { alpaca: "30Min",  daysBack: 25, limit: 10000 },         // ~300 30m bars
-  "10":  { alpaca: "10Min",  daysBack: 40, limit: 10000 },         // ~40 days of 10m bars (~500/ticker)
-  "5":   { alpaca: "5Min",   daysBack: 20, limit: 10000 },         // ~20 trading days of 5m bars (~500/ticker)
+  "60":  { alpaca: "1Hour",  daysBack: 140, limit: 10000 },        // ~140 days → back to Oct 1 for scoring snapshots
+  "30":  { alpaca: "30Min",  daysBack: 140, limit: 10000 },        // ~140 days → back to Oct 1 for scoring snapshots
+  "10":  { alpaca: "10Min",  daysBack: 140, limit: 10000 },        // ~140 days → back to Oct 1 for scoring snapshots
+  "5":   { alpaca: "5Min",   daysBack: 140, limit: 10000 },        // ~140 days → back to Oct 1 for scoring snapshots
   "1":   { alpaca: "1Min",   daysBack: 5, limit: 10000 },          // ~5 trading days of 1m bars (~390/day)
 };
 
@@ -186,6 +186,26 @@ async function uploadCandles(ticker, tfKey, candles, retries = 2) {
   }
 }
 
+// Fetch active (non-removed) ticker list from worker.
+// Returns SECTOR_MAP tickers that are NOT on the timed:removed blocklist.
+async function fetchActiveTickers() {
+  try {
+    console.log("Fetching active ticker list from worker...");
+    const res = await fetch(`${WORKER_BASE}/timed/tickers`);
+    const data = await res.json();
+    if (data?.ok && Array.isArray(data.tickers) && data.tickers.length > 0) {
+      const activeSet = new Set(data.tickers.map(t => String(t).toUpperCase()));
+      const filtered = ALL_TICKERS.filter(t => activeSet.has(t));
+      console.log(`  Active tickers: ${data.tickers.length} from worker, ${filtered.length} matched in SECTOR_MAP`);
+      return filtered;
+    }
+    console.warn("  Worker returned empty ticker list, falling back to full SECTOR_MAP");
+  } catch (e) {
+    console.warn(`  Could not fetch active tickers (${e.message}), falling back to full SECTOR_MAP`);
+  }
+  return [...new Set(ALL_TICKERS)];
+}
+
 async function main() {
   const args = process.argv.slice(2);
   let tfFilter = null;
@@ -199,7 +219,7 @@ async function main() {
   }
 
   const tfsToProcess = tfFilter ? [tfFilter] : TF_ORDER;
-  const tickers = tickerFilter || [...new Set(ALL_TICKERS)];
+  const tickers = tickerFilter || await fetchActiveTickers();
 
   console.log(`Alpaca Backfill: ${tickers.length} tickers × ${tfsToProcess.length} timeframes`);
   console.log(`Batch size: ${batchSize} symbols per API call`);

@@ -1958,9 +1958,35 @@ function qualifiesForEnter(d, asOfTs = null) {
     // Momentum paths: minimum volEntryMin (55-70 depending on vol tier)
     // Pullback/gold paths: minimum 45 (pullbacks naturally have lower alignment)
     const isGoldPath = result.path?.includes("gold") || result.path?.includes("pullback");
-    const minQuality = isGoldPath ? 45 : volEntryMin;
+    let minQuality = isGoldPath ? 45 : volEntryMin;
+
+    // ── DATA-DRIVEN: Squeeze release caution gate (Phase 1 analysis) ──
+    // Squeeze releases have -33.7% lift toward DOWN moves (#1 predictive bearish feature).
+    // Squeeze Release in bull context: 70.2% DOWN. In bear context: 65.5% DOWN.
+    // When squeeze release is active, require higher entry quality to filter noise.
+    const isLongEntry = !result.path?.includes("short");
+    if (hasSqRelease && isLongEntry && !isGoldPath) {
+      minQuality = Math.max(minQuality, volEntryMin + 10); // Raise bar by 10 during squeeze release for LONG
+    }
+
+    // ── DATA-DRIVEN: Sector-specific entry quality adjustments (Phase 1 analysis) ──
+    // Financials: only 13.6% UP (strongly bearish) — require higher conviction for LONG
+    // Crypto: 43.9% UP (moderate bearish) — slightly higher bar for LONG
+    // Basic Materials / Precious Metals / Energy: 83-100% UP — allow slightly easier entry
+    const tickerForSector = String(d?.ticker || "").toUpperCase();
+    const sectorForEntry = SECTOR_MAP[tickerForSector] || "";
+    if (isLongEntry) {
+      if (sectorForEntry === "Financials") {
+        minQuality = Math.max(minQuality, minQuality + 12); // Financials LONG: much higher bar
+      } else if (sectorForEntry === "Crypto") {
+        minQuality = Math.max(minQuality, minQuality + 8);  // Crypto LONG: higher bar
+      } else if (sectorForEntry === "Basic Materials" || sectorForEntry === "Precious Metals" || sectorForEntry === "Energy") {
+        minQuality = Math.max(35, minQuality - 5);          // Bullish sectors: slightly easier
+      }
+    }
+
     if (eqScore > 0 && eqScore < minQuality) {
-      return { qualifies: false, reason: "entry_quality_too_low", eqScore, minQuality };
+      return { qualifies: false, reason: "entry_quality_too_low", eqScore, minQuality, sectorAdj: sectorForEntry };
     }
 
     // Golden Gate confidence boost
@@ -9124,36 +9150,22 @@ async function processTradeSimulation(
 
                 // Send Discord notification for scaling in
                 if (env) {
+                  const scalePnlLabel = (tradeCalc.pnl ?? 0) >= 0 ? `+$${(tradeCalc.pnl ?? 0).toFixed(2)}` : `-$${Math.abs(tradeCalc.pnl ?? 0).toFixed(2)}`;
+                  const scalePctLabel = `${(tradeCalc.pnlPct ?? 0) >= 0 ? "+" : ""}${(tradeCalc.pnlPct ?? 0).toFixed(2)}%`;
                   const embed = {
-                    title: `📈 Position Scaled In: ${ticker} ${direction}`,
-                    color: 0x00ff00,
+                    title: `📈  Scaled In: ${ticker} ${direction}`,
+                    description: `Added to position at **$${entryPrice.toFixed(2)}**. Average entry now **$${avgEntryPrice.toFixed(2)}** with **${totalShares}** shares.`,
+                    color: 0x3b82f6,
                     fields: [
                       {
-                        name: "New Entry Price",
-                        value: `$${entryPrice.toFixed(2)}`,
-                        inline: true,
+                        name: "Position",
+                        value: `New Entry:  **$${entryPrice.toFixed(2)}**\nAvg Entry:  **$${avgEntryPrice.toFixed(2)}**\nShares:  **${totalShares}**`,
+                        inline: false,
                       },
                       {
-                        name: "Average Entry Price",
-                        value: `$${avgEntryPrice.toFixed(2)}`,
-                        inline: true,
-                      },
-                      {
-                        name: "Total Shares",
-                        value: `${totalShares}`,
-                        inline: true,
-                      },
-                      {
-                        name: "Current Price",
-                        value: `$${Number(tickerData.price).toFixed(2)}`,
-                        inline: true,
-                      },
-                      {
-                        name: "Current P&L",
-                        value: `$${tradeCalc.pnl?.toFixed(2) || "0.00"} (${
-                          tradeCalc.pnlPct?.toFixed(2) || "0.00"
-                        }%)`,
-                        inline: true,
+                        name: "Current",
+                        value: `Price:  **$${Number(tickerData.price).toFixed(2)}**\nP&L:  **${scalePnlLabel}** (${scalePctLabel})`,
+                        inline: false,
                       },
                     ],
                     footer: {
@@ -10056,10 +10068,20 @@ function computeRank(d) {
     if (phase <= 0.3) score += 3; // Early phase bonus
   }
 
-  // Squeeze bonuses (reduced)
-  if (sqRel)
-    score += 12; // Reduced from 15
-  else if (sqOn) score += 4; // Reduced from 6
+  // Squeeze bonuses — DATA-DRIVEN adjustment (Phase 1 analysis: squeeze_releases
+  // have -33.7% lift toward DOWN moves, the #1 predictive bearish feature).
+  // Squeeze Release (Bull context): 70.2% DOWN, EV -10.6
+  // Squeeze Release (Bear context): 65.5% DOWN, EV -14.4
+  // In-squeeze (sq30_on) is more predictive of a pending move than release.
+  if (sqRel) {
+    // State-conditional: release in pullback can be a reversal catalyst,
+    // but in aligned states it often precedes reversals (mean reversion).
+    if (setup) score += 6;       // Pullback + squeeze release = potential reversal catalyst
+    else if (aligned) score += 2; // Aligned + release = often precedes mean reversion
+    else score -= 2;              // Bear/neutral + release = bearish expansion
+  } else if (sqOn) {
+    score += 5; // Squeeze building is more predictive than release (per entry quality analysis)
+  }
 
   // Phase zone change bonus (reduced)
   if (phaseZoneChange) score += 2; // Reduced from 3
@@ -10082,6 +10104,30 @@ function computeRank(d) {
   // - Dip-after-cross is a premium pullback entry opportunity
   if (emaCross1H1348) score += 5;
   if (buyableDip1H1348) score += 7;
+
+  // HTF/LTF divergence penalty — DATA-DRIVEN (Phase 1 analysis: htf_ltf_diverging
+  // has -28.2% lift toward DOWN moves, the #3 predictive bearish feature).
+  // When HTF and LTF disagree on direction, setups are unreliable.
+  const htfBull = htf > 5;
+  const htfBear = htf < -5;
+  const ltfBull = ltf > 5;
+  const ltfBear = ltf < -5;
+  if ((htfBull && ltfBear) || (htfBear && ltfBull)) {
+    score -= 5; // HTF/LTF divergence: setup reliability drops significantly
+  }
+
+  // Sector bias adjustment — DATA-DRIVEN (Phase 1 analysis: massive sector skew).
+  // Basic Materials 86.4% UP, Precious Metals 83.3% UP, Energy 100% UP
+  // Financials 13.6% UP (86.4% bearish), Crypto 43.9% UP
+  const ticker = String(d?.ticker || "").toUpperCase();
+  const sector = SECTOR_MAP[ticker] || "";
+  if (sector === "Basic Materials" || sector === "Precious Metals" || sector === "Energy") {
+    score += 3; // Strong historical bullish bias
+  } else if (sector === "Financials") {
+    score -= 4; // Strong historical bearish bias (only 13.6% UP)
+  } else if (sector === "Crypto") {
+    score -= 2; // Moderate bearish bias (43.9% UP)
+  }
 
   // RSI Divergence boost/penalty
   const rsi = d.rsi;
@@ -13281,72 +13327,50 @@ function createTradeEntryEmbed(
   tickerData = null,
   execution = null, // { qty, value, pnl } for verifiable history
 ) {
-  const color = direction === "LONG" ? 0x00ff00 : 0xff0000;
+  const isLong = direction === "LONG";
+  const color = isLong ? 0x22c55e : 0xef4444;
+  const dirLabel = isLong ? "LONG" : "SHORT";
 
-  // Build concise description
-  const slDist = Number.isFinite(sl) && entryPrice > 0
-    ? (Math.abs(entryPrice - sl) / entryPrice * 100).toFixed(1)
-    : null;
-  const descParts = [`${direction} at $${entryPrice.toFixed(2)}`];
-  if (Number.isFinite(rr) && rr > 0) descParts.push(`R:R ${rr.toFixed(1)}:1`);
-  if (slDist) descParts.push(`SL ${slDist}% away`);
-  const description = descParts.join(" | ");
+  // Human-readable description
+  const rrLabel = Number.isFinite(rr) && rr > 0 ? ` with a ${rr.toFixed(1)}:1 risk-to-reward ratio` : "";
+  const description = `Opened a **${dirLabel.toLowerCase()}** position at **$${entryPrice.toFixed(2)}**${rrLabel}.`;
 
   const fields = [];
 
-  // 1. Entry/SL/TP block
-  const entryLines = [`**Entry:** $${entryPrice.toFixed(2)} | **SL:** $${sl.toFixed(2)} | **TP:** $${tp.toFixed(2)}`];
+  // 1. Trade Summary — clean key-value layout
+  const summaryLines = [
+    `Entry:  **$${entryPrice.toFixed(2)}**`,
+    `Stop Loss:  **$${sl.toFixed(2)}**`,
+    `Take Profit:  **$${tp.toFixed(2)}**`,
+  ];
   if (execution && Number.isFinite(execution.qty)) {
-    entryLines.push(`**Qty:** ${execution.qty.toFixed(4)} | **Value:** $${Number(execution.value || 0).toFixed(2)}`);
+    summaryLines.push(`Qty:  **${execution.qty.toFixed(4)}**  |  Value:  **$${Number(execution.value || 0).toFixed(2)}**`);
   }
-  fields.push({ name: "💰 Position", value: entryLines.join("\n"), inline: false });
+  fields.push({ name: "Trade Details", value: summaryLines.join("\n"), inline: false });
 
-  // 2. Scores (single consolidated field)
-  if (tickerData) {
-    const htf = Number(tickerData.htf_score || 0);
-    const ltf = Number(tickerData.ltf_score || 0);
-    const comp = Number(tickerData.completion || 0);
-    const phase = Number(tickerData.phase_pct || 0);
-    const scoreParts = [`HTF ${htf.toFixed(1)} | LTF ${ltf.toFixed(1)}`];
-    if (Number.isFinite(comp)) scoreParts.push(`Comp ${(comp * 100).toFixed(0)}%`);
-    if (Number.isFinite(phase)) scoreParts.push(`Phase ${(phase * 100).toFixed(0)}%`);
-    fields.push({ name: "📈 Scores", value: scoreParts.join(" | "), inline: true });
-  }
-
-  // 3. Quality (rank + R:R + state)
+  // 2. Signal Quality — translated to plain English
   const qualParts = [];
-  if (Number.isFinite(rank) && rank > 0) qualParts.push(`**Rank:** ${rank}`);
-  if (Number.isFinite(rr) && rr > 0) qualParts.push(`**R:R:** ${rr.toFixed(2)}:1`);
-  if (state) qualParts.push(`**State:** ${state}`);
-  if (qualParts.length > 0) {
-    fields.push({ name: "⭐ Quality", value: qualParts.join("\n"), inline: true });
-  }
-
-  // 4. Active signals (consolidated: flags + TD + RSI divergence)
-  const signalItems = [];
-  if (tickerData?.flags) {
-    const f = tickerData.flags;
-    if (f.sq30_release) signalItems.push("Squeeze Release");
-    else if (f.sq30_on) signalItems.push("In Squeeze");
-    if (f.momentum_elite) signalItems.push("Momentum Elite");
-  }
+  if (Number.isFinite(rank) && rank > 0) qualParts.push(`Signal Strength: **${rank}**/100`);
+  if (Number.isFinite(rr) && rr > 0) qualParts.push(`Risk/Reward: **${rr.toFixed(1)}:1**`);
+  // Active signals in plain language
+  const sigs = [];
+  if (tickerData?.flags?.momentum_elite) sigs.push("Strong Momentum");
+  if (tickerData?.flags?.sq30_release) sigs.push("Squeeze Breakout");
+  else if (tickerData?.flags?.sq30_on) sigs.push("Compression Building");
   if (tickerData?.td_sequential) {
-    const td = tickerData.td_sequential;
-    if (td.td9_bullish || td.td9_bearish) signalItems.push("TD9");
-    if (td.td13_bullish || td.td13_bearish) signalItems.push("TD13");
+    if (tickerData.td_sequential.td9_bullish || tickerData.td_sequential.td9_bearish) sigs.push("Exhaustion Signal (TD9)");
+    if (tickerData.td_sequential.td13_bullish || tickerData.td_sequential.td13_bearish) sigs.push("Extended Exhaustion (TD13)");
   }
-  if (tickerData?.rsi?.divergence?.type && tickerData.rsi.divergence.type !== "none") {
-    signalItems.push(`RSI ${tickerData.rsi.divergence.type} div`);
-  }
-  if (signalItems.length > 0) {
-    fields.push({ name: "🚩 Signals", value: signalItems.join(" | "), inline: false });
+  if (sigs.length > 0) qualParts.push(`Signals: ${sigs.join(", ")}`);
+  if (qualParts.length > 0) {
+    fields.push({ name: "Signal Quality", value: qualParts.join("\n"), inline: false });
   }
 
   return {
-    title: `🎯 Trade Entered: ${ticker} ${direction}${isBackfill ? " (backfill)" : ""}`,
-    description: description,
-    color: color,
-    fields: fields,
+    title: `${isLong ? "🟢" : "🔴"}  New Trade: ${ticker} ${dirLabel}${isBackfill ? " (backfill)" : ""}`,
+    description,
+    color,
+    fields,
     timestamp: new Date().toISOString(),
     footer: { text: "Timed Trading Simulator" },
   };
@@ -13370,6 +13394,7 @@ function createTradeTrimmedEmbed(
   const trimPercent = Math.round(trimmedPct * 100);
   const remainingPct = Math.round((1 - trimmedPct) * 100);
   const stepPct = Number.isFinite(trimDeltaPct) ? Math.round(trimDeltaPct * 100) : null;
+  const isLong = direction === "LONG";
 
   // Next TP level
   const nextTp = (trade?.tpArray && Array.isArray(trade.tpArray))
@@ -13380,37 +13405,36 @@ function createTradeTrimmedEmbed(
         .find(x => x.trimPct > trimmedPct + 1e-6) || null
     : null;
 
-  // Concise description
-  const descParts = [];
-  if (stepPct) descParts.push(`Trimmed ${stepPct}%`);
-  descParts.push(`${trimPercent}% total`);
-  descParts.push(`${remainingPct}% remaining`);
-  const description = descParts.join(" | ");
+  // Human-readable description
+  const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+  const pctLabel = `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`;
+  const stepLabel = stepPct ? `${stepPct}%` : `${trimPercent}%`;
+  const description = `Locked in **${pnlLabel}** (${pctLabel}) by trimming **${stepLabel}** of the position. **${remainingPct}%** still running.`;
 
   const fields = [];
 
-  // 1. Position + P&L (merged)
+  // 1. Position & P&L
   const posLines = [
-    `**Entry:** $${entryPrice.toFixed(2)} | **Current:** $${currentPrice.toFixed(2)} | **TP:** $${tp.toFixed(2)}`,
-    `**P&L:** ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+    `Entry:  **$${entryPrice.toFixed(2)}**  |  Current:  **$${currentPrice.toFixed(2)}**`,
+    `P&L:  **${pnlLabel}** (${pctLabel})`,
   ];
   if (execution && Number.isFinite(execution.qty)) {
-    posLines.push(`**Qty trimmed:** ${Number(execution.qty).toFixed(4)} | **Value:** $${Number(execution.value || 0).toFixed(2)}`);
+    posLines.push(`Qty trimmed:  **${Number(execution.qty).toFixed(4)}**  |  Value:  **$${Number(execution.value || 0).toFixed(2)}**`);
   }
-  fields.push({ name: "💰 Position & P&L", value: posLines.join("\n"), inline: false });
+  fields.push({ name: "Position & P&L", value: posLines.join("\n"), inline: false });
 
   // 2. Trim Status
-  const statusParts = [`**Trimmed:** ${trimPercent}% | **Remaining:** ${remainingPct}%`];
+  const statusLines = [`Trimmed:  **${trimPercent}%**  |  Remaining:  **${remainingPct}%**`];
   if (nextTp) {
-    statusParts.push(`**Next TP:** $${nextTp.price.toFixed(2)} (${Math.round(nextTp.trimPct * 100)}% - ${nextTp.label || "next tier"})`);
+    statusLines.push(`Next target:  **$${nextTp.price.toFixed(2)}** (${nextTp.label || "next tier"})`);
   }
-  fields.push({ name: "✂️ Trim Status", value: statusParts.join("\n"), inline: false });
+  fields.push({ name: "Trim Status", value: statusLines.join("\n"), inline: false });
 
   return {
-    title: `✂️ Trade Trimmed: ${ticker} ${direction} - ${trimPercent}%`,
-    description: description,
-    color: 0xffaa00,
-    fields: fields,
+    title: `💰  Taking Profit: ${ticker} ${direction} — ${stepLabel}`,
+    description,
+    color: 0xf59e0b,
+    fields,
     timestamp: new Date().toISOString(),
     footer: { text: "Timed Trading Simulator" },
   };
@@ -13431,74 +13455,91 @@ function createTradeClosedEmbed(
   trade = null,
   execution = null, // { qty, value, pnl } for verifiable history
 ) {
-  const color = status === "WIN" ? 0x00ff00 : 0xff0000;
-  const emoji = status === "WIN" ? "✅" : "❌";
+  const isWin = status === "WIN";
+  const isFlat = status === "FLAT";
+  const color = isWin ? 0x22c55e : isFlat ? 0x6b7280 : 0xef4444;
 
   // Always compute P&L% from prices (fixes 0.00% bug when trade.pnlPct not set)
   const computedPnlPct = Number.isFinite(entryPrice) && entryPrice > 0
     ? ((exitPrice - entryPrice) / entryPrice) * 100
     : Number(pnlPct) || 0;
   const finalPnlPct = Math.abs(computedPnlPct) > 0.001 ? computedPnlPct : (Number(pnlPct) || 0);
+  const dirMultiplier = direction === "SHORT" ? -1 : 1;
+  const adjPnlPct = finalPnlPct * (direction === "SHORT" && finalPnlPct !== 0 && computedPnlPct !== 0 ? 1 : 1);
 
   // Map exit reason to human-readable text
   const exitReason = trade?.exitReason || null;
   const exitReasonMap = {
-    sl_breached: "Stop Loss Hit",
-    SL: "Stop Loss Hit",
-    TDSEQ: "TD Sequential Exhaustion",
-    TP_FULL: "All TP Levels Hit",
-    max_loss: "Max Loss Threshold",
-    critical: "Critical Invalidation",
+    sl_breached: "Hit the stop loss",
+    SL: "Hit the stop loss",
+    "sl breached": "Hit the stop loss",
+    TDSEQ: "Exhaustion signal triggered exit",
+    TP_FULL: "All profit targets reached",
+    max_loss: "Maximum loss threshold reached",
+    critical: "Trade thesis invalidated",
+    HARD_FUSE_RSI_EXTREME: "RSI reached extreme levels",
+    SOFT_FUSE_RSI_CONFIRMED: "RSI reversal confirmed",
+    "tp reached": "Profit target reached",
+    below_trigger: "Dropped below entry trigger",
   };
-  const humanExitReason = exitReason
-    ? (exitReasonMap[exitReason] || exitReason.replace(/_/g, " "))
-    : null;
+  const rawReason = exitReason || "";
+  const humanExitReason = exitReasonMap[rawReason]
+    || (rawReason.includes("sl") || rawReason.includes("SL") ? "Hit the stop loss" : null)
+    || (rawReason.includes("tp") || rawReason.includes("TP") ? "Profit target reached" : null)
+    || (rawReason ? rawReason.replace(/_/g, " ").replace(/,/g, ", ") : null);
 
-  // Build concise description (1-line "why")
-  const descParts = [];
-  if (humanExitReason) descParts.push(humanExitReason);
-  descParts.push(`$${exitPrice.toFixed(2)} (${finalPnlPct >= 0 ? "+" : ""}${finalPnlPct.toFixed(2)}%)`);
-  const description = descParts.join(" at ");
+  // Build human-readable description
+  const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+  const pctLabel = `${finalPnlPct >= 0 ? "+" : ""}${finalPnlPct.toFixed(2)}%`;
+  let description;
+  if (isWin) {
+    description = `Closed with **${pnlLabel}** profit (${pctLabel}).${humanExitReason ? " " + humanExitReason + "." : ""}`;
+  } else if (isFlat) {
+    description = `Closed flat at **$${exitPrice.toFixed(2)}**. No meaningful price movement.`;
+  } else {
+    description = `Closed with **${pnlLabel}** loss (${pctLabel}).${humanExitReason ? " " + humanExitReason + "." : ""}`;
+  }
 
-  // Build fields (max 5)
   const fields = [];
 
-  // 1. Trade Summary: entry/exit/P&L in one block
+  // 1. Trade Summary
   const summaryLines = [
-    `**Entry:** $${entryPrice.toFixed(2)} | **Exit:** $${exitPrice.toFixed(2)}`,
-    `**P&L:** ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)} (${finalPnlPct >= 0 ? "+" : ""}${finalPnlPct.toFixed(2)}%)`,
+    `Entry:  **$${entryPrice.toFixed(2)}**  |  Exit:  **$${exitPrice.toFixed(2)}**`,
+    `P&L:  **${pnlLabel}** (${pctLabel})`,
   ];
   if (execution && Number.isFinite(execution.qty)) {
-    summaryLines.push(`**Qty:** ${Number(execution.qty).toFixed(4)} | **Value:** $${Number(execution.value || 0).toFixed(2)}`);
+    summaryLines.push(`Qty:  **${Number(execution.qty).toFixed(4)}**  |  Value:  **$${Number(execution.value || 0).toFixed(2)}**`);
   }
-  fields.push({ name: "💰 Trade Summary", value: summaryLines.join("\n"), inline: false });
+  fields.push({ name: "Trade Summary", value: summaryLines.join("\n"), inline: false });
 
-  // 2. Exit Reason (if available)
+  // 2. Exit Reason
   if (humanExitReason) {
-    fields.push({ name: "📌 Exit Reason", value: humanExitReason, inline: true });
+    fields.push({ name: "Exit Reason", value: humanExitReason, inline: true });
   }
 
   // 3. Price Movement
   const priceChange = exitPrice - entryPrice;
   fields.push({
-    name: "📈 Price Movement",
-    value: `${priceChange >= 0 ? "+" : ""}$${priceChange.toFixed(2)} (${finalPnlPct >= 0 ? "+" : ""}${finalPnlPct.toFixed(2)}%)`,
+    name: "Price Movement",
+    value: `**${priceChange >= 0 ? "+" : ""}$${priceChange.toFixed(2)}** (${pctLabel})`,
     inline: true,
   });
 
-  // 4. Quality Metrics (only if values are meaningful)
-  const metricParts = [];
-  if (Number.isFinite(rank) && rank > 0) metricParts.push(`**Rank:** ${rank}`);
-  if (Number.isFinite(rr) && rr > 0) metricParts.push(`**R:R:** ${rr.toFixed(2)}:1`);
-  if (metricParts.length > 0) {
-    fields.push({ name: "⭐ Metrics", value: metricParts.join(" | "), inline: true });
+  // Choose title based on outcome
+  let title;
+  if (isWin) {
+    title = `🏆  Winner: ${ticker} ${direction}  —  ${pctLabel}`;
+  } else if (isFlat) {
+    title = `➖  Flat: ${ticker} ${direction}  —  $0.00`;
+  } else {
+    title = `🛑  Stopped Out: ${ticker} ${direction}  —  ${pctLabel}`;
   }
 
   return {
-    title: `${emoji} Trade Closed: ${ticker} ${direction} - ${status}`,
-    description: description,
-    color: color,
-    fields: fields,
+    title,
+    description,
+    color,
+    fields,
     timestamp: new Date().toISOString(),
     footer: { text: "Timed Trading Simulator" },
   };
@@ -13509,15 +13550,6 @@ function createTradeClosedEmbed(
 
 // Helper: Create Discord embed for Kanban stage transition
 function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, openTrade = null) {
-  const stageLabels = {
-    enter: "🎯 Enter",
-    enter_now: "🎯 Enter",
-    hold: "📌 Hold",
-    defend: "🛡️ Defend",
-    trim: "✂️ Trim",
-    exit: "🚪 Exit",
-  };
-  const label = stageLabels[stage] || stage?.replace(/_/g, " ").toUpperCase();
   const direction =
     tickerData?.state?.includes("BULL") ? "LONG"
     : tickerData?.state?.includes("BEAR") ? "SHORT"
@@ -13525,116 +13557,92 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
   const price = Number(tickerData?.price);
   const rr = Number(tickerData?.rr);
   const rank = Number(tickerData?.rank ?? tickerData?.score);
+  const dirLabel = direction || "";
 
-  // Color by stage
-  const color =
-    stage === "enter_now" || stage === "enter" ? 0x22c55e
-    : stage === "defend" ? 0xf59e0b
-    : stage === "trim" ? 0x8b5cf6
-    : stage === "exit" ? 0xef4444
-    : 0x3b82f6;
+  // Stage config: emoji, label, color, human description
+  const stageConfig = {
+    enter:     { emoji: "🎯", label: "Entry Signal",      color: 0x22c55e, verb: "is ready for entry" },
+    enter_now: { emoji: "🎯", label: "Entry Signal",      color: 0x22c55e, verb: "is ready for entry" },
+    hold:      { emoji: "📌", label: "Holding",            color: 0x3b82f6, verb: "is being held" },
+    defend:    { emoji: "🛡️", label: "Defending Position", color: 0xf59e0b, verb: "needs attention — tightening stops" },
+    trim:      { emoji: "✂️", label: "Taking Profit",      color: 0x8b5cf6, verb: "is approaching profit targets" },
+    exit:      { emoji: "🚪", label: "Exiting Position",   color: 0xef4444, verb: "is signaling an exit" },
+  };
+  const cfg = stageConfig[stage] || { emoji: "📋", label: stage, color: 0x6b7280, verb: "changed stage" };
 
-  // Build concise description
-  const descParts = [];
-  if (direction) descParts.push(direction);
-  if (Number.isFinite(price) && price > 0) descParts.push(`$${price.toFixed(2)}`);
-  const description = descParts.length > 0 ? descParts.join(" | ") : `Stage: ${stage}`;
+  // Human-readable description
+  const priceStr = Number.isFinite(price) && price > 0 ? ` at **$${price.toFixed(2)}**` : "";
+  const dirStr = direction ? ` (${direction})` : "";
+  const description = `**${ticker}**${dirStr}${priceStr} — ${cfg.verb}.`;
 
   const fields = [];
 
-  // For ENTER: show scoring context (absorbs ALERT_ENTRY + TD9_ENTRY info)
+  // ENTER: signal quality in plain language
   if (stage === "enter" || stage === "enter_now") {
-    const entryParts = [];
-    if (Number.isFinite(rr) && rr > 0) entryParts.push(`**R:R:** ${rr.toFixed(2)}:1`);
-    if (Number.isFinite(rank) && rank > 0) entryParts.push(`**Rank:** ${rank}`);
-    if (tickerData) {
-      const htf = Number(tickerData.htf_score || 0);
-      const ltf = Number(tickerData.ltf_score || 0);
-      entryParts.push(`**HTF:** ${htf.toFixed(1)} | **LTF:** ${ltf.toFixed(1)}`);
+    const entryLines = [];
+    if (Number.isFinite(rr) && rr > 0) entryLines.push(`Risk/Reward:  **${rr.toFixed(1)}:1**`);
+    if (Number.isFinite(rank) && rank > 0) entryLines.push(`Signal Strength:  **${rank}**/100`);
+    if (entryLines.length > 0) {
+      fields.push({ name: "Entry Signal", value: entryLines.join("\n"), inline: false });
     }
-    if (entryParts.length > 0) {
-      fields.push({ name: "📈 Entry Signal", value: entryParts.join("\n"), inline: false });
-    }
-    // Signals (TD, squeeze, etc.)
+    // Signals in plain language
     const sigs = [];
+    if (tickerData?.flags?.momentum_elite) sigs.push("Strong Momentum");
+    if (tickerData?.flags?.sq30_release) sigs.push("Squeeze Breakout");
     if (tickerData?.td_sequential) {
-      const td = tickerData.td_sequential;
-      if (td.td9_bullish || td.td9_bearish) sigs.push("TD9");
-      if (td.td13_bullish || td.td13_bearish) sigs.push("TD13");
+      if (tickerData.td_sequential.td9_bullish || tickerData.td_sequential.td9_bearish) sigs.push("Exhaustion Count (TD9)");
     }
-    if (tickerData?.flags?.sq30_release) sigs.push("Squeeze Release");
-    if (tickerData?.flags?.momentum_elite) sigs.push("Momentum Elite");
     if (sigs.length > 0) {
-      fields.push({ name: "🚩 Signals", value: sigs.join(" | "), inline: true });
+      fields.push({ name: "Active Signals", value: sigs.join("  |  "), inline: false });
     }
-    // TradingView link (absorbed from deprecated ALERT_ENTRY)
     if (ticker) {
       fields.push({
-        name: "📊 Chart",
-        value: `[TradingView](https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker)})`,
+        name: "Chart",
+        value: `[View on TradingView](https://www.tradingview.com/chart/?symbol=${encodeURIComponent(ticker)})`,
         inline: true,
       });
     }
   }
 
-  // For DEFEND: show what triggered it + P&L + SL context (absorbs TDSEQ_DEFENSE)
+  // DEFEND: position context with clear language
   if (stage === "defend" && openTrade) {
     const entryPx = Number(openTrade.entryPrice);
     const pnlPct = Number.isFinite(entryPx) && entryPx > 0 && Number.isFinite(price)
       ? ((price - entryPx) / entryPx * 100 * (openTrade.direction === "SHORT" ? -1 : 1))
       : null;
-    const defendParts = [];
-    if (Number.isFinite(pnlPct)) defendParts.push(`**P&L:** ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`);
-    if (Number.isFinite(entryPx)) defendParts.push(`**Entry:** $${entryPx.toFixed(2)}`);
+    const defendLines = [];
+    if (Number.isFinite(pnlPct)) defendLines.push(`Current P&L:  **${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%**`);
+    if (Number.isFinite(entryPx)) defendLines.push(`Entry:  **$${entryPx.toFixed(2)}**`);
     const sl = Number(openTrade.sl);
-    if (Number.isFinite(sl)) defendParts.push(`**SL:** $${sl.toFixed(2)}`);
-    if (defendParts.length > 0) {
-      fields.push({ name: "🛡️ Position", value: defendParts.join(" | "), inline: false });
-    }
-    // TD context if present
-    if (tickerData?.td_sequential) {
-      const td = tickerData.td_sequential;
-      const tdSigs = [];
-      if (td.td9_bullish || td.td9_bearish) tdSigs.push("TD9 active");
-      if (td.td13_bullish || td.td13_bearish) tdSigs.push("TD13 active");
-      if (tdSigs.length > 0) {
-        fields.push({ name: "🔢 TD Sequential", value: tdSigs.join(" | "), inline: true });
-      }
+    if (Number.isFinite(sl)) defendLines.push(`Stop Loss:  **$${sl.toFixed(2)}**`);
+    if (defendLines.length > 0) {
+      fields.push({ name: "Position", value: defendLines.join("\n"), inline: false });
     }
   }
 
-  // For TRIM/EXIT: show P&L context
+  // TRIM/EXIT: P&L context
   if ((stage === "trim" || stage === "exit") && openTrade) {
     const entryPx = Number(openTrade.entryPrice);
     const pnlPct = Number.isFinite(entryPx) && entryPx > 0 && Number.isFinite(price)
       ? ((price - entryPx) / entryPx * 100 * (openTrade.direction === "SHORT" ? -1 : 1))
       : null;
-    const posParts = [];
-    if (Number.isFinite(pnlPct)) posParts.push(`**P&L:** ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`);
-    if (Number.isFinite(entryPx)) posParts.push(`**Entry:** $${entryPx.toFixed(2)}`);
+    const posLines = [];
+    if (Number.isFinite(pnlPct)) posLines.push(`Current P&L:  **${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%**`);
+    if (Number.isFinite(entryPx)) posLines.push(`Entry:  **$${entryPx.toFixed(2)}**`);
     const trimmedPct = Number(openTrade.trimmedPct);
-    if (Number.isFinite(trimmedPct) && trimmedPct > 0) posParts.push(`**Trimmed:** ${Math.round(trimmedPct * 100)}%`);
-    if (posParts.length > 0) {
-      fields.push({ name: "💰 Position", value: posParts.join(" | "), inline: false });
-    }
-    // Metrics
-    const completion = Number(tickerData?.completion) * 100;
-    const phase = Number(tickerData?.phase_pct) * 100;
-    const metricParts = [];
-    if (Number.isFinite(completion)) metricParts.push(`Comp ${completion.toFixed(0)}%`);
-    if (Number.isFinite(phase)) metricParts.push(`Phase ${phase.toFixed(0)}%`);
-    if (metricParts.length > 0) {
-      fields.push({ name: "📈 Metrics", value: metricParts.join(" | "), inline: true });
+    if (Number.isFinite(trimmedPct) && trimmedPct > 0) posLines.push(`Already Trimmed:  **${Math.round(trimmedPct * 100)}%**`);
+    if (posLines.length > 0) {
+      fields.push({ name: "Position", value: posLines.join("\n"), inline: false });
     }
   }
 
   return {
-    title: `${label}: ${ticker}`,
-    description: description,
-    color,
+    title: `${cfg.emoji}  ${cfg.label}: ${ticker}`,
+    description,
+    color: cfg.color,
     fields,
     timestamp: new Date().toISOString(),
-    footer: { text: "Kanban Lane Transition" },
+    footer: { text: "Timed Trading Simulator" },
   };
 }
 
@@ -16808,12 +16816,12 @@ export default {
                 );
 
                 const opportunityEmbed = {
-                  title: `🎯 Trading Opportunity: ${ticker} ${side}`,
-                  color: side === "LONG" ? 0x00ff00 : 0xff0000, // Green for LONG, Red for SHORT
+                  title: `${side === "LONG" ? "🟢" : "🔴"}  Opportunity: ${ticker} ${side}`,
+                  color: side === "LONG" ? 0x22c55e : 0xef4444,
                   fields: fields,
                   timestamp: new Date().toISOString(),
                   footer: {
-                    text: "Timed Trading Alert",
+                    text: "Timed Trading Simulator",
                   },
                   url: tv, // Make the title clickable to open TradingView
                 };
