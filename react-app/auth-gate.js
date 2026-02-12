@@ -620,9 +620,14 @@
     }
 
     if (state === "unauthenticated") {
-      // Redirect to public splash page instead of showing inline login screen
-      window.location.href = "/splash.html";
-      return null;
+      // Show login screen so user can trigger Cloudflare Access SSO.
+      // Previously this redirected to splash.html, but that caused a redirect
+      // loop: splash → dashboard → unauthenticated → splash → ...
+      return React.createElement(LoginScreen, {
+        onRetry: handleLogin,
+        error: error,
+        loading: false,
+      });
     }
 
     // Tier gating: if requiredTier is set, check the user has sufficient access
