@@ -1484,6 +1484,7 @@ export function computeFuelGauge(bundle) {
  * @returns {object} tickerData payload
  */
 export function assembleTickerData(ticker, bundles, existingData = null, opts = null) {
+  const bM = bundles?.M;
   const bW = bundles?.W;
   const bD = bundles?.D;
   const b4H = bundles?.["240"];
@@ -1547,7 +1548,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // ── EMA Triplet Map per key timeframe ──
   const emaMap = {};
-  const tfEmaSources = { W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10, "5": b5 };
+  const tfEmaSources = { M: bM, W: bW, D: bD, "240": b4H, "60": b1H, "30": b30, "10": b10, "5": b5 };
   for (const [tf, b] of Object.entries(tfEmaSources)) {
     if (b && Number.isFinite(b.emaDepth)) {
       emaMap[tf] = {
@@ -1627,7 +1628,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // Build tf_tech for compatibility with existing worker logic
   const tfTech = {};
-  const tfMap = { W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "10": b10, "5": b5 };
+  const tfMap = { M: bM, W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "10": b10, "5": b5 };
   for (const [tfLabel, b] of Object.entries(tfMap)) {
     if (!b) continue;
     // ATR band: which Fibonacci ATR zone price is in
@@ -1779,6 +1780,19 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     volatility_tier: volTier.tier,
     volatility_atr_pct: volTier.atrPct,
     data_source: "alpaca",
+    // ── Investor-grade monthly data (Phase 1A) ──
+    monthly_bundle: bM ? {
+      supertrend_dir: bM.stDir,       // 1 = bullish, -1 = bearish
+      supertrend_line: bM.stLine ? Math.round(bM.stLine * 100) / 100 : undefined,
+      ema_depth: bM.emaDepth,         // 0-10 conviction ladder
+      ema_structure: Math.round((bM.emaStructure || 0) * 1000) / 1000,
+      ema_momentum: Math.round((bM.emaMomentum || 0) * 1000) / 1000,
+      ema200: bM.e200 ? Math.round(bM.e200 * 100) / 100 : undefined,
+      rsi: bM.rsi ? Math.round(bM.rsi * 10) / 10 : undefined,
+      atr14: bM.atr14 ? Math.round(bM.atr14 * 100) / 100 : undefined,
+      phase_osc: bM.phaseOsc ? Math.round(bM.phaseOsc * 10) / 10 : undefined,
+      px: bM.px ? Math.round(bM.px * 100) / 100 : undefined,
+    } : undefined,
   };
 }
 
@@ -2122,7 +2136,8 @@ const TF_TO_ALPACA = {
 // (3m dropped — too noisy, causes whiplash)
 
 // All timeframes we need for scoring
-const ALL_TFS = ["W", "D", "240", "60", "30", "10", "5"];
+// M (Monthly) included for investor-grade scoring (computeInvestorScore)
+const ALL_TFS = ["M", "W", "D", "240", "60", "30", "10", "5"];
 
 // All timeframes we fetch from Alpaca for candle storage
 const CRON_FETCH_TFS = ["M", "W", "D", "240", "60", "30", "10", "5", "1"];
@@ -2829,6 +2844,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
 
   // Map to the key format used by assembleTickerData
   const bundleMap = {
+    M: bundles.M || null,
     W: bundles.W || null,
     D: bundles.D || null,
     "240": bundles["240"] || null,

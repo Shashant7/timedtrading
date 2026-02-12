@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <title>Timed Trading — Investor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', system-ui, sans-serif; }
+      .loading-spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.6s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-in { animation: fadeIn 0.3s ease-out; }
+      .card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; }
+      .card-hover:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
+      .stage-badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+      .stage-accumulate { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+      .stage-core_hold { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+      .stage-watch { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+      .stage-reduce { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+      .stage-research { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+      .stage-exited { background: rgba(107,114,128,0.15); color: #9ca3af; border: 1px solid rgba(107,114,128,0.3); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useCallback, useMemo } = React;
+      const API_BASE = "";
+
+      // ─── Helpers ──────────────────────────────────────────────────────
+      function fmtPct(n) { return Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(1)}%` : "—"; }
+      function fmtScore(n) { return Number.isFinite(n) ? n.toFixed(0) : "—"; }
+
+      function ScoreBar({ score, max = 100, color = "#3b82f6" }) {
+        const pct = Math.max(0, Math.min(100, (score / max) * 100));
+        return React.createElement("div", { className: "w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden" },
+          React.createElement("div", { style: { width: `${pct}%`, background: color }, className: "h-full rounded-full transition-all duration-500" })
+        );
+      }
+
+      function RegimeBadge({ regime }) {
+        const colors = { RISK_ON: "text-emerald-400 bg-emerald-500/10 border-emerald-500/25", CAUTIOUS: "text-amber-400 bg-amber-500/10 border-amber-500/25", RISK_OFF: "text-red-400 bg-red-500/10 border-red-500/25" };
+        return React.createElement("span", { className: `px-2 py-0.5 rounded-md text-[11px] font-semibold border ${colors[regime] || colors.CAUTIOUS}` }, regime);
+      }
+
+      function StageBadge({ stage }) {
+        return React.createElement("span", { className: `stage-badge stage-${stage}` }, stage.replace("_", " "));
+      }
+
+      function TrendArrow({ direction }) {
+        if (direction === 1 || direction === "uptrend" || direction === "bullish") {
+          return React.createElement("span", { className: "text-emerald-400", title: "Bullish" }, "▲");
+        }
+        if (direction === -1 || direction === "downtrend" || direction === "bearish") {
+          return React.createElement("span", { className: "text-red-400", title: "Bearish" }, "▼");
+        }
+        return React.createElement("span", { className: "text-gray-500", title: "Neutral" }, "●");
+      }
+
+      // ─── Market Health Bar ──────────────────────────────────────────
+      function MarketHealthBar({ health, loading }) {
+        if (!health) return React.createElement("div", { className: "card p-4 mb-4" },
+          React.createElement("div", { className: "text-[#6b7280] text-sm" }, loading ? "Loading market health..." : "No market health data. Click 'Compute' to generate.")
+        );
+
+        const { score, regime, breadth, components } = health;
+        const color = score >= 70 ? "#10b981" : score >= 45 ? "#f59e0b" : "#ef4444";
+
+        return React.createElement("div", { className: "card p-4 mb-4 fade-in" },
+          React.createElement("div", { className: "flex items-center justify-between mb-3" },
+            React.createElement("div", { className: "flex items-center gap-3" },
+              React.createElement("h2", { className: "text-sm font-semibold text-white" }, "Market Health"),
+              React.createElement(RegimeBadge, { regime }),
+            ),
+            React.createElement("div", { className: "flex items-center gap-2" },
+              React.createElement("span", { className: "text-2xl font-bold", style: { color } }, score),
+              React.createElement("span", { className: "text-[#6b7280] text-xs" }, "/ 100"),
+            ),
+          ),
+          React.createElement(ScoreBar, { score, color }),
+          React.createElement("div", { className: "grid grid-cols-4 gap-3 mt-3" },
+            React.createElement("div", { className: "text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Breadth"),
+              React.createElement("div", { className: "text-sm font-medium text-white" }, components?.breadth || 0),
+            ),
+            React.createElement("div", { className: "text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Regime"),
+              React.createElement("div", { className: "text-sm font-medium text-white" }, components?.regimeScore || 0),
+            ),
+            React.createElement("div", { className: "text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Momentum"),
+              React.createElement("div", { className: "text-sm font-medium text-white" }, components?.trendMomentum || 0),
+            ),
+            React.createElement("div", { className: "text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Above W200"),
+              React.createElement("div", { className: "text-sm font-medium text-white" }, breadth?.pctAboveW200 ? `${breadth.pctAboveW200}%` : "—"),
+            ),
+          ),
+        );
+      }
+
+      // ─── Investor Kanban ──────────────────────────────────────────────
+      function InvestorKanban({ tickers, onSelect }) {
+        const stages = ["accumulate", "core_hold", "watch", "reduce", "research"];
+        const stageLabels = { accumulate: "Accumulate", core_hold: "Core Hold", watch: "Watch", reduce: "Reduce", research: "Research" };
+        const stageDescriptions = { accumulate: "Good time to buy", core_hold: "Hold with confidence", watch: "Monitor closely", reduce: "Consider trimming", research: "Worth watching" };
+
+        const grouped = {};
+        for (const s of stages) grouped[s] = [];
+        for (const t of tickers) {
+          const stage = t.stage || "research";
+          if (grouped[stage]) grouped[stage].push(t);
+          else grouped.research.push(t);
+        }
+
+        return React.createElement("div", { className: "mb-4" },
+          React.createElement("h2", { className: "text-sm font-semibold text-white mb-3" }, "Investor Kanban"),
+          React.createElement("div", { className: "grid grid-cols-5 gap-2" },
+            ...stages.map(stage =>
+              React.createElement("div", { key: stage, className: "min-h-[200px]" },
+                React.createElement("div", { className: "flex items-center justify-between mb-2 px-1" },
+                  React.createElement("div", null,
+                    React.createElement("span", { className: `stage-badge stage-${stage}` }, stageLabels[stage]),
+                    React.createElement("span", { className: "text-[10px] text-[#4b5563] ml-1" }, `(${grouped[stage].length})`),
+                  ),
+                ),
+                React.createElement("div", { className: "text-[10px] text-[#4b5563] mb-2 px-1" }, stageDescriptions[stage]),
+                React.createElement("div", { className: "space-y-1" },
+                  ...grouped[stage].slice(0, 15).map(t =>
+                    React.createElement("div", {
+                      key: t.ticker,
+                      className: "card card-hover p-2 cursor-pointer",
+                      onClick: () => onSelect(t.ticker),
+                    },
+                      React.createElement("div", { className: "flex items-center justify-between" },
+                        React.createElement("span", { className: "text-xs font-semibold text-white" }, t.ticker),
+                        React.createElement("span", { className: `text-[11px] font-medium ${t.score >= 70 ? "text-emerald-400" : t.score >= 50 ? "text-amber-400" : "text-red-400"}` }, t.score),
+                      ),
+                      React.createElement("div", { className: "flex items-center justify-between mt-1" },
+                        React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, `RS: ${t.rsRank || "—"}`),
+                        t.accumZone?.inZone && React.createElement("span", { className: "text-[9px] text-emerald-400 bg-emerald-500/10 px-1 rounded" }, "ZONE"),
+                        t.rs?.rsNewHigh3m && React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1 rounded" }, "RS HIGH"),
+                      ),
+                      React.createElement("div", { className: "mt-1" },
+                        React.createElement(ScoreBar, { score: t.score, color: t.score >= 70 ? "#10b981" : t.score >= 50 ? "#f59e0b" : "#ef4444" }),
+                      ),
+                    )
+                  ),
+                  grouped[stage].length > 15 && React.createElement("div", { className: "text-[10px] text-[#4b5563] text-center py-1" }, `+${grouped[stage].length - 15} more`),
+                ),
+              )
+            ),
+          ),
+        );
+      }
+
+      // ─── Portfolio Section ──────────────────────────────────────────
+      function PortfolioSection({ portfolio }) {
+        if (!portfolio || !portfolio.positionHealth?.length) {
+          return React.createElement("div", { className: "card p-4 mb-4" },
+            React.createElement("div", { className: "text-[#6b7280] text-sm" }, "No portfolio data. Fetch investor portfolio to see analytics."),
+          );
+        }
+
+        const { sectorAllocation, concentrationRisk, diversificationScore, positionHealth, suggestions } = portfolio;
+
+        return React.createElement("div", { className: "card p-4 mb-4 fade-in" },
+          React.createElement("h2", { className: "text-sm font-semibold text-white mb-3" }, "Portfolio Analytics"),
+          // Metrics row
+          React.createElement("div", { className: "grid grid-cols-3 gap-4 mb-4" },
+            React.createElement("div", { className: "card p-3 text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Diversification"),
+              React.createElement("div", { className: `text-xl font-bold ${diversificationScore >= 60 ? "text-emerald-400" : diversificationScore >= 40 ? "text-amber-400" : "text-red-400"}` }, diversificationScore),
+              React.createElement(ScoreBar, { score: diversificationScore, color: diversificationScore >= 60 ? "#10b981" : "#f59e0b" }),
+            ),
+            React.createElement("div", { className: "card p-3 text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Concentration"),
+              React.createElement("div", { className: `text-xl font-bold ${concentrationRisk.rating === "GOOD" ? "text-emerald-400" : concentrationRisk.rating === "MODERATE" ? "text-amber-400" : "text-red-400"}` }, `${concentrationRisk.top3Pct}%`),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, `Top 3 positions (${concentrationRisk.rating})`),
+            ),
+            React.createElement("div", { className: "card p-3 text-center" },
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Sectors Held"),
+              React.createElement("div", { className: "text-xl font-bold text-white" }, Object.keys(sectorAllocation).length),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "unique sectors"),
+            ),
+          ),
+          // Sector allocation
+          React.createElement("div", { className: "mb-4" },
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Sector Allocation"),
+            React.createElement("div", { className: "space-y-1" },
+              ...Object.entries(sectorAllocation)
+                .sort((a, b) => b[1].weight - a[1].weight)
+                .map(([sector, data]) =>
+                  React.createElement("div", { key: sector, className: "flex items-center gap-2" },
+                    React.createElement("span", { className: "text-xs text-[#9ca3af] w-28 truncate" }, sector),
+                    React.createElement("div", { className: "flex-1" },
+                      React.createElement(ScoreBar, { score: data.weight, color: data.weight > 30 ? "#ef4444" : "#3b82f6" }),
+                    ),
+                    React.createElement("span", { className: "text-xs text-white w-12 text-right" }, `${data.weight}%`),
+                  )
+                ),
+            ),
+          ),
+          // Position health table
+          React.createElement("div", { className: "mb-4" },
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Position Health"),
+            React.createElement("div", { className: "overflow-x-auto" },
+              React.createElement("table", { className: "w-full text-xs" },
+                React.createElement("thead", null,
+                  React.createElement("tr", { className: "text-[#6b7280] border-b border-white/[0.06]" },
+                    React.createElement("th", { className: "text-left py-1.5 font-medium" }, "Ticker"),
+                    React.createElement("th", { className: "text-right py-1.5 font-medium" }, "P&L"),
+                    React.createElement("th", { className: "text-right py-1.5 font-medium" }, "Score"),
+                    React.createElement("th", { className: "text-right py-1.5 font-medium" }, "RS Rank"),
+                    React.createElement("th", { className: "text-right py-1.5 font-medium" }, "Weight"),
+                    React.createElement("th", { className: "text-left py-1.5 font-medium pl-2" }, "Sector"),
+                  ),
+                ),
+                React.createElement("tbody", null,
+                  ...positionHealth.sort((a, b) => (b.investorScore || 0) - (a.investorScore || 0)).map(ph =>
+                    React.createElement("tr", { key: ph.ticker, className: "border-b border-white/[0.03] hover:bg-white/[0.02]" },
+                      React.createElement("td", { className: "py-1.5 font-semibold text-white" }, ph.ticker),
+                      React.createElement("td", { className: `py-1.5 text-right ${ph.pnlPct >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(ph.pnlPct)),
+                      React.createElement("td", { className: "py-1.5 text-right text-white" }, ph.investorScore || "—"),
+                      React.createElement("td", { className: "py-1.5 text-right text-white" }, ph.rsRank || "—"),
+                      React.createElement("td", { className: "py-1.5 text-right text-[#9ca3af]" }, `${ph.weight}%`),
+                      React.createElement("td", { className: "py-1.5 pl-2 text-[#6b7280]" }, ph.sector),
+                    )
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // Suggestions
+          suggestions?.length > 0 && React.createElement("div", null,
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Rebalancing Suggestions"),
+            React.createElement("div", { className: "space-y-1.5" },
+              ...suggestions.map((s, i) =>
+                React.createElement("div", { key: i, className: `card p-2 text-xs ${s.priority === "high" ? "border-red-500/30" : s.priority === "medium" ? "border-amber-500/30" : "border-white/[0.06]"}` },
+                  React.createElement("div", { className: "flex items-center gap-2" },
+                    React.createElement("span", { className: `w-1.5 h-1.5 rounded-full ${s.priority === "high" ? "bg-red-400" : s.priority === "medium" ? "bg-amber-400" : "bg-blue-400"}` }),
+                    React.createElement("span", { className: "text-[#d1d5db]" }, s.message),
+                  ),
+                )
+              ),
+            ),
+          ),
+        );
+      }
+
+      // ─── Ticker Deep Dive (Right Rail) ──────────────────────────────
+      function TickerDeepDive({ ticker, data }) {
+        if (!ticker || !data) return React.createElement("div", { className: "card p-4 text-center text-[#6b7280] text-sm" }, "Select a ticker to see details");
+
+        return React.createElement("div", { className: "card p-4 fade-in space-y-4" },
+          React.createElement("div", { className: "flex items-center justify-between" },
+            React.createElement("div", null,
+              React.createElement("h2", { className: "text-lg font-bold text-white" }, ticker),
+              React.createElement("span", { className: "text-xs text-[#6b7280]" }, data.sector || "Unknown"),
+            ),
+            React.createElement("div", { className: "text-right" },
+              React.createElement("div", { className: `text-2xl font-bold ${data.score >= 70 ? "text-emerald-400" : data.score >= 50 ? "text-amber-400" : "text-red-400"}` }, data.score),
+              React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "Investor Score"),
+            ),
+          ),
+          React.createElement(ScoreBar, { score: data.score, color: data.score >= 70 ? "#10b981" : data.score >= 50 ? "#f59e0b" : "#ef4444" }),
+          // Stage
+          React.createElement("div", { className: "flex items-center gap-2" },
+            React.createElement(StageBadge, { stage: data.stage }),
+            React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, data.stageReason),
+          ),
+          // Score components
+          data.components && React.createElement("div", null,
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Score Breakdown"),
+            React.createElement("div", { className: "space-y-1.5" },
+              ...Object.entries(data.components).map(([k, v]) =>
+                React.createElement("div", { key: k, className: "flex items-center justify-between" },
+                  React.createElement("span", { className: "text-[11px] text-[#9ca3af] capitalize" }, k.replace(/([A-Z])/g, " $1")),
+                  React.createElement("div", { className: "flex items-center gap-2" },
+                    React.createElement("div", { className: "w-20" },
+                      React.createElement(ScoreBar, { score: v, max: k === "weeklyTrend" ? 25 : k === "monthlyTrend" ? 20 : k === "relativeStrength" ? 20 : k === "accumulationSignal" ? 15 : 10, color: "#3b82f6" }),
+                    ),
+                    React.createElement("span", { className: "text-xs text-white w-6 text-right" }, v),
+                  ),
+                )
+              ),
+            ),
+          ),
+          // Relative Strength
+          data.rs && React.createElement("div", null,
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Relative Strength vs SPY"),
+            React.createElement("div", { className: "grid grid-cols-3 gap-2" },
+              React.createElement("div", { className: "card p-2 text-center" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "1 Month"),
+                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs1m >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(data.rs.rs1m)),
+              ),
+              React.createElement("div", { className: "card p-2 text-center" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "3 Month"),
+                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs3m >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(data.rs.rs3m)),
+              ),
+              React.createElement("div", { className: "card p-2 text-center" },
+                React.createElement("div", { className: "text-[10px] text-[#6b7280]" }, "6 Month"),
+                React.createElement("div", { className: `text-sm font-semibold ${data.rs.rs6m >= 0 ? "text-emerald-400" : "text-red-400"}` }, fmtPct(data.rs.rs6m)),
+              ),
+            ),
+            React.createElement("div", { className: "flex items-center gap-2 mt-2" },
+              React.createElement("span", { className: "text-[11px] text-[#6b7280]" }, `RS Rank: ${data.rsRank}th percentile`),
+              data.rs.rsNewHigh3m && React.createElement("span", { className: "text-[10px] text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded" }, "3M NEW HIGH"),
+              data.rs.rsNewHigh6m && React.createElement("span", { className: "text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded" }, "6M NEW HIGH"),
+            ),
+          ),
+          // Accumulation zone
+          data.accumZone && React.createElement("div", null,
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Accumulation Zone"),
+            data.accumZone.inZone
+              ? React.createElement("div", { className: "card p-2 border-emerald-500/30" },
+                  React.createElement("div", { className: "flex items-center gap-2 mb-1" },
+                    React.createElement("span", { className: "w-2 h-2 rounded-full bg-emerald-400 animate-pulse" }),
+                    React.createElement("span", { className: "text-xs text-emerald-400 font-semibold" }, "IN ACCUMULATION ZONE"),
+                  ),
+                  React.createElement("div", { className: "text-[11px] text-[#9ca3af]" }, `Confidence: ${data.accumZone.confidence}%`),
+                  React.createElement("div", { className: "flex flex-wrap gap-1 mt-1" },
+                    ...data.accumZone.signals.map((s, i) =>
+                      React.createElement("span", { key: i, className: "text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#9ca3af]" }, s.replace(/_/g, " "))
+                    ),
+                  ),
+                )
+              : React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Not in accumulation zone"),
+          ),
+          // Thesis
+          data.thesis && React.createElement("div", null,
+            React.createElement("h3", { className: "text-xs font-semibold text-[#9ca3af] mb-2 uppercase tracking-wide" }, "Investment Thesis"),
+            React.createElement("div", { className: "text-xs text-[#d1d5db] mb-2" }, data.thesis),
+            data.thesisInvalidation?.length > 0 && React.createElement("div", null,
+              React.createElement("div", { className: "text-[10px] text-[#6b7280] mb-1" }, "Invalidation triggers:"),
+              ...data.thesisInvalidation.map((inv, i) =>
+                React.createElement("div", { key: i, className: "text-[11px] text-red-400/80 pl-2" }, `• ${inv}`)
+              ),
+            ),
+          ),
+        );
+      }
+
+      // ─── Main App ──────────────────────────────────────────────────
+      function InvestorDashboard() {
+        const [scores, setScores] = useState(null);
+        const [health, setHealth] = useState(null);
+        const [portfolio, setPortfolio] = useState(null);
+        const [selectedTicker, setSelectedTicker] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [computing, setComputing] = useState(false);
+        const [lastComputed, setLastComputed] = useState(null);
+        const [stageFilter, setStageFilter] = useState(null);
+
+        const fetchData = useCallback(async () => {
+          setLoading(true);
+          try {
+            const [scoresResp, healthResp, portfolioResp] = await Promise.all([
+              fetch(`${API_BASE}/timed/investor/scores`).then(r => r.json()).catch(() => null),
+              fetch(`${API_BASE}/timed/investor/market-health`).then(r => r.json()).catch(() => null),
+              fetch(`${API_BASE}/timed/investor/portfolio`).then(r => r.json()).catch(() => null),
+            ]);
+            if (scoresResp?.ok) { setScores(scoresResp); setLastComputed(scoresResp.computedAt); }
+            if (healthResp?.ok) setHealth(healthResp);
+            if (portfolioResp?.ok) setPortfolio(portfolioResp);
+          } finally { setLoading(false); }
+        }, []);
+
+        useEffect(() => { fetchData(); }, [fetchData]);
+
+        const computeScores = useCallback(async () => {
+          setComputing(true);
+          try {
+            const resp = await fetch(`${API_BASE}/timed/investor/compute`, { method: "POST" });
+            const data = await resp.json();
+            if (data.ok) {
+              await fetchData();
+            } else {
+              alert(`Compute failed: ${data.error}`);
+            }
+          } catch (e) { alert(`Error: ${e.message}`); }
+          finally { setComputing(false); }
+        }, [fetchData]);
+
+        const tickers = useMemo(() => {
+          if (!scores?.tickers) return [];
+          let list = scores.tickers;
+          if (stageFilter) list = list.filter(t => t.stage === stageFilter);
+          return list;
+        }, [scores, stageFilter]);
+
+        const selectedData = useMemo(() => {
+          if (!selectedTicker || !scores?.tickers) return null;
+          return scores.tickers.find(t => t.ticker === selectedTicker);
+        }, [selectedTicker, scores]);
+
+        // Stage counts
+        const stageCounts = useMemo(() => {
+          if (!scores?.tickers) return {};
+          const counts = {};
+          for (const t of scores.tickers) {
+            const s = t.stage || "research";
+            counts[s] = (counts[s] || 0) + 1;
+          }
+          return counts;
+        }, [scores]);
+
+        return React.createElement("div", { className: "min-h-screen" },
+          // Nav
+          React.createElement("nav", { className: "sticky top-0 z-50 px-4 py-2 flex items-center justify-between border-b border-white/[0.06]", style: { background: "rgba(10,10,15,0.95)", backdropFilter: "blur(12px)" } },
+            React.createElement("div", { className: "flex items-center gap-3" },
+              React.createElement("span", { className: "text-[15px] font-semibold text-white tracking-tight" }, "Timed Trading"),
+              React.createElement("div", { className: "flex items-center gap-0.5" },
+                React.createElement("a", { href: "index-react.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Dashboard"),
+                React.createElement("a", { href: "simulation-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Trades"),
+                React.createElement("a", { href: "investor-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium" }, "Investor"),
+                React.createElement("a", { href: "model-dashboard.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Model"),
+                React.createElement("a", { href: "screener.html", className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" }, "Screener"),
+              ),
+            ),
+            React.createElement("div", { className: "flex items-center gap-2" },
+              React.createElement("button", {
+                onClick: computeScores,
+                disabled: computing,
+                className: "px-3 py-1 rounded-md text-[12px] text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-all",
+              }, computing ? "Computing..." : "Compute"),
+              React.createElement("button", { onClick: fetchData, className: "px-3 py-1 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all" }, "Refresh"),
+              lastComputed && React.createElement("span", { className: "text-[10px] text-[#4b5563]" }, `Updated ${new Date(lastComputed).toLocaleTimeString()}`),
+              loading && React.createElement("div", { className: "loading-spinner" }),
+            ),
+          ),
+
+          // Main content
+          React.createElement("div", { className: "flex gap-4 p-4", style: { maxHeight: "calc(100vh - 48px)", overflow: "hidden" } },
+            // Left: main content
+            React.createElement("div", { className: "flex-1 overflow-y-auto pr-2", style: { maxHeight: "calc(100vh - 72px)" } },
+              React.createElement(MarketHealthBar, { health, loading }),
+              // Stage filter tabs
+              scores?.tickers && React.createElement("div", { className: "flex items-center gap-1 mb-3" },
+                React.createElement("button", { onClick: () => setStageFilter(null), className: `px-2 py-0.5 rounded text-[11px] transition-all ${!stageFilter ? "bg-white/[0.08] text-white" : "text-[#6b7280] hover:text-white"}` }, `All (${scores.count})`),
+                ...["accumulate", "core_hold", "watch", "reduce", "research"].map(s =>
+                  React.createElement("button", {
+                    key: s,
+                    onClick: () => setStageFilter(stageFilter === s ? null : s),
+                    className: `px-2 py-0.5 rounded text-[11px] transition-all ${stageFilter === s ? "bg-white/[0.08] text-white" : "text-[#6b7280] hover:text-white"}`,
+                  }, `${s.replace("_", " ")} (${stageCounts[s] || 0})`)
+                ),
+              ),
+              tickers.length > 0
+                ? React.createElement(InvestorKanban, { tickers, onSelect: setSelectedTicker })
+                : React.createElement("div", { className: "card p-8 text-center text-[#6b7280]" },
+                    React.createElement("div", { className: "text-lg mb-2" }, "No investor data yet"),
+                    React.createElement("div", { className: "text-sm" }, "Click 'Compute' to run the investor scoring pipeline."),
+                  ),
+              React.createElement(PortfolioSection, { portfolio }),
+            ),
+
+            // Right rail: ticker details
+            React.createElement("div", { className: "w-80 flex-shrink-0 overflow-y-auto", style: { maxHeight: "calc(100vh - 72px)" } },
+              React.createElement(TickerDeepDive, { ticker: selectedTicker, data: selectedData }),
+            ),
+          ),
+        );
+      }
+
+      // ─── Render ──────────────────────────────────────────────────────
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(React.createElement(InvestorDashboard));
+    </script>
+  </body>
+</html>

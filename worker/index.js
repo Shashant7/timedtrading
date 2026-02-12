@@ -43,6 +43,8 @@ import {
   notifyDiscord,
   shouldSendDiscordAlert,
   generateProactiveAlerts,
+  createWeeklyDigestEmbed,
+  createInvestorAlertEmbed,
 } from "./alerts.js";
 import {
   alpacaCronFetchLatest,
@@ -69,6 +71,18 @@ import {
   computeMultiLevelPredictions,
   extractTDSeqFeatures,
 } from "./model.js";
+import {
+  computeInvestorScore,
+  computeRelativeStrength,
+  computeRSRank,
+  computeMarketHealth,
+  classifyInvestorStage,
+  detectAccumulationZone,
+  generateThesis,
+  checkThesisHealth,
+  computePortfolioAnalytics,
+  generateRebalancingSuggestions,
+} from "./investor.js";
 
 // ─── PriceHub DO notification helper ───────────────────────────────────────
 // Fire-and-forget POST to the Durable Object to fan out data to WS clients.
@@ -229,6 +243,13 @@ const ROUTES = [
   ["GET", "/timed/ai/updates", "GET /timed/ai/updates"],
   ["GET", "/timed/ai/daily-summary", "GET /timed/ai/daily-summary"],
   ["GET", "/timed/ai/monitor", "GET /timed/ai/monitor"],
+  // ── Investor Intelligence endpoints ──
+  ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
+  ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
+  ["GET", "/timed/investor/portfolio", "GET /timed/investor/portfolio"],
+  ["GET", "/timed/investor/ticker", "GET /timed/investor/ticker"],
+  ["POST", "/timed/investor/compute", "POST /timed/investor/compute"],
+  ["POST", "/timed/investor/weekly-digest", "POST /timed/investor/weekly-digest"],
   ["GET", "/timed/debug/trades", "GET /timed/debug/trades"],
   ["GET", "/timed/debug/tickers", "GET /timed/debug/tickers"],
   ["GET", "/timed/debug/config", "GET /timed/debug/config"],
@@ -27425,6 +27446,375 @@ Provide 3-5 actionable next steps:
       // ─────────────────────────────────────────────────────────────
       // Debug Endpoints
       // ─────────────────────────────────────────────────────────────
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // INVESTOR INTELLIGENCE ENDPOINTS
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/investor/compute — Compute all investor scores + market health
+      // This runs the full investor scoring pipeline and stores results in KV
+      if (routeKey === "POST /timed/investor/compute") {
+        try {
+          // Fetch all ticker data from KV
+          const tickerListResp = await kvGetJSON(env.KV_TIMED, "timed:tickers");
+          const allTickers = tickerListResp || [];
+          const tickerSyms = allTickers.map(t => typeof t === "string" ? t : t.ticker).filter(Boolean);
+
+          // Get SPY candles for relative strength
+          let spyCandles = [];
+          try {
+            const spyResp = await env.DB.prepare(
+              "SELECT ts, c FROM ticker_candles WHERE ticker = 'SPY' AND tf = 'D' ORDER BY ts ASC LIMIT 300"
+            ).all();
+            spyCandles = spyResp?.results || [];
+          } catch {}
+
+          const allTickerData = [];
+          const allRS3m = [];
+          const rsMap = {};
+          const investorResults = {};
+
+          // Phase 1: Fetch all ticker data + compute RS
+          for (const ticker of tickerSyms) {
+            const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`);
+            if (!td || !td.price) continue;
+            td._sector = SECTOR_MAP[ticker] || "Unknown";
+            allTickerData.push(td);
+
+            // Compute relative strength
+            let tickerCandles = [];
+            try {
+              const resp = await env.DB.prepare(
+                "SELECT ts, c FROM ticker_candles WHERE ticker = ? AND tf = 'D' ORDER BY ts ASC LIMIT 300"
+              ).bind(ticker).all();
+              tickerCandles = resp?.results || [];
+            } catch {}
+
+            const rs = computeRelativeStrength(tickerCandles, spyCandles);
+            rsMap[ticker] = rs;
+            if (Number.isFinite(rs.rs3m)) allRS3m.push(rs.rs3m);
+          }
+
+          // Phase 2: Compute RS ranks
+          const rsRanks = {};
+          for (const [ticker, rs] of Object.entries(rsMap)) {
+            rsRanks[ticker] = computeRSRank(rs.rs3m, allRS3m);
+          }
+
+          // Phase 3: Compute sector RS ranks
+          const sectorRS = {};
+          for (const td of allTickerData) {
+            const sector = td._sector;
+            if (!sectorRS[sector]) sectorRS[sector] = [];
+            const rs = rsMap[td.ticker];
+            if (rs && Number.isFinite(rs.rs3m)) {
+              sectorRS[sector].push(rs.rs3m);
+            }
+          }
+          const sectorRsRanks = {};
+          for (const [sector, values] of Object.entries(sectorRS)) {
+            const avg = values.length > 0 ? values.reduce((s, v) => s + v, 0) / values.length : 0;
+            sectorRsRanks[sector] = computeRSRank(avg, allRS3m);
+          }
+
+          // Phase 4: Market health
+          const spyData = allTickerData.find(td => td.ticker === "SPY");
+          const qqqData = allTickerData.find(td => td.ticker === "QQQ");
+          const marketHealth = computeMarketHealth(allTickerData, spyData, qqqData);
+
+          // Phase 5: Compute investor scores + stages for all tickers
+          const allInvestorScores = {};
+          const allAccumZones = {};
+          const allStages = {};
+          const allTheses = {};
+
+          for (const td of allTickerData) {
+            const ticker = td.ticker;
+            const sector = td._sector;
+            const rsRank = rsRanks[ticker] || 50;
+            const sectorRsRank = sectorRsRanks[sector] || 50;
+
+            const { score, components, accumZone } = computeInvestorScore(td, {
+              rsRank, sectorRsRank, marketHealth: marketHealth.score,
+            });
+
+            allInvestorScores[ticker] = score;
+            allAccumZones[ticker] = accumZone;
+
+            // Investor stage (no position assumed for general compute)
+            const stage = classifyInvestorStage(td, score, null, {
+              rsRank, marketHealth: marketHealth.score, accumZone,
+            });
+            allStages[ticker] = stage;
+
+            // Thesis
+            const thesis = generateThesis(td, rsRank);
+            allTheses[ticker] = thesis;
+
+            investorResults[ticker] = {
+              score, components, accumZone,
+              rsRank, rs: rsMap[ticker] ? {
+                rs1m: rsMap[ticker].rs1m,
+                rs3m: rsMap[ticker].rs3m,
+                rs6m: rsMap[ticker].rs6m,
+                rsNewHigh3m: rsMap[ticker].rsNewHigh3m,
+                rsNewHigh6m: rsMap[ticker].rsNewHigh6m,
+              } : undefined,
+              stage: stage.stage,
+              stageReason: stage.reason,
+              thesis: thesis.thesis,
+              thesisInvalidation: thesis.invalidation,
+            };
+          }
+
+          // ── Phase 5B: Threshold Alerts ──
+          // Compare with previous scores to detect critical investor events
+          const prevScores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
+          const investorAlerts = [];
+
+          for (const [ticker, curr] of Object.entries(investorResults)) {
+            const prev = prevScores[ticker];
+
+            // Accumulation zone entry (wasn't in zone before, now is)
+            if (curr.accumZone?.inZone && (!prev?.accumZone?.inZone)) {
+              investorAlerts.push({ type: "accumulation_zone", data: {
+                ticker, score: curr.score, rsRank: curr.rsRank,
+                confidence: curr.accumZone.confidence, signals: curr.accumZone.signals,
+              }});
+            }
+
+            // RS breakout (new 3m or 6m high)
+            if (curr.rs?.rsNewHigh6m && !prev?.rs?.rsNewHigh6m) {
+              investorAlerts.push({ type: "rs_breakout", data: {
+                ticker, period: "6-month", rsRank: curr.rsRank,
+                rs3m: curr.rs.rs3m, score: curr.score,
+              }});
+            } else if (curr.rs?.rsNewHigh3m && !prev?.rs?.rsNewHigh3m) {
+              investorAlerts.push({ type: "rs_breakout", data: {
+                ticker, period: "3-month", rsRank: curr.rsRank,
+                rs3m: curr.rs.rs3m, score: curr.score,
+              }});
+            }
+
+            // Thesis invalidation (stage changed to "reduce" from something better)
+            if (curr.stage === "reduce" && prev?.stage && prev.stage !== "reduce" && prev.stage !== "exited") {
+              investorAlerts.push({ type: "thesis_invalidation", data: {
+                ticker, reasons: [curr.stageReason],
+              }});
+            }
+          }
+
+          // Send top 5 alerts to Discord (avoid spam)
+          const alertsSent = [];
+          for (const alert of investorAlerts.slice(0, 5)) {
+            const embed = createInvestorAlertEmbed(alert.type, alert.data);
+            if (embed) {
+              ctx.waitUntil(notifyDiscord(env, embed));
+              alertsSent.push({ type: alert.type, ticker: alert.data.ticker });
+            }
+          }
+
+          // Store in KV
+          await kvPutJSON(env.KV_TIMED, "timed:investor:scores", investorResults);
+          await kvPutJSON(env.KV_TIMED, "timed:investor:market-health", marketHealth);
+          await kvPutJSON(env.KV_TIMED, "timed:investor:stages", allStages);
+          await kvPutJSON(env.KV_TIMED, "timed:investor:rs-ranks", rsRanks);
+          await kvPutJSON(env.KV_TIMED, "timed:investor:computed-at", Date.now());
+
+          return sendJSON({
+            ok: true,
+            tickers: Object.keys(investorResults).length,
+            marketHealth,
+            alertsSent,
+            topAccumulate: Object.entries(allStages)
+              .filter(([, s]) => s.stage === "accumulate")
+              .map(([t]) => ({ ticker: t, score: allInvestorScores[t], rsRank: rsRanks[t] }))
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 10),
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/investor/scores — Get all investor scores (from KV cache)
+      if (routeKey === "GET /timed/investor/scores") {
+        const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores");
+        const computedAt = await kvGetJSON(env.KV_TIMED, "timed:investor:computed-at");
+        if (!scores) {
+          return sendJSON({ ok: false, error: "No investor scores computed yet. POST /timed/investor/compute first." }, 404, corsHeaders(env, req));
+        }
+
+        // Optional filter
+        const stage = url.searchParams.get("stage");
+        const minScore = Number(url.searchParams.get("minScore") || 0);
+        const sector = url.searchParams.get("sector");
+        const sort = url.searchParams.get("sort") || "score";
+
+        let entries = Object.entries(scores).map(([ticker, data]) => ({ ticker, ...data }));
+
+        if (stage) entries = entries.filter(e => e.stage === stage);
+        if (minScore > 0) entries = entries.filter(e => e.score >= minScore);
+        if (sector) entries = entries.filter(e => (SECTOR_MAP[e.ticker] || "") === sector);
+
+        if (sort === "rsRank") entries.sort((a, b) => (b.rsRank || 0) - (a.rsRank || 0));
+        else entries.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+        return sendJSON({
+          ok: true,
+          count: entries.length,
+          computedAt,
+          tickers: entries,
+        }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/investor/market-health — Get market health (from KV cache)
+      if (routeKey === "GET /timed/investor/market-health") {
+        const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
+        const computedAt = await kvGetJSON(env.KV_TIMED, "timed:investor:computed-at");
+        if (!health) {
+          return sendJSON({ ok: false, error: "No market health computed yet." }, 404, corsHeaders(env, req));
+        }
+        return sendJSON({ ok: true, ...health, computedAt }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/investor/ticker?ticker=AAPL — Get detailed investor data for a single ticker
+      if (routeKey === "GET /timed/investor/ticker") {
+        const ticker = (url.searchParams.get("ticker") || "").toUpperCase();
+        if (!ticker) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+
+        const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores");
+        const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
+        const data = scores?.[ticker];
+        if (!data) {
+          return sendJSON({ ok: false, error: `No investor data for ${ticker}` }, 404, corsHeaders(env, req));
+        }
+
+        return sendJSON({
+          ok: true,
+          ticker,
+          ...data,
+          marketHealth: health?.score,
+          marketRegime: health?.regime,
+          sector: SECTOR_MAP[ticker] || "Unknown",
+        }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/investor/portfolio — Portfolio analytics for investor
+      if (routeKey === "GET /timed/investor/portfolio") {
+        try {
+          const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
+          const rsRanks = await kvGetJSON(env.KV_TIMED, "timed:investor:rs-ranks") || {};
+          const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
+
+          // Get open positions from D1
+          const posResp = await env.DB.prepare(
+            "SELECT ticker, direction, total_qty, cost_basis, stop_loss, take_profit FROM positions WHERE status = 'OPEN'"
+          ).all();
+          const dbPositions = posResp?.results || [];
+
+          // Enrich with current prices
+          const positions = [];
+          for (const p of dbPositions) {
+            const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${p.ticker}`);
+            const mark = td?.price || 0;
+            const avgEntry = p.total_qty > 0 ? p.cost_basis / p.total_qty : 0;
+            positions.push({
+              ticker: p.ticker,
+              direction: p.direction,
+              shares: p.total_qty,
+              avgEntry,
+              mark,
+              unrealizedPnl: (mark - avgEntry) * p.total_qty * (p.direction === "SHORT" ? -1 : 1),
+              unrealizedPnlPct: avgEntry > 0 ? ((mark - avgEntry) / avgEntry * 100) * (p.direction === "SHORT" ? -1 : 1) : 0,
+            });
+          }
+
+          const investorScores = {};
+          const rsRankMap = {};
+          for (const [t, d] of Object.entries(scores)) {
+            investorScores[t] = d.score;
+            rsRankMap[t] = d.rsRank || rsRanks[t] || 50;
+          }
+
+          const analytics = computePortfolioAnalytics(positions, SECTOR_MAP, {
+            investorScores, rsRanks: rsRankMap,
+          });
+
+          // Accumulation zones
+          const allAccumZones = {};
+          for (const [t, d] of Object.entries(scores)) {
+            if (d.accumZone) allAccumZones[t] = d.accumZone;
+          }
+
+          const suggestions = generateRebalancingSuggestions(
+            analytics, health?.score || 50, investorScores, allAccumZones, SECTOR_MAP
+          );
+
+          return sendJSON({
+            ok: true,
+            ...analytics,
+            marketHealth: health?.score,
+            marketRegime: health?.regime,
+            suggestions,
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/investor/weekly-digest — Generate and send weekly investor digest to Discord
+      if (routeKey === "POST /timed/investor/weekly-digest") {
+        try {
+          const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
+          const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
+          const prevHealth = await kvGetJSON(env.KV_TIMED, "timed:investor:prev-market-health");
+          const prevStages = await kvGetJSON(env.KV_TIMED, "timed:investor:prev-stages") || {};
+          const currentStages = await kvGetJSON(env.KV_TIMED, "timed:investor:stages") || {};
+
+          // Detect stage changes
+          const stageChanges = [];
+          for (const [ticker, curr] of Object.entries(currentStages)) {
+            const prev = prevStages[ticker];
+            if (prev && prev.stage !== curr.stage) {
+              stageChanges.push({ ticker, from: prev.stage, to: curr.stage });
+            }
+          }
+
+          // Top accumulate candidates
+          const topAccumulate = Object.entries(scores)
+            .filter(([, d]) => d.stage === "accumulate")
+            .map(([ticker, d]) => ({ ticker, score: d.score, rsRank: d.rsRank }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5);
+
+          // Build digest embed
+          const embed = createWeeklyDigestEmbed({
+            marketHealth: health || {},
+            prevMarketHealth: prevHealth,
+            stageChanges,
+            topAccumulate,
+          });
+
+          // Send to Discord
+          const discordResult = await notifyDiscord(env, embed);
+
+          // Save current state as "previous" for next week
+          await kvPutJSON(env.KV_TIMED, "timed:investor:prev-market-health", health);
+          await kvPutJSON(env.KV_TIMED, "timed:investor:prev-stages", currentStages);
+
+          return sendJSON({
+            ok: true,
+            discord: discordResult,
+            stageChanges: stageChanges.length,
+            topAccumulate: topAccumulate.length,
+          }, 200, corsHeaders(env, req));
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
 
       // GET /timed/debug/trades?ticker=RIOT - Get all trades with details, optionally filtered by ticker
       if (routeKey === "GET /timed/debug/trades") {

@@ -263,3 +263,175 @@ export function generateProactiveAlerts(allTickers, allTrades) {
     return priorityOrder[b.priority] - priorityOrder[a.priority];
   });
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INVESTOR ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Create a weekly investor digest Discord embed.
+ *
+ * @param {object} opts
+ * @param {object} marketHealth - { score, regime, breadth }
+ * @param {object} prevMarketHealth - previous week's market health (or null)
+ * @param {object[]} stageChanges - [{ ticker, from, to }]
+ * @param {object[]} topAccumulate - [{ ticker, score, rsRank }]
+ * @param {object} sectorRotation - { improved: [], declined: [] }
+ * @param {object} portfolioSummary - { totalValue, weeklyChangePct, bestTicker, worstTicker }
+ * @returns {object} Discord embed
+ */
+export function createWeeklyDigestEmbed({
+  marketHealth = {},
+  prevMarketHealth = null,
+  stageChanges = [],
+  topAccumulate = [],
+  sectorRotation = {},
+  portfolioSummary = null,
+}) {
+  const color = marketHealth.regime === "RISK_ON" ? 0x10b981
+    : marketHealth.regime === "RISK_OFF" ? 0xef4444
+    : 0xf59e0b;
+
+  const healthDelta = prevMarketHealth
+    ? `(${marketHealth.score > prevMarketHealth.score ? "+" : ""}${marketHealth.score - prevMarketHealth.score} from last week)`
+    : "";
+
+  const fields = [];
+
+  // Market Health
+  fields.push({
+    name: "Market Health",
+    value: `**${marketHealth.score || "—"}** / 100 — ${marketHealth.regime || "CAUTIOUS"} ${healthDelta}\n` +
+      `Breadth: ${marketHealth.breadth?.pctAboveW200 || "—"}% above Weekly 200 EMA`,
+    inline: false,
+  });
+
+  // Portfolio summary
+  if (portfolioSummary) {
+    const pnlEmoji = portfolioSummary.weeklyChangePct >= 0 ? "📈" : "📉";
+    fields.push({
+      name: `${pnlEmoji} Portfolio Summary`,
+      value: `Value: $${(portfolioSummary.totalValue || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}\n` +
+        `Weekly: ${portfolioSummary.weeklyChangePct >= 0 ? "+" : ""}${(portfolioSummary.weeklyChangePct || 0).toFixed(1)}%\n` +
+        `Best: ${portfolioSummary.bestTicker || "—"} | Worst: ${portfolioSummary.worstTicker || "—"}`,
+      inline: false,
+    });
+  }
+
+  // Stage changes
+  if (stageChanges.length > 0) {
+    const changeLines = stageChanges.slice(0, 8).map(c => {
+      const arrow = c.to === "accumulate" ? "🟢" : c.to === "reduce" ? "🔴" : c.to === "watch" ? "🟡" : "⚪";
+      return `${arrow} **${c.ticker}**: ${c.from} → ${c.to}`;
+    });
+    if (stageChanges.length > 8) changeLines.push(`...and ${stageChanges.length - 8} more`);
+    fields.push({
+      name: "Stage Changes",
+      value: changeLines.join("\n"),
+      inline: false,
+    });
+  }
+
+  // Top accumulate candidates
+  if (topAccumulate.length > 0) {
+    const lines = topAccumulate.slice(0, 5).map(t =>
+      `**${t.ticker}** — Score ${t.score}, RS Rank ${t.rsRank || "—"}`
+    );
+    fields.push({
+      name: "🎯 Top Accumulation Opportunities",
+      value: lines.join("\n"),
+      inline: false,
+    });
+  }
+
+  // Sector rotation
+  if (sectorRotation.improved?.length > 0 || sectorRotation.declined?.length > 0) {
+    const lines = [];
+    if (sectorRotation.improved?.length > 0) {
+      lines.push(`📈 Improving: ${sectorRotation.improved.join(", ")}`);
+    }
+    if (sectorRotation.declined?.length > 0) {
+      lines.push(`📉 Declining: ${sectorRotation.declined.join(", ")}`);
+    }
+    fields.push({
+      name: "Sector Rotation",
+      value: lines.join("\n"),
+      inline: false,
+    });
+  }
+
+  return {
+    title: "📊 Weekly Investor Digest",
+    description: `Your weekly summary for the week ending ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.`,
+    color,
+    fields,
+    footer: { text: "Timed Trading — Investor Intelligence" },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Create investor threshold alert embeds.
+ *
+ * @param {string} type - "thesis_invalidation" | "accumulation_zone" | "rs_breakout" | "rebalancing"
+ * @param {object} data - alert-specific data
+ * @returns {object} Discord embed
+ */
+export function createInvestorAlertEmbed(type, data) {
+  const ALERT_CONFIGS = {
+    thesis_invalidation: {
+      color: 0xef4444,
+      emoji: "⚠️",
+      title: (d) => `${d.ticker}: Investment Thesis Invalidated`,
+      description: (d) => `One or more conditions that supported your investment in **${d.ticker}** are no longer valid.`,
+      fields: (d) => d.reasons.map(r => ({ name: "Invalidation", value: r, inline: false })),
+    },
+    accumulation_zone: {
+      color: 0x10b981,
+      emoji: "🎯",
+      title: (d) => `${d.ticker}: Entered Accumulation Zone`,
+      description: (d) => `**${d.ticker}** has entered an accumulation zone — a potentially attractive entry point for long-term investors.`,
+      fields: (d) => [
+        { name: "Investor Score", value: `${d.score || "—"} / 100`, inline: true },
+        { name: "Confidence", value: `${d.confidence || "—"}%`, inline: true },
+        { name: "RS Rank", value: `${d.rsRank || "—"}th percentile`, inline: true },
+        { name: "Signals", value: (d.signals || []).map(s => s.replace(/_/g, " ")).join(", ") || "—", inline: false },
+      ],
+    },
+    rs_breakout: {
+      color: 0x3b82f6,
+      emoji: "🚀",
+      title: (d) => `${d.ticker}: Relative Strength Breakout`,
+      description: (d) => `**${d.ticker}** relative strength line hit a new ${d.period || "3-month"} high vs SPY. Outperforming ${d.rsRank || "—"}% of the universe.`,
+      fields: (d) => [
+        { name: "RS Rank", value: `${d.rsRank || "—"}th percentile`, inline: true },
+        { name: "3M Return vs SPY", value: `${d.rs3m >= 0 ? "+" : ""}${(d.rs3m || 0).toFixed(1)}%`, inline: true },
+        { name: "Investor Score", value: `${d.score || "—"}`, inline: true },
+      ],
+    },
+    rebalancing: {
+      color: 0xf59e0b,
+      emoji: "⚖️",
+      title: () => "Portfolio Rebalancing Alert",
+      description: () => "Your portfolio may benefit from rebalancing based on current conditions.",
+      fields: (d) => (d.suggestions || []).map(s => ({
+        name: s.type.replace(/_/g, " ").toUpperCase(),
+        value: s.message,
+        inline: false,
+      })),
+    },
+  };
+
+  const config = ALERT_CONFIGS[type];
+  if (!config) return null;
+
+  return {
+    title: `${config.emoji} ${config.title(data)}`,
+    description: config.description(data),
+    color: config.color,
+    fields: config.fields(data),
+    footer: { text: "Timed Trading — Investor Intelligence" },
+    timestamp: new Date().toISOString(),
+  };
+}
