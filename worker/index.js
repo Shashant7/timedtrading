@@ -263,6 +263,7 @@ const ROUTES = [
   ["GET", "/timed/debug/trades", "GET /timed/debug/trades"],
   ["GET", "/timed/debug/tickers", "GET /timed/debug/tickers"],
   ["GET", "/timed/debug/config", "GET /timed/debug/config"],
+  ["GET", "/timed/debug/staleness", "GET /timed/debug/staleness"],
   ["GET", "/timed/debug/daily", "GET /timed/debug/daily"],
   ["POST", "/timed/ml/train", "POST /timed/ml/train"],
   ["POST", "/timed/ml/backfill-queue", "POST /timed/ml/backfill-queue"],
@@ -11761,6 +11762,48 @@ async function d1PatchTickerLatestFields(env, ticker, patch) {
   }
 }
 
+/**
+ * Freshness heartbeat: merge live price + ingest_ts into timed:latest for all tickers.
+ * Runs every minute from the price feed cron. Guarantees ingest_ts stays fresh even when
+ * scoring fails (insufficient candles) or is skipped. Preserves scores; only updates
+ * price, prev_close, day_change, day_change_pct, ingest_ts, ingest_time.
+ */
+async function mergeFreshnessIntoLatest(KV, prices) {
+  const tickers = Object.keys(prices || {}).filter((s) => Number(prices[s]?.p) > 0);
+  if (tickers.length === 0) return { merged: 0 };
+  const now = Date.now();
+  const ingestTime = new Date(now).toISOString();
+  const BATCH = 50;
+  let merged = 0;
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async (sym) => {
+        const snap = prices[sym];
+        if (!snap || !(Number(snap.p) > 0)) return;
+        const existing = await kvGetJSON(KV, `timed:latest:${sym}`);
+        if (!existing || typeof existing !== "object") return;
+        const updated = {
+          ...existing,
+          price: Number(snap.p),
+          prev_close: Number(snap.pc) || existing.prev_close,
+          day_change: Number.isFinite(snap.dc) ? snap.dc : existing.day_change,
+          day_change_pct: Number.isFinite(snap.dp) ? snap.dp : existing.day_change_pct,
+          ingest_ts: now,
+          ingest_time: ingestTime,
+        };
+        await kvPutJSON(KV, `timed:latest:${sym}`, updated);
+        return 1;
+      }),
+    );
+    merged += results.filter((r) => r.status === "fulfilled" && r.value === 1).length;
+  }
+  if (merged > 0) {
+    console.log(`[FRESHNESS] Merged price+ingest_ts into ${merged}/${tickers.length} tickers`);
+  }
+  return { merged };
+}
+
 // Periodic KV → D1 latest sync (batched) to bootstrap /timed/all quickly after deploy.
 async function d1SyncLatestBatchFromKV(env, ctx, batchSize = 50) {
   const KV = env?.KV_TIMED;
@@ -21454,6 +21497,8 @@ export default {
         const last = Number(await KV.get("timed:last_ingest_ms")) || 0;
         const captureLast =
           Number(await KV.get("timed:capture:last_ingest_ms")) || 0;
+        const scoringLast = await kvGetJSON(KV, "timed:scoring:last_run");
+        const scoringTs = scoringLast && typeof scoringLast === "object" ? Number(scoringLast.ts) : 0;
         const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
         const captureTickers =
           (await kvGetJSON(KV, "timed:capture:tickers")) || [];
@@ -21468,6 +21513,8 @@ export default {
             captureMinutesSinceLast: captureLast
               ? (Date.now() - captureLast) / 60000
               : null,
+            scoringLastRunMs: scoringTs || null,
+            minutesSinceScoring: scoringTs ? (Date.now() - scoringTs) / 60000 : null,
             tickers: tickers.length,
             captureTickers: Array.isArray(captureTickers)
               ? captureTickers.length
@@ -28876,6 +28923,49 @@ Provide 3-5 actionable next steps:
         );
       }
 
+      // GET /timed/debug/staleness - Staleness breakdown for all tickers (admin)
+      if (routeKey === "GET /timed/debug/staleness") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+
+        const tickers = (await kvGetJSON(KV, "timed:tickers")) || [];
+        const scoringLast = await kvGetJSON(KV, "timed:scoring:last_run");
+        const samples = (Array.isArray(tickers) ? tickers : []).slice(0, 250).map(async (t) => {
+          const sym = String(t || "").toUpperCase();
+          const data = await kvGetJSON(KV, `timed:latest:${sym}`);
+          if (!data) return { ticker: sym, ageMin: null, reason: "no_data" };
+          const tsRaw = data.ingest_ts ?? data.ingest_time ?? data.ts;
+          const tsMs = typeof tsRaw === "string" ? new Date(tsRaw).getTime() : (Number(tsRaw) > 0 && Number(tsRaw) < 1e12 ? Number(tsRaw) * 1000 : Number(tsRaw));
+          if (!Number.isFinite(tsMs)) return { ticker: sym, ageMin: null, reason: "no_ts" };
+          const ageMin = (Date.now() - tsMs) / 60000;
+          const bucket = ageMin > 120 ? "very_stale" : ageMin > 30 ? "stale" : "fresh";
+          return { ticker: sym, ageMin: Math.round(ageMin), bucket, ts: tsMs };
+        });
+        const results = await Promise.all(samples);
+        const fresh = results.filter((r) => r.bucket === "fresh").length;
+        const stale = results.filter((r) => r.bucket === "stale").length;
+        const veryStale = results.filter((r) => r.bucket === "very_stale").length;
+        const noData = results.filter((r) => r.reason).length;
+        const veryStaleTickers = results.filter((r) => r.bucket === "very_stale").sort((a, b) => (b.ageMin || 0) - (a.ageMin || 0)).slice(0, 20).map((r) => `${r.ticker} (${r.ageMin}m)`);
+
+        return sendJSON(
+          {
+            ok: true,
+            total_sampled: results.length,
+            total_tickers: tickers.length,
+            fresh,
+            stale,
+            very_stale: veryStale,
+            no_data_or_ts: noData,
+            very_stale_sample: veryStaleTickers,
+            scoring_last_run: scoringLast && typeof scoringLast === "object" ? scoringLast : null,
+            minutes_since_scoring: scoringLast?.ts ? (Date.now() - scoringLast.ts) / 60000 : null,
+          },
+          200,
+          corsHeaders(env, req),
+        );
+      }
+
       // GET /timed/debug/daily?ticker=AMD
       // Debug endpoint to inspect daily change inputs/sources (latest vs capture vs worker-derived).
       if (routeKey === "GET /timed/debug/daily") {
@@ -32680,6 +32770,14 @@ Provide 3-5 actionable next steps:
           _debug: { d1PcCount, pcEqP, pcZero, pcReal, version: "v2-pickPrevClose" },
         });
 
+        // ── Freshness heartbeat: merge price + ingest_ts into timed:latest every minute ──
+        // Guarantees ingest_ts stays fresh even when scoring fails or is skipped.
+        ctx.waitUntil(
+          mergeFreshnessIntoLatest(KV, prices).catch((e) =>
+            console.warn("[FRESHNESS] merge failed:", String(e).slice(0, 200)),
+          ),
+        );
+
         // ── Push prices to WebSocket clients via PriceHub DO ──
         ctx.waitUntil(notifyPriceHub(env, {
           type: "prices",
@@ -32782,16 +32880,23 @@ Provide 3-5 actionable next steps:
                   const result = await computeServerSideScores(ticker, getCandlesCached, env, existing);
                   if (!result) {
                     if (existing && typeof existing === "object") {
-                      existing.trigger_ts = Date.now();
-                      existing.data_source_ts = Date.now();
+                      const now = Date.now();
+                      existing.trigger_ts = now;
+                      existing.data_source_ts = now;
+                      existing.ingest_ts = now;
+                      existing.ingest_time = new Date(now).toISOString();
+                      existing._scoring_skip_reason = "insufficient_candle_data";
                       await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
                     }
                     skipped++; return;
                   }
 
+                  const now = Date.now();
                   result.data_source = "alpaca";
-                  result.data_source_ts = Date.now();
-                  result.trigger_ts = Date.now();
+                  result.data_source_ts = now;
+                  result.trigger_ts = now;
+                  result.ingest_ts = now;
+                  result.ingest_time = new Date(now).toISOString();
 
                   // Kanban stage
                   const openPos = openTradesForScore.find(t => String(t.ticker || "").toUpperCase() === ticker) || null;
@@ -32927,8 +33032,11 @@ Provide 3-5 actionable next steps:
             const result = await computeServerSideScores(ticker, getCandlesCached, env, existing);
             if (!result) {
               if (existing && typeof existing === "object") {
-                existing.trigger_ts = Date.now();
-                existing.data_source_ts = Date.now();
+                const now = Date.now();
+                existing.trigger_ts = now;
+                existing.data_source_ts = now;
+                existing.ingest_ts = now;
+                existing.ingest_time = new Date(now).toISOString();
                 existing._scoring_skip_reason = "insufficient_candle_data";
                 await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
               }
@@ -32936,11 +33044,14 @@ Provide 3-5 actionable next steps:
               return;
             }
 
+            const now = Date.now();
             result.data_source = "alpaca";
-            result.data_source_ts = Date.now();
+            result.data_source_ts = now;
+            result.ingest_ts = now;
+            result.ingest_time = new Date(now).toISOString();
             // Keep trigger_ts fresh: server-side scoring is the signal source now.
             // Without this, qualifiesForEnter blocks entries after 7 days (trigger_stale).
-            result.trigger_ts = Date.now();
+            result.trigger_ts = now;
 
             // Overnight signal injection (throttled to once/day)
             try {
@@ -33100,6 +33211,15 @@ Provide 3-5 actionable next steps:
 
         const elapsed = Date.now() - scoringStart;
         console.log(`[SCORING] ${scored} scored, ${skipped} skipped, ${errors} errors, ${trailWrites} trail, ${elapsed}ms, ALL ${tickersToScore.length} tickers`);
+
+        // Store last run timestamp for health/staleness monitoring
+        await kvPutJSON(KV, "timed:scoring:last_run", {
+          ts: Date.now(),
+          scored,
+          skipped,
+          errors,
+          total: tickersToScore.length,
+        });
 
         // ── Push scoring deltas to WebSocket clients via PriceHub DO ──
         if (Object.keys(scoredUpdates).length > 0) {
@@ -33321,6 +33441,8 @@ Provide 3-5 actionable next steps:
               if (!sym) return null;
               const data = await kvGetJSON(KV, `timed:latest:${sym}`);
               if (!data) return null;
+              const tsRaw = data.ingest_ts ?? data.ingest_time ?? data.ts;
+              const tsMs = typeof tsRaw === "string" ? new Date(tsRaw).getTime() : (Number(tsRaw) > 0 && Number(tsRaw) < 1e12 ? Number(tsRaw) * 1000 : Number(tsRaw));
               return {
                 ticker: sym,
                 rank: Number(data.rank) || 0,
@@ -33329,6 +33451,7 @@ Provide 3-5 actionable next steps:
                 completion: Number(data.completion) || 0,
                 phase_pct: Number(data.phase_pct) || 0,
                 flags: data.flags || {},
+                _ingest_ts: Number.isFinite(tsMs) ? tsMs : null,
               };
             } catch {
               return null;
@@ -33336,6 +33459,40 @@ Provide 3-5 actionable next steps:
           });
 
         const allTickers = (await Promise.all(tickerDataPromises)).filter(Boolean);
+
+        // Staleness check: alert if too many tickers have data older than 2 hours
+        const nowMs = Date.now();
+        let staleCount = 0;
+        let veryStaleCount = 0;
+        const STALE_MIN = 30;
+        const VERY_STALE_MIN = 120;
+        for (const t of allTickers) {
+          const ts = t._ingest_ts;
+          if (!ts || !Number.isFinite(ts)) { veryStaleCount++; continue; }
+          const ageMin = (nowMs - ts) / 60000;
+          if (ageMin > VERY_STALE_MIN) veryStaleCount++;
+          else if (ageMin > STALE_MIN) staleCount++;
+        }
+        const totalWithData = allTickers.length;
+        const stalePct = totalWithData > 0 ? (veryStaleCount / totalWithData) * 100 : 0;
+        if (veryStaleCount >= 30 || stalePct >= 25) {
+          try {
+            await notifyDiscord(env, {
+              content: null,
+              embeds: [{
+                title: "⚠️ Data Staleness Alert",
+                color: 0xff9900,
+                description: `${veryStaleCount} tickers have data older than 2 hours (${stalePct.toFixed(0)}%). ` +
+                  `Stale: ${staleCount}. Check scoring cron, Alpaca bars, and D1 candle data.`,
+                footer: { text: "Timed Trading • Staleness Monitor" },
+                timestamp: new Date().toISOString(),
+              }],
+            });
+            console.warn(`[STALENESS] Alert sent: ${veryStaleCount} very stale, ${staleCount} stale, ${stalePct.toFixed(0)}%`);
+          } catch (e) {
+            console.warn("[STALENESS] Discord notify failed:", String(e).slice(0, 100));
+          }
+        }
 
         // Generate proactive alerts
         const proactiveAlerts = generateProactiveAlerts(allTickers, allTrades);

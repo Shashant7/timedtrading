@@ -5383,10 +5383,14 @@
                           tooltip.ts;
                         if (ingestTime) {
                           try {
-                            const timeValue =
-                              typeof ingestTime === "string"
-                                ? new Date(ingestTime)
-                                : new Date(Number(ingestTime));
+                            let timeValue;
+                            if (typeof ingestTime === "string") {
+                              timeValue = new Date(ingestTime);
+                            } else {
+                              const n = Number(ingestTime);
+                              const ms = n > 0 && n < 1e12 ? n * 1000 : n;
+                              timeValue = new Date(ms);
+                            }
                             if (!isNaN(timeValue.getTime())) {
                               const ageMs = Date.now() - timeValue.getTime();
                               const ageMinutes = Math.floor(ageMs / 60000);
@@ -5394,21 +5398,15 @@
 
                               // Warn if data is stale (older than 30 minutes)
                               const isStale = ageMinutes > 30;
+                              const etOpt = { timeZone: "America/New_York" };
 
                               const displayTime = timeValue.toLocaleTimeString(
                                 "en-US",
-                                {
-                                  hour: "numeric",
-                                  minute: "2-digit",
-                                  hour12: true,
-                                },
+                                { hour: "numeric", minute: "2-digit", hour12: true, ...etOpt },
                               );
                               const displayDate = timeValue.toLocaleDateString(
                                 "en-US",
-                                {
-                                  month: "short",
-                                  day: "numeric",
-                                },
+                                { month: "short", day: "numeric", ...etOpt },
                               );
                               return (
                                 <div
