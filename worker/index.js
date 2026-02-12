@@ -2282,6 +2282,46 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       tickerData.__exit_reason = reasons.join(",") || "critical";
       return "exit";
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // BIAS FLIP EXIT: Multi-TF consensus has fully reversed against our direction.
+    // If we're SHORT and the state is now HTF_BULL_LTF_BULL (full bullish alignment),
+    // the thesis is invalidated — exit the trade. Same for LONG + HTF_BEAR_LTF_BEAR.
+    // This catches positions like TT (SHORT in a bullish state) that should be closed.
+    // For partial flips (HTF flipped but LTF not confirmed), move to DEFEND instead.
+    //
+    // Note: gold_short entries are intentional counter-trend plays, but if the state
+    // stays/returns to full bull after 2+ hours, the mean-reversion failed — exit anyway.
+    // ─────────────────────────────────────────────────────────────────────────
+    const bfState = String(tickerData?.state || "");
+    const bfHtfBull = bfState.startsWith("HTF_BULL");
+    const bfHtfBear = bfState.startsWith("HTF_BEAR");
+    const bfLtfBull = bfState.includes("LTF_BULL");
+    const bfLtfBear = bfState.includes("LTF_BEAR");
+    // Require minimum 2 hours before bias-flip exit (gives counter-trend plays time to develop)
+    const biasFlipMinAge = positionAgeMin >= 120;
+    
+    // Full alignment against trade direction → EXIT (after min hold time)
+    if (biasFlipMinAge && direction === "SHORT" && bfHtfBull && bfLtfBull) {
+      tickerData.__exit_reason = "bias_flip_full_bull_vs_short";
+      console.log(`[BIAS FLIP EXIT] ${tickerData?.ticker}: SHORT position (${Math.round(positionAgeMin)}m old) but state is ${bfState} (full bullish). Thesis invalidated.`);
+      return "exit";
+    }
+    if (biasFlipMinAge && direction === "LONG" && bfHtfBear && bfLtfBear) {
+      tickerData.__exit_reason = "bias_flip_full_bear_vs_long";
+      console.log(`[BIAS FLIP EXIT] ${tickerData?.ticker}: LONG position (${Math.round(positionAgeMin)}m old) but state is ${bfState} (full bearish). Thesis invalidated.`);
+      return "exit";
+    }
+    
+    // HTF flipped but LTF not confirmed → DEFEND (partial flip, thesis weakening)
+    if (direction === "SHORT" && bfHtfBull && !bfLtfBull) {
+      tickerData.__exit_reason = "bias_flip_htf_bull_vs_short";
+      return "defend";
+    }
+    if (direction === "LONG" && bfHtfBear && !bfLtfBear) {
+      tickerData.__exit_reason = "bias_flip_htf_bear_vs_long";
+      return "defend";
+    }
     
     // ─────────────────────────────────────────────────────────────────────────
     // PRIORITY 2: TRIM - At extremes, take partial profit
