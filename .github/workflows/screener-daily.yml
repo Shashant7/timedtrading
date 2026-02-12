@@ -1,0 +1,44 @@
+# Run the screener discovery script daily and POST results to the Worker.
+# Requires TIMED_API_KEY to be set in GitHub repo Secrets.
+#
+# To configure:
+# 1. Go to repo Settings → Secrets and variables → Actions
+# 2. Add secret: TIMED_API_KEY = your Worker API key
+name: Screener Daily Scan
+
+on:
+  schedule:
+    # Run at 5:30 PM ET (22:30 UTC) Mon–Fri, after market close
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r scripts/requirements.txt
+
+      - name: Run daily momentum scan
+        env:
+          TIMED_API_BASE: "https://timed-trading-ingest.shashant.workers.dev"
+          TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
+        run: |
+          python scripts/discover-tickers.py --post --limit 100
+        continue-on-error: true
+
+      - name: Run top movers scan
+        env:
+          TIMED_API_BASE: "https://timed-trading-ingest.shashant.workers.dev"
+          TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
+        run: |
+          python scripts/discover-tickers.py --top-movers --post --limit 100
+        continue-on-error: true
