@@ -126,6 +126,92 @@
         );
       }
 
+      // ─── Action Board Header with Legend ────────────────────────────
+      function ActionBoardHeader({ actionCount }) {
+        const [showLegend, setShowLegend] = useState(false);
+
+        return React.createElement("div", { className: "mb-2 shrink-0" },
+          React.createElement("div", { className: "flex items-center justify-between" },
+            React.createElement("h2", { className: "text-sm font-semibold text-white" },
+              "Action Board",
+              React.createElement("span", { className: "text-[10px] text-[#4b5563] ml-2 font-normal" }, `${actionCount} ticker${actionCount !== 1 ? "s" : ""} need attention`),
+            ),
+            React.createElement("button", {
+              onClick: () => setShowLegend(!showLegend),
+              className: "text-[10px] text-[#6b7280] hover:text-white transition-colors flex items-center gap-1",
+            },
+              React.createElement("span", null, showLegend ? "Hide" : "Legend"),
+              React.createElement("svg", { width: 10, height: 10, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", style: { transform: showLegend ? "rotate(180deg)" : "none", transition: "transform 0.2s" } },
+                React.createElement("polyline", { points: "6 9 12 15 18 9" }),
+              ),
+            ),
+          ),
+          showLegend && React.createElement("div", { className: "card p-3 mt-2 fade-in text-[11px] leading-relaxed" },
+            // Score guide
+            React.createElement("div", { className: "mb-3" },
+              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1.5" }, "Investor Score"),
+              React.createElement("div", { className: "flex items-center gap-3 flex-wrap" },
+                React.createElement("span", { className: "flex items-center gap-1" },
+                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-emerald-400 inline-block" }),
+                  React.createElement("span", { className: "text-emerald-400 font-semibold" }, "70-100"),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Strong — high conviction, trends intact"),
+                ),
+                React.createElement("span", { className: "flex items-center gap-1" },
+                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-amber-400 inline-block" }),
+                  React.createElement("span", { className: "text-amber-400 font-semibold" }, "50-69"),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Moderate — mixed signals, monitor"),
+                ),
+                React.createElement("span", { className: "flex items-center gap-1" },
+                  React.createElement("span", { className: "w-2 h-2 rounded-full bg-red-400 inline-block" }),
+                  React.createElement("span", { className: "text-red-400 font-semibold" }, "0-49"),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Weak — caution, unfavorable setup"),
+                ),
+              ),
+            ),
+            // Lane guide
+            React.createElement("div", { className: "mb-3" },
+              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1.5" }, "Action Lanes"),
+              React.createElement("div", { className: "grid grid-cols-2 gap-x-4 gap-y-1.5" },
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "stage-badge stage-accumulate !text-[9px] !py-0 shrink-0 mt-0.5" }, "Accumulate"),
+                  React.createElement("span", { className: "text-[#9ca3af]" }, "In accumulation zone with favorable market health. Start or add to position via DCA. Don't go all-in — scale in over weeks."),
+                ),
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "stage-badge stage-core_hold !text-[9px] !py-0 shrink-0 mt-0.5" }, "Core Hold"),
+                  React.createElement("span", { className: "text-[#9ca3af]" }, "Weekly + monthly trends intact, strong RS. Hold with confidence. No action needed unless score drops below 65."),
+                ),
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "stage-badge stage-watch !text-[9px] !py-0 shrink-0 mt-0.5" }, "Watch"),
+                  React.createElement("span", { className: "text-[#9ca3af]" }, "Score 50-69 or RS declining. Monitor closely — could improve to Accumulate or degrade to Reduce. Don't add new capital yet."),
+                ),
+                React.createElement("div", { className: "flex items-start gap-2" },
+                  React.createElement("span", { className: "stage-badge stage-reduce !text-[9px] !py-0 shrink-0 mt-0.5" }, "Reduce"),
+                  React.createElement("span", { className: "text-[#9ca3af]" }, "Score below 50, weekly trend bearish, or RS rank collapsed. Consider trimming or exiting. Protect capital."),
+                ),
+              ),
+            ),
+            // Badge/indicator guide
+            React.createElement("div", null,
+              React.createElement("div", { className: "text-[10px] text-[#9ca3af] uppercase tracking-wide font-semibold mb-1.5" }, "Indicators"),
+              React.createElement("div", { className: "flex items-center gap-3 flex-wrap" },
+                React.createElement("span", { className: "flex items-center gap-1" },
+                  React.createElement("span", { className: "text-[9px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded" }, "ZONE"),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "In accumulation zone (oversold + monthly trend intact)"),
+                ),
+                React.createElement("span", { className: "flex items-center gap-1" },
+                  React.createElement("span", { className: "text-[9px] text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded" }, "RS HIGH"),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "Relative strength at 3-month new high vs SPY"),
+                ),
+                React.createElement("span", { className: "flex items-center gap-1" },
+                  React.createElement("span", { className: "text-[10px] text-[#6b7280]" }, "RS: 85"),
+                  React.createElement("span", { className: "text-[#6b7280]" }, "= 85th percentile relative strength rank"),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
       // ─── Action Kanban (Accumulate / Core Hold / Watch / Reduce) ──────
       function ActionKanban({ tickers, onSelect, selectedTicker }) {
         const stages = ["accumulate", "core_hold", "watch", "reduce"];
@@ -622,13 +708,8 @@
 
             // Center: Action Kanban + Portfolio
             React.createElement("div", { className: "flex-1 flex flex-col min-h-0 min-w-0" },
-              // Kanban header
-              React.createElement("div", { className: "flex items-center justify-between mb-2 shrink-0" },
-                React.createElement("h2", { className: "text-sm font-semibold text-white" },
-                  "Action Board",
-                  React.createElement("span", { className: "text-[10px] text-[#4b5563] ml-2 font-normal" }, `${actionCount} ticker${actionCount !== 1 ? "s" : ""} need attention`),
-                ),
-              ),
+              // Kanban header + legend toggle
+              React.createElement(ActionBoardHeader, { actionCount }),
               // Kanban lanes
               allTickers.length > 0
                 ? React.createElement(ActionKanban, { tickers: allTickers, onSelect: setSelectedTicker, selectedTicker })
