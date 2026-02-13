@@ -11294,9 +11294,25 @@
                   const epFromTrade = Number(openTrade.entryPrice ?? openTrade.entry_price) || 0;
                   if (epFromTrade > 0) ep = epFromTrade;
                 }
+                // Fallback to position_entry from server data
+                if (isActiveTrade && (!ep || ep <= 0) && t?.position_entry) {
+                  const epPos = Number(t.position_entry);
+                  if (Number.isFinite(epPos) && epPos > 0) ep = epPos;
+                }
                 const cp = Number.isFinite(price) && price > 0 ? price : null;
                 const slP = sl;
-                const tpArr = Array.isArray(t?.tpArray) ? t.tpArray : [];
+
+                // Original SL: from trade object or ticker position data
+                const slOrigRaw = Number(openTrade?.sl_original ?? t?.position_sl_original ?? 0);
+                const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;
+                // TSL is active when current SL differs from original SL by > 0.5%
+                const tslActive = isActiveTrade && slP && slOrig &&
+                  Math.abs(slP - slOrig) / slOrig > 0.005;
+
+                // Prefer trade-level tpArray (direction-aware) over ticker-level (may be LONG-only)
+                const tpArr = Array.isArray(openTrade?.tpArray) && openTrade.tpArray.length > 0
+                  ? openTrade.tpArray
+                  : (Array.isArray(t?.tpArray) ? t.tpArray : []);
                 const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
                 const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
                 const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
@@ -11310,7 +11326,7 @@
                 const tp2 = tpSanity(tp2Raw);
                 const xp = tpSanity(xpRaw);
 
-                const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
+                const vals = [slP, slOrig, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
                 if (vals.length < 2) return null;
                 const rawLo = Math.min(...vals);
                 const rawHi = Math.max(...vals);
@@ -11333,13 +11349,15 @@
                   (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
                 );
 
-                const Marker = ({ val, label, color, textColor, bold, bottom }) => {
+                const Marker = ({ val, label, color, textColor, bold, bottom, dashed }) => {
                   if (!val) return null;
                   return (
                     <div className="absolute" style={{ left: `${pct(val)}%`, width: "22px", marginLeft: "-11px", top: "-14px", bottom: "-14px" }}
                       title={`${label}: $${val.toFixed(2)}`}>
-                      <div className={`absolute left-1/2 -translate-x-1/2 ${bold ? "w-1" : "w-0.5"} ${color}`} style={{ top: "14px", bottom: "14px" }} />
-                      <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${textColor} whitespace-nowrap`}>{label}</span>
+                      <div className={`absolute left-1/2 -translate-x-1/2 ${bold ? "w-1" : "w-0.5"} ${color}`}
+                        style={{ top: "14px", bottom: "14px", ...(dashed ? { opacity: 0.5 } : {}) }} />
+                      <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${textColor} whitespace-nowrap`}
+                        style={dashed ? { opacity: 0.6 } : {}}>{label}</span>
                     </div>
                   );
                 };
@@ -11362,7 +11380,13 @@
                             style={{ left: "100%", bottom: "-14px", transform: "translateX(-50%)" }}>CP</span>
                         </div>
                       )}
-                      <Marker val={slP} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} bold={slMovedPastEntry} />
+                      {/* Original SL marker (dimmed) — shown when TSL is active for context */}
+                      {tslActive && <Marker val={slOrig} label="SL" color="bg-rose-500/40" textColor="text-rose-400" dashed />}
+                      {/* Current stop: labeled TSL when trailing is active, SL otherwise */}
+                      <Marker val={slP} label={tslActive ? "TSL" : "SL"}
+                        color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"}
+                        textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"}
+                        bold={slMovedPastEntry} />
                       <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" />
                       <Marker val={tp1} label="TP" color="bg-teal-400/80" textColor="text-teal-300" />
                       <Marker val={tp2} label="TP2" color="bg-teal-400/80" textColor="text-teal-300" />
@@ -11853,45 +11877,59 @@
         const MiniProgressBar = ({ t, trade }) => {
           const state = String(t?.state || "");
           const isBullish = state.startsWith("HTF_BULL");
-          const tickerBiasDir = isBullish ? "LONG" : "SHORT";
           const statusUp = String(trade?.status || "").toUpperCase();
           const hasOpen = trade && (["OPEN", "TP_HIT_TRIM"].includes(statusUp) || (!(trade?.exit_ts ?? trade?.exitTs) && statusUp !== "WIN" && statusUp !== "LOSS"));
           let dir = isBullish ? "LONG" : "SHORT";
           if (hasOpen) { const d = String(trade?.direction || "").toUpperCase(); if (d === "LONG" || d === "SHORT") dir = d; }
+          if (!hasOpen && t?.has_open_position) { const pd = String(t?.position_direction || "").toUpperCase(); if (pd === "LONG" || pd === "SHORT") dir = pd; }
+          // effectiveDir for SL/TP sanity uses position direction when available
+          const posDir = t?.has_open_position ? String(t?.position_direction || "").toUpperCase() : null;
+          const effectiveDir = (posDir === "LONG" || posDir === "SHORT") ? posDir : dir;
           const price = Number(t?.price ?? t?.close);
-          const slRaw = Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
+          // Prefer position SL (direction-aware) over ticker SL
+          const hasPos = !!t?.has_open_position;
+          const slRaw = hasPos && Number.isFinite(Number(t?.position_sl)) && Number(t?.position_sl) > 0
+            ? Number(t.position_sl)
+            : Number(t?.sl ?? t?.sl_price ?? t?.stop_loss ?? t?.stop);
           const tpRaw = numFromAny(t?.tp ?? t?.tp_trim);
           const slSane = (() => {
             if (!Number.isFinite(slRaw) || slRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
-            if (tickerBiasDir === "LONG" && slRaw >= price) return null;
-            if (tickerBiasDir === "SHORT" && slRaw <= price) return null;
+            if (effectiveDir === "LONG" && slRaw >= price) return null;
+            if (effectiveDir === "SHORT" && slRaw <= price) return null;
             return slRaw;
           })();
+          // Original SL for TSL detection
+          const slOrigRaw = Number(trade?.sl_original ?? t?.position_sl_original ?? 0);
+          const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;
+          const tslActive = hasOpen && slSane && slOrig && Math.abs(slSane - slOrig) / slOrig > 0.005;
           let ep = null;
           if (hasOpen && trade) {
             const epv = Number(trade.entryPrice ?? trade.entry_price) || 0;
             if (epv > 0) ep = epv;
           }
           if (!ep) {
-            const epv = numFromAny(t?.entry_price);
+            const epv = numFromAny(t?.entry_price ?? t?.position_entry);
             if (Number.isFinite(epv) && epv > 0) ep = epv;
           }
           const cp = Number.isFinite(price) && price > 0 ? price : null;
-          const tpArr = Array.isArray(t?.tpArray) ? t.tpArray : [];
+          // Prefer trade-level tpArray (direction-aware) over ticker-level
+          const tpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+            ? trade.tpArray
+            : (Array.isArray(t?.tpArray) ? t.tpArray : []);
           const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
           const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
           const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tpRaw);
           const tpSanity = (v) => {
             if (!Number.isFinite(v) || v <= 0 || !cp) return null;
-            if (tickerBiasDir === "LONG" && v <= cp) return null;
-            if (tickerBiasDir === "SHORT" && v >= cp) return null;
+            if (effectiveDir === "LONG" && v <= cp) return null;
+            if (effectiveDir === "SHORT" && v >= cp) return null;
             return v;
           };
           const sl = slSane;
           const tp1 = tpSanity(tp1Raw);
           const tp2 = tpSanity(tp2Raw);
           const xp = tpSanity(xpRaw);
-          const vals = [sl, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
+          const vals = [sl, slOrig, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
           if (vals.length < 2) return <span className="text-[9px] text-gray-600">—</span>;
           const rawLo = Math.min(...vals);
           const rawHi = Math.max(...vals);
@@ -11909,13 +11947,14 @@
           const fillPct = cp ? pct(cp) : 0;
           const slMovedPastEntry = ep && sl && ((dir === "LONG" && sl > ep) || (dir === "SHORT" && sl < ep));
           const fillColor = fillPct >= 50 ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50") : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
-          const Mk = ({ val, label, color, tc, bottom }) => {
+          const Mk = ({ val, label, color, tc, bottom, dimmed }) => {
             if (!val) return null;
             return (
               <div className="absolute" style={{ left: `${pct(val)}%`, width: "20px", marginLeft: "-10px", top: "-14px", bottom: "-14px" }}
                 title={`${label}: $${val.toFixed(2)}`}>
-                <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "14px", bottom: "14px" }} />
-                <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${tc} whitespace-nowrap`}>{label}</span>
+                <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "14px", bottom: "14px", ...(dimmed ? { opacity: 0.5 } : {}) }} />
+                <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${tc} whitespace-nowrap`}
+                  style={dimmed ? { opacity: 0.6 } : {}}>{label}</span>
               </div>
             );
           };
@@ -11931,7 +11970,8 @@
                       style={{ left: "100%", bottom: "-14px" }}>CP</span>
                   </div>
                 )}
-                <Mk val={sl} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
+                {tslActive && <Mk val={slOrig} label="SL" color="bg-rose-500/40" tc="text-rose-400" dimmed />}
+                <Mk val={sl} label={tslActive ? "TSL" : "SL"} color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
                 <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
                 <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
                 <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />

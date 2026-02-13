@@ -1831,9 +1831,14 @@
                         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
                         const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
                         const sl = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : (ticker.sl ? Number(ticker.sl) : null);
+                        // Original SL at trade creation — used to determine if TSL is active
+                        const slOrigRaw = Number(trade?.sl_original ?? ticker?.position_sl_original ?? 0);
+                        const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;
                         const price = Number(ticker?.price);
                         const rr = ticker.rr ? Number(ticker.rr) : null;
                         const hasSl = Number.isFinite(sl) && sl > 0;
+                        // TSL is active when current SL has moved > 0.5% from original
+                        const tslActive = hasSl && slOrig && Math.abs(sl - slOrig) / slOrig > 0.005;
 
                         // Prefer 3-Tier TP values; fall back to legacy single-target TPs
                         const tpTrim = Number(ticker?.tp_trim);
@@ -1893,10 +1898,22 @@
                           <div className="mb-4 space-y-2">
                             <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider">Risk / Reward Levels</div>
                             {hasSl && (
-                              <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
-                                <span className="text-xs font-semibold text-red-400" title="Trailing Stop Loss">TSL</span>
-                                <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
-                                {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
+                              <div className="space-y-1.5">
+                                {/* Original SL — always shown when SL exists */}
+                                <div className={`p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`}>
+                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`} title="Stop Loss">SL</span>
+                                  <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
+                                  {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
+                                  {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
+                                </div>
+                                {/* TSL — only shown when stop has been trailed */}
+                                {tslActive && (
+                                  <div className="p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between">
+                                    <span className="text-xs font-semibold text-red-400" title="Trailing Stop Loss">TSL</span>
+                                    <span className="text-xs font-bold text-red-400">${sl.toFixed(2)}</span>
+                                    {Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}% risk</span>}
+                                  </div>
+                                )}
                               </div>
                             )}
                             <div className="space-y-2">
@@ -4441,12 +4458,21 @@
                                             </span>
                                           </div>
                                         </div>
-                                        {/* TSL / TP / Entry row */}
-                                        <div className="flex items-center justify-between text-[10px] mb-1">
-                                          <span><span className="text-rose-400" title="Trailing Stop Loss">TSL</span> <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "—"}</span></span>
-                                          <span><span className="text-[#6b7280]">EP</span> <span className="text-white font-medium">${entryPrice > 0 ? entryPrice.toFixed(2) : "—"}</span></span>
-                                          <span><span className="text-teal-400">TP</span> <span className="text-white font-medium">{tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—"}</span></span>
-                                        </div>
+                                        {/* SL/TSL / TP / Entry row */}
+                                        {(() => {
+                                          const slOrigVal = Number(t?.sl_original ?? src?.position_sl_original ?? 0);
+                                          const slTrailing = slOrigVal > 0 && slVal > 0 && Math.abs(slVal - slOrigVal) / slOrigVal > 0.005;
+                                          return (
+                                            <div className="flex items-center justify-between text-[10px] mb-1">
+                                              <span>
+                                                <span className="text-rose-400" title={slTrailing ? "Trailing Stop Loss" : "Stop Loss"}>{slTrailing ? "TSL" : "SL"}</span>{" "}
+                                                <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "—"}</span>
+                                              </span>
+                                              <span><span className="text-[#6b7280]">EP</span> <span className="text-white font-medium">${entryPrice > 0 ? entryPrice.toFixed(2) : "—"}</span></span>
+                                              <span><span className="text-teal-400">TP</span> <span className="text-white font-medium">{tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—"}</span></span>
+                                            </div>
+                                          );
+                                        })()}
                                         {/* Mini progress bar SL → EP → TP */}
                                         {slVal > 0 && tpVal > 0 && cp > 0 && entryPrice > 0 && (() => {
                                           const lo = Math.min(slVal, tpVal);

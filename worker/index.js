@@ -19325,6 +19325,7 @@ export default {
                   obj.position_direction = openPosition.direction;
                   obj.position_entry = openPosition.entryPrice;
                   obj.position_sl = openPosition.sl;
+                  obj.position_sl_original = openPosition.sl_original;
                   obj.position_tp = openPosition.tp;
                 }
                 obj.kanban_meta = deriveKanbanMeta(obj, stage);
@@ -19415,6 +19416,7 @@ export default {
                   latestData.position_direction = pos.direction;
                   latestData.position_entry = pos.entryPrice;
                   latestData.position_sl = pos.sl;
+                  latestData.position_sl_original = pos.sl_original;
                   latestData.position_tp = pos.tp;
                   data[sym] = latestData;
                   console.log(`[/timed/all] Injected missing position ticker ${sym} from KV (stage: ${stage})`);
@@ -19427,6 +19429,7 @@ export default {
                     position_direction: pos.direction,
                     position_entry: pos.entryPrice,
                     position_sl: pos.sl,
+                    position_sl_original: pos.sl_original,
                     position_tp: pos.tp,
                     _synthetic: true,
                     _reason: "open_position_missing_data"

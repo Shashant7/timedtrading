@@ -7686,6 +7686,10 @@
                               const ep = entryPrice;
                               const cp = currentPrice;
                               const slP = numFromAnyPos(slRaw);
+                              // Original SL for TSL detection
+                              const slOrigRaw = Number(pos.trade?.sl_original ?? tickerData?.position_sl_original ?? 0);
+                              const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;
+                              const tslActive = slP && slOrig && Math.abs(slP - slOrig) / slOrig > 0.005;
                               // Sanity: TP levels should be ahead of current price
                               const tpSanity = (v) => {
                                 if (!Number.isFinite(v) || v <= 0 || !cp) return null;
@@ -7698,7 +7702,7 @@
                               const xp = tpSanity(xpRaw);
                               
                               // Compute progress bar range
-                              const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
+                              const vals = [slP, slOrig, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
                               const hasBar = vals.length >= 2;
                               let pct = () => 50;
                               let fillPct = 0;
@@ -7724,13 +7728,14 @@
                                   : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
                               }
                               
-                              const Mk = ({ val, label, color, tc, bottom }) => {
+                              const Mk = ({ val, label, color, tc, bottom, dimmed }) => {
                                 if (!val) return null;
                                 return (
                                   <div className="absolute" style={{ left: `${pct(val)}%`, width: "20px", marginLeft: "-10px", top: "-12px", bottom: "-12px" }}
                                     title={`${label}: $${val.toFixed(2)}`}>
-                                    <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "12px", bottom: "12px" }} />
-                                    <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${tc} whitespace-nowrap`}>{label}</span>
+                                    <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "12px", bottom: "12px", ...(dimmed ? { opacity: 0.5 } : {}) }} />
+                                    <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${tc} whitespace-nowrap`}
+                                      style={dimmed ? { opacity: 0.6 } : {}}>{label}</span>
                                   </div>
                                 );
                               };
@@ -7805,7 +7810,8 @@
                                               style={{ left: "100%", bottom: "-12px" }}>CP</span>
                                           </div>
                                         )}
-                                        <Mk val={slP} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
+                                        {tslActive && <Mk val={slOrig} label="SL" color="bg-rose-500/40" tc="text-rose-400" dimmed />}
+                                        <Mk val={slP} label={tslActive ? "TSL" : "SL"} color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
                                         <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
                                         <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
                                         <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />
