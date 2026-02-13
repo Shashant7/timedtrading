@@ -2217,6 +2217,12 @@ export async function alpacaFetchAllBars(env, symbols, tfKey, start, end = null,
   let pages = 0;
   const maxPages = 20; // safety cap
 
+  // Symbol normalization: BRK-B → BRK.B (Alpaca format)
+  const ALPACA_SYM_MAP = { "BRK-B": "BRK.B" };
+  const reverseSymMap = {};
+  for (const [ours, alpaca] of Object.entries(ALPACA_SYM_MAP)) reverseSymMap[alpaca] = ours;
+  const alpacaSymbols = symbols.map(s => ALPACA_SYM_MAP[s] || s);
+
   do {
     const apiKeyId = env?.ALPACA_API_KEY_ID;
     const apiSecret = env?.ALPACA_API_SECRET_KEY;
@@ -2224,7 +2230,7 @@ export async function alpacaFetchAllBars(env, symbols, tfKey, start, end = null,
     if (!alpacaTf || !apiKeyId || !apiSecret) break;
 
     const params = new URLSearchParams();
-    params.set("symbols", symbols.join(","));
+    params.set("symbols", alpacaSymbols.join(","));
     params.set("timeframe", alpacaTf);
     params.set("start", start);
     if (end) params.set("end", end);
@@ -2252,8 +2258,10 @@ export async function alpacaFetchAllBars(env, symbols, tfKey, start, end = null,
       const bars = data.bars || {};
       let pageBars = 0;
       for (const [sym, barArr] of Object.entries(bars)) {
-        if (!allBars[sym]) allBars[sym] = [];
-        allBars[sym].push(...barArr);
+        // Reverse-map: BRK.B → BRK-B (our format)
+        const ourSym = reverseSymMap[sym] || sym;
+        if (!allBars[ourSym]) allBars[ourSym] = [];
+        allBars[ourSym].push(...barArr);
         pageBars += barArr.length;
       }
       if (pages === 0) {

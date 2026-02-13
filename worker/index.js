@@ -33765,16 +33765,16 @@ Provide 3-5 actionable next steps:
         try {
           // Filter to Alpaca-compatible stock/ETF symbols only.
           // Alpaca /v2/stocks/bars rejects the ENTIRE batch if any symbol is invalid.
-          // Excluded: futures (ES1!, NQ1!), crypto (BTCUSD, ETHUSD), indices (US500, VIX),
-          // and symbols with special chars (BRK-B → Alpaca uses BRK.B, handled separately).
+          // Excluded: futures (ES1!, NQ1!), crypto (BTCUSD, ETHUSD), indices (US500, VIX).
+          // BRK-B is mapped to BRK.B by alpacaFetchAllBars (via ALPACA_SYM_MAP).
           const ALPACA_SYMBOL_BLOCKLIST = new Set([
             "ES1!", "NQ1!", "GC1!", "SI1!",  // futures
             "BTCUSD", "ETHUSD",               // crypto (Alpaca uses /v1beta3/crypto endpoint)
             "US500", "VIX",                    // indices (not tradable stocks)
-            "BRK-B",                           // TradingView format (Alpaca uses BRK.B)
           ]);
+          // Allow hyphenated symbols (BRK-B) through the filter
           const allTickers = Object.keys(SECTOR_MAP).filter(
-            t => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}$/.test(t)
+            t => !ALPACA_SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)
           );
           const result = await alpacaCronFetchLatest(env, allTickers, d1UpsertCandle);
           console.log(`[ALPACA CRON] Fetched bars for ${allTickers.length} stocks: ${result.upserted} upserted, ${result.errors} errors`);
