@@ -64,6 +64,10 @@ crons = [
   "0 14-21 * * 1-5",     # Mon-Fri hourly 9AM-4PM ET: investor scoring refresh
   "30 21 * * 1-5",       # Mon-Fri 4:30 PM ET: daily investor scoring + DCA execution
   "0 15 * * 6",          # Saturday 10:00 AM ET: weekly investor digest
+  # ── Daily Brief (AI-generated market analysis) ──
+  "0 14 * * 1-5",        # Mon-Fri 9:00 AM ET (EST=14 UTC): morning brief
+  "0 22 * * 1-5",        # Mon-Fri 5:00 PM ET (EST=22 UTC): evening brief
+  "0 8 * * 1-5",         # Mon-Fri 3:00 AM ET (EST=08 UTC): cleanup previous day
 ]
 
 [env.production]
@@ -110,6 +114,7 @@ class_name = "PriceHub"
 # - OPENAI_API_KEY: OpenAI API key for AI Assistant
 # - ALPACA_API_KEY_ID: Alpaca Markets API Key ID (Algo Trader+ plan)
 # - ALPACA_API_SECRET_KEY: Alpaca Markets API Secret Key
+# - FINNHUB_API_KEY: Finnhub API key for earnings & economic calendar (Daily Brief)
 #
 # Environment Variables (non-sensitive - stored in wrangler.toml):
 # Required Secrets for Cloudflare Access (set via `wrangler secret put --env production`):
@@ -155,5 +160,8 @@ crons = [
   "0 14-21 * * 1-5",
   "30 21 * * 1-5",
   "0 15 * * 6",
+  "0 14 * * 1-5",
+  "0 22 * * 1-5",
+  "0 8 * * 1-5",
 ]
 

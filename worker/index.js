@@ -84,6 +84,15 @@ import {
   computePortfolioAnalytics,
   generateRebalancingSuggestions,
 } from "./investor.js";
+import {
+  generateDailyBrief,
+  cleanupDailyBrief,
+  handleGetBrief,
+  handleGetBadge,
+  handleGetArchive,
+  handleGetArchiveBrief,
+  handleMarkPrediction,
+} from "./daily-brief.js";
 
 // ─── PriceHub DO notification helper ───────────────────────────────────────
 // Fire-and-forget POST to the Durable Object to fan out data to WS clients.
@@ -246,6 +255,12 @@ const ROUTES = [
   ["GET", "/timed/ai/updates", "GET /timed/ai/updates"],
   ["GET", "/timed/ai/daily-summary", "GET /timed/ai/daily-summary"],
   ["GET", "/timed/ai/monitor", "GET /timed/ai/monitor"],
+  // ── Daily Brief ──
+  ["GET", "/timed/daily-brief", "GET /timed/daily-brief"],
+  ["GET", "/timed/daily-brief/badge", "GET /timed/daily-brief/badge"],
+  ["GET", "/timed/daily-brief/archive", "GET /timed/daily-brief/archive"],
+  ["GET", (p) => p.startsWith("/timed/daily-brief/archive/"), "GET /timed/daily-brief/archive/:id"],
+  ["POST", "/timed/daily-brief/predict", "POST /timed/daily-brief/predict"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -28361,6 +28376,61 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // ── Daily Brief endpoints ──
+
+      if (routeKey === "GET /timed/daily-brief") {
+        try {
+          const result = await handleGetBrief(env);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/daily-brief/badge") {
+        try {
+          const result = await handleGetBadge(env);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/daily-brief/archive") {
+        try {
+          const month = new URL(req.url).searchParams.get("month");
+          const result = await handleGetArchive(env, month);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/daily-brief/archive/:id") {
+        try {
+          const briefId = pathname.replace("/timed/daily-brief/archive/", "");
+          const result = await handleGetArchiveBrief(env, briefId);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/daily-brief/predict") {
+        try {
+          const url = new URL(req.url);
+          const briefId = url.searchParams.get("id");
+          const correct = url.searchParams.get("correct");
+          if (!briefId || correct == null) {
+            return sendJSON({ ok: false, error: "Missing id or correct param" }, 400, corsHeaders(env, req));
+          }
+          const result = await handleMarkPrediction(env, briefId, correct);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/investor/scores — Get all investor scores (from KV cache)
       if (routeKey === "GET /timed/investor/scores") {
         const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores");
@@ -33124,6 +33194,59 @@ Provide 3-5 actionable next steps:
         }
       })());
       // Don't return — allow other handlers
+    }
+
+    // ── Daily Brief: Morning (9 AM ET = 14:00 UTC) ──
+    if (event.cron === "0 14 * * 1-5") {
+      // Check if it's actually morning in ET (handles EST vs EDT)
+      const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+      const h = parseInt(etHour, 10);
+      if (h >= 8 && h <= 10) {
+        ctx.waitUntil((async () => {
+          try {
+            console.log("[DAILY BRIEF CRON] Generating morning brief...");
+            const result = await generateDailyBrief(env, "morning", {
+              SECTOR_MAP,
+              d1GetCandles,
+              notifyDiscord,
+            });
+            console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+          } catch (e) {
+            console.error("[DAILY BRIEF CRON] Morning failed:", String(e).slice(0, 300));
+          }
+        })());
+      }
+      // Don't return — allow other handlers
+    }
+
+    // ── Daily Brief: Evening (5 PM ET = 22:00 UTC) ──
+    if (event.cron === "0 22 * * 1-5") {
+      const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+      const h = parseInt(etHour, 10);
+      if (h >= 16 && h <= 18) {
+        ctx.waitUntil((async () => {
+          try {
+            console.log("[DAILY BRIEF CRON] Generating evening brief...");
+            const result = await generateDailyBrief(env, "evening", {
+              SECTOR_MAP,
+              d1GetCandles,
+              notifyDiscord,
+            });
+            console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+          } catch (e) {
+            console.error("[DAILY BRIEF CRON] Evening failed:", String(e).slice(0, 300));
+          }
+        })());
+      }
+    }
+
+    // ── Daily Brief: Cleanup (3 AM ET = 08:00 UTC) ──
+    if (event.cron === "0 8 * * 1-5") {
+      const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+      const h = parseInt(etHour, 10);
+      if (h >= 2 && h <= 4) {
+        ctx.waitUntil(cleanupDailyBrief(env));
+      }
     }
 
     // Data lifecycle: aggregate timed_trail → trail_5m_facts, purge old raw data (4 AM UTC daily)
