@@ -7131,16 +7131,29 @@ async function processTradeSimulation(
           console.log(`[3-TIER] ${sym} price $${pxNow.toFixed(2)} reached TRIM TP $${trimTp?.price?.toFixed(2)}`);
         } else {
           // Price hasn't reached TRIM TP yet - use completion-based approach as fallback
-          const comp = Number(tickerData?.completion);
-          const phase = Number(tickerData?.phase_pct);
-          // Progressive: start with 60% trim at 90% completion to TRIM TP
-          const completionToTrim = computeCompletionToTier(tickerData, "TRIM");
-          if (completionToTrim >= 0.9 || (Number.isFinite(comp) && comp >= 0.6)) {
-            target = THREE_TIER_CONFIG.TRIM.trimPct; // 60%
-            // Completion-based trim is NOT price-driven — block outside RTH
-          } else {
-            // Don't trim yet if we're not close to TRIM TP
+          // GUARD: Only allow completion-based trims when the position is actually profitable.
+          // Without this, indicator signals (RSI extreme, fuel critical) can classify a position
+          // as "trim" stage even when underwater, and completion >= 60% would execute the trim
+          // at a loss — producing a misleading "Taking Profit" notification.
+          const dirSign = isLong ? 1 : -1;
+          const positionPnlPct = Number.isFinite(entryPx) && entryPx > 0
+            ? ((pxNow - entryPx) / entryPx) * 100 * dirSign
+            : 0;
+          if (positionPnlPct <= 0) {
+            console.log(`[TRADE SIM] ${sym} completion-based trim blocked: position P&L ${positionPnlPct.toFixed(2)}% (not profitable)`);
             target = 0;
+          } else {
+            const comp = Number(tickerData?.completion);
+            const phase = Number(tickerData?.phase_pct);
+            // Progressive: start with 60% trim at 90% completion to TRIM TP
+            const completionToTrim = computeCompletionToTier(tickerData, "TRIM");
+            if (completionToTrim >= 0.9 || (Number.isFinite(comp) && comp >= 0.6)) {
+              target = THREE_TIER_CONFIG.TRIM.trimPct; // 60%
+              // Completion-based trim is NOT price-driven — block outside RTH
+            } else {
+              // Don't trim yet if we're not close to TRIM TP
+              target = 0;
+            }
           }
         }
       }
@@ -13654,7 +13667,9 @@ function createTradeTrimmedEmbed(
   const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
   const pctLabel = `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`;
   const stepLabel = stepPct ? `${stepPct}%` : `${trimPercent}%`;
-  const description = `Locked in **${pnlLabel}** (${pctLabel}) by trimming **${stepLabel}** of the position. **${remainingPct}%** still running.`;
+  const description = pnl >= 0
+    ? `Locked in **${pnlLabel}** (${pctLabel}) by trimming **${stepLabel}** of the position. **${remainingPct}%** still running.`
+    : `Reduced exposure by trimming **${stepLabel}** of the position at **${pnlLabel}** (${pctLabel}). **${remainingPct}%** still running.`;
 
   const fields = [];
 
@@ -13675,10 +13690,15 @@ function createTradeTrimmedEmbed(
   }
   fields.push({ name: "Trim Status", value: statusLines.join("\n"), inline: false });
 
+  // Use accurate title based on actual P&L (don't say "Taking Profit" when P&L is negative)
+  const isProfit = pnl >= 0;
+  const titleEmoji = isProfit ? "💰" : "✂️";
+  const titleAction = isProfit ? "Taking Profit" : "Trimming Position";
+
   return {
-    title: `💰  Taking Profit: ${ticker} ${direction} — ${stepLabel}`,
+    title: `${titleEmoji}  ${titleAction}: ${ticker} ${direction} — ${stepLabel}`,
     description,
-    color: 0xf59e0b,
+    color: isProfit ? 0xf59e0b : 0xef4444,
     fields,
     timestamp: new Date().toISOString(),
     footer: { text: "Timed Trading Simulator" },
