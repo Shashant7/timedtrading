@@ -2218,7 +2218,11 @@
           if (min >= cfg.closeMin) return 1;
           return (min - cfg.openMin) / cfg.sessionDur;
         }
-        // Continuous (wraps midnight): 1080 → 0 → 1020
+        if (cfg.sessionDur === 1440) {
+          // 24/7 crypto: simple linear 0→1440 (no midnight wrap)
+          return Math.max(0, Math.min(1, min / 1440));
+        }
+        // Continuous futures (wraps midnight): 1080 → 0 → 1020
         // Minutes past session open, handling midnight wrap
         let elapsed;
         if (min >= cfg.openMin) {
@@ -2307,13 +2311,12 @@
           return true;
         });
         if (filtered.length >= 2) return filtered;
-        // Equities: NEVER fall back to raw candles.
+        // Equities & 24/7 crypto: NEVER fall back to raw candles.
         // Raw candles span multiple days; _sessionFraction maps by time-of-day only (ignoring date),
-        // so yesterday's candles overlay today's session positions → chaotic sparklines at market open.
-        // Pre-market or early RTH with < 2 session candles: return filtered (sparkline hides gracefully).
+        // so yesterday's candles overlay today's session positions → chaotic sparklines / breaks.
         const cfg = _getSessionConfig(sym);
-        if (cfg.sessionDur === 390) return filtered;
-        // Continuous tickers (futures/crypto): fall back to raw if session filter yields < 2
+        if (cfg.sessionDur === 390 || cfg.sessionDur === 1440) return filtered;
+        // Continuous futures: fall back to raw if session filter yields < 2
         return rawCandles;
       }
 
@@ -11217,7 +11220,7 @@
                           <stop offset="100%" stopColor={gradColor} stopOpacity="0.03" />
                         </linearGradient>
                         <filter id={`glow-line-${sym}`}>
-                          <feGaussianBlur stdDeviation="4" result="blur" />
+                          <feGaussianBlur stdDeviation="2.5" result="blur" />
                           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                         </filter>
                       </defs>

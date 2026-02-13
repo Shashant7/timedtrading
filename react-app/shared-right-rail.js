@@ -740,26 +740,7 @@
                     );
                   })()}
 
-                  {/* ── Row 3: Context (name, sector, mcap) — compact, no heading ── */}
-                  {(() => {
-                    const ctx = ticker.context || {};
-                    const name = ctx.name || "";
-                    const sector = ctx.sector || ctx.industry || "";
-                    const mcapRaw = Number(ctx.market_cap);
-                    const mcap = Number.isFinite(mcapRaw) && mcapRaw > 0
-                      ? (mcapRaw >= 1e12 ? `$${(mcapRaw / 1e12).toFixed(1)}T` : mcapRaw >= 1e9 ? `$${(mcapRaw / 1e9).toFixed(1)}B` : mcapRaw >= 1e6 ? `$${(mcapRaw / 1e6).toFixed(0)}M` : "")
-                      : "";
-                    if (!name && !sector && !mcap) return null;
-                    return (
-                      <div className="mt-1 text-[11px] text-[#9ca3af] flex items-center gap-2 flex-wrap">
-                        {name && <span className="text-[#d1d5db]">{name}</span>}
-                        {sector && <span>{sector}</span>}
-                        {mcap && <span className="text-[#6b7280]">{mcap}</span>}
-                      </div>
-                    );
-                  })()}
-
-                  {/* ── Row 4: Groups + Stage/Ingest — 2-col grid ── */}
+                  {/* ── Row 3: Groups + Stage/Ingest ── */}
                   <div className="mt-2 flex items-center gap-3 flex-wrap text-[10px]">
                     {/* Groups */}
                     {(() => {
@@ -834,6 +815,56 @@
                       return <span className={`px-1.5 py-0.5 rounded border font-semibold ${pill}`}>{icon} {status}</span>;
                     })()}
                   </div>
+
+                  {/* ── Indicator Pills — Quality, Timeframe, Strength, Trend ── */}
+                  {(() => {
+                    const pills = [];
+                    // Quality score
+                    const q = Number(ticker?.quality_score ?? ticker?.quality ?? ticker?.q);
+                    if (Number.isFinite(q)) {
+                      const qColor = q >= 80 ? "bg-green-500/20 text-green-300 border-green-500/40" : q >= 60 ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40" : "bg-red-500/20 text-red-300 border-red-500/40";
+                      pills.push({ label: `Q:${Math.round(q)}`, cls: qColor, tip: `Quality Score: ${Math.round(q)}/100 — composite measure of setup quality` });
+                    }
+                    // Timeframe alignment
+                    const tfNum = Number(ticker?.tf_aligned_count ?? ticker?.tf_aligned);
+                    const tfTotal = Number(ticker?.tf_total ?? 5);
+                    if (Number.isFinite(tfNum)) {
+                      const tfColor = tfNum >= 3 ? "bg-green-500/15 text-green-300 border-green-500/30" : tfNum >= 2 ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
+                      pills.push({ label: `${tfNum}/${Number.isFinite(tfTotal) ? tfTotal : 5} TF`, cls: tfColor, tip: `Timeframe Alignment: ${tfNum} of ${Number.isFinite(tfTotal) ? tfTotal : 5} timeframes aligned` });
+                    }
+                    // Strength / exhaustion
+                    const strength = String(ticker?.strength || ticker?.move_strength || "").toUpperCase();
+                    if (strength) {
+                      const sColor = strength === "EXTREME" ? "bg-purple-500/15 text-purple-300 border-purple-500/40" : strength === "STRONG" ? "bg-blue-500/15 text-blue-300 border-blue-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
+                      pills.push({ label: strength, cls: sColor, tip: `Move Strength: ${strength} — intensity of the current move` });
+                    }
+                    // Trend
+                    const trend = String(ticker?.trend || ticker?.weekly_trend || "").replace(/_/g, " ");
+                    if (trend) {
+                      const tU = trend.toUpperCase();
+                      const tColor = tU.includes("BULL") ? "bg-green-500/15 text-green-300 border-green-500/30" : tU.includes("BEAR") ? "bg-red-500/15 text-red-300 border-red-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
+                      const tLabel = trend.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+                      pills.push({ label: tLabel, cls: tColor, tip: `Weekly Trend: ${tLabel}` });
+                    }
+                    // Badges (Prime, MoElite, Squeeze, etc.)
+                    const badges = [];
+                    if (ticker?.is_prime || ticker?.prime) badges.push({ icon: "⭐", label: "Prime", tip: "Prime: Top-ranked setup with high conviction" });
+                    if (ticker?.is_entry_zone || ticker?.entry_zone) badges.push({ icon: "🎯", label: "Entry Zone", tip: "Entry Zone: Price is near optimal entry level" });
+                    if (ticker?.is_mo_elite || ticker?.mo_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
+                    if (ticker?.squeeze_on || ticker?.flags?.squeeze_on) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
+                    if (ticker?.squeeze_release || ticker?.flags?.squeeze_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
+                    if (pills.length === 0 && badges.length === 0) return null;
+                    return (
+                      <div className="mt-2 flex items-center gap-1.5 flex-wrap text-[10px]">
+                        {pills.map((p, i) => (
+                          <span key={`ip-${i}`} className={`px-1.5 py-0.5 rounded border font-semibold cursor-default ${p.cls}`} title={p.tip}>{p.label}</span>
+                        ))}
+                        {badges.map((b, i) => (
+                          <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Right Rail Tabs — single row, no wrapping */}
                   <div className="mt-3 flex items-center gap-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>

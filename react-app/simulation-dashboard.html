@@ -5988,27 +5988,6 @@
                         {si.label}
                       </span>
                     </div>
-                    {/* Row 2: Progress bar */}
-                    {hasBar ? (
-                      <div className="mt-1 px-1">
-                        <div className="relative h-[8px] rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2.5 mb-2.5">
-                          {cp && (
-                            <div className={`absolute top-0 bottom-0 rounded left-0 ${fillColor}`} style={{ width: `${fillPct}%` }} title={`CP: $${cp.toFixed(2)}`}>
-                              <span className="absolute -translate-x-1/2 text-[7px] font-extrabold text-white whitespace-nowrap" style={{ left: "100%", bottom: "-12px" }}>CP</span>
-                            </div>
-                          )}
-                          <Mk val={slP} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
-                          <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
-                          <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
-                          <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />
-                          <Mk val={xp} label="XP" color="bg-emerald-400" tc="text-emerald-300" />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-1 px-1">
-                        <div className="h-[8px] rounded bg-white/[0.04] mt-2.5 mb-2.5" />
-                      </div>
-                    )}
                   </div>
                 );
               };
@@ -6056,7 +6035,7 @@
               {/* Row 1: Today's Trades — full width table */}
               <div className="mb-4">
                 <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">Today</h3>
-                <div className="max-h-[600px] overflow-y-auto">
+                <div className="max-h-[600px] overflow-y-auto overflow-x-auto">
                   {(() => {
                     const todayKey = new Date().toISOString().slice(0, 10);
                     const todayTrades = (trades || []).filter(t => {
@@ -6067,8 +6046,8 @@
                     if (todayTrades.length === 0) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No activity today</div>;
                     return (
                       <>
-                        <div className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1 border-b border-white/[0.06] text-[10px] font-semibold uppercase tracking-wider text-[#6b7280]">
-                          <span>Time</span><span>Ticker</span><span>Action</span><span className="text-right">Price</span><span className="text-right">P&L</span>
+                        <div className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1 border-b border-white/[0.06] text-[9px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                          <span>Time</span><span>Ticker</span><span>Action</span><span className="text-right">Price</span><span className="text-right">Qty</span><span className="text-right">P&L</span><span className="truncate">Reason</span>
                         </div>
                         {todayTrades.slice(0, 100).map((t, idx) => {
                           const isBuy = t.action === "BUY" || t.action === "DCA_BUY";
@@ -6078,13 +6057,17 @@
                           const actionColor = isBuy ? "text-cyan-400" : isSell ? "text-rose-400" : "text-yellow-400";
                           const pnlStr = isSell && t.pnl != null ? fmtUsd(t.pnl) : "";
                           const pnlColor = (t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                          const qty = Number(t.shares || 0);
+                          const reason = String(t.reason || "").replace(/_/g, " ");
                           return (
-                            <div key={t.trade_id || idx} className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1.5 text-[13px] border-b border-white/[0.02] hover:bg-white/[0.02]">
+                            <div key={t.trade_id || idx} className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1.5 text-[12px] border-b border-white/[0.02] hover:bg-white/[0.02]">
                               <span className="text-[var(--tt-text-muted)]">{ts ? ts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
                               <span className="font-medium text-[var(--tt-text)] truncate">{t.ticker}</span>
                               <span className={`${actionColor} font-semibold`}>{actionLabel}</span>
                               <span className="text-right text-[var(--tt-text)]">{t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : "—"}</span>
+                              <span className="text-right text-[var(--tt-text-muted)]">{qty > 0 ? qty.toFixed(2) : "—"}</span>
                               <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
+                              <span className="text-[var(--tt-text-faint)] truncate capitalize" title={reason}>{reason || "—"}</span>
                             </div>
                           );
                         })}
@@ -7894,28 +7877,33 @@
                             {/* Row 1: Today's Trades — full width table */}
                             <div className="mb-4">
                               <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">Today</h3>
-                              <div className="max-h-[600px] overflow-y-auto">
+                              <div className="max-h-[600px] overflow-y-auto overflow-x-auto">
                                 {todayActions.length > 0 ? (
                                   <>
-                                    <div className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1 border-b border-white/[0.06] text-[10px] font-semibold uppercase tracking-wider text-[#6b7280]">
-                                      <span>Time</span><span>Ticker</span><span>Action</span><span className="text-right">Price</span><span className="text-right">P&L</span>
+                                    <div className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1 border-b border-white/[0.06] text-[9px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                                      <span>Time</span><span>Ticker</span><span>Action</span><span className="text-right">Price</span><span className="text-right">Qty</span><span className="text-right">P&L</span><span className="truncate">Reason</span>
                                     </div>
                                     {todayActions.slice(0, 160).map((action, idx) => {
                                       const actionColor = action.type === "ENTRY" ? "text-cyan-400" : action.type === "EXIT" ? (action.status === "WIN" ? "text-green-400" : "text-red-400") : "text-yellow-400";
                                       const fmtTime = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
                                       const pnlStr = action.type === "EXIT" && action.pnl != null ? fmtUsd(action.pnl) : "";
                                       const pnlColor = (action.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                                      const t = action.trade || {};
+                                      const qty = Number(t.shares || t.total_qty || 0);
+                                      const reason = String(t.exit_reason || t.__entry_reason || t.__trim_reason || "").replace(/_/g, " ");
                                       return (
                                         <div
                                           key={`${action.type}-${action.ticker}-${idx}`}
-                                          className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1.5 text-[13px] border-b border-white/[0.02] hover:bg-white/[0.02] cursor-pointer"
+                                          className="grid grid-cols-[50px_52px_48px_68px_50px_68px_1fr] gap-1.5 px-2 py-1.5 text-[12px] border-b border-white/[0.02] hover:bg-white/[0.02] cursor-pointer"
                                           onClick={() => action.trade && (setSelectedTicker(action.ticker), setSelectedTrade(action.trade), setSelectedPositionEvents(action.trade?.history || []))}
                                         >
                                           <span className="text-[var(--tt-text-muted)]">{fmtTime(action.ts)}</span>
                                           <span className="font-medium text-[var(--tt-text)] truncate">{action.ticker}</span>
                                           <span className={`${actionColor} font-semibold`}>{action.type}</span>
                                           <span className="text-right text-[var(--tt-text)]">{action.price != null ? `$${action.price.toFixed(2)}` : "—"}</span>
+                                          <span className="text-right text-[var(--tt-text-muted)]">{qty > 0 ? qty.toFixed(2) : "—"}</span>
                                           <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
+                                          <span className="text-[var(--tt-text-faint)] truncate capitalize" title={reason}>{reason || "—"}</span>
                                         </div>
                                       );
                                     })}
