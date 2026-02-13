@@ -1870,9 +1870,20 @@
         const tpTrimRaw = tradeTpArr.length > 0 ? Number(tradeTpArr[0]?.price) : Number(ticker?.tp_trim);
         const tpExitRaw = tradeTpArr.length > 1 ? Number(tradeTpArr[1]?.price) : Number(ticker?.tp_exit);
         const tpRunnerRaw = tradeTpArr.length > 2 ? Number(tradeTpArr[2]?.price) : Number(ticker?.tp_runner);
-        const tpTrim = Number.isFinite(tpTrimRaw) && tpTrimRaw > 0 ? tpTrimRaw : NaN;
-        const tpExit = Number.isFinite(tpExitRaw) && tpExitRaw > 0 ? tpExitRaw : NaN;
-        const tpRunner = Number.isFinite(tpRunnerRaw) && tpRunnerRaw > 0 ? tpRunnerRaw : NaN;
+        // Direction-aware TP sanity: filter out wrong-side TPs
+        const entryPxForTp = Number(ticker?.position_entry || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || 0;
+        const tpSane = raw => {
+          if (!Number.isFinite(raw) || raw <= 0) return NaN;
+          // If direction is known, TP must be on the profit side of entry
+          if (resolvedDir && entryPxForTp > 0) {
+            if (resolvedDir === "LONG" && raw <= entryPxForTp) return NaN;
+            if (resolvedDir === "SHORT" && raw >= entryPxForTp) return NaN;
+          }
+          return raw;
+        };
+        const tpTrim = tpSane(tpTrimRaw);
+        const tpExit = tpSane(tpExitRaw);
+        const tpRunner = tpSane(tpRunnerRaw);
         const has3Tier = Number.isFinite(tpTrim) && tpTrim > 0 || Number.isFinite(tpExit) && tpExit > 0;
         const legacyTarget = computeTpTargetPrice(ticker);
         const legacyMax = computeTpMaxPrice(ticker);

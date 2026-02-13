@@ -5938,12 +5938,26 @@
                 const stageLower = String(p.investor_stage || "").toLowerCase();
                 const si = stageColors[stageLower] || { bg: "bg-white/10", color: "text-white/50", label: String(p.investor_stage || "—").toUpperCase() };
 
+                // Direction: from position data, ticker data, or state
+                const dirStr = String(p.direction || p.side || td?.position_direction || "").toUpperCase();
+                const isLong = dirStr !== "SHORT";
+
                 // Progress bar: SL, EP, CP, TP from ticker data
-                const slP = numFromAny(td?.sl || td?.sl_price || td?.stop_loss);
+                const slP = numFromAny(td?.position_sl || td?.sl || td?.sl_price || td?.stop_loss);
                 const tpArr = Array.isArray(td?.tpArray) ? td.tpArray : [];
-                const tp1 = numFromAny(tpArr[0]?.price || td?.tp_trim);
-                const tp2 = numFromAny(tpArr[1]?.price || td?.tp_exit);
-                const xp = numFromAny(tpArr[2]?.price || td?.tp_runner || td?.tp || td?.tp_max_price);
+                const tp1Raw = numFromAny(tpArr[0]?.price || td?.tp_trim);
+                const tp2Raw = numFromAny(tpArr[1]?.price || td?.tp_exit);
+                const xpRaw = numFromAny(tpArr[2]?.price || td?.tp_runner || td?.tp || td?.tp_max_price);
+                // Direction-aware TP sanity: must be on profit side of entry
+                const tpSanity = (v) => {
+                  if (!Number.isFinite(v) || v <= 0) return null;
+                  if (ep && isLong && v <= ep) return null;
+                  if (ep && !isLong && v >= ep) return null;
+                  return v;
+                };
+                const tp1 = tpSanity(tp1Raw);
+                const tp2 = tpSanity(tp2Raw);
+                const xp = tpSanity(xpRaw);
 
                 const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
                 const hasBar = vals.length >= 2;
@@ -5958,9 +5972,14 @@
                   const lo = rawLo - pad;
                   const hi = rawHi + pad;
                   const range = hi - lo;
-                  pctFn = (v) => range <= 0 ? 50 : Math.max(0, Math.min(100, ((v - lo) / range) * 100));
+                  // For SHORT: mirror positions so SL=left, TP=right (consistent with cards)
+                  pctFn = (v) => {
+                    if (range <= 0) return 50;
+                    const raw = Math.max(0, Math.min(100, ((v - lo) / range) * 100));
+                    return isLong ? raw : (100 - raw);
+                  };
                   fillPct = cp ? pctFn(cp) : 0;
-                  slMovedPastEntry = ep && slP && slP > ep;
+                  slMovedPastEntry = ep && slP && ((isLong && slP > ep) || (!isLong && slP < ep));
                   fillColor = fillPct >= 50 ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50") : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
                 }
 
@@ -5980,7 +5999,7 @@
                     {/* Row 1: Ticker, P&L, Entry, Current Price, Day Chg, Qty, Stage */}
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-bold text-white w-[44px] shrink-0">{p.ticker}</span>
-                      <span className="text-[9px] font-bold w-[10px] shrink-0 text-[#00c853]">L</span>
+                      <span className={`text-[9px] font-bold w-[10px] shrink-0 ${isLong ? "text-[#00c853]" : "text-[#ff5252]"}`}>{isLong ? "L" : "S"}</span>
                       <span className={`text-[11px] font-semibold tabular-nums w-[60px] text-right shrink-0 ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
                         {fmtUsd(pnl)}
                       </span>
