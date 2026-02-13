@@ -16528,7 +16528,7 @@
               </nav>
 
               <div className="mx-auto w-full px-2 sm:px-4 lg:px-5">
-                <header className="mb-4">
+                <header className="mb-4 pt-3">
 
                   {/* ═══ 1. MARKET PULSE — right below top header ═══ */}
                   {(() => {
@@ -16595,7 +16595,7 @@
                     const sectorChips = sectorETFs.map(s => renderPulseChip(s)).filter(Boolean);
                     if (indexChips.length === 0 && sectorChips.length === 0) return null;
                     return (
-                      <div className="mb-3">
+                      <div className="mb-4">
                         <div className="text-[10px] text-[#6b7280] font-semibold mb-1.5 tracking-wide uppercase">Market Pulse</div>
                         {indexChips.length > 0 && (
                           <div className="flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>{indexChips}</div>
@@ -16637,7 +16637,7 @@
                       );
                     };
                     return (
-                      <div className="mb-3 flex items-center gap-3 flex-wrap text-[10px]">
+                      <div className="mb-4 flex items-center gap-3 flex-wrap text-[10px]">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[#6b7280] font-semibold whitespace-nowrap">Top Gainers</span>
                           {gainers.map(t => chip(t, true))}
@@ -16652,7 +16652,7 @@
                   })()}
 
                   {/* ═══ 3. ACCOUNT SUMMARY — above search ═══ */}
-                  <div className="mb-2">
+                  <div className="mb-4">
                     <ActionCenterPanel
                       tickers={tickers}
                       trades={trades}
