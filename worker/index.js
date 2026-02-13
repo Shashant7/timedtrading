@@ -19301,12 +19301,25 @@ export default {
                 // CRITICAL: Always re-classify "enter" stage tickers through
                 // classifyKanbanStage so the __execution_ready check can
                 // downgrade them to "setup" when execution gates are blocking.
+                // STABILITY: Outside RTH, pin discovery stages to avoid flicker
+                // caused by stale D1 data vs fresh KV data from the scorer.
                 const prevIsEnter = prevStage === "enter" || prevStage === "enter_now";
-                const stage = openPosition
-                  ? classifyKanbanStage(obj, openPosition)
-                  : (prevStage && !mgmtStages.has(prevStage) && !prevIsEnter)
-                    ? prevStage
-                    : classifyKanbanStage(obj);
+                const marketClosed = !!execRthBlock; // "outside_RTH" or "weekend"
+                let stage;
+                if (openPosition) {
+                  // Position tickers: always re-classify (need real-time SL/phase)
+                  stage = classifyKanbanStage(obj, openPosition);
+                } else if (marketClosed && prevStage && !mgmtStages.has(prevStage)) {
+                  // Market closed + valid discovery stage → pin to prevent flicker.
+                  // Enter stages get downgraded to setup since execution is blocked anyway.
+                  stage = prevIsEnter ? "setup" : prevStage;
+                } else if (prevStage && !mgmtStages.has(prevStage) && !prevIsEnter) {
+                  // Market open, non-enter discovery stage → preserve
+                  stage = prevStage;
+                } else {
+                  // Market open enter stages, or stale management stages without position → reclassify
+                  stage = classifyKanbanStage(obj);
+                }
                 obj.kanban_stage = stage;
                 // Attach sector alignment data for UI display
                 const sectorInfo = getSectorAlignmentCached(sym);
