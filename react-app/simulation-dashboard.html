@@ -7700,17 +7700,35 @@
                                   })()
                                 : "";
                               const dailyResult = getDailyChange(tickerData) || {};
-                              const dayChg = Number.isFinite(dailyResult.dayChg) ? dailyResult.dayChg : null;
-                              const dayChgPct = Number.isFinite(dailyResult.dayPct) ? dailyResult.dayPct : null;
-                              const hasDayChg = dayChg !== null;
-                              const hasDayChgPct = dayChgPct !== null;
+                              let dayChg = Number.isFinite(dailyResult.dayChg) ? dailyResult.dayChg : null;
+                              let dayChgPct = Number.isFinite(dailyResult.dayPct) ? dailyResult.dayPct : null;
+                              // Fallback: if getDailyChange returns null/0, use raw scoring fields (same as Active Trader cards)
+                              if (!Number.isFinite(dayChgPct) || dayChgPct === 0) {
+                                const rawPct = Number(tickerData?.day_change_pct ?? tickerData?.daily_change_pct ?? tickerData?.session_change_pct ?? tickerData?.change_pct ?? tickerData?.pct_change ?? tickerData?.chp);
+                                if (Number.isFinite(rawPct) && Math.abs(rawPct) > 0.001) dayChgPct = rawPct;
+                              }
+                              if (!Number.isFinite(dayChg) || dayChg === 0) {
+                                const rawChg = Number(tickerData?.day_change ?? tickerData?.daily_change ?? tickerData?.session_change ?? tickerData?.change ?? tickerData?.chg);
+                                if (Number.isFinite(rawChg) && Math.abs(rawChg) > 0.001) dayChg = rawChg;
+                              }
+                              // Final fallback: derive from price and prev_close
+                              if ((!Number.isFinite(dayChg) || dayChg === 0) && currentPrice > 0) {
+                                const pc = Number(tickerData?.prev_close ?? tickerData?.previous_close ?? tickerData?._live_prev_close);
+                                if (Number.isFinite(pc) && pc > 0 && Math.abs(currentPrice - pc) > 0.001) {
+                                  dayChg = Math.round((currentPrice - pc) * 100) / 100;
+                                  if (!Number.isFinite(dayChgPct) || dayChgPct === 0) dayChgPct = Math.round(((currentPrice - pc) / pc) * 10000) / 100;
+                                }
+                              }
+                              const hasDayChg = dayChg !== null && Number.isFinite(dayChg);
+                              const hasDayChgPct = dayChgPct !== null && Number.isFinite(dayChgPct);
                               const pnlOpen = pos.pnlOpen;
                               const retOpenPct = pos.retOpenPct;
                               const stageInfo = getPositionStage(pos);
                               const isPositive = (retOpenPct ?? 0) >= 0;
                               
                               // ── Progress bar data: SL, EP, CP, TP, TP2, XP ──
-                              const slRaw = Number(pos.trade?.stop_loss || pos.trade?.sl || tickerData?.sl || tickerData?.sl_price || tickerData?.stop_loss) || null;
+                              // Prefer position-level SL (direction-aware) over ticker/model SL
+                              const slRaw = Number(pos.trade?.stop_loss || pos.trade?.sl || tickerData?.position_sl || tickerData?.sl || tickerData?.sl_price || tickerData?.stop_loss) || null;
                               const tpArr = Array.isArray(pos.trade?.tpArray) ? pos.trade.tpArray : (Array.isArray(tickerData?.tpArray) ? tickerData.tpArray : []);
                               const tpRaw = Number(pos.trade?.take_profit || tickerData?.tp || tickerData?.tp_max_price || tickerData?.tp_target_price) || null;
                               const tp1Raw = numFromAnyPos(tpArr[0]?.price || tickerData?.tp_trim);
