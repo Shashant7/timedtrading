@@ -13346,6 +13346,44 @@ async function d1LoadTradesForSimulation(env) {
       };
     });
 
+    // ── Reconcile: close OPEN trades that have no matching OPEN position in D1 ──
+    // This prevents phantom trades (e.g. entry failed but trade row persists)
+    // from being treated as active positions throughout the system.
+    try {
+      const posRes = await db.prepare(
+        `SELECT DISTINCT ticker FROM positions WHERE status = 'OPEN'`
+      ).all();
+      const posOpen = new Set((posRes?.results || []).map(r => String(r.ticker).toUpperCase()));
+      const seenTicker = new Set();
+      for (const t of out) {
+        const sym = String(t.ticker || "").toUpperCase();
+        const isOpen = t.status === "OPEN" || t.status === "TP_HIT_TRIM";
+        if (!isOpen) continue;
+
+        if (!posOpen.has(sym)) {
+          // No position — close the orphan trade in memory AND D1
+          t.status = "CLOSED";
+          t.exitReason = t.exitReason || "reconciled_no_position";
+          t.exit_ts = t.exit_ts || Date.now();
+          db.prepare(
+            `UPDATE trades SET status='CLOSED', exit_reason=COALESCE(exit_reason,'reconciled_no_position'), exit_ts=COALESCE(exit_ts,?), updated_at=datetime('now') WHERE trade_id=? AND status='OPEN'`
+          ).bind(Date.now(), t.trade_id).run().catch(() => {});
+        } else if (seenTicker.has(sym)) {
+          // Duplicate — close the extra in memory AND D1
+          t.status = "CLOSED";
+          t.exitReason = "dedup_reconcile";
+          t.exit_ts = t.exit_ts || Date.now();
+          db.prepare(
+            `UPDATE trades SET status='CLOSED', exit_reason='dedup_reconcile', exit_ts=COALESCE(exit_ts,?), updated_at=datetime('now') WHERE trade_id=? AND status='OPEN'`
+          ).bind(Date.now(), t.trade_id).run().catch(() => {});
+        } else {
+          seenTicker.add(sym);
+        }
+      }
+    } catch (reconcileErr) {
+      console.warn("[D1 LEDGER] trade reconciliation:", String(reconcileErr).slice(0, 100));
+    }
+
     // Enrich open trades: resolve entry price from candle history at entry_ts (fixes stale/wrong EP e.g. ULTA)
     const openTrades = out.filter((t) => (t.status === "OPEN" || !t.exit_ts) && t.entry_ts);
     for (const t of openTrades) {

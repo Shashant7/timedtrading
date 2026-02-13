@@ -11577,8 +11577,10 @@
               const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
               const isClosed = st === "WIN" || st === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
               const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM" || !st);
-              if (isClosed) { stage = "exit"; }
-              else if (isOpen) {
+              // Closed trades: DON'T override to "exit" — that lane is for active
+              // positions being managed toward exit.  Closed trades keep whatever
+              // discovery stage the backend assigned (watch/setup/enter).
+              if (isOpen) {
                 if (st === "TP_HIT_TRIM" || trimPct > 0) stage = "trim";
                 else if (stage !== "defend" && stage !== "trim" && stage !== "exit" &&
                          stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
@@ -11869,8 +11871,9 @@
             const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
             const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
             const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
-            if (trade && isClosed) { stage = "exit"; }
-            else if (trade && isOpen) {
+            // Closed trades: keep the backend's discovery stage (watch/setup/enter).
+            // Only OPEN trades get promoted to management lanes.
+            if (trade && isOpen) {
               if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
               else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
             }
@@ -12601,10 +12604,11 @@
             // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
             // discovery lanes (setup/enter).  They stay in management lanes.
             // Priority: exit > trim > defend > hold (based on trade state)
+            // Closed trades: keep the backend's discovery stage — Exit lane
+            // is for ACTIVE positions being managed toward exit, not for
+            // tickers whose trades already closed (WIN/LOSS).
             // ═══════════════════════════════════════════════════════════════
-            if (trade && isClosed) {
-              stage = "exit";
-            } else if (trade && isOpen) {
+            if (trade && isOpen) {
               // Trim lane: partial TP hit or manually trimmed
               if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) {
                 stage = "trim";
