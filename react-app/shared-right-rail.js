@@ -1865,14 +1865,21 @@
                         const tpRunnerRaw = tradeTpArr.length > 2
                           ? Number(tradeTpArr[2]?.price)
                           : Number(ticker?.tp_runner);
-                        // Direction-aware TP sanity: filter out wrong-side TPs
-                        const entryPxForTp = Number(ticker?.position_entry || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || 0;
+                        // Direction-aware TP sanity: filter out wrong-side TPs.
+                        // For SHORT, TPs must be BELOW entry/price. For LONG, ABOVE.
+                        const entryPxForTp = Number(ticker?.position_entry || trade?.entry_price || trade?.entryPrice || ticker?.entry_price || ticker?.entry_ref || ticker?.trigger_price) || 0;
                         const tpSane = (raw) => {
                           if (!Number.isFinite(raw) || raw <= 0) return NaN;
-                          // If direction is known, TP must be on the profit side of entry
-                          if (resolvedDir && entryPxForTp > 0) {
+                          if (!resolvedDir) return raw;
+                          // Check against entry price if available
+                          if (entryPxForTp > 0) {
                             if (resolvedDir === "LONG" && raw <= entryPxForTp) return NaN;
                             if (resolvedDir === "SHORT" && raw >= entryPxForTp) return NaN;
+                          }
+                          // Also check against current price — TP must not already be passed
+                          if (Number.isFinite(price) && price > 0) {
+                            if (resolvedDir === "LONG" && raw <= price) return NaN;
+                            if (resolvedDir === "SHORT" && raw >= price) return NaN;
                           }
                           return raw;
                         };
