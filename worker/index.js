@@ -6847,7 +6847,7 @@ async function processTradeSimulation(
     // EXITS/TRIMS outside RTH: Only allowed if PRICE-DRIVEN (SL breach, max-loss, TP hit).
     //   Signal-based exits (fuse, kanban, completion) are blocked outside RTH.
     //   This prevents premature trims/exits during thin pre-market/after-hours volume.
-    // DEFEND (SL adjustment): Allowed outside RTH (no position change, just SL tightening).
+    // DEFEND (SL adjustment): SL tightening allowed outside RTH, but Discord notifications suppressed.
     // During replay, use the simulation time to check RTH.
     const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
     const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
@@ -7061,15 +7061,17 @@ async function processTradeSimulation(
             `P&L ${pnlPct.toFixed(2)}%, SL ${currentSL?.toFixed(2) || 'none'} → $${newSL.toFixed(2)}`
           );
           
-          // Discord alert for DEFEND action (30-min dedup bucket — max 2/hr)
-          if (env) {
+          // Discord alert for DEFEND action (daily dedup — max 1 per trade per day)
+          // Suppress outside RTH for equity tickers (after-hours scoring is noisy)
+          if (env && !outsideRTH) {
             try {
               const tsMs = Date.now();
+              // Use date-based bucket (86400000ms = 1 day) to prevent repeated alerts
               const dedupe = await shouldSendTradeDiscordEvent(KV, {
                 tradeId: openTrade.id,
                 type: "TRADE_DEFEND",
                 ts: tsMs,
-                bucketMs: 30 * 60 * 1000,
+                bucketMs: 24 * 60 * 60 * 1000,
               });
               if (!dedupe.deduped) {
                 // Use unified kanban stage embed for DEFEND (replaces inline embed)
@@ -8260,54 +8262,56 @@ async function processTradeSimulation(
           });
 
           // Discord + D1 alert — unified dedup with kanban DEFEND path
-          // Uses shouldSendTradeDiscordEvent so both kanban DEFEND and TDSEQ defense
-          // share the same dedup key (prevents duplicate alerts).
-          // 30-min bucket = max 2 alerts per hour per trade.
-          try {
-            const nowMs = Date.now();
-            const tradeId = existingOpenTrade?.id || `${ticker}-${direction}`;
-            const dedupe = await shouldSendTradeDiscordEvent(KV, {
-              tradeId,
-              type: "TRADE_DEFEND",
-              ts: nowMs,
-              bucketMs: 30 * 60 * 1000,
-            });
+          // Only notify if the SL was actually tightened (avoids repeated alerts for same state).
+          // Suppress outside RTH for equity tickers (after-hours scoring is noisy).
+          // Uses daily dedup bucket (max 1 alert per trade per day).
+          if (tighten && !outsideRTH) {
+            try {
+              const nowMs = Date.now();
+              const tradeId = existingOpenTrade?.id || `${ticker}-${direction}`;
+              const dedupe = await shouldSendTradeDiscordEvent(KV, {
+                tradeId,
+                type: "TRADE_DEFEND",
+                ts: nowMs,
+                bucketMs: 24 * 60 * 60 * 1000,
+              });
 
-            if (!dedupe.deduped) {
-              const allow = shouldSendDiscordAlert(env, "KANBAN_DEFEND", { ticker, direction });
-              if (allow) {
-                const embed = createKanbanStageEmbed(ticker, "defend", "hold", tickerData, existingOpenTrade);
-                const sendRes = await notifyDiscord(env, embed).catch((err) => {
-                  console.error(`[TRADE SIM] Failed to send TDSEQ defense alert for ${ticker}:`, err);
-                  return { ok: false, error: String(err) };
-                });
+              if (!dedupe.deduped) {
+                const allow = shouldSendDiscordAlert(env, "KANBAN_DEFEND", { ticker, direction });
+                if (allow) {
+                  const embed = createKanbanStageEmbed(ticker, "defend", "hold", tickerData, existingOpenTrade);
+                  const sendRes = await notifyDiscord(env, embed).catch((err) => {
+                    console.error(`[TRADE SIM] Failed to send TDSEQ defense alert for ${ticker}:`, err);
+                    return { ok: false, error: String(err) };
+                  });
 
-                d1UpsertAlert(env, {
-                  alert_id: buildAlertId(ticker, nowMs, "TDSEQ_DEFENSE"),
-                  ticker,
-                  ts: nowMs,
-                  side: direction,
-                  state: tickerData.state,
-                  rank: Number(existingOpenTrade.rank) || 0,
-                  rr_at_alert: Number(existingOpenTrade.rr) || 0,
-                  trigger_reason: "TDSEQ_DEFENSE",
-                  dedupe_day: formatDedupDay(nowMs),
-                  discord_sent: !!sendRes?.ok,
-                  discord_status: sendRes?.status ?? null,
-                  discord_error: sendRes?.ok ? null : sendRes?.reason || sendRes?.statusText || sendRes?.error || "discord_send_failed",
-                  payload_json: JSON.stringify({
-                    ticker, direction, price: priceNow,
-                    old_sl: oldSl, new_sl: tighten ? suggestedSl : oldSl,
-                    cloud: dailyExists ? daily : fourH, td_sequential: tdSeq,
-                  }),
-                  meta_json: JSON.stringify({ kind: "tdseq_defense" }),
-                }).catch((e) => {
-                  console.error(`[D1 LEDGER] Failed to upsert TDSEQ defense alert:`, e);
-                });
+                  d1UpsertAlert(env, {
+                    alert_id: buildAlertId(ticker, nowMs, "TDSEQ_DEFENSE"),
+                    ticker,
+                    ts: nowMs,
+                    side: direction,
+                    state: tickerData.state,
+                    rank: Number(existingOpenTrade.rank) || 0,
+                    rr_at_alert: Number(existingOpenTrade.rr) || 0,
+                    trigger_reason: "TDSEQ_DEFENSE",
+                    dedupe_day: formatDedupDay(nowMs),
+                    discord_sent: !!sendRes?.ok,
+                    discord_status: sendRes?.status ?? null,
+                    discord_error: sendRes?.ok ? null : sendRes?.reason || sendRes?.statusText || sendRes?.error || "discord_send_failed",
+                    payload_json: JSON.stringify({
+                      ticker, direction, price: priceNow,
+                      old_sl: oldSl, new_sl: suggestedSl,
+                      cloud: dailyExists ? daily : fourH, td_sequential: tdSeq,
+                    }),
+                    meta_json: JSON.stringify({ kind: "tdseq_defense" }),
+                  }).catch((e) => {
+                    console.error(`[D1 LEDGER] Failed to upsert TDSEQ defense alert:`, e);
+                  });
+                }
               }
+            } catch (e) {
+              console.error(`[TRADE SIM] TDSEQ defense alert error:`, e);
             }
-          } catch (e) {
-            console.error(`[TRADE SIM] TDSEQ defense alert error:`, e);
           }
 
           // Do not exit; continue with normal TP/SL evaluation using updated SL.
