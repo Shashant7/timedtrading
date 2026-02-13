@@ -10935,18 +10935,19 @@
             ? Number(t.position_tp)
             : numFromAny(t?.tp ?? t?.tp_trim);
 
-          // Direction for SL/TP sanity: use trade direction if open, else ticker bias
-          const effectiveDir = (posDir === "LONG" || posDir === "SHORT") ? posDir : (isBullish ? "LONG" : "SHORT");
+          // Direction for SL/TP sanity: use `dir` which already accounts for
+          // trade direction, position direction, and ticker bias (lines 10892-10901)
+          const effectiveDir = dir;
           const slSane = (() => {
             if (!Number.isFinite(slRaw) || slRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
-            if (effectiveDir === "LONG" && slRaw >= price) return null;
-            if (effectiveDir === "SHORT" && slRaw <= price) return null;
+            if (dir === "LONG" && slRaw >= price) return null;
+            if (dir === "SHORT" && slRaw <= price) return null;
             return slRaw;
           })();
           const tpSane = (() => {
             if (!Number.isFinite(tpRaw) || tpRaw <= 0 || !Number.isFinite(price) || price <= 0) return null;
-            if (effectiveDir === "LONG" && tpRaw <= price) return null;
-            if (effectiveDir === "SHORT" && tpRaw >= price) return null;
+            if (dir === "LONG" && tpRaw <= price) return null;
+            if (dir === "SHORT" && tpRaw >= price) return null;
             return tpRaw;
           })();
           const sl = slSane;
@@ -11342,14 +11343,16 @@
                 const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
                 const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
                 // Direction-aware TP sanity: must be on the profit side AND not yet passed through
+                // Uses `dir` (authoritative direction from trade/position/bias) — NOT separate effectiveDir
+                const isShortDir = dir === "SHORT";
                 const tpSanity = (v) => {
                   if (!Number.isFinite(v) || v <= 0 || !cp) return null;
                   // TP must be on the correct side of entry (profit direction)
-                  if (ep && effectiveDir === "LONG" && v <= ep) return null;
-                  if (ep && effectiveDir === "SHORT" && v >= ep) return null;
+                  if (ep && !isShortDir && v <= ep) return null;
+                  if (ep && isShortDir && v >= ep) return null;
                   // TP must not yet be passed through (already hit)
-                  if (effectiveDir === "LONG" && v <= cp) return null;
-                  if (effectiveDir === "SHORT" && v >= cp) return null;
+                  if (!isShortDir && v <= cp) return null;
+                  if (isShortDir && v >= cp) return null;
                   return v;
                 };
                 const tp1 = tpSanity(tp1Raw);
