@@ -2219,14 +2219,16 @@
           return (min - cfg.openMin) / cfg.sessionDur;
         }
         if (cfg.sessionDur === 1440) {
-          // 24/7 crypto: use actual elapsed time from midnight ET today.
-          // This is date-aware, so yesterday's candles get frac < 0 and are excluded.
+          // 24/7 crypto: rolling 24h window from now.
+          // Each timestamp maps to a unique frac (no day-boundary overlap).
+          // Uses rolling window instead of midnight-to-midnight so sparklines
+          // always have data even when today's candle ingestion hasn't run yet.
           const tsMs = _toMs(ts);
-          const openMs = _getSessionOpenMs(sym);
-          if (!openMs) return Math.max(0, Math.min(1, min / 1440));
-          const elapsed = tsMs - openMs;
-          if (elapsed < 0) return -1; // before today's session
-          return Math.max(0, Math.min(1, elapsed / (24 * 60 * 60 * 1000)));
+          const now = Date.now();
+          const windowMs = 24 * 60 * 60 * 1000;
+          const cutoff = now - windowMs;
+          if (tsMs < cutoff) return -1; // older than 24h → exclude
+          return Math.max(0, Math.min(1, (tsMs - cutoff) / windowMs));
         }
         // Continuous futures (wraps midnight): 1080 → 0 → 1020
         // Minutes past session open, handling midnight wrap
@@ -2270,8 +2272,10 @@
         const closeMn = cfg.closeMin % 60;
 
         if (cfg.sessionDur === 1440) {
-          // 24/7 crypto: midnight ET today → now
-          const openMs = Date.UTC(yr, mo - 1, dy, 0 - etOffset, 0, 0);
+          // 24/7 crypto: rolling 24h window (now - 24h → now).
+          // Matches _sessionFraction's rolling window so filter + frac are consistent.
+          // Ensures sparklines always have data even when today's candle ingestion is stale.
+          const openMs = Date.now() - 24 * 60 * 60 * 1000;
           return { openMs, closeMs: null };
         }
 
