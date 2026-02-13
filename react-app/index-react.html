@@ -11109,7 +11109,7 @@
                 return (
                   <React.Fragment>
                     <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none"
-                      className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
+                      className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
                       <defs>
                         <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor={gradColor} stopOpacity="0.22" />
@@ -11138,7 +11138,7 @@
                           height: 0,
                           borderTop: "1px dashed rgba(255,255,255,0.22)",
                           boxShadow: "0 0 3px rgba(255,255,255,0.06)",
-                          zIndex: 1,
+                          zIndex: 2,
                         }}
                       />
                     )}
@@ -11147,7 +11147,7 @@
               })()}
 
               {/* Content wrapper — above the background sparkline */}
-              <div className="relative z-10 flex flex-col flex-1 min-h-0">
+              <div className="relative flex flex-col flex-1 min-h-0" style={{ zIndex: 10 }}>
 
               {/* ── Section 1: Header — Ticker + Direction + Price ──────── */}
               <div className="flex items-center justify-between px-2.5 pt-2 pb-1">
