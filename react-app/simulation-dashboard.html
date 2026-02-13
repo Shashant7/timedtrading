@@ -7690,9 +7690,11 @@
                               const slOrigRaw = Number(pos.trade?.sl_original ?? tickerData?.position_sl_original ?? 0);
                               const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;
                               const tslActive = slP && slOrig && Math.abs(slP - slOrig) / slOrig > 0.005;
-                              // Sanity: TP levels should be ahead of current price
+                              // Direction-aware TP sanity: must be on profit side AND not yet passed through
                               const tpSanity = (v) => {
                                 if (!Number.isFinite(v) || v <= 0 || !cp) return null;
+                                if (ep && isLong && v <= ep) return null;
+                                if (ep && !isLong && v >= ep) return null;
                                 if (isLong && v <= cp) return null;
                                 if (!isLong && v >= cp) return null;
                                 return v;

@@ -11106,28 +11106,53 @@
                   }
                 }
                 const gId = `cbg-${sym}`;
+                // Determine if market is in RTH for this ticker (for pulsing dot)
+                const isInRTH = (() => {
+                  const cfg = _getSessionConfig(sym);
+                  if (cfg.sessionDur === 1440) return true; // 24/7 crypto — always "live"
+                  const c = getNyClock();
+                  const m = c.totalMin;
+                  if (cfg.openMin < cfg.closeMin) {
+                    // Normal session (e.g., stocks 570–960)
+                    if (c.dow === 0 || c.dow === 6) return false;
+                    return m >= cfg.openMin && m < cfg.closeMin;
+                  } else {
+                    // Wrap session (e.g., futures 1080–1020 next day)
+                    // Active Sun 6PM – Fri 5PM; closed Sat
+                    if (c.dow === 6) return false; // Saturday closed
+                    return m >= cfg.openMin || m < cfg.closeMin;
+                  }
+                })();
                 return (
                   <React.Fragment>
                     <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none"
                       className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
                       <defs>
                         <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={gradColor} stopOpacity="0.22" />
-                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.03" />
+                          <stop offset="0%" stopColor={gradColor} stopOpacity="0.15" />
+                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.02" />
                         </linearGradient>
                         <filter id={`glow-line-${sym}`}>
-                          <feGaussianBlur stdDeviation="2.5" result="blur" />
+                          <feGaussianBlur stdDeviation="1.5" result="blur" />
                           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                         </filter>
                       </defs>
                       {/* Gradient fill under line */}
                       <polygon points={`${svgPts[0].x.toFixed(1)},${VH} ${polyStr} ${lastPt.x.toFixed(1)},${VH}`}
                         fill={`url(#${gId})`} />
-                      {/* Price line — with glow */}
-                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="2"
-                        strokeLinejoin="round" strokeLinecap="round" opacity="0.85"
+                      {/* Price line — thinner stroke, subtle glow */}
+                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.5"
+                        strokeLinejoin="round" strokeLinecap="round" opacity="0.70"
                         vectorEffect="non-scaling-stroke"
                         filter={`url(#glow-line-${sym})`} />
+                      {/* Pulsing live dot at end of sparkline — only during RTH */}
+                      {isInRTH && (
+                        <circle cx={lastPt.x} cy={lastPt.y} r="6" fill={lineColor} opacity="0.9"
+                          vectorEffect="non-scaling-stroke">
+                          <animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite" />
+                          <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2s" repeatCount="indefinite" />
+                        </circle>
+                      )}
                     </svg>
                     {/* RTH Session Open price — HTML div dashed line (avoids SVG scaling issues) */}
                     {openTopPct != null && (
@@ -11136,8 +11161,8 @@
                         style={{
                           top: `${openTopPct.toFixed(2)}%`,
                           height: 0,
-                          borderTop: "1px dashed rgba(255,255,255,0.22)",
-                          boxShadow: "0 0 3px rgba(255,255,255,0.06)",
+                          borderTop: "1px dashed rgba(255,255,255,0.18)",
+                          boxShadow: "0 0 2px rgba(255,255,255,0.04)",
                           zIndex: 2,
                         }}
                       />
@@ -11316,8 +11341,13 @@
                 const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
                 const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
                 const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tp);
+                // Direction-aware TP sanity: must be on the profit side AND not yet passed through
                 const tpSanity = (v) => {
                   if (!Number.isFinite(v) || v <= 0 || !cp) return null;
+                  // TP must be on the correct side of entry (profit direction)
+                  if (ep && effectiveDir === "LONG" && v <= ep) return null;
+                  if (ep && effectiveDir === "SHORT" && v >= ep) return null;
+                  // TP must not yet be passed through (already hit)
                   if (effectiveDir === "LONG" && v <= cp) return null;
                   if (effectiveDir === "SHORT" && v >= cp) return null;
                   return v;
@@ -11349,6 +11379,16 @@
                   (dir === "LONG" && slP > ep) || (dir === "SHORT" && slP < ep)
                 );
 
+                // Collect marker positions to detect overlaps
+                const markerPositions = [];
+                const registerMarker = (val, label) => {
+                  if (!val) return { bottom: false };
+                  const pos = pct(val);
+                  // Check if any existing marker is within 6% — put label on bottom if collision
+                  const collision = markerPositions.some(m => Math.abs(m.pos - pos) < 6);
+                  markerPositions.push({ pos, label });
+                  return { bottom: collision };
+                };
                 const Marker = ({ val, label, color, textColor, bold, bottom, dashed }) => {
                   if (!val) return null;
                   return (
@@ -11381,16 +11421,13 @@
                         </div>
                       )}
                       {/* Original SL marker (dimmed) — shown when TSL is active for context */}
-                      {tslActive && <Marker val={slOrig} label="SL" color="bg-rose-500/40" textColor="text-rose-400" dashed />}
+                      {(() => { const o = registerMarker(tslActive ? slOrig : null, "SL"); return tslActive && <Marker val={slOrig} label="SL" color="bg-rose-500/40" textColor="text-rose-400" dashed bottom={o.bottom} />; })()}
                       {/* Current stop: labeled TSL when trailing is active, SL otherwise */}
-                      <Marker val={slP} label={tslActive ? "TSL" : "SL"}
-                        color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"}
-                        textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"}
-                        bold={slMovedPastEntry} />
-                      <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" />
-                      <Marker val={tp1} label="TP" color="bg-teal-400/80" textColor="text-teal-300" />
-                      <Marker val={tp2} label="TP2" color="bg-teal-400/80" textColor="text-teal-300" />
-                      <Marker val={xp} label="XP" color="bg-emerald-400" textColor="text-emerald-300" bold />
+                      {(() => { const o = registerMarker(slP, tslActive ? "TSL" : "SL"); return <Marker val={slP} label={tslActive ? "TSL" : "SL"} color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} textColor={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} bold={slMovedPastEntry} bottom={o.bottom} />; })()}
+                      {(() => { const o = registerMarker(ep, "EP"); return <Marker val={ep} label="EP" color="bg-yellow-400/80" textColor="text-yellow-300" bottom={o.bottom} />; })()}
+                      {(() => { const o = registerMarker(tp1, "TP"); return <Marker val={tp1} label="TP" color="bg-teal-400/80" textColor="text-teal-300" bottom={o.bottom} />; })()}
+                      {(() => { const o = registerMarker(tp2, "TP2"); return <Marker val={tp2} label="TP2" color="bg-teal-400/80" textColor="text-teal-300" bottom={o.bottom} />; })()}
+                      {(() => { const o = registerMarker(xp, "XP"); return <Marker val={xp} label="XP" color="bg-emerald-400" textColor="text-emerald-300" bold bottom={o.bottom} />; })()}
                     </div>
                   </div>
                 );
@@ -11919,8 +11956,11 @@
           const tp1Raw = numFromAny(tpArr[0]?.price || t?.tp_trim);
           const tp2Raw = numFromAny(tpArr[1]?.price || t?.tp_exit);
           const xpRaw = numFromAny(tpArr[2]?.price || t?.tp_runner || tpRaw);
+          // Direction-aware TP sanity: must be on profit side AND not yet passed through
           const tpSanity = (v) => {
             if (!Number.isFinite(v) || v <= 0 || !cp) return null;
+            if (ep && effectiveDir === "LONG" && v <= ep) return null;
+            if (ep && effectiveDir === "SHORT" && v >= ep) return null;
             if (effectiveDir === "LONG" && v <= cp) return null;
             if (effectiveDir === "SHORT" && v >= cp) return null;
             return v;
