@@ -3723,11 +3723,31 @@ function pct01(x) {
 // Trade Simulation Functions (Worker-Level)
 // ─────────────────────────────────────────────────────────────
 
-const TRADE_SIZE = 1000; // $1000 per trade
+const TRADE_SIZE = 1000; // $1000 per trade (legacy, used by entry-price-correction fallback)
 const PORTFOLIO_START_CASH = 100000;
-const MIN_TRADE_NOTIONAL = 1000;
-const MAX_TRADE_NOTIONAL = 5000;
 const PORTFOLIO_KEY = "timed:portfolio:v1";
+
+// ── Dynamic Position Sizing Configuration ─────────────────────────────
+// Risk-based sizing: positions are sized so a stop-loss hit risks a % of account,
+// scaled by a multi-signal confidence score.
+let _sizingConfig = null;
+function getSizingConfig(env) {
+  if (_sizingConfig) return _sizingConfig;
+  const e = (key, def) => {
+    const v = Number(env?.[key]);
+    return Number.isFinite(v) && v > 0 ? v : def;
+  };
+  _sizingConfig = {
+    BASE_RISK_PCT: e("SIZING_BASE_RISK_PCT", 0.01),     // 1% baseline
+    MIN_RISK_PCT: e("SIZING_MIN_RISK_PCT", 0.005),      // 0.5% floor
+    MAX_RISK_PCT: e("SIZING_MAX_RISK_PCT", 0.02),       // 2% ceiling
+    MIN_NOTIONAL: e("SIZING_MIN_NOTIONAL", 500),         // $500 floor
+    MAX_NOTIONAL: e("SIZING_MAX_NOTIONAL", 8000),        // $8,000 ceiling
+    VIX_HIGH: e("SIZING_VIX_HIGH", 25),
+    VIX_EXTREME: e("SIZING_VIX_EXTREME", 35),
+  };
+  return _sizingConfig;
+}
 
 function clamp(x, lo, hi) {
   const n = Number(x);
@@ -3735,7 +3755,71 @@ function clamp(x, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-function computeTradeConfidence(tickerData) {
+// ── Historical Win Rate Cache ─────────────────────────────────────────
+// Caches win rates by (sector, state, entryPath) from recent closed trades.
+let _winRateCache = new Map();
+let _winRateCacheTs = 0;
+const WIN_RATE_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+function computeHistoricalWinRate(allTrades, sector, state, entryPath) {
+  const cacheKey = `${sector || "?"}|${state || "?"}|${entryPath || "?"}`;
+  if (Date.now() - _winRateCacheTs < WIN_RATE_CACHE_TTL && _winRateCache.has(cacheKey)) {
+    return _winRateCache.get(cacheKey);
+  }
+
+  // Rebuild cache from closed trades
+  if (Date.now() - _winRateCacheTs >= WIN_RATE_CACHE_TTL) {
+    _winRateCache = new Map();
+    _winRateCacheTs = Date.now();
+  }
+
+  const closed = (Array.isArray(allTrades) ? allTrades : [])
+    .filter(t => t.status === "WIN" || t.status === "LOSS");
+  // Match by sector (required), state and entryPath (soft match)
+  const matching = closed.filter(t => {
+    const tSector = getSector(String(t.ticker || "").toUpperCase()) || "UNKNOWN";
+    if (sector && sector !== "UNKNOWN" && tSector !== sector) return false;
+    // Soft match: state and entryPath improve match quality but aren't required
+    const stateMatch = !state || (t.state || "") === state;
+    const pathMatch = !entryPath || (t.entryPath || "") === entryPath;
+    return stateMatch || pathMatch; // At least one soft match
+  }).slice(-50); // Last 50 matching trades
+
+  let winRate = 0.5; // Default neutral
+  if (matching.length >= 5) {
+    const wins = matching.filter(t => t.status === "WIN").length;
+    winRate = wins / matching.length;
+  }
+
+  _winRateCache.set(cacheKey, winRate);
+  return winRate;
+}
+
+// ── ML Model Prediction Lookup ────────────────────────────────────────
+async function getMLPredictionConfidence(env, ticker) {
+  const db = env?.DB;
+  if (!db) return 0.5; // neutral default
+  try {
+    const row = await db.prepare(
+      `SELECT confidence, direction FROM model_predictions
+       WHERE ticker = ?1 AND resolved = 0 AND ts > ?2
+       ORDER BY ts DESC LIMIT 1`
+    ).bind(ticker, Date.now() - 7 * 86400000).first();
+    if (row && Number.isFinite(Number(row.confidence))) {
+      return clamp(Number(row.confidence), 0, 1);
+    }
+  } catch (e) {
+    console.warn("[SIZING] ML prediction lookup failed:", String(e).slice(0, 100));
+  }
+  return 0.5;
+}
+
+// ── Enhanced Multi-Signal Confidence ──────────────────────────────────
+// Weights (total = 1.0):
+//   Rank: 0.30, R:R: 0.15, Scores: 0.10, ML: 0.15,
+//   Win Rate: 0.10, Sector Alignment: 0.10, VIX: 0.10
+//   Flag bonuses: up to +0.10
+function computeTradeConfidence(tickerData, opts = {}) {
   const t = tickerData && typeof tickerData === "object" ? tickerData : {};
   const flags = t.flags && typeof t.flags === "object" ? t.flags : {};
   const rank = Number(t.rank) || 0;
@@ -3744,23 +3828,117 @@ function computeTradeConfidence(tickerData) {
   const h = Math.abs(Number(t.htf_score) || 0);
   const l = Math.abs(Number(t.ltf_score) || 0);
 
-  // Rank is the strongest driver: 60→0, 90→1
+  // 1. Rank: 60→0, 90→1 (weight: 0.30)
   const cRank = clamp((rank - 60) / 30, 0, 1);
-  // RR: 1.0→0, 2.5→1
+  // 2. R:R: 1.0→0, 2.5→1 (weight: 0.15)
   const cRr = clamp((rr - 1.0) / 1.5, 0, 1);
-  // Scores: soft contribution
+  // 3. HTF/LTF scores: soft contribution (weight: 0.10)
   const cScore = clamp((h / 60) * 0.6 + (l / 35) * 0.4, 0, 1);
+  // 4. ML model prediction (weight: 0.15)
+  const cMl = clamp(Number(opts.mlConfidence) || 0.5, 0, 1);
+  // 5. Historical win rate (weight: 0.10)
+  const cWinRate = clamp(Number(opts.winRate) || 0.5, 0, 1);
+  // 6. Sector alignment (weight: 0.10)
+  const cSector = clamp(Number(opts.sectorAlignmentScore) || 0.5, 0, 1);
+  // 7. VIX regime: inverse — low VIX = high confidence (weight: 0.10)
+  const cVix = clamp(Number(opts.vixScore) || 0.5, 0, 1);
+
+  // Flag bonuses (up to +0.10)
   const bonus =
-    (flags.momentum_elite ? 0.08 : 0) +
-    (flags.thesis_match ? 0.08 : 0) +
-    (flags.sq30_release ? 0.04 : 0);
+    (flags.momentum_elite ? 0.04 : 0) +
+    (flags.thesis_match ? 0.03 : 0) +
+    (flags.sq30_release ? 0.02 : 0) +
+    (flags.prime ? 0.03 : 0);
 
   const confidence = clamp(
-    0.55 * cRank + 0.25 * cRr + 0.2 * cScore + bonus,
+    0.30 * cRank +
+    0.15 * cRr +
+    0.10 * cScore +
+    0.15 * cMl +
+    0.10 * cWinRate +
+    0.10 * cSector +
+    0.10 * cVix +
+    bonus,
     0,
     1,
   );
-  return confidence;
+
+  // Return both the composite score and the breakdown for auditability
+  const breakdown = {
+    rank: cRank, rr: cRr, scores: cScore,
+    mlPrediction: cMl, winRate: cWinRate,
+    sectorAlignment: cSector, vixRegime: cVix,
+    flagBonus: bonus,
+  };
+
+  return { confidence, breakdown };
+}
+
+// ── Risk-Based Position Sizing ────────────────────────────────────────
+// Sizes positions so that if the stop-loss is hit, the account loses
+// confidence-scaled risk % of its value, capped by notional limits.
+function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vixLevel, env) {
+  const cfg = getSizingConfig(env);
+
+  // 1. Map confidence (0-1) to risk % (MIN_RISK_PCT → MAX_RISK_PCT)
+  const riskPct = cfg.MIN_RISK_PCT + (cfg.MAX_RISK_PCT - cfg.MIN_RISK_PCT) * clamp(confidence, 0, 1);
+
+  // 2. VIX dampener (reduce size in high-volatility regimes)
+  let vixMultiplier = 1.0;
+  const vix = Number(vixLevel);
+  if (Number.isFinite(vix) && vix > 0) {
+    if (vix > cfg.VIX_EXTREME) vixMultiplier = 0.5;
+    else if (vix > cfg.VIX_HIGH) vixMultiplier = 0.75;
+  }
+
+  // 3. Max dollar risk for this trade
+  const acctVal = Number.isFinite(accountValue) && accountValue > 0 ? accountValue : PORTFOLIO_START_CASH;
+  const maxDollarRisk = acctVal * riskPct * vixMultiplier;
+
+  // 4. Risk per share = distance from entry to stop loss
+  const riskPerShare = Math.abs(Number(entryPrice) - Number(stopLoss));
+  if (!Number.isFinite(riskPerShare) || riskPerShare <= 0) {
+    // Fallback: if no valid SL distance, use notional-based sizing
+    const fallbackNotional = clamp(
+      cfg.MIN_NOTIONAL + (cfg.MAX_NOTIONAL - cfg.MIN_NOTIONAL) * confidence,
+      cfg.MIN_NOTIONAL,
+      cfg.MAX_NOTIONAL,
+    );
+    return {
+      shares: fallbackNotional / entryPrice,
+      notional: fallbackNotional,
+      riskPct,
+      maxDollarRisk,
+      riskPerShare: 0,
+      vixMultiplier,
+      method: "notional_fallback",
+    };
+  }
+
+  // 5. Shares from risk budget
+  let shares = maxDollarRisk / riskPerShare;
+  let notional = shares * Number(entryPrice);
+
+  // 6. Apply notional safety caps
+  if (notional > cfg.MAX_NOTIONAL) {
+    notional = cfg.MAX_NOTIONAL;
+    shares = notional / Number(entryPrice);
+  }
+  if (notional < cfg.MIN_NOTIONAL) {
+    notional = cfg.MIN_NOTIONAL;
+    shares = notional / Number(entryPrice);
+  }
+
+  // 7. Cap by available cash (handled by caller, but ensure notional is capped)
+  return {
+    shares,
+    notional,
+    riskPct,
+    maxDollarRisk,
+    riskPerShare,
+    vixMultiplier,
+    method: "risk_based",
+  };
 }
 
 async function getPortfolioState(KV) {
@@ -3795,15 +3973,17 @@ async function putPortfolioState(KV, p) {
   }
 }
 
+// Legacy notional function — kept for backward compatibility in edge cases
 function tradeNotionalFromConfidence(confidence, cashAvailable) {
+  const cfg = getSizingConfig();
   const base =
-    MIN_TRADE_NOTIONAL +
-    (MAX_TRADE_NOTIONAL - MIN_TRADE_NOTIONAL) * clamp(confidence, 0, 1);
+    cfg.MIN_NOTIONAL +
+    (cfg.MAX_NOTIONAL - cfg.MIN_NOTIONAL) * clamp(confidence, 0, 1);
   const maxByCash = Number.isFinite(Number(cashAvailable))
     ? Number(cashAvailable)
     : base;
-  const capped = Math.min(base, maxByCash, MAX_TRADE_NOTIONAL);
-  return clamp(capped, MIN_TRADE_NOTIONAL, MAX_TRADE_NOTIONAL);
+  const capped = Math.min(base, maxByCash, cfg.MAX_NOTIONAL);
+  return clamp(capped, cfg.MIN_NOTIONAL, cfg.MAX_NOTIONAL);
 }
 
 function computeSharesForTrade(ticker, entryPrice, notional) {
@@ -3817,6 +3997,61 @@ function computeSharesForTrade(ticker, entryPrice, notional) {
   if (!Number.isFinite(px) || px <= 0 || !Number.isFinite(n) || n <= 0)
     return { shares: null, pointValue: 1 };
   return { shares: n / px, pointValue: 1 };
+}
+
+// ── Gather All Sizing Signals ─────────────────────────────────────────
+// Collects ML prediction, win rate, sector alignment, and VIX data
+// for the enhanced confidence calculation.
+async function gatherSizingSignals(env, sym, tickerData, allTrades) {
+  const direction = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase().includes("short") ? "SHORT" : "LONG";
+
+  // ML model prediction (async D1 lookup)
+  const mlConfidence = await getMLPredictionConfidence(env, sym);
+
+  // Historical win rate
+  const sector = getSector(sym) || "UNKNOWN";
+  const state = tickerData?.state || "";
+  const entryPath = tickerData?.__entry_path || tickerData?.entry_path || "";
+  const winRate = computeHistoricalWinRate(allTrades, sector, state, entryPath);
+
+  // Sector alignment
+  let sectorAlignmentScore = 0.5; // neutral
+  const sa = getSectorAlignmentCached(sym);
+  if (sa) {
+    // If sector trend aligns with trade direction, boost; if opposed, penalize
+    const sectorDir = String(sa.direction || "").toUpperCase();
+    const aligned = (direction === "LONG" && sectorDir === "BULLISH") ||
+                    (direction === "SHORT" && sectorDir === "BEARISH");
+    const opposed = (direction === "LONG" && sectorDir === "BEARISH") ||
+                    (direction === "SHORT" && sectorDir === "BULLISH");
+    const strength = clamp(Number(sa.strength) || 0.5, 0, 1);
+    if (aligned) sectorAlignmentScore = 0.5 + strength * 0.5; // 0.5 → 1.0
+    else if (opposed) sectorAlignmentScore = 0.5 - strength * 0.4; // 0.5 → 0.1
+  }
+
+  // VIX regime
+  let vixLevel = 0;
+  let vixScore = 0.5; // neutral
+  try {
+    const vixData = await kvGetJSON(env?.KV_TIMED, "timed:latest:VIX");
+    vixLevel = Number(vixData?.price) || 0;
+    if (vixLevel > 0) {
+      // VIX < 15: very calm → high confidence boost (0.9)
+      // VIX 15-20: calm → slight boost (0.7)
+      // VIX 20-25: normal → neutral (0.5)
+      // VIX 25-35: elevated → penalize (0.3)
+      // VIX > 35: extreme → strong penalize (0.1)
+      if (vixLevel < 15) vixScore = 0.9;
+      else if (vixLevel < 20) vixScore = 0.7;
+      else if (vixLevel < 25) vixScore = 0.5;
+      else if (vixLevel < 35) vixScore = 0.3;
+      else vixScore = 0.1;
+    }
+  } catch {
+    // VIX unavailable — use neutral
+  }
+
+  return { mlConfidence, winRate, sectorAlignmentScore, vixScore, vixLevel, sector };
 }
 
 // Futures contract specifications (point value per contract)
@@ -7438,22 +7673,86 @@ async function processTradeSimulation(
         Number.isFinite(tpCandidate) &&
         tpCandidate > 0
       ) {
-        const confidence = computeTradeConfidence(tickerData);
+        // ── Step 1: Compute SL first (needed for risk-based sizing) ──
+        // Build 3-tier TP array for this trade
+        const tpArray = build3TierTPArray(tickerData, entryPx, direction);
+        const validTP = tpArray.length > 0 ? tpArray[0].price : tpCandidate;
+        const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
+
+        // Ensure SL is on the correct side of entry price
+        if (direction === "SHORT" && Number.isFinite(slCandidate) && slCandidate < entryPx) {
+          const atr = Number(tickerData?.atr);
+          const slDist = entryPx - slCandidate;
+          slCandidate = entryPx + slDist;
+          if (Number.isFinite(atr) && atr > 0) {
+            slCandidate = Math.max(slCandidate, entryPx + atr * 1.5);
+          }
+          console.log(`[SL_FLIP] ${sym} SHORT: flipped SL from below entry to $${slCandidate.toFixed(2)} (entry=$${entryPx.toFixed(2)})`);
+        }
+        if (direction === "LONG" && Number.isFinite(slCandidate) && slCandidate > entryPx) {
+          const atr = Number(tickerData?.atr);
+          const slDist = slCandidate - entryPx;
+          slCandidate = entryPx - slDist;
+          if (Number.isFinite(atr) && atr > 0) {
+            slCandidate = Math.min(slCandidate, entryPx - atr * 1.5);
+          }
+          console.log(`[SL_FLIP] ${sym} LONG: flipped SL from above entry to $${slCandidate.toFixed(2)} (entry=$${entryPx.toFixed(2)})`);
+        }
+
+        // Apply direction-specific SL adjustment based on gold standard patterns
+        const slAdjustment = computeDirectionAwareSL(tickerData, slCandidate, direction, entryPx);
+        const finalSL = slAdjustment.sl;
+        if (slAdjustment.adjusted) {
+          console.log(`[GOLD_STANDARD_SL] ${sym} ${direction} SL adjusted: ${slCandidate.toFixed(2)} → ${finalSL.toFixed(2)} (${slAdjustment.reason})`);
+        }
+
+        const calculatedRR = (() => {
+          if (!runnerTp || !Number.isFinite(finalSL) || !Number.isFinite(entryPx)) {
+            return Number(tickerData?.rr) || 0;
+          }
+          const risk = Math.abs(entryPx - finalSL);
+          const reward = Math.abs(runnerTp.price - entryPx);
+          return risk > 0 ? reward / risk : 0;
+        })();
+
+        // ── Step 2: Gather sizing signals and compute confidence ──
+        const sizingSignals = isReplay
+          ? { mlConfidence: 0.5, winRate: 0.5, sectorAlignmentScore: 0.5, vixScore: 0.5, vixLevel: 0, sector: getSector(sym) || "UNKNOWN" }
+          : await gatherSizingSignals(env, sym, tickerData, allTrades);
+        const { confidence, breakdown: confidenceBreakdown } = computeTradeConfidence(tickerData, sizingSignals);
+
+        // ── Step 3: Risk-based position sizing ──
         const cash = Number(portfolio.cash);
-        const notional =
-          Number.isFinite(cash) && cash >= MIN_TRADE_NOTIONAL
-            ? tradeNotionalFromConfidence(confidence, cash)
-            : null;
-        if (notional != null) {
-          const { shares, pointValue } = computeSharesForTrade(
-            sym,
-            entryPx,
-            notional,
-          );
-          if (Number.isFinite(shares) && shares > 0) {
+        const cfg = getSizingConfig(env);
+        const isFuturesSym = FUTURES_SPECS[sym] || sym.endsWith("1!");
+        let shares, pointValue, notional, sizingMeta;
+
+        if (isFuturesSym && FUTURES_SPECS[sym]) {
+          // Futures: always 1 contract
+          shares = 1;
+          pointValue = FUTURES_SPECS[sym].pointValue;
+          notional = entryPx; // nominal
+          sizingMeta = { method: "futures_fixed", riskPct: 0, maxDollarRisk: 0, riskPerShare: 0, vixMultiplier: 1 };
+        } else if (Number.isFinite(cash) && cash >= cfg.MIN_NOTIONAL) {
+          // Stocks/crypto: risk-based sizing
+          const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
+            (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
+          const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env);
+          // Cap by available cash
+          notional = Math.min(sizing.notional, cash);
+          shares = notional / entryPx;
+          pointValue = 1;
+          sizingMeta = sizing;
+        } else {
+          shares = null;
+          notional = null;
+          pointValue = 1;
+          sizingMeta = { method: "insufficient_cash" };
+        }
+
+        if (Number.isFinite(shares) && shares > 0 && notional != null) {
             const tradeId = `${sym}-${now}-${Math.random().toString(36).substr(2, 9)}`;
             const entryTime = eventTs();
-            // Ingest/replay time in ms for D1 and display (not replay run time)
             const entryTsMs = Number.isFinite(asOfMs) ? asOfMs : (entryTime ? new Date(entryTime).getTime() : null);
             const ev = {
               type: "ENTRY",
@@ -7462,62 +7761,14 @@ async function processTradeSimulation(
               shares: shares,
               value: entryPx * shares,
               reason: reason,
-              note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)}`,
+              note: `Entry from ENTER_NOW at $${entryPx.toFixed(2)} (${sizingMeta.method}, risk=${((sizingMeta.riskPct || 0) * 100).toFixed(1)}%)`,
             };
 
-            // Build 3-tier TP array for this trade
-            const tpArray = build3TierTPArray(tickerData, entryPx, direction);
-            const validTP = tpArray.length > 0 ? tpArray[0].price : tpCandidate;
-            
-            // Calculate R:R using RUNNER TP (furthest target)
-            const runnerTp = tpArray.find(tp => tp.tier === "RUNNER");
-            
-            // ── CRITICAL: Ensure SL is on the correct side of entry price ──
-            // TradingView sends SL assuming LONG direction (below price).
-            // For SHORT entries, if the raw SL is below entry, we MUST flip it.
-            if (direction === "SHORT" && Number.isFinite(slCandidate) && slCandidate < entryPx) {
-              const atr = Number(tickerData?.atr);
-              const slDist = entryPx - slCandidate; // distance from entry to wrong-side SL
-              // Mirror the SL distance to the correct side (above entry)
-              slCandidate = entryPx + slDist;
-              // If ATR is available, ensure at least 1.5x ATR buffer above entry
-              if (Number.isFinite(atr) && atr > 0) {
-                slCandidate = Math.max(slCandidate, entryPx + atr * 1.5);
-              }
-              console.log(`[SL_FLIP] ${sym} SHORT: flipped SL from below entry to $${slCandidate.toFixed(2)} (entry=$${entryPx.toFixed(2)})`);
-            }
-            // For LONG: ensure SL is below entry
-            if (direction === "LONG" && Number.isFinite(slCandidate) && slCandidate > entryPx) {
-              const atr = Number(tickerData?.atr);
-              const slDist = slCandidate - entryPx;
-              slCandidate = entryPx - slDist;
-              if (Number.isFinite(atr) && atr > 0) {
-                slCandidate = Math.min(slCandidate, entryPx - atr * 1.5);
-              }
-              console.log(`[SL_FLIP] ${sym} LONG: flipped SL from above entry to $${slCandidate.toFixed(2)} (entry=$${entryPx.toFixed(2)})`);
-            }
-            
-            // Apply direction-specific SL adjustment based on gold standard patterns
-            const slAdjustment = computeDirectionAwareSL(tickerData, slCandidate, direction, entryPx);
-            const finalSL = slAdjustment.sl;
-            if (slAdjustment.adjusted) {
-              console.log(`[GOLD_STANDARD_SL] ${sym} ${direction} SL adjusted: ${slCandidate.toFixed(2)} → ${finalSL.toFixed(2)} (${slAdjustment.reason})`);
-            }
-            
-            const calculatedRR = (() => {
-              if (!runnerTp || !Number.isFinite(finalSL) || !Number.isFinite(entryPx)) {
-                return Number(tickerData?.rr) || 0;
-              }
-              const risk = Math.abs(entryPx - finalSL);
-              const reward = Math.abs(runnerTp.price - entryPx);
-              return risk > 0 ? reward / risk : 0;
-            })();
-            
             const trade = {
               id: tradeId,
               ticker: sym,
               direction,
-              entryPath: entryPath || null,  // Track which entry criteria was used
+              entryPath: entryPath || null,
               entryPrice: entryPx,
               entryTime,
               entry_ts: entryTsMs || undefined,
@@ -7526,9 +7777,8 @@ async function processTradeSimulation(
               sl_original: slCandidate,
               sl_gs_adjusted: slAdjustment.adjusted,
               sl_gs_reason: slAdjustment.reason,
-              tp: validTP, // Use TRIM TP (first tier) as primary TP
-              tpArray: tpArray, // Store full 3-tier TP array
-              // Track which tiers have been hit
+              tp: validTP,
+              tpArray: tpArray,
               trimTiers: [
                 { tier: "TRIM", pct: THREE_TIER_CONFIG.TRIM.trimPct, hit: false, hitTs: null },
                 { tier: "EXIT", pct: THREE_TIER_CONFIG.EXIT.trimPct, hit: false, hitTs: null },
@@ -7544,13 +7794,21 @@ async function processTradeSimulation(
               history: [ev],
               notional: notional,
               confidence: confidence,
+              confidenceBreakdown: confidenceBreakdown,
+              sizing: {
+                method: sizingMeta.method,
+                riskPct: sizingMeta.riskPct || 0,
+                maxDollarRisk: sizingMeta.maxDollarRisk || 0,
+                riskPerShare: sizingMeta.riskPerShare || 0,
+                vixAtEntry: sizingSignals.vixLevel || 0,
+                vixMultiplier: sizingMeta.vixMultiplier || 1,
+              },
               shares: shares,
               pointValue: pointValue,
               realizedPnl: 0,
               currentPrice: pxNow,
               lastUpdate: eventTs(),
               source: "KANBAN_ENTER_NOW",
-              // Sector alignment at entry time (for post-trade analysis)
               sectorAtEntry: (() => {
                 const sa = getSectorAlignmentCached(sym);
                 return sa ? { sector: sa.sector, aligned: sa.aligned, direction: sa.direction, strength: sa.strength } : null;
@@ -7579,7 +7837,7 @@ async function processTradeSimulation(
             }
 
             allTrades.push(trade);
-            console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares} isReplay=${isReplay}`);
+            console.log(`[ENTRY_CREATED] ${sym} dir=${direction} entry=${entryPx} sl=${finalSL} tp=${validTP} shares=${shares.toFixed(2)} notional=$${notional.toFixed(0)} conf=${confidence.toFixed(2)} method=${sizingMeta.method} risk=${((sizingMeta.riskPct || 0) * 100).toFixed(1)}% isReplay=${isReplay}`);
             const entryExecUpdate = {
               ...execState,
               lastEnterMs: now,
@@ -7730,7 +7988,6 @@ async function processTradeSimulation(
                 console.warn(`[INSTANT TRANSITION] ${sym} failed:`, String(e).slice(0, 100));
               }
             }
-          }
         } else {
           tickerData.flags =
             tickerData.flags && typeof tickerData.flags === "object"
@@ -7739,7 +7996,7 @@ async function processTradeSimulation(
           tickerData.flags.portfolio_no_cash = true;
         }
       }
-    }
+    } // end of entry block
 
     // 4) Mark-to-market open trade (no auto TP/SL execution; Kanban lanes drive executions)
     if (openTrade && isOpenTradeStatus(openTrade.status)) {
@@ -8028,20 +8285,22 @@ async function processTradeSimulation(
         }
       }
 
-      // Recalculate shares if entry price was corrected (to maintain $1000 position size for stocks, 1 contract for futures)
+      // Recalculate shares if entry price was corrected — uses original trade's notional or risk-based sizing
       let correctedShares = existingOpenTrade.shares;
       if (
         correctedEntryPrice !== existingOpenTrade.entryPrice &&
         !entryPriceCorrected
       ) {
-        // Calculate shares based on asset type (futures vs stocks)
         const tickerUpper = String(ticker || "").toUpperCase();
         const isFutures =
           FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
-        correctedShares =
-          isFutures && FUTURES_SPECS[tickerUpper]
-            ? 1
-            : TRADE_SIZE / correctedEntryPrice;
+        if (isFutures && FUTURES_SPECS[tickerUpper]) {
+          correctedShares = 1;
+        } else {
+          // Preserve the original notional value from the trade
+          const originalNotional = Number(existingOpenTrade.notional) || (Number(existingOpenTrade.shares) * Number(existingOpenTrade.entryPrice)) || TRADE_SIZE;
+          correctedShares = originalNotional / correctedEntryPrice;
+        }
         console.log(
           `[TRADE SIM] 🔧 Recalculating ${ticker} ${direction} shares: ${existingOpenTrade.shares?.toFixed(
             4,
@@ -9087,17 +9346,28 @@ async function processTradeSimulation(
               ).toFixed(2)}%)`,
             );
 
-            // Calculate new average entry price and total shares
+            // Calculate new average entry price and total shares (risk-based sizing for scale-in)
             const existingShares = anyOpenTrade.shares || 0;
             const existingValue = existingEntryPrice * existingShares;
-            // Calculate shares based on asset type (futures vs stocks)
             const tickerUpper = String(ticker || "").toUpperCase();
             const isFutures =
               FUTURES_SPECS[tickerUpper] || tickerUpper.endsWith("1!");
-            const newShares =
-              isFutures && FUTURES_SPECS[tickerUpper]
-                ? 1
-                : TRADE_SIZE / entryPrice;
+            let newShares;
+            if (isFutures && FUTURES_SPECS[tickerUpper]) {
+              newShares = 1;
+            } else {
+              // Use risk-based sizing for the scale-in portion
+              const scaleConfidence = anyOpenTrade.confidence || 0.5;
+              const scaleSL = anyOpenTrade.sl;
+              const scaleAccountVal = Number(portfolio?.startCash || PORTFOLIO_START_CASH);
+              const scaleVix = anyOpenTrade.sizing?.vixAtEntry || 0;
+              const scaleSizing = computeRiskBasedSize(scaleConfidence, scaleAccountVal, entryPrice, scaleSL, scaleVix, env);
+              // Scale-in gets half the risk-based size (conservative add-on)
+              newShares = (scaleSizing.notional / entryPrice) * 0.5;
+              if (!Number.isFinite(newShares) || newShares <= 0) {
+                newShares = TRADE_SIZE / entryPrice; // fallback
+              }
+            }
             const newValue = entryPrice * newShares;
             const totalShares = existingShares + newShares;
             const totalValue = existingValue + newValue;

@@ -35,6 +35,15 @@ EXECUTION_MODE = "simulation"
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
+# ── Dynamic Position Sizing (risk-based) ──
+# Uncomment and adjust to override defaults:
+# SIZING_BASE_RISK_PCT = "0.01"    # 1% of account per trade (baseline)
+# SIZING_MIN_RISK_PCT = "0.005"    # 0.5% minimum (low confidence)
+# SIZING_MAX_RISK_PCT = "0.02"     # 2% maximum (highest confidence)
+# SIZING_MIN_NOTIONAL = "500"      # $500 floor per trade
+# SIZING_MAX_NOTIONAL = "8000"     # $8,000 ceiling per trade
+# SIZING_VIX_HIGH = "25"           # Scale down above this VIX level
+# SIZING_VIX_EXTREME = "35"        # Aggressive scale-down above this VIX level
 
 # Top-level triggers (used when deploying without --env flag)
 # Architecture: 3 loops — Price feed, Scoring, Bar fetching
