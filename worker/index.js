@@ -48,6 +48,7 @@ import {
 } from "./alerts.js";
 import {
   alpacaCronFetchLatest,
+  alpacaCronFetchCrypto,
   alpacaBackfill,
   alpacaFetchSnapshots,
   computeServerSideScores,
@@ -33168,6 +33169,18 @@ Provide 3-5 actionable next steps:
         } catch (err) {
           console.error("[ALPACA CRON] Error:", err);
         }
+
+        // ── Crypto bars: separate Alpaca endpoint (/v1beta3/crypto/us/bars) ──
+        // Crypto trades 24/7 so we piggyback on the existing bar cron schedule.
+        // Uses alpacaCronFetchCrypto which handles symbol mapping (BTCUSD → BTC/USD).
+        try {
+          const cryptoResult = await alpacaCronFetchCrypto(env);
+          if (cryptoResult.upserted > 0 || cryptoResult.errors > 0) {
+            console.log(`[ALPACA CRYPTO CRON] Fetched crypto bars: ${cryptoResult.upserted} upserted, ${cryptoResult.errors} errors`);
+          }
+        } catch (err) {
+          console.error("[ALPACA CRYPTO CRON] Error:", err);
+        }
       }
       return; // Bar fetching only — scoring runs on the */5 cron
     }
@@ -33719,6 +33732,18 @@ Provide 3-5 actionable next steps:
             console.warn(`[SCORING CRON] Stale replay lock (${Math.round(lockAge / 1000)}s old), clearing and proceeding`);
             await kvPutJSON(KV, "timed:replay:running", null);
           }
+        }
+
+        // ── Crypto bar fetching: 24/7 coverage ──
+        // The Alpaca bar cron only runs during equity hours (weekdays).
+        // Crypto trades 24/7, so we piggyback on the scoring cron for continuous coverage.
+        // Non-blocking (ctx.waitUntil), idempotent (ON CONFLICT UPDATE), 2 tickers only.
+        if (env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
+          ctx.waitUntil(
+            alpacaCronFetchCrypto(env)
+              .then(r => { if (r.upserted > 0) console.log(`[SCORING→CRYPTO] ${r.upserted} bars upserted`); })
+              .catch(e => console.warn("[SCORING→CRYPTO] error:", String(e).slice(0, 150)))
+          );
         }
 
         const scoringStart = Date.now();

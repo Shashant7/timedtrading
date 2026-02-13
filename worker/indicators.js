@@ -2270,6 +2270,182 @@ export async function alpacaFetchAllBars(env, symbols, tfKey, start, end = null,
   return allBars;
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Alpaca Crypto Bars — /v1beta3/crypto/us/bars (separate endpoint)
+// ═══════════════════════════════════════════════════════════════════════
+
+const ALPACA_CRYPTO_BASE = "https://data.alpaca.markets/v1beta3/crypto/us";
+
+// Internal ticker → Alpaca crypto symbol format
+const CRYPTO_SYMBOL_MAP = {
+  "BTCUSD": "BTC/USD",
+  "ETHUSD": "ETH/USD",
+};
+const REVERSE_CRYPTO_MAP = Object.fromEntries(
+  Object.entries(CRYPTO_SYMBOL_MAP).map(([k, v]) => [v, k])
+);
+
+/**
+ * Fetch bars from Alpaca's crypto endpoint for the given symbols and timeframe.
+ * Handles pagination via next_page_token.
+ * Returns { [internalSym]: bar[] } where bars have Alpaca format { t, o, h, l, c, v, ... }.
+ */
+export async function alpacaFetchCryptoBars(env, cryptoTickers, tfKey, start, end = null, limit = 10000) {
+  const apiKeyId = env?.ALPACA_API_KEY_ID;
+  const apiSecret = env?.ALPACA_API_SECRET_KEY;
+  const alpacaTf = TF_TO_ALPACA[tfKey];
+  if (!alpacaTf || !apiKeyId || !apiSecret) return {};
+
+  // Map internal symbols to Alpaca crypto format
+  const alpacaSyms = cryptoTickers
+    .map(t => CRYPTO_SYMBOL_MAP[t])
+    .filter(Boolean);
+  if (alpacaSyms.length === 0) return {};
+
+  const allBars = {};
+  let pageToken = null;
+  let pages = 0;
+  const maxPages = 20;
+
+  do {
+    const params = new URLSearchParams();
+    params.set("symbols", alpacaSyms.join(","));
+    params.set("timeframe", alpacaTf);
+    params.set("start", start);
+    if (end) params.set("end", end);
+    params.set("limit", String(limit));
+    params.set("sort", "asc");
+    if (pageToken) params.set("page_token", pageToken);
+
+    const url = `${ALPACA_CRYPTO_BASE}/bars?${params.toString()}`;
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          "APCA-API-KEY-ID": apiKeyId,
+          "APCA-API-SECRET-KEY": apiSecret,
+          "Accept": "application/json",
+        },
+      });
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        console.warn(`[ALPACA CRYPTO] Fetch bars failed: ${resp.status} ${errText.slice(0, 200)}`);
+        break;
+      }
+      const data = await resp.json();
+      const bars = data.bars || {};
+      let pageBars = 0;
+      for (const [alpacaSym, barArr] of Object.entries(bars)) {
+        // Reverse-map: "BTC/USD" → "BTCUSD"
+        const ourSym = REVERSE_CRYPTO_MAP[alpacaSym] || alpacaSym.replace("/", "");
+        if (!allBars[ourSym]) allBars[ourSym] = [];
+        allBars[ourSym].push(...barArr);
+        pageBars += barArr.length;
+      }
+      if (pages === 0) {
+        console.log(`[ALPACA CRYPTO] TF=${tfKey} page 0: ${Object.keys(bars).length} symbols, ${pageBars} bars`);
+      }
+      pageToken = data.next_page_token || null;
+    } catch (fetchErr) {
+      console.warn(`[ALPACA CRYPTO] Fetch error:`, String(fetchErr).slice(0, 200));
+      break;
+    }
+    pages++;
+  } while (pageToken && pages < maxPages);
+
+  return allBars;
+}
+
+/**
+ * Cron job: fetch latest crypto bars from Alpaca and upsert into D1.
+ * Mirrors alpacaCronFetchLatest but uses the crypto endpoint.
+ * Crypto trades 24/7 so this should run on all cron ticks, not just equity hours.
+ *
+ * Uses the same 4-group TF rotation as the stock cron.
+ */
+export async function alpacaCronFetchCrypto(env) {
+  if (!env?.ALPACA_API_KEY_ID || !env?.ALPACA_API_SECRET_KEY) {
+    return { ok: false, error: "alpaca_not_configured" };
+  }
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db_binding" };
+
+  const CRYPTO_TICKERS = Object.keys(CRYPTO_SYMBOL_MAP);
+  if (CRYPTO_TICKERS.length === 0) return { ok: true, upserted: 0 };
+
+  // Same 4-group TF rotation as stocks
+  const TF_GROUPS = [
+    ["D", "W", "M"],
+    ["30", "60", "240"],
+    ["5", "10"],
+    ["1"],
+  ];
+  const minuteOfHour = new Date().getUTCMinutes();
+  const groupIdx = minuteOfHour % TF_GROUPS.length;
+  const tfsThisCycle = TF_GROUPS[groupIdx];
+
+  const TF_LOOKBACK_MS = {
+    "1":   60 * 60 * 1000,          // 1 hour (crypto trades 24/7, more catch-up needed)
+    "5":   4 * 60 * 60 * 1000,      // 4 hours
+    "10":  6 * 60 * 60 * 1000,      // 6 hours
+    "30":  12 * 60 * 60 * 1000,     // 12 hours
+    "60":  48 * 60 * 60 * 1000,     // 48 hours
+    "240": 96 * 60 * 60 * 1000,     // 4 days
+    "D":   14 * 24 * 60 * 60 * 1000,  // 2 weeks
+    "W":   42 * 24 * 60 * 60 * 1000,  // 6 weeks
+    "M":   95 * 24 * 60 * 60 * 1000,  // ~3 months
+  };
+
+  let totalUpserted = 0;
+  let totalErrors = 0;
+
+  for (const tf of tfsThisCycle) {
+    try {
+      const lookback = TF_LOOKBACK_MS[tf] || 48 * 60 * 60 * 1000;
+      const start = new Date(Date.now() - lookback).toISOString();
+      const barsBySymbol = await alpacaFetchCryptoBars(env, CRYPTO_TICKERS, tf, start, null, 10000);
+
+      const updatedAt = Date.now();
+      const stmts = [];
+      for (const [sym, bars] of Object.entries(barsBySymbol)) {
+        if (!Array.isArray(bars)) continue;
+        for (const bar of bars) {
+          const candle = alpacaBarToCandle(bar);
+          if (!candle || !Number.isFinite(candle.ts)) continue;
+          const { ts, o, h, l, c, v } = candle;
+          if (![o, h, l, c].every(x => Number.isFinite(x))) continue;
+          stmts.push(
+            db.prepare(
+              `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+               ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+                 o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
+                 updated_at=excluded.updated_at`
+            ).bind(sym.toUpperCase(), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
+          );
+        }
+      }
+
+      const BATCH_SIZE = 500;
+      for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+        const chunk = stmts.slice(i, i + BATCH_SIZE);
+        try {
+          await db.batch(chunk);
+          totalUpserted += chunk.length;
+        } catch (batchErr) {
+          console.error(`[ALPACA CRYPTO CRON] Batch ${i / BATCH_SIZE} for TF ${tf} failed:`, String(batchErr).slice(0, 200));
+          totalErrors += chunk.length;
+        }
+      }
+    } catch (err) {
+      console.error(`[ALPACA CRYPTO CRON] TF ${tf} failed:`, err);
+      totalErrors++;
+    }
+  }
+
+  console.log(`[ALPACA CRYPTO CRON] Group ${groupIdx} TFs=[${tfsThisCycle}] upserted=${totalUpserted} errors=${totalErrors}`);
+  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: CRYPTO_TICKERS.length, group: groupIdx, tfs: tfsThisCycle };
+}
+
 /**
  * Determine market session type from a UTC timestamp.
  * Uses US Eastern Time offsets (EST = UTC-5, EDT = UTC-4).
