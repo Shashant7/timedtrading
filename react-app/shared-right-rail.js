@@ -4422,8 +4422,11 @@
                                           const hi = Math.max(slVal, tpVal);
                                           const range = hi - lo;
                                           if (range <= 0) return null;
-                                          const cpPct = Math.max(0, Math.min(100, ((cp - lo) / range) * 100));
-                                          const epPct = Math.max(0, Math.min(100, ((entryPrice - lo) / range) * 100));
+                                          // For SHORT: mirror so SL=left, TP=right (progress toward target)
+                                          const rawCpPct = Math.max(0, Math.min(100, ((cp - lo) / range) * 100));
+                                          const rawEpPct = Math.max(0, Math.min(100, ((entryPrice - lo) / range) * 100));
+                                          const cpPct = isLong ? rawCpPct : (100 - rawCpPct);
+                                          const epPct = isLong ? rawEpPct : (100 - rawEpPct);
                                           const isProfit = isLong ? cp >= entryPrice : cp <= entryPrice;
                                           return (
                                             <div className="relative h-2 rounded-full bg-white/[0.06] border border-white/[0.08] overflow-visible">

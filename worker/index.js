@@ -262,6 +262,7 @@ const ROUTES = [
   ["POST", "/timed/investor/dca/configure", "POST /timed/investor/dca/configure"],
   ["POST", "/timed/investor/dca/execute", "POST /timed/investor/dca/execute"],
   ["POST", "/timed/investor/auto-rebalance", "POST /timed/investor/auto-rebalance"],
+  ["DELETE", "/timed/investor/purge-ticker", "DELETE /timed/investor/purge-ticker"],
   ["GET", "/timed/debug/trades", "GET /timed/debug/trades"],
   ["GET", "/timed/debug/tickers", "GET /timed/debug/tickers"],
   ["GET", "/timed/debug/config", "GET /timed/debug/config"],
@@ -28550,6 +28551,7 @@ Provide 3-5 actionable next steps:
           await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
           const status = url.searchParams.get("status") || "OPEN";
           const ticker = url.searchParams.get("ticker");
+          const compact = url.searchParams.get("compact") === "true"; // skip lots for lighter payload
 
           let rows;
           if (ticker) {
@@ -28562,29 +28564,50 @@ Provide 3-5 actionable next steps:
             ).bind(status).all())?.results || [];
           }
 
-          // Enrich with current prices
+          // Batch price lookup from timed:prices KV
+          const pricesRaw = await kvGetJSON(env.KV_TIMED, "timed:prices");
+          const priceMap = {};
+          if (pricesRaw?.prices) {
+            for (const [sym, pObj] of Object.entries(pricesRaw.prices)) {
+              priceMap[sym] = {
+                price: Number(pObj.p || pObj.price || 0),
+                prevClose: Number(pObj.pc || pObj.prevClose || 0),
+                dailyChange: Number(pObj.dc || 0),
+                dailyChangePct: Number(pObj.dp || 0),
+              };
+            }
+          }
+
+          // Enrich with current prices and daily change
           const enriched = [];
           for (const p of rows) {
-            const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${p.ticker}`);
-            const mark = td?.price || 0;
+            const pm = priceMap[p.ticker] || {};
+            const mark = pm.price || 0;
             const unrealizedPnl = p.total_shares > 0 && mark > 0
               ? (mark - p.avg_entry) * p.total_shares : 0;
             const unrealizedPnlPct = p.avg_entry > 0 && mark > 0
               ? ((mark - p.avg_entry) / p.avg_entry) * 100 : 0;
 
-            // Get lots
-            const lots = (await env.DB.prepare(
-              "SELECT * FROM investor_lots WHERE position_id = ?1 ORDER BY ts DESC LIMIT 50"
-            ).bind(p.id).all())?.results || [];
-
-            enriched.push({
+            const item = {
               ...p,
               currentPrice: mark,
-              marketValue: mark * p.total_shares,
+              prevClose: pm.prevClose || 0,
+              dailyChange: pm.dailyChange || 0,
+              dailyChangePct: pm.dailyChangePct || 0,
+              marketValue: Math.round(mark * p.total_shares * 100) / 100,
               unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
               unrealizedPnlPct: Math.round(unrealizedPnlPct * 100) / 100,
-              lots,
-            });
+            };
+
+            // Get lots (skip in compact mode)
+            if (!compact) {
+              const lots = (await env.DB.prepare(
+                "SELECT * FROM investor_lots WHERE position_id = ?1 ORDER BY ts DESC LIMIT 50"
+              ).bind(p.id).all())?.results || [];
+              item.lots = lots;
+            }
+
+            enriched.push(item);
           }
 
           return sendJSON({ ok: true, positions: enriched }, 200, corsHeaders(env, req));
@@ -28771,6 +28794,38 @@ Provide 3-5 actionable next steps:
 
             return sendJSON({ ok: true, action: "partial_sell", remainingShares: remaining, soldShares: sellShares }, 200, corsHeaders(env, req));
           }
+        } catch (err) {
+          return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // DELETE /timed/investor/purge-ticker — admin: completely remove a ticker from investor tables
+      if (routeKey === "DELETE /timed/investor/purge-ticker") {
+        try {
+          const body = await req.json();
+          const tickerRaw = body?.ticker;
+          if (!tickerRaw) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
+          const sym = tickerRaw.toUpperCase();
+          const db = env.DB;
+
+          // 1. Delete investor_lots for this ticker
+          const lotsResult = await db.prepare("DELETE FROM investor_lots WHERE ticker = ?1").bind(sym).run();
+          const lotsDeleted = lotsResult?.meta?.changes || 0;
+
+          // 2. Delete investor_positions for this ticker
+          const posResult = await db.prepare("DELETE FROM investor_positions WHERE ticker = ?1").bind(sym).run();
+          const posDeleted = posResult?.meta?.changes || 0;
+
+          // 3. Delete account_ledger entries for this ticker with mode='investor'
+          const ledgerResult = await db.prepare("DELETE FROM account_ledger WHERE mode = 'investor' AND ticker = ?1").bind(sym).run();
+          const ledgerDeleted = ledgerResult?.meta?.changes || 0;
+
+          console.log(`[PURGE] ${sym}: lots=${lotsDeleted}, positions=${posDeleted}, ledger=${ledgerDeleted}`);
+          return sendJSON({
+            ok: true,
+            ticker: sym,
+            deleted: { lots: lotsDeleted, positions: posDeleted, ledger: ledgerDeleted },
+          }, 200, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
         }

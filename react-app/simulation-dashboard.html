@@ -5625,7 +5625,30 @@
       // ─────────────────────────────────────────────────────────────
       // Investor Portfolio Panel — shown when "Investor" tab is active
       // ─────────────────────────────────────────────────────────────
-      function InvestorPortfolioPanel({ summary, trades, loading }) {
+      // Map raw investor reason codes to human-readable descriptions
+      function investorReasonLabel(reason, action) {
+        if (!reason) return "—";
+        const map = {
+          auto_entry_accumulate: "Auto-buy: Accumulate stage (5-7% allocation)",
+          auto_entry_watch: "Auto-buy: Watch stage (2% starter position)",
+          auto_entry_core_hold: "Auto-buy: Core Hold (adding to position)",
+          auto_reduce: "Auto-trim: Reduce stage (25% reduction)",
+          auto_exit: "Auto-exit: Score dropped below threshold",
+          manual_buy: "Manual buy",
+          manual_sell: "Manual sell",
+          initial_entry: "Initial position entry",
+          dca_buy: "Dollar-cost average buy",
+          test_cleanup: "Test / cleanup",
+          rebalance_add: "Rebalance: adding to reach target allocation",
+          rebalance_trim: "Rebalance: trimming to reduce overweight",
+          score_drop: "Score dropped — reducing exposure",
+          trend_reversal: "Weekly trend reversed — reducing exposure",
+          rs_weak: "Relative strength weakened — reducing exposure",
+        };
+        return map[reason] || reason.replace(/_/g, " ");
+      }
+
+      function InvestorPortfolioPanel({ summary, trades, positions, loading, positionsLoading, tickerData }) {
         const startCash = summary?.startCash || 100000;
         const acctVal = summary?.accountValue ?? startCash;
         const totalRealized = summary?.totalRealized ?? 0;
@@ -5641,6 +5664,43 @@
         const wins = sells.filter(t => (t.pnl || 0) > 0).length;
         const losses = sells.filter(t => (t.pnl || 0) < 0).length;
         const winRate = exits > 0 ? (wins / exits * 100) : 0;
+
+        // Chart range state
+        const [invChartRange, setInvChartRange] = useState("1Y");
+        const [invChartHover, setInvChartHover] = useState(null);
+        const chartRangeMs = { "1D": 864e5, "5D": 432e6, "10D": 864e6, "30D": 2592e6, "1Y": 31536e6 }[invChartRange] || 31536e6;
+
+        // Build cumulative P&L chart points from sell trades
+        const chartPoints = useMemo(() => {
+          const pts = [{ ts: 0, value: 0 }];
+          const sellsSorted = [...(trades || [])].filter(t => t.action === "SELL" && t.entry_ts).sort((a, b) => new Date(a.entry_ts) - new Date(b.entry_ts));
+          let running = 0;
+          for (const t of sellsSorted) {
+            running += Number(t.pnl) || 0;
+            pts.push({ ts: new Date(t.entry_ts).getTime(), value: running });
+          }
+          // Add current unrealized at now
+          if (unrealized !== 0) pts.push({ ts: Date.now(), value: running + unrealized });
+          return pts;
+        }, [trades, unrealized]);
+
+        // Filter chart points to range
+        const chartPtsInRange = useMemo(() => {
+          const now = Date.now();
+          const start = now - chartRangeMs;
+          const sorted = [...chartPoints].sort((a, b) => a.ts - b.ts);
+          const before = sorted.filter(p => p.ts <= start);
+          const startVal = before.length > 0 ? before[before.length - 1].value : 0;
+          const inRange = sorted.filter(p => p.ts >= start);
+          if (inRange.length === 0) return [{ ts: start, value: startVal }, { ts: now, value: startVal }];
+          return inRange[0].ts > start ? [{ ts: start, value: startVal }, ...inRange] : inRange;
+        }, [chartPoints, chartRangeMs]);
+
+        // Sort positions by market value descending
+        const sortedPositions = useMemo(() => {
+          if (!positions) return [];
+          return [...positions].sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0));
+        }, [positions]);
 
         // Trade by ticker
         const byTicker = useMemo(() => {
@@ -5667,141 +5727,460 @@
           return Object.values(map).sort((a, b) => b.day.localeCompare(a.day));
         }, [trades]);
 
+        // Today's activity
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayTrades = useMemo(() => (trades || []).filter(t => {
+          const d = t.entry_ts ? new Date(t.entry_ts).toISOString().slice(0, 10) : "";
+          return d === todayKey;
+        }), [trades, todayKey]);
+        const todayBuys = todayTrades.filter(t => t.action === "BUY" || t.action === "DCA_BUY");
+        const todaySells = todayTrades.filter(t => t.action === "SELL");
+        const todayPnl = todaySells.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+
+        // Total cost basis and market value from positions
+        const totalCost = sortedPositions.reduce((s, p) => s + (Number(p.cost_basis) || 0), 0);
+        const totalMktVal = sortedPositions.reduce((s, p) => s + (Number(p.marketValue) || 0), 0);
+
+        // Accordion state for "By Day" trade history
+        const [invExpandedByDayKey, setInvExpandedByDayKey] = useState(null);
+
         return (
           <div className="space-y-6">
-            {/* Account summary */}
+            {/* ═══ Account value chart — hero section (matches Active Trader) ═══ */}
             <div className="tt-card overflow-hidden p-6">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-4">
                 <div>
-                  <p className="tt-label mb-0.5">Investor Account Value</p>
+                  <p className="tt-label mb-0.5">Account value</p>
                   <p className="text-2xl font-semibold tracking-tight text-[var(--tt-text)]">{fmtUsd(acctVal)}</p>
                   <p className={`text-sm font-medium mt-1 ${totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                    {totalPnl >= 0 ? "Up" : "Down"} {fmtUsd(Math.abs(totalPnl))} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%) from {fmtUsd(startCash)} baseline
+                    {totalPnl >= 0 ? "Up" : "Down"} {fmtUsd(Math.abs(totalPnl))} ({pct >= 0 ? "+" : ""}{pct.toFixed(2)}%) from baseline
                   </p>
                 </div>
+                <div className="flex gap-1">
+                  {["1D", "5D", "10D", "30D", "1Y"].map((r) => (
+                    <button key={r} type="button" onClick={() => setInvChartRange(r)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        invChartRange === r
+                          ? "bg-[var(--tt-accent)]/20 text-[var(--tt-accent)] border border-[var(--tt-accent)]/40"
+                          : "bg-transparent text-[var(--tt-text-muted)] border border-[var(--tt-border)] hover:text-[var(--tt-text)]"
+                      }`}
+                    >{r}</button>
+                  ))}
+                </div>
               </div>
+              <div className="h-[120px] w-full flex items-center relative" aria-hidden="true">
+                {chartPtsInRange.length >= 2 ? (() => {
+                  const pts = chartPtsInRange;
+                  const vals = pts.map(p => startCash + p.value);
+                  const minV = Math.min(...vals);
+                  const maxV = Math.max(...vals);
+                  const rangeV = maxV - minV || 1;
+                  const pad = 4, w = 600, h = 112;
+                  const x = (i) => (pts.length <= 1 ? 0 : (i / (pts.length - 1)) * (w - 2 * pad) + pad);
+                  const y = (v) => h - pad - ((v - minV) / rangeV) * (h - 2 * pad);
+                  const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(startCash + p.value)}`).join(" ");
+                  return (
+                    <>
+                    <svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none"
+                      className="overflow-visible cursor-crosshair"
+                      onMouseMove={(e) => {
+                        const svg = e.currentTarget;
+                        const rect = svg.getBoundingClientRect();
+                        const mouseX = ((e.clientX - rect.left) / rect.width) * w;
+                        let closest = 0, closestDist = Infinity;
+                        for (let i = 0; i < pts.length; i++) {
+                          const dist = Math.abs(x(i) - mouseX);
+                          if (dist < closestDist) { closestDist = dist; closest = i; }
+                        }
+                        const p = pts[closest];
+                        const val = startCash + p.value;
+                        setInvChartHover({ idx: closest, x: x(closest), y: y(val), val, ts: p.ts, pnl: p.value });
+                      }}
+                      onMouseLeave={() => setInvChartHover(null)}
+                    >
+                      <defs>
+                        <linearGradient id="inv-chart-grad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--tt-accent)" stopOpacity="0.25" />
+                          <stop offset="100%" stopColor="var(--tt-accent)" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <path fill="url(#inv-chart-grad)" d={`${d} L ${x(pts.length - 1)} ${h} L ${x(0)} ${h} Z`} />
+                      <path fill="none" stroke="var(--tt-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d={d} />
+                      {invChartHover && (
+                        <>
+                          <line x1={invChartHover.x} y1={0} x2={invChartHover.x} y2={h} stroke="var(--tt-text-faint)" strokeWidth="1" strokeDasharray="3,3" />
+                          <circle cx={invChartHover.x} cy={invChartHover.y} r="4" fill="var(--tt-accent)" stroke="var(--tt-bg)" strokeWidth="2" />
+                        </>
+                      )}
+                    </svg>
+                    {invChartHover && (
+                      <div className="absolute pointer-events-none z-10"
+                        style={{ left: `${Math.min((invChartHover.x / w) * 100, 80)}%`, top: `${Math.max(2, (invChartHover.y / h) * 100 - 15)}%` }}>
+                        <div className="px-2.5 py-1 rounded text-[10px] font-semibold whitespace-nowrap"
+                          style={{ background: "var(--tt-bg-elevated)", border: "1px solid var(--tt-border)", color: "var(--tt-text)" }}>
+                          {fmtUsd(invChartHover.val)} {invChartHover.ts > 0 ? new Date(invChartHover.ts).toLocaleDateString() : ""}
+                        </div>
+                      </div>
+                    )}
+                    </>
+                  );
+                })() : (
+                  <div className="flex-1 flex items-center justify-center text-[var(--tt-text-faint)] text-sm">
+                    No history yet. Trades will appear as they close.
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-[var(--tt-text-faint)] mt-2">Baseline {fmtUsd(startCash)}</p>
             </div>
 
-            {/* Stats grid */}
+            {/* ═══ Stats grid (matches Active Trader 6-stat layout) ═══ */}
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
               <div className="tt-card p-3">
                 <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Account</div>
                 <div className="text-lg font-bold text-[var(--tt-text)]">{fmtUsd(acctVal)}</div>
               </div>
               <div className="tt-card p-3">
-                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized P&L</div>
-                <div className={`text-lg font-bold ${totalRealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalRealized)}</div>
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Total P&L</div>
+                <div className={`text-lg font-bold ${totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalPnl)}</div>
               </div>
               <div className="tt-card p-3">
-                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Unrealized P&L</div>
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Today</div>
+                <div className={`text-lg font-bold ${todayPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(todayPnl)}</div>
+              </div>
+              <div className="tt-card p-3">
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Open P&L</div>
                 <div className={`text-lg font-bold ${unrealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(unrealized)}</div>
               </div>
               <div className="tt-card p-3">
-                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Entries</div>
-                <div className="text-lg font-bold text-[var(--tt-text)]">{entries}</div>
-              </div>
-              <div className="tt-card p-3">
-                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Exits</div>
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Closed</div>
                 <div className="text-lg font-bold text-[var(--tt-text)]">{exits}</div>
               </div>
               <div className="tt-card p-3">
-                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Win %</div>
-                <div className={`text-lg font-bold ${winRate >= 50 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{winRate.toFixed(0)}%</div>
+                <div className="text-[10px] text-[var(--tt-text-faint)] uppercase tracking-wide">Realized P&L</div>
+                <div className={`text-lg font-bold ${totalRealized >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(totalRealized)}</div>
               </div>
             </div>
 
-            {/* Trade History */}
+            {/* ═══ Today's Activity (matches Active Trader) ═══ */}
             <div className="tt-card p-4">
-              <h3 className="text-sm font-semibold text-[var(--tt-text)] mb-3">Trade History</h3>
-              {loading ? (
-                <div className="text-center py-8 text-[var(--tt-text-muted)]">Loading...</div>
-              ) : (!trades || trades.length === 0) ? (
-                <div className="text-center py-8 text-[var(--tt-text-muted)]">No investor trades yet</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-[var(--tt-text-muted)] border-b border-[var(--tt-border)]">
-                        <th className="text-left py-2 font-medium">Date</th>
-                        <th className="text-left py-2 font-medium">Ticker</th>
-                        <th className="text-left py-2 font-medium">Action</th>
-                        <th className="text-right py-2 font-medium">Shares</th>
-                        <th className="text-right py-2 font-medium">Price</th>
-                        <th className="text-right py-2 font-medium">Value</th>
-                        <th className="text-right py-2 font-medium">P&L</th>
-                        <th className="text-left py-2 font-medium pl-2">Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trades.slice(0, 100).map((t, i) => {
-                        const isBuy = t.action === "BUY" || t.action === "DCA_BUY";
-                        const isSell = t.action === "SELL";
-                        const ts = t.entry_ts ? new Date(t.entry_ts) : null;
-                        return (
-                          <tr key={t.trade_id || i} className="border-b border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)]">
-                            <td className="py-2 text-[var(--tt-text-muted)]">{ts ? ts.toLocaleDateString() + " " + ts.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "—"}</td>
-                            <td className="py-2 font-semibold text-[var(--tt-text)]">{t.ticker}</td>
-                            <td className="py-2">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${isBuy ? "bg-emerald-500/20 text-emerald-400" : isSell ? "bg-rose-500/20 text-rose-400" : "bg-white/10 text-white/60"}`}>
-                                {t.action}
-                              </span>
-                            </td>
-                            <td className="py-2 text-right text-[var(--tt-text)]">{(t.shares || 0).toFixed(2)}</td>
-                            <td className="py-2 text-right text-[var(--tt-text)]">{fmtUsd(t.entry_price || 0)}</td>
-                            <td className="py-2 text-right text-[var(--tt-text)]">{fmtUsd(t.value || 0)}</td>
-                            <td className={`py-2 text-right font-medium ${(t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                              {t.pnl != null ? fmtUsd(t.pnl) : "—"}
-                            </td>
-                            <td className="py-2 pl-2 text-[var(--tt-text-muted)] truncate max-w-[120px]">{t.reason || "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-[var(--tt-text)] uppercase tracking-wide">Today's Activity</h2>
+                <div className="text-xs text-[var(--tt-text-faint)]">
+                  {new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
                 </div>
-              )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Entries</div>
+                  <div className="text-lg font-bold text-cyan-400">{todayBuys.length}</div>
+                </div>
+                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Adds</div>
+                  <div className="text-lg font-bold text-yellow-400">{todayTrades.filter(t => t.action === "DCA_BUY").length}</div>
+                </div>
+                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Exits</div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-lg font-bold text-orange-400">{todaySells.length}</span>
+                    {todaySells.length > 0 && (
+                      <span className="text-[10px] text-[var(--tt-text-muted)]">
+                        ({todaySells.filter(t => (t.pnl || 0) > 0).length}W / {todaySells.filter(t => (t.pnl || 0) < 0).length}L)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-[var(--tt-bg-surface)] rounded-lg p-3 border border-[var(--tt-border)]">
+                  <div className="text-[10px] text-[var(--tt-text-faint)] mb-1">Realized P&L</div>
+                  <div className={`text-lg font-bold ${todayPnl >= 0 ? "text-green-400" : "text-red-400"}`}>{fmtUsd(todayPnl)}</div>
+                </div>
+              </div>
             </div>
 
-            {/* Trade By Day + Trade By Ticker side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* By Day */}
-              <div className="tt-card p-4">
-                <h3 className="text-sm font-semibold text-[var(--tt-text)] mb-3">Trade By Day</h3>
-                {byDay.length === 0 ? (
-                  <div className="text-center py-4 text-[var(--tt-text-muted)] text-xs">No data</div>
-                ) : (
-                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                    {byDay.map(d => (
-                      <div key={d.day} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[var(--tt-bg-hover)] text-xs">
-                        <span className="text-[var(--tt-text-muted)] w-24">{d.day}</span>
-                        <span className="text-[var(--tt-text)]">{d.entries}E / {d.exits}X</span>
-                        <span className={`font-semibold ${d.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                          {d.pnl !== 0 ? fmtUsd(d.pnl) : "—"}
-                        </span>
+            {/* ═══ Open Positions — Compact card style (matches Active Trader) ═══ */}
+            {(() => {
+              const numFromAny = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+              const stageColors = {
+                accumulate: { bg: "bg-emerald-500/15", color: "text-emerald-400", label: "ACCUMULATE" },
+                core_hold: { bg: "bg-blue-500/15", color: "text-blue-400", label: "CORE HOLD" },
+                watch: { bg: "bg-amber-500/15", color: "text-amber-400", label: "WATCH" },
+                reduce: { bg: "bg-rose-500/15", color: "text-rose-400", label: "REDUCE" },
+                research: { bg: "bg-white/10", color: "text-white/50", label: "RESEARCH" },
+              };
+
+              const renderInvCard = (p, i) => {
+                const td = tickerData && (tickerData[p.ticker] || tickerData[p.ticker?.toUpperCase?.()]);
+                const ep = numFromAny(p.avg_entry);
+                const cp = numFromAny(p.currentPrice);
+                const qty = numFromAny(p.total_shares);
+                const pnl = p.unrealizedPnl || 0;
+                const pnlPct = p.unrealizedPnlPct || 0;
+                const isPositive = pnl >= 0;
+                const dc = p.dailyChangePct || 0;
+                const hasDayChg = Number.isFinite(dc);
+                const stageLower = String(p.investor_stage || "").toLowerCase();
+                const si = stageColors[stageLower] || { bg: "bg-white/10", color: "text-white/50", label: String(p.investor_stage || "—").toUpperCase() };
+
+                // Progress bar: SL, EP, CP, TP from ticker data
+                const slP = numFromAny(td?.sl || td?.sl_price || td?.stop_loss);
+                const tpArr = Array.isArray(td?.tpArray) ? td.tpArray : [];
+                const tp1 = numFromAny(tpArr[0]?.price || td?.tp_trim);
+                const tp2 = numFromAny(tpArr[1]?.price || td?.tp_exit);
+                const xp = numFromAny(tpArr[2]?.price || td?.tp_runner || td?.tp || td?.tp_max_price);
+
+                const vals = [slP, ep, cp, tp1, tp2, xp].filter(v => v != null && v > 0);
+                const hasBar = vals.length >= 2;
+                let pctFn = () => 50;
+                let fillPct = 0;
+                let fillColor = "bg-white/[0.30]";
+                let slMovedPastEntry = false;
+                if (hasBar) {
+                  const rawLo = Math.min(...vals);
+                  const rawHi = Math.max(...vals);
+                  const pad = (rawHi - rawLo) * 0.08;
+                  const lo = rawLo - pad;
+                  const hi = rawHi + pad;
+                  const range = hi - lo;
+                  pctFn = (v) => range <= 0 ? 50 : Math.max(0, Math.min(100, ((v - lo) / range) * 100));
+                  fillPct = cp ? pctFn(cp) : 0;
+                  slMovedPastEntry = ep && slP && slP > ep;
+                  fillColor = fillPct >= 50 ? (fillPct >= 80 ? "bg-emerald-500/70" : "bg-emerald-500/50") : (fillPct <= 20 ? "bg-rose-500/55" : "bg-white/[0.30]");
+                }
+
+                const Mk = ({ val, label, color, tc, bottom }) => {
+                  if (!val) return null;
+                  return (
+                    <div className="absolute" style={{ left: `${pctFn(val)}%`, width: "20px", marginLeft: "-10px", top: "-12px", bottom: "-12px" }}
+                      title={`${label}: $${val.toFixed(2)}`}>
+                      <div className={`absolute left-1/2 -translate-x-1/2 w-0.5 ${color}`} style={{ top: "12px", bottom: "12px" }} />
+                      <span className={`absolute left-1/2 ${bottom ? "bottom-0" : "top-0"} -translate-x-1/2 text-[7px] font-extrabold ${tc} whitespace-nowrap`}>{label}</span>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div key={p.id || i} className="w-full text-left py-1.5 px-2 border-b border-white/[0.04] hover:bg-white/[0.02] transition-all">
+                    {/* Row 1: Ticker, P&L, Entry, Current Price, Day Chg, Qty, Stage */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-white w-[44px] shrink-0">{p.ticker}</span>
+                      <span className="text-[9px] font-bold w-[10px] shrink-0 text-[#00c853]">L</span>
+                      <span className={`text-[11px] font-semibold tabular-nums w-[60px] text-right shrink-0 ${isPositive ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                        {fmtUsd(pnl)}
+                      </span>
+                      <span className={`text-[9px] tabular-nums w-[38px] text-right shrink-0 ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
+                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%
+                      </span>
+                      <span className="text-[10px] text-amber-300/90 tabular-nums w-[56px] shrink-0 text-right" title="Entry">
+                        {ep ? `$${ep.toFixed(2)}` : "—"}
+                      </span>
+                      <span className="text-[10px] text-white tabular-nums w-[56px] shrink-0 text-right font-medium">
+                        {cp ? `$${cp.toFixed(2)}` : "—"}
+                      </span>
+                      <span className={`text-[10px] tabular-nums w-[70px] shrink-0 text-right ${dc >= 0 ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                        {hasDayChg ? `${dc >= 0 ? "+" : ""}${dc.toFixed(2)}%` : "—"}
+                      </span>
+                      <span className="text-[10px] text-[#9ca3af] tabular-nums w-[40px] shrink-0 text-right" title="Quantity">
+                        {qty != null ? qty.toFixed(2) : "—"}
+                      </span>
+                      <span className="text-[9px] text-[#6b7280] w-[72px] shrink-0 truncate" title="Market Value">
+                        {fmtUsd(p.marketValue || 0)}
+                      </span>
+                      <span className={`text-[8px] px-1.5 py-px rounded ${si.bg} ${si.color} font-medium shrink-0 ml-auto`}>
+                        {si.label}
+                      </span>
+                    </div>
+                    {/* Row 2: Progress bar */}
+                    {hasBar ? (
+                      <div className="mt-1 px-1">
+                        <div className="relative h-[8px] rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2.5 mb-2.5">
+                          {cp && (
+                            <div className={`absolute top-0 bottom-0 rounded left-0 ${fillColor}`} style={{ width: `${fillPct}%` }} title={`CP: $${cp.toFixed(2)}`}>
+                              <span className="absolute -translate-x-1/2 text-[7px] font-extrabold text-white whitespace-nowrap" style={{ left: "100%", bottom: "-12px" }}>CP</span>
+                            </div>
+                          )}
+                          <Mk val={slP} label="TSL" color={slMovedPastEntry ? "bg-teal-500" : "bg-rose-500/80"} tc={slMovedPastEntry ? "text-teal-400" : "text-rose-400"} />
+                          <Mk val={ep} label="EP" color="bg-yellow-400/80" tc="text-yellow-300" />
+                          <Mk val={tp1} label="TP" color="bg-teal-400/80" tc="text-teal-300" />
+                          <Mk val={tp2} label="TP2" color="bg-teal-400/80" tc="text-teal-300" bottom />
+                          <Mk val={xp} label="XP" color="bg-emerald-400" tc="text-emerald-300" />
+                        </div>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="mt-1 px-1">
+                        <div className="h-[8px] rounded bg-white/[0.04] mt-2.5 mb-2.5" />
+                      </div>
+                    )}
                   </div>
-                )}
+                );
+              };
+
+              return (
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-[13px] font-medium text-[#d1d5db]">Open Positions</h2>
+                    <div className="flex gap-4 text-[11px] text-[#4b5563]">
+                      <span>{sortedPositions.length} open</span>
+                      <span>Cost: {fmtUsd(totalCost)}</span>
+                      <span>Mkt Val: {fmtUsd(totalMktVal)}</span>
+                    </div>
+                  </div>
+                  {positionsLoading ? (
+                    <div className="text-center py-8 text-[var(--tt-text-muted)]">Loading positions...</div>
+                  ) : sortedPositions.length === 0 ? (
+                    <div className="text-center py-8 text-[var(--tt-text-muted)]">No open positions</div>
+                  ) : (
+                    <div className="space-y-0">
+                      {/* Column headers */}
+                      <div className="flex items-center gap-2 px-2 py-1 border-b border-white/[0.06] text-[8px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                        <span className="w-[44px] shrink-0">Ticker</span>
+                        <span className="w-[10px] shrink-0"></span>
+                        <span className="w-[60px] shrink-0 text-right">P&L</span>
+                        <span className="w-[38px] shrink-0 text-right">%</span>
+                        <span className="w-[56px] shrink-0 text-right">Entry</span>
+                        <span className="w-[56px] shrink-0 text-right">Current Price</span>
+                        <span className="w-[70px] shrink-0 text-right">Day Chg</span>
+                        <span className="w-[40px] shrink-0 text-right">Qty</span>
+                        <span className="w-[72px] shrink-0">Mkt Value</span>
+                        <span className="shrink-0 text-center ml-auto" style={{ width: "60px" }}>Stage</span>
+                      </div>
+                      {[...sortedPositions].sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || ""))).map((p, i) => renderInvCard(p, i))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ═══ Trade History — Today (full width table), then By Day (accordion) + P&L by Ticker (2 cols) ═══ */}
+            <div className="tt-card p-4">
+              <h2 className="text-sm font-semibold text-[var(--tt-text)] uppercase tracking-wide mb-3">Trade History</h2>
+
+              {/* Row 1: Today's Trades — full width table */}
+              <div className="mb-4">
+                <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">Today</h3>
+                <div className="max-h-[600px] overflow-y-auto">
+                  {(() => {
+                    const todayKey = new Date().toISOString().slice(0, 10);
+                    const todayTrades = (trades || []).filter(t => {
+                      const d = t.entry_ts ? new Date(t.entry_ts).toISOString().slice(0, 10) : "";
+                      return d === todayKey;
+                    });
+                    if (loading) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">Loading...</div>;
+                    if (todayTrades.length === 0) return <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No activity today</div>;
+                    return (
+                      <>
+                        <div className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1 border-b border-white/[0.06] text-[10px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                          <span>Time</span><span>Ticker</span><span>Action</span><span className="text-right">Price</span><span className="text-right">P&L</span>
+                        </div>
+                        {todayTrades.slice(0, 100).map((t, idx) => {
+                          const isBuy = t.action === "BUY" || t.action === "DCA_BUY";
+                          const isSell = t.action === "SELL";
+                          const ts = t.entry_ts ? new Date(t.entry_ts) : null;
+                          const actionLabel = t.action === "DCA_BUY" ? "ADD" : t.action;
+                          const actionColor = isBuy ? "text-cyan-400" : isSell ? "text-rose-400" : "text-yellow-400";
+                          const pnlStr = isSell && t.pnl != null ? fmtUsd(t.pnl) : "";
+                          const pnlColor = (t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                          return (
+                            <div key={t.trade_id || idx} className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1.5 text-[13px] border-b border-white/[0.02] hover:bg-white/[0.02]">
+                              <span className="text-[var(--tt-text-muted)]">{ts ? ts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                              <span className="font-medium text-[var(--tt-text)] truncate">{t.ticker}</span>
+                              <span className={`${actionColor} font-semibold`}>{actionLabel}</span>
+                              <span className="text-right text-[var(--tt-text)]">{t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : "—"}</span>
+                              <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
+                            </div>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
 
-              {/* By Ticker */}
-              <div className="tt-card p-4">
-                <h3 className="text-sm font-semibold text-[var(--tt-text)] mb-3">P&L By Ticker</h3>
-                {byTicker.length === 0 ? (
-                  <div className="text-center py-4 text-[var(--tt-text-muted)] text-xs">No data</div>
-                ) : (
-                  <div className="space-y-1 max-h-[300px] overflow-y-auto">
-                    {byTicker.map(t => (
-                      <div key={t.ticker} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-[var(--tt-bg-hover)] text-xs">
-                        <span className="text-[var(--tt-text)] font-semibold w-16">{t.ticker}</span>
-                        <span className="text-[var(--tt-text-muted)]">{t.buys}B / {t.sells}S</span>
-                        <span className={`font-semibold ${t.totalPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
-                          {t.totalPnl !== 0 ? fmtUsd(t.totalPnl) : "—"}
-                        </span>
-                      </div>
-                    ))}
+              {/* Row 2: By Day (accordion) + P&L by Ticker — 2-column */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Col 1: By Day — accordion */}
+                <div>
+                  <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">By day</h3>
+                  <div className="space-y-1 max-h-[800px] overflow-y-auto">
+                    {byDay.length === 0 ? (
+                      <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No trades by day</div>
+                    ) : byDay.slice(0, 100).map(d => {
+                      const isExpanded = invExpandedByDayKey === d.day;
+                      return (
+                        <div key={d.day} className="rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
+                          <div
+                            className="flex items-center justify-between py-2 px-3 hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
+                            onClick={() => setInvExpandedByDayKey(isExpanded ? null : d.day)}
+                          >
+                            <div className="flex items-center gap-2">
+                              <button type="button" className="text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] text-xs w-5 h-5 flex items-center justify-center" aria-label={isExpanded ? "Collapse" : "Expand"}>
+                                {isExpanded ? "−" : "+"}
+                              </button>
+                              <span className="text-[13px] font-medium text-[var(--tt-text)]">{d.day}</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-[13px]">
+                              <span className="text-[var(--tt-text-muted)]">{d.entries}E/{d.exits}X</span>
+                              <span className={`font-semibold ${d.pnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                {d.pnl !== 0 ? fmtUsd(d.pnl) : "—"}
+                              </span>
+                            </div>
+                          </div>
+                          {isExpanded && d.actions && d.actions.length > 0 && (
+                            <div className="px-3 pb-2 pt-0 border-t border-[var(--tt-border)]">
+                              <div className="mt-1.5 space-y-1 text-[13px]">
+                                <div className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 px-1 text-[11px] text-[var(--tt-text-faint)] font-medium uppercase">
+                                  <span>Ticker</span><span>Action</span><span>Time</span><span>Price</span><span className="text-right">P&L</span>
+                                </div>
+                                {d.actions.sort((a, b) => String(a.ticker || "").localeCompare(String(b.ticker || "")) || new Date(a.entry_ts || 0) - new Date(b.entry_ts || 0)).map((t, i) => {
+                                  const isBuy = t.action === "BUY" || t.action === "DCA_BUY";
+                                  const isSell = t.action === "SELL";
+                                  const ts = t.entry_ts ? new Date(t.entry_ts) : null;
+                                  const actionColor = isBuy ? "text-cyan-400" : isSell ? "text-rose-400" : "text-yellow-400";
+                                  return (
+                                    <div key={`${t.ticker}-${i}`} className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 py-1 px-1 rounded bg-[var(--tt-bg)] items-center">
+                                      <span className="font-medium text-[var(--tt-text)] truncate">{t.ticker}</span>
+                                      <span className={`${actionColor} font-semibold`}>{t.action === "DCA_BUY" ? "ADD" : t.action}</span>
+                                      <span className="text-[var(--tt-text-muted)]">{ts ? ts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true }) : "—"}</span>
+                                      <span className="text-[var(--tt-text)]">{t.entry_price != null ? `$${Number(t.entry_price).toFixed(2)}` : "—"}</span>
+                                      <span className={`text-right font-semibold ${(t.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{isSell && t.pnl != null ? fmtUsd(t.pnl) : ""}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
+                {/* Col 2: P&L by Ticker */}
+                <div>
+                  <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">P&L by Ticker</h3>
+                  <div className="space-y-1 max-h-[800px] overflow-y-auto">
+                    {byTicker.length === 0 ? (
+                      <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No trades</div>
+                    ) : (() => {
+                      const maxAbs = Math.max(...byTicker.map(r => Math.abs(r.totalPnl)), 1);
+                      return byTicker.slice(0, 100).map(t => {
+                        const pctBar = Math.min(Math.abs(t.totalPnl) / maxAbs, 1) * 100;
+                        const isGain = t.totalPnl >= 0;
+                        return (
+                          <div key={t.ticker} className="relative flex items-center justify-between py-2 px-3 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] transition-colors overflow-hidden">
+                            <div className="absolute top-0 bottom-0 left-0" style={{ width: `${pctBar}%`, background: isGain ? "rgba(0,200,83,0.10)" : "rgba(255,82,82,0.10)" }} />
+                            <div className="relative flex items-center gap-2">
+                              <span className="text-[13px] font-medium text-[var(--tt-text)]">{t.ticker}</span>
+                            </div>
+                            <div className="relative flex items-center gap-3 text-[13px]">
+                              <span className="text-[var(--tt-text-muted)]">{t.buys}B / {t.sells}S</span>
+                              <span className={`font-semibold ${isGain ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>
+                                {isGain ? "+" : ""}{fmtUsd(t.totalPnl)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -5830,20 +6209,27 @@
         const { summary: investorSummary } = useAccountSummary("investor");
         const [investorTrades, setInvestorTrades] = useState(null);
         const [investorTradesLoading, setInvestorTradesLoading] = useState(false);
+        const [investorPositions, setInvestorPositions] = useState(null);
+        const [investorPosLoading, setInvestorPosLoading] = useState(false);
         const [portfolioTab, setPortfolioTab] = useState("trader"); // "trader" | "investor"
 
-        // Fetch investor trades when tab is active
+        // Fetch investor trades + open positions when tab is active
         useEffect(() => {
           if (portfolioTab !== "investor") return;
           let cancelled = false;
           setInvestorTradesLoading(true);
-          fetch(`${API_BASE}/timed/ledger/trades?mode=investor&limit=500`)
-            .then(r => r.json())
-            .then(json => {
-              if (!cancelled && json.ok) setInvestorTrades(json.trades || []);
-            })
-            .catch(() => {})
-            .finally(() => { if (!cancelled) setInvestorTradesLoading(false); });
+          setInvestorPosLoading(true);
+          // Fetch trades and positions in parallel
+          Promise.all([
+            fetch(`${API_BASE}/timed/ledger/trades?mode=investor&limit=500`).then(r => r.json()),
+            fetch(`${API_BASE}/timed/investor/positions?status=OPEN&compact=true`).then(r => r.json()),
+          ]).then(([tradesJson, posJson]) => {
+            if (cancelled) return;
+            if (tradesJson.ok) setInvestorTrades(tradesJson.trades || []);
+            if (posJson.ok) setInvestorPositions(posJson.positions || []);
+          }).catch(() => {}).finally(() => {
+            if (!cancelled) { setInvestorTradesLoading(false); setInvestorPosLoading(false); }
+          });
           return () => { cancelled = true; };
         }, [portfolioTab]);
 
@@ -6881,9 +7267,12 @@
           <div className="tt-root">
             <div className="min-h-screen px-5 py-8" style={{ background: "var(--tt-bg-base)" }}>
               {/* ═══ Unified Nav Bar ═══ */}
-              <nav className="flex items-center justify-between px-4 py-2.5 mb-4 border-b border-white/[0.04]">
+              <nav className="sticky top-0 z-50 flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
                 <div className="flex items-center gap-5">
-                  <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+                  <a href="index-react.html" className="flex items-center gap-2 no-underline">
+                    <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#ttGrad)" strokeWidth="2.5"/><line x1="16" y1="8" x2="16" y2="16" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round"/><line x1="16" y1="16" x2="22" y2="20" stroke="#6ee7b7" strokeWidth="2" strokeLinecap="round"/><circle cx="16" cy="16" r="1.5" fill="#10b981"/><defs><linearGradient id="ttGrad" x1="0" y1="0" x2="32" y2="32"><stop stopColor="#10b981"/><stop offset="1" stopColor="#3b82f6"/></linearGradient></defs></svg>
+                    <span className="text-[15px] font-semibold text-white tracking-tight">Timed Trading</span>
+                  </a>
                   <div className="flex items-center gap-0.5">
                     <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
                     <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
@@ -6929,7 +7318,10 @@
                   <InvestorPortfolioPanel
                     summary={investorSummary}
                     trades={investorTrades}
+                    positions={investorPositions}
                     loading={investorTradesLoading}
+                    positionsLoading={investorPosLoading}
+                    tickerData={data}
                   />
                 )}
 
@@ -7323,7 +7715,12 @@
                                 const lo = rawLo - pad;
                                 const hi = rawHi + pad;
                                 const range = hi - lo;
-                                pct = (v) => range > 0 ? Math.max(0, Math.min(100, ((v - lo) / range) * 100)) : 50;
+                                // For SHORT: mirror positions so SL=left, TP=right
+                                pct = (v) => {
+                                  if (range <= 0) return 50;
+                                  const raw = Math.max(0, Math.min(100, ((v - lo) / range) * 100));
+                                  return isLong ? raw : (100 - raw);
+                                };
                                 fillPct = cp ? pct(cp) : 0;
                                 slMovedPastEntry = ep && slP && ((isLong && slP > ep) || (!isLong && slP < ep));
                                 fillColor = fillPct >= 50
@@ -7357,7 +7754,7 @@
                                   className="w-full text-left py-1.5 px-2 border-b border-white/[0.04] hover:bg-white/[0.02] transition-all"
                                   title="Open in right rail"
                                 >
-                                  {/* Row 1: Ticker, P&L, Day Chg, Entry, Qty, Opened, Current Price, Status */}
+                                  {/* Row 1: Ticker, P&L, Entry, Current Price, Day Chg, Qty, Opened, Status */}
                                   <div className="flex items-center gap-2">
                                     {/* Ticker + Dir */}
                                     <span className="text-[11px] font-bold text-white w-[44px] shrink-0">{pos.ticker}</span>
@@ -7370,16 +7767,20 @@
                                     <span className={`text-[9px] tabular-nums w-[38px] text-right shrink-0 ${isPositive ? "text-[#00c853]/70" : "text-[#ff5252]/70"}`}>
                                       {retOpenPct != null ? `${isPositive ? "+" : ""}${retOpenPct.toFixed(1)}%` : ""}
                                     </span>
+                                    {/* Entry Price */}
+                                    <span className="text-[10px] text-amber-300/90 tabular-nums w-[56px] shrink-0 text-right" title="Entry">
+                                      {Number.isFinite(entryPrice) ? `$${entryPrice.toFixed(2)}` : "—"}
+                                    </span>
+                                    {/* Current Price */}
+                                    <span className="text-[10px] text-white tabular-nums w-[56px] shrink-0 text-right font-medium">
+                                      {Number.isFinite(currentPrice) ? `$${currentPrice.toFixed(2)}` : "—"}
+                                    </span>
                                     {/* Daily change */}
                                     <span className={`text-[10px] tabular-nums w-[70px] shrink-0 text-right ${(hasDayChgPct && dayChgPct >= 0) || (hasDayChg && dayChg >= 0) ? "text-[#00c853]" : "text-[#ff5252]"}`}>
                                       {hasDayChg ? `${dayChg >= 0 ? "+" : ""}$${dayChg.toFixed(2)}` : ""}
                                       {hasDayChg && hasDayChgPct ? " " : ""}
                                       {hasDayChgPct ? `(${dayChgPct >= 0 ? "+" : ""}${dayChgPct.toFixed(2)}%)` : ""}
                                       {!hasDayChg && !hasDayChgPct ? "—" : ""}
-                                    </span>
-                                    {/* Entry Price */}
-                                    <span className="text-[10px] text-amber-300/90 tabular-nums w-[56px] shrink-0 text-right" title="Entry">
-                                      {Number.isFinite(entryPrice) ? `$${entryPrice.toFixed(2)}` : "—"}
                                     </span>
                                     {/* Qty */}
                                     <span className="text-[10px] text-[#9ca3af] tabular-nums w-[40px] shrink-0 text-right" title="Quantity">
@@ -7389,10 +7790,6 @@
                                     <span className="text-[9px] text-[#6b7280] w-[72px] shrink-0 truncate" title="Entry time">
                                       {entryDateLabel || "—"}
                                     </span>
-                                    {/* Current Price */}
-                                    <span className="text-[10px] text-white tabular-nums w-[56px] shrink-0 text-right font-medium">
-                                      {Number.isFinite(currentPrice) ? `$${currentPrice.toFixed(2)}` : "—"}
-                                    </span>
                                     {/* Stage pill */}
                                     <span className={`text-[8px] px-1.5 py-px rounded ${stageInfo.bg} ${stageInfo.color} font-medium shrink-0 ml-auto`}>
                                       {stageInfo.label}
@@ -7401,7 +7798,7 @@
                                   {/* Row 2: Full progress bar with SL, EP, CP, TP, XP markers */}
                                   {hasBar ? (
                                     <div className="mt-1 px-1">
-                                      <div className="relative h-[5px] rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2.5 mb-2.5">
+                                      <div className="relative h-[8px] rounded bg-white/[0.06] border border-white/[0.08] overflow-visible mt-2.5 mb-2.5">
                                         {cp && (
                                           <div
                                             className={`absolute top-0 bottom-0 rounded left-0 ${fillColor}`}
@@ -7421,7 +7818,7 @@
                                     </div>
                                   ) : (
                                     <div className="mt-1 px-1">
-                                      <div className="h-[5px] rounded bg-white/[0.04] mt-2.5 mb-2.5" />
+                                      <div className="h-[8px] rounded bg-white/[0.04] mt-2.5 mb-2.5" />
                                     </div>
                                   )}
                                 </button>
@@ -7441,11 +7838,11 @@
                                     <span className="w-[10px] shrink-0"></span>
                                     <span className="w-[60px] shrink-0 text-right">P&L</span>
                                     <span className="w-[38px] shrink-0 text-right">%</span>
-                                    <span className="w-[70px] shrink-0 text-right">Day Chg</span>
                                     <span className="w-[56px] shrink-0 text-right">Entry</span>
+                                    <span className="w-[56px] shrink-0 text-right">Current Price</span>
+                                    <span className="w-[70px] shrink-0 text-right">Day Chg</span>
                                     <span className="w-[40px] shrink-0 text-right">Qty</span>
                                     <span className="w-[72px] shrink-0">Opened</span>
-                                    <span className="w-[56px] shrink-0 text-right">Current Price</span>
                                     <span className="shrink-0 text-center ml-auto" style={{ width: "42px" }}>Status</span>
                                   </div>
                                   {/* All positions sorted alphabetically */}
@@ -7490,56 +7887,59 @@
                           </div>
                         )}
 
-                        {/* Trade History — Activity Timeline | By day | By ticker (3 cols, always below Open Positions) */}
+                        {/* Trade History — Today (full width table), then By day + P&L by ticker (2 cols) */}
                         <div className="tt-card p-4">
                             <h2 className="text-sm font-semibold text-[var(--tt-text)] uppercase tracking-wide mb-3">Trade History</h2>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              {/* Col 1: Activity Timeline (compact) */}
-                              <div>
-                                <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">Today</h3>
-                                <div className="space-y-0.5 max-h-[1120px] overflow-y-auto">
-                                  {todayActions.length > 0 ? todayActions.slice(0, 160).map((action, idx) => {
-                                    const getActionStyle = (a) => {
-                                      switch(a.type) {
-                                        case "ENTRY": return { icon: "🚀", color: "text-cyan-400", bgColor: "bg-cyan-500/10", label: "E" };
-                                        case "TRIM": return { icon: "📊", color: "text-yellow-400", bgColor: "bg-yellow-500/10", label: "T" };
-                                        case "EXIT": return a.status === "WIN" ? { icon: "✅", color: "text-green-400", bgColor: "bg-green-500/10", label: "X" } : { icon: "❌", color: "text-red-400", bgColor: "bg-red-500/10", label: "X" };
-                                        default: return { icon: "•", color: "text-gray-400", bgColor: "bg-gray-500/10", label: "" };
-                                      }
-                                    };
-                                    const style = getActionStyle(action);
-                                    const fmtTime = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-                                    return (
-                                      <div
-                                        key={`${action.type}-${action.ticker}-${idx}`}
-                                        className={`flex items-center gap-2 px-1.5 py-0.5 rounded text-[10px] ${style.bgColor} cursor-pointer hover:opacity-90`}
-                                        onClick={() => action.trade && (setSelectedTicker(action.ticker), setSelectedTrade(action.trade), setSelectedPositionEvents(action.trade?.history || []))}
-                                      >
-                                        <span>{style.icon}</span>
-                                        <span className="text-[var(--tt-text-faint)] w-10 shrink-0">{fmtTime(action.ts)}</span>
-                                        <span className="font-medium truncate">{action.ticker}</span>
-                                        <span className={`${style.color} shrink-0`}>{style.label}</span>
-                                        {action.price != null && <span className="text-[var(--tt-text-muted)] ml-auto shrink-0">${action.price.toFixed(2)}</span>}
-                                        {action.type === "EXIT" && action.pnl != null && <span className={`font-semibold shrink-0 ${action.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>{fmtUsd(action.pnl)}</span>}
-                                      </div>
-                                    );
-                                  }) : (
-                                    <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No activity today</div>
-                                  )}
-                                </div>
+
+                            {/* Row 1: Today's Trades — full width table */}
+                            <div className="mb-4">
+                              <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">Today</h3>
+                              <div className="max-h-[600px] overflow-y-auto">
+                                {todayActions.length > 0 ? (
+                                  <>
+                                    <div className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1 border-b border-white/[0.06] text-[10px] font-semibold uppercase tracking-wider text-[#6b7280]">
+                                      <span>Time</span><span>Ticker</span><span>Action</span><span className="text-right">Price</span><span className="text-right">P&L</span>
+                                    </div>
+                                    {todayActions.slice(0, 160).map((action, idx) => {
+                                      const actionColor = action.type === "ENTRY" ? "text-cyan-400" : action.type === "EXIT" ? (action.status === "WIN" ? "text-green-400" : "text-red-400") : "text-yellow-400";
+                                      const fmtTime = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+                                      const pnlStr = action.type === "EXIT" && action.pnl != null ? fmtUsd(action.pnl) : "";
+                                      const pnlColor = (action.pnl || 0) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
+                                      return (
+                                        <div
+                                          key={`${action.type}-${action.ticker}-${idx}`}
+                                          className="grid grid-cols-[60px_60px_60px_80px_80px] gap-2 px-2 py-1.5 text-[13px] border-b border-white/[0.02] hover:bg-white/[0.02] cursor-pointer"
+                                          onClick={() => action.trade && (setSelectedTicker(action.ticker), setSelectedTrade(action.trade), setSelectedPositionEvents(action.trade?.history || []))}
+                                        >
+                                          <span className="text-[var(--tt-text-muted)]">{fmtTime(action.ts)}</span>
+                                          <span className="font-medium text-[var(--tt-text)] truncate">{action.ticker}</span>
+                                          <span className={`${actionColor} font-semibold`}>{action.type}</span>
+                                          <span className="text-right text-[var(--tt-text)]">{action.price != null ? `$${action.price.toFixed(2)}` : "—"}</span>
+                                          <span className={`text-right font-semibold ${pnlColor}`}>{pnlStr}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </>
+                                ) : (
+                                  <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No activity today</div>
+                                )}
                               </div>
+                            </div>
+
+                            {/* Row 2: By Day (accordion) + P&L by Ticker — 2-column */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               {/* Col 2: By day */}
                               <div>
-                                <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">By day</h3>
+                                <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">By day</h3>
                                 <div className="space-y-1 max-h-[1120px] overflow-y-auto">
                                   {ledgerActivityDays.length === 0 ? (
-                                    <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No closed trades by day</div>
+                                    <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No closed trades by day</div>
                                   ) : ledgerActivityDays.slice(0, 160).map((day) => {
                                     const isExpanded = expandedByDayKey === day.key;
                                     return (
                                       <div key={day.key} className="rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] overflow-hidden">
                                         <div
-                                          className="flex items-center justify-between py-1 px-2 hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
+                                          className="flex items-center justify-between py-2 px-3 hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors"
                                           onClick={(e) => {
                                             if (e.target.closest('.expand-toggle')) {
                                               setExpandedByDayKey(isExpanded ? null : day.key);
@@ -7550,19 +7950,19 @@
                                             }
                                           }}
                                         >
-                                          <div className="flex items-center gap-1.5">
-                                            <button type="button" className="expand-toggle text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] text-[10px] w-4 h-4 flex items-center justify-center" aria-label={isExpanded ? "Collapse" : "Expand"}>
+                                          <div className="flex items-center gap-2">
+                                            <button type="button" className="expand-toggle text-[var(--tt-text-muted)] hover:text-[var(--tt-text)] text-xs w-5 h-5 flex items-center justify-center" aria-label={isExpanded ? "Collapse" : "Expand"}>
                                               {isExpanded ? "−" : "+"}
                                             </button>
-                                            <span className="text-[11px] font-medium text-[var(--tt-text)]">{day.label}</span>
+                                            <span className="text-[13px] font-medium text-[var(--tt-text)]">{day.label}</span>
                                           </div>
-                                          <div className="flex items-center gap-2 text-[10px]">
+                                          <div className="flex items-center gap-3 text-[13px]">
                                             <span className="text-[var(--tt-text-muted)]">{day.stats.entries}E/{day.stats.exits}X</span>
                                             <span className={`font-semibold ${day.stats.closedPnl >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]"}`}>{fmtUsd(day.stats.closedPnl)}</span>
                                           </div>
                                         </div>
                                         {isExpanded && day.events && day.events.length > 0 && (
-                                          <div className="px-2 pb-2 pt-0 border-t border-[var(--tt-border)]">
+                                          <div className="px-3 pb-2 pt-0 border-t border-[var(--tt-border)]">
                                             {/* Group by ticker (alphabetical), then sort by time within each group */}
                                             {(() => {
                                               const byTicker = {};
@@ -7574,9 +7974,9 @@
                                               // Sort tickers alphabetically
                                               const sortedTickers = Object.keys(byTicker).sort();
                                               return (
-                                                <div className="mt-1 space-y-1.5 text-[10px]">
+                                                <div className="mt-1.5 space-y-1 text-[13px]">
                                                   {/* Table header */}
-                                                  <div className="grid grid-cols-[60px_44px_52px_60px_60px] gap-1 px-1 text-[9px] text-[var(--tt-text-faint)] font-medium uppercase">
+                                                  <div className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 px-1 text-[11px] text-[var(--tt-text-faint)] font-medium uppercase">
                                                     <span>Ticker</span><span>Action</span><span>Time</span><span>Price</span><span className="text-right">P&L</span>
                                                   </div>
                                                   {sortedTickers.map(tk => {
@@ -7589,7 +7989,7 @@
                                                       const pnlStr = action === "EXIT" && ev.trade?.pnl != null ? fmtUsd(Number(ev.trade.pnl)) : "";
                                                       const pnlColor = Number(ev.trade?.pnl) >= 0 ? "text-[var(--tt-accent)]" : "text-[var(--tt-negative)]";
                                                       return (
-                                                        <div key={`${tk}-${i}`} className="grid grid-cols-[60px_44px_52px_60px_60px] gap-1 py-0.5 px-1 rounded bg-[var(--tt-bg)] items-center">
+                                                        <div key={`${tk}-${i}`} className="grid grid-cols-[70px_50px_60px_70px_70px] gap-1.5 py-1 px-1 rounded bg-[var(--tt-bg)] items-center">
                                                           <span className="font-medium text-[var(--tt-text)] truncate">{i === 0 ? tk : ""}</span>
                                                           <span className={`${actionColor} font-semibold`}>{action}</span>
                                                           <span className="text-[var(--tt-text-muted)]">{timeStr}</span>
@@ -7611,10 +8011,10 @@
                               </div>
                               {/* Col 3: By ticker — Unified P&L view */}
                               <div>
-                                <h3 className="text-[10px] font-medium text-[var(--tt-text-faint)] mb-1.5 uppercase tracking-wider">P&L by Ticker</h3>
-                                <div className="space-y-0.5 max-h-[800px] overflow-y-auto">
+                                <h3 className="text-xs font-medium text-[var(--tt-text-faint)] mb-2 uppercase tracking-wider">P&L by Ticker</h3>
+                                <div className="space-y-1 max-h-[800px] overflow-y-auto">
                                   {ledgerAllByTicker.length === 0 ? (
-                                    <div className="text-[10px] text-[var(--tt-text-faint)] py-1">No trades</div>
+                                    <div className="text-[13px] text-[var(--tt-text-faint)] py-2">No trades</div>
                                   ) : (() => {
                                     const maxAbs = Math.max(...ledgerAllByTicker.map((r) => Math.abs(r.totalPnl)), 1);
                                     return ledgerAllByTicker.slice(0, 200).map((row) => {
@@ -7623,7 +8023,7 @@
                                       return (
                                         <div
                                           key={`all-${row.ticker}`}
-                                          className="relative flex items-center justify-between py-1.5 px-2 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors overflow-hidden"
+                                          className="relative flex items-center justify-between py-2 px-3 rounded bg-[var(--tt-bg-surface)] border border-[var(--tt-border)] hover:bg-[var(--tt-bg-hover)] cursor-pointer transition-colors overflow-hidden"
                                           onClick={() => {
                                             if (row.trades?.[0]) {
                                               setSelectedTrade(row.trades[0]);
@@ -7636,13 +8036,13 @@
                                             width: `${pct}%`,
                                             background: isGain ? "rgba(0,200,83,0.10)" : "rgba(255,82,82,0.10)",
                                           }} />
-                                          <div className="relative flex items-center gap-1.5">
-                                            <span className="text-[11px] font-medium text-[var(--tt-text)]">{row.ticker}</span>
+                                          <div className="relative flex items-center gap-2">
+                                            <span className="text-[13px] font-medium text-[var(--tt-text)]">{row.ticker}</span>
                                             {row.hasOpen && (
                                               <span className="w-1.5 h-1.5 rounded-full bg-blue-400" title="Has open position" />
                                             )}
                                           </div>
-                                          <div className="relative flex items-center gap-2 text-[10px]">
+                                          <div className="relative flex items-center gap-3 text-[13px]">
                                             <span className="text-[var(--tt-text-muted)]">{row.trades.length}T</span>
                                             {row.wins > 0 && <span className="text-[var(--tt-accent)]">{row.wins}W</span>}
                                             {row.losses > 0 && <span className="text-[var(--tt-negative)]">{row.losses}L</span>}
