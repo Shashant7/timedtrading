@@ -2219,8 +2219,14 @@
           return (min - cfg.openMin) / cfg.sessionDur;
         }
         if (cfg.sessionDur === 1440) {
-          // 24/7 crypto: simple linear 0→1440 (no midnight wrap)
-          return Math.max(0, Math.min(1, min / 1440));
+          // 24/7 crypto: use actual elapsed time from midnight ET today.
+          // This is date-aware, so yesterday's candles get frac < 0 and are excluded.
+          const tsMs = _toMs(ts);
+          const openMs = _getSessionOpenMs(sym);
+          if (!openMs) return Math.max(0, Math.min(1, min / 1440));
+          const elapsed = tsMs - openMs;
+          if (elapsed < 0) return -1; // before today's session
+          return Math.max(0, Math.min(1, elapsed / (24 * 60 * 60 * 1000)));
         }
         // Continuous futures (wraps midnight): 1080 → 0 → 1020
         // Minutes past session open, handling midnight wrap
@@ -2311,11 +2317,13 @@
           return true;
         });
         if (filtered.length >= 2) return filtered;
-        // Equities & 24/7 crypto: NEVER fall back to raw candles.
-        // Raw candles span multiple days; _sessionFraction maps by time-of-day only (ignoring date),
-        // so yesterday's candles overlay today's session positions → chaotic sparklines / breaks.
+        // Equities: NEVER fall back to raw candles.
+        // Raw candles span multiple days; for equities _sessionFraction maps by time-of-day
+        // only (ignoring date), so yesterday's candles overlay today's session → chaotic sparklines.
+        // 24/7 crypto CAN fall back because _sessionFraction is now date-aware (returns -1 for
+        // candles before today's midnight ET), so those are naturally excluded during rendering.
         const cfg = _getSessionConfig(sym);
-        if (cfg.sessionDur === 390 || cfg.sessionDur === 1440) return filtered;
+        if (cfg.sessionDur === 390) return filtered;
         // Continuous futures: fall back to raw if session filter yields < 2
         return rawCandles;
       }
