@@ -6401,7 +6401,10 @@ async function processTradeSimulation(
       return { skipped: true, reason: `direction_mismatch: ${direction} vs ${stateDirection}` };
     }
 
-    // Phase 3: Prefer open position from D1 (single source of truth); fall back to KV
+    // Phase 3: Open position from D1 (single source of truth).
+    // KV fallback ONLY when D1 is unavailable (local dev / replay).
+    // Using KV as fallback when D1 exists caused phantom positions:
+    // stale KV trades get "found", processed, and written back — never closing.
     let openTrade = null;
     let openPositionContext = null;  // D1 position with SL for stage classification
     if (env?.DB && !isReplay) {
@@ -6409,7 +6412,8 @@ async function processTradeSimulation(
       openTrade = await getOpenPositionAsTrade(env, sym, direction) ||
         await getOpenPositionAsTrade(env, sym, direction === "LONG" ? "SHORT" : "LONG");
     }
-    if (openTrade == null) {
+    if (openTrade == null && !(env?.DB)) {
+      // KV fallback: only when D1 is not available (local dev, testing)
       openTrade = allTrades.find(
         (t) =>
           String(t?.ticker || "").toUpperCase() === sym &&
@@ -34519,7 +34523,52 @@ Provide 3-5 actionable next steps:
     if (allowExecution) {
       try {
         const tradesKey = "timed:trades:all";
-        const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+        let allTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+        // ── KV TRADE RECONCILIATION (runs FIRST, every cycle) ──
+        // D1 positions is the source of truth.  Close phantom KV trades
+        // (no D1 OPEN position) and deduplicate entries.  This prevents
+        // the "Open" count and Kanban lanes from drifting from reality.
+        try {
+          const d1PosResult = await env.DB.prepare(
+            `SELECT ticker FROM positions WHERE status = 'OPEN'`
+          ).all();
+          const d1Open = new Set((d1PosResult?.results || []).map(r => String(r.ticker).toUpperCase()));
+          const seenOpen = new Set();
+          let staleFixed = 0, dupsFixed = 0;
+
+          for (const trade of allTrades) {
+            const sym = String(trade?.ticker || "").toUpperCase();
+            const isOpen = trade.status === "OPEN" || trade.status === "TP_HIT_TRIM" || !trade.status;
+            if (!isOpen) continue;
+
+            // Close phantom trades (KV OPEN but no D1 position)
+            if (!d1Open.has(sym)) {
+              trade.status = trade.status === "TP_HIT_TRIM" ? "WIN" : "CLOSED";
+              trade.exit_reason = trade.exit_reason || "reconciled_no_d1_position";
+              trade.exitTime = trade.exitTime || new Date().toISOString();
+              staleFixed++;
+              continue;
+            }
+            // Deduplicate (keep first OPEN per ticker)
+            if (seenOpen.has(sym)) {
+              trade.status = "CLOSED";
+              trade.exit_reason = "dedup_reconcile";
+              trade.exitTime = trade.exitTime || new Date().toISOString();
+              dupsFixed++;
+              continue;
+            }
+            seenOpen.add(sym);
+          }
+
+          if (staleFixed > 0 || dupsFixed > 0) {
+            await kvPutJSON(KV, tradesKey, allTrades);
+            console.log(`[TRADE RECONCILE] Cleaned ${staleFixed} stale + ${dupsFixed} dups → ${seenOpen.size} open`);
+          }
+        } catch (reconcileErr) {
+          console.warn("[TRADE RECONCILE]", String(reconcileErr).slice(0, 150));
+        }
+
         const openTrades = allTrades.filter(
           (t) => t.status === "OPEN" || !t.status || t.status === "TP_HIT_TRIM",
         );
@@ -34555,6 +34604,44 @@ Provide 3-5 actionable next steps:
           }
 
           const finalTrades = (await kvGetJSON(KV, tradesKey)) || [];
+
+          // ── FINAL RECONCILIATION: Clean phantom/duplicate trades right before write ──
+          // This is the last write to timed:trades:all in the cron cycle, so cleanup
+          // here can't be overwritten by processTradeSimulation calls.
+          try {
+            const d1PosCheck = await env.DB.prepare(
+              `SELECT ticker FROM positions WHERE status = 'OPEN'`
+            ).all();
+            const d1OpenSet = new Set((d1PosCheck?.results || []).map(r => String(r.ticker).toUpperCase()));
+            const seenOpenFinal = new Set();
+            let fixedFinal = 0;
+
+            for (const t of finalTrades) {
+              const sym = String(t?.ticker || "").toUpperCase();
+              const isO = t.status === "OPEN" || t.status === "TP_HIT_TRIM" || !t.status;
+              if (!isO) continue;
+
+              if (!d1OpenSet.has(sym)) {
+                t.status = t.status === "TP_HIT_TRIM" ? "WIN" : "CLOSED";
+                t.exit_reason = t.exit_reason || "reconciled_no_d1_position";
+                t.exitTime = t.exitTime || new Date().toISOString();
+                fixedFinal++;
+              } else if (seenOpenFinal.has(sym)) {
+                t.status = "CLOSED";
+                t.exit_reason = "dedup_reconcile";
+                t.exitTime = t.exitTime || new Date().toISOString();
+                fixedFinal++;
+              } else {
+                seenOpenFinal.add(sym);
+              }
+            }
+            if (fixedFinal > 0) {
+              console.log(`[TRADE RECONCILE FINAL] Cleaned ${fixedFinal} entries → ${seenOpenFinal.size} open`);
+            }
+          } catch (recErr) {
+            console.warn("[TRADE RECONCILE FINAL]", String(recErr).slice(0, 150));
+          }
+
           finalTrades.sort((a, b) => {
             const timeA = new Date(a.entryTime || 0).getTime();
             const timeB = new Date(b.entryTime || 0).getTime();
