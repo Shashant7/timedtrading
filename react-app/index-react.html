@@ -1934,6 +1934,11 @@
 
       function getDirectionFromState(ticker) {
         const state = String(ticker?.state || "");
+        // Use HTF (higher timeframe) direction — the primary trend.
+        // state.includes("BULL") is wrong: it matches LTF_BULL in HTF_BEAR_LTF_BULL.
+        if (state.startsWith("HTF_BULL")) return "LONG";
+        if (state.startsWith("HTF_BEAR")) return "SHORT";
+        // Fallback for non-standard states
         if (state.includes("BULL")) return "LONG";
         if (state.includes("BEAR")) return "SHORT";
         return null;
@@ -6554,9 +6559,19 @@
         };
       }
 
-      // Get direction from state
+      // Get direction from state — HTF (higher timeframe) is the primary direction.
       function getDirection(ticker) {
         const state = String(ticker.state || "");
+        // Prioritize HTF prefix to avoid matching LTF_BULL in HTF_BEAR_LTF_BULL
+        if (state.startsWith("HTF_BULL"))
+          return {
+            text: "LONG",
+            color: "text-teal-400",
+            bg: "bg-teal-500/20",
+          };
+        if (state.startsWith("HTF_BEAR"))
+          return { text: "SHORT", color: "text-rose-400", bg: "bg-rose-500/20" };
+        // Fallback for non-standard states
         if (state.includes("BULL"))
           return {
             text: "LONG",

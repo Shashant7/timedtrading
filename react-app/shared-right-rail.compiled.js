@@ -608,39 +608,48 @@
         const tradeIsOpen = trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS");
         const tradeDirStr = String(trade?.direction || "").toUpperCase();
         const useTradeDir = tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT");
+        // Also check ticker-level position_direction (from server)
+        const posDirStr = String(ticker?.position_direction || "").toUpperCase();
+        const usePositionDir = !useTradeDir && ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT");
         const dir = useTradeDir ? {
           text: tradeDirStr,
           color: tradeDirStr === "LONG" ? "text-teal-400" : "text-rose-400",
           bg: tradeDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20"
+        } : usePositionDir ? {
+          text: posDirStr,
+          color: posDirStr === "LONG" ? "text-teal-400" : "text-rose-400",
+          bg: posDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20"
         } : tickerDir;
         return /*#__PURE__*/React.createElement("span", {
           className: `inline-block px-2 py-0.5 rounded-md font-bold text-xs ${dir.bg} ${dir.color} border border-current/30`
         }, dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text);
-      })(), ticker.price && /*#__PURE__*/React.createElement("span", {
-        className: "text-sm text-white font-semibold flex items-center gap-1"
-      }, "$", Number(ticker.price).toFixed(2), (() => {
-        const priceAge = ticker._price_updated_at ? (Date.now() - ticker._price_updated_at) / 60000 : Infinity;
-        const scoreAge = ticker.data_source_ts ? (Date.now() - ticker.data_source_ts) / 60000 : Infinity;
+      })(), (() => {
+        const src = latestTicker || ticker;
+        const price = Number(src?._live_price || src?.price || src?.close || 0);
+        if (!price) return null;
+        const priceAge = src._price_updated_at ? (Date.now() - src._price_updated_at) / 60000 : Infinity;
+        const scoreAge = src.data_source_ts ? (Date.now() - src.data_source_ts) / 60000 : Infinity;
         const freshestAge = Math.min(priceAge, scoreAge);
-        if (freshestAge <= 2) return /*#__PURE__*/React.createElement("span", {
+        return /*#__PURE__*/React.createElement("span", {
+          className: "text-sm text-white font-semibold flex items-center gap-1"
+        }, "$", price.toFixed(2), freshestAge <= 2 ? /*#__PURE__*/React.createElement("span", {
           className: "inline-block w-1.5 h-1.5 rounded-full bg-green-400",
           title: `Updated ${Math.round(freshestAge)}m ago`
-        });
-        if (freshestAge <= 10) return /*#__PURE__*/React.createElement("span", {
+        }) : freshestAge <= 10 ? /*#__PURE__*/React.createElement("span", {
           className: "inline-block w-1.5 h-1.5 rounded-full bg-amber-400",
           title: `Updated ${Math.round(freshestAge)}m ago`
-        });
-        return /*#__PURE__*/React.createElement("span", {
+        }) : /*#__PURE__*/React.createElement("span", {
           className: "inline-block w-1.5 h-1.5 rounded-full bg-red-400",
           title: `Updated ${Math.round(freshestAge)}m ago`
-        });
-      })()), (() => {
+        }));
+      })(), (() => {
+        const src = latestTicker || ticker;
         const {
           dayChg,
           dayPct,
           stale,
           marketOpen
-        } = getDailyChange(ticker);
+        } = getDailyChange(src);
         if (!Number.isFinite(dayChg) && !Number.isFinite(dayPct)) return null;
         const sign = Number(dayChg || dayPct || 0) >= 0 ? "+" : "-";
         const cls = Number(dayChg || dayPct || 0) >= 0 ? "text-green-400" : "text-red-400";
@@ -717,20 +726,6 @@
         return /*#__PURE__*/React.createElement("div", {
           className: "text-[11px] mt-1 text-cyan-300/90"
         }, Number.isFinite(entryPx) ? `Entry $${Number(entryPx).toFixed(2)}` : "Entry —", Number.isFinite(entryPct) ? ` • Since entry ${entryPct >= 0 ? "+" : ""}${entryPct.toFixed(2)}%` : "");
-      })(), (() => {
-        const ctx = ticker.context || {};
-        const name = ctx.name || "";
-        const sector = ctx.sector || ctx.industry || "";
-        const mcapRaw = Number(ctx.market_cap);
-        const mcap = Number.isFinite(mcapRaw) && mcapRaw > 0 ? mcapRaw >= 1e12 ? `$${(mcapRaw / 1e12).toFixed(1)}T` : mcapRaw >= 1e9 ? `$${(mcapRaw / 1e9).toFixed(1)}B` : mcapRaw >= 1e6 ? `$${(mcapRaw / 1e6).toFixed(0)}M` : "" : "";
-        if (!name && !sector && !mcap) return null;
-        return /*#__PURE__*/React.createElement("div", {
-          className: "mt-1 text-[11px] text-[#9ca3af] flex items-center gap-2 flex-wrap"
-        }, name && /*#__PURE__*/React.createElement("span", {
-          className: "text-[#d1d5db]"
-        }, name), sector && /*#__PURE__*/React.createElement("span", null, sector), mcap && /*#__PURE__*/React.createElement("span", {
-          className: "text-[#6b7280]"
-        }, mcap));
       })(), /*#__PURE__*/React.createElement("div", {
         className: "mt-2 flex items-center gap-3 flex-wrap text-[10px]"
       }, (() => {
@@ -808,7 +803,91 @@
         return /*#__PURE__*/React.createElement("span", {
           className: `px-1.5 py-0.5 rounded border font-semibold ${pill}`
         }, icon, " ", status);
-      })()), /*#__PURE__*/React.createElement("div", {
+      })()), (() => {
+        const pills = [];
+        // Quality score
+        const q = Number(ticker?.quality_score ?? ticker?.quality ?? ticker?.q);
+        if (Number.isFinite(q)) {
+          const qColor = q >= 80 ? "bg-green-500/20 text-green-300 border-green-500/40" : q >= 60 ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40" : "bg-red-500/20 text-red-300 border-red-500/40";
+          pills.push({
+            label: `Q:${Math.round(q)}`,
+            cls: qColor,
+            tip: `Quality Score: ${Math.round(q)}/100 — composite measure of setup quality`
+          });
+        }
+        // Timeframe alignment
+        const tfNum = Number(ticker?.tf_aligned_count ?? ticker?.tf_aligned);
+        const tfTotal = Number(ticker?.tf_total ?? 5);
+        if (Number.isFinite(tfNum)) {
+          const tfColor = tfNum >= 3 ? "bg-green-500/15 text-green-300 border-green-500/30" : tfNum >= 2 ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
+          pills.push({
+            label: `${tfNum}/${Number.isFinite(tfTotal) ? tfTotal : 5} TF`,
+            cls: tfColor,
+            tip: `Timeframe Alignment: ${tfNum} of ${Number.isFinite(tfTotal) ? tfTotal : 5} timeframes aligned`
+          });
+        }
+        // Strength / exhaustion
+        const strength = String(ticker?.strength || ticker?.move_strength || "").toUpperCase();
+        if (strength) {
+          const sColor = strength === "EXTREME" ? "bg-purple-500/15 text-purple-300 border-purple-500/40" : strength === "STRONG" ? "bg-blue-500/15 text-blue-300 border-blue-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
+          pills.push({
+            label: strength,
+            cls: sColor,
+            tip: `Move Strength: ${strength} — intensity of the current move`
+          });
+        }
+        // Trend
+        const trend = String(ticker?.trend || ticker?.weekly_trend || "").replace(/_/g, " ");
+        if (trend) {
+          const tU = trend.toUpperCase();
+          const tColor = tU.includes("BULL") ? "bg-green-500/15 text-green-300 border-green-500/30" : tU.includes("BEAR") ? "bg-red-500/15 text-red-300 border-red-500/30" : "bg-white/5 text-[#6b7280] border-white/10";
+          const tLabel = trend.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+          pills.push({
+            label: tLabel,
+            cls: tColor,
+            tip: `Weekly Trend: ${tLabel}`
+          });
+        }
+        // Badges (Prime, MoElite, Squeeze, etc.)
+        const badges = [];
+        if (ticker?.is_prime || ticker?.prime) badges.push({
+          icon: "⭐",
+          label: "Prime",
+          tip: "Prime: Top-ranked setup with high conviction"
+        });
+        if (ticker?.is_entry_zone || ticker?.entry_zone) badges.push({
+          icon: "🎯",
+          label: "Entry Zone",
+          tip: "Entry Zone: Price is near optimal entry level"
+        });
+        if (ticker?.is_mo_elite || ticker?.mo_elite) badges.push({
+          icon: "🔥",
+          label: "MoElite",
+          tip: "MoElite: Elite momentum alignment across timeframes"
+        });
+        if (ticker?.squeeze_on || ticker?.flags?.squeeze_on) badges.push({
+          icon: "🧨",
+          label: "Squeeze",
+          tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected"
+        });
+        if (ticker?.squeeze_release || ticker?.flags?.squeeze_release) badges.push({
+          icon: "⚡",
+          label: "Release",
+          tip: "Release: Squeeze has fired — momentum breakout in progress"
+        });
+        if (pills.length === 0 && badges.length === 0) return null;
+        return /*#__PURE__*/React.createElement("div", {
+          className: "mt-2 flex items-center gap-1.5 flex-wrap text-[10px]"
+        }, pills.map((p, i) => /*#__PURE__*/React.createElement("span", {
+          key: `ip-${i}`,
+          className: `px-1.5 py-0.5 rounded border font-semibold cursor-default ${p.cls}`,
+          title: p.tip
+        }, p.label)), badges.map((b, i) => /*#__PURE__*/React.createElement("span", {
+          key: `ib-${i}`,
+          className: "px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default",
+          title: b.tip
+        }, b.icon, " ", b.label)));
+      })(), /*#__PURE__*/React.createElement("div", {
         className: "mt-3 flex items-center gap-1.5 overflow-x-auto",
         style: {
           scrollbarWidth: "none"
@@ -1765,22 +1844,41 @@
           }, "Chart render error. Check console for details.");
         }
       })()), (() => {
-        const sl = ticker.sl ? Number(ticker.sl) : null;
+        // Use position SL/TP when available (correct for SHORT trades)
+        const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
+        const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
+        const sl = Number.isFinite(posSlRaw) && posSlRaw > 0 ? posSlRaw : ticker.sl ? Number(ticker.sl) : null;
+        // Original SL at trade creation — used to determine if TSL is active
+        const slOrigRaw = Number(trade?.sl_original ?? ticker?.position_sl_original ?? 0);
+        const slOrig = Number.isFinite(slOrigRaw) && slOrigRaw > 0 ? slOrigRaw : null;
         const price = Number(ticker?.price);
         const rr = ticker.rr ? Number(ticker.rr) : null;
         const hasSl = Number.isFinite(sl) && sl > 0;
+        // TSL is active when current SL has moved > 0.5% from original
+        const tslActive = hasSl && slOrig && Math.abs(sl - slOrig) / slOrig > 0.005;
 
-        // Prefer 3-Tier TP values; fall back to legacy single-target TPs
-        const tpTrim = Number(ticker?.tp_trim);
-        const tpExit = Number(ticker?.tp_exit);
-        const tpRunner = Number(ticker?.tp_runner);
+        // Prefer trade-level tpArray (direction-aware) over ticker-level (may be LONG-only)
+        const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0 ? trade.tpArray : Array.isArray(ticker?.tpArray) ? ticker.tpArray : [];
+        const tpTrimRaw = tradeTpArr.length > 0 ? Number(tradeTpArr[0]?.price) : Number(ticker?.tp_trim);
+        const tpExitRaw = tradeTpArr.length > 1 ? Number(tradeTpArr[1]?.price) : Number(ticker?.tp_exit);
+        const tpRunnerRaw = tradeTpArr.length > 2 ? Number(tradeTpArr[2]?.price) : Number(ticker?.tp_runner);
+        const tpTrim = Number.isFinite(tpTrimRaw) && tpTrimRaw > 0 ? tpTrimRaw : NaN;
+        const tpExit = Number.isFinite(tpExitRaw) && tpExitRaw > 0 ? tpExitRaw : NaN;
+        const tpRunner = Number.isFinite(tpRunnerRaw) && tpRunnerRaw > 0 ? tpRunnerRaw : NaN;
         const has3Tier = Number.isFinite(tpTrim) && tpTrim > 0 || Number.isFinite(tpExit) && tpExit > 0;
         const legacyTarget = computeTpTargetPrice(ticker);
         const legacyMax = computeTpMaxPrice(ticker);
         const hasLegacy = !has3Tier && (Number.isFinite(legacyTarget) || Number.isFinite(legacyMax));
         if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
         const stateStr = String(ticker?.state || "");
-        const dir = stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null;
+        // Use position direction when open trade exists (fixes SHORT positions showing LONG R:R)
+        const posDir = ticker?.has_open_position ? String(ticker?.position_direction || "").toUpperCase() : null;
+        // Also check trade direction explicitly
+        const tradeDirRR = String(trade?.direction || "").toUpperCase();
+        const useTradeRR = tradeDirRR === "LONG" || tradeDirRR === "SHORT";
+        // Prioritize HTF state prefix to avoid LTF_BULL matching in HTF_BEAR_LTF_BULL
+        const stateDir = stateStr.startsWith("HTF_BULL") ? "LONG" : stateStr.startsWith("HTF_BEAR") ? "SHORT" : stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null;
+        const dir = useTradeRR ? tradeDirRR : posDir === "LONG" || posDir === "SHORT" ? posDir : stateDir;
         // SL% = absolute risk distance from current price
         const slDistPct = hasSl && Number.isFinite(price) && price > 0 ? Math.abs((sl - price) / price) * 100 : null;
 
@@ -1842,14 +1940,28 @@
         }, /*#__PURE__*/React.createElement("div", {
           className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
         }, "Risk / Reward Levels"), hasSl && /*#__PURE__*/React.createElement("div", {
+          className: "space-y-1.5"
+        }, /*#__PURE__*/React.createElement("div", {
+          className: `p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`
+        }, /*#__PURE__*/React.createElement("span", {
+          className: `text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`,
+          title: "Stop Loss"
+        }, "SL"), /*#__PURE__*/React.createElement("span", {
+          className: `text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`
+        }, tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`), !tslActive && Number.isFinite(slDistPct) && /*#__PURE__*/React.createElement("span", {
+          className: "text-[9px] text-red-300/70"
+        }, slDistPct.toFixed(1), "% risk"), tslActive && /*#__PURE__*/React.createElement("span", {
+          className: "text-[9px] text-[#4b5563]"
+        }, "original")), tslActive && /*#__PURE__*/React.createElement("div", {
           className: "p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between"
         }, /*#__PURE__*/React.createElement("span", {
-          className: "text-xs font-semibold text-red-400"
-        }, "SL"), /*#__PURE__*/React.createElement("span", {
+          className: "text-xs font-semibold text-red-400",
+          title: "Trailing Stop Loss"
+        }, "TSL"), /*#__PURE__*/React.createElement("span", {
           className: "text-xs font-bold text-red-400"
         }, "$", sl.toFixed(2)), Number.isFinite(slDistPct) && /*#__PURE__*/React.createElement("span", {
           className: "text-[9px] text-red-300/70"
-        }, slDistPct.toFixed(1), "% risk")), /*#__PURE__*/React.createElement("div", {
+        }, slDistPct.toFixed(1), "% risk"))), /*#__PURE__*/React.createElement("div", {
           className: "space-y-2"
         }, has3Tier ? tierCards.filter(t => Number.isFinite(t.tp) && t.tp > 0).map((tier, idx) => {
           const progress = getProgressToTp(tier.tp);
@@ -3480,6 +3592,28 @@
         const trimTs = t.trim_ts;
         const hasTrimmed = trimmedPct > 0;
 
+        // Qty fields (enriched by backend from positions table)
+        const remainingQty = Number(t.quantity ?? t.shares ?? 0);
+        const entryQty = hasTrimmed && trimmedPct < 1 && remainingQty > 0 ? Math.round(remainingQty / (1 - trimmedPct) * 100) / 100 : remainingQty;
+        const trimmedQty = hasTrimmed ? Math.round(entryQty * trimmedPct * 100) / 100 : 0;
+
+        // Human-readable exit reason
+        const exitReasonRaw = String(t.exit_reason || "").toLowerCase();
+        const exitReasonLabel = (() => {
+          if (!exitReasonRaw || !isClosed) return null;
+          if (exitReasonRaw.includes("sl_breached")) return "SL Hit";
+          if (exitReasonRaw.includes("max_loss")) return "Max Loss";
+          if (exitReasonRaw.includes("bias_flip")) return "Bias Flip";
+          if (exitReasonRaw.includes("hard_fuse")) return "RSI Extreme";
+          if (exitReasonRaw.includes("soft_fuse")) return "RSI Confirmed";
+          if (exitReasonRaw.includes("trigger_breached")) return "Trigger Breach";
+          if (exitReasonRaw.includes("large_adverse")) return "Adverse Move";
+          if (exitReasonRaw.includes("tp_hit")) return "TP Hit";
+          if (exitReasonRaw.includes("critical")) return "Critical";
+          if (exitReasonRaw) return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          return null;
+        })();
+
         // Compute P&L% from prices if pnl_pct not available
         const computedPnlPct = (() => {
           if (Math.abs(pnlPct) > 0.001) return pnlPct;
@@ -3532,9 +3666,14 @@
           className: "px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30"
         }, "OPEN"), /*#__PURE__*/React.createElement("span", {
           className: `text-[11px] font-semibold ${t.direction === "LONG" ? "text-green-400" : "text-red-400"}`
-        }, t.direction), hasTrimmed && /*#__PURE__*/React.createElement("span", {
+        }, t.direction), entryQty > 0 && /*#__PURE__*/React.createElement("span", {
+          className: "text-[9px] text-[#6b7280]"
+        }, entryQty % 1 === 0 ? entryQty : entryQty.toFixed(2), " shares"), hasTrimmed && /*#__PURE__*/React.createElement("span", {
           className: "px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
-        }, Math.round(trimmedPct * 100), "% trimmed"), duration && /*#__PURE__*/React.createElement("span", {
+        }, Math.round(trimmedPct * 100), "% trimmed", trimmedQty > 0 ? ` (${trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(2)} sh)` : ""), exitReasonLabel && /*#__PURE__*/React.createElement("span", {
+          className: "px-1 py-0.5 rounded text-[8px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30",
+          title: exitReasonRaw
+        }, exitReasonLabel), duration && /*#__PURE__*/React.createElement("span", {
           className: "text-[9px] text-[#4b5563]"
         }, duration)), isClosed && /*#__PURE__*/React.createElement("span", {
           className: `text-xs font-bold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
@@ -3559,27 +3698,35 @@
             className: "text-xs text-white font-bold"
           }, cp > 0 ? `$${cp.toFixed(2)}` : "—"), /*#__PURE__*/React.createElement("span", {
             className: `text-[10px] font-semibold ${dayUp ? "text-teal-400" : "text-rose-400"}`
-          }, dayUp ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) && dayChg !== 0 ? ` ($${Math.abs(dayChg).toFixed(2)})` : ""))), /*#__PURE__*/React.createElement("div", {
-            className: "flex items-center justify-between text-[10px] mb-1"
-          }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-            className: "text-rose-400"
-          }, "SL"), " ", /*#__PURE__*/React.createElement("span", {
-            className: "text-white font-medium"
-          }, slVal > 0 ? `$${slVal.toFixed(2)}` : "—")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-            className: "text-[#6b7280]"
-          }, "EP"), " ", /*#__PURE__*/React.createElement("span", {
-            className: "text-white font-medium"
-          }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "—")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
-            className: "text-teal-400"
-          }, "TP"), " ", /*#__PURE__*/React.createElement("span", {
-            className: "text-white font-medium"
-          }, tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—"))), slVal > 0 && tpVal > 0 && cp > 0 && entryPrice > 0 && (() => {
+          }, dayUp ? "+" : "", dayPct.toFixed(2), "%", Number.isFinite(dayChg) && dayChg !== 0 ? ` ($${Math.abs(dayChg).toFixed(2)})` : ""))), (() => {
+            const slOrigVal = Number(t?.sl_original ?? src?.position_sl_original ?? 0);
+            const slTrailing = slOrigVal > 0 && slVal > 0 && Math.abs(slVal - slOrigVal) / slOrigVal > 0.005;
+            return /*#__PURE__*/React.createElement("div", {
+              className: "flex items-center justify-between text-[10px] mb-1"
+            }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+              className: "text-rose-400",
+              title: slTrailing ? "Trailing Stop Loss" : "Stop Loss"
+            }, slTrailing ? "TSL" : "SL"), " ", /*#__PURE__*/React.createElement("span", {
+              className: "text-white font-medium"
+            }, slVal > 0 ? `$${slVal.toFixed(2)}` : "—")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+              className: "text-[#6b7280]"
+            }, "EP"), " ", /*#__PURE__*/React.createElement("span", {
+              className: "text-white font-medium"
+            }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "—")), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+              className: "text-teal-400"
+            }, "TP"), " ", /*#__PURE__*/React.createElement("span", {
+              className: "text-white font-medium"
+            }, tpVal > 0 ? `$${tpVal.toFixed(2)}` : "—")));
+          })(), slVal > 0 && tpVal > 0 && cp > 0 && entryPrice > 0 && (() => {
             const lo = Math.min(slVal, tpVal);
             const hi = Math.max(slVal, tpVal);
             const range = hi - lo;
             if (range <= 0) return null;
-            const cpPct = Math.max(0, Math.min(100, (cp - lo) / range * 100));
-            const epPct = Math.max(0, Math.min(100, (entryPrice - lo) / range * 100));
+            // For SHORT: mirror so SL=left, TP=right (progress toward target)
+            const rawCpPct = Math.max(0, Math.min(100, (cp - lo) / range * 100));
+            const rawEpPct = Math.max(0, Math.min(100, (entryPrice - lo) / range * 100));
+            const cpPct = isLong ? rawCpPct : 100 - rawCpPct;
+            const epPct = isLong ? rawEpPct : 100 - rawEpPct;
             const isProfit = isLong ? cp >= entryPrice : cp <= entryPrice;
             return /*#__PURE__*/React.createElement("div", {
               className: "relative h-2 rounded-full bg-white/[0.06] border border-white/[0.08] overflow-visible"
@@ -3617,13 +3764,23 @@
           className: "text-[#6b7280]"
         }, "Date:"), /*#__PURE__*/React.createElement("span", {
           className: "text-[#9ca3af]"
-        }, formatDateTime(t.entry_ts))), hasTrimmed && trimPrice > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+        }, formatDateTime(t.entry_ts))), !isClosed && remainingQty > 0 && /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between col-span-2"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-[#6b7280]"
+        }, "Qty:"), /*#__PURE__*/React.createElement("span", {
+          className: "text-white font-medium"
+        }, remainingQty % 1 === 0 ? remainingQty : remainingQty.toFixed(2), " shares", hasTrimmed && /*#__PURE__*/React.createElement("span", {
+          className: "text-yellow-400 ml-1"
+        }, "(", Math.round(trimmedPct * 100), "% trimmed)"))), hasTrimmed && trimPrice > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
           className: "flex justify-between"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-yellow-500"
         }, "Trim:"), /*#__PURE__*/React.createElement("span", {
           className: "text-yellow-300 font-medium"
-        }, "$", trimPrice.toFixed(2))), /*#__PURE__*/React.createElement("div", {
+        }, "$", trimPrice.toFixed(2), trimmedQty > 0 && /*#__PURE__*/React.createElement("span", {
+          className: "text-yellow-400/70 ml-1"
+        }, "(", trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(2), " sh)"))), /*#__PURE__*/React.createElement("div", {
           className: "flex justify-between"
         }, /*#__PURE__*/React.createElement("span", {
           className: "text-yellow-500"
@@ -3641,7 +3798,14 @@
           className: "text-[#6b7280]"
         }, "Date:"), /*#__PURE__*/React.createElement("span", {
           className: "text-[#9ca3af]"
-        }, formatDateTime(t.exit_ts))))));
+        }, formatDateTime(t.exit_ts))), exitReasonLabel && /*#__PURE__*/React.createElement("div", {
+          className: "flex justify-between col-span-2"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "text-purple-400"
+        }, "Reason:"), /*#__PURE__*/React.createElement("span", {
+          className: "text-purple-300 font-medium",
+          title: exitReasonRaw
+        }, exitReasonLabel)))));
       }), ledgerTrades.length > 8 && /*#__PURE__*/React.createElement("div", {
         className: "text-[10px] text-[#4b5563] text-center"
       }, "Showing 8 of ", ledgerTrades.length, " trades")))) : null, railTab === "MODEL" ? /*#__PURE__*/React.createElement(React.Fragment, null, (() => {

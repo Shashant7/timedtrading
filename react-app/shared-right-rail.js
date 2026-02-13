@@ -1840,10 +1840,22 @@
                         // TSL is active when current SL has moved > 0.5% from original
                         const tslActive = hasSl && slOrig && Math.abs(sl - slOrig) / slOrig > 0.005;
 
-                        // Prefer 3-Tier TP values; fall back to legacy single-target TPs
-                        const tpTrim = Number(ticker?.tp_trim);
-                        const tpExit = Number(ticker?.tp_exit);
-                        const tpRunner = Number(ticker?.tp_runner);
+                        // Prefer trade-level tpArray (direction-aware) over ticker-level (may be LONG-only)
+                        const tradeTpArr = Array.isArray(trade?.tpArray) && trade.tpArray.length > 0
+                          ? trade.tpArray
+                          : (Array.isArray(ticker?.tpArray) ? ticker.tpArray : []);
+                        const tpTrimRaw = tradeTpArr.length > 0
+                          ? Number(tradeTpArr[0]?.price)
+                          : Number(ticker?.tp_trim);
+                        const tpExitRaw = tradeTpArr.length > 1
+                          ? Number(tradeTpArr[1]?.price)
+                          : Number(ticker?.tp_exit);
+                        const tpRunnerRaw = tradeTpArr.length > 2
+                          ? Number(tradeTpArr[2]?.price)
+                          : Number(ticker?.tp_runner);
+                        const tpTrim = Number.isFinite(tpTrimRaw) && tpTrimRaw > 0 ? tpTrimRaw : NaN;
+                        const tpExit = Number.isFinite(tpExitRaw) && tpExitRaw > 0 ? tpExitRaw : NaN;
+                        const tpRunner = Number.isFinite(tpRunnerRaw) && tpRunnerRaw > 0 ? tpRunnerRaw : NaN;
                         const has3Tier = (Number.isFinite(tpTrim) && tpTrim > 0) || (Number.isFinite(tpExit) && tpExit > 0);
 
                         const legacyTarget = computeTpTargetPrice(ticker);
@@ -1855,8 +1867,17 @@
                         const stateStr = String(ticker?.state || "");
                         // Use position direction when open trade exists (fixes SHORT positions showing LONG R:R)
                         const posDir = ticker?.has_open_position ? String(ticker?.position_direction || "").toUpperCase() : null;
-                        const dir = (posDir === "LONG" || posDir === "SHORT") ? posDir
-                          : stateStr.includes("BULL") ? "LONG" : stateStr.includes("BEAR") ? "SHORT" : null;
+                        // Also check trade direction explicitly
+                        const tradeDirRR = String(trade?.direction || "").toUpperCase();
+                        const useTradeRR = (tradeDirRR === "LONG" || tradeDirRR === "SHORT");
+                        // Prioritize HTF state prefix to avoid LTF_BULL matching in HTF_BEAR_LTF_BULL
+                        const stateDir = stateStr.startsWith("HTF_BULL") ? "LONG"
+                          : stateStr.startsWith("HTF_BEAR") ? "SHORT"
+                          : stateStr.includes("BULL") ? "LONG"
+                          : stateStr.includes("BEAR") ? "SHORT" : null;
+                        const dir = useTradeRR ? tradeDirRR
+                          : (posDir === "LONG" || posDir === "SHORT") ? posDir
+                          : stateDir;
                         // SL% = absolute risk distance from current price
                         const slDistPct = hasSl && Number.isFinite(price) && price > 0
                           ? Math.abs((sl - price) / price) * 100

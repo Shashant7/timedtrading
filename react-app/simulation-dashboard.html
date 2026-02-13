@@ -188,6 +188,9 @@
         const direct = String(src?.direction || "").toUpperCase();
         if (direct === "LONG" || direct === "SHORT") return direct;
         const state = String(src?.state || "");
+        // Prioritize HTF prefix to avoid LTF_BULL matching in HTF_BEAR_LTF_BULL
+        if (state.startsWith("HTF_BULL")) return "LONG";
+        if (state.startsWith("HTF_BEAR")) return "SHORT";
         if (state.includes("BULL")) return "LONG";
         if (state.includes("BEAR")) return "SHORT";
         const triggerDir = String(src?.trigger_dir || "").toUpperCase();
@@ -986,6 +989,15 @@
 
       function getDirection(ticker) {
         const state = String(ticker.state || "");
+        // Prioritize HTF prefix to avoid LTF_BULL matching in HTF_BEAR_LTF_BULL
+        if (state.startsWith("HTF_BULL"))
+          return {
+            text: "LONG",
+            color: "text-green-400",
+            bg: "bg-green-500/20",
+          };
+        if (state.startsWith("HTF_BEAR"))
+          return { text: "SHORT", color: "text-red-400", bg: "bg-red-500/20" };
         if (state.includes("BULL"))
           return {
             text: "LONG",
@@ -1019,6 +1031,8 @@
       }
       function getDirectionFromState(ticker) {
         const state = String(ticker?.state || "");
+        if (state.startsWith("HTF_BULL")) return "LONG";
+        if (state.startsWith("HTF_BEAR")) return "SHORT";
         if (state.includes("BULL")) return "LONG";
         if (state.includes("BEAR")) return "SHORT";
         return null;
