@@ -93,6 +93,14 @@ import {
   handleGetArchiveBrief,
   handleMarkPrediction,
 } from "./daily-brief.js";
+import {
+  syncAllETFHoldings,
+  handleGetETFGroups,
+  handleGetETFHoldings,
+  getETFWeightForTicker,
+  computeETFWeightBoost,
+  loadETFWeightMap,
+} from "./etf-holdings.js";
 
 // ─── PriceHub DO notification helper ───────────────────────────────────────
 // Fire-and-forget POST to the Durable Object to fan out data to WS clients.
@@ -346,6 +354,10 @@ const ROUTES = [
   ["POST", "/timed/accept-terms", "POST /timed/accept-terms"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
+  // ── ETF Holdings Sync ──
+  ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
+  ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
+  ["POST", "/timed/etf/sync", "POST /timed/etf/sync"],
 ];
 
 function getRouteKey(method, pathname) {
@@ -14873,8 +14885,8 @@ function calculateValuationBoost(fundamentals) {
   return Math.max(-8, Math.min(8, boost));
 }
 
-// Rank tickers within a sector by technical score + sector boost
-async function rankTickersInSector(KV, sector, limit = 10) {
+// Rank tickers within a sector by technical score + sector boost + ETF weight boost
+async function rankTickersInSector(KV, sector, limit = 10, etfWeightMap = null) {
   const sectorTickers = getTickersInSector(sector);
   const sectorRating = getSectorRating(sector);
 
@@ -14893,8 +14905,21 @@ async function rankTickersInSector(KV, sector, limit = 10) {
         (await kvGetJSON(KV, `timed:fundamentals:${ticker}`));
       const valuationBoost = calculateValuationBoost(fundamentals);
 
-      // Calculate total boosted rank: base + sector + valuation
-      const boostedRank = baseRank + sectorBoost + valuationBoost;
+      // ETF weight boost (from Granny Shots ETF holdings)
+      let etfWeightBoost = 0;
+      if (etfWeightMap && etfWeightMap[ticker]) {
+        const weights = etfWeightMap[ticker];
+        const etfEntries = Object.entries(weights);
+        const maxWeight = Math.max(...etfEntries.map(([, w]) => w));
+        if (maxWeight >= 3) etfWeightBoost = 3;
+        else if (maxWeight >= 2) etfWeightBoost = 2;
+        else if (maxWeight > 0) etfWeightBoost = 1;
+        // Cross-ETF conviction bonus
+        if (etfEntries.length > 1) etfWeightBoost += 1;
+      }
+
+      // Calculate total boosted rank: base + sector + valuation + ETF weight
+      const boostedRank = baseRank + sectorBoost + valuationBoost + etfWeightBoost;
 
       tickerData.push({
         ticker,
@@ -14904,6 +14929,7 @@ async function rankTickersInSector(KV, sector, limit = 10) {
         sectorRating: sectorRating.rating,
         sectorBoost: sectorRating.boost,
         valuationBoost: valuationBoost,
+        etfWeightBoost: etfWeightBoost,
         ...data,
       });
     }
@@ -20628,7 +20654,8 @@ export default {
           );
         }
 
-        const topTickers = await rankTickersInSector(KV, sector, limit);
+        const etfWMap = await loadETFWeightMap(env);
+        const topTickers = await rankTickersInSector(KV, sector, limit, etfWMap);
 
         return sendJSON(
           {
@@ -20659,12 +20686,14 @@ export default {
         );
 
         const allRecommendations = [];
+        const etfWMapReco = await loadETFWeightMap(env);
 
         for (const sector of overweightSectors) {
           const topTickers = await rankTickersInSector(
             KV,
             sector,
             limitPerSector,
+            etfWMapReco,
           );
           allRecommendations.push(
             ...topTickers.map((t) => ({
@@ -28701,6 +28730,35 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // ── ETF Holdings Sync ──
+      if (routeKey === "GET /timed/etf/groups") {
+        try {
+          const result = await handleGetETFGroups(env);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/etf/holdings/:symbol") {
+        try {
+          const symbol = pathname.replace("/timed/etf/holdings/", "").toUpperCase();
+          const result = await handleGetETFHoldings(env, symbol);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/etf/sync") {
+        try {
+          const result = await syncAllETFHoldings(env, { notifyDiscord });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/investor/scores — Get all investor scores (from KV cache)
       if (routeKey === "GET /timed/investor/scores") {
         const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores");
@@ -33516,6 +33574,23 @@ Provide 3-5 actionable next steps:
       const h = parseInt(etHour, 10);
       if (h >= 2 && h <= 4) {
         ctx.waitUntil(cleanupDailyBrief(env));
+      }
+    }
+
+    // ── ETF Holdings Sync (7 AM ET = 12:00 UTC) ──
+    if (event.cron === "0 12 * * 1-5") {
+      const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
+      const h = parseInt(etHour, 10);
+      if (h >= 6 && h <= 8) {
+        ctx.waitUntil((async () => {
+          try {
+            console.log("[ETF SYNC CRON] Syncing ETF holdings from grannyshots.com...");
+            const result = await syncAllETFHoldings(env, { notifyDiscord });
+            console.log(`[ETF SYNC CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+          } catch (e) {
+            console.error("[ETF SYNC CRON] Failed:", String(e).slice(0, 300));
+          }
+        })());
       }
     }
 

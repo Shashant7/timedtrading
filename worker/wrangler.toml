@@ -77,6 +77,8 @@ crons = [
   "0 14 * * 1-5",        # Mon-Fri 9:00 AM ET (EST=14 UTC): morning brief
   "0 22 * * 1-5",        # Mon-Fri 5:00 PM ET (EST=22 UTC): evening brief
   "0 8 * * 1-5",         # Mon-Fri 3:00 AM ET (EST=08 UTC): cleanup previous day
+  # ── ETF Holdings Sync (grannyshots.com → KV) ──
+  "0 12 * * 1-5",        # Mon-Fri 7:00 AM ET (EST=12 UTC): sync GRNY/GRNJ/GRNI
 ]
 
 [env.production]
@@ -172,5 +174,6 @@ crons = [
   "0 14 * * 1-5",
   "0 22 * * 1-5",
   "0 8 * * 1-5",
+  "0 12 * * 1-5",
 ]
 

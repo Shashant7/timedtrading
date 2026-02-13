@@ -90,7 +90,7 @@
         CRM:"Salesforce",ECL:"Ecolab",SHW:"Sherwin-Williams",
       };
 
-      // ── Groups ──
+      // ── Groups (GRNY/GRNI/GRNJ loaded dynamically from ETF sync) ──
       const GROUPS = {
         UPTICKS: new Set([
           "TSLA","STX","AU","CLS","CRS","VST","FSLR","JCI","ORCL","AMZN",
@@ -98,25 +98,9 @@
           "PANW","RDDT","TT","GLXY","ETHA","KO","GILD","MTB","AMGN",
         ]),
         SuperGranny: new Set(["META","NVDA","AMD","ANET","GS"]),
-        GRNI: new Set([
-          "VST","TSLA","TJX","SPGI","SOFI","PWR","PNC","PLTR","PANW","NVDA","NFLX",
-          "MSTR","MSFT","MNST","META","LRCX","KLAC","JPM","HOOD","GS","GOOGL","GEV",
-          "GE","EXPE","ETN","EMR","DE","CRWD","COST","CDNS","CAT","BK","AXP","AXON",
-          "AVGO","ANET","AMZN","AMD","AAPL",
-        ]),
-        GRNJ: new Set([
-          "RKLB","LITE","SN","ALB","RDDT","RGLD","MTZ","ON","ALLY","DY","CCJ","EWBC",
-          "PATH","WFRD","WAL","IESC","ENS","TWLO","MLI","KTOS","MDB","TLN","EME","AWI",
-          "IBP","DCI","WTS","FIX","UTHR","NBIS","SGI","AYI","RIOT","NXT","SANM","BWXT",
-          "PEGA","JOBY","IONQ","SOFI","ITT","STRL","QLYS","MP","GLXY","HIMS","IOT","BE",
-          "NEU","AVAV","PSTG","RBLX",
-        ]),
-        GRNY: new Set([
-          "GEV","LRCX","PNC","GOOGL","GS","META","MNST","KLAC","TJX","GE","EXPE","CAT",
-          "BK","SPGI","TSLA","EMR","JPM","AXP","ANET","AXON","AAPL","NVDA","AVGO","PWR",
-          "CDNS","DE","MSFT","COST","VST","PLTR","AMZN","HOOD","ETN","SOFI","AMD","PANW",
-          "CRWD","NFLX","MSTR",
-        ]),
+        GRNI: new Set(),
+        GRNJ: new Set(),
+        GRNY: new Set(),
         Social: new Set([
           "CSCO","BA","NKE","AAPL","PI","APLD","MU","HOOD","CCJ","ULTA","STX",
         ]),
@@ -125,7 +109,43 @@
         ]),
         Futures: new Set(["ES1!","NQ1!","BTCUSD","ETHUSD","ETHA","VIX"]),
       };
+      // ETF weight map: { "AAPL": { GRNY: 2.50, GRNI: 2.55 }, ... }
+      let _etfWeightMap = {};
       const GROUP_ORDER = ["SP_Sectors","Futures","UPTICKS","SuperGranny","GRNI","GRNJ","GRNY","Social"];
+
+      // Load ETF groups dynamically from backend
+      async function loadETFGroups() {
+        try {
+          const resp = await fetch("/timed/etf/groups");
+          const data = await resp.json();
+          if (data.ok && data.groups) {
+            for (const [etf, tickers] of Object.entries(data.groups)) {
+              if (GROUPS[etf]) {
+                GROUPS[etf] = new Set(tickers.map(t => String(t).toUpperCase()));
+              }
+            }
+          }
+          // Also load weight map for badges
+          const wResp = await fetch("/timed/etf/holdings/GRNY");
+          const wData = await wResp.json();
+          // Build weight map from all ETF holdings
+          for (const etf of ["GRNY","GRNJ","GRNI"]) {
+            try {
+              const r = await fetch(`/timed/etf/holdings/${etf}`);
+              const d = await r.json();
+              if (d.ok && d.holdings) {
+                for (const h of d.holdings) {
+                  if (!_etfWeightMap[h.ticker]) _etfWeightMap[h.ticker] = {};
+                  _etfWeightMap[h.ticker][etf] = h.weight;
+                }
+              }
+            } catch {}
+          }
+        } catch (e) {
+          console.warn("[ETF GROUPS] Failed to load dynamic groups:", e);
+        }
+      }
+
       function groupsForTicker(t) {
         const T = String(t || "").toUpperCase();
         const out = [];
@@ -133,6 +153,12 @@
           if (set.has(T)) out.push(g);
         }
         return out;
+      }
+
+      // Get ETF weight badge text for a ticker (e.g. "2.5%")
+      function etfWeightBadge(ticker, group) {
+        const w = _etfWeightMap[String(ticker).toUpperCase()]?.[group];
+        return w ? `${w.toFixed(1)}%` : "";
       }
 
       // ── Helpers ──
@@ -266,7 +292,7 @@
           }
         }, []);
 
-        useEffect(() => { fetchData(); }, [fetchData]);
+        useEffect(() => { loadETFGroups().then(() => fetchData()); }, [fetchData]);
 
         // After adding tickers: poll ingestion-status every 4s for ~2 min so coverage updates in real time
         useEffect(() => {
@@ -925,9 +951,14 @@
                                 if (grps.length === 0) return <span className="text-[10px] text-gray-600">—</span>;
                                 return (
                                   <div className="flex flex-wrap gap-0.5">
-                                    {grps.map(g => (
-                                      <span key={g} className="text-[9px] px-1 py-0 rounded bg-gray-800 text-gray-400" title={g}>{g}</span>
-                                    ))}
+                                    {grps.map(g => {
+                                      const wb = etfWeightBadge(t.ticker, g);
+                                      return (
+                                        <span key={g} className="text-[9px] px-1 py-0 rounded bg-gray-800 text-gray-400" title={wb ? `${g} weight: ${wb}` : g}>
+                                          {g}{wb ? <span className="ml-0.5 text-emerald-400">{wb}</span> : null}
+                                        </span>
+                                      );
+                                    })}
                                   </div>
                                 );
                               })()}

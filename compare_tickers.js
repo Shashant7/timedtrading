@@ -1,14 +1,32 @@
 // Compare platform tickers with group tickers
+// GRNY/GRNI/GRNJ are loaded dynamically from the ETF sync API.
 
 const groups = {
   UPTICKS: ["TSLA", "STX", "AU", "CLS", "CRS", "VST", "FSLR", "JCI", "ORCL", "AMZN", "BRK-B", "BABA", "WMT", "PH", "GEV", "HII", "CSX", "PWR", "SPGI", "APP", "PANW", "RDDT", "TT", "GLXY", "ETHA", "KO", "GILD", "MTB", "AMGN"],
   SuperGranny: ["META", "NVDA", "AMD", "ANET", "GS"],
-  GRNI: ["VST", "TSLA", "TJX", "SPGI", "SOFI", "PWR", "PNC", "PLTR", "PANW", "NVDA", "NFLX", "MSTR", "MSFT", "MNST", "META", "LRCX", "KLAC", "JPM", "HOOD", "GS", "GOOGL", "GEV", "GE", "EXPE", "ETN", "EMR", "DE", "CRWD", "COST", "CDNS", "CAT", "BK", "AXP", "AXON", "AVGO", "ANET", "AMZN", "AMD", "AAPL"],
-  GRNJ: ["RKLB", "LITE", "SN", "ALB", "RDDT", "RGLD", "MTZ", "ON", "ALLY", "DY", "CCJ", "EWBC", "PATH", "WFRD", "WAL", "IESC", "ENS", "TWLO", "MLI", "KTOS", "MDB", "TLN", "EME", "AWI", "IBP", "DCI", "WTS", "FIX", "UTHR", "NBIS", "SGI", "AYI", "RIOT", "NXT", "SANM", "BWXT", "PEGA", "JOBY", "IONQ", "SOFI", "ITT", "STRL", "QLYS", "MP", "GLXY", "HIMS", "IOT", "BE", "NEU", "AVAV", "PSTG", "RBLX"],
-  GRNY: ["GEV", "LRCX", "PNC", "GOOGL", "GS", "META", "MNST", "KLAC", "TJX", "GE", "EXPE", "CAT", "BK", "SPGI", "TSLA", "EMR", "JPM", "AXP", "ANET", "AXON", "AAPL", "NVDA", "AVGO", "PWR", "CDNS", "DE", "MSFT", "COST", "VST", "PLTR", "AMZN", "HOOD", "ETN", "SOFI", "AMD", "PANW", "CRWD", "NFLX", "MSTR"],
+  GRNI: [],
+  GRNJ: [],
+  GRNY: [],
   Social: ["CSCO", "BA", "NKE", "AAPL", "PI", "APLD", "MU", "HOOD", "CCJ", "ULTA", "STX", "SWK", "AEHR", "SLV", "SNDK", "INTC", "SOXL", "IREN", "RKLB", "CRWV", "BE", "ONDS", "ASTS", "LITE", "AGQ", "IBRX", "LRCX", "WDC", "CRVS", "GDXJ", "HL", "MP", "B"],
 };
 
+// Load ETF groups dynamically before comparison
+async function loadAndRun() {
+  try {
+    const resp = await fetch('https://timed-trading-ingest.shashant.workers.dev/timed/etf/groups');
+    const data = await resp.json();
+    if (data.ok && data.groups) {
+      for (const [etf, tickers] of Object.entries(data.groups)) {
+        if (groups[etf] !== undefined) groups[etf] = tickers;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load ETF groups, using empty sets:', e);
+  }
+  runComparison();
+}
+
+function runComparison() {
 // Get all unique tickers from all groups
 const allGroupTickers = new Set();
 Object.values(groups).forEach(groupTickers => {
@@ -81,4 +99,7 @@ fetch('https://timed-trading-ingest.shashant.workers.dev/timed/tickers')
   .catch(err => {
     console.error('Error:', err);
   });
+} // end runComparison
+
+loadAndRun();
 
