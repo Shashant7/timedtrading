@@ -8067,7 +8067,7 @@
 
                   {/* Right rail — same component and look as Dashboard */}
                   {(selectedTicker || selectedTrade) && (
-                    <div className="fixed right-0 top-0 w-[450px] h-screen z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
+                    <div className="fixed right-0 top-[49px] w-[450px] bottom-0 z-40 slide-in-right shadow-2xl overflow-y-auto bg-[#0b0e11] border-l border-white/[0.04]">
                       <TickerDetailsLoader
                         tickerSymbol={selectedTrade ? selectedTrade.ticker : selectedTicker}
                         trade={selectedTrade}
