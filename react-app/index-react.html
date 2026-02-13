@@ -15574,10 +15574,19 @@
           );
         }
 
+        // Build a trade-like object from the ticker's position fields when no trade array is available
+        const syntheticTrade = tickerData?.has_open_position ? {
+          direction: tickerData.position_direction,
+          sl: tickerData.position_sl,
+          sl_original: tickerData.position_sl_original,
+          tpArray: tickerData.tpArray || [],
+          status: "OPEN",
+        } : null;
+
         return (
           <TickerDetailRightRail
             ticker={tickerData}
-            trade={null}
+            trade={syntheticTrade}
             onClose={onClose}
             allLoadedData={allLoadedData}
             rankedTickers={rankedTickers}
@@ -15666,8 +15675,8 @@
             );
           }
 
-          // Effective stage for right rail when card is in Hold (open trade overrides server stage)
-          const effectiveStage = (() => {
+          // Find the open trade for this ticker (used by Right Rail for direction, TPs, SL)
+          const openTrade = (() => {
             const map = new Map();
             if (!Array.isArray(trades)) return null;
             trades.forEach((tr) => {
@@ -15685,9 +15694,15 @@
             const status = String(trade.status || "").toUpperCase();
             const isClosed = status === "WIN" || status === "LOSS" || !!(trade.exit_ts ?? trade.exitTs) || Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0) >= 0.9999;
             const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
-            if (!isOpen) return null;
+            return isOpen ? trade : null;
+          })();
+
+          // Effective stage for right rail when card is in Hold (open trade overrides server stage)
+          const effectiveStage = (() => {
+            if (!openTrade) return null;
+            const status = String(openTrade.status || "").toUpperCase();
             const stage = String(foundTicker?.kanban_stage ?? "").trim().toLowerCase();
-            if (status === "TP_HIT_TRIM" || (Number(trade.trimmed_pct ?? trade.trimmedPct ?? 0) > 0)) return "trim";
+            if (status === "TP_HIT_TRIM" || (Number(openTrade.trimmed_pct ?? openTrade.trimmedPct ?? 0) > 0)) return "trim";
             if (stage === "defend" || stage === "trim" || stage === "exit") return stage;
             return "hold";
           })();
@@ -15697,7 +15712,7 @@
           return (
             <TickerDetailRightRail
               ticker={foundTicker}
-              trade={null}
+              trade={openTrade}
               onClose={onClose}
               allLoadedData={data}
               rankedTickers={rankedTickers}

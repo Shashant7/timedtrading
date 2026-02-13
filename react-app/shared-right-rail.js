@@ -502,6 +502,30 @@
 
         if (!safeTicker || !tickerSymbol) return null;
 
+        // ── Unified direction — single source of truth for the entire Right Rail ──
+        // Priority: 1) trade.direction  2) ticker.position_direction  3) HTF state  4) state fallback
+        const resolvedDir = (() => {
+          // 1. Explicit trade direction (most authoritative)
+          const tradeDirStr = String(trade?.direction || "").toUpperCase();
+          const tradeStatus = String(trade?.status || "").toUpperCase();
+          const tradeIsOpen = trade && (
+            tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
+            (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
+          );
+          if (tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
+          // 2. Server-provided position direction
+          const posDirStr = String(ticker?.position_direction || "").toUpperCase();
+          if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+          // 3. HTF state (primary trend)
+          const state = String(ticker?.state || "");
+          if (state.startsWith("HTF_BULL")) return "LONG";
+          if (state.startsWith("HTF_BEAR")) return "SHORT";
+          // 4. Fallback for non-standard states
+          if (state.includes("BULL")) return "LONG";
+          if (state.includes("BEAR")) return "SHORT";
+          return null;
+        })();
+
         const prime = isPrimeBubble(ticker);
         const ent = entryType(ticker);
         const flags = patternFlags;
@@ -626,25 +650,13 @@
                       {/* Ticker + Bias pill */}
                       <h3 className="text-xl font-bold leading-none">{tickerSymbol}</h3>
                       {(() => {
-                        const tickerDir = getDirection(ticker);
-                        const tradeStatus = String(trade?.status || "").toUpperCase();
-                        const tradeIsOpen = trade && (
-                          tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
-                          (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
-                        );
-                        const tradeDirStr = String(trade?.direction || "").toUpperCase();
-                        const useTradeDir = tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT");
-                        // Also check ticker-level position_direction (from server)
-                        const posDirStr = String(ticker?.position_direction || "").toUpperCase();
-                        const usePositionDir = !useTradeDir && ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT");
-                        const dir = useTradeDir
-                          ? { text: tradeDirStr, color: tradeDirStr === "LONG" ? "text-teal-400" : "text-rose-400", bg: tradeDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20" }
-                          : usePositionDir
-                          ? { text: posDirStr, color: posDirStr === "LONG" ? "text-teal-400" : "text-rose-400", bg: posDirStr === "LONG" ? "bg-teal-500/20" : "bg-rose-500/20" }
-                          : tickerDir;
+                        const d = resolvedDir;
+                        const color = d === "LONG" ? "text-teal-400" : d === "SHORT" ? "text-rose-400" : "text-[#6b7280]";
+                        const bg = d === "LONG" ? "bg-teal-500/20" : d === "SHORT" ? "bg-rose-500/20" : "bg-white/[0.04]";
+                        const label = d === "LONG" ? "📈 LONG" : d === "SHORT" ? "📉 SHORT" : "—";
                         return (
-                          <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs ${dir.bg} ${dir.color} border border-current/30`}>
-                            {dir.text === "LONG" ? "📈 LONG" : dir.text === "SHORT" ? "📉 SHORT" : dir.text}
+                          <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs ${bg} ${color} border border-current/30`}>
+                            {label}
                           </span>
                         );
                       })()}
@@ -727,7 +739,7 @@
                     const entryRefRaw = numFromAny(ticker?.entry_ref);
                     const triggerRaw = numFromAny(ticker?.trigger_price);
                     const entryPx = [entryPriceRaw, entryRefRaw, triggerRaw].find(v => Number.isFinite(v) && v > 0) || null;
-                    const dir = getDirectionFromState(ticker);
+                    const dir = resolvedDir; // unified direction
                     const entryPctRaw = numFromAny(ticker?.entry_change_pct);
                     const entryPct = Number.isFinite(entryPctRaw) ? entryPctRaw
                       : (entryPx > 0 && price > 0 ? (dir === "SHORT" ? ((entryPx - price) / entryPx) * 100 : ((price - entryPx) / entryPx) * 100) : null);
@@ -1864,20 +1876,7 @@
 
                         if (!hasSl && !has3Tier && !hasLegacy && !Number.isFinite(rr)) return null;
 
-                        const stateStr = String(ticker?.state || "");
-                        // Use position direction when open trade exists (fixes SHORT positions showing LONG R:R)
-                        const posDir = ticker?.has_open_position ? String(ticker?.position_direction || "").toUpperCase() : null;
-                        // Also check trade direction explicitly
-                        const tradeDirRR = String(trade?.direction || "").toUpperCase();
-                        const useTradeRR = (tradeDirRR === "LONG" || tradeDirRR === "SHORT");
-                        // Prioritize HTF state prefix to avoid LTF_BULL matching in HTF_BEAR_LTF_BULL
-                        const stateDir = stateStr.startsWith("HTF_BULL") ? "LONG"
-                          : stateStr.startsWith("HTF_BEAR") ? "SHORT"
-                          : stateStr.includes("BULL") ? "LONG"
-                          : stateStr.includes("BEAR") ? "SHORT" : null;
-                        const dir = useTradeRR ? tradeDirRR
-                          : (posDir === "LONG" || posDir === "SHORT") ? posDir
-                          : stateDir;
+                        const dir = resolvedDir; // unified direction from top of component
                         // SL% = absolute risk distance from current price
                         const slDistPct = hasSl && Number.isFinite(price) && price > 0
                           ? Math.abs((sl - price) / price) * 100
