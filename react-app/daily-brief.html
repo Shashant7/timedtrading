@@ -13,6 +13,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="auth-gate.js"></script>
     <style>
       :root {
@@ -204,7 +205,7 @@
       function PredictionBadge({ value }) {
         if (value === 1) return <span className="text-[11px] font-medium text-[#00c853]" title="ES prediction correct">&#10003;</span>;
         if (value === 0) return <span className="text-[11px] font-medium text-[#ff5252]" title="ES prediction incorrect">&#10007;</span>;
-        return <span className="text-[11px] text-[#4b5563]" title="Pending">\u23F3</span>;
+        return <span className="text-[11px] text-[#4b5563]" title="Pending">{"\u23F3"}</span>;
       }
 
       // ── Archive Tree Component ─────────────────────────────────────────────
@@ -277,13 +278,13 @@
                             <div className="ml-auto flex items-center gap-3">
                               {morning && (
                                 <span className="flex items-center gap-1 text-[11px]">
-                                  <span className="text-[#f59e0b]">\u2600\uFE0F</span>
+                                  <span className="text-[#f59e0b]">{"\u2600\uFE0F"}</span>
                                   <PredictionBadge value={morning.es_prediction_correct} />
                                 </span>
                               )}
                               {evening && (
                                 <span className="flex items-center gap-1 text-[11px]">
-                                  <span className="text-[#6366f1]">\uD83C\uDF19</span>
+                                  <span className="text-[#6366f1]">{"\uD83C\uDF19"}</span>
                                   <PredictionBadge value={evening.es_prediction_correct} />
                                 </span>
                               )}
@@ -296,7 +297,7 @@
                                   onClick={() => onSelect(morning.id)}
                                   className="w-full text-left px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all flex items-center gap-2"
                                 >
-                                  <span>\u2600\uFE0F</span> Morning Brief
+                                  <span>{"\u2600\uFE0F"}</span> Morning Brief
                                   <PredictionBadge value={morning.es_prediction_correct} />
                                   {morning.es_prediction && (
                                     <span className="ml-auto text-[10px] text-[#4b5563] truncate max-w-[200px]">{morning.es_prediction}</span>
@@ -308,7 +309,7 @@
                                   onClick={() => onSelect(evening.id)}
                                   className="w-full text-left px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all flex items-center gap-2"
                                 >
-                                  <span>\uD83C\uDF19</span> Evening Brief
+                                  <span>{"\uD83C\uDF19"}</span> Evening Brief
                                   <PredictionBadge value={evening.es_prediction_correct} />
                                 </button>
                               )}
@@ -321,6 +322,412 @@
                 )}
               </div>
             ))}
+          </div>
+        );
+      }
+
+      // ── Mini Chart Component (TradingView Lightweight Charts) ────────────
+      const CHART_SYMBOLS = [
+        { sym: "ES1!", label: "ES", color: "#f59e0b" },
+        { sym: "NQ1!", label: "NQ", color: "#6366f1" },
+        { sym: "SPY", label: "SPY", color: "#00c853" },
+        { sym: "QQQ", label: "QQQ", color: "#2196f3" },
+        { sym: "IWM", label: "IWM", color: "#e91e63" },
+      ];
+      const TF_OPTIONS = [
+        { value: "5", label: "5m", limit: 250 },
+        { value: "15", label: "15m", limit: 120 },
+        { value: "60", label: "1H", limit: 100 },
+        { value: "D", label: "D", limit: 60 },
+      ];
+
+      // Check if we're currently in Regular Trading Hours (for live update frequency)
+      function isMarketOpen() {
+        const d = new Date();
+        const et = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+        const day = et.getDay();
+        const min = et.getHours() * 60 + et.getMinutes();
+        if (day === 0 || day === 6) return false;
+        return min >= 570 && min < 960; // 9:30 AM - 4:00 PM ET
+      }
+
+      // Stable empty array reference — avoids useEffect re-runs from levels={[]}
+      const EMPTY_LEVELS = [];
+
+      function MiniChart({ sym, label, accentColor, tf, limit }) {
+        const containerRef = useRef(null);
+        const chartRef = useRef(null);
+        const seriesRef = useRef(null);
+        const firstCandleRef = useRef(null);
+        const priceLinesRef = useRef([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [lastPrice, setLastPrice] = useState(null);
+        const [change, setChange] = useState(null);
+        const [isLive, setIsLive] = useState(false);
+
+        // Map raw API candles to chart format
+        const mapCandles = useCallback((candles) => {
+          return candles.map(c => ({
+            time: c.ts / 1000,
+            open: Number(c.o),
+            high: Number(c.h),
+            low: Number(c.l),
+            close: Number(c.c),
+          })).filter(c => c.open > 0 && c.high > 0);
+        }, []);
+
+        // Fetch candle data from API
+        const fetchCandles = useCallback(async (fetchLimit) => {
+          const res = await fetch(
+            `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=${tf}&limit=${fetchLimit}`,
+            { cache: "no-store" }
+          );
+          const data = await res.json();
+          if (!data.ok || !data.candles || data.candles.length === 0) return [];
+          return data.candles;
+        }, [sym, tf]);
+
+        // Initial chart setup + full data load
+        useEffect(() => {
+          let cancelled = false; // prevents stale async from adding duplicate levels
+
+          if (!containerRef.current || typeof LightweightCharts === "undefined") {
+            setError("Charts unavailable");
+            setLoading(false);
+            return;
+          }
+
+          // Create chart
+          const chart = LightweightCharts.createChart(containerRef.current, {
+            width: containerRef.current.clientWidth,
+            height: 220,
+            layout: {
+              background: { type: "solid", color: "transparent" },
+              textColor: "#6b7280",
+              fontSize: 10,
+            },
+            grid: {
+              vertLines: { color: "rgba(255,255,255,0.03)" },
+              horzLines: { color: "rgba(255,255,255,0.03)" },
+            },
+            crosshair: {
+              mode: LightweightCharts.CrosshairMode.Normal,
+              vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2 },
+              horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2 },
+            },
+            rightPriceScale: {
+              borderColor: "rgba(255,255,255,0.06)",
+              scaleMargins: { top: 0.1, bottom: 0.1 },
+            },
+            timeScale: {
+              borderColor: "rgba(255,255,255,0.06)",
+              timeVisible: tf !== "D" && tf !== "W",
+              secondsVisible: false,
+            },
+            handleScroll: { vertTouchDrag: false },
+          });
+          chartRef.current = chart;
+
+          const candleSeries = chart.addCandlestickSeries({
+            upColor: "#00c853",
+            downColor: "#ff5252",
+            borderUpColor: "#00c853",
+            borderDownColor: "#ff5252",
+            wickUpColor: "#00c853",
+            wickDownColor: "#ff5252",
+          });
+          seriesRef.current = candleSeries;
+
+          // Initial full load with retry + fallback to 1m if sparse data
+          const loadWithRetry = async (retriesLeft = 2) => {
+            let raw = await fetchCandles(limit);
+            // If 5m has very few candles, try fetching more or fall back to 1m
+            if (raw.length < 5 && (tf === "5" || tf === "15")) {
+              const fallbackRes = await fetch(
+                `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=1&limit=500`,
+                { cache: "no-store" }
+              );
+              const fallbackData = await fallbackRes.json();
+              if (fallbackData.ok && fallbackData.candles?.length > raw.length) {
+                raw = fallbackData.candles;
+              }
+            }
+            if (raw.length === 0 && retriesLeft > 0) {
+              await new Promise(r => setTimeout(r, 3000));
+              return loadWithRetry(retriesLeft - 1);
+            }
+            return raw;
+          };
+          loadWithRetry().then(raw => {
+            const mapped = mapCandles(raw);
+            if (mapped.length === 0) {
+              setError("No data");
+              setLoading(false);
+              return;
+            }
+
+            candleSeries.setData(mapped);
+            firstCandleRef.current = mapped[0];
+            const lastCandle = mapped[mapped.length - 1];
+            setLastPrice(lastCandle.close);
+            setChange((lastCandle.close - mapped[0].open) / mapped[0].open * 100);
+
+            chart.timeScale().fitContent();
+            setLoading(false);
+            setIsLive(true);
+
+            // Async: fetch daily ATR levels and overlay on intraday charts
+            // Use cancelled flag to prevent stale fetches from adding duplicate levels
+            if (tf === "5" || tf === "15" || tf === "60") {
+              fetchAtrFibLevels(sym).then(fibData => {
+                if (cancelled || !fibData?.levels || !seriesRef.current) return;
+                // Remove any existing price lines first
+                for (const pl of priceLinesRef.current) {
+                  try { seriesRef.current.removePriceLine(pl); } catch (_) {}
+                }
+                priceLinesRef.current = [];
+                for (const lvl of fibData.levels) {
+                  const pl = seriesRef.current.createPriceLine({
+                    price: lvl.price,
+                    color: lvl.color || "rgba(255,255,255,0.2)",
+                    lineWidth: lvl.label?.startsWith("Target") || lvl.label?.startsWith("Watch") ? 2 : 1,
+                    lineStyle: lvl.label?.startsWith("Target") || lvl.label?.startsWith("Watch")
+                      ? LightweightCharts.LineStyle.LargeDashed
+                      : LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: lvl.label || "",
+                  });
+                  priceLinesRef.current.push(pl);
+                }
+              }).catch(() => {});
+            }
+          }).catch(e => {
+            console.error(`Chart ${sym} initial load error:`, e);
+            setError("Load failed");
+            setLoading(false);
+          });
+
+          // Resize handler
+          const handleResize = () => {
+            if (containerRef.current && chart) {
+              chart.applyOptions({ width: containerRef.current.clientWidth });
+            }
+          };
+          window.addEventListener("resize", handleResize);
+
+          return () => {
+            cancelled = true; // prevent stale async fetchAtrFibLevels from adding levels
+            window.removeEventListener("resize", handleResize);
+            priceLinesRef.current = [];
+            chart.remove();
+            chartRef.current = null;
+            seriesRef.current = null;
+            firstCandleRef.current = null;
+          };
+        }, [sym, tf, limit, fetchCandles, mapCandles]);
+
+        // Live update polling — fetches last few candles and updates the series
+        useEffect(() => {
+          if (!isLive) return;
+
+          const poll = async () => {
+            try {
+              // Fetch only last 5 candles for the update
+              const raw = await fetchCandles(5);
+              const mapped = mapCandles(raw);
+              if (mapped.length === 0 || !seriesRef.current) return;
+
+              // update() adds new candles or updates the last one in-place
+              // without resetting zoom/pan state
+              for (const candle of mapped) {
+                seriesRef.current.update(candle);
+              }
+
+              const lastCandle = mapped[mapped.length - 1];
+              setLastPrice(lastCandle.close);
+              if (firstCandleRef.current) {
+                setChange((lastCandle.close - firstCandleRef.current.open) / firstCandleRef.current.open * 100);
+              }
+            } catch (_) { /* silent — next tick will retry */ }
+          };
+
+          // Poll every 30s during market hours, 60s otherwise
+          const intervalMs = isMarketOpen() ? 30000 : 60000;
+          const id = setInterval(poll, intervalMs);
+          return () => clearInterval(id);
+        }, [isLive, fetchCandles, mapCandles]);
+
+        return (
+          <div className="tt-card overflow-hidden">
+            <div className="px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-semibold" style={{ color: accentColor }}>{label}</span>
+                {lastPrice != null && (
+                  <span className="text-[12px] text-[#9ca3af]">{lastPrice.toFixed(2)}</span>
+                )}
+                {change != null && (
+                  <span className={`text-[11px] font-medium ${change >= 0 ? "text-[#00c853]" : "text-[#ff5252]"}`}>
+                    {change >= 0 ? "+" : ""}{change.toFixed(2)}%
+                  </span>
+                )}
+              </div>
+              {loading && <div className="loading-spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} />}
+              {isLive && !loading && (
+                <span className="flex items-center gap-1 text-[9px] font-medium text-[#00c853] uppercase tracking-wider">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#00c853] badge-pulse" />
+                  Live
+                </span>
+              )}
+            </div>
+            <div ref={containerRef} style={{ height: 220 }}>
+              {error && (
+                <div className="flex items-center justify-center h-full">
+                  <span className="text-[11px] text-[#4b5563]">{error}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Fetch daily ATR and compute ATR Fibonacci levels for a symbol
+      // Uses actual daily candles for accurate day-level ATR (not scaled from intraday)
+      const atrLevelCache = {};
+      async function fetchAtrFibLevels(sym) {
+        if (atrLevelCache[sym] && Date.now() - atrLevelCache[sym].ts < 300000) {
+          return atrLevelCache[sym].data;
+        }
+        try {
+          // Fetch last 20 daily candles for ATR calculation
+          const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`, { cache: "no-store" });
+          const data = await res.json();
+          if (!data.ok || !data.candles || data.candles.length < 5) return null;
+
+          const dailies = data.candles;
+          // Previous day close = anchor
+          const prevDay = dailies[dailies.length - 2];
+          const lastDay = dailies[dailies.length - 1];
+          if (!prevDay || !lastDay) return null;
+          const anchor = Number(prevDay.c);
+          if (anchor <= 0) return null;
+
+          // Compute 14-period daily ATR (true range: max of H-L, |H-prevC|, |L-prevC|)
+          let atrSum = 0;
+          let atrCount = 0;
+          for (let i = 1; i < dailies.length; i++) {
+            const h = Number(dailies[i].h);
+            const l = Number(dailies[i].l);
+            const pc = Number(dailies[i - 1].c);
+            const tr = Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+            if (tr > 0) { atrSum += tr; atrCount++; }
+          }
+          const dayAtr = atrCount > 0 ? atrSum / atrCount : 0;
+          if (dayAtr <= 0) return null;
+
+          // Get current price from /timed/latest
+          let currentPrice = Number(lastDay.c);
+          try {
+            const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+            const latestData = await latestRes.json();
+            if (latestData.ok && latestData.data?.price) currentPrice = Number(latestData.data.price);
+          } catch (_) {}
+
+          const rnd = (v) => Math.round(v * 100) / 100;
+          const fibs = [0.236, 0.382, 0.5, 0.618, 1.0];
+          const levels = [];
+
+          // Anchor line (previous close)
+          levels.push({ price: rnd(anchor), color: "rgba(255,255,255,0.35)", label: "Prev Close" });
+
+          // Fib levels
+          for (const f of fibs) {
+            const pctLabel = (f * 100).toFixed(1).replace(/\.0$/, "");
+            levels.push({ price: rnd(anchor + dayAtr * f), color: `rgba(0,200,83,${0.25 + f * 0.45})`, label: `+${pctLabel}%` });
+            levels.push({ price: rnd(anchor - dayAtr * f), color: `rgba(255,82,82,${0.25 + f * 0.45})`, label: `-${pctLabel}%` });
+          }
+
+          // Directional assessment — where is price relative to the ATR levels?
+          let direction = "neutral";
+          let targetLevels = [];
+          const distFromAnchor = currentPrice - anchor;
+          const pctOfAtr = distFromAnchor / dayAtr;
+
+          if (pctOfAtr > 0.382) {
+            // Price crossed +38.2% — Golden Gate OPEN UP
+            direction = "bullish";
+            targetLevels = [
+              { price: rnd(anchor + dayAtr * 0.5), label: "Target +50%" },
+              { price: rnd(anchor + dayAtr * 0.618), label: "Target +61.8%" },
+            ];
+          } else if (pctOfAtr < -0.382) {
+            // Price crossed -38.2% — Golden Gate OPEN DOWN
+            direction = "bearish";
+            targetLevels = [
+              { price: rnd(anchor - dayAtr * 0.5), label: "Target -50%" },
+              { price: rnd(anchor - dayAtr * 0.618), label: "Target -61.8%" },
+            ];
+          } else {
+            // Between gates — watch for breakout
+            targetLevels = [
+              { price: rnd(anchor + dayAtr * 0.382), label: "Watch +38.2%" },
+              { price: rnd(anchor - dayAtr * 0.382), label: "Watch -38.2%" },
+            ];
+          }
+
+          // Add highlighted target lines (thicker amber dashed)
+          for (const tgt of targetLevels) {
+            levels.push({ price: tgt.price, color: "rgba(245,158,11,0.7)", label: tgt.label });
+          }
+
+          const result = { levels, dayAtr: rnd(dayAtr), anchor: rnd(anchor), currentPrice: rnd(currentPrice), direction, pctOfAtr: rnd(pctOfAtr) };
+          atrLevelCache[sym] = { data: result, ts: Date.now() };
+          return result;
+        } catch (e) {
+          console.error(`ATR levels error for ${sym}:`, e);
+          return null;
+        }
+      }
+
+      function MarketCharts() {
+        const [tf, setTf] = useState("5");
+        const tfConfig = TF_OPTIONS.find(t => t.value === tf) || TF_OPTIONS[0];
+
+        return (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[13px] font-semibold text-[#9ca3af] flex items-center gap-2">
+                Market Overview
+                <span className="text-[10px] text-[#4b5563] font-normal">Live Charts</span>
+              </h2>
+              <div className="flex items-center gap-1 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.04]">
+                {TF_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setTf(opt.value)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                      tf === opt.value
+                        ? "bg-white/[0.08] text-white"
+                        : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {CHART_SYMBOLS.map(({ sym, label, color }) => (
+                <MiniChart
+                  key={`${sym}-${tf}`}
+                  sym={sym}
+                  label={label}
+                  accentColor={color}
+                  tf={tfConfig.value}
+                  limit={tfConfig.limit}
+                />
+              ))}
+            </div>
           </div>
         );
       }
@@ -444,7 +851,7 @@
             </nav>
 
             {/* Content */}
-            <div className="max-w-[900px] mx-auto px-6 py-8">
+            <div className="max-w-[1100px] mx-auto px-6 py-8">
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -456,6 +863,9 @@
                 </div>
                 {loading && <div className="loading-spinner" />}
               </div>
+
+              {/* Market Overview Charts */}
+              <MarketCharts />
 
               {/* Current Briefs */}
               {loading ? (

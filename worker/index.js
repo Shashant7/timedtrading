@@ -86,6 +86,7 @@ import {
 } from "./investor.js";
 import {
   generateDailyBrief,
+  gatherDailyBriefData,
   cleanupDailyBrief,
   handleGetBrief,
   handleGetBadge,
@@ -269,6 +270,7 @@ const ROUTES = [
   ["GET", "/timed/daily-brief/archive", "GET /timed/daily-brief/archive"],
   ["GET", (p) => p.startsWith("/timed/daily-brief/archive/"), "GET /timed/daily-brief/archive/:id"],
   ["POST", "/timed/daily-brief/predict", "POST /timed/daily-brief/predict"],
+  ["POST", "/timed/daily-brief/generate", "POST /timed/daily-brief/generate"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -2533,18 +2535,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       tickerData.__entry_confidence = "high";
       tickerData.__entry_reason = (tickerData.__entry_reason || "") + ` +pattern:${pm.bestBull.name}`;
     }
-    // ── Execution readiness check ──
-    // If execution gates would block, show as "setup" (qualified but blocked).
-    // executionReady is injected by processTradeSimulation / scoring cron when
-    // it confirms RTH, position limits, cooldowns, and cash are all clear.
-    // When called from read-time recompute (no execution context), we trust the
-    // stored __execution_ready flag if present, otherwise default to "enter".
-    const execReady = tickerData.__execution_ready;
-    if (execReady === false) {
-      // Signal is valid but execution blocked — show WHY in the UI
-      tickerData.__setup_reason = `entry_qualified_but_blocked:${tickerData.__execution_block_reason || "limits"}`;
-      return "setup";
-    }
+    // ── Execution readiness (informational only) ──
+    // Execution gates (RTH, position limits, concentration) are tracked on the
+    // payload as __execution_ready / __execution_block_reason for the UI to
+    // display warnings, but they no longer DOWNGRADE "enter" → "setup".
+    // The Enter lane shows all qualifying entry OPPORTUNITIES.  The execution
+    // engine (processTradeSimulation) enforces the actual gates at trade time.
     return "enter";
   }
   
@@ -6474,9 +6470,9 @@ async function processTradeSimulation(
     // This ensures exit/trim detection uses the position's trailing SL
     // ─────────────────────────────────────────────────────────────────────────
     const storedStage = String(tickerData?.kanban_stage || "").trim().toLowerCase();
-    const recomputedStage = openPositionContext 
-      ? classifyKanbanStage(tickerData, openPositionContext)
-      : storedStage;
+    // Always re-classify: position-aware when we have context, fresh discovery otherwise.
+    // Never rely solely on stored stage — it may be stale from a prior scoring cycle.
+    const recomputedStage = classifyKanbanStage(tickerData, openPositionContext || null);
     const stage = String(recomputedStage || storedStage || "").trim().toLowerCase();
     
     const prevStage = String(prevData?.kanban_stage || "")
@@ -7464,7 +7460,7 @@ async function processTradeSimulation(
     //   Gate 3: Correlation guard — block if highly correlated with existing
     //   Safety net: MAX_DAILY_ENTRIES to prevent runaway crons
     const MAX_PER_SECTOR = 3;           // max open positions in one sector
-    const MAX_SAME_DIRECTION = 5;       // max positions in same direction (long/short)
+    const MAX_SAME_DIRECTION = 12;      // max positions in same direction (long/short)
     const CORRELATION_SECTOR_THRESHOLD = 2; // if 2+ positions already in same sector, treat as correlated
     const MAX_DAILY_ENTRIES = 10;       // safety net (up from 5)
     
@@ -18398,8 +18394,8 @@ export default {
             }
           }
 
-          // D1 batch limit is 500 statements per call
-          const BATCH_SIZE = 500;
+          // D1 safe batch limit
+          const BATCH_SIZE = 100;
           for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
             const chunk = stmts.slice(i, i + BATCH_SIZE);
             try {
@@ -18911,7 +18907,7 @@ export default {
                   for (const p of openPositions) {
                     if (String(p.direction).toUpperCase() === tkDir) dirCnt++;
                   }
-                  if (dirCnt >= 5) blockReasons.push(`direction_full:${dirCnt}/5 ${tkDir}`);
+                  if (dirCnt >= 12) blockReasons.push(`direction_full:${dirCnt}/12 ${tkDir}`);
                   // Correlation guard
                   if (sectorCnt >= 2 && !blockReasons.some(r => r.startsWith("sector_full"))) {
                     const eq = Number(data?.entry_quality?.score || data?.__entry_quality) || 0;
@@ -19279,7 +19275,7 @@ export default {
                     for (const p of execOpenPositions) {
                       if (String(p.direction).toUpperCase() === tkDir) dirCnt++;
                     }
-                    if (dirCnt >= 5) tickerBlockReasons.push(`direction_full:${dirCnt}/5 ${tkDir}`);
+                    if (dirCnt >= 12) tickerBlockReasons.push(`direction_full:${dirCnt}/12 ${tkDir}`);
                     // Correlation guard: 2+ in same sector → need higher quality
                     if (sectorCnt >= 2 && !tickerBlockReasons.some(r => r.startsWith("sector_full"))) {
                       const eq = Number(obj?.entry_quality?.score || obj?.__entry_quality) || 0;
@@ -19298,12 +19294,10 @@ export default {
                     delete obj.__execution_block_reason;
                   }
                 }
-                // CRITICAL: Always re-classify "enter" stage tickers through
-                // classifyKanbanStage so the __execution_ready check can
-                // downgrade them to "setup" when execution gates are blocking.
-                // STABILITY: Outside RTH, pin discovery stages to avoid flicker
-                // caused by stale D1 data vs fresh KV data from the scorer.
-                const prevIsEnter = prevStage === "enter" || prevStage === "enter_now";
+                // Re-classify all tickers through classifyKanbanStage for fresh
+                // lane assignment. During market hours, ALWAYS re-classify (the stored
+                // stage may be stale from a previous scoring cycle). During market close,
+                // pin non-management stages to prevent flicker from stale data.
                 const marketClosed = !!execRthBlock; // "outside_RTH" or "weekend"
                 let stage;
                 if (openPosition) {
@@ -19311,13 +19305,11 @@ export default {
                   stage = classifyKanbanStage(obj, openPosition);
                 } else if (marketClosed && prevStage && !mgmtStages.has(prevStage)) {
                   // Market closed + valid discovery stage → pin to prevent flicker.
-                  // Enter stages get downgraded to setup since execution is blocked anyway.
-                  stage = prevIsEnter ? "setup" : prevStage;
-                } else if (prevStage && !mgmtStages.has(prevStage) && !prevIsEnter) {
-                  // Market open, non-enter discovery stage → preserve
                   stage = prevStage;
                 } else {
-                  // Market open enter stages, or stale management stages without position → reclassify
+                  // Market open → always re-classify. This ensures tickers that
+                  // qualify for "enter" are promoted from "setup"/"watch" immediately,
+                  // without waiting for the next scoring cron cycle.
                   stage = classifyKanbanStage(obj);
                 }
                 obj.kanban_stage = stage;
@@ -28746,6 +28738,35 @@ Provide 3-5 actionable next steps:
         }
       }
 
+      // POST /timed/daily-brief/generate?key=...&type=morning|evening — manually trigger brief generation
+      if (routeKey === "POST /timed/daily-brief/generate") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        try {
+          const briefType = new URL(req.url).searchParams.get("type") || "morning";
+          const dataOnly = new URL(req.url).searchParams.get("data_only") === "1";
+          if (briefType !== "morning" && briefType !== "evening") {
+            return sendJSON({ ok: false, error: "type must be morning or evening" }, 400, corsHeaders(env, req));
+          }
+          if (dataOnly) {
+            // Return raw gathered data for debugging (no AI call)
+            const data = await gatherDailyBriefData(env, briefType, {
+              SECTOR_MAP,
+              d1GetCandles,
+            });
+            return sendJSON({ ok: true, data }, 200, corsHeaders(env, req));
+          }
+          const result = await generateDailyBrief(env, briefType, {
+            SECTOR_MAP,
+            d1GetCandles,
+            notifyDiscord,
+          });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ── ETF Holdings Sync ──
       if (routeKey === "GET /timed/etf/groups") {
         try {
@@ -33461,11 +33482,72 @@ Provide 3-5 actionable next steps:
     }
   },
 
-  // Scheduled handler for periodic AI updates (9:45 AM, noon, 3:30 PM ET) and trade updates (every 5 min)
+  // Scheduled handler — consolidated to 3 crons (CF Workers limit: 5 per worker).
+  // Real crons: "*/1 * * * *", "*/5 * * * *", "0 * * * *"
+  // Handler maps current time → set of virtual crons that would have fired,
+  // then dispatches to existing code blocks unchanged.
   async scheduled(event, env, ctx) {
+    const _now = new Date();
+    const _utcH = _now.getUTCHours();
+    const _utcM = _now.getUTCMinutes();
+    const _utcDay = _now.getUTCDay(); // 0=Sun … 6=Sat
+    const _isWeekday = _utcDay >= 1 && _utcDay <= 5;
+
+    // CF may normalize "*/1 * * * *" → "* * * * *"
+    const _isEveryMin = event.cron === "*/1 * * * *" || event.cron === "* * * * *";
+    const _isEvery5Min = event.cron === "*/5 * * * *";
+    const _isHourly = event.cron === "0 * * * *";
+
+    // Build the set of virtual crons that WOULD have fired at this time
+    const vc = new Set();
+
+    if (_isEveryMin) {
+      // Price feed
+      if (_isWeekday && _utcH >= 9 && _utcH <= 23) vc.add("*/1 9-23 * * 1-5");
+      if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)  vc.add("*/1 0-1 * * 2-6");
+      if (_utcDay === 0 && _utcH >= 22)                 vc.add("*/5 22-23 * * 7");
+      // Alpaca bars
+      if (_isWeekday && _utcH >= 9 && _utcH <= 21)      vc.add("*/1 9-21 * * 1-5");
+      if (_isWeekday && _utcH >= 21 && _utcH <= 23)     vc.add("*/5 21-23 * * 1-5");
+      if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)   vc.add("*/5 0-1 * * 2-6");
+    }
+    if (_isEvery5Min) {
+      vc.add("*/5 * * * *");
+      if (_isWeekday && _utcM % 15 === 0)                          vc.add("*/15 * * * 1-5");
+      if (_utcH % 6 === 0 && _utcM === 0)                          vc.add("0 */6 * * *");
+      if (_isWeekday && _utcH === 14 && _utcM === 45)              vc.add("45 14 * * 1-5");
+      if (_isWeekday && _utcH === 17 && _utcM === 0)               vc.add("0 17 * * 1-5");
+      if (_isWeekday && _utcH === 20 && _utcM === 30)              vc.add("30 20 * * 1-5");
+      if (_utcDay === 5 && _utcH === 21 && _utcM === 15)           vc.add("15 21 * * 5");
+      if (_isWeekday && _utcH === 21 && _utcM === 30)              vc.add("30 21 * * 1-5");
+    }
+    if (_isHourly) {
+      if (_isWeekday && _utcH >= 14 && _utcH <= 21)                vc.add("0 14-21 * * 1-5");
+      if (_utcDay === 6 && _utcH === 15)                           vc.add("0 15 * * 6");
+      if (_isWeekday && _utcH === 14)                               vc.add("0 14 * * 1-5");
+      if (_isWeekday && _utcH === 22)                               vc.add("0 22 * * 1-5");
+      if (_isWeekday && _utcH === 8)                                vc.add("0 8 * * 1-5");
+      if (_isWeekday && _utcH === 12)                               vc.add("0 12 * * 1-5");
+      if (_utcH === 4)                                              vc.add("0 4 * * *");
+    }
+
+    console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
+
+    // Debug: log each cron type to a SEPARATE KV key to avoid race conditions
+    const _KV_DBG = env?.KV_TIMED;
+    if (_KV_DBG) {
+      const _dbgKey = `timed:debug:cron:${event.cron.replace(/[^a-z0-9]/gi, "_")}`;
+      ctx.waitUntil(_KV_DBG.put(_dbgKey, JSON.stringify({
+        cron: event.cron,
+        virtualCrons: [...vc],
+        ts: Date.now(),
+        utc: _now.toISOString(),
+      }), { expirationTtl: 300 }).catch(() => {}));
+    }
+
     // Weekly Retrospective: Fridays at 9:15 PM UTC (4:15 PM ET, after market close)
     // Evaluates pattern performance, detects regime shifts, writes proposals.
-    if (event.cron === "15 21 * * 5") {
+    if (vc.has("15 21 * * 5")) {
       if (env?.DB) {
         ctx.waitUntil(
           runWeeklyRetrospective(env.DB)
@@ -33473,12 +33555,12 @@ Provide 3-5 actionable next steps:
             .catch((e) => console.warn(`[MODEL RETRO] Failed:`, String(e?.message || e).slice(0, 300)))
         );
       }
-      return;
+      // Don't return — allow other */5 tasks to run
     }
 
     // ── Investor Intelligence: hourly scoring refresh (top of hour, 9AM-4PM ET = 14-21 UTC, Mon-Fri) ──
     // Keeps investor scores fresh during market hours. Does NOT trigger DCA (that's daily only).
-    if (event.cron === "0 14-21 * * 1-5") {
+    if (vc.has("0 14-21 * * 1-5")) {
       ctx.waitUntil((async () => {
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
@@ -33495,7 +33577,7 @@ Provide 3-5 actionable next steps:
 
     // ── Investor Intelligence: daily scoring + DCA execution (4:30 PM ET = 21:30 UTC, Mon-Fri) ──
     // Self-invokes the existing POST endpoints to reuse all logic.
-    if (event.cron === "30 21 * * 1-5") {
+    if (vc.has("30 21 * * 1-5")) {
       ctx.waitUntil((async () => {
         try {
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
@@ -33525,7 +33607,7 @@ Provide 3-5 actionable next steps:
     }
 
     // ── Investor Intelligence: weekly digest (Saturday 10 AM ET = 15:00 UTC) ──
-    if (event.cron === "0 15 * * 6") {
+    if (vc.has("0 15 * * 6")) {
       ctx.waitUntil((async () => {
         try {
           console.log("[INVESTOR DIGEST] Triggering weekly digest...");
@@ -33541,7 +33623,7 @@ Provide 3-5 actionable next steps:
     }
 
     // ── Daily Brief: Morning (9 AM ET = 14:00 UTC) ──
-    if (event.cron === "0 14 * * 1-5") {
+    if (vc.has("0 14 * * 1-5")) {
       // Check if it's actually morning in ET (handles EST vs EDT)
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
@@ -33564,7 +33646,7 @@ Provide 3-5 actionable next steps:
     }
 
     // ── Daily Brief: Evening (5 PM ET = 22:00 UTC) ──
-    if (event.cron === "0 22 * * 1-5") {
+    if (vc.has("0 22 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
       if (h >= 16 && h <= 18) {
@@ -33585,7 +33667,7 @@ Provide 3-5 actionable next steps:
     }
 
     // ── Daily Brief: Cleanup (3 AM ET = 08:00 UTC) ──
-    if (event.cron === "0 8 * * 1-5") {
+    if (vc.has("0 8 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
       if (h >= 2 && h <= 4) {
@@ -33594,7 +33676,7 @@ Provide 3-5 actionable next steps:
     }
 
     // ── ETF Holdings Sync (7 AM ET = 12:00 UTC) ──
-    if (event.cron === "0 12 * * 1-5") {
+    if (vc.has("0 12 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
       const h = parseInt(etHour, 10);
       if (h >= 6 && h <= 8) {
@@ -33612,7 +33694,7 @@ Provide 3-5 actionable next steps:
 
     // Data lifecycle: aggregate timed_trail → trail_5m_facts, purge old raw data (4 AM UTC daily)
     // Also resolve expired model predictions.
-    if (event.cron === "0 4 * * *") {
+    if (vc.has("0 4 * * *")) {
       ctx.waitUntil(runDataLifecycle(env));
       // Resolve model predictions whose horizon has expired (non-blocking)
       if (env?.DB) {
@@ -33622,7 +33704,7 @@ Provide 3-5 actionable next steps:
             .catch((e) => console.warn(`[MODEL] Resolution failed:`, String(e?.message || e).slice(0, 200)))
         );
       }
-      return;
+      // Don't return — allow other hourly tasks to run
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -33633,9 +33715,9 @@ Provide 3-5 actionable next steps:
     //                     */5 0-1 * * 2-6    (7PM-8PM ET, every 5 min)
     // This cron fetches bars from Alpaca and stores them in D1.
     // ═══════════════════════════════════════════════════════════════════════
-    const isAlpacaBarCron = event.cron === "*/1 9-21 * * 1-5"
-      || event.cron === "*/5 21-23 * * 1-5"
-      || event.cron === "*/5 0-1 * * 2-6";
+    const isAlpacaBarCron = vc.has("*/1 9-21 * * 1-5")
+      || vc.has("*/5 21-23 * * 1-5")
+      || vc.has("*/5 0-1 * * 2-6");
     if (isAlpacaBarCron) {
       if (env.ALPACA_ENABLED === "true" && env.ALPACA_API_KEY_ID && env.ALPACA_API_SECRET_KEY) {
         try {
@@ -33670,22 +33752,18 @@ Provide 3-5 actionable next steps:
           console.error("[ALPACA CRYPTO CRON] Error:", err);
         }
       }
-      return; // Bar fetching only — scoring runs on the */5 cron
+      // Don't return — price feed may also run in the same invocation
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // PRICE FEED CRON (*/1 13-21 * * 1-5) — real-time price display + SL/TP checks
+    // PRICE FEED — real-time price display + SL/TP checks
     // Uses Alpaca Snapshots API for efficient batch price fetching.
     // Stores prices in KV as `timed:prices` for the UI to poll.
     // Also checks open positions against SL/TP levels.
     // ═══════════════════════════════════════════════════════════════════════
-    // Price feed: extended hours Mon-Fri + Sunday 6pm ET futures/crypto open
-    const PRICE_FEED_CRONS = new Set([
-      "*/1 9-23 * * 1-5",   // Mon-Fri pre-market + RTH + early AH
-      "*/1 0-1 * * 2-6",    // After-hours carry-over (next UTC day)
-      "*/5 22-23 * * 7",    // Sunday 5-6pm ET futures/crypto open
-    ]);
-    const isPriceFeedCron = PRICE_FEED_CRONS.has(event.cron);
+    const isPriceFeedCron = vc.has("*/1 9-23 * * 1-5")
+      || vc.has("*/1 0-1 * * 2-6")
+      || vc.has("*/5 22-23 * * 7");
     if (isPriceFeedCron && env.ALPACA_ENABLED === "true") {
       const KV = env.KV_TIMED;
       try {
@@ -34013,13 +34091,20 @@ Provide 3-5 actionable next steps:
           _debug: { d1PcCount, pcEqP, pcZero, pcReal, version: "v2-pickPrevClose" },
         });
 
-        // ── Freshness heartbeat: merge price + ingest_ts into timed:latest every minute ──
-        // Guarantees ingest_ts stays fresh even when scoring fails or is skipped.
-        ctx.waitUntil(
-          mergeFreshnessIntoLatest(KV, prices).catch((e) =>
-            console.warn("[FRESHNESS] merge failed:", String(e).slice(0, 200)),
-          ),
-        );
+        // ── Freshness heartbeat: merge price + ingest_ts into timed:latest ──
+        // SKIP on scoring minutes (0, 5, 10, …) to avoid race with the */5 scoring cron.
+        // Both fire concurrently; the merge does read-modify-write of the full payload,
+        // so it can overwrite the fresh kanban_stage that scoring just computed.
+        // Scoring already embeds the latest price, so skipping here loses nothing.
+        if (_utcM % 5 !== 0) {
+          ctx.waitUntil(
+            mergeFreshnessIntoLatest(KV, prices).catch((e) =>
+              console.warn("[FRESHNESS] merge failed:", String(e).slice(0, 200)),
+            ),
+          );
+        } else {
+          console.log(`[FRESHNESS] Skipped at :${String(_utcM).padStart(2,"0")} — scoring cron handles price updates`);
+        }
 
         // ── Push prices to WebSocket clients via PriceHub DO ──
         ctx.waitUntil(notifyPriceHub(env, {
@@ -34081,119 +34166,42 @@ Provide 3-5 actionable next steps:
 
         console.log(`[PRICE FEED] Updated ${Object.keys(prices).length} tickers`);
 
-        // ── Chain: trigger full scoring immediately after price refresh ──
-        // Every 5th minute (0, 5, 10, ...) we chain a full scoring pass.
-        // This ensures scoring always uses the freshest prices.
-        const minute = new Date().getUTCMinutes();
-        if (minute % 5 === 0) {
-          ctx.waitUntil((async () => {
-            try {
-              const scoreStart = Date.now();
-              const scoreTickers = Object.keys(SECTOR_MAP);
-              const removedForScore = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-              const activeForScore = scoreTickers.filter(t => !removedForScore.has(t));
-              
-              // Get open positions for priority and kanban context
-              const openTradesForScore = ((await kvGetJSON(KV, "timed:trades:all")) || [])
-                .filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
-              const openTickerSetForScore = new Set(openTradesForScore.map(t => String(t.ticker || "").toUpperCase()));
-              const marketOpen = isNyRegularMarketOpen();
-
-              let scored = 0, skipped = 0, errors = 0;
-              const PARALLEL = 15;
-
-              const scoreOne = async (ticker) => {
-                try {
-                  const existing = await kvGetJSON(KV, `timed:latest:${ticker}`);
-
-                  // Batch-fetch all TFs in 1 D1 call (same optimization as main scoring cron)
-                  const tfConfigs = [
-                    { tf: "W", limit: 300 }, { tf: "D", limit: 300 },
-                    { tf: "240", limit: 300 }, { tf: "60", limit: 300 },
-                    { tf: "30", limit: 300 }, { tf: "10", limit: 300 },
-                    { tf: "5", limit: 300 }, { tf: "1", limit: 60 },
-                    { tf: "M", limit: 60 },
-                  ];
-                  const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
-                  const getCandlesCached = async (_env, _ticker, tf, _limit) => {
-                    const tfKey = normalizeTfKey(tf);
-                    return candleCache[tfKey] || { ok: false, candles: [] };
-                  };
-
-                  const result = await computeServerSideScores(ticker, getCandlesCached, env, existing);
-                  if (!result) {
-                    if (existing && typeof existing === "object") {
-                      const now = Date.now();
-                      existing.trigger_ts = now;
-                      existing.data_source_ts = now;
-                      existing.ingest_ts = now;
-                      existing.ingest_time = new Date(now).toISOString();
-                      existing._scoring_skip_reason = "insufficient_candle_data";
-                      await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
-                    }
-                    skipped++; return;
-                  }
-
-                  const now = Date.now();
-                  result.data_source = "alpaca";
-                  result.data_source_ts = now;
-                  result.trigger_ts = now;
-                  result.ingest_ts = now;
-                  result.ingest_time = new Date(now).toISOString();
-
-                  // Kanban stage
-                  const openPos = openTradesForScore.find(t => String(t.ticker || "").toUpperCase() === ticker) || null;
-                  if (openPos) {
-                    result.kanban_stage = classifyKanbanStage(result, openPos);
-                  } else if (marketOpen) {
-                    result.kanban_stage = classifyKanbanStage(result);
-                  } else {
-                    result.kanban_stage = existing?.kanban_stage || classifyKanbanStage(result);
-                  }
-
-                  const triggerStale = !existing?.trigger_ts || (Date.now() - existing.trigger_ts) > 6 * 60 * 60 * 1000;
-                  if (hasPayloadChangedMeaningfully(existing, result) || triggerStale) {
-                    await kvPutJSON(KV, `timed:latest:${ticker}`, result);
-                    scored++;
-                  } else {
-                    skipped++;
-                  }
-                } catch { errors++; }
-              };
-
-              // Score all tickers in parallel batches
-              for (let i = 0; i < activeForScore.length; i += PARALLEL) {
-                const batch = activeForScore.slice(i, i + PARALLEL);
-                await Promise.allSettled(batch.map(scoreOne));
-              }
-
-              console.log(`[PRICE→SCORE CHAIN] ${scored} scored, ${skipped} skipped, ${errors} errors, ${Date.now() - scoreStart}ms, ${activeForScore.length} tickers`);
-            } catch (e) {
-              console.error("[PRICE→SCORE CHAIN] Error:", String(e));
-            }
-          })());
-        }
+        // NOTE: Scoring chain removed from price feed to prevent dual-scoring race.
+        // The */5 cron handler is the SOLE scoring loop. Running scoring here AND
+        // in the */5 handler caused concurrent KV writes → kanban stage oscillation.
       } catch (e) {
         console.error("[PRICE FEED] Error:", e);
       }
+      // Don't return — D1 sync below may also run
+    }
+
+    // ── End of every-minute handler (price feed + Alpaca bars) ──
+    if (_isEveryMin) {
+      // D1 sync on non-scoring minutes (only for every-minute handler)
+      const KV_1m = env.KV_TIMED;
+      const _min1 = _now.getUTCMinutes();
+      if (_min1 % 5 !== 0) {
+        try {
+          ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 25));
+        } catch (e) {
+          console.error("[D1 SYNC] scheduled kickoff failed:", String(e));
+        }
+      }
       return;
     }
+
+    // ── End of hourly handler (briefs + lifecycle + investor) ──
+    if (_isHourly) return;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // BELOW: only runs for the */5 cron handler (scoring + AI + ML)
+    // ═══════════════════════════════════════════════════════════════════════
 
     const KV = env.KV_TIMED;
     const now = new Date();
     const hour = now.getUTCHours();
     const minute = now.getUTCMinutes();
     const processedTickers = new Set();
-
-    // KV → D1 warm-up: skip during scoring-heavy minutes (0, 5, 10, ...)
-    // to leave subrequest budget for scoring. Run on off-minutes only.
-    if (minute % 5 !== 0) {
-      try {
-        ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 25));
-      } catch (e) {
-        console.error("[D1 SYNC] scheduled kickoff failed:", String(e));
-      }
-    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // SCORING CRON (*/5) — PRIMARY SCORING LOOP
@@ -34661,6 +34669,54 @@ Provide 3-5 actionable next steps:
           if (reconciled > 0 || orphaned > 0) {
             console.log(`[POSITION RECONCILE] Summary: ${reconciled} reconciled, ${orphaned} orphaned`);
           }
+        }
+
+        // ── REVERSE RECONCILIATION: Clean up KV trades that have no D1 OPEN position ──
+        // Catches phantom trades (KV says OPEN, D1 says CLOSED/missing).
+        // D1 positions table is the source of truth for open/closed status.
+        try {
+          const tradesKey = "timed:trades:all";
+          const kvTrades = (await kvGetJSON(KV, tradesKey)) || [];
+          const d1OpenTickers = new Set(openPositions.map(p => String(p.ticker).toUpperCase()));
+          let staleFixed = 0;
+          let dupsRemoved = 0;
+          const seenOpen = new Set(); // for deduplication
+          const cleanedTrades = [];
+
+          for (const trade of kvTrades) {
+            const sym = String(trade?.ticker || "").toUpperCase();
+            const isOpen = trade.status === "OPEN" || trade.status === "TP_HIT_TRIM" || !trade.status;
+
+            if (isOpen) {
+              // Check 1: Is there a matching D1 OPEN position?
+              if (!d1OpenTickers.has(sym)) {
+                // D1 says closed/missing → close the KV trade
+                trade.status = trade.status === "TP_HIT_TRIM" ? "WIN" : "CLOSED";
+                trade.exit_reason = trade.exit_reason || "reconciled_no_d1_position";
+                trade.exitTime = trade.exitTime || new Date().toISOString();
+                staleFixed++;
+                console.log(`[TRADE RECONCILE] Closed stale KV trade: ${sym} (no D1 OPEN position)`);
+              }
+              // Check 2: Deduplicate (only one OPEN trade per ticker)
+              const stillOpen = trade.status === "OPEN" || trade.status === "TP_HIT_TRIM";
+              if (stillOpen && seenOpen.has(sym)) {
+                trade.status = "CLOSED";
+                trade.exit_reason = "dedup_reconcile";
+                trade.exitTime = trade.exitTime || new Date().toISOString();
+                dupsRemoved++;
+                console.log(`[TRADE RECONCILE] Removed duplicate KV trade: ${sym}`);
+              }
+              if (stillOpen) seenOpen.add(sym);
+            }
+            cleanedTrades.push(trade);
+          }
+
+          if (staleFixed > 0 || dupsRemoved > 0) {
+            await kvPutJSON(KV, tradesKey, cleanedTrades);
+            console.log(`[TRADE RECONCILE] Fixed ${staleFixed} stale, ${dupsRemoved} duplicates. KV trades: ${cleanedTrades.length} total, ${cleanedTrades.filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM").length} open`);
+          }
+        } catch (tradeReconcileErr) {
+          console.warn("[TRADE RECONCILE] Error:", String(tradeReconcileErr).slice(0, 200));
         }
       }
     } catch (reconcileErr) {

@@ -121,7 +121,8 @@
 
     <script src="auth-gate.js"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
-    <script src="shared-right-rail.compiled.js?v=20260211e" type="text/babel"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="shared-right-rail.compiled.js?v=20260213b" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, memo, useRef } = React;
 
@@ -400,14 +401,24 @@
                 const existing = updated[key];
                 if (!existing || !(priceInfo.p > 0)) continue;
                 if (existing._live_price === priceInfo.p && existing._live_daily_change_pct === priceInfo.dp) continue;
+                // Smart prev_close: reject feed's pc when it ≈ current price
+                // (Alpaca returns prevDailyBar.close = current price outside RTH → 0% daily change).
+                const feedPc = Number(priceInfo.pc);
+                const feedP = Number(priceInfo.p);
+                const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0
+                  && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
+                const bestPc = feedPcUsable
+                  ? feedPc
+                  : (existing._live_prev_close || existing.prev_close || undefined);
+                // Same for day_change: only use feed values when they're actually meaningful
+                const useFeedChg = feedPcUsable && Number.isFinite(priceInfo.dp) && Math.abs(priceInfo.dp) > 0.001;
                 updated[key] = {
                   ...existing,
                   price: priceInfo.p,
-                  prev_close: priceInfo.pc > 0 ? priceInfo.pc : (existing.prev_close || undefined),
-                  day_change: priceInfo.dc,
-                  day_change_pct: priceInfo.dp,
                   _live_price: priceInfo.p,
-                  _live_prev_close: priceInfo.pc,
+                  ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
+                  ...(useFeedChg ? { day_change: priceInfo.dc, day_change_pct: priceInfo.dp } : {}),
+                  ...(feedPcUsable && bestPc > 0 ? { prev_close: bestPc } : {}),
                   _live_daily_change: priceInfo.dc,
                   _live_daily_change_pct: priceInfo.dp,
                   _price_updated_at: json.updated_at || Date.now(),

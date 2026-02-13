@@ -2425,7 +2425,7 @@ export async function alpacaCronFetchCrypto(env) {
         }
       }
 
-      const BATCH_SIZE = 500;
+      const BATCH_SIZE = 100; // D1 safe batch limit
       for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
         const chunk = stmts.slice(i, i + BATCH_SIZE);
         try {
@@ -2717,14 +2717,18 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
     return { ok: false, error: "no_db_binding" };
   }
 
-  // 4-group rotation to spread API load across cron ticks.
-  // Alpaca multi-symbol endpoint limit is TOTAL across all symbols (not per-symbol),
-  // so we use alpacaFetchAllBars with pagination to get complete coverage.
+  // 4-group TF rotation × 2-group ticker rotation = 8 combinations.
+  // Each cron tick (1 per minute) processes 1 TF group × 1 ticker half.
+  // This keeps each invocation's D1 write volume under the wall-clock time limit.
   //
-  // Group 0: D, W, M          — daily+ TFs, small payloads
-  // Group 1: 30, 60, 240      — medium-frequency intraday
-  // Group 2: 5, 10             — scoring-critical intraday
-  // Group 3: 1                 — 1-minute bars (largest payload)
+  // TF Groups:
+  //   0: D, W, M          — daily+ TFs, small payloads
+  //   1: 30, 60, 240      — medium-frequency intraday
+  //   2: 5, 10             — scoring-critical intraday
+  //   3: 1                 — 1-minute bars (largest payload)
+  //
+  // Ticker halves: even minutes → first half, odd → second half.
+  // Each ticker gets refreshed every 8 minutes (4 TF groups × 2 halves).
   const TF_GROUPS = [
     ["D", "W", "M"],
     ["30", "60", "240"],
@@ -2734,6 +2738,12 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
   const minuteOfHour = new Date().getUTCMinutes();
   const groupIdx = minuteOfHour % TF_GROUPS.length;
   const tfsThisCycle = TF_GROUPS[groupIdx];
+
+  // Split tickers into 2 halves to reduce per-invocation load
+  const halfIdx = Math.floor(minuteOfHour / TF_GROUPS.length) % 2;
+  const mid = Math.ceil(allTickers.length / 2);
+  const tickersThisCycle = halfIdx === 0 ? allTickers.slice(0, mid) : allTickers.slice(mid);
+  console.log(`[ALPACA CRON] Group ${groupIdx} TFs=[${tfsThisCycle}] half=${halfIdx} tickers=${tickersThisCycle.length}/${allTickers.length}`);
 
   // Lookback windows per TF — just enough to catch up if a cron tick was missed.
   // Shorter windows = smaller Alpaca responses = faster fetches.
@@ -2757,7 +2767,8 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
       const lookback = TF_LOOKBACK_MS[tf] || 24 * 60 * 60 * 1000;
       const start = new Date(Date.now() - lookback).toISOString();
       // Use paginated fetch — limit=10000 per page (Alpaca max), auto-paginates
-      const barsBySymbol = await alpacaFetchAllBars(env, allTickers, tf, start, null, 10000);
+      // Uses tickersThisCycle (half the full list) to stay within wall-clock time limits
+      const barsBySymbol = await alpacaFetchAllBars(env, tickersThisCycle, tf, start, null, 10000);
 
       // Collect all candle statements for batch execution.
       // D1 batch() executes multiple statements in a single round trip,
@@ -2783,8 +2794,8 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
         }
       }
 
-      // D1 batch limit is 500 statements per batch call.
-      // Chunk into batches and execute sequentially.
+      // D1 batch limit: paid plans support up to 5000 statements per batch.
+      // Use 500 to keep round-trips low while staying safe.
       const BATCH_SIZE = 500;
       for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
         const chunk = stmts.slice(i, i + BATCH_SIZE);
@@ -2792,8 +2803,18 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
           await db.batch(chunk);
           totalUpserted += chunk.length;
         } catch (batchErr) {
-          console.error(`[ALPACA CRON] Batch ${i / BATCH_SIZE} for TF ${tf} failed:`, String(batchErr).slice(0, 200));
-          totalErrors += chunk.length;
+          // If large batch fails, retry with smaller chunks (100)
+          console.warn(`[ALPACA CRON] Batch ${i / BATCH_SIZE} (${chunk.length} stmts) for TF ${tf} failed, retrying in smaller chunks:`, String(batchErr).slice(0, 200));
+          for (let j = 0; j < chunk.length; j += 100) {
+            const smallChunk = chunk.slice(j, j + 100);
+            try {
+              await db.batch(smallChunk);
+              totalUpserted += smallChunk.length;
+            } catch (smallErr) {
+              console.error(`[ALPACA CRON] Small batch retry failed for TF ${tf}:`, String(smallErr).slice(0, 200));
+              totalErrors += smallChunk.length;
+            }
+          }
         }
       }
     } catch (err) {
@@ -2802,8 +2823,8 @@ export async function alpacaCronFetchLatest(env, allTickers, upsertCandle) {
     }
   }
 
-  console.log(`[ALPACA CRON] Group ${groupIdx} TFs=[${tfsThisCycle}] upserted=${totalUpserted} errors=${totalErrors}`);
-  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: allTickers.length, group: groupIdx, tfs: tfsThisCycle };
+  console.log(`[ALPACA CRON] Group ${groupIdx} half=${halfIdx} TFs=[${tfsThisCycle}] tickers=${tickersThisCycle.length} upserted=${totalUpserted} errors=${totalErrors}`);
+  return { ok: true, upserted: totalUpserted, errors: totalErrors, tickers: tickersThisCycle.length, totalTickers: allTickers.length, group: groupIdx, half: halfIdx, tfs: tfsThisCycle };
 }
 
 /**
@@ -2865,7 +2886,7 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
 
   // Process in symbol batches; 4H uses smaller batches to avoid Alpaca pagination timeouts
   const getBatchSize = (tf) => tf === "240" ? 15 : 50;
-  const BATCH_SIZE = 500; // D1 batch limit
+  const BATCH_SIZE = 100; // D1 safe batch limit
 
   for (let tfIdx = 0; tfIdx < tfsToBackfill.length; tfIdx++) {
     const tf = tfsToBackfill[tfIdx];
@@ -2885,8 +2906,52 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", since
       errors: totalErrors,
     });
 
-    for (let i = 0; i < tickers.length; i += batchSize) {
-      const batch = tickers.slice(i, i + batchSize);
+    // Separate crypto tickers from stock tickers — crypto uses a different Alpaca endpoint
+    const cryptoTickers = tickers.filter(t => CRYPTO_SYMBOL_MAP[t]);
+    const stockTickers = tickers.filter(t => !CRYPTO_SYMBOL_MAP[t]);
+
+    // Backfill crypto tickers first (separate endpoint)
+    if (cryptoTickers.length > 0) {
+      try {
+        const cryptoBars = await alpacaFetchCryptoBars(env, cryptoTickers, tf, start, null, 10000);
+        const stmts = [];
+        const updatedAt = Date.now();
+        for (const [sym, bars] of Object.entries(cryptoBars)) {
+          if (!Array.isArray(bars)) continue;
+          for (const bar of bars) {
+            const candle = alpacaBarToCandle(bar);
+            if (!candle || !Number.isFinite(candle.ts)) continue;
+            const { ts, o, h, l, c, v } = candle;
+            if (![o, h, l, c].every(x => Number.isFinite(x))) continue;
+            stmts.push(
+              db.prepare(
+                `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+                   o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
+                   updated_at=excluded.updated_at`
+              ).bind(sym.toUpperCase(), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
+            );
+          }
+        }
+        for (let j = 0; j < stmts.length; j += BATCH_SIZE) {
+          const chunk = stmts.slice(j, j + BATCH_SIZE);
+          try {
+            await db.batch(chunk);
+            totalUpserted += chunk.length;
+          } catch (batchErr) {
+            console.error(`[ALPACA BACKFILL] Crypto TF ${tf} batch chunk failed:`, String(batchErr).slice(0, 200));
+            totalErrors += chunk.length;
+          }
+        }
+        console.log(`[ALPACA BACKFILL] Crypto TF ${tf}: ${stmts.length} candles`);
+      } catch (cryptoErr) {
+        console.error(`[ALPACA BACKFILL] Crypto TF ${tf} failed:`, String(cryptoErr).slice(0, 200));
+      }
+    }
+
+    for (let i = 0; i < stockTickers.length; i += batchSize) {
+      const batch = stockTickers.slice(i, i + batchSize);
       try {
         const allBars = await alpacaFetchAllBars(env, batch, tf, start, null, 10000);
 

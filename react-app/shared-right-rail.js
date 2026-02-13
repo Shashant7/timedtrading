@@ -59,6 +59,333 @@
     const isNyRegularMarketOpen = deps.isNyRegularMarketOpen;
     const downsampleByInterval = deps.downsampleByInterval;
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // TradingView Lightweight Charts Sub-Component for Right Rail
+    // ═══════════════════════════════════════════════════════════════════════
+    function LWChart({ candles: rawCandles, chartTf, overlays, onCrosshair }) {
+      const containerRef = useRef(null);
+      const chartInstanceRef = useRef(null);
+      const candleSeriesRef = useRef(null);
+      const overlaySeriesRef = useRef({});
+      const [ohlcHeader, setOhlcHeader] = useState(null);
+
+      const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+
+      // Normalize candles
+      const mapped = useMemo(() => {
+        if (!rawCandles || rawCandles.length < 2) return [];
+        const toSec = (v) => {
+          if (!v) return 0;
+          const n = Number(v);
+          return n > 1e12 ? Math.floor(n / 1000) : n > 1e9 ? n : 0;
+        };
+        return rawCandles
+          .map(c => {
+            const ts = toSec(c.ts ?? c.t ?? c.time ?? c.timestamp);
+            const o = Number(c.o ?? c.open);
+            const h = Number(c.h ?? c.high);
+            const l = Number(c.l ?? c.low);
+            const cl = Number(c.c ?? c.close);
+            if (!ts || !Number.isFinite(o) || !Number.isFinite(h)) return null;
+            return { time: ts, open: o, high: h, low: l, close: cl };
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.time - b.time)
+          // Deduplicate timestamps (keep last)
+          .filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
+      }, [rawCandles]);
+
+      // Compute indicator overlays
+      const indicatorData = useMemo(() => {
+        if (mapped.length < 5) return {};
+        const closes = mapped.map(c => c.close);
+        const highs = mapped.map(c => c.high);
+        const lows = mapped.map(c => c.low);
+        const n = closes.length;
+        const result = {};
+
+        // EMA computation
+        const computeEMA = (data, period) => {
+          const k = 2 / (period + 1);
+          const out = new Array(data.length).fill(null);
+          if (data.length >= period) {
+            let s = 0;
+            for (let j = 0; j < period; j++) s += data[j];
+            out[period - 1] = s / period;
+            for (let j = period; j < data.length; j++) out[j] = data[j] * k + out[j - 1] * (1 - k);
+          } else {
+            out[0] = data[0];
+            for (let j = 1; j < data.length; j++) out[j] = data[j] * k + out[j - 1] * (1 - k);
+          }
+          return out;
+        };
+
+        if (overlays.ema21) {
+          const ema = computeEMA(closes, 21);
+          result.ema21 = mapped.map((c, i) => ema[i] != null ? { time: c.time, value: ema[i] } : null).filter(Boolean);
+        }
+        if (overlays.ema48) {
+          const ema = computeEMA(closes, 48);
+          result.ema48 = mapped.map((c, i) => ema[i] != null ? { time: c.time, value: ema[i] } : null).filter(Boolean);
+        }
+        if (overlays.ema200) {
+          const ema = computeEMA(closes, 200);
+          result.ema200 = mapped.map((c, i) => ema[i] != null ? { time: c.time, value: ema[i] } : null).filter(Boolean);
+        }
+
+        // SuperTrend (period=10, multiplier=3)
+        if (overlays.supertrend && n >= 11) {
+          const stP = 10, stM = 3;
+          const tr = new Array(n).fill(0);
+          for (let i = 1; i < n; i++) tr[i] = Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1]));
+          const atr = new Array(n).fill(0);
+          for (let i = stP; i < n; i++) {
+            let s = 0; for (let j = i - stP; j < i; j++) s += tr[j + 1]; atr[i] = s / stP;
+          }
+          const upArr = [], dnArr = [], dirArr = [];
+          for (let i = 0; i < n; i++) { upArr.push(0); dnArr.push(0); dirArr.push(1); }
+          for (let i = stP; i < n; i++) {
+            const mid = (highs[i] + lows[i]) / 2;
+            let up = mid - stM * atr[i];
+            let dn = mid + stM * atr[i];
+            if (i > stP) {
+              up = (closes[i-1] > upArr[i-1]) ? Math.max(up, upArr[i-1]) : up;
+              dn = (closes[i-1] < dnArr[i-1]) ? Math.min(dn, dnArr[i-1]) : dn;
+            }
+            upArr[i] = up; dnArr[i] = dn;
+            if (i > stP) {
+              if (dirArr[i-1] === 1) dirArr[i] = closes[i] < upArr[i] ? -1 : 1;
+              else dirArr[i] = closes[i] > dnArr[i] ? 1 : -1;
+            }
+          }
+          // SuperTrend as two separate series (bull/bear) for coloring
+          result.stBull = mapped.map((c, i) => i >= stP && dirArr[i] === 1 ? { time: c.time, value: upArr[i] } : null).filter(Boolean);
+          result.stBear = mapped.map((c, i) => i >= stP && dirArr[i] === -1 ? { time: c.time, value: dnArr[i] } : null).filter(Boolean);
+        }
+
+        // TD Sequential
+        if (overlays.tdSequential && n >= 14) {
+          const PREP_COMP = 4;
+          let bullPrep = 0, bearPrep = 0;
+          const markers = [];
+          for (let i = PREP_COMP; i < n; i++) {
+            const cc = closes[i];
+            const cComp = closes[i - PREP_COMP];
+            bullPrep = cc < cComp ? bullPrep + 1 : 0;
+            bearPrep = cc > cComp ? bearPrep + 1 : 0;
+            if (bullPrep >= 7 || bearPrep >= 7) {
+              const count = bullPrep >= 7 ? bullPrep : bearPrep;
+              const isBull = bullPrep >= 7;
+              if (count >= 7 && count <= 9) {
+                markers.push({
+                  time: mapped[i].time,
+                  position: isBull ? "belowBar" : "aboveBar",
+                  color: isBull ? "#22c55e" : "#ef4444",
+                  shape: count === 9 ? "circle" : "arrowUp",
+                  text: String(count),
+                });
+              }
+            }
+          }
+          result.tdMarkers = markers;
+        }
+
+        return result;
+      }, [mapped, overlays]);
+
+      // Create / update chart
+      useEffect(() => {
+        if (!containerRef.current || !LWC || mapped.length < 2) return;
+
+        // Create chart
+        const chart = LWC.createChart(containerRef.current, {
+          width: containerRef.current.clientWidth,
+          height: 320,
+          layout: {
+            background: { type: "solid", color: "#0b0e11" },
+            textColor: "#6b7280",
+            fontSize: 10,
+          },
+          grid: {
+            vertLines: { color: "rgba(38,50,95,0.35)" },
+            horzLines: { color: "rgba(38,50,95,0.35)" },
+          },
+          crosshair: {
+            mode: LWC.CrosshairMode.Normal,
+            vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+            horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" },
+          },
+          rightPriceScale: {
+            borderColor: "rgba(38,50,95,0.5)",
+            scaleMargins: { top: 0.05, bottom: 0.05 },
+          },
+          timeScale: {
+            borderColor: "rgba(38,50,95,0.5)",
+            timeVisible: !["D", "W", "M"].includes(String(chartTf)),
+            secondsVisible: false,
+          },
+          handleScroll: { vertTouchDrag: false },
+        });
+        chartInstanceRef.current = chart;
+
+        // Candlestick series
+        const candleSeries = chart.addCandlestickSeries({
+          upColor: "rgba(56,189,248,0.95)",
+          downColor: "rgba(251,146,60,0.95)",
+          borderUpColor: "rgba(56,189,248,0.95)",
+          borderDownColor: "rgba(251,146,60,0.95)",
+          wickUpColor: "rgba(56,189,248,0.80)",
+          wickDownColor: "rgba(251,146,60,0.80)",
+        });
+        candleSeries.setData(mapped);
+        candleSeriesRef.current = candleSeries;
+
+        // Overlay series
+        const addedSeries = {};
+        if (indicatorData.ema21?.length > 0) {
+          const s = chart.addLineSeries({ color: "#fbbf24", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema21);
+          addedSeries.ema21 = s;
+        }
+        if (indicatorData.ema48?.length > 0) {
+          const s = chart.addLineSeries({ color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema48);
+          addedSeries.ema48 = s;
+        }
+        if (indicatorData.ema200?.length > 0) {
+          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.ema200);
+          addedSeries.ema200 = s;
+        }
+        if (indicatorData.stBull?.length > 0) {
+          const s = chart.addLineSeries({ color: "#34d399", lineWidth: 2, lineStyle: LWC.LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.stBull);
+          addedSeries.stBull = s;
+        }
+        if (indicatorData.stBear?.length > 0) {
+          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 2, lineStyle: LWC.LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false });
+          s.setData(indicatorData.stBear);
+          addedSeries.stBear = s;
+        }
+        // TD Sequential markers
+        if (indicatorData.tdMarkers?.length > 0) {
+          candleSeries.setMarkers(indicatorData.tdMarkers);
+        }
+        overlaySeriesRef.current = addedSeries;
+
+        // Crosshair move → OHLC header
+        chart.subscribeCrosshairMove(param => {
+          if (!param.time || !param.seriesData) {
+            setOhlcHeader(null);
+            return;
+          }
+          const candleData = param.seriesData.get(candleSeries);
+          if (candleData) {
+            setOhlcHeader({
+              time: param.time,
+              o: candleData.open,
+              h: candleData.high,
+              l: candleData.low,
+              c: candleData.close,
+            });
+          }
+        });
+
+        chart.timeScale().fitContent();
+
+        // Resize
+        const handleResize = () => {
+          if (containerRef.current && chart) {
+            chart.applyOptions({ width: containerRef.current.clientWidth });
+          }
+        };
+        window.addEventListener("resize", handleResize);
+
+        return () => {
+          window.removeEventListener("resize", handleResize);
+          chart.remove();
+          chartInstanceRef.current = null;
+          candleSeriesRef.current = null;
+          overlaySeriesRef.current = {};
+        };
+      }, [mapped, indicatorData, chartTf, LWC]);
+
+      if (!LWC) {
+        return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
+      }
+
+      // OHLC header data
+      const hdr = ohlcHeader || (mapped.length > 0 ? {
+        time: mapped[mapped.length - 1].time,
+        o: mapped[mapped.length - 1].open,
+        h: mapped[mapped.length - 1].high,
+        l: mapped[mapped.length - 1].low,
+        c: mapped[mapped.length - 1].close,
+      } : null);
+      const hdrUp = hdr ? hdr.c >= hdr.o : true;
+      const hdrChg = hdr ? hdr.c - hdr.o : 0;
+      const hdrPct = hdr && hdr.o ? (hdrChg / hdr.o * 100) : 0;
+
+      // Format time
+      let hdrTimeStr = "";
+      if (hdr) {
+        try {
+          const d = new Date(hdr.time * 1000);
+          const isDWM = ["D", "W", "M"].includes(String(chartTf));
+          hdrTimeStr = isDWM
+            ? d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })
+            : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+        } catch {}
+      }
+
+      return React.createElement("div", { className: "w-full relative -mx-3 px-3" },
+        // Overlay toggles
+        React.createElement("div", { className: "flex items-center gap-1.5 mb-1 flex-wrap" },
+          [
+            { key: "ema21", label: "21 EMA", color: "#fbbf24" },
+            { key: "ema48", label: "48 EMA", color: "#a78bfa" },
+            { key: "ema200", label: "200 EMA", color: "#f87171" },
+            { key: "supertrend", label: "SuperTrend", color: "#34d399" },
+            { key: "tdSequential", label: "TD Seq", color: "#f59e0b" },
+          ].map(ov =>
+            React.createElement("button", {
+              key: ov.key,
+              onClick: () => onCrosshair?.(ov.key), // toggle overlay via parent
+              className: `px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${
+                overlays[ov.key]
+                  ? "border-white/20 text-white"
+                  : "border-white/[0.06] text-[#555] hover:text-[#6b7280]"
+              }`,
+              style: overlays[ov.key] ? { borderColor: ov.color + "80", color: ov.color, background: ov.color + "15" } : {},
+            }, ov.label)
+          )
+        ),
+        // OHLC header
+        hdr && React.createElement("div", { className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none" },
+          React.createElement("span", { className: "text-[#6b7280]" }, hdrTimeStr),
+          React.createElement("span", { className: "text-[#6b7280]" }, "O"), React.createElement("span", { className: "text-white" }, hdr.o?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6b7280]" }, "H"), React.createElement("span", { className: "text-sky-300" }, hdr.h?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6b7280]" }, "L"), React.createElement("span", { className: "text-orange-300" }, hdr.l?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6b7280]" }, "C"),
+          React.createElement("span", { className: hdrUp ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold" }, hdr.c?.toFixed(2)),
+          React.createElement("span", { className: hdrUp ? "text-teal-400" : "text-rose-400" },
+            `${hdrUp ? "+" : ""}${hdrChg.toFixed(2)} (${hdrUp ? "+" : ""}${hdrPct.toFixed(2)}%)`)
+        ),
+        // Chart container
+        React.createElement("div", {
+          ref: containerRef,
+          className: "rounded-lg overflow-hidden",
+          style: { height: 320, background: "#0b0e11" },
+        }),
+        // Status bar
+        React.createElement("div", { className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between" },
+          React.createElement("span", null,
+            `${["D","W","M"].includes(String(chartTf)) ? (chartTf === "D" ? "Daily" : chartTf === "W" ? "Weekly" : "Monthly") : Number(chartTf) >= 60 ? `${Number(chartTf)/60}H` : `${chartTf}m`} • ${mapped.length} bars`),
+          React.createElement("span", { className: "text-[#555] text-[9px]" }, "scroll to zoom • drag to pan"),
+        )
+      );
+    }
+
     return function TickerDetailRightRail({
         ticker,
         trade = null,
@@ -1316,523 +1643,14 @@
                           </div>
                         ) : (
                           (() => {
-                            try {
-                              const toMs = (v) => {
-                                if (v == null) return NaN;
-                                if (typeof v === "number") {
-                                  return v > 1e12 ? v : v * 1000;
-                                }
-                                const n = Number(v);
-                                if (Number.isFinite(n)) return n > 1e12 ? n : n * 1000;
-                                const d = new Date(String(v));
-                                const ms = d.getTime();
-                                return Number.isFinite(ms) ? ms : NaN;
-                              };
-
-                              const norm = (c) => {
-                                const tsRaw = c?.ts ?? c?.t ?? c?.time ?? c?.timestamp;
-                                const tsMs = toMs(tsRaw);
-                                const o = Number(c?.o ?? c?.open);
-                                const h = Number(c?.h ?? c?.high);
-                                const l = Number(c?.l ?? c?.low);
-                                const cl = Number(c?.c ?? c?.close);
-                                if (
-                                  !Number.isFinite(tsMs) ||
-                                  !Number.isFinite(o) ||
-                                  !Number.isFinite(h) ||
-                                  !Number.isFinite(l) ||
-                                  !Number.isFinite(cl)
-                                )
-                                  return null;
-                                return { ...c, ts: tsMs, __ts_ms: tsMs, o, h, l, c: cl };
-                              };
-
-                              let candles = (Array.isArray(chartCandles) ? chartCandles : [])
-                                .slice(-400)
-                                .map(norm)
-                                .filter(Boolean);
-
-                              candles.sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms));
-
-                              // Snap intraday timestamps to clean timeframe boundaries
-                              // e.g. 10m candle at 9:33 → 9:30, 4H candle at 10:15 → 9:30
-                              const tfMin = chartTf === "D" ? 0 : chartTf === "W" ? 0 : chartTf === "M" ? 0 : Number(chartTf);
-                              if (Number.isFinite(tfMin) && tfMin > 0) {
-                                const ivMs = tfMin * 60 * 1000;
-                                candles = candles.map(c => {
-                                  const snapped = Math.floor(c.__ts_ms / ivMs) * ivMs;
-                                  return { ...c, ts: snapped, __ts_ms: snapped };
-                                });
-                                // Re-dedupe after snapping (aggregate candles that land in same bucket)
-                                const snappedMap = new Map();
-                                for (const c of candles) {
-                                  const key = c.__ts_ms;
-                                  const prev = snappedMap.get(key);
-                                  if (!prev) {
-                                    snappedMap.set(key, { ...c });
-                                  } else {
-                                    // Aggregate: keep first open, max high, min low, last close
-                                    prev.h = Math.max(prev.h, c.h);
-                                    prev.l = Math.min(prev.l, c.l);
-                                    prev.c = c.c; // last close wins
-                                  }
-                                }
-                                candles = Array.from(snappedMap.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
-                              }
-
-                              // Daily dedup: group by ET calendar date, keep the market-close candle (latest per day)
-                              // This prevents duplicate bars from midnight vs 4PM ET timestamps.
-                              if (String(chartTf) === "D") {
-                                const byDate = new Map();
-                                for (const c of candles) {
-                                  const etDate = new Date(c.__ts_ms - 5 * 3600 * 1000);
-                                  const dateKey = `${etDate.getUTCFullYear()}-${String(etDate.getUTCMonth() + 1).padStart(2, "0")}-${String(etDate.getUTCDate()).padStart(2, "0")}`;
-                                  const prev = byDate.get(dateKey);
-                                  if (!prev || c.__ts_ms > prev.__ts_ms) {
-                                    byDate.set(dateKey, { ...c, _dateKey: dateKey });
-                                  } else {
-                                    prev.h = Math.max(prev.h, c.h);
-                                    prev.l = Math.min(prev.l, c.l);
-                                  }
-                                }
-                                candles = Array.from(byDate.values()).sort((a, b) => a.__ts_ms - b.__ts_ms);
-                              }
-
-                              const weekStartUtcMs = (tsMs) => {
-                                const d0 = new Date(Number(tsMs));
-                                const day = d0.getUTCDay();
-                                const daysSinceMon = (day + 6) % 7;
-                                const d = new Date(
-                                  d0.getTime() - daysSinceMon * 24 * 60 * 60 * 1000,
-                                );
-                                d.setUTCHours(0, 0, 0, 0);
-                                return d.getTime();
-                              };
-
-                              if (String(chartTf) === "W") {
-                                const byWeek = new Map();
-                                for (const c of candles) {
-                                  const wk = weekStartUtcMs(c.__ts_ms);
-                                  const prev = byWeek.get(wk);
-                                  if (!prev) {
-                                    byWeek.set(wk, {
-                                      ts: wk,
-                                      __ts_ms: wk,
-                                      o: Number(c.o),
-                                      h: Number(c.h),
-                                      l: Number(c.l),
-                                      c: Number(c.c),
-                                      _last_ts: Number(c.__ts_ms),
-                                    });
-                                  } else {
-                                    prev.h = Math.max(Number(prev.h), Number(c.h));
-                                    prev.l = Math.min(Number(prev.l), Number(c.l));
-                                    if (Number(c.__ts_ms) >= Number(prev._last_ts)) {
-                                      prev.c = Number(c.c);
-                                      prev._last_ts = Number(c.__ts_ms);
-                                    }
-                                  }
-                                }
-                                candles = Array.from(byWeek.values())
-                                  .sort((a, b) => Number(a.__ts_ms) - Number(b.__ts_ms))
-                                  .map((c) => {
-                                    const out = { ...c };
-                                    delete out._last_ts;
-                                    return out;
-                                  });
-                              } else {
-                                const byTs = new Map();
-                                for (const c of candles) byTs.set(Number(c.__ts_ms), c);
-                                candles = Array.from(byTs.values()).sort(
-                                  (a, b) => Number(a.__ts_ms) - Number(b.__ts_ms),
-                                );
-                              }
-
-                              const totalCandles = candles.length;
-                              if (totalCandles < 2) {
-                                return (
-                                  <div className="text-xs text-[#6b7280]">
-                                    Candle data loaded, but not in expected format.
-                                  </div>
-                                );
-                              }
-
-                            // ═══════════════════════════════════════════════════════════════
-                            // TradingView-style viewport rendering with zoom & pan
-                            // ═══════════════════════════════════════════════════════════════
-                            const visCount = Math.max(10, Math.min(totalCandles, chartVisibleCount));
-                            const endIdx = Math.max(visCount, totalCandles - chartEndOffset);
-                            const startIdx = Math.max(0, endIdx - visCount);
-                            const visibleCandles = candles.slice(startIdx, endIdx);
-                            const vn = visibleCandles.length;
-                            if (vn < 1) return null;
-
-                            // Compute overlays on ALL candles first (need full history for EMA accuracy)
-                            const computeEMA = (arr, period) => {
-                              if (arr.length < 2) return [];
-                              const k = 2 / (period + 1);
-                              const out = new Array(arr.length).fill(null);
-                              if (arr.length >= period) {
-                                let s = 0;
-                                for (let j = 0; j < period; j++) s += arr[j];
-                                out[period - 1] = s / period;
-                                for (let j = period; j < arr.length; j++) out[j] = arr[j] * k + out[j - 1] * (1 - k);
-                              } else {
-                                out[0] = arr[0];
-                                for (let j = 1; j < arr.length; j++) out[j] = arr[j] * k + out[j - 1] * (1 - k);
-                              }
-                              return out;
-                            };
-                            const allCloses = candles.map(c => Number(c.c));
-                            const allHighs = candles.map(c => Number(c.h));
-                            const allLows = candles.map(c => Number(c.l));
-                            const ema21Full = chartOverlays.ema21 ? computeEMA(allCloses, 21) : [];
-                            const ema48Full = chartOverlays.ema48 ? computeEMA(allCloses, 48) : [];
-                            const ema200Full = chartOverlays.ema200 ? computeEMA(allCloses, 200) : [];
-
-                            // SuperTrend on full data
-                            let superTrendFull = [];
-                            if (chartOverlays.supertrend && totalCandles >= 11) {
-                              const stP = 10, stM = 3;
-                              const tr = new Array(totalCandles).fill(0);
-                              for (let i = 1; i < totalCandles; i++) tr[i] = Math.max(allHighs[i] - allLows[i], Math.abs(allHighs[i] - allCloses[i-1]), Math.abs(allLows[i] - allCloses[i-1]));
-                              const atrArr = new Array(totalCandles).fill(null);
-                              let aSum = 0;
-                              for (let i = 1; i <= stP; i++) aSum += tr[i];
-                              atrArr[stP] = aSum / stP;
-                              for (let i = stP + 1; i < totalCandles; i++) atrArr[i] = tr[i] * (2/(stP+1)) + atrArr[i-1] * (1 - 2/(stP+1));
-                              const stUpArr = new Array(totalCandles).fill(null), stDnArr = new Array(totalCandles).fill(null), stDirArr = new Array(totalCandles).fill(1);
-                              superTrendFull = new Array(totalCandles).fill(null);
-                              for (let i = stP; i < totalCandles; i++) {
-                                if (!atrArr[i]) continue;
-                                const hl2 = (allHighs[i] + allLows[i]) / 2;
-                                let up = hl2 - stM * atrArr[i], dn = hl2 + stM * atrArr[i];
-                                if (stUpArr[i-1] != null) up = allCloses[i-1] > stUpArr[i-1] ? Math.max(up, stUpArr[i-1]) : up;
-                                if (stDnArr[i-1] != null) dn = allCloses[i-1] < stDnArr[i-1] ? Math.min(dn, stDnArr[i-1]) : dn;
-                                stUpArr[i] = up; stDnArr[i] = dn;
-                                if (i === stP) stDirArr[i] = allCloses[i] > dn ? 1 : -1;
-                                else { stDirArr[i] = stDirArr[i-1] === 1 && allCloses[i] < stUpArr[i] ? -1 : stDirArr[i-1] === -1 && allCloses[i] > stDnArr[i] ? 1 : stDirArr[i-1]; }
-                                superTrendFull[i] = { val: stDirArr[i] === 1 ? stUpArr[i] : stDnArr[i], dir: stDirArr[i] };
-                              }
-                            }
-
-                            // TD Sequential on full data
-                            let tdLabelsFull = [];
-                            if (chartOverlays.tdSequential && totalCandles >= 14) {
-                              const PREP_COMP = 4;
-                              let bullPrep = 0, bearPrep = 0;
-                              for (let i = PREP_COMP; i < totalCandles; i++) {
-                                const cc = allCloses[i];
-                                const cComp = allCloses[i - PREP_COMP];
-                                bullPrep = cc < cComp ? bullPrep + 1 : 0;
-                                bearPrep = cc > cComp ? bearPrep + 1 : 0;
-                                if (bullPrep >= 7 || bearPrep >= 7) {
-                                  const count = bullPrep >= 7 ? bullPrep : bearPrep;
-                                  const isBull = bullPrep >= 7;
-                                  tdLabelsFull.push({ idx: i, count, isBull, isComplete: count === 9 });
-                                }
-                              }
-                            }
-
-                            // Slice overlays to visible window
-                            const ema21Data = ema21Full.slice(startIdx, endIdx);
-                            const ema48Data = ema48Full.slice(startIdx, endIdx);
-                            const ema200Data = ema200Full.slice(startIdx, endIdx);
-                            const superTrendData = superTrendFull.slice(startIdx, endIdx);
-                            const tdLabelsVisible = tdLabelsFull.filter(t => t.idx >= startIdx && t.idx < endIdx);
-
-                            // Price range from visible candles + visible overlays
-                            const visLows = visibleCandles.map(c => Number(c.l));
-                            const visHighs = visibleCandles.map(c => Number(c.h));
-                            let minL = Math.min(...visLows);
-                            let maxH = Math.max(...visHighs);
-                            // Include EMA values in range
-                            for (const ema of [ema21Data, ema48Data, ema200Data]) {
-                              for (const v of ema) { if (v != null) { minL = Math.min(minL, v); maxH = Math.max(maxH, v); } }
-                            }
-                            for (const st of superTrendData) { if (st) { minL = Math.min(minL, st.val); maxH = Math.max(maxH, st.val); } }
-                            if (!Number.isFinite(minL) || !Number.isFinite(maxH)) throw new Error("invalid_minmax");
-                            if (maxH <= minL) maxH = minL + 1;
-                            const pad = (maxH - minL) * 0.06;
-                            minL -= pad;
-                            maxH += pad;
-
-                            const H = 320;
-                            const leftMargin = 10;
-                            const rightMargin = 70;
-                            // Container width — fill available space
-                            const containerEl = chartContainerRef.current;
-                            const containerW = containerEl ? containerEl.clientWidth : 400;
-                            const W = containerW;
-                            const plotW = W - leftMargin - rightMargin;
-                            const plotH = H;
-                            const candleStep = plotW / vn;
-                            const candleW = candleStep * 0.7;
-                            const bodyW = candleW * 0.9;
-                            const y = (p) => plotH - ((p - minL) / (maxH - minL)) * plotH;
-
-                            // Sync state for native wheel & window-level drag handlers
-                            chartStateRef.current = { totalCandles, visCount, startIdx, vn, candleStep, leftMargin, plotW };
-
-                            const buildEmaPath = (emaArr) => {
-                              let d = "";
-                              for (let i = 0; i < emaArr.length; i++) {
-                                if (emaArr[i] == null) continue;
-                                const px = leftMargin + i * candleStep + candleStep / 2;
-                                const py = y(emaArr[i]);
-                                d += d === "" ? `M${px},${py}` : ` L${px},${py}`;
-                              }
-                              return d;
-                            };
-
-                            const priceStep = (maxH - minL) / 5;
-                            const priceTicks = [];
-                            for (let i = 0; i <= 5; i++) priceTicks.push(minL + priceStep * i);
-
-                            // ── Mouse interaction handlers ────────────────────
-                            // Crosshair only — drag-to-pan is handled by window-level listeners
-                            // Wheel zoom is handled by native non-passive listener on the container
-                            const handleMouseMove = (e) => {
-                              if (chartDragRef.current) return; // dragging — crosshair suppressed
-                              const svg = e.currentTarget;
-                              const rect = svg.getBoundingClientRect();
-                              if (!rect || rect.width <= 0 || rect.height <= 0) return;
-                              const svgX = e.clientX - rect.left;
-                              const svgY = e.clientY - rect.top;
-                              if (svgX < leftMargin || svgX > W - rightMargin) return;
-                              const idx = Math.floor(((svgX - leftMargin) / plotW) * vn);
-                              if (idx >= 0 && idx < vn) {
-                                const c = visibleCandles[idx];
-                                if (!c) return;
-                                const price = minL + ((H - svgY) / plotH) * (maxH - minL);
-                                setCrosshair({ x: svgX, y: svgY, candle: c, price, visIdx: idx });
-                              }
-                            };
-
-                            const handleMouseDown = (e) => {
-                              if (e.button !== 0) return; // left click only
-                              e.preventDefault();
-                              chartDragRef.current = { startX: e.clientX, startOffset: chartEndOffset };
-                              setCrosshair(null);
-                            };
-
-                            // OHLC header bar (TradingView-style — always visible, never blocks candles)
-                            const headerCandle = crosshair?.candle || visibleCandles[vn - 1];
-                            const hdrO = Number(headerCandle?.o);
-                            const hdrH = Number(headerCandle?.h);
-                            const hdrL = Number(headerCandle?.l);
-                            const hdrC = Number(headerCandle?.c);
-                            const hdrChg = hdrC - hdrO;
-                            const hdrPct = hdrO > 0 ? (hdrChg / hdrO) * 100 : 0;
-                            const hdrUp = hdrChg >= 0;
-                            const hdrTs = Number(headerCandle?.__ts_ms ?? headerCandle?.ts);
-                            let hdrTimeStr = "";
-                            try {
-                              if (Number.isFinite(hdrTs)) {
-                                const d = new Date(hdrTs);
-                                const isDWM = ["D", "W", "M"].includes(String(chartTf));
-                                hdrTimeStr = isDWM
-                                  ? d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })
-                                  : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
-                              }
-                            } catch {}
-
                             return (
-                              <div className="w-full relative -mx-3 px-3">
-                                {/* Overlay toggles */}
-                                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                                  {[
-                                    { key: "ema21", label: "21 EMA", color: "#fbbf24" },
-                                    { key: "ema48", label: "48 EMA", color: "#a78bfa" },
-                                    { key: "ema200", label: "200 EMA", color: "#f87171" },
-                                    { key: "supertrend", label: "SuperTrend", color: "#34d399" },
-                                    { key: "tdSequential", label: "TD Seq", color: "#f59e0b" },
-                                  ].map(ov => (
-                                    <button
-                                      key={ov.key}
-                                      onClick={() => setChartOverlays(prev => ({ ...prev, [ov.key]: !prev[ov.key] }))}
-                                      className={`px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${
-                                        chartOverlays[ov.key]
-                                          ? "border-white/20 text-white"
-                                          : "border-white/[0.06] text-[#555] hover:text-[#6b7280]"
-                                      }`}
-                                      style={chartOverlays[ov.key] ? { borderColor: ov.color + "80", color: ov.color, background: ov.color + "15" } : {}}
-                                    >
-                                      {ov.label}
-                                    </button>
-                                  ))}
-                                </div>
-
-                                {/* TradingView-style OHLC header bar — never blocks candles */}
-                                <div className="flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none">
-                                  <span className="text-[#6b7280]">{hdrTimeStr}</span>
-                                  <span className="text-[#6b7280]">O</span><span className="text-white">{hdrO.toFixed(2)}</span>
-                                  <span className="text-[#6b7280]">H</span><span className="text-sky-300">{hdrH.toFixed(2)}</span>
-                                  <span className="text-[#6b7280]">L</span><span className="text-orange-300">{hdrL.toFixed(2)}</span>
-                                  <span className="text-[#6b7280]">C</span>
-                                  <span className={hdrUp ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold"}>{hdrC.toFixed(2)}</span>
-                                  <span className={hdrUp ? "text-teal-400" : "text-rose-400"}>
-                                    {hdrUp ? "+" : ""}{hdrChg.toFixed(2)} ({hdrUp ? "+" : ""}{hdrPct.toFixed(2)}%)
-                                  </span>
-                                </div>
-
-                                <div
-                                  ref={chartContainerRef}
-                                  className="bg-[#0b0e11] rounded-lg overflow-hidden"
-                                  style={{ userSelect: "none" }}
-                                >
-                                  <svg
-                                    width={W}
-                                    height={H}
-                                    viewBox={`0 0 ${W} ${H}`}
-                                    style={{ display: "block", cursor: chartDragRef.current ? "grabbing" : "crosshair" }}
-                                    onMouseMove={handleMouseMove}
-                                    onMouseDown={handleMouseDown}
-                                    onMouseLeave={() => { setCrosshair(null); }}
-                                  >
-                                  {/* Grid lines & price labels */}
-                                  {priceTicks.map((p, i) => {
-                                    const yPos = y(p);
-                                    return (
-                                      <g key={`grid-${i}`}>
-                                        <line x1={leftMargin} y1={yPos} x2={W - rightMargin} y2={yPos} stroke="rgba(38,50,95,0.5)" strokeWidth="1" />
-                                        <text x={W - rightMargin + 6} y={yPos + 4} fontSize="11" fill="#8b92a0" fontFamily="monospace">${p.toFixed(2)}</text>
-                                      </g>
-                                    );
-                                  })}
-
-                                  {/* Candles */}
-                                  {visibleCandles.map((c, i) => {
-                                    const o = Number(c.o), h = Number(c.h), l = Number(c.l), cl = Number(c.c);
-                                    const up = cl >= o;
-                                    const stroke = up ? "rgba(56,189,248,0.95)" : "rgba(251,146,60,0.95)";
-                                    const fill = up ? "rgba(56,189,248,0.90)" : "rgba(251,146,60,0.90)";
-                                    const cx = leftMargin + i * candleStep + candleStep / 2;
-                                    const yH = y(h), yL = y(l), yO = y(o), yC = y(cl);
-                                    const top = Math.min(yO, yC);
-                                    const bot = Math.max(yO, yC);
-                                    const bodyH = Math.max(1.5, bot - top);
-                                    return (
-                                      <g key={`c-${Number(c.ts)}-${i}`}>
-                                        <line x1={cx} y1={yH} x2={cx} y2={yL} stroke={stroke} strokeWidth="1.2" />
-                                        <rect x={cx - bodyW / 2} y={top} width={bodyW} height={bodyH} fill={fill} stroke="none" rx="0.5" />
-                                      </g>
-                                    );
-                                  })}
-
-                                  {/* EMA Overlays */}
-                                  {ema21Data.length > 0 && <path d={buildEmaPath(ema21Data)} fill="none" stroke="#fbbf24" strokeWidth="1.3" strokeOpacity="0.8" />}
-                                  {ema48Data.length > 0 && <path d={buildEmaPath(ema48Data)} fill="none" stroke="#a78bfa" strokeWidth="1.3" strokeOpacity="0.8" />}
-                                  {ema200Data.length > 0 && <path d={buildEmaPath(ema200Data)} fill="none" stroke="#f87171" strokeWidth="1.3" strokeOpacity="0.7" />}
-
-                                  {/* SuperTrend Overlay */}
-                                  {superTrendData.length > 0 && (() => {
-                                    const segments = [];
-                                    let curSeg = null;
-                                    for (let i = 0; i < superTrendData.length; i++) {
-                                      const st = superTrendData[i];
-                                      if (!st) continue;
-                                      const px = leftMargin + i * candleStep + candleStep / 2;
-                                      const py = y(st.val);
-                                      if (!curSeg || curSeg.dir !== st.dir) {
-                                        if (curSeg) segments.push(curSeg);
-                                        curSeg = { dir: st.dir, d: `M${px},${py}` };
-                                      } else {
-                                        curSeg.d += ` L${px},${py}`;
-                                      }
-                                    }
-                                    if (curSeg) segments.push(curSeg);
-                                    return segments.map((seg, si) => (
-                                      <path key={`st-${si}`} d={seg.d} fill="none" stroke={seg.dir === 1 ? "#34d399" : "#f87171"} strokeWidth="1.5" strokeOpacity="0.7" />
-                                    ));
-                                  })()}
-
-                                  {/* TD Sequential — only visible labels */}
-                                  {tdLabelsVisible.map(t => {
-                                    const vi = t.idx - startIdx;
-                                    const cx = leftMargin + vi * candleStep + candleStep / 2;
-                                    const yPos = t.isBull ? y(Number(visibleCandles[vi].l)) + 12 : y(Number(visibleCandles[vi].h)) - 6;
-                                    const color = t.isBull ? "#22c55e" : "#ef4444";
-                                    return (
-                                      <text key={`td-${t.idx}`} x={cx} y={yPos} textAnchor="middle"
-                                        fontSize={t.isComplete ? "10" : "8"} fontWeight={t.isComplete ? "bold" : "normal"}
-                                        fill={color} opacity={t.isComplete ? 1 : 0.7}>
-                                        {t.count}
-                                      </text>
-                                    );
-                                  })}
-
-                                  {/* Current Price Line */}
-                                  {(() => {
-                                    const lastC = visibleCandles[vn - 1];
-                                    if (!lastC) return null;
-                                    const cp = Number(lastC.c);
-                                    if (!Number.isFinite(cp)) return null;
-                                    const cpY = y(cp);
-                                    if (cpY < 0 || cpY > H) return null;
-                                    return (
-                                      <g>
-                                        <line x1={leftMargin} y1={cpY} x2={W - rightMargin} y2={cpY}
-                                          stroke="rgba(250,204,21,0.5)" strokeWidth="1" strokeDasharray="2 3" />
-                                        <rect x={W - rightMargin + 2} y={cpY - 9} width={rightMargin - 4} height={18}
-                                          fill="rgba(250,204,21,0.15)" stroke="rgba(250,204,21,0.5)" strokeWidth="1" rx="3" />
-                                        <text x={W - rightMargin + (rightMargin - 4) / 2} y={cpY + 3.5}
-                                          fontSize="10" fill="#fbbf24" fontFamily="monospace" fontWeight="700" textAnchor="middle">
-                                          ${cp.toFixed(2)}
-                                        </text>
-                                      </g>
-                                    );
-                                  })()}
-
-                                  {/* Crosshair */}
-                                  {crosshair && !chartDragRef.current ? (
-                                    <>
-                                      <line x1={leftMargin} y1={crosshair.y} x2={W - rightMargin} y2={crosshair.y}
-                                        stroke="rgba(147,164,214,0.5)" strokeWidth="1" strokeDasharray="4 4" />
-                                      <line x1={crosshair.x} y1={0} x2={crosshair.x} y2={H}
-                                        stroke="rgba(147,164,214,0.5)" strokeWidth="1" strokeDasharray="4 4" />
-                                      {(() => {
-                                        const yLabel = Math.max(10, Math.min(H - 10, Number(crosshair.y)));
-                                        const price = Number(crosshair.price);
-                                        const priceText = Number.isFinite(price) ? `$${price.toFixed(2)}` : "—";
-                                        return (
-                                          <g>
-                                            <rect x={W - rightMargin + 2} y={yLabel - 10} width={rightMargin - 4} height={20}
-                                              fill="rgba(18,26,51,0.92)" stroke="rgba(38,50,95,0.9)" strokeWidth="1" rx="4" />
-                                            <text x={W - rightMargin + (rightMargin - 4) / 2} y={yLabel + 4}
-                                              fontSize="11" fill="#fbbf24" fontFamily="monospace" fontWeight="700" textAnchor="middle">
-                                              {priceText}
-                                            </text>
-                                          </g>
-                                        );
-                                      })()}
-                                    </>
-                                  ) : null}
-                                  </svg>
-                                </div>
-
-                                {/* Status bar */}
-                                <div className="mt-1 text-[10px] text-[#6b7280] flex items-center justify-between">
-                                  <span>
-                                    {String(chartTf) === "D" ? "Daily" : String(chartTf) === "W" ? "Weekly" : String(chartTf) === "M" ? "Monthly"
-                                      : Number(chartTf) >= 60 ? `${Number(chartTf) / 60}H` : `${chartTf}m`}{" "}
-                                    • {vn}/{totalCandles} bars
-                                  </span>
-                                  <span className="text-[#555] text-[9px]">⊞ scroll to zoom • drag to pan</span>
-                                  <span className="font-mono">
-                                    ${minL.toFixed(2)} – ${maxH.toFixed(2)}
-                                  </span>
-                                </div>
-                              </div>
+                              <LWChart
+                                candles={chartCandles}
+                                chartTf={chartTf}
+                                overlays={chartOverlays}
+                                onCrosshair={(key) => setChartOverlays(prev => ({ ...prev, [key]: !prev[key] }))}
+                              />
                             );
-                            } catch (e) {
-                              console.error("[RightRail Chart] render failed:", e);
-                              return (
-                                <div className="text-xs text-yellow-300">
-                                  Chart render error. Check console for details.
-                                </div>
-                              );
-                            }
                           })()
                         )}
                       </div>

@@ -387,7 +387,8 @@
 
     <script src="auth-gate.js"></script>
     <script src="shared-price-utils.js?v=20260211a"></script>
-    <script src="shared-right-rail.compiled.js?v=20260211e" type="text/babel"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="shared-right-rail.compiled.js?v=20260213b" type="text/babel"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -2185,19 +2186,21 @@
           // Pre-market: show yesterday's RTH (last completed session), NOT live pre-market
           openMs -= 86400000;
           closeMs -= 86400000;
-          return { openMs, closeMs };
+          return { openMs, closeMs, _yesterdayFallback: false };
         }
         if (nowEtMin >= cfg.closeMin) {
           // After-hours: show today's completed RTH
-          return { openMs, closeMs };
+          return { openMs, closeMs, _yesterdayFallback: false };
         }
         // During RTH: today 9:30 → now (no upper bound)
-        return { openMs, closeMs: null };
+        // Also provide yesterday's session window for fallback when today has no data yet
+        return { openMs, closeMs: null, _yesterdayFallback: true,
+          _yOpenMs: openMs - 86400000, _yCloseMs: closeMs - 86400000 };
       }
 
       // Filter candles to the relevant session (ticker-aware, RTH 9:30–4 for equities)
       // Pre-market: yesterday's RTH only (avoids "painting live" pre-market noise)
-      // Never fall back to rawCandles when filtered is empty for equities in pre-market — that would show live pre-market.
+      // During RTH: if today's session has < 2 candles (bar cron delayed), fall back to yesterday's completed session.
       function _filterTodaySession(rawCandles, sym) {
         if (!rawCandles || rawCandles.length < 2) return rawCandles;
         const w = _getSessionWindowMs(sym);
@@ -2210,13 +2213,21 @@
           return true;
         });
         if (filtered.length >= 2) return filtered;
-        // Equities: NEVER fall back to raw candles.
-        // Raw candles span multiple days; for equities _sessionFraction maps by time-of-day
-        // only (ignoring date), so yesterday's candles overlay today's session → chaotic sparklines.
-        // 24/7 crypto CAN fall back because _sessionFraction is now date-aware (returns -1 for
-        // candles before today's midnight ET), so those are naturally excluded during rendering.
+        // Equities: NEVER fall back to raw candles (multi-day overlay = chaotic).
+        // But when it's RTH and today has no data yet (bar cron delayed), show yesterday's
+        // completed session as a graceful fallback instead of a blank card.
         const cfg = _getSessionConfig(sym);
-        if (cfg.sessionDur === 390) return filtered;
+        if (cfg.sessionDur === 390) {
+          if (w._yesterdayFallback && w._yOpenMs && w._yCloseMs) {
+            const yFiltered = rawCandles.filter(c => {
+              const ts = Number(c.t ?? c.ts ?? c.timestamp ?? 0);
+              const tsMs = _toMs(ts);
+              return tsMs >= w._yOpenMs && tsMs <= w._yCloseMs;
+            });
+            if (yFiltered.length >= 2) return yFiltered;
+          }
+          return filtered;
+        }
         // Continuous futures: fall back to raw if session filter yields < 2
         return rawCandles;
       }
@@ -11076,6 +11087,13 @@
                 if (!rawCandles || rawCandles.length < 2) return null;
                 const candles = _filterTodaySession(rawCandles, sym);
                 if (!candles || candles.length < 2) return null;
+
+                // Detect if we're showing yesterday's fallback during RTH
+                // by checking if the last candle is from before today's session open
+                const w = _getSessionWindowMs(sym);
+                const lastCandleTs = _toMs(Number(candles[candles.length - 1]?.t ?? candles[candles.length - 1]?.ts ?? 0));
+                const isYesterdayFallback = w?.openMs && lastCandleTs > 0 && lastCandleTs < w.openMs;
+
                 const pts = [];
                 // Track the RTH session open price (the `open` of the first candle in the session)
                 let rthOpenPrice = null;
@@ -11139,13 +11157,18 @@
                     return m >= cfg.openMin || m < cfg.closeMin;
                   }
                 })();
+                // Only show live pulsing dot when data is from today (not yesterday fallback)
+                const showPulse = isInRTH && !isYesterdayFallback;
+                // Dim the sparkline when showing yesterday's stale data during live hours
+                const sparkOpacity = isYesterdayFallback && isInRTH ? 0.35 : 0.70;
                 return (
                   <React.Fragment>
                     <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none"
-                      className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                      style={{ zIndex: 1, overflow: "visible" }}>
                       <defs>
                         <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={gradColor} stopOpacity="0.15" />
+                          <stop offset="0%" stopColor={gradColor} stopOpacity={isYesterdayFallback && isInRTH ? "0.06" : "0.15"} />
                           <stop offset="100%" stopColor={gradColor} stopOpacity="0.02" />
                         </linearGradient>
                         <filter id={`glow-line-${sym}`}>
@@ -11158,16 +11181,23 @@
                         fill={`url(#${gId})`} />
                       {/* Price line — thinner stroke, subtle glow */}
                       <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.5"
-                        strokeLinejoin="round" strokeLinecap="round" opacity="0.70"
+                        strokeLinejoin="round" strokeLinecap="round" opacity={sparkOpacity}
                         vectorEffect="non-scaling-stroke"
                         filter={`url(#glow-line-${sym})`} />
-                      {/* Pulsing live dot at end of sparkline — only during RTH */}
-                      {isInRTH && (
+                      {/* Pulsing live dot at end of sparkline — only during RTH with fresh data */}
+                      {showPulse && (
                         <circle cx={lastPt.x} cy={lastPt.y} r="6" fill={lineColor} opacity="0.9"
                           vectorEffect="non-scaling-stroke">
                           <animate attributeName="r" values="4;7;4" dur="2s" repeatCount="indefinite" />
                           <animate attributeName="opacity" values="0.9;0.4;0.9" dur="2s" repeatCount="indefinite" />
                         </circle>
+                      )}
+                      {/* "Yesterday" label when showing stale data during RTH */}
+                      {isYesterdayFallback && isInRTH && (
+                        <text x={VW / 2} y={padT - 10} textAnchor="middle" fill="rgba(255,255,255,0.25)"
+                          fontSize="28" fontFamily="Inter, sans-serif" fontWeight="500">
+                          Yesterday
+                        </text>
                       )}
                     </svg>
                     {/* RTH Session Open price — HTML div dashed line (avoids SVG scaling issues) */}
@@ -12399,6 +12429,93 @@
       }
 
       // ─────────────────────────────────────────────────────────────
+      // KanbanColumn — extracted outside EarlyMoversPanel so React
+      // treats it as a STABLE component type across re-renders.
+      // Defining it inline caused unmount/remount on every price tick
+      // → scroll position destroyed → useLayoutEffect re-animated it
+      // → visible "jerk back and come back" every 30 seconds.
+      // ─────────────────────────────────────────────────────────────
+      const KanbanColumn = React.memo(function KanbanColumn({
+        laneKey,
+        title,
+        subtitle,
+        count,
+        icon,
+        color,
+        items,
+        showProgress,
+        showOpen,
+        showDetails,
+        laneScrollTopRef,
+        renderCompactCard,
+      }) {
+        const listRef = React.useRef(null);
+
+        // Restore horizontal scroll position ONLY when the lane
+        // membership changes (items added/removed/reordered).
+        // Price-only updates don't touch scroll.
+        const itemKeys = React.useMemo(
+          () => (items || []).map((t) => t.ticker || t.symbol || "").join(","),
+          [items],
+        );
+        React.useLayoutEffect(() => {
+          try {
+            const el = listRef.current;
+            if (!el) return;
+            const saved = laneScrollTopRef.current[laneKey];
+            if (Number.isFinite(saved) && saved > 0) el.scrollLeft = saved;
+          } catch {}
+        }, [itemKeys, laneKey]);
+
+        return (
+          <div className="flex items-stretch gap-0 mb-1">
+            {/* Lane label */}
+            <div
+              className={`flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-white/[0.04] ${color} px-1 py-2`}
+              style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" }}
+              title={subtitle || title}
+            >
+              <span className="text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight">
+                {icon}<br/>{title}
+              </span>
+              <span className={`text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`}>
+                {count}
+              </span>
+            </div>
+            {/* Horizontal scrollable card area */}
+            <div
+              ref={listRef}
+              className="flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide"
+              style={{ overflowAnchor: "none", WebkitOverflowScrolling: "touch", background: "rgba(255,255,255,0.01)" }}
+              onScroll={() => {
+                try {
+                  const el = listRef.current;
+                  if (!el) return;
+                  laneScrollTopRef.current[laneKey] = el.scrollLeft;
+                } catch {}
+              }}
+            >
+              {Array.isArray(items) && items.length > 0 ? (
+                <div className="flex gap-1.5">
+                  {items
+                    .slice(0, 80)
+                    .map((t) => (
+                      <div key={t.ticker || t.symbol || Math.random()} className="w-[280px] shrink-0">
+                        {renderCompactCard(t)}
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="text-[10px] text-[#4b5563] italic flex items-center h-full px-2">
+                  No tickers
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      });
+
+      // ─────────────────────────────────────────────────────────────
       // Early Movers Panel: Kanban-style trading flow
       // ─────────────────────────────────────────────────────────────
       function EarlyMoversPanel({
@@ -12566,8 +12683,12 @@
           exit,
         } = categories;
 
-        // Compact card renderer — delegates to shared top-level function (pass tradeByTicker for EP fallback)
-        const renderCompactCard = (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: sparkDataProp });
+        // Compact card renderer — memoized so KanbanColumn React.memo can skip re-renders
+        // when only prices change (same card renderer reference → shallow equal).
+        const renderCompactCard = React.useCallback(
+          (t) => renderCompactCardFn(t, { onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkData: sparkDataProp }),
+          [onSelectTicker, savedTickers, toggleSavedTicker, tradeByTicker, sparkDataProp],
+        );
 
         if (
           setup.length === 0 &&
@@ -12579,80 +12700,6 @@
         ) {
           return null;
         }
-
-        // Kanban column component (always render, even if empty)
-        const KanbanColumn = ({
-          laneKey,
-          title,
-          subtitle,
-          count,
-          icon,
-          color,
-          items,
-          showProgress,
-          showOpen,
-          showDetails,
-        }) => {
-          const listRef = React.useRef(null);
-
-          // Restore horizontal scroll position after every render
-          // (savedTickers toggle causes re-render — don't lose scroll)
-          React.useLayoutEffect(() => {
-            try {
-              const el = listRef.current;
-              if (!el) return;
-              const saved = laneScrollTopRef.current[laneKey];
-              if (Number.isFinite(saved) && saved > 0) el.scrollLeft = saved;
-            } catch {}
-          });
-
-          return (
-            <div className="flex items-stretch gap-0 mb-1">
-              {/* Lane label */}
-              <div
-                className={`flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-white/[0.04] ${color} px-1 py-2`}
-                style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" }}
-                title={subtitle || title}
-              >
-                <span className="text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight">
-                  {icon}<br/>{title}
-                </span>
-                <span className={`text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`}>
-                  {count}
-                </span>
-              </div>
-              {/* Horizontal scrollable card area */}
-              <div
-                ref={listRef}
-                className="flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide"
-                style={{ overflowAnchor: "none", scrollBehavior: "smooth", WebkitOverflowScrolling: "touch", background: "rgba(255,255,255,0.01)" }}
-                onScroll={() => {
-                  try {
-                    const el = listRef.current;
-                    if (!el) return;
-                    laneScrollTopRef.current[laneKey] = el.scrollLeft;
-                  } catch {}
-                }}
-              >
-                {Array.isArray(items) && items.length > 0 ? (
-                  <div className="flex gap-1.5">
-                    {items
-                      .slice(0, 80)
-                      .map((t) => (
-                        <div key={t.ticker || t.symbol || Math.random()} className="w-[280px] shrink-0">
-                          {renderCompactCard(t)}
-                        </div>
-                      ))}
-                  </div>
-                ) : (
-                  <div className="text-[10px] text-[#4b5563] italic flex items-center h-full px-2">
-                    No tickers
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        };
 
         return (
           <div>
@@ -12684,6 +12731,8 @@
                   color="border-amber-500"
                   items={setup}
                   showDetails={true}
+                  laneScrollTopRef={laneScrollTopRef}
+                  renderCompactCard={renderCompactCard}
                 />
                 <KanbanColumn
                   laneKey="enter"
@@ -12694,6 +12743,8 @@
                   color="border-teal-500"
                   items={enter}
                   showDetails={true}
+                  laneScrollTopRef={laneScrollTopRef}
+                  renderCompactCard={renderCompactCard}
                 />
                 {/* MANAGEMENT MODE - Has open position */}
                 <KanbanColumn
@@ -12707,6 +12758,8 @@
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
+                  laneScrollTopRef={laneScrollTopRef}
+                  renderCompactCard={renderCompactCard}
                 />
                 <KanbanColumn
                   laneKey="defend"
@@ -12719,6 +12772,8 @@
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
+                  laneScrollTopRef={laneScrollTopRef}
+                  renderCompactCard={renderCompactCard}
                 />
                 <KanbanColumn
                   laneKey="trim"
@@ -12731,6 +12786,8 @@
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
+                  laneScrollTopRef={laneScrollTopRef}
+                  renderCompactCard={renderCompactCard}
                 />
                 <KanbanColumn
                   laneKey="exit"
@@ -12743,6 +12800,8 @@
                   showProgress={true}
                   showOpen={true}
                   showDetails={true}
+                  laneScrollTopRef={laneScrollTopRef}
+                  renderCompactCard={renderCompactCard}
                 />
                 {/* Closed lane removed - completed trades available in Simulation Dashboard */}
               </div>
