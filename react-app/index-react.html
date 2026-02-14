@@ -921,7 +921,7 @@
       // useWebSocket — real-time price + scoring push via Durable Object
       // Falls back to usePriceFeed polling if WS connection fails.
       // ─────────────────────────────────────────────────────────────────────
-      function useWebSocket(tickerData, setTickerData) {
+      function useWebSocket(tickerData, setTickerData, sparklineCallbackRef) {
         const wsRef = useRef(null);
         const reconnectTimer = useRef(null);
         const reconnectDelay = useRef(1000); // exponential backoff: 1s → 2s → 4s → max 30s
@@ -1015,6 +1015,15 @@
                     changed = true;
                   }
                   if (changed && setter) setter(updatedData);
+                }
+
+                // Sparkline data pushed by cron every 5 minutes
+                if (msg.type === "sparklines" && msg.data) {
+                  try {
+                    if (sparklineCallbackRef?.current) {
+                      sparklineCallbackRef.current(msg.data);
+                    }
+                  } catch (_) {}
                 }
               } catch (e) {
                 // Ignore malformed messages
@@ -15882,8 +15891,10 @@
           refetch,
           setData: setTickerData,
         } = useTickerData();
+        // Ref-based callback for WebSocket sparkline updates (set below after sparkline cache is created)
+        const wsSparklineCallbackRef = useRef(null);
         // Real-time price feed: WS push (primary) + HTTP poll fallback (every 30s)
-        const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData);
+        const { wsConnected, wsLastMessage } = useWebSocket(data, setTickerData, wsSparklineCallbackRef);
         const { priceLastUpdated } = usePriceFeed(data, setTickerData);
         const { trades } = useTrades();
         const { summary: accountSummary } = useAccountSummary("trader");
@@ -15991,96 +16002,58 @@
           }, 1000);
         }, []);
 
-        // Fetch sparkline data for a batch of tickers (called from both views)
-        const fetchSparklines = useCallback((syms) => {
-          if (!syms || syms.length === 0) return;
+        // ── Sparkline data: pushed via WebSocket + one-time HTTP fetch on load ──
+        // Instead of 200+ individual D1 candle requests per page load, sparklines
+        // are pre-computed server-side and pushed via PriceHub every 5 minutes.
+        // On initial load, we fetch the full set from GET /timed/sparklines (single KV read).
+
+        // Helper: populate sparkline cache from server data { SYM: [{t,c,o}, ...], ... }
+        const applySparklineData = useCallback((sparkMap) => {
+          if (!sparkMap || typeof sparkMap !== "object") return;
           const now = Date.now();
-          // During equity RTH, use shorter TTL so sparklines stay live; even shorter in first 20 min
-          const nowEtMin = _tsToEtMin(now);
-          const isEquityRTH = nowEtMin >= 570 && nowEtMin < 960; // 9:30 AM – 4 PM ET
-          const isEarlyRTH = isEquityRTH && (nowEtMin - 570) < 20; // first 20 minutes
-          const effectiveTTL = isEarlyRTH ? 30 * 1000 : isEquityRTH ? 60 * 1000 : SPARK_TTL;
-          const toFetch = syms.filter(s => {
-            if (sparkInFlightRef.current.has(s)) return false;
-            const c = sparkCacheGlobalRef.current[s];
-            return !c || (now - c.ts > effectiveTTL);
-          });
-          if (toFetch.length === 0) return;
-          toFetch.forEach(s => sparkInFlightRef.current.add(s));
-          const SPARK_WIDTH = 80;
-          const batchSize = 6;
-          const fetchCandles = async (sym, tf, limit) => {
-            const res = await fetch(`${API_BASE}/timed/candles?ticker=${sym}&tf=${tf}&limit=${limit}`, { cache: "no-store" });
-            if (!res.ok) return null;
-            const json = await res.json();
-            if (!json.ok || !Array.isArray(json.candles)) return null;
-            return json.candles;
-          };
-          const fetchSmart = async (sym) => {
-            try {
-              const isContinuous = _CONTINUOUS_TICKERS.has(sym) || sym.endsWith("1!") || sym.endsWith("USDT") || sym.endsWith("USD");
-              const cfg = _getSessionConfig(sym);
-              const nowEtMin = _tsToEtMin(Date.now());
-              const isEquityPreMarket = !isContinuous && cfg.sessionDur === 390 && nowEtMin < cfg.openMin;
-              // Early RTH (first 20 min of equity session): use 1m candles for immediate sparkline data
-              const isEarlyRTH = !isContinuous && cfg.sessionDur === 390 && nowEtMin >= cfg.openMin && (nowEtMin - cfg.openMin) < 20;
-              if (isEarlyRTH) {
-                // 1m candles give data within 2–3 min of market open (vs 10+ min for 5m)
-                const candles = await fetchCandles(sym, 1, 100);
-                if (candles && candles.length >= 2) {
-                  sparkCacheGlobalRef.current[sym] = { data: candles, ts: Date.now() };
-                  sparkInFlightRef.current.delete(sym);
-                  return;
-                }
-              }
-              // Normal: 5m candles (fall back to 1m if sparse)
-              // Futures/crypto sessions are 23hrs → need ~280 5m candles; equities need ~78 for one RTH
-              const limit = isContinuous ? 350 : isEquityPreMarket ? 500 : 250;
-              let candles = await fetchCandles(sym, 5, limit);
-              if (!candles || candles.length < 5) {
-                const m1Limit = isEquityPreMarket ? 1500 : 600;
-                candles = await fetchCandles(sym, 1, m1Limit);
-              }
-              if (candles && candles.length >= 2) {
-                sparkCacheGlobalRef.current[sym] = { data: candles, ts: Date.now() };
-              }
-            } catch (_) {}
-            sparkInFlightRef.current.delete(sym);
-          };
-          (async () => {
-            for (let i = 0; i < toFetch.length; i += batchSize) {
-              await Promise.allSettled(toFetch.slice(i, i + batchSize).map(fetchSmart));
-              if (i + batchSize < toFetch.length) await new Promise(r => setTimeout(r, 500));
-            }
-            // Update React state from cache
+          let count = 0;
+          for (const [sym, points] of Object.entries(sparkMap)) {
+            if (!Array.isArray(points) || points.length < 2) continue;
+            sparkCacheGlobalRef.current[sym] = { data: points, ts: now };
+            count++;
+          }
+          if (count > 0) {
             const next = {};
             for (const [s, v] of Object.entries(sparkCacheGlobalRef.current)) {
               if (v && v.data) next[s] = v.data;
             }
             setGlobalSparkData({ ...next });
             persistSparkCache();
-          })();
+            console.log(`[SPARKLINES] Applied ${count} tickers from server`);
+          }
         }, [persistSparkCache]);
 
-        // Fetch Market Pulse sparkline data on mount
+        // Wire up the WebSocket sparkline callback (ref was created before useWebSocket call)
         useEffect(() => {
-          if (fetchSparklines) fetchSparklines(MARKET_PULSE_TICKERS);
-        }, [fetchSparklines]);
+          wsSparklineCallbackRef.current = applySparklineData;
+          return () => { wsSparklineCallbackRef.current = null; };
+        }, [applySparklineData]);
 
-        // Periodic sparkline refresh during market hours
-        // Tickers don't change but prices do — keeps all visible sparklines live
+        // One-time fetch of sparklines from KV on initial load
         useEffect(() => {
-          const tick = () => {
-            const etMin = _tsToEtMin(Date.now());
-            // Only auto-refresh during equity RTH (9:30 AM – 4 PM ET)
-            if (etMin < 570 || etMin >= 960) return;
-            const syms = Object.keys(sparkCacheGlobalRef.current);
-            if (syms.length > 0 && fetchSparklines) fetchSparklines(syms);
-          };
-          // Tick every 30 seconds; the TTL check inside fetchSparklines decides what actually re-fetches
-          const id = setInterval(tick, 30000);
-          return () => clearInterval(id);
-        }, [fetchSparklines]);
+          (async () => {
+            try {
+              const res = await fetch(`${API_BASE}/timed/sparklines`, { cache: "no-store" });
+              if (!res.ok) return;
+              const json = await res.json();
+              if (json.ok && json.data) {
+                applySparklineData(json.data);
+              }
+            } catch (e) {
+              console.warn("[SPARKLINES] Initial fetch failed:", e);
+            }
+          })();
+        }, [applySparklineData]);
+
+        // fetchSparklines is kept as a no-op so existing Table/Kanban refs don't break
+        const fetchSparklines = useCallback(() => {
+          // Sparklines are now pushed via WebSocket; no per-ticker HTTP fetching needed
+        }, []);
 
         // AI Assistant removed (unused)
         // Admin panel moved to dedicated /admin-clients.html page

@@ -221,6 +221,7 @@ const ROUTES = [
   ["GET", "/timed/all", "GET /timed/all"],
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/candles", "GET /timed/candles"],
+  ["GET", "/timed/sparklines", "GET /timed/sparklines"],
   ["GET", "/timed/trail/performance", "GET /timed/trail/performance"],
   ["GET", "/timed/trail", "GET /timed/trail"],
   ["GET", "/timed/top", "GET /timed/top"],
@@ -20963,6 +20964,21 @@ export default {
         }
       }
 
+      // GET /timed/sparklines — Returns pre-computed sparkline data for all tickers from KV.
+      // Single fast read replaces 200+ D1 candle queries per client page load.
+      if (routeKey === "GET /timed/sparklines") {
+        try {
+          const sparkMap = await kvGetJSON(KV, "timed:sparklines");
+          if (!sparkMap) {
+            return sendJSON({ ok: true, data: {}, updated_at: 0 }, 200, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, data: sparkMap, updated_at: Date.now() }, 200, corsHeaders(env, req));
+        } catch (e) {
+          console.error("[SPARKLINES] GET failed:", String(e));
+          return sendJSON({ ok: false, error: "internal_error" }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/candles?ticker=&tf=&limit=
       if (routeKey === "GET /timed/candles") {
         try {
@@ -35366,6 +35382,64 @@ Provide 3-5 actionable next steps:
           data: prices,
           updated_at: priceUpdateTs,
         }));
+
+        // ── Build & push sparkline data via KV + PriceHub ──
+        // Instead of 200+ D1 candle reads per client page load, we maintain
+        // a rolling array of {t, c, o} values per ticker in KV and push
+        // the full sparkline payload to all WS clients every 5 minutes.
+        // Clients use this to render sparklines with zero HTTP candle requests.
+        try {
+          const SPARK_KV_KEY = "timed:sparklines";
+          const SPARK_MAX_POINTS = 400; // ~6.5h at 1m resolution, enough for any session
+          const minuteTs = Math.floor(Date.now() / 60000) * 60000;
+
+          // Read existing sparkline data from KV
+          let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
+
+          // Append current price for each ticker
+          let appended = 0;
+          for (const [sym, snap] of Object.entries(prices)) {
+            const price = snap.p;
+            if (!Number.isFinite(price) || price <= 0) continue;
+            if (!sparkMap[sym]) sparkMap[sym] = [];
+            const arr = sparkMap[sym];
+            // Deduplicate: skip if last point has same timestamp
+            if (arr.length > 0 && arr[arr.length - 1].t === minuteTs) {
+              // Update close price of existing point (same minute)
+              arr[arr.length - 1].c = price;
+            } else {
+              arr.push({ t: minuteTs, c: price, o: price });
+            }
+            // Trim to max points
+            if (arr.length > SPARK_MAX_POINTS) {
+              sparkMap[sym] = arr.slice(arr.length - SPARK_MAX_POINTS);
+            }
+            appended++;
+          }
+
+          // Remove tickers no longer in the price feed (cleanup)
+          for (const sym of Object.keys(sparkMap)) {
+            if (!prices[sym]) delete sparkMap[sym];
+          }
+
+          // Persist to KV (non-blocking)
+          ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(e =>
+            console.warn("[SPARKLINES] KV put failed:", String(e).slice(0, 120))
+          ));
+
+          // Push to WS clients every 5 minutes (or first minute of hour for fresh connections)
+          // This keeps bandwidth reasonable while ensuring sparklines stay current.
+          if (_utcM % 5 === 0) {
+            ctx.waitUntil(notifyPriceHub(env, {
+              type: "sparklines",
+              data: sparkMap,
+              updated_at: Date.now(),
+            }));
+            console.log(`[SPARKLINES] Pushed ${Object.keys(sparkMap).length} tickers to WS clients`);
+          }
+        } catch (sparkErr) {
+          console.warn("[SPARKLINES] error:", String(sparkErr).slice(0, 200));
+        }
 
         // ── SL/TP Exit Checking on price loop ──
         // Check open positions against current prices for fast SL/TP reaction
