@@ -11263,7 +11263,7 @@
                 // Only show live pulsing dot when data is from today (not yesterday fallback)
                 const showPulse = isInRTH && !isYesterdayFallback;
                 // Dim the sparkline when showing yesterday's stale data during live hours
-                const sparkOpacity = isYesterdayFallback && isInRTH ? 0.35 : 0.70;
+                const sparkOpacity = isYesterdayFallback && isInRTH ? 0.25 : 0.50;
                 return (
                   <React.Fragment>
                     <svg viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="none"
@@ -11271,22 +11271,17 @@
                       style={{ zIndex: 1, overflow: "visible" }}>
                       <defs>
                         <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={gradColor} stopOpacity={isYesterdayFallback && isInRTH ? "0.06" : "0.15"} />
-                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.02" />
+                          <stop offset="0%" stopColor={gradColor} stopOpacity={isYesterdayFallback && isInRTH ? "0.04" : "0.08"} />
+                          <stop offset="100%" stopColor={gradColor} stopOpacity="0.01" />
                         </linearGradient>
-                        <filter id={`glow-line-${sym}`}>
-                          <feGaussianBlur stdDeviation="1.5" result="blur" />
-                          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-                        </filter>
                       </defs>
                       {/* Gradient fill under line */}
                       <polygon points={`${svgPts[0].x.toFixed(1)},${VH} ${polyStr} ${lastPt.x.toFixed(1)},${VH}`}
                         fill={`url(#${gId})`} />
-                      {/* Price line — thinner stroke, subtle glow */}
-                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.5"
+                      {/* Price line — subtle, no glow */}
+                      <polyline points={polyStr} fill="none" stroke={lineColor} strokeWidth="1.2"
                         strokeLinejoin="round" strokeLinecap="round" opacity={sparkOpacity}
-                        vectorEffect="non-scaling-stroke"
-                        filter={`url(#glow-line-${sym})`} />
+                        vectorEffect="non-scaling-stroke" />
                       {/* Pulsing live dot at end of sparkline — only during RTH with fresh data */}
                       {showPulse && (
                         <circle cx={lastPt.x} cy={lastPt.y} r="6" fill={lineColor} opacity="0.9"
