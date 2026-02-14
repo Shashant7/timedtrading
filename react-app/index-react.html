@@ -2236,9 +2236,11 @@
 
           if (etDow === "Sat") {
             // Saturday: last session was Thu 6pm → Fri 5pm. Show frozen.
-            openMs -= 86400000; // shift back one more day (Fri 6pm → Thu 6pm)
-            const closeMs = openMs + cfg.sessionDur * 60000; // Thu 6pm + 23h = Fri 5pm
-            return { openMs, closeMs, _frozen: true };
+            // Compute from Saturday's 6 PM anchor, always go back exactly 2 days to Thursday 6 PM.
+            const satAnchor = Date.UTC(yr, mo - 1, dy, openHr - etOffset, openMn, 0);
+            const thuOpen = satAnchor - 2 * 86400000; // Sat 6 PM - 2 days = Thu 6 PM
+            const closeMs = thuOpen + cfg.sessionDur * 60000; // Thu 6 PM + 23h = Fri 5 PM
+            return { openMs: thuOpen, closeMs, _frozen: true };
           }
           if (etDow === "Sun" && nowEtMin < cfg.openMin) {
             // Sunday before 6pm: market still closed. Same last session.
@@ -12536,7 +12538,7 @@
           <div className="flex items-stretch gap-0 mb-1">
             {/* Lane label */}
             <div
-              className={`flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-white/[0.04] ${color} px-1 py-2`}
+              className={`flex flex-col justify-center items-center w-[52px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] ${color} px-1 py-2`}
               style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)" }}
               title={subtitle || title}
             >
@@ -16532,6 +16534,7 @@
                   <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
                     <button onClick={() => setShowWelcomeDashboard(true)} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</button>
                     <button onClick={() => { try { localStorage.removeItem("tt_coachmarks_completed_v1"); } catch {} window.__restartCoachmarks?.(); }} className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart the UI tour">Tour</button>
+                    <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Frequently Asked Questions">FAQ</a>
                     <button
                       onClick={refetch}
                       className="px-2 md:px-3 py-1 rounded-md text-[11px] md:text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] border border-white/[0.06] transition-all"

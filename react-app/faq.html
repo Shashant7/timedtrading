@@ -383,7 +383,7 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The Active Trader dashboard arranges tickers into columns (lanes) by their current action phase. Each card shows the ticker symbol, score, direction (LONG/SHORT), price, and sparkline. Cards are sorted by score within each lane, so the strongest setups appear at the top. Click any card to open the detail view with full chart and indicator breakdowns.</p>
+            <p>The Active Trader dashboard arranges tickers into horizontal rows (swim-lanes) by their current action phase. Each row represents a stage: Setup, Enter, Hold, Defend, Trim, or Exit. Within each row, ticker cards scroll horizontally and are sorted by score, so the strongest setups appear first (leftmost). Each card shows the ticker symbol, score, direction (LONG/SHORT), price, and a sparkline. Click any card to open the detail view in the Right Rail with full chart and indicator breakdowns.</p>
           </div>
         </div>
 
@@ -394,6 +394,23 @@
           </button>
           <div class="faq-a">
             <p>The Daily Brief is a morning summary generated each trading day before the market opens. It highlights the top-scoring setups, key sector rotations, macro backdrop, and notable changes from the previous session. Think of it as your pre-market game plan.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How do I read the Investor Dashboard?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The Investor Dashboard provides a portfolio-level view of your positions and the overall universe health. Key sections include:</p>
+            <ul>
+              <li><strong>Portfolio Health</strong> &mdash; An aggregate score reflecting how well your current positions align with the scoring engine's signals.</li>
+              <li><strong>Sector Heatmap</strong> &mdash; Visual breakdown of strength/weakness across all 11 GICS sectors. Green indicates bullish momentum, red indicates bearish pressure.</li>
+              <li><strong>Universe Score Distribution</strong> &mdash; A histogram showing how scores are distributed across all 200+ tickers. Clusters at the high end suggest broad bullish conditions; clusters at the low end suggest caution.</li>
+              <li><strong>Top Movers</strong> &mdash; Tickers with the largest score changes over the last session, highlighting where momentum is shifting fastest.</li>
+            </ul>
+            <p>Use the Investor Dashboard for a macro view of market conditions before drilling into individual tickers on the Active Trader page.</p>
           </div>
         </div>
       </div>
@@ -416,8 +433,6 @@
               <li>Screener with custom filters</li>
               <li>Daily Brief pre-market summaries</li>
               <li>Paper trading simulator</li>
-              <li>Browser push notifications for score changes</li>
-              <li>WebSocket real-time data feed</li>
             </ul>
           </div>
         </div>
@@ -428,7 +443,7 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>You can cancel anytime. Your subscription is managed through Stripe. To cancel, email <a href="mailto:support@timed-trading.com">support@timed-trading.com</a> and we'll process your cancellation immediately. You'll retain access until the end of your current billing period.</p>
+            <p>You can cancel anytime directly from your Stripe billing portal. Look for the "Manage Subscription" link in your account, or visit the Stripe customer portal URL from your original subscription confirmation email. Your access continues until the end of your current billing period. If you have any trouble, email <a href="mailto:support@timed-trading.com">support@timed-trading.com</a> and we'll help.</p>
           </div>
         </div>
       </div>
@@ -457,15 +472,6 @@
           </div>
         </div>
 
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            Can I get push notifications?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>Yes. When you first log in, your browser will ask for notification permission. Once granted, you'll receive push notifications for significant score changes and Daily Brief availability &mdash; even when the tab is closed. This works on Chrome, Edge, and Firefox (Safari support varies).</p>
-          </div>
-        </div>
       </div>
 
       <!-- ── Contact CTA ── -->

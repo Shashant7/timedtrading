@@ -371,7 +371,6 @@
         const seriesRef = useRef(null);
         const firstCandleRef = useRef(null);
         const priceLinesRef = useRef([]);
-        const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [lastPrice, setLastPrice] = useState(null);
@@ -832,6 +831,7 @@
 
       // ── Main App ───────────────────────────────────────────────────────────
       function App({ user }) {
+        const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const isAdmin = user?.role === "admin" || user?.tier === "admin";
         const [brief, setBrief] = useState(null);
         const [loading, setLoading] = useState(true);

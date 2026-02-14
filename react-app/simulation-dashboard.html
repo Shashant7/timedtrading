@@ -335,7 +335,6 @@
       // Hooks
       // ─────────────────────────────────────────────────────────────
       function useTickerData() {
-        const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const [data, setData] = useState({});
         const [loading, setLoading] = useState(true);
         const [refreshing, setRefreshing] = useState(false);
@@ -6225,6 +6224,7 @@
       // Main App
       // ─────────────────────────────────────────────────────────────
       function App() {
+        const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const { data, loading, refreshing, error, lastUpdate, refetch } =
           useTickerData();
         const {
