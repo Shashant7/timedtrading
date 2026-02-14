@@ -11616,6 +11616,34 @@ async function d1EnsureStripeSchema(env) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Admin — D1 Schema Helpers (login_count, login_days tracking)
+// ═══════════════════════════════════════════════════════════════════════
+
+let _adminSchemaReady = false;
+async function d1EnsureAdminSchema(env) {
+  if (_adminSchemaReady) return;
+  const db = env?.DB;
+  if (!db) return;
+  try {
+    const cols = [
+      ["login_count", "INTEGER DEFAULT 0"],
+      ["login_days", "INTEGER DEFAULT 0"],
+      ["last_login_day", "TEXT"],
+    ];
+    for (const [col, type] of cols) {
+      try {
+        await db.prepare(`ALTER TABLE users ADD COLUMN ${col} ${type}`).run();
+      } catch {
+        // Column already exists — ignore
+      }
+    }
+    _adminSchemaReady = true;
+  } catch (e) {
+    console.error("[ADMIN] Schema migration failed:", String(e).slice(0, 200));
+  }
+}
+
 async function d1EnqueueMlV1(env, ticker, payload, horizonsMs) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
@@ -26299,8 +26327,12 @@ export default {
           const DB = env?.DB;
           if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           await d1EnsureStripeSchema(env);
+          await d1EnsureAdminSchema(env);
           const { results } = await DB.prepare(
-            `SELECT email, display_name, role, tier, subscription_status, stripe_customer_id, created_at, last_login_at, expires_at FROM users ORDER BY last_login_at DESC`
+            `SELECT email, display_name, role, tier, subscription_status, stripe_customer_id,
+                    created_at, last_login_at, expires_at, terms_accepted_at,
+                    login_count, login_days
+             FROM users ORDER BY last_login_at DESC`
           ).all();
           return sendJSON({ ok: true, users: results || [] }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -26316,6 +26348,7 @@ export default {
         try {
           const DB = env?.DB;
           if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureStripeSchema(env);
 
           // Extract email from path: /timed/admin/users/{email}/tier
           const pathParts = url.pathname.split("/");
@@ -26328,11 +26361,14 @@ export default {
             return sendJSON({ ok: false, error: "tier must be free, pro, or admin" }, 400, corsHeaders(env, req));
           }
 
-          await DB.prepare(
-            `UPDATE users SET tier = ?, expires_at = ?, updated_at = ? WHERE email = ?`
-          ).bind(tier, expiresAt, Date.now(), email).run();
+          // Set subscription_status alongside tier so admin-granted Pro is distinguishable
+          const subStatus = tier === "pro" ? "manual" : tier === "admin" ? "manual" : "none";
 
-          return sendJSON({ ok: true, email, tier, expires_at: expiresAt }, 200, corsHeaders(env, req));
+          await DB.prepare(
+            `UPDATE users SET tier = ?, subscription_status = ?, expires_at = ?, updated_at = ? WHERE email = ?`
+          ).bind(tier, subStatus, expiresAt, Date.now(), email).run();
+
+          return sendJSON({ ok: true, email, tier, subscription_status: subStatus, expires_at: expiresAt }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }

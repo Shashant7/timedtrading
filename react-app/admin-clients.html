@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin — Clients — Timed Trading</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js"></script>
+    <style>
+      body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+      body:not([data-user-role="admin"]) a[data-admin-only] {
+        opacity: 0.35; pointer-events: none; position: relative;
+      }
+      body:not([data-user-role="admin"]) a[data-admin-only]::after {
+        content: " \1F512"; font-size: 9px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback, useRef } = React;
+      const API_BASE = "";
+      const AuthGate = window.TimedAuthGate;
+
+      // ── Helpers ──
+      function formatDate(ts) {
+        if (!ts) return "—";
+        return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      }
+      function formatDateTime(ts) {
+        if (!ts) return "—";
+        return new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+      }
+
+      function ClientType({ tier, subStatus }) {
+        const labels = { admin: "Admin", pro: "Pro", free: "Member" };
+        const colors = { admin: { text: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.25)" },
+                          pro: { text: "#00c853", bg: "rgba(0,200,83,0.10)", border: "rgba(0,200,83,0.25)" },
+                          free: { text: "#6b7280", bg: "rgba(107,114,128,0.10)", border: "rgba(107,114,128,0.25)" } };
+        const c = colors[tier] || colors.free;
+        const label = labels[tier] || "Member";
+        const suffix = subStatus === "manual" ? " *" : subStatus === "trialing" ? " (trial)" : "";
+        return (
+          <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "4px", fontSize: "11px",
+            fontWeight: 600, color: c.text, background: c.bg, border: `1px solid ${c.border}`, whiteSpace: "nowrap" }}>
+            {label}{suffix}
+          </span>
+        );
+      }
+
+      function ActiveBadge({ yes }) {
+        return (
+          <span style={{ color: yes ? "#22c55e" : "#ef4444", fontWeight: 600, fontSize: "11px" }}>
+            {yes ? "Y" : "N"}
+          </span>
+        );
+      }
+
+      // ── Main Component ──
+      function AdminClientsPage({ user }) {
+        const [users, setUsers] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [filter, setFilter] = useState("");
+        const [actionLoading, setActionLoading] = useState(null);
+        const [message, setMessage] = useState(null);
+        const [sortCol, setSortCol] = useState("last_login_at");
+        const [sortDir, setSortDir] = useState("desc");
+
+        const fetchUsers = useCallback(async () => {
+          setLoading(true);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/users`, { credentials: "include" });
+            if (res.ok) {
+              const json = await res.json();
+              if (json.ok) setUsers(json.users || []);
+            }
+          } catch {} finally { setLoading(false); }
+        }, []);
+
+        useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+        const setTier = async (email, tier) => {
+          setActionLoading(email);
+          setMessage(null);
+          try {
+            const params = new URLSearchParams({ tier });
+            if (tier === "free") params.set("expires_at", String(Date.now()));
+            const res = await fetch(`${API_BASE}/timed/admin/users/${encodeURIComponent(email)}/tier?${params}`, {
+              method: "POST", credentials: "include",
+            });
+            const json = await res.json();
+            if (json.ok) {
+              setMessage({ type: "success", text: `${email} → ${tier.toUpperCase()}` });
+              fetchUsers();
+            } else {
+              setMessage({ type: "error", text: json.error || "Failed" });
+            }
+          } catch (e) {
+            setMessage({ type: "error", text: String(e.message || e) });
+          } finally { setActionLoading(null); }
+        };
+
+        // Sorting
+        const handleSort = (col) => {
+          if (sortCol === col) {
+            setSortDir(d => d === "asc" ? "desc" : "asc");
+          } else {
+            setSortCol(col);
+            setSortDir("desc");
+          }
+        };
+
+        const sortIndicator = (col) => {
+          if (sortCol !== col) return "";
+          return sortDir === "asc" ? " \u25B2" : " \u25BC";
+        };
+
+        // Filter + sort
+        const processed = useMemo(() => {
+          let list = users;
+          if (filter) {
+            const q = filter.toLowerCase();
+            list = list.filter(u =>
+              (u.email || "").toLowerCase().includes(q) ||
+              (u.display_name || "").toLowerCase().includes(q) ||
+              (u.tier || "").toLowerCase().includes(q)
+            );
+          }
+          list = [...list].sort((a, b) => {
+            let va = a[sortCol], vb = b[sortCol];
+            // Numeric sort for timestamps and counts
+            if (typeof va === "number" || typeof vb === "number") {
+              va = Number(va) || 0;
+              vb = Number(vb) || 0;
+              return sortDir === "asc" ? va - vb : vb - va;
+            }
+            // String sort
+            va = String(va || "").toLowerCase();
+            vb = String(vb || "").toLowerCase();
+            return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+          });
+          return list;
+        }, [users, filter, sortCol, sortDir]);
+
+        // CSV export
+        const exportCSV = () => {
+          const now = Date.now();
+          const headers = ["Client ID","Type","Name","Email","Last Login","Date Joined","Terms Accepted","Active >1d","Active >5d","Active >14d","Active >30d","Total Sessions","Total Days"];
+          const rows = processed.map((u, i) => {
+            const days = u.last_login_at ? (now - u.last_login_at) / 86400000 : Infinity;
+            return [
+              i + 1,
+              (u.tier || "free").toUpperCase(),
+              u.display_name || "",
+              u.email,
+              u.last_login_at ? new Date(u.last_login_at).toISOString() : "",
+              u.created_at ? new Date(u.created_at).toISOString() : "",
+              u.terms_accepted_at ? new Date(u.terms_accepted_at).toISOString() : "",
+              days <= 1 ? "Y" : "N",
+              days <= 5 ? "Y" : "N",
+              days <= 14 ? "Y" : "N",
+              days <= 30 ? "Y" : "N",
+              u.login_count || 0,
+              u.login_days || 0,
+            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+          });
+          const csv = [headers.join(","), ...rows].join("\n");
+          const blob = new Blob([csv], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `timed-clients-${new Date().toISOString().slice(0,10)}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        // Stats
+        const stats = useMemo(() => {
+          const now = Date.now();
+          const total = users.length;
+          const pro = users.filter(u => u.tier === "pro").length;
+          const admin = users.filter(u => u.tier === "admin").length;
+          const members = total - pro - admin;
+          const active7d = users.filter(u => u.last_login_at && (now - u.last_login_at) / 86400000 <= 7).length;
+          const active30d = users.filter(u => u.last_login_at && (now - u.last_login_at) / 86400000 <= 30).length;
+          const termsAccepted = users.filter(u => u.terms_accepted_at).length;
+          return { total, pro, admin, members, active7d, active30d, termsAccepted };
+        }, [users]);
+
+        const thClass = "px-2 py-2.5 text-left text-[10px] font-semibold text-[#6b7280] uppercase tracking-wider cursor-pointer hover:text-white select-none whitespace-nowrap";
+        const tdClass = "px-2 py-2 text-[12px] whitespace-nowrap";
+
+        return (
+          <div className="min-h-screen bg-[#0a0a0f]">
+            {/* Nav */}
+            <nav className="sticky top-0 z-50 bg-[#0a0a0f]/90 backdrop-blur-md border-b border-white/[0.04]">
+              <div className="max-w-[1600px] mx-auto px-4 py-2 flex items-center justify-between">
+                <a href="index-react.html" className="flex items-center gap-2 text-white font-bold text-sm">
+                  <svg width="20" height="20" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#00c853"/><path d="M8 22V12l4 6 4-10 4 10 4-6v10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Timed Trading
+                </a>
+                <div className="flex items-center gap-0.5">
+                  <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
+                  <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
+                  <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+                  <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+                  <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+                  <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+                  <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa] bg-[#a78bfa]/[0.07] font-medium">Admin</a>
+                  <a href="daily-brief.html" className="px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium">Daily Brief</a>
+                </div>
+              </div>
+            </nav>
+
+            {/* Content */}
+            <div className="max-w-[1600px] mx-auto px-4 py-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h1 className="text-xl font-bold text-white">Client Management</h1>
+                  <p className="text-[13px] text-[#6b7280] mt-1">{stats.total} total clients</p>
+                </div>
+                <button onClick={exportCSV}
+                  className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white hover:bg-white/[0.08] transition-all">
+                  Export CSV
+                </button>
+              </div>
+
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+                {[
+                  { label: "Total", value: stats.total, color: "#e5e7eb" },
+                  { label: "Members", value: stats.members, color: "#6b7280" },
+                  { label: "Pro", value: stats.pro, color: "#00c853" },
+                  { label: "Admin", value: stats.admin, color: "#a78bfa" },
+                  { label: "Active 7d", value: stats.active7d, color: "#38bdf8" },
+                  { label: "Active 30d", value: stats.active30d, color: "#22d3ee" },
+                  { label: "Terms OK", value: stats.termsAccepted, color: "#34d399" },
+                ].map(s => (
+                  <div key={s.label} className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wide">{s.label}</div>
+                    <div className="text-2xl font-bold mt-1" style={{ color: s.color }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Search + Message */}
+              <div className="mb-4">
+                <input type="text" placeholder="Search by email, name, or type..."
+                  value={filter} onChange={(e) => setFilter(e.target.value)}
+                  className="w-full max-w-md px-4 py-2.5 rounded-xl text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all" />
+                {message && (
+                  <div className={`mt-2 inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#00c853] bg-[#00c853]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`}>
+                    {message.text}
+                  </div>
+                )}
+              </div>
+
+              {/* Table */}
+              {loading ? (
+                <div className="text-center py-20 text-[#6b7280]">
+                  <div className="w-6 h-6 border-2 border-white/[0.06] border-t-[#a78bfa] rounded-full mx-auto mb-3" style={{ animation: "spin 0.8s linear infinite" }} />
+                  Loading clients...
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/[0.06] bg-white/[0.02]">
+                        <th className={thClass}>#</th>
+                        <th className={thClass} onClick={() => handleSort("tier")}>Type{sortIndicator("tier")}</th>
+                        <th className={thClass} onClick={() => handleSort("display_name")}>Name{sortIndicator("display_name")}</th>
+                        <th className={thClass} onClick={() => handleSort("email")}>Email{sortIndicator("email")}</th>
+                        <th className={thClass} onClick={() => handleSort("last_login_at")}>Last Login{sortIndicator("last_login_at")}</th>
+                        <th className={thClass} onClick={() => handleSort("created_at")}>Joined{sortIndicator("created_at")}</th>
+                        <th className={thClass} onClick={() => handleSort("terms_accepted_at")}>Terms{sortIndicator("terms_accepted_at")}</th>
+                        <th className={thClass} title="Active within 1 day">&gt;1d</th>
+                        <th className={thClass} title="Active within 5 days">&gt;5d</th>
+                        <th className={thClass} title="Active within 14 days">&gt;14d</th>
+                        <th className={thClass} title="Active within 30 days">&gt;30d</th>
+                        <th className={thClass} onClick={() => handleSort("login_count")}>Sessions{sortIndicator("login_count")}</th>
+                        <th className={thClass} onClick={() => handleSort("login_days")}>Days{sortIndicator("login_days")}</th>
+                        <th className={thClass}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {processed.map((u, idx) => {
+                        const daysSince = u.last_login_at ? (Date.now() - u.last_login_at) / 86400000 : Infinity;
+                        const isCurrentUser = u.email === user?.email;
+                        return (
+                          <tr key={u.email} className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${isCurrentUser ? "bg-[#a78bfa]/[0.04]" : ""}`}>
+                            <td className={`${tdClass} text-[#4b5563]`}>{idx + 1}</td>
+                            <td className={tdClass}><ClientType tier={u.tier} subStatus={u.subscription_status} /></td>
+                            <td className={`${tdClass} text-[#e5e7eb] font-medium max-w-[160px] truncate`}>{u.display_name || "—"}</td>
+                            <td className={`${tdClass} text-[#9ca3af] max-w-[220px] truncate`}>{u.email}</td>
+                            <td className={`${tdClass} text-[#6b7280]`}>{formatDateTime(u.last_login_at)}</td>
+                            <td className={`${tdClass} text-[#6b7280]`}>{formatDate(u.created_at)}</td>
+                            <td className={tdClass}>
+                              {u.terms_accepted_at
+                                ? <span className="text-[#34d399] text-[11px]">{formatDate(u.terms_accepted_at)}</span>
+                                : <span className="text-[#f59e0b] text-[11px]">Pending</span>}
+                            </td>
+                            <td className={`${tdClass} text-center`}><ActiveBadge yes={daysSince <= 1} /></td>
+                            <td className={`${tdClass} text-center`}><ActiveBadge yes={daysSince <= 5} /></td>
+                            <td className={`${tdClass} text-center`}><ActiveBadge yes={daysSince <= 14} /></td>
+                            <td className={`${tdClass} text-center`}><ActiveBadge yes={daysSince <= 30} /></td>
+                            <td className={`${tdClass} text-center text-[#9ca3af] tabular-nums`}>{u.login_count || 0}</td>
+                            <td className={`${tdClass} text-center text-[#9ca3af] tabular-nums`}>{u.login_days || 0}</td>
+                            <td className={`${tdClass}`}>
+                              <div className="flex gap-1">
+                                {u.tier !== "pro" && (
+                                  <button onClick={() => setTier(u.email, "pro")}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#00c853]/[0.10] border border-[#00c853]/[0.20] text-[#00c853] hover:bg-[#00c853]/[0.20] transition-all disabled:opacity-50">
+                                    Set Pro
+                                  </button>
+                                )}
+                                {u.tier !== "free" && u.tier !== "admin" && (
+                                  <button onClick={() => setTier(u.email, "free")}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#ff5252]/[0.10] border border-[#ff5252]/[0.20] text-[#ff5252] hover:bg-[#ff5252]/[0.20] transition-all disabled:opacity-50">
+                                    Set Member
+                                  </button>
+                                )}
+                                {u.tier !== "admin" && (
+                                  <button onClick={() => setTier(u.email, "admin")}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#a78bfa]/[0.10] border border-[#a78bfa]/[0.20] text-[#a78bfa] hover:bg-[#a78bfa]/[0.20] transition-all disabled:opacity-50">
+                                    Set Admin
+                                  </button>
+                                )}
+                                {u.tier === "admin" && u.email !== user?.email && (
+                                  <button onClick={() => setTier(u.email, "free")}
+                                    disabled={actionLoading === u.email}
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#ff5252]/[0.10] border border-[#ff5252]/[0.20] text-[#ff5252] hover:bg-[#ff5252]/[0.20] transition-all disabled:opacity-50">
+                                    Revoke Admin
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {processed.length === 0 && (
+                        <tr>
+                          <td colSpan={14} className="text-center py-12 text-[#4b5563]">
+                            {filter ? "No clients match your search." : "No clients found."}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Footer note */}
+              <div className="mt-4 text-[11px] text-[#4b5563]">
+                * = manually upgraded (not via Stripe). Sessions and days tracking starts from when the schema was deployed.
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ── Mount ──
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(
+        <AuthGate apiBase={API_BASE} requiredTier="admin">
+          {(user) => <AdminClientsPage user={user} />}
+        </AuthGate>
+      );
+    </script>
+  </body>
+</html>

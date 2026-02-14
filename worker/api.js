@@ -337,17 +337,36 @@ export async function authenticateUser(req, env) {
       .first();
 
     if (existing) {
-      // Update last login
-      await DB.prepare(
-        `UPDATE users SET last_login_at = ?, display_name = COALESCE(?, display_name) WHERE email = ?`,
-      )
-        .bind(Date.now(), name, email)
-        .run();
+      // Update last login + session tracking (login_count, login_days)
+      const now = Date.now();
+      const todayNY = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // "YYYY-MM-DD"
+      const isNewDay = existing.last_login_day !== todayNY;
+      try {
+        await DB.prepare(
+          `UPDATE users SET
+            last_login_at = ?,
+            display_name = COALESCE(?, display_name),
+            login_count = COALESCE(login_count, 0) + 1,
+            login_days = COALESCE(login_days, 0) + ?,
+            last_login_day = ?
+          WHERE email = ?`,
+        )
+          .bind(now, name, isNewDay ? 1 : 0, todayNY, email)
+          .run();
+      } catch {
+        // Fallback if new columns don't exist yet
+        await DB.prepare(
+          `UPDATE users SET last_login_at = ?, display_name = COALESCE(?, display_name) WHERE email = ?`,
+        )
+          .bind(now, name, email)
+          .run();
+      }
       return existing;
     }
 
     // Auto-provision new user
     const now = Date.now();
+    const todayNYNew = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     const newUser = {
       email,
       display_name: name,
@@ -357,23 +376,34 @@ export async function authenticateUser(req, env) {
       updated_at: now,
       last_login_at: now,
       expires_at: null,
+      login_count: 1,
+      login_days: 1,
+      last_login_day: todayNYNew,
     };
 
-    await DB.prepare(
-      `INSERT INTO users (email, display_name, role, tier, created_at, updated_at, last_login_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        newUser.email,
-        newUser.display_name,
-        newUser.role,
-        newUser.tier,
-        newUser.created_at,
-        newUser.updated_at,
-        newUser.last_login_at,
-        newUser.expires_at,
+    try {
+      await DB.prepare(
+        `INSERT INTO users (email, display_name, role, tier, created_at, updated_at, last_login_at, expires_at, login_count, login_days, last_login_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run();
+        .bind(
+          newUser.email, newUser.display_name, newUser.role, newUser.tier,
+          newUser.created_at, newUser.updated_at, newUser.last_login_at, newUser.expires_at,
+          newUser.login_count, newUser.login_days, newUser.last_login_day,
+        )
+        .run();
+    } catch {
+      // Fallback if new columns don't exist yet
+      await DB.prepare(
+        `INSERT INTO users (email, display_name, role, tier, created_at, updated_at, last_login_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          newUser.email, newUser.display_name, newUser.role, newUser.tier,
+          newUser.created_at, newUser.updated_at, newUser.last_login_at, newUser.expires_at,
+        )
+        .run();
+    }
 
     console.log(`[AUTH] Auto-provisioned new user: ${email}`);
     return newUser;
