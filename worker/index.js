@@ -26788,7 +26788,7 @@ export default {
         try {
           const user = await authenticateUser(req, env);
           if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
-          const body = await readBodyAsJSON(req);
+          const { obj: body } = await readBodyAsJSON(req);
           const { endpoint, keys } = body || {};
           if (!endpoint || !keys?.p256dh || !keys?.auth) {
             return sendJSON({ ok: false, error: "missing_subscription_fields" }, 400, corsHeaders(env, req));

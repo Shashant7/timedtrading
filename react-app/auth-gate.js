@@ -1582,13 +1582,18 @@
       // Helper: send subscription to backend (fire-and-forget, never throws)
       const syncSubscription = (subJson) => {
         try {
+          const payload = { endpoint: subJson.endpoint, keys: subJson.keys };
           fetch(`${apiBase}/timed/push/subscribe`, {
             method: "POST", credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
-          }).then(r => {
+            body: JSON.stringify(payload),
+          }).then(async (r) => {
             if (r.ok) console.log("[PUSH] Subscription synced to backend");
-            else console.warn("[PUSH] Backend returned", r.status);
+            else {
+              const body = await r.text().catch(() => "");
+              console.warn("[PUSH] Backend returned", r.status, body,
+                "payload:", JSON.stringify({ endpoint: (payload.endpoint || "").slice(0, 60), hasKeys: !!payload.keys, p256dh: !!(payload.keys?.p256dh), auth: !!(payload.keys?.auth) }));
+            }
           }).catch(e => console.warn("[PUSH] Sync failed:", e));
         } catch (_) {}
       };
