@@ -16890,12 +16890,8 @@
                   </div>
                 )}
 
-                {/* Ingestion Status Panel (minimizable, always accessible) */}
-                <IngestionStatusPanel
-                  allData={data}
-                  filteredTickers={applyFilters(data, effectiveFilters, trades, socialAdditions, savedTickers)}
-                  onRefresh={refetch}
-                />
+                {/* Ingestion Status Panel removed — was a floating widget showing stale/fresh ticker counts.
+                     Not useful for end users; admin can check via /admin-clients.html or Worker logs. */}
 
                 {/* Main Content - Hero Layout: Activity Feed (left) | Bubble Chart (center) | Detail (right) */}
                 {!error && (
