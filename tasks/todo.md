@@ -56,5 +56,5 @@ Implemented all four workstreams from the GTM readiness plan: Subscription & Mon
 - [ ] Store secrets via `wrangler secret put`: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID
 - [ ] Generate VAPID key pair for Web Push and set as Worker secret + frontend config
 - [ ] Add Cloudflare Access bypass rule for `/timed/stripe/webhook` path
-- [ ] Deploy: `cd worker && npx wrangler deploy && npx wrangler deploy --env production`
-- [ ] Push to git for Pages deployment
+- [x] Deploy: `cd worker && npx wrangler deploy && npx wrangler deploy --env production` — DONE (2026-02-14)
+- [x] Push to git for Pages deployment — DONE (2026-02-14)
