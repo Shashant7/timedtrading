@@ -50,11 +50,11 @@ Implemented all four workstreams from the GTM readiness plan: Subscription & Mon
 - `react-app/screener.html` — NotificationCenter in nav
 
 ## Manual Steps Required (Not Code)
-- [ ] Create Stripe account and product/price ($60/month recurring)
-- [ ] Enable Stripe Customer Portal
-- [ ] Set up Stripe Webhook endpoint for the 4 events
-- [ ] Store secrets via `wrangler secret put`: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID
+- [x] Create Stripe account and product/price ($60/month recurring)
+- [x] Enable Stripe Customer Portal
+- [x] Set up Stripe Webhook endpoint for the 4 events
+- [x] Store secrets via `wrangler secret put`: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID
 - [ ] Generate VAPID key pair for Web Push and set as Worker secret + frontend config
-- [ ] Add Cloudflare Access bypass rule for `/timed/stripe/webhook` path
+- [x] Add Cloudflare Access bypass rule for `/timed/stripe/webhook` path
 - [x] Deploy: `cd worker && npx wrangler deploy && npx wrangler deploy --env production` — DONE (2026-02-14)
 - [x] Push to git for Pages deployment — DONE (2026-02-14)

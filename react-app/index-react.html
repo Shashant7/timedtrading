@@ -876,6 +876,10 @@
                 const bestPc = feedPcUsable
                   ? feedPc
                   : (existing._live_prev_close || existing.prev_close || undefined);
+                // Merge dc/dp from price feed so daily change displays for SPY, sector ETFs, etc.
+                // Worker has D1 daily candles + Alpaca; frontend may not have _live_prev_close when pc≈price.
+                const feedDc = Number(priceInfo.dc);
+                const feedDp = Number(priceInfo.dp);
                 const merged = {
                   ...existing,
                   price: priceInfo.p,
@@ -885,6 +889,8 @@
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
                   _price_updated_at: json.updated_at || Date.now(),
+                  ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+                  ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
                 };
                 updatedData[normalizedSym] = merged;
                 changed = true;
@@ -968,6 +974,8 @@
                     const bestPc = feedPcUsable
                       ? feedPc
                       : (existing._live_prev_close || existing.prev_close || undefined);
+                    const feedDc = Number(priceInfo.dc);
+                    const feedDp = Number(priceInfo.dp);
                     updatedData[normalizedSym] = {
                       ...existing,
                       price: priceInfo.p,
@@ -977,6 +985,8 @@
                       _live_daily_low: priceInfo.dl,
                       _live_daily_volume: priceInfo.dv,
                       _price_updated_at: msg.updated_at || Date.now(),
+                      ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+                      ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
                     };
                     changed = true;
                   }

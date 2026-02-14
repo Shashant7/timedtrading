@@ -34681,11 +34681,9 @@ Provide 3-5 actionable next steps:
             return d1;
           }
 
-          // Priority 3: Alpaca previousDailyBar.close (reject if ≈ current price)
-          if (alp > 0 && px > 0) {
-            const alpDivPct = Math.abs(alp - px) / px * 100;
-            if (alpDivPct > 0.05) return alp; // Meaningfully different from current price
-          }
+          // Priority 3: Alpaca previousDailyBar.close
+          // Use when no better source exists. Accept even when ≈ current price (0% daily change is valid).
+          if (alp > 0 && px > 0) return alp;
 
           return 0; // No usable prev_close
         }

@@ -410,17 +410,19 @@
                 const bestPc = feedPcUsable
                   ? feedPc
                   : (existing._live_prev_close || existing.prev_close || undefined);
-                // Same for day_change: only use feed values when they're actually meaningful
-                const useFeedChg = feedPcUsable && Number.isFinite(priceInfo.dp) && Math.abs(priceInfo.dp) > 0.001;
+                // Merge dc/dp so daily change displays for SPY, sector ETFs, etc. (even when 0%)
+                const feedDc = Number(priceInfo.dc);
+                const feedDp = Number(priceInfo.dp);
                 updated[key] = {
                   ...existing,
                   price: priceInfo.p,
                   _live_price: priceInfo.p,
                   ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
-                  ...(useFeedChg ? { day_change: priceInfo.dc, day_change_pct: priceInfo.dp } : {}),
+                  ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+                  ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
                   ...(feedPcUsable && bestPc > 0 ? { prev_close: bestPc } : {}),
-                  _live_daily_change: priceInfo.dc,
-                  _live_daily_change_pct: priceInfo.dp,
+                  _live_daily_change: feedDc,
+                  _live_daily_change_pct: feedDp,
                   _price_updated_at: json.updated_at || Date.now(),
                 };
                 changed = true;
