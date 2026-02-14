@@ -783,9 +783,12 @@
       });
     }
 
-    // Register push notifications once authenticated (progressive, after 3rd visit)
+    // Register push notifications once authenticated (progressive, after 3rd visit).
+    // Fully wrapped in catch — must never crash the app.
     useEffect(() => {
-      if (user) registerPushNotifications(apiBase);
+      if (user) {
+        try { registerPushNotifications(apiBase).catch(() => {}); } catch (_) {}
+      }
     }, [user, apiBase]);
 
     // Authenticated, tier-authorized, and terms accepted — render children with user context
@@ -1567,6 +1570,7 @@
   // Register service worker and request push subscription.
   // Called on page load after auth. Progressive: prompts after 3rd visit,
   // but re-tries if a previous attempt failed (no active subscription).
+  // CRITICAL: This function must NEVER throw — any error crashes the React tree.
   async function registerPushNotifications(apiBase) {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
     try {
@@ -1574,16 +1578,24 @@
       const vapidKey = window.__TIMED_VAPID_PUBLIC_KEY;
       if (!vapidKey) { console.warn("[PUSH] No VAPID public key configured"); return; }
 
+      // Helper: send subscription to backend (fire-and-forget, never throws)
+      const syncSubscription = (subJson) => {
+        try {
+          fetch(`${apiBase}/timed/push/subscribe`, {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
+          }).then(r => {
+            if (r.ok) console.log("[PUSH] Subscription synced to backend");
+            else console.warn("[PUSH] Backend returned", r.status);
+          }).catch(e => console.warn("[PUSH] Sync failed:", e));
+        } catch (_) {}
+      };
+
       // Check if we already have an active push subscription
       const existingSub = await reg.pushManager.getSubscription();
       if (existingSub) {
-        // Already subscribed — make sure backend knows (idempotent upsert)
-        const subJson = existingSub.toJSON();
-        fetch(`${apiBase}/timed/push/subscribe`, {
-          method: "POST", credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
-        }).catch(() => {});
+        syncSubscription(existingSub.toJSON());
         return;
       }
 
@@ -1598,12 +1610,7 @@
           userVisibleOnly: true,
           applicationServerKey: vapidKey,
         });
-        const subJson = sub.toJSON();
-        await fetch(`${apiBase}/timed/push/subscribe`, {
-          method: "POST", credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
-        });
+        syncSubscription(sub.toJSON());
         console.log("[PUSH] Subscribed (permission was already granted)");
         return;
       }
@@ -1620,12 +1627,7 @@
         userVisibleOnly: true,
         applicationServerKey: vapidKey,
       });
-      const subJson = sub.toJSON();
-      await fetch(`${apiBase}/timed/push/subscribe`, {
-        method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
-      });
+      syncSubscription(sub.toJSON());
       console.log("[PUSH] Subscribed (new permission grant)");
     } catch (e) {
       console.warn("[PUSH] Registration failed:", e);
