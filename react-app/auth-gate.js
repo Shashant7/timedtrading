@@ -15,6 +15,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 (function () {
+  // VAPID public key for Web Push notifications
+  window.__TIMED_VAPID_PUBLIC_KEY = "BA9AZ2w5_qm9sSSSwV-pYn1-mBvMd9oFTdA1Rc-LPW-wZDgpXe273vNzENhqHcV-WV-7j1EiRdWU1aUXR_Jb7OA";
+
   const { useState, useEffect, useCallback } = React;
 
   const STORAGE_KEY = "timed_auth_session";
