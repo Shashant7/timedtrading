@@ -490,14 +490,7 @@
 
     const handleSignOut = async () => {
       clearSession();
-      // Clear CF Access cookie via app-domain logout only
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.src = window.location.origin + "/cdn-cgi/access/logout";
-      document.body.appendChild(iframe);
-      await new Promise(r => setTimeout(r, 1500));
-      try { document.body.removeChild(iframe); } catch {}
-      window.location.href = "/splash.html";
+      window.location.href = "/logout.html";
     };
 
     const chartIcon = h("svg", { width: "36", height: "36", viewBox: "0 0 24 24", fill: "none", stroke: "white", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
@@ -844,19 +837,7 @@
 
     const handleLogout = async () => {
       clearSession();
-      try { sessionStorage.setItem("tt_logout", "1"); } catch {}
-      // Clear CF Access cookie via app-domain logout in a hidden iframe,
-      // then redirect to the splash page.
-      // IMPORTANT: Only hit the app domain — hitting the team domain
-      // (cloudflareaccess.com) revokes the entire session and can prevent
-      // re-authentication, creating a login loop.
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.src = window.location.origin + "/cdn-cgi/access/logout";
-      document.body.appendChild(iframe);
-      await new Promise(r => setTimeout(r, 1500));
-      try { document.body.removeChild(iframe); } catch {}
-      window.location.href = "/splash.html";
+      window.location.href = "/logout.html";
     };
 
     if (compact) {
@@ -1024,27 +1005,7 @@
               {
                 onClick: async () => {
                   clearSession();
-                  // Clear CF Access cookie via app-domain logout only.
-                  // IMPORTANT: Do NOT hit the team domain (cloudflareaccess.com) — that
-                  // revokes the entire CF Access session and can create a login loop
-                  // that persists even after clearing cookies.
-                  const iframe = document.createElement("iframe");
-                  iframe.style.display = "none";
-                  iframe.src = window.location.origin + "/cdn-cgi/access/logout";
-                  document.body.appendChild(iframe);
-                  // Also attempt direct cookie deletion (may work if not HttpOnly)
-                  try {
-                    const d = window.location.hostname;
-                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + d;
-                    document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
-                  } catch (_) {}
-                  await new Promise(r => setTimeout(r, 1500));
-                  try { document.body.removeChild(iframe); } catch {}
-                  // Redirect to splash — when user clicks Sign In, CF Access will
-                  // start a fresh OAuth flow. Google account chooser appears because
-                  // the CF Access app-level session was invalidated.
-                  window.location.href = "/splash.html";
+                  window.location.href = "/logout.html";
                 },
                 style: {
                   width: "100%",
