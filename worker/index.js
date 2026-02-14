@@ -20966,12 +20966,44 @@ export default {
 
       // GET /timed/sparklines — Returns pre-computed sparkline data for all tickers from KV.
       // Single fast read replaces 200+ D1 candle queries per client page load.
+      // Falls back to D1 query if KV is empty (first deploy, KV cleared, etc.).
       if (routeKey === "GET /timed/sparklines") {
         try {
-          const sparkMap = await kvGetJSON(KV, "timed:sparklines");
-          if (!sparkMap) {
-            return sendJSON({ ok: true, data: {}, updated_at: 0 }, 200, corsHeaders(env, req));
+          let sparkMap = await kvGetJSON(KV, "timed:sparklines");
+
+          // Fallback: if KV has no sparkline data, bootstrap from D1's 5m candles.
+          // Uses a single efficient query with time cutoff (last 72h covers weekends).
+          if (!sparkMap || Object.keys(sparkMap).length === 0) {
+            const db = env?.DB;
+            if (db) {
+              try {
+                const cutoff = Date.now() - 72 * 3600 * 1000; // 72 hours ago
+                const rows = await db.prepare(
+                  `SELECT ticker, ts, o, c FROM ticker_candles
+                   WHERE tf = '5' AND ts > ?1
+                   ORDER BY ticker ASC, ts ASC
+                   LIMIT 30000`
+                ).bind(cutoff).all();
+                sparkMap = {};
+                for (const r of (rows?.results || [])) {
+                  const sym = r.ticker;
+                  if (!sparkMap[sym]) sparkMap[sym] = [];
+                  sparkMap[sym].push({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) });
+                }
+                // Cache to KV for subsequent requests (non-blocking)
+                if (Object.keys(sparkMap).length > 0) {
+                  ctx.waitUntil(kvPutJSON(KV, "timed:sparklines", sparkMap).catch(() => {}));
+                  console.log(`[SPARKLINES] Bootstrapped ${Object.keys(sparkMap).length} tickers from D1 → KV`);
+                }
+              } catch (d1Err) {
+                console.warn("[SPARKLINES] D1 fallback failed:", String(d1Err).slice(0, 200));
+                sparkMap = {};
+              }
+            } else {
+              sparkMap = {};
+            }
           }
+
           return sendJSON({ ok: true, data: sparkMap, updated_at: Date.now() }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[SPARKLINES] GET failed:", String(e));
@@ -35389,55 +35421,37 @@ Provide 3-5 actionable next steps:
         // the full sparkline payload to all WS clients every 5 minutes.
         // Clients use this to render sparklines with zero HTTP candle requests.
         //
-        // IMPORTANT: Only append new price points during equity RTH (9:30-4 PM ET weekdays).
-        // Outside market hours, prices are stale and appending them would create flat lines
-        // that push out the previous session's real intraday movement. By skipping outside RTH,
-        // the last trading day's sparklines are preserved and shown for context.
+        // IMPORTANT: Only append new price points during extended trading hours
+        // (4 AM - 8 PM ET on weekdays). This covers pre-market, RTH, and after-hours
+        // so sparklines show gaps and AH/PM price movement naturally.
+        // Outside these hours (overnight + weekends), stale prices are skipped so the
+        // last session's real intraday movement is preserved for context.
         try {
           const SPARK_KV_KEY = "timed:sparklines";
           const SPARK_MAX_POINTS = 400; // ~6.5h at 1m resolution, enough for any session
           const minuteTs = Math.floor(Date.now() / 60000) * 60000;
-          const marketOpen = isNyRegularMarketOpen();
+          // Extended hours: weekdays 4 AM - 8 PM ET (covers PM + RTH + AH)
+          const marketOpen = (() => {
+            try {
+              const now = new Date();
+              const wd = String(NY_WD_FMT.format(now)).toLowerCase();
+              const isWeekday = wd.startsWith("mon") || wd.startsWith("tue") || wd.startsWith("wed") || wd.startsWith("thu") || wd.startsWith("fri");
+              if (!isWeekday) return false;
+              const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(now);
+              const map = {};
+              for (const p of parts) map[p.type] = Number(p.value);
+              const mins = (map.hour || 0) * 60 + (map.minute || 0);
+              return mins >= 240 && mins < 1200; // 4:00 AM – 8:00 PM ET
+            } catch { return true; }
+          })();
 
           // Read existing sparkline data from KV
           let sparkMap = (await kvGetJSON(KV, SPARK_KV_KEY)) || {};
 
-          // Bootstrap: if sparkMap is empty (first deploy or cleared), seed from D1
-          // by querying the last 100 5m candles for the top tickers.
-          // This runs once and gives sparklines context even before the next market open.
-          if (Object.keys(sparkMap).length === 0 && env?.DB) {
-            try {
-              const db = env.DB;
-              const tickerSyms = Object.keys(prices).slice(0, 250); // up to 250 tickers
-              // Batch query: get last 100 5m candles per ticker (covers ~8h)
-              const batchSize = 50; // D1 batch limit per call
-              for (let i = 0; i < tickerSyms.length; i += batchSize) {
-                const chunk = tickerSyms.slice(i, i + batchSize);
-                const stmts = chunk.map(sym =>
-                  db.prepare(
-                    `SELECT ts, o, c FROM ticker_candles WHERE ticker = ?1 AND tf = '5' ORDER BY ts DESC LIMIT 100`
-                  ).bind(sym.toUpperCase())
-                );
-                const results = await db.batch(stmts);
-                for (let j = 0; j < chunk.length; j++) {
-                  const rows = results[j]?.results || [];
-                  if (rows.length < 2) continue;
-                  sparkMap[chunk[j]] = rows
-                    .map(r => ({ t: Number(r.ts), c: Number(r.c), o: Number(r.o) }))
-                    .filter(p => Number.isFinite(p.t) && Number.isFinite(p.c))
-                    .reverse(); // oldest first
-                }
-              }
-              if (Object.keys(sparkMap).length > 0) {
-                console.log(`[SPARKLINES] Bootstrapped ${Object.keys(sparkMap).length} tickers from D1`);
-                ctx.waitUntil(kvPutJSON(KV, SPARK_KV_KEY, sparkMap).catch(() => {}));
-              }
-            } catch (bootErr) {
-              console.warn("[SPARKLINES] Bootstrap from D1 failed:", String(bootErr).slice(0, 200));
-            }
-          }
+          // Bootstrap is handled by GET /timed/sparklines endpoint (D1 fallback)
+          // when KV is empty. The cron only appends new points during market hours.
 
-          // Only append new data points during market hours
+          // Only append new data points during extended trading hours
           if (marketOpen) {
             let appended = 0;
             for (const [sym, snap] of Object.entries(prices)) {
