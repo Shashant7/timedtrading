@@ -1596,8 +1596,16 @@
       // Check if we already have an active push subscription
       const existingSub = await reg.pushManager.getSubscription();
       if (existingSub) {
-        syncSubscription(existingSub.toJSON());
-        return;
+        const subJson = existingSub.toJSON();
+        // Validate the subscription has proper keys (old subscriptions
+        // created before VAPID was configured may lack p256dh/auth)
+        if (subJson.keys?.p256dh && subJson.keys?.auth) {
+          syncSubscription(subJson);
+          return;
+        }
+        // Stale subscription without keys — unsubscribe and re-create below
+        console.log("[PUSH] Stale subscription (missing keys), re-subscribing...");
+        await existingSub.unsubscribe().catch(() => {});
       }
 
       // No subscription yet. Check if we should prompt.
