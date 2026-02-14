@@ -41,6 +41,9 @@ docs/BEST_SETUPS_ANALYSIS.json
 # Local exports (TradingView, etc.)
 TV Exports/
 
+# Backfill temp output
+_backfill_tmp.sql
+
 # CloudFlare
 .wrangler/
 wrangler.toml.local
