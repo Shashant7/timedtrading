@@ -783,6 +783,11 @@
       });
     }
 
+    // Register push notifications once authenticated (progressive, after 3rd visit)
+    useEffect(() => {
+      if (user) registerPushNotifications(apiBase);
+    }, [user, apiBase]);
+
     // Authenticated, tier-authorized, and terms accepted — render children with user context
     const appContent = typeof children === "function" ? children(user) : children;
 
@@ -1559,23 +1564,58 @@
   }
 
   // ── Push Notification Registration ──────────────────────────────────────
-  // Register service worker and request push subscription
+  // Register service worker and request push subscription.
+  // Called on page load after auth. Progressive: prompts after 3rd visit,
+  // but re-tries if a previous attempt failed (no active subscription).
   async function registerPushNotifications(apiBase) {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
     try {
       const reg = await navigator.serviceWorker.register("/service-worker.js");
-      // Don't auto-prompt — wait for user action or after a few page loads
-      const prompted = localStorage.getItem("tt_push_prompted");
-      if (prompted) return;
-      // After 3rd page load, show a tasteful prompt
+      const vapidKey = window.__TIMED_VAPID_PUBLIC_KEY;
+      if (!vapidKey) { console.warn("[PUSH] No VAPID public key configured"); return; }
+
+      // Check if we already have an active push subscription
+      const existingSub = await reg.pushManager.getSubscription();
+      if (existingSub) {
+        // Already subscribed — make sure backend knows (idempotent upsert)
+        const subJson = existingSub.toJSON();
+        fetch(`${apiBase}/timed/push/subscribe`, {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
+        }).catch(() => {});
+        return;
+      }
+
+      // No subscription yet. Check if we should prompt.
+      const permission = Notification.permission;
+      if (permission === "denied") return; // User blocked — don't nag
+
+      if (permission === "granted") {
+        // Permission was granted before but no subscription (e.g. VAPID key
+        // wasn't set yet on a previous attempt). Subscribe now.
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKey,
+        });
+        const subJson = sub.toJSON();
+        await fetch(`${apiBase}/timed/push/subscribe`, {
+          method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
+        });
+        console.log("[PUSH] Subscribed (permission was already granted)");
+        return;
+      }
+
+      // Permission is "default" — need to ask. Wait until 3rd page visit.
       const visits = Number(localStorage.getItem("tt_visit_count") || 0) + 1;
       localStorage.setItem("tt_visit_count", String(visits));
       if (visits < 3) return;
-      localStorage.setItem("tt_push_prompted", "1");
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") return;
-      const vapidKey = window.__TIMED_VAPID_PUBLIC_KEY;
-      if (!vapidKey) return;
+
+      const result = await Notification.requestPermission();
+      if (result !== "granted") return;
+
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: vapidKey,
@@ -1586,6 +1626,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
       });
+      console.log("[PUSH] Subscribed (new permission grant)");
     } catch (e) {
       console.warn("[PUSH] Registration failed:", e);
     }
