@@ -42,12 +42,12 @@
 | 3.2 | **Terms acceptance gate** | Done | P0 | In-app terms modal blocks access until accepted. Audit trail in D1. |
 | 3.3 | **Welcome tour / onboarding** | Done | P0 | `DashboardWelcomeModal` and coachmarks tour on first visit (Active Trader + Simulation dashboards). Guide/Tour buttons available in nav for repeat access. |
 | 3.4 | **Paywall / upgrade flow** | Done | P0 | Free users see upgrade prompt. "Upgrade to Pro" button triggers Stripe Checkout. |
-| 3.5 | **Contact / support channel** | Needs work | P0 | `legal@timed-trading.com` listed in Terms §17 for legal inquiries. Auth-gate says "contact support" on Stripe errors but doesn't link anywhere. **Action:** Create a `support@timed-trading.com` email. Add a visible "Help" or "Contact" link in the footer/nav of all pages. Consider a simple feedback form or link to a Discord community channel. |
-| 3.6 | **FAQ / Help Center** | Not started | P1 | No FAQ page exists. **Action:** Create a `/faq.html` page covering: What is Timed Trading? How does scoring work? How do I read the Kanban board? What does my subscription include? How do I cancel? Is this financial advice? Gather questions from early users. |
+| 3.5 | **Contact / support channel** | Done | P0 | `support@timed-trading.com` linked in footer/nav of all pages (splash, terms, FAQ, auth-gate overlay, mobile hamburger menus). `legal@timed-trading.com` in Terms §17. |
+| 3.6 | **FAQ / Help Center** | Done | P1 | `/faq.html` created with accordion-style Q&A covering: What is Timed Trading, scoring system, Kanban board, Daily Brief, subscription, cancellation, mobile support, push notifications, financial advice disclaimer. Contact CTA at bottom. |
 | 3.7 | **Email communications** | Not started | P1 | No transactional or marketing email system. No SendGrid/Postmark/Mailchannels. **Action:** Set up a transactional email provider for: welcome email on signup, subscription confirmation, daily brief email digest (optional). Start with Cloudflare Email Workers or Resend.com (free tier). |
 | 3.8 | **In-app notifications** | Done | P1 | Notification bell icon with unread count. Notifications created on trade events (ENTRY/EXIT/TRIM) and daily briefs. |
 | 3.9 | **Browser push notifications** | Partial | P1 | Service worker, subscription storage, and registration flow all implemented. **Missing:** VAPID keys and push sending function. See Runbook Appendix for setup instructions. |
-| 3.10 | **Mobile experience** | Needs work | P2 | Responsive CSS via Tailwind. Works on mobile browsers but not optimized (small tap targets, horizontal scroll on some tables). **Action:** Test all pages on iPhone/Android. Fix critical usability issues before launch. |
+| 3.10 | **Mobile experience** | Done | P2 | All 8 dashboard pages now have responsive hamburger nav (hidden at `lg:`, full dropdown on mobile). Logo text hidden below `sm:`. Tap targets enlarged to `py-2` in mobile menu. Meta info (timestamps, counts) hidden on small screens. Tables remain scrollable via `overflow-x-auto`. |
 
 ---
 

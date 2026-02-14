@@ -70,6 +70,7 @@
 
       // ── Main Component ──
       function AdminClientsPage({ user }) {
+        const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const [users, setUsers] = useState([]);
         const [loading, setLoading] = useState(true);
         const [filter, setFilter] = useState("");
@@ -207,21 +208,42 @@
             {/* Nav */}
             <nav className="sticky top-0 z-50 bg-[#0a0a0f]/90 backdrop-blur-md border-b border-white/[0.04]">
               <div className="max-w-[1600px] mx-auto px-4 py-2 flex items-center justify-between">
-                <a href="index-react.html" className="flex items-center gap-2 text-white font-bold text-sm">
-                  <svg width="20" height="20" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#00c853"/><path d="M8 22V12l4 6 4-10 4 10 4-6v10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  Timed Trading
-                </a>
-                <div className="flex items-center gap-0.5">
-                  <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
-                  <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
-                  <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
-                  <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
-                  <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
-                  <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
-                  <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa] bg-[#a78bfa]/[0.07] font-medium">Admin</a>
-                  <a href="daily-brief.html" className="px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium">Daily Brief</a>
+                <div className="flex items-center gap-3 md:gap-5 min-w-0">
+                  <a href="index-react.html" className="flex items-center gap-2 text-white font-bold text-sm shrink-0">
+                    <svg width="20" height="20" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#00c853"/><path d="M8 22V12l4 6 4-10 4 10 4-6v10" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    <span className="hidden sm:inline">Timed Trading</span>
+                  </a>
+                  <div className="hidden lg:flex items-center gap-0.5">
+                    <a href="index-react.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
+                    <a href="investor-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
+                    <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
+                    <a href="model-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Model</a>
+                    <a href="screener.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
+                    <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
+                    <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa] bg-[#a78bfa]/[0.07] font-medium">Admin</a>
+                    <a href="daily-brief.html" className="px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium">Daily Brief</a>
+                  </div>
                 </div>
+                <button onClick={() => setMobileMenuOpen(v => !v)} className="lg:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
+                  {mobileMenuOpen ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                  )}
+                </button>
               </div>
+              {mobileMenuOpen && (
+                <div className="lg:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
+                  <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Active Trader</a>
+                  <a href="investor-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Investor</a>
+                  <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
+                  <a href="model-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Model</a>
+                  <a href="screener.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
+                  <a href="ticker-management.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
+                  <a href="admin-clients.html" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa] bg-[#a78bfa]/[0.07] font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
+                  <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
+                </div>
+              )}
             </nav>
 
             {/* Content */}

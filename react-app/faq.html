@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAQ — Timed Trading</title>
+  <meta name="description" content="Frequently asked questions about Timed Trading — scoring, the Kanban board, subscriptions, and more." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-base: #0b0e11;
+      --bg-surface: rgba(255,255,255,0.025);
+      --bg-surface-hover: rgba(255,255,255,0.045);
+      --border: rgba(255,255,255,0.06);
+      --border-hover: rgba(255,255,255,0.12);
+      --text-primary: #e5e7eb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #00c853;
+      --accent-glow: rgba(0,200,83,0.15);
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.7;
+    }
+
+    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 16px 0;
+      background: rgba(11,14,17,0.8);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+    }
+    .nav-logo {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #00c853, #00e676, #69f0ae);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .nav-links { display: flex; align-items: center; gap: 8px; }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface); }
+    .nav-links a.active { color: var(--text-primary); background: var(--bg-surface); }
+
+    /* ── Header ── */
+    .faq-header {
+      padding: 120px 0 40px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 48px;
+    }
+    .faq-header h1 {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      margin-bottom: 12px;
+    }
+    .faq-header .meta {
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    /* ── FAQ Items ── */
+    .faq-content { padding-bottom: 80px; }
+
+    .faq-section {
+      margin-bottom: 48px;
+    }
+    .faq-section h2 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+
+    .faq-item {
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .faq-item:hover { border-color: var(--border-hover); }
+
+    .faq-q {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px;
+      background: var(--bg-surface);
+      border: none;
+      color: var(--text-primary);
+      font-family: var(--font);
+      font-size: 15px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.2s;
+      line-height: 1.4;
+    }
+    .faq-q:hover { background: var(--bg-surface-hover); }
+
+    .faq-q svg {
+      flex-shrink: 0;
+      color: var(--text-muted);
+      transition: transform 0.25s ease;
+    }
+    .faq-item.open .faq-q svg { transform: rotate(180deg); }
+
+    .faq-a {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+    }
+    .faq-item.open .faq-a {
+      max-height: 600px;
+      padding: 0 20px 20px;
+    }
+    .faq-a p, .faq-a ul {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.7;
+      margin-top: 4px;
+    }
+    .faq-a ul {
+      padding-left: 20px;
+      margin-top: 8px;
+    }
+    .faq-a li { margin-bottom: 6px; }
+    .faq-a a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .faq-a a:hover { text-decoration: underline; }
+
+    /* ── Contact CTA ── */
+    .contact-cta {
+      background: var(--accent-glow);
+      border: 1px solid rgba(0,200,83,0.15);
+      border-radius: 16px;
+      padding: 36px;
+      text-align: center;
+      margin-top: 48px;
+    }
+    .contact-cta h3 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .contact-cta p {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .contact-cta a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      background: var(--accent);
+      color: var(--bg-base);
+      font-weight: 600;
+      font-size: 14px;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .contact-cta a:hover {
+      background: #00e676;
+      transform: translateY(-1px);
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 0;
+    }
+    footer .nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+    }
+    .footer-links a {
+      text-decoration: none;
+      color: var(--text-muted);
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--text-primary); }
+    .footer-disclaimer {
+      width: 100%;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+    .footer-disclaimer a { color: var(--text-muted); text-decoration: underline; }
+
+    @media (max-width: 640px) {
+      .container { padding: 0 16px; }
+      nav .nav-inner { padding: 0 16px; }
+      .nav-links a:not(:last-child) { display: none; }
+      footer .nav-inner { justify-content: center; text-align: center; flex-direction: column; }
+      .faq-q { font-size: 14px; padding: 16px; }
+      .contact-cta { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ NAV ═══ -->
+  <nav>
+    <div class="nav-inner">
+      <a href="/splash.html" class="nav-brand">
+        <span class="nav-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0b0e11" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+          </svg>
+        </span>
+        Timed Trading
+      </a>
+      <div class="nav-links">
+        <a href="/splash.html">Home</a>
+        <a href="/index-react.html">Active Trader</a>
+        <a href="/faq.html" class="active">FAQ</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══ HEADER ═══ -->
+  <div class="container">
+    <div class="faq-header">
+      <h1>Frequently Asked Questions</h1>
+      <p class="meta">Everything you need to know about Timed Trading</p>
+    </div>
+
+    <div class="faq-content">
+
+      <!-- ── General ── -->
+      <div class="faq-section">
+        <h2>General</h2>
+
+        <div class="faq-item open">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What is Timed Trading?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Timed Trading is a multi-timeframe scoring engine for swing and position traders. It continuously analyzes 200+ tickers across stocks, ETFs, futures, and crypto using technical indicators, momentum signals, and risk/reward metrics to surface the highest-probability trade setups in real time.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Is this financial advice?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p><strong>No.</strong> Timed Trading is not a registered investment advisor. All content is for educational and entertainment purposes only. The scores, signals, and trade suggestions are algorithmic outputs &mdash; not personal investment recommendations. Always do your own research and consult a licensed financial advisor before making investment decisions. See our <a href="/terms.html">Terms of Use</a> for the full disclaimer.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What markets and tickers do you cover?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>We track 200+ instruments including:</p>
+            <ul>
+              <li><strong>US Stocks &amp; ETFs</strong> &mdash; Major large-caps (AAPL, MSFT, NVDA, etc.), sector ETFs (XLF, XLE, XLK), and popular names across all 11 GICS sectors.</li>
+              <li><strong>Futures</strong> &mdash; E-mini S&amp;P 500 (ES1!), Nasdaq (NQ1!), Crude Oil (CL1!), Gold (GC1!), and more.</li>
+              <li><strong>Crypto</strong> &mdash; Bitcoin (BTC) and Ethereum (ETH) pairs.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Scoring & Signals ── -->
+      <div class="faq-section">
+        <h2>Scoring &amp; Signals</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How does the scoring system work?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Each ticker receives a composite score (0&ndash;100) computed from multiple timeframes (5-minute through monthly). The engine evaluates trend direction, momentum strength, mean-reversion signals, volume profiles, and risk/reward ratios. Higher scores indicate stronger trade setups. Scores update every minute during market hours.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What do the action labels mean (Setup, Enter, Hold, Defend, Trim, Exit)?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Tickers flow through a Kanban-style pipeline based on their scoring trajectory:</p>
+            <ul>
+              <li><strong>Setup</strong> &mdash; Building a case. The ticker is showing early signs of a potential move.</li>
+              <li><strong>Enter</strong> &mdash; Ready for entry. Score and conditions align for a new position.</li>
+              <li><strong>Hold</strong> &mdash; Active position. The trade thesis remains intact.</li>
+              <li><strong>Defend</strong> &mdash; Caution. The trade is under pressure; tighten stops or reduce exposure.</li>
+              <li><strong>Trim</strong> &mdash; Take partial profits. Momentum is fading but the trend may continue.</li>
+              <li><strong>Exit</strong> &mdash; Close the position. The trade thesis is invalidated.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How do I read the Kanban board?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The Active Trader dashboard arranges tickers into columns (lanes) by their current action phase. Each card shows the ticker symbol, score, direction (LONG/SHORT), price, and sparkline. Cards are sorted by score within each lane, so the strongest setups appear at the top. Click any card to open the detail view with full chart and indicator breakdowns.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What is the Daily Brief?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>The Daily Brief is a morning summary generated each trading day before the market opens. It highlights the top-scoring setups, key sector rotations, macro backdrop, and notable changes from the previous session. Think of it as your pre-market game plan.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Subscription ── -->
+      <div class="faq-section">
+        <h2>Subscription &amp; Billing</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What does my subscription include?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Your subscription gives you full access to:</p>
+            <ul>
+              <li>Real-time scoring and signals across 200+ tickers</li>
+              <li>Active Trader dashboard with Kanban pipeline</li>
+              <li>Investor dashboard with portfolio-level analytics</li>
+              <li>Screener with custom filters</li>
+              <li>Daily Brief pre-market summaries</li>
+              <li>Paper trading simulator</li>
+              <li>Browser push notifications for score changes</li>
+              <li>WebSocket real-time data feed</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How do I cancel my subscription?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>You can cancel anytime. Your subscription is managed through Stripe. To cancel, email <a href="mailto:support@timed-trading.com">support@timed-trading.com</a> and we'll process your cancellation immediately. You'll retain access until the end of your current billing period.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Technical ── -->
+      <div class="faq-section">
+        <h2>Technical</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How often does data update?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Prices and scores update every minute during market hours via WebSocket push. You'll see a green <strong>LIVE</strong> indicator in the navigation bar when real-time data is flowing. Outside market hours, data is cached from the most recent session.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Do you support mobile?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Yes. Timed Trading works in any modern mobile browser (Safari, Chrome, Firefox). The interface is responsive and adapts to smaller screens. For the best experience on mobile, we recommend using the app in landscape mode for the Kanban view, or portrait for the Viewport list.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Can I get push notifications?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Yes. When you first log in, your browser will ask for notification permission. Once granted, you'll receive push notifications for significant score changes and Daily Brief availability &mdash; even when the tab is closed. This works on Chrome, Edge, and Firefox (Safari support varies).</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Contact CTA ── -->
+      <div class="contact-cta">
+        <h3>Still have questions?</h3>
+        <p>We're here to help. Reach out and we'll get back to you as soon as possible.</p>
+        <a href="mailto:support@timed-trading.com">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          support@timed-trading.com
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer>
+    <div class="nav-inner">
+      <div class="footer-brand">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
+        </svg>
+        &copy; 2026 Timed Trading. All rights reserved.
+      </div>
+      <div class="footer-links">
+        <a href="/splash.html">Home</a>
+        <a href="/terms.html">Terms of Use</a>
+        <a href="/faq.html">FAQ</a>
+        <a href="mailto:support@timed-trading.com">Contact</a>
+        <a href="/index-react.html">Active Trader</a>
+      </div>
+    </div>
+    <div class="nav-inner">
+      <div class="footer-disclaimer">
+        Not a registered investment advisor. For entertainment &amp; educational purposes only. Not financial advice. <a href="/terms.html">Full Terms</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

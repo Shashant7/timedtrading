@@ -828,6 +828,22 @@
           onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
         }, "Terms of Use"),
         React.createElement("span", { style: { color: "#1f2937" } }, "\u00b7"),
+        React.createElement("a", {
+          href: "/faq.html",
+          target: "_blank",
+          rel: "noopener noreferrer",
+          style: { color: "#4b5563", textDecoration: "none", borderBottom: "1px solid rgba(75,85,99,0.3)", transition: "color 0.2s" },
+          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
+          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
+        }, "FAQ"),
+        React.createElement("span", { style: { color: "#1f2937" } }, "\u00b7"),
+        React.createElement("a", {
+          href: "mailto:support@timed-trading.com",
+          style: { color: "#4b5563", textDecoration: "none", borderBottom: "1px solid rgba(75,85,99,0.3)", transition: "color 0.2s" },
+          onMouseEnter: (e) => { e.currentTarget.style.color = "#9ca3af"; },
+          onMouseLeave: (e) => { e.currentTarget.style.color = "#4b5563"; },
+        }, "Contact"),
+        React.createElement("span", { style: { color: "#1f2937" } }, "\u00b7"),
         React.createElement("span", { style: { color: "#374151" } }, "Not financial advice"),
       ),
     );
