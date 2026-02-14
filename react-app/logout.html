@@ -63,7 +63,7 @@
   <!-- Phase 1: Signing out spinner -->
   <div class="card" id="signing-out">
     <div class="spinner"></div>
-    <h1>Signing you out...</h1>
+    <h1 id="spinner-title">Signing you out...</h1>
     <p>Clearing your session securely.</p>
   </div>
 
@@ -74,19 +74,31 @@
         <polyline points="20 6 9 17 4 12" />
       </svg>
     </div>
-    <h1>You've been signed out</h1>
-    <p>Your session has been cleared.</p>
+    <h1 id="done-title">You've been signed out</h1>
+    <p id="done-subtitle">Your session has been cleared.</p>
     <div class="links">
-      <a href="/index-react.html" class="primary">Sign In Again</a>
+      <a href="/index-react.html" class="primary" id="signin-link">Sign In Again</a>
       <a href="/splash.html" class="secondary">Back to Home</a>
     </div>
   </div>
 
-  <!-- Hidden iframe to hit CF Access logout endpoint -->
-  <iframe id="cf-logout" src="about:blank" style="display:none"></iframe>
+  <!-- Hidden iframes for CF Access logout -->
+  <iframe id="cf-logout-app" src="about:blank" style="display:none"></iframe>
+  <iframe id="cf-logout-global" src="about:blank" style="display:none"></iframe>
 
   <script>
     (function() {
+      // Detect mode: ?switch=1 means "Switch Account" (clear global session too)
+      var params = new URLSearchParams(window.location.search);
+      var isSwitchAccount = params.get("switch") === "1";
+
+      if (isSwitchAccount) {
+        document.getElementById("spinner-title").textContent = "Switching account...";
+        document.getElementById("done-title").textContent = "Ready to switch";
+        document.getElementById("done-subtitle").textContent = "Your session has been fully cleared. Sign in with a different account.";
+        document.getElementById("signin-link").textContent = "Sign In with Different Account";
+      }
+
       // 1. Clear app session from localStorage
       try { localStorage.removeItem("timed_auth_session"); } catch(_) {}
 
@@ -98,8 +110,8 @@
         document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
       } catch(_) {}
 
-      // 3. Hit CF Access logout endpoint in hidden iframe and wait for it
-      var iframe = document.getElementById("cf-logout");
+      // 3. Hit CF Access logout endpoints via hidden iframes
+      var pending = 0;
       var done = false;
 
       function showSuccess() {
@@ -109,25 +121,36 @@
         document.getElementById("signed-out").style.display = "block";
       }
 
-      iframe.onload = function() {
-        // iframe loaded the logout page — session cleared server-side
-        // Small delay to ensure cookies propagate
-        setTimeout(showSuccess, 500);
-      };
+      function onIframeComplete() {
+        pending--;
+        if (pending <= 0) {
+          // Small delay to ensure cookies propagate
+          setTimeout(showSuccess, 500);
+        }
+      }
 
-      iframe.onerror = function() {
-        // Even on error, we've cleared client-side — proceed
-        setTimeout(showSuccess, 300);
-      };
+      // Always clear app-level session (application token)
+      var appIframe = document.getElementById("cf-logout-app");
+      pending++;
+      appIframe.onload = onIframeComplete;
+      appIframe.onerror = onIframeComplete;
+      appIframe.src = window.location.origin + "/cdn-cgi/access/logout";
 
-      // Start the logout
-      iframe.src = window.location.origin + "/cdn-cgi/access/logout";
+      // For Switch Account: also clear the global session on the team domain.
+      // This forces CF Access to do a full re-authentication with the IdP,
+      // which means Google will show the account chooser instead of auto-picking.
+      if (isSwitchAccount) {
+        var globalIframe = document.getElementById("cf-logout-global");
+        pending++;
+        globalIframe.onload = onIframeComplete;
+        globalIframe.onerror = onIframeComplete;
+        globalIframe.src = "https://timedtrading.cloudflareaccess.com/cdn-cgi/access/logout";
+      }
 
-      // Safety timeout: if iframe doesn't respond in 4 seconds, show success anyway
-      // (client-side cookies are already cleared)
-      setTimeout(showSuccess, 4000);
+      // Safety timeout: if iframes don't respond in 5 seconds, proceed anyway
+      setTimeout(showSuccess, 5000);
 
-      // Also set a sessionStorage flag so LoginScreen can show "signed out" message
+      // Set sessionStorage flag for LoginScreen
       try { sessionStorage.setItem("tt_logout", "1"); } catch(_) {}
     })();
   </script>

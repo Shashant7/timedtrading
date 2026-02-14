@@ -1005,7 +1005,10 @@
               {
                 onClick: async () => {
                   clearSession();
-                  window.location.href = "/logout.html";
+                  // ?switch=1 tells logout.html to also clear the CF Access
+                  // global session on the team domain, forcing a full re-auth
+                  // with IdP account chooser.
+                  window.location.href = "/logout.html?switch=1";
                 },
                 style: {
                   width: "100%",
